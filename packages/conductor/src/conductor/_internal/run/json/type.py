@@ -105,8 +105,8 @@ class SavedRun[OutcomesT, ReusableT]:
         units: By node, the units of each function node that has any: a ``SavedOutcomes`` when written, the units
             it holds when read. A subgraph's node has none of its own.
         reusable_results: By node, the work carried from an earlier run and not yet taken: a ``SavedReusable`` when
-            written, an ``ReusableResults`` when read.
-        code: By node, the ``reuse_digest`` of the code that made its units and its earlier work, so work made
+            written, an ``ReusableOutcomes`` when read.
+        code: By node, the ``code_fingerprint`` of the code that made its units and its earlier work, so work made
             by other code is never taken.
         complete: The nodes every unit of which was finished when the last leg ended.
         tables_written_once: The outputs in ``outcomes`` written as ``null`` because another output has the same

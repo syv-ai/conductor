@@ -387,6 +387,6 @@ def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: outcomes.
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when its place holds another question."""
     inputs = waiting.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
-    hashed = [compiled_node.id, compiled_node.reuse_digest, values]
+    hashed = [compiled_node.id, compiled_node.code_fingerprint, values]
     written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
     return hashlib.blake2b(written, digest_size=4).hexdigest()

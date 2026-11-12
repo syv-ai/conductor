@@ -79,7 +79,7 @@ def test_what_a_units_result_rests_on_names_its_scope_by_address_not_by_how_a_cl
 
     def digest() -> str:
         graph = registry_of(words, upper).load(make_graph(words, upper))
-        return graph._functions[("upper",)].reuse_digest
+        return graph._functions[("upper",)].code_fingerprint
 
     before = digest()
     monkeypatch.setattr(OutputAddress, "__repr__", lambda self: f"Renamed({self.node_id}, {self.output})")

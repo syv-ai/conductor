@@ -69,7 +69,7 @@ from conductor._internal.outcomes import (
 )
 from conductor._internal.problem import CallRejectedError, ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.reusable_results import ReusableResults, reused_outcome
+from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
 from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
 from conductor._internal.scheduler.call import call, jsonable
 from conductor._internal.scheduler.events import (
@@ -127,7 +127,7 @@ class Scheduler:
     """
 
     def __init__(
-        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemIndexes, Outcome]], reusable_results: dict[NodePath, ReusableResults], finished: frozenset[NodePath],
+        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemIndexes, Outcome]], reusable_results: dict[NodePath, ReusableOutcomes], finished: frozenset[NodePath],
         max_items: int | None, arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,

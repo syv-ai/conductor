@@ -10,7 +10,6 @@ import pydantic_core
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
 from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
-from conductor._internal.reusable_results import ReusableResults
 from conductor._internal.run.json.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -20,6 +19,7 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
+from conductor._internal.run.reuse import ReusableOutcomes
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
@@ -105,7 +105,7 @@ def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: I
     return same or None
 
 
-def saved_reusable(outputs: Mapping[str, Field], earlier: ReusableResults) -> SavedReusable[SavedOutcomes]:
+def saved_reusable(outputs: Mapping[str, Field], earlier: ReusableOutcomes) -> SavedReusable[SavedOutcomes]:
     """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
     the instance they stood in, then the ones only known by what they received, then the answers and the
     questions still waiting.
@@ -114,19 +114,19 @@ def saved_reusable(outputs: Mapping[str, Field], earlier: ReusableResults) -> Sa
         outputs: The node's outputs, by name.
         earlier: The earlier work.
     """
-    outcomes: list[Outcome | None] = [done for _, done in earlier.at.values()]
-    fingerprints = [fingerprint for fingerprint, _ in earlier.at.values()]
-    places = dict(enumerate(earlier.at))
+    outcomes: list[Outcome | None] = [done for _, done in earlier.by_item_indexes.values()]
+    fingerprints = [fingerprint for fingerprint, _ in earlier.by_item_indexes.values()]
+    places = dict(enumerate(earlier.by_item_indexes))
     item_indexes = set(fingerprints)  # each of these is one of the units above: the first that received it
-    for fingerprint, done in earlier.computed.items():
+    for fingerprint, done in earlier.by_fingerprint.items():
         if fingerprint not in item_indexes:
             outcomes.append(done)
             fingerprints.append(fingerprint)
     lineages: dict[int, str] = {}
-    for (fingerprint, lineage), asked in earlier.asked.items():
-        for outcome in asked:
-            if lineage:
-                lineages[len(outcomes)] = lineage
+    for (fingerprint, outer_items_fingerprint), answers in earlier.answers.items():
+        for outcome in answers:
+            if outer_items_fingerprint:
+                lineages[len(outcomes)] = outer_items_fingerprint
             outcomes.append(outcome)
             fingerprints.append(fingerprint)
     return SavedReusable(outcomes=saved_outcomes(outputs, outcomes), fingerprints=fingerprints, places=places or None, lineages=lineages or None)

@@ -66,7 +66,6 @@ from conductor._internal.outcomes import (
 )
 from conductor._internal.problem import InvalidCallError, Problem, value_free_errors
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.reusable_results import ReusableResults, fingerprint_of, lineage
 from conductor._internal.run.arguments import (
     DisplayReader,
     ResultReader,
@@ -79,6 +78,11 @@ from conductor._internal.run.json import (
     saved_outcomes,
     saved_reusable,
     tables_written_once,
+)
+from conductor._internal.run.reuse import (
+    ReusableOutcomes,
+    arguments_fingerprint,
+    outer_items_fingerprint,
 )
 from conductor._internal.run_status import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.scheduler import (
@@ -139,10 +143,10 @@ class Run:
     #: the units back in it before it hands the run on.
     _outcomes: dict[str, dict[ItemIndexes, Outcome]]
     #: What each node may take from the run this one went on from.
-    _reusable_results: dict[NodePath, ReusableResults]
+    _reusable: dict[NodePath, ReusableOutcomes]
     state: RunState = READY
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
-    _made_by_other_code: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
+    _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
 
@@ -265,7 +269,7 @@ class Run:
 
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
-            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable_results=run._reusable_results, finished=run._finished_nodes,
+            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable_results=run._reusable, finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).go()
@@ -373,47 +377,47 @@ class Run:
         if unknown:
             raise InvalidCallError([problem.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        for path in [path for path in fresh._reusable_results if path[0] in node_ids]:  # a subgraph's id forgets every node inside it
-            del fresh._reusable_results[path]
+        for path in [path for path in fresh._reusable if path[0] in node_ids]:  # a subgraph's id forgets every node inside it
+            del fresh._reusable[path]
         return fresh
 
-    def _as_reusable_results(self, into: Graph | None = None) -> dict[NodePath, ReusableResults]:
+    def _reusable_outcomes(self, into: Graph | None = None) -> dict[NodePath, ReusableOutcomes]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
         instance order, then the earlier work this run held and didn't take.
 
         ``into`` another graph keeps only the nodes it holds as they are here (by
-        ``reuse_digest``): the others' units could never be taken there, and kept they would only make its
+        ``code_fingerprint``): the others' units could never be taken there, and kept they would only make its
         save larger.
         """
-        work: dict[NodePath, ReusableResults] = {}
+        work: dict[NodePath, ReusableOutcomes] = {}
         reader = self._reader
         for node in self.graph._flat_function_nodes:
-            if not node.policy.reuse_when_inputs_match or node.node_path in self._made_by_other_code:
+            if not node.policy.reuse_when_inputs_match or node.node_path in self._code_changed:
                 continue
             compiled_node = node.compiled_node
-            of_node = work[node.node_path] = ReusableResults()
+            of_node = work[node.node_path] = ReusableOutcomes()
             for item_indexes, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Skipped or type(outcome) is outcomes.NotCalled:
                     continue
                 arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))  # the unit was called, so what it reads is settled and it received a call's arguments
-                fingerprint = fingerprint_of(compiled_node.reuse_digest, arguments, plain=compiled_node.plain_inputs)
+                fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
                 if fingerprint is None:
                     continue
                 if type(outcome) is Answered or type(outcome) is outcomes.Waiting:
-                    of_node.asked.setdefault((fingerprint, lineage(self._outcomes, node, item_indexes)), []).append(outcome)
+                    of_node.answers.setdefault((fingerprint, outer_items_fingerprint(self._outcomes, node, item_indexes)), []).append(outcome)
                 else:
-                    of_node.at[item_indexes] = (fingerprint, outcome)
-                    of_node.computed.setdefault(fingerprint, outcome)
-        for path, unused in self._reusable_results.items():  # the earlier work this run held and no unit of it took
-            of_node = work.setdefault(path, ReusableResults())
-            for fingerprint, done in unused.computed.items():
-                of_node.computed.setdefault(fingerprint, done)
-            for asked, answers in unused.asked.items():
-                of_node.asked.setdefault(asked, []).extend(answers)
+                    of_node.by_item_indexes[item_indexes] = (fingerprint, outcome)
+                    of_node.by_fingerprint.setdefault(fingerprint, outcome)
+        for path, unused in self._reusable.items():  # the earlier work this run held and no unit of it took
+            of_node = work.setdefault(path, ReusableOutcomes())
+            for fingerprint, done in unused.by_fingerprint.items():
+                of_node.by_fingerprint.setdefault(fingerprint, done)
+            for asked, answers in unused.answers.items():
+                of_node.answers.setdefault(asked, []).extend(answers)
         ours, theirs = self.graph._functions, (into or self.graph)._functions
         return {
             path: of_node for path, of_node in work.items()
-            if (of_node.computed or of_node.asked) and (there := theirs.get(path)) is not None and there.reuse_digest == ours[path].reuse_digest
+            if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(path)) is not None and there.code_fingerprint == ours[path].code_fingerprint
         }
 
     def again(
@@ -535,8 +539,8 @@ class Run:
             node.name: saved_outcomes(node.compiled_node.outputs, self._outcomes_by_call_number(node))
             for node in self.graph._flat_function_nodes if self._outcomes[node.name]
         }
-        earlier = {node_path_text(path): saved_reusable(functions[path].outputs, of_node) for path, of_node in self._reusable_results.items() if of_node.computed or of_node.asked}
-        code = {name: self._made_by_other_code.get(path) or compiled_node.reuse_digest for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in earlier}
+        earlier = {node_path_text(path): saved_reusable(functions[path].outputs, of_node) for path, of_node in self._reusable.items() if of_node.by_fingerprint or of_node.answers}
+        code = {name: self._code_changed.get(path) or compiled_node.code_fingerprint for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in earlier}
         complete = [node.name for node in self.graph._flat_function_nodes if node.node_path in self._finished_nodes]
         codec = self.graph._run_codec
         written_once = tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None
@@ -558,11 +562,11 @@ class Run:
             share_outcomes: Whether the copy holds this run's own dict of units for each node.
         """
         if share_outcomes:
-            outcomes, earlier = dict(self._outcomes), dict(self._reusable_results)
+            outcomes, earlier = dict(self._outcomes), dict(self._reusable)
         else:  # its own answers to take, as this run holds them too
             outcomes = {name: dict(held) for name, held in self._outcomes.items()}
-            earlier = {path: ReusableResults(of_node.at, of_node.computed, {asked: list(left) for asked, left in of_node.asked.items()}) for path, of_node in self._reusable_results.items()}
-        return dataclasses.replace(self, _outcomes=outcomes, _reusable_results=earlier)
+            earlier = {path: ReusableOutcomes(of_node.by_item_indexes, of_node.by_fingerprint, {asked: list(left) for asked, left in of_node.answers.items()}) for path, of_node in self._reusable.items()}
+        return dataclasses.replace(self, _outcomes=outcomes, _reusable=earlier)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -599,9 +603,9 @@ def run_from_json(graph: Graph, saved: str | bytes) -> Run:
     return _from_saved(graph, read)
 
 
-def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResults]) -> Run:
+def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableOutcomes]) -> Run:
     """A run of ``graph`` from its save as the graph's ``RunCodec`` read it: each node's units in the order of
-    their slots, its earlier work an ``ReusableResults``.
+    their slots, its earlier work an ``ReusableOutcomes``.
 
     Raises:
         InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
@@ -616,8 +620,8 @@ def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableResu
                 raise InvalidCallError([problem.state_unreadable("state", at=at, reason=reason)])
             run._outcomes[node.name] = {item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, node_outcomes, strict=True) if outcome is not None}
     functions = graph._functions
-    run._made_by_other_code = {path: digest for name, digest in saved.code.items() if digest != functions[path := parse_node_path(name)].reuse_digest}
-    run._reusable_results = {path: of_node for name, of_node in saved.reusable_results.items() if (path := parse_node_path(name)) not in run._made_by_other_code}  # work of other code is never taken
+    run._code_changed = {path: digest for name, digest in saved.code.items() if digest != functions[path := parse_node_path(name)].code_fingerprint}
+    run._reusable = {path: of_node for name, of_node in saved.reusable_results.items() if (path := parse_node_path(name)) not in run._code_changed}  # work of other code is never taken
     run._finished_nodes = frozenset(parse_node_path(name) for name in saved.complete)
     return run
 

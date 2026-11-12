@@ -366,7 +366,7 @@ def _returning_its_input(hint: Any) -> Any:
     return passes
 
 
-def test_what_a_reuse_digest_says_of_a_series_and_a_table_names_no_internal_module() -> None:
+def test_what_a_code_fingerprint_says_of_a_series_and_a_table_names_no_internal_module() -> None:
     """A unit's reuse digest is made of each field's ``reads_as``, and a stored waiting id of that digest. So the
     text must not change when the class behind ``Series`` or ``Table`` moves to another file."""
     from conductor._internal.value_type import Type

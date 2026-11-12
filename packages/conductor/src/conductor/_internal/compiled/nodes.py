@@ -72,7 +72,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
     definition: FunctionDefinition[..., Any]
 
     @functools.cached_property
-    def reuse_digest(self) -> str:
+    def code_fingerprint(self) -> str:
         """What a unit's result rests on besides what it received: the node's version, its code, its fields and its scope.
 
         So a node redeclared under the same id and version, with other code, a field of another type, limit or

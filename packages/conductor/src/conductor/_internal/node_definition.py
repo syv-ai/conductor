@@ -223,7 +223,7 @@ class _Version:
     @functools.cached_property
     def _replaced(self) -> tuple[NodeDefinition, ...]:
         """Each version this one replaces, newest first."""
-        return () if self.replaces is None else self.replaces.lineage
+        return () if self.replaces is None else self.replaces.version_chain
 
     @functools.cached_property
     def versions(self) -> tuple[int, ...]:
@@ -285,14 +285,14 @@ class FunctionDefinition[**P, R](_Version):
         return self.function(*args, **kwargs)
 
     @property
-    def lineage(self) -> tuple[NodeDefinition, ...]:
+    def version_chain(self) -> tuple[NodeDefinition, ...]:
         """This version, then each version it replaces, newest first."""
         return (self, *self._replaced)
 
     def version_of(self, version: int) -> NodeDefinition:
         """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
         there are when it has none. ``version in definition.versions`` asks first."""
-        return _version_of(self.lineage, version)
+        return _version_of(self.version_chain, version)
 
     def describe(self) -> FunctionNodeDescription:
         """The node as an editor's palette shows it."""
@@ -317,24 +317,24 @@ class StoredGraphDefinition(_Version):
     graph: GraphRecord
 
     @property
-    def lineage(self) -> tuple[NodeDefinition, ...]:
+    def version_chain(self) -> tuple[NodeDefinition, ...]:
         """This version, then each version it replaces, newest first."""
         return (self, *self._replaced)
 
     def version_of(self, version: int) -> NodeDefinition:
         """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
         there are when it has none. ``version in definition.versions`` asks first."""
-        return _version_of(self.lineage, version)
+        return _version_of(self.version_chain, version)
 
 #: One version of a node: a function, or a stored graph.
 type NodeDefinition = FunctionDefinition[..., Any] | StoredGraphDefinition
 
 
-def _version_of(lineage: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:
-    for found in lineage:
+def _version_of(version_chain: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:
+    for found in version_chain:
         if found.version == version:
             return found
-    raise KeyError(f"{lineage[0].id!r} has no version {version!r}; it has {', '.join(str(step.version) for step in lineage)}")
+    raise KeyError(f"{version_chain[0].id!r} has no version {version!r}; it has {', '.join(str(step.version) for step in version_chain)}")
 
 
 class _NodeDescription(ConductorModel):

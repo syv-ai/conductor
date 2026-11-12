@@ -52,7 +52,7 @@ class Graph(CompiledGraph):
             raise InvalidCallError(self.problems)
         checked_max_items(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return Run(self, checked, max_items, no_outcomes(self), earlier._as_reusable_results(into=self) if earlier is not None else {})
+        return Run(self, checked, max_items, no_outcomes(self), earlier._reusable_outcomes(into=self) if earlier is not None else {})
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,

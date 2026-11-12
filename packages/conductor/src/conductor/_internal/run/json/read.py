@@ -9,7 +9,6 @@ from pydantic_core import PydanticCustomError
 
 from conductor._internal.field import Field
 from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
-from conductor._internal.reusable_results import ReusableResults
 from conductor._internal.run.json.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -17,6 +16,7 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
+from conductor._internal.run.reuse import ReusableOutcomes
 from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError
 
@@ -71,7 +71,7 @@ def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called: dict[str, A
     return outcomes
 
 
-def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], ReusableResults]) -> SavedRun[list[Outcome | None], ReusableResults]:
+def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[list[Outcome | None], ReusableOutcomes]) -> SavedRun[list[Outcome | None], ReusableOutcomes]:
     """Fills in the outputs a save wrote as ``null`` and listed under ``tables_written_once``.
 
     Example: the save lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
@@ -106,7 +106,7 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
     return saved
 
 
-def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
+def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableOutcomes:
     """Makes the earlier work a node's save holds.
 
     Raises:
@@ -116,14 +116,14 @@ def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableR
     if len(saved.fingerprints) != len(saved.outcomes):
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     places, lineages = saved.places or {}, saved.lineages or {}
-    earlier = ReusableResults()
+    earlier = ReusableOutcomes()
     for call_number, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.outcomes, strict=True)):
         if type(outcome) is Done:
-            earlier.computed.setdefault(fingerprint, outcome)
+            earlier.by_fingerprint.setdefault(fingerprint, outcome)
             if call_number in places:
-                earlier.at[places[call_number]] = (fingerprint, outcome)
+                earlier.by_item_indexes[places[call_number]] = (fingerprint, outcome)
         elif type(outcome) is Answered or type(outcome) is Waiting:
-            earlier.asked.setdefault((fingerprint, lineages.get(call_number, "")), []).append(outcome)
+            earlier.answers.setdefault((fingerprint, lineages.get(call_number, "")), []).append(outcome)
         else:
             raise PydanticCustomError("not_carried", "it carries a unit that was never called")
     return earlier

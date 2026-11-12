@@ -254,7 +254,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
 
 
 def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_times_it_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
-    from conductor._internal.reusable_results import fingerprint_of
+    from conductor._internal.run.reuse import arguments_fingerprint
     from conductor._internal.table import write
 
     written: list[int] = []
@@ -262,11 +262,11 @@ def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_
     monkeypatch.setattr(write, "written_table", lambda frame: written.append(1) or as_written(frame))
     frame = pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})
 
-    first = fingerprint_of("code", {"table": frame, "n": 1})
-    assert fingerprint_of("code", {"table": frame, "n": 1}) == first and len(written) == 1
-    assert fingerprint_of("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}), "n": 1}) == first  # by its cells
-    assert fingerprint_of("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}), "n": 1}) != first
-    assert fingerprint_of("code", {"table": frame.rename({"age": "years"}), "n": 1}) != first
+    first = arguments_fingerprint("code", {"table": frame, "n": 1})
+    assert arguments_fingerprint("code", {"table": frame, "n": 1}) == first and len(written) == 1
+    assert arguments_fingerprint("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}), "n": 1}) == first  # by its cells
+    assert arguments_fingerprint("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}), "n": 1}) != first
+    assert arguments_fingerprint("code", {"table": frame.rename({"age": "years"}), "n": 1}) != first
 
 
 # -- a table two outputs share is written once in a save ---------------------------------------------------

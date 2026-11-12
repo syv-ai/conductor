@@ -319,8 +319,8 @@ class NodeRegistry:
                 node_id,
                 node=node_record.node, version=node_record.version, target=target, versions=sorted(newest.versions),
             )])
-        lineage = newest.version_of(target).lineage
-        steps = [(newer, older) for newer, older in zip(lineage, lineage[1:], strict=False) if newer.version > node_record.version]
+        version_chain = newest.version_of(target).version_chain
+        steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
         values, defaults, edges = dict(node_record.values), dict(node_record.defaults), list(graph.edges)
         for step, older in reversed(steps):
             upgrade = step.upgrade
@@ -403,7 +403,7 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
     """Every class the versions of ``definitions`` declare on their inputs and outputs, each once, node by node in declaration order."""
     found: list[type] = []
     for definition in definitions:
-        for step in definition.lineage:
+        for step in definition.version_chain:
             match step:
                 case FunctionDefinition():
                     fields = (*step.inputs.values(), *step.outputs.values())
