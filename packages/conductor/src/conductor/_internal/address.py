@@ -20,9 +20,14 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
 - An **address** names one input or output of a node: ``"lines.result"``, ``"shout.line"``. A graph record
   writes its edges and its constants with addresses.
+
+Because these are written with ``.``, ``/``, ``@`` and ``~`` (``~`` comes before the fingerprint of a waiting
+call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output holds one of them (``is_name``).
 """
 
 from __future__ import annotations
+
+import re
 
 #: The ids that name one node: the id of each subgraph node it is inside, outermost first, and its own id last.
 #: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``; ``("lines",)`` is a node of the
@@ -38,6 +43,18 @@ ItemIndexes = tuple[int, ...]
 #: ``pages -> lines -> shout``, where ``lines`` returns the lines of each page, ``shout`` is inside two loops of
 #: its own graph, so both indexes follow its id: ``("shout", 0, 2)`` is line 2 of page 0.
 Loc = tuple[str | int, ...]
+
+
+#: A node id, or the name of an input or output: not empty, and none of the characters addresses, node paths, locs
+#: and waiting ids are written with. ``"shout"`` and ``"text-split"`` are names; ``"a.b"`` and ``"loud/shout"`` are not.
+NAME_PATTERN = r"^[^./@~]+$"
+
+_NAME = re.compile(NAME_PATTERN)
+
+
+def is_name(text: str) -> bool:
+    """Whether ``text`` can be a node id or the name of an input or output (``NAME_PATTERN``)."""
+    return _NAME.match(text) is not None
 
 
 def split_address(address: str) -> tuple[str, str]:

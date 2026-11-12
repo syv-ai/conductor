@@ -65,12 +65,21 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
+from conductor._internal.address import is_name
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.graph_record import GraphRecord, as_record
+from conductor._internal.gate import RefusedError, read_record
+from conductor._internal.gate.returned import (
+    HookOutputs,
+    NoOutputs,
+    OneResult,
+    OutputsClass,
+    ReturnShape,
+)
+from conductor._internal.graph_record import GraphRecord
 from conductor._internal.markers import REQUIRED
-from conductor._internal.problem import NodeDeclarationError
+from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.text import qualified_name
 from conductor._internal.value_type import Type
 
@@ -535,8 +544,12 @@ def subgraph(
     number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
+        try:
+            graph = read_record(record)
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
         return SubgraphDefinition(
-            graph=as_record(record), id=id, version=number, title=title, description=description, category=category,
+            graph=graph, id=id, version=number, title=title, description=description, category=category,
             tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
             upgrade=upgrade or Upgrade(),
         )
@@ -565,7 +578,7 @@ def _version_number(
         NodeDeclarationError: The id is not a node id, the title or description is empty, or ``replaces``,
             ``upgrade`` and ``version`` don't fit together.
     """
-    if not is_node_id(id):
+    if not is_name(id):
         raise NodeDeclarationError(
             f"{declared_with} takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address "
             f"or a waiting id: {declared_with}('upper'); got {id!r}",
@@ -585,46 +598,6 @@ def _version_number(
     if replaces is not None and number <= replaces.version:
         raise NodeDeclarationError(f"{declared_with}({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
     return number
-
-
-#: What a node id never holds: each means something in an address (``node.field``, ``embedding/inner``) or a waiting id
-#: (``node@item~fingerprint``).
-_RESERVED_ID_CHARACTERS = frozenset("./@~")
-
-
-def is_node_id(value: str) -> bool:
-    """Whether ``value`` can be a node id, of a definition or of a node in a record: a non-empty text without ``. / @ ~``."""
-    return bool(value) and not _RESERVED_ID_CHARACTERS & set(value)
-
-
-@dataclass(frozen=True, slots=True)
-class OneResult:
-    """The function returns one value, its output ``result``."""
-
-
-@dataclass(frozen=True, slots=True)
-class OutputsClass:
-    """The function returns a frozen dataclass, one output per field.
-
-    Attributes:
-        cls: The dataclass.
-    """
-
-    cls: type
-
-
-@dataclass(frozen=True, slots=True)
-class HookOutputs:
-    """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph was compiled."""
-
-
-@dataclass(frozen=True, slots=True)
-class NoOutputs:
-    """The function returns ``None``: the node has no outputs."""
-
-
-#: What a node's function returns, read from its signature at ``@node``.
-ReturnShape = OneResult | OutputsClass | HookOutputs | NoOutputs
 
 
 def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:

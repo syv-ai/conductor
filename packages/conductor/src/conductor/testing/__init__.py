@@ -52,8 +52,9 @@ from pydantic import ValidationError
 
 from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
+from conductor._internal.gate import RefusedError, record_values
 from conductor._internal.graph import Graph
-from conductor._internal.graph_record import GraphRecord, NodeRecord, values_as_json
+from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -133,10 +134,11 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
     """
-    typed, value_problems = values_as_json(version.id, constants)
-    if value_problems:
-        raise InvalidCallError(value_problems)
-    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, constants=typed)])
+    try:
+        written = record_values(version.id, constants)
+    except RefusedError as refused:
+        raise InvalidCallError(refused.problems) from None
+    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, constants=written)])
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:

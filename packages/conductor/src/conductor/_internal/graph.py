@@ -8,8 +8,14 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError, check_limits
-from conductor._internal.graph_record import GraphRecord, as_record
+from conductor._internal.gate import (
+    ContextDoor,
+    InputsDoor,
+    RefusedError,
+    check_limits,
+    read_record,
+)
+from conductor._internal.graph_record import GraphRecord
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.run import Run, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec
@@ -40,7 +46,11 @@ class Graph[C](CompiledGraph):
         ``graph.problems``, and a graph with problems does not run. The graph keeps its own copy of the
         definitions as they are when it is compiled, and the registry's ``context_type``.
         """
-        return compile_graph(as_record(record), registry._nodes, registry.context_type, Graph)
+        try:
+            read = read_record(record)
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
+        return compile_graph(read, registry._nodes, registry.context_type, Graph)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,

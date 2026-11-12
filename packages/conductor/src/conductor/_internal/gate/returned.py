@@ -18,6 +18,7 @@ value in its message.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import ValidationError
@@ -32,15 +33,38 @@ from pydantic_core import (
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.markers import SKIPPED
-from conductor._internal.node_definition import (
-    HookOutputs,
-    NoOutputs,
-    OneResult,
-    OutputsClass,
-    ReturnShape,
-)
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.text import comma_separated
+
+
+@dataclass(frozen=True, slots=True)
+class OneResult:
+    """The function returns one value, its output ``result``."""
+
+
+@dataclass(frozen=True, slots=True)
+class OutputsClass:
+    """The function returns a frozen dataclass, one output per field.
+
+    Attributes:
+        cls: The dataclass.
+    """
+
+    cls: type
+
+
+@dataclass(frozen=True, slots=True)
+class HookOutputs:
+    """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph was compiled."""
+
+
+@dataclass(frozen=True, slots=True)
+class NoOutputs:
+    """The function returns ``None``: the node has no outputs."""
+
+
+#: How a node's function returns its outputs, read from its signature by ``@node`` and read back by the door.
+ReturnShape = OneResult | OutputsClass | HookOutputs | NoOutputs
 
 
 class ReturnDoor:

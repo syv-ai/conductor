@@ -7,10 +7,11 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any
 
-from pydantic import JsonValue, ValidationError
+from pydantic import JsonValue
 
 from conductor._internal.address import split_address
-from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, values_as_json
+from conductor._internal.gate import RefusedError, read_record, record_values
+from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
@@ -25,26 +26,22 @@ def make_graph(
 ) -> GraphRecord:
     """A graph record written from Python, each node at its version::
 
-        make_graph(read_file, upper)                                  # a chain
-        make_graph(read_file, upper, edges=[("read_file.result", "upper.text")])
-        make_graph(read_file, upper, constants={"read_file.path": "in.txt"})
+        make_graph(lines, shout, join)                                # a chain
+        make_graph(lines, shout, edges=[("lines.result", "shout.line")])
+        make_graph(lines, shout, join, constants={"shout.mark": "?"})
 
-    A node's id in the graph is its definition's id; a definition used more
-    than once is ``upper-1``, ``upper-2``, and so on, skipping an id another
-    node already has. ``constants`` and ``defaults`` are keyed by ``"node.input"``
-    addresses of those ids, as the record's fields of those names are: a value
-    is fixed, and a default stays open to the caller. A list typed into an input
-    that takes one value is refused: a node that returns a ``Series`` makes
-    the items a graph runs per.
+    A node's id in the graph is its definition's id; a definition used more than once is ``shout-1``, ``shout-2``, and
+    so on, skipping an id another node already has. ``constants`` and ``defaults`` are keyed by ``"node.input"``
+    addresses of those ids: a constant is the input's value on every call, and a default is the value of a graph
+    input when the caller gives none. Each is written in the record as its JSON reads back.
 
-    With no ``edges`` the nodes form a chain: each takes its one required
-    input that nothing typed in fills from the one output of the node before
-    it. With ``edges``, those are every edge of the graph. Nothing is matched
-    by name.
+    With no ``edges`` the nodes form a chain: the one required input of each node that no constant or default fills
+    gets an edge from the one output of the node before it. With ``edges``, those are every edge of the graph.
+    Nothing is matched by name.
 
-    The record is written and nothing is loaded: an input or output a node
-    doesn't have, a value its field refuses, an edge between types that don't
-    meet and a graph half drawn are in ``Graph.compile(record, registry).problems``.
+    The record is written and not compiled: an input or output a node does not have, a value its input's type
+    refuses, an edge between types that do not fit and a graph not finished are in
+    ``Graph.compile(record, registry).problems``.
 
     Raises:
         InvalidCallError: Listing every fault in writing the record itself: a value or default addressed to
@@ -65,21 +62,23 @@ def make_graph(
             else:
                 by_node.setdefault(node_id, {})[name] = value
         for node_id, named in by_node.items():
-            typed[node_id], faults = values_as_json(node_id, named)
-            problems += faults
+            try:
+                typed[node_id] = record_values(node_id, named)
+            except RefusedError as refused:
+                problems += refused.problems
     if edges is None:
         edges, faults = _chain_edges(ids, nodes, typed_constants, typed_defaults)
         problems += faults
     try:
-        record = GraphRecord(
-            nodes=[
+        record = read_record({
+            "nodes": [
                 NodeRecord(id=node_id, node=definition.id, version=definition.version, constants=typed_constants[node_id], defaults=typed_defaults[node_id])
                 for node_id, definition in zip(ids, nodes, strict=True)
             ],
-            edges=edges,
-        )
-    except ValidationError as invalid:  # an edge that is no address
-        problems += not_a_record(invalid)
+            "edges": edges,
+        })
+    except RefusedError as refused:  # an edge that is no address
+        problems += refused.problems
     if problems:
         raise InvalidCallError(problems)
     return record

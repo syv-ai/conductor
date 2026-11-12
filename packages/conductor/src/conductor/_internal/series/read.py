@@ -12,8 +12,11 @@ from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
 from conductor._internal.markers import SKIPPED
 
-#: Why a set is refused wherever a list is read or written: its order differs between processes.
-SET_HAS_NO_ORDER = "a set has no order, so its items would come in another order in another process; give a list"
+
+def set_has_no_order() -> PydanticCustomError:
+    """The error for a set where a list is read, a ``Series`` or a value written into a graph record: a set's order
+    differs between processes, so its items would come in another order in another process."""
+    return PydanticCustomError("set_has_no_order", "a set has no order, so its items would come in another order in another process; give a list")
 
 
 #: Maps a class to the function that turns a value of it into a list: ``tuple`` to ``list``.
@@ -37,7 +40,7 @@ def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
 
     def read(value: Any, read_items: Callable[[Any], list[Any]]) -> list[Any]:
         if isinstance(value, (set, frozenset)):
-            raise PydanticCustomError("set_has_no_order", SET_HAS_NO_ORDER)
+            raise set_has_no_order()
         for cls, as_list in _AS_LIST.items():
             if isinstance(value, cls):
                 value = as_list(value)

@@ -729,7 +729,7 @@ def test_a_table_typed_in_is_refused_at_the_call_and_said_to_be_given_as_rows():
         make_graph(count, constants={"count.rows": pl.DataFrame({"a": [1]})})
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
-    assert problem.ctx["reason"] == "a value typed into a graph is saved with it as JSON; give a table as a list of records"
+    assert problem.ctx["reason"] == "a value written in a graph record is saved with it as JSON; give a table as a list of records"
 
 
 def test_a_record_holds_only_json_in_its_values_and_display():

@@ -620,14 +620,17 @@ def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_n
     assert [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("h", "n"))]
 
 
-def test_a_hook_naming_a_field_no_address_can_say_is_a_problem():
-    @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {"a.b": str})
+@pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
+def test_a_hook_naming_a_field_with_a_character_of_an_address_is_a_problem_as_a_node_id_is(name: str):
+    """A field name is held to the node id's rule: none of the characters addresses, locs and waiting ids use."""
+    @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {name: str})
     def dotted() -> Mapping[str, Any]:
-        return {"a.b": "x"}
+        return {name: "x"}
 
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "dotted"}]}), registry_of(dotted))
 
-    assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("d", "a.b"))]
+    assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("d", name))]
+    assert [(p.type, p.loc) for p in Graph.compile(GraphRecord.model_validate({"nodes": [{"id": name, "node": "dotted"}]}), registry_of(dotted)).problems] == [("invalid_node_id", (name,))]
 
 
 def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():

@@ -38,11 +38,9 @@ import logging
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
-from pydantic import StringConstraints, TypeAdapter, ValidationError
-
-from conductor._internal.address import split_address
+from conductor._internal.address import is_name, split_address
 from conductor._internal.compiled.describe import GraphInput
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
@@ -66,6 +64,7 @@ from conductor._internal.compiled.nodes import (
 from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
 from conductor._internal.field import Field
+from conductor._internal.gate import RefusedError, read_constant, read_hook_fields
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
@@ -73,10 +72,9 @@ from conductor._internal.node_definition import (
     HookName,
     NodeDefinition,
     SubgraphDefinition,
-    is_node_id,
     read_by_hooks,
 )
-from conductor._internal.problem import NodeDeclarationError, NodeError, Problem
+from conductor._internal.problem import NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import Type
 
@@ -104,10 +102,6 @@ def compile_graph[GraphT: CompiledGraph](
 #: Stands in for a constant or default of the graph record that its input's type rejected, while a node is
 #: compiled. The input gets ``InputMissing``, and the problem ``invalid_value`` says why.
 _INVALID: Any = object()
-
-#: Validates what a hook returns: a type for each input or output, by name. A name is not empty and has none of
-#: ``.``, ``/`` and ``@``, which addresses are written with.
-_HOOK_FIELDS = TypeAdapter(dict[Annotated[str, StringConstraints(min_length=1, pattern=r"^[^./@]+$")], Any])
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +159,7 @@ class _Compiler:
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
         could be worked out. A node whose definition is not found, or whose hook failed, is left out.
         """
-        invalid_ids = {n.id for n in record.nodes if not is_node_id(n.id)}
+        invalid_ids = {n.id for n in record.nodes if not is_name(n.id)}
         self.problems += [problem.invalid_node_id(node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in invalid_ids]
         known: dict[str, NodeRecord] = {}
         twice: set[str] = set()
@@ -455,10 +449,9 @@ class _Compiler:
             if name not in record.constants and name not in record.defaults:
                 continue
             try:
-                constants[name] = field.whole.read(record.constants[name] if name in record.constants else record.defaults[name])
-            except ValidationError as error:
-                refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
-                self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
+                constants[name] = read_constant(record.id, field, record.constants[name] if name in record.constants else record.defaults[name])
+            except RefusedError as refused:
+                self.problems += refused.problems
                 constants[name] = _INVALID
         return constants
 
@@ -507,19 +500,9 @@ class _Compiler:
             self.problems.append(problem.compute_hook_failed(record.id, reason=str(error), error=type(error).__name__))
             return None
         try:
-            hints = _HOOK_FIELDS.validate_python(returned)
-        except ValidationError as invalid:
-            for fault in invalid.errors():
-                if fault["loc"]:  # an invalid name: the error's loc is that name
-                    self.problems.append(problem.parameter_name_invalid(record.id, str(fault["loc"][0])))
-                else:  # the returned value is not a mapping
-                    reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
-                    self.problems.append(problem.compute_hook_failed(record.id, reason=reason, error="not_a_mapping"))
-            return None
-        try:
-            return {name: Field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
-        except NodeDeclarationError as error:  # a returned type conductor does not support is the hook's failure
-            self.problems.append(problem.compute_hook_failed(record.id, reason=error.message, error=error.code))
+            return read_hook_fields(record.id, kind, returned)
+        except RefusedError as refused:
+            self.problems += refused.problems
             return None
 
     # -- edges ------------------------------------------------------------------
@@ -786,14 +769,6 @@ def _field_type(record: Type, name: str) -> Type | None:
     if typing.get_origin(one) in (dict, Mapping):
         return Type(typing.get_args(one)[1])
     return Type(record.fields[name]) if name in record.fields else None
-
-
-def _hint_and_default(given: Any) -> tuple[Any, Any]:
-    """Reads what a hook returns for one field: a type, or ``(type, default)`` as pydantic's ``create_model``
-    takes it."""
-    if isinstance(given, tuple) and len(given) == 2:
-        return given[0], given[1]
-    return given, REQUIRED
 
 
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:

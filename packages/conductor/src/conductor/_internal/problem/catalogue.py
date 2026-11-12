@@ -328,7 +328,9 @@ def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict
 def parameter_name_invalid(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook returns an input or output name that cannot be one.
 
-    A name may not be empty or contain ``.``, ``/`` or ``@``, since those build addresses. Change the hook.
+    A name may not be empty or contain ``.``, ``/``, ``@`` or ``~``, the characters addresses (``a.result``), node
+    paths (``loud/shout``) and waiting ids (``a@1~3fa2``) are written with. A node id is held to the same rule
+    (``invalid_node_id``). Change the hook.
 
     Args:
         node_id: The node.
@@ -346,7 +348,7 @@ def parameter_name_invalid(node_id: str, field: str, /) -> str:
 
         problems({"nodes": [{"id": "f", "node": "fields", "constants": {"names": "a.b"}}]})
     """
-    return f"'{field}' cannot be an input or output name: a name is not empty and has no '.', '/' or '@'; change the node's hook."
+    return f"'{field}' cannot be an input or output name: a name is not empty and has no '.', '/', '@' or '~'; change the node's hook."
 
 
 @PROBLEMS.problem()

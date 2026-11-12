@@ -56,7 +56,8 @@ from pydantic import JsonValue
 from conductor._internal.address import split_address
 from conductor._internal.compiled import CompiledGraph, compile_graph
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, values_as_json
+from conductor._internal.gate import RefusedError, read_record, record_values
+from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,
@@ -345,7 +346,10 @@ class NodeRegistry[C]:
         does not, a version it can't move to and a rewrite returning a value
         with no JSON form (``invalid_value``) are each an ``InvalidCallError``.
         """
-        graph = as_record(record)
+        try:
+            graph = read_record(record)
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
         node_record = next((n for n in graph.nodes if n.id == node_id), None)
         if node_record is None:
             raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=[n.id for n in graph.nodes])])
@@ -367,9 +371,10 @@ class NodeRegistry[C]:
             upgrade = step.upgrade
             constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
             if upgrade.rewrite is not None:
-                rewritten, faults = values_as_json(node_id, upgrade.rewrite({**defaults, **constants}))
-                if faults:
-                    raise InvalidCallError(faults)
+                try:
+                    rewritten = record_values(node_id, upgrade.rewrite({**defaults, **constants}))
+                except RefusedError as refused:
+                    raise InvalidCallError(refused.problems) from None
                 defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in constants}
                 constants = {name: value for name, value in rewritten.items() if name not in defaults}
             gone = {f"{node_id}.{name}" for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
