@@ -5,9 +5,10 @@ from __future__ import annotations
 import functools
 import types
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any, Self
 
-from conductor._internal.compiled import CompiledGraph
+from conductor._internal.compiled import CompiledGraph, compile_graph
+from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -15,9 +16,12 @@ from conductor._internal.run import Run, checked_max_items, no_outcomes, run_fro
 from conductor._internal.run.json import RunCodec, run_codec
 from conductor._internal.value_type import FieldValueError
 
+if TYPE_CHECKING:
+    from conductor._internal.registry import NodeRegistry
+
 
 class Graph(CompiledGraph):
-    """A graph record checked against a registry's nodes, which can start a run: ``registry.load(record)`` makes one.
+    """A graph record checked against a registry's nodes, which can start a run: ``Graph.compile(record, registry)`` makes one.
 
     ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``.
 
@@ -27,6 +31,16 @@ class Graph(CompiledGraph):
         inputs: The open inputs of its first nodes, by name (``node.input`` where two share a name): what a
             caller fills.
     """
+
+    @classmethod
+    def compile(cls, record: GraphRecord | str | bytes, registry: NodeRegistry) -> Self:
+        """Compile a graph record, given as a ``GraphRecord`` or as its JSON text, against the node definitions of ``registry``.
+
+        Compiling never raises for a wrong graph, a half-finished one included: what is wrong is in
+        ``graph.problems``, and a graph with problems does not run. The graph keeps its own copy of the
+        definitions as they are when it is compiled.
+        """
+        return compile_graph(as_record(record), registry._nodes, cls)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, earlier: Run | None = None, **by_name: Any,

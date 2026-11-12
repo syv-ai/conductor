@@ -7,6 +7,7 @@ from typing import Annotated, Any, TypedDict
 import pytest
 from conductor import (
     SKIPPED,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
@@ -162,7 +163,7 @@ for _definition in (
 def load(nodes: dict[str, str | dict], edges: list[tuple[str, str]], registry: NodeRegistry = REGISTRY):
     """A graph of ``nodes`` (id to node id, or to the rest of its record) and ``edges``."""
     records = [{"id": i, **({"node": n} if isinstance(n, str) else n)} for i, n in nodes.items()]
-    return registry.load(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}))
+    return Graph.compile(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}), registry)
 
 
 def feeds(graph, node_id: str) -> dict[str, tuple[str, str | None]]:

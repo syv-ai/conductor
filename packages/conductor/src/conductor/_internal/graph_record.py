@@ -25,7 +25,7 @@ edge listed twice stays twice, and loading reports it (``repeated_edge``).
 Several edges into one input are alternatives, opposite branches of one
 decision, so nothing depends on the order of the list.
 
-``registry.load`` reads a record into a ``Graph``; what the record says that
+``Graph.compile`` compiles a record into a ``Graph``; what the record says that
 can't be meant (a repeated edge, an edge naming a node the graph doesn't
 have, an input set two ways) is a problem of that graph.
 """

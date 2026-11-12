@@ -6,7 +6,7 @@ import ipaddress
 from typing import Any, Generic, TypeVar
 
 import pytest
-from conductor import NodeDeclarationError, NodeRegistry, host_type, make_graph, node
+from conductor import Graph, NodeDeclarationError, NodeRegistry, host_type, make_graph, node
 from pydantic import BaseModel
 from pydantic_core import core_schema
 
@@ -86,7 +86,7 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
 
     registry = NodeRegistry()
     registry.add(short)
-    graph = registry.load(make_graph(short))
+    graph = Graph.compile(make_graph(short), registry)
 
     assert type(graph.run(text="hello").outputs["short.result"]) is Text
     with pytest.raises(Exception) as refused:
@@ -205,7 +205,7 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
 
     registry = NodeRegistry()
     registry.add(made)
-    (problem,) = registry.load(make_graph(made)).problems
+    (problem,) = Graph.compile(make_graph(made), registry).problems
     assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "type_not_named")
 
 

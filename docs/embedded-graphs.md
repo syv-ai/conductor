@@ -8,7 +8,7 @@ every graph that needs it, as one node.
 `node("id", title=..., description=...)` wraps a function. `stored_graph("id", title=..., description=...)` wraps a `GraphRecord` (or its JSON text) the same way:
 
 ```python
-from conductor import NodeRegistry, Series, make_graph, node, stored_graph
+from conductor import Graph, NodeRegistry, Series, make_graph, node, stored_graph
 
 registry = NodeRegistry()
 
@@ -48,7 +48,7 @@ outputs, by their addresses there, so an edge reads `shout.exclaim.result`. `mak
 out: a chain is drawn only between functions:
 
 ```python
-graph = registry.load(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]))
+graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]), registry)
 
 print(graph.run(text="hi there").outputs)  # {'join.result': 'HI! THERE!'}
 print(graph.runs_on["shout"].msg)              # per item of split.result
@@ -79,7 +79,7 @@ From outside, a stored graph is one node:
 ```python
 side_by_side = stored_graph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
 registry.add(side_by_side)
-both = registry.load(make_graph(side_by_side))
+both = Graph.compile(make_graph(side_by_side), registry)
 
 print(list(both.inputs))  # ['upper.text', 'exclaim.text']
 print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
@@ -102,7 +102,7 @@ def beside(loud: str, keen: str) -> str:
     return f"{loud}/{keen}"
 
 
-graph = registry.load(make_graph(both_per_word, beside, edges=[("per-word.upper.result", "beside.loud"), ("per-word.exclaim.result", "beside.keen")]))
+graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.upper.result", "beside.loud"), ("per-word.exclaim.result", "beside.keen")]), registry)
 print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
 print(graph.runs_on["beside"].msg)                             # per item of per-word.split.result
 ```
@@ -133,7 +133,7 @@ per_line = stored_graph("per-line", title="Per line", description="Every line of
 )
 registry.add(per_line)
 
-graph = registry.load(make_graph(per_line, join, edges=[("per-line.upper.result", "join.texts")]))
+graph = Graph.compile(make_graph(per_line, join, edges=[("per-line.upper.result", "join.texts")]), registry)
 run = graph.run(text="a,b;c")
 
 print(run.results["per-line"]["upper.result"])  # [['A', 'B'], ['C']]
@@ -158,7 +158,7 @@ def maybe(text: str) -> str | None:
     return None if text == "none" else text
 
 
-graph = registry.load(make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]))
+graph = Graph.compile(make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]), registry)
 run = graph.run(text="hi none")
 
 print(run.results["shout"])  # {'exclaim.result': ['HI!', None]}
@@ -176,11 +176,11 @@ A node inside that doesn't read the blank runs. `both`, from above, has two inpu
 gets the blank:
 
 ```python
-graph = registry.load(make_graph(split, maybe, side_by_side, edges=[
+graph = Graph.compile(make_graph(split, maybe, side_by_side, edges=[
     ("split.result", "maybe.text"),
     ("maybe.result", "both.upper.text"),
     ("split.result", "both.exclaim.text"),
-]))
+]), registry)
 print(graph.run(text="hi none").results["both"])  # {'upper.result': ['HI', None], 'exclaim.result': ['hi!', 'none!']}
 ```
 

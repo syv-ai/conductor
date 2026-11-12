@@ -72,7 +72,7 @@ _logger = logging.getLogger("conductor")
 def compile_graph[GraphT: CompiledGraph](record: GraphRecord, definitions: Mapping[str, NodeDefinition], graph_type: type[GraphT]) -> GraphT:
     """``record`` loaded against ``definitions``, the newest version of each node by id, as a ``graph_type``: the
     ``Graph`` a host holds, which is the one way one is made."""
-    return _Compiler(definitions, (), {}).load(record, graph_type)
+    return _Compiler(definitions, (), {}).compile(record, graph_type)
 
 
 
@@ -139,7 +139,7 @@ class _Compiler:
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
-    def load[GraphT: CompiledGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
+    def compile[GraphT: CompiledGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
         """The graph of ``record``, as a ``graph_type``: every node whose fields are known placed, and every
         problem noted."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
@@ -291,7 +291,7 @@ class _Compiler:
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.alone:
-            self.alone[key] = _Compiler(self.definitions, stack, self.alone).load(definition.graph, CompiledGraph)
+            self.alone[key] = _Compiler(self.definitions, stack, self.alone).compile(definition.graph, CompiledGraph)
         inner = self.alone[key]
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]

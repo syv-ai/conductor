@@ -19,6 +19,7 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeRecord,
@@ -158,7 +159,7 @@ SPLIT_CONTACTS = ("c.result", "r.table")
 
 def graph(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY) -> Any:
     """``nodes`` as ``{"id", "node", ...}`` and edges as ``(from, to)``, loaded; a graph with problems too."""
-    return registry.load(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
+    return Graph.compile(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}), registry)
 
 
 def ran(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY, **inputs: Any) -> Any:
@@ -545,10 +546,10 @@ def test_a_gather_over_a_series_a_blank_kept_from_being_made_is_not_called_and_i
     def total(ns: Series[int]) -> int:
         return sum(ns)
 
-    graph = registry_of(docs, lines, count, width, as_table, total).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id=n, node=d) for n, d in [("d", "docs"), ("l", "lines"), ("c", "count"), ("t", "total"), ("a", "as_table"), ("w", "width")]],
         edges=[("d.result", "l.text"), ("l.result", "c.items"), ("c.result", "t.ns"), ("d.result", "a.text"), ("a.result", "w.table")],
-    ))
+    ), registry_of(docs, lines, count, width, as_table, total))
     run = graph.run(text="a,b;-;c;")
 
     assert run.results["c"]["result"] == [2, None, 1, 0]  # the last document is empty: 0 lines, made
@@ -625,7 +626,7 @@ def test_a_polars_series_returned_for_a_series_output_is_its_values():
     def lengths(text: str) -> Series[int]:
         return pl.Series([len(word) for word in text.split()])
 
-    assert registry_of(lengths).load(make_graph(lengths)).run(text="a bb ccc").outputs == {"lengths.result": [1, 2, 3]}
+    assert Graph.compile(make_graph(lengths), registry_of(lengths)).run(text="a bb ccc").outputs == {"lengths.result": [1, 2, 3]}
 
 
 def test_a_value_made_once_is_there_on_each_call_of_a_node_that_runs_per_item():
@@ -1383,22 +1384,22 @@ _PER_LINE = make_graph(_documents, _lines, _shout, edges=[("documents.result", "
 def test_the_output_of_a_node_called_inside_two_loops_is_a_list_per_outer_item_and_none_where_the_inner_list_was_never_made():
     """Three documents split into lines, the second empty: ``None`` for it, where a document with no lines shows ``[]``."""
     registry = registry_of(_documents, _lines, _shout, _words_of)
-    flat = registry.load(_PER_LINE).run(text="a,b||c")
+    flat = Graph.compile(_PER_LINE, registry).run(text="a,b||c")
 
     assert flat.results["shout"] == {"result": [["A", "B"], None, ["C"]]}
     assert flat.outputs == {"shout.result": [["A", "B"], None, ["C"]]} and json.loads(flat.outputs_json()) == {"shout.result": [["A", "B"], None, ["C"]]}
-    assert registry.load(_PER_LINE).run(text="a,b|-|c").results["shout"] == {"result": [["A", "B"], [], ["C"]]}
-    assert registry.load(_PER_LINE).with_inputs(text="a,b||c").results["shout"] == {"result": None}
+    assert Graph.compile(_PER_LINE, registry).run(text="a,b|-|c").results["shout"] == {"result": [["A", "B"], [], ["C"]]}
+    assert Graph.compile(_PER_LINE, registry).with_inputs(text="a,b||c").results["shout"] == {"result": None}
     assert through_json(flat).results == flat.results
 
     per_line = stored_graph("per-line", title="Per line", description="For a test.")(make_graph(_lines, _shout, edges=[("lines.result", "shout.line")]))
-    embedding = registry_of(_documents, _lines, _shout, per_line).load(make_graph(_documents, per_line, edges=[("documents.result", "per-line.document")]))
+    embedding = Graph.compile(make_graph(_documents, per_line, edges=[("documents.result", "per-line.document")]), registry_of(_documents, _lines, _shout, per_line))
     embedded = embedding.run(text="a,b||c")
     assert embedded.results["per-line"] == {"shout.result": [["A", "B"], None, ["C"]]}
     assert json.loads(embedded.outputs_json()) == {"per-line.shout.result": [["A", "B"], None, ["C"]]}
 
     per_word = make_graph(_documents, _lines, _words_of, _shout, edges=[("documents.result", "lines.document"), ("lines.result", "words-of.line"), ("words-of.result", "shout.line")])
-    assert registry.load(per_word).run(text="a b,c||d").results["shout"] == {"result": [[["A", "B"], ["C"]], None, [["D"]]]}
+    assert Graph.compile(per_word, registry).run(text="a b,c||d").results["shout"] == {"result": [[["A", "B"], ["C"]], None, [["D"]]]}
 
 
 # -- the ceiling on a Series' items ------------------------------------------------------------
@@ -1662,7 +1663,7 @@ def test_an_embedding_with_one_output_per_inner_item_and_one_per_run_runs_per_it
     )
     registry = registry_of(split, names, case, greet, count, shout)
     registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
-    graph = registry.load(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}))
+    graph = Graph.compile(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}), registry)
     assert graph.runs_on["inner"].series == "split.result"
     assert graph.run().results["inner"] == {"count.result": [2, 2], "shout.result": [["IDA A-1", "BO A-1"], ["IDA B-2", "BO B-2"]]}
 
@@ -1683,8 +1684,8 @@ def test_an_embedded_node_gathering_a_series_made_inside_and_one_entering_gather
     found = []
     for order in (("lines", "ent", "c"), ("c", "ent", "lines")):
         inner = embedded("inner", *(drawn[n] for n in order), edges=(("lines.result", "c.a"), ("ent.result", "c.b")))
-        loaded = registry_of(split, each, two_series, inner).load(
-            GraphRecord.model_validate({"nodes": [{"id": "docs", "node": "split"}, {"id": "emb", "node": "inner"}], "edges": [["docs.result", "emb.texts"]]}),
+        loaded = Graph.compile(
+            GraphRecord.model_validate({"nodes": [{"id": "docs", "node": "split"}, {"id": "emb", "node": "inner"}], "edges": [["docs.result", "emb.texts"]]}), registry_of(split, each, two_series, inner),
         )
         assert loaded.problems == []
         found.append(loaded.run(text="a,b").outputs)
@@ -1700,7 +1701,7 @@ def test_an_embedding_fed_by_a_series_drawn_after_it_loads_and_runs_as_one_drawn
     registry = registry_of(split, upper, pair, inner)
     found = []
     for outer in ([{"id": "docs", "node": "split"}, {"id": "emb", "node": "letters"}], [{"id": "emb", "node": "letters"}, {"id": "docs", "node": "split"}]):
-        loaded = registry.load(GraphRecord.model_validate({"nodes": outer, "edges": [["docs.result", "emb.text"]]}))
+        loaded = Graph.compile(GraphRecord.model_validate({"nodes": outer, "edges": [["docs.result", "emb.text"]]}), registry)
         assert loaded.problems == []
         found.append(loaded.run(text="a,b").outputs)
     assert found[0] == found[1]

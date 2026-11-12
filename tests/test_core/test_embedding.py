@@ -21,6 +21,7 @@ from conductor import (
     Ask,
     ExternalError,
     FromRun,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeError,
@@ -272,7 +273,7 @@ for _id, _record in INNER.items():
 def load(nodes: dict[str, str | dict[str, Any]], edges: list[tuple[str, str]] = ()):  # type: ignore[assignment]
     """A graph of ``nodes`` (id to node id, or to the rest of its record) and ``edges``."""
     records = [{"id": i, **({"node": n} if isinstance(n, str) else n)} for i, n in nodes.items()]
-    return REGISTRY.load(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}))
+    return Graph.compile(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}), REGISTRY)
 
 
 def mapped(inner: str, splitter: str = "words"):
@@ -287,7 +288,7 @@ def flat(inner: str, splitter: str = "words"):
     must behave as."""
     record = INNER[inner]
     first = record["nodes"][0]["id"]
-    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "outer", "node": splitter}, *record["nodes"]], "edges": [["outer.result", f"{first}.text"], *record["edges"]]}), REGISTRY)
     assert not graph.problems, graph.problems
     return graph
 
@@ -411,7 +412,7 @@ def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
 
 
 def test_deep_outputs_are_what_run_outputs_gives_alone_and_embedded():
-    alone = REGISTRY.load(GraphRecord.model_validate(INNER["deep-inner"])).run(text="ab cd").outputs["up.result"]
+    alone = Graph.compile(GraphRecord.model_validate(INNER["deep-inner"]), REGISTRY).run(text="ab cd").outputs["up.result"]
     assert alone == [["A", "B"], ["C", "D"]]  # two maps deep, a list for each word, in item order
     graph = load({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.up.result", "n.items"), ("e.up.result", "x.text")])
     run = graph.run(text="ab cd")
@@ -852,8 +853,8 @@ def test_an_embedded_graph_of_no_nodes_runs_to_nothing_as_a_graph_of_no_nodes_do
     registry = NodeRegistry()
     registry.add(upper)
     registry.add(stored_graph("nothing", title="Nothing", description="The nothing node.")(GraphRecord.model_validate({"nodes": [], "edges": []})))
-    alone = registry.load(GraphRecord.model_validate({"nodes": [], "edges": []})).run()
-    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []}))
+    alone = Graph.compile(GraphRecord.model_validate({"nodes": [], "edges": []}), registry).run()
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "e", "node": "nothing"}], "edges": []}), registry)
     run = graph.run(text="x")
     assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
     assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})

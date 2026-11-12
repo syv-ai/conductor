@@ -16,6 +16,7 @@ from conductor import (
     Deprecation,
     ExternalError,
     FromRun,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
@@ -45,7 +46,7 @@ def registry_of(*definitions):
 
 def load(*definitions, record=None, values=None):
     """The graph of ``record``, or of ``definitions`` chained, loaded against exactly ``definitions``."""
-    return registry_of(*definitions).load(record if record is not None else make_graph(*definitions, values=values or {}))
+    return Graph.compile(record if record is not None else make_graph(*definitions, values=values or {}), registry_of(*definitions))
 
 
 def placed(node_id, kind, **record):
@@ -137,7 +138,7 @@ def test_a_node_id_in_a_record_with_a_tilde_is_invalid_node_id():
     def upper(text: str) -> str:
         return text.upper()
 
-    loaded = registry.load(GraphRecord.model_validate({"nodes": [{"id": "a~b", "node": "upper"}]}))
+    loaded = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a~b", "node": "upper"}]}), registry)
     assert [(p.type, p.loc) for p in loaded.problems] == [("invalid_node_id", ("a~b",))]
 
 
@@ -1027,7 +1028,7 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
         for wrong in ([-1], [True]):
             with pytest.raises(FieldValueError):
                 field.whole.read(wrong)
-    graph = registry.load(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]))
+    graph = Graph.compile(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]), registry)
     assert graph.problems == []
     assert graph.run(text="ab c").outputs == {"total.result": 3}
 
@@ -1040,8 +1041,8 @@ def test_a_tables_column_annotated_with_a_param_declares_and_its_limits_hold_on_
     def rows(text: str) -> Table[Row]:
         return pl.DataFrame({"n": [-1]})
 
-    assert registry_of(rows).load(GraphRecord(nodes=[placed("r", "rows")])).problems == []
-    run = registry_of(rows).load(GraphRecord(nodes=[placed("r", "rows")])).run(text="x")
+    assert Graph.compile(GraphRecord(nodes=[placed("r", "rows")]), registry_of(rows)).problems == []
+    run = Graph.compile(GraphRecord(nodes=[placed("r", "rows")]), registry_of(rows)).run(text="x")
     assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
 
 
@@ -1065,7 +1066,7 @@ def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits()
     def pick(colour: Annotated[str, Param(choices=["red", "blue"])]) -> str:
         return colour
 
-    graph = registry.load(make_graph(give, pick))
+    graph = Graph.compile(make_graph(give, pick), registry)
     assert graph.run(text="red").outputs == {"pick.result": "red"}
     run = graph.run(text="green")
     assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
@@ -1084,7 +1085,7 @@ def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_lim
     def take(order: Order) -> str:
         return order.colour
 
-    graph = registry.load(make_graph(take))
+    graph = Graph.compile(make_graph(take), registry)
     assert graph.run(order={"colour": "red", "n": 1}).outputs == {"take.result": "red"}
     for wrong in ({"colour": "green", "n": 1}, {"colour": "red", "n": -1}):
         with pytest.raises(InvalidCallError) as raised:
@@ -1235,9 +1236,9 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     registry = NodeRegistry()
     registry.add(size, rate)
     with pytest.raises(InvalidCallError):
-        registry.load(make_graph(size)).run(name="XL")
-    assert registry.load(make_graph(size)).run(name="M").outputs == {"size.result": "M"}
-    asked = registry.load(make_graph(rate)).run(text="x").waiting[0].questions[0]
+        Graph.compile(make_graph(size), registry).run(name="XL")
+    assert Graph.compile(make_graph(size), registry).run(name="M").outputs == {"size.result": "M"}
+    asked = Graph.compile(make_graph(rate), registry).run(text="x").waiting[0].questions[0]
     assert asked.choices == [{"id": "low", "title": "Lav"}, {"id": "high", "title": "Høj"}]
     for wrong in ((Choice("low", "Lav"),), ("low", "low", "high"), (1, 2)):
         with pytest.raises(NodeDeclarationError) as raised:
@@ -1264,9 +1265,9 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
 
     registry = NodeRegistry()
     registry.add(glue)
-    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t"})]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t"})]), registry)
     assert graph.problems == [] and graph.run().outputs == {"g.result": "txx"}
-    (problem,) = registry.load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t", "names": "boom"})])).problems
+    (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"text": "t", "names": "boom"})]), registry).problems
     assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"], problem.msg) == (
         "compute_hook_failed", "no_column", {"names": "boom"}, "The node could not work out its fields from what it was given: No such column. Check what is typed into the node and what is wired to it.",
     )
@@ -1283,7 +1284,7 @@ def test_a_hooks_own_ctx_is_kept_whole_beside_the_reason_and_the_code(ctx: dict[
     def glue(names: str, **columns: str) -> str:
         return names
 
-    (problem,) = registry_of(glue).load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})])).problems
+    (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})]), registry_of(glue)).problems
     assert problem.ctx == {"reason": "No such column.", "error": "no_column", **({"error_ctx": ctx} if ctx else {})}
 
 
@@ -1296,7 +1297,7 @@ def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_e
     def glue(names: str, **columns: str) -> str:
         return names
 
-    (problem,) = registry_of(glue).load(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})])).problems
+    (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", values={"names": "a"})]), registry_of(glue)).problems
     assert (raised.code, problem.ctx["error"]) == (code, code)
 
 
@@ -1307,9 +1308,9 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
 
     registry = NodeRegistry()
     registry.add(ask_model)
-    fixed = registry.load(make_graph(ask_model, values={"ask-model.model": "big"}))
+    fixed = Graph.compile(make_graph(ask_model, values={"ask-model.model": "big"}), registry)
     assert list(fixed.inputs) == ["prompt"] and fixed.run(prompt="hi").outputs == {"ask-model.result": "big:hi"}
-    open_to_caller = registry.load(make_graph(ask_model))
+    open_to_caller = Graph.compile(make_graph(ask_model), registry)
     assert list(open_to_caller.inputs) == ["prompt", "model"] and open_to_caller.run(prompt="hi").outputs == {"ask-model.result": "small:hi"}
 
 
@@ -1434,7 +1435,7 @@ def test_a_default_is_described_and_offered_by_a_loaded_graph_as_its_json():
         return len(rows)
 
     described = {field.name: field.default for field in t.describe().inputs}
-    offered = {name: given.field.default for name, given in registry_of(t).load(make_graph(t)).inputs.items()}
+    offered = {name: given.field.default for name, given in Graph.compile(make_graph(t), registry_of(t)).inputs.items()}
 
     table = {"columns": [{"name": "n", "type": "int", "values": [1, 2]}]}
     assert described == {"rows": table, "when": "2026-01-02"}

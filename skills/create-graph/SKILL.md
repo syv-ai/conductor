@@ -1,14 +1,14 @@
 ---
 name: create-graph
-description: Writes a conductor graph record (GraphRecord, make_graph), loads it with registry.load and runs it with graph.run. Use when building, saving, running, drawing, serving or debugging a conductor graph; wiring edges, typing in values or defaults, filling inputs (with_inputs); reading outputs, problems or events; answering a node that asked a person (run.answer); or on "build a graph", "run a graph", "connect these nodes".
+description: Writes a conductor graph record (GraphRecord, make_graph), compiles it with Graph.compile and runs it with graph.run. Use when building, saving, running, drawing, serving or debugging a conductor graph; wiring edges, typing in values or defaults, filling inputs (with_inputs); reading outputs, problems or events; answering a node that asked a person (run.answer); or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
 
-A graph is data, a `GraphRecord`: its nodes, each naming the node it uses and what is typed into it, and its edges. `registry.load` reads it into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `loading`, `one-or-many`, `legs`, `events`, `errors`).
+A graph is data, a `GraphRecord`: its nodes, each naming the node it uses and what is typed into it, and its edges. `Graph.compile` compiles it against a registry into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `loading`, `one-or-many`, `legs`, `events`, `errors`).
 
 ```python
-from conductor import GraphRecord, NodeRecord, NodeRegistry, Series
+from conductor import Graph, GraphRecord, NodeRecord, NodeRegistry, Series
 
 registry = NodeRegistry(category="text")
 
@@ -37,7 +37,7 @@ graph = GraphRecord(
     edges=[("words.result", "loud.text"), ("loud.result", "joined.parts")],
 )
 
-loaded = registry.load(graph)
+loaded = Graph.compile(graph, registry)
 if not loaded.is_runnable:
     raise ValueError([(p.type, p.loc, p.msg) for p in loaded.problems])
 assert list(loaded.inputs) == ["text", "separator"]    # the open inputs of words, the first node
@@ -71,7 +71,7 @@ An input takes an edge, a value or a default, never two: `values` are fixed, `de
 
 | Mistake | Fix |
 |---|---|
-| `try` around `registry.load` | it never raises for a bad graph: read `is_runnable` and `problems` |
+| `try` around `Graph.compile` | it never raises for a bad graph: read `is_runnable` and `problems` |
 | Rebuilding the record to change a value per run | `graph.run(**inputs)`, or a `defaults` entry the caller may change |
 | A loop node, or a `for` around `run` | wire a `Series` output to the node; the engine runs it once per item |
 | A table wired to an input of one value (`type_mismatch`, hint `split_first`) | put a Split between them and wire a field of its result; to join two tables on a key, wire both whole into one node |

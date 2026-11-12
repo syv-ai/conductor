@@ -23,7 +23,7 @@ _A_FRAME_IN_AND_OUT = """
 from typing import TypedDict
 
 import polars as pl
-from conductor import NodeRegistry, Table, make_graph
+from conductor import Graph, NodeRegistry, Table, make_graph
 
 registry = NodeRegistry()
 
@@ -48,14 +48,14 @@ def rows(table: Table) -> int:
     return table.height
 
 
-graph = registry.load(make_graph(sales, first_row, rows))
+graph = Graph.compile(make_graph(sales, first_row, rows), registry)
 results = graph.run().results
 assert results["first-row"]["result"]["region"].to_list() == ["north"]
 assert results["rows"]["result"] == 1
 """
 
 _AN_EMBEDDED_GRAPH = """
-from conductor import NodeRegistry, make_graph, node, stored_graph
+from conductor import Graph, NodeRegistry, make_graph, node, stored_graph
 
 
 @node("trim", title="Trim", description="For a test.")
@@ -73,7 +73,7 @@ base.add(trim, upper)
 clean = stored_graph("clean", title="Clean", description="For a test.")(make_graph(trim, upper))
 base.add(clean)
 outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], values={"clean.text": "  hi  "})
-assert base.load(outer).run().outputs == {"upper.result": "HI"}
+assert Graph.compile(outer, base).run().outputs == {"upper.result": "HI"}
 """
 
 

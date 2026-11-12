@@ -16,7 +16,7 @@ This page is a reviewer's guide to 2.0's design. It goes topic by topic: what ea
 - **`registry.filter(predicate)` returns a registry of its own.** The predicate gets the whole definition. `extra` is the host's JSON, typed as JSON: shown by `describe()`, never read by conductor.
 
 ```python
-from conductor import InvalidCallError, NodeRegistry, Series, make_graph
+from conductor import Graph, InvalidCallError, NodeRegistry, Series, make_graph
 
 text = NodeRegistry(category="Text", extra={"tier": "free"})
 
@@ -54,7 +54,7 @@ print(sorted(d.id for d in free))  # ['join', 'upper', 'words']
 - **A node's `display` is the host's.** Conductor stores it, never reads it, and leaves it out of the fingerprint. It sits on the node so it follows the node through an upgrade, a removal and an embedding.
 - **There is no setting flag on a field.** A node can't know every graph it sits in, so whether an input is fixed is said per graph: a `value` in the record is the graph author's, an open first-node input the caller's.
 - **Edges are a sorted list of address pairs** (`node.field`, or `node.output.field` for one field of a record). Two records that differ only in edge order are equal, and nothing a run does depends on the list's order: several edges into one input are alternatives, opposite branches of one decision, never a list to join. So a host may sort the list. Edges stored per node were rejected: reconnecting reorders either shape.
-- **`make_graph(*nodes, edges=, values=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required open input from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It writes a record and loads nothing. It raises one `InvalidCallError` listing what it can't write (a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw); everything else, a mistyped input or an edge between types that don't meet included, is in `registry.load(record).problems`, so loading is the one place a record's faults are found. A script that only saves the record hears nothing until it is loaded.
+- **`make_graph(*nodes, edges=, values=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required open input from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It writes a record and loads nothing. It raises one `InvalidCallError` listing what it can't write (a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw); everything else, a mistyped input or an edge between types that don't meet included, is in `Graph.compile(record, registry).problems`, so loading is the one place a record's faults are found. A script that only saves the record hears nothing until it is loaded.
 
 ```python
 record = make_graph(words, upper, join)
@@ -76,7 +76,7 @@ print(typed.nodes[0].values)  # {'n': 'NaN'}
 
 ## `Graph` and `Run`
 
-- **`registry.load(record)` never raises for a fault in the graph.** Each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) an editor can mark on the node. Only input that isn't a record at all raises (`invalid_record`). The shape is the caller's to get right; what the record says is the graph's.
+- **`Graph.compile(record, registry)` never raises for a fault in the graph.** Each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) an editor can mark on the node. Only input that isn't a record at all raises (`invalid_record`). The shape is the caller's to get right; what the record says is the graph's.
 - **Nobody declares a graph's inputs or outputs.** Inputs are the open inputs of its first nodes; outputs are the outputs no node reads. An open input on a first node is not a problem, just as an unfitted scikit-learn pipeline isn't broken.
 - **A loaded graph keeps its own copy of its definitions**, so a later change to the registry can't break it.
 - **One way in, and verbs that mirror each other.** `Graph(...)` and `Run(...)` refuse to be constructed. `graph.with_inputs` checks inputs and gives a run that hasn't started; `graph.run` is that plus `resume()`. On a run, `with_inputs` and `again` do the same with changed inputs, keeping the earlier work. `answer` returns another run and runs nothing.
@@ -84,7 +84,7 @@ print(typed.nodes[0].values)  # {'n': 'NaN'}
 - **Errors are data.** One `Problem` record is used everywhere, with stable codes listed in `PROBLEMS.codes` for a host to translate by. A message says how to fix the fault and never quotes a value. A node's own exception text goes to the log. A caller's input named twice, by name and by address, is `input_given_twice` from every verb that takes inputs.
 
 ```python
-graph = registry.load(record)
+graph = Graph.compile(record, registry)
 print(graph.run(text="a b").outputs)  # {'join.result': 'A+B'}
 ```
 
@@ -111,7 +111,7 @@ def greet(name: str, greeting: str) -> str:
 
 
 names_and_greetings = make_graph(words, words, greet, edges=[("words-1.result", "greet.name"), ("words-2.result", "greet.greeting")])
-print([problem.type for problem in registry.load(names_and_greetings).problems])  # ['series_not_nested']
+print([problem.type for problem in Graph.compile(names_and_greetings, registry).problems])  # ['series_not_nested']
 
 try:
     graph.run(text=["a", "b"])
@@ -144,7 +144,7 @@ def send(middle: str) -> str:
     return f"sent {middle}"
 
 
-sent = registry.load(make_graph(words, middle_name, send)).run(text="Ida Bo")
+sent = Graph.compile(make_graph(words, middle_name, send), registry).run(text="Ida Bo")
 print(sent.status, sent.results["send"]["result"])  # complete ['sent Marie', None]
 print([(skipped.loc, skipped.input) for skipped in sent.not_called])  # [(("send", 1), "middle")]
 ```
@@ -170,7 +170,7 @@ def tone(text: str) -> Literal["formal", "casual"]:
     raise Ask(f"Which tone for {text!r}?")
 
 
-asked = registry.load(make_graph(tone)).run(text="hello")
+asked = Graph.compile(make_graph(tone), registry).run(text="hello")
 print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'tone.result': 'casual'}
 ```
 
@@ -191,7 +191,7 @@ from conductor import stored_graph
 
 shout = stored_graph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
-shouted = registry.load(make_graph(shout, join, edges=[("shout.upper.result", "join.texts")]))
+shouted = Graph.compile(make_graph(shout, join, edges=[("shout.upper.result", "join.texts")]), registry)
 print(list(shouted.inputs), shouted.outputs)  # ['text'] ['join.result']
 ```
 

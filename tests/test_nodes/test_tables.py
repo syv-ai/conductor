@@ -6,7 +6,7 @@ from typing import Any, TypedDict
 import conductor_nodes
 import polars as pl
 import pytest
-from conductor import NodeRegistry, Series, Table, make_graph, node
+from conductor import Graph, NodeRegistry, Series, Table, make_graph, node
 from conductor_nodes import series, tables, text
 
 
@@ -85,7 +85,7 @@ for _definition in (contacts, csv, tags, words, counts, nobody, sentence, send, 
 
 
 def load(*nodes: Any, edges: list[tuple[str, str]], values: dict[str, Any] | None = None):
-    return REGISTRY.load(make_graph(*nodes, edges=edges, values=values or {}))
+    return Graph.compile(make_graph(*nodes, edges=edges, values=values or {}), REGISTRY)
 
 
 def output(graph, node_id: str):
@@ -197,10 +197,10 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(small_numbers)
-    graph = registry.load(make_graph(small_numbers, series.split, shout, tables.collect, edges=[
+    graph = Graph.compile(make_graph(small_numbers, series.split, shout, tables.collect, edges=[
         ("small-numbers.result", "series-split.value"), ("series-split.result.name", "shout.text"), ("series-split.result", "table-collect.records"),
         ("shout.result", "table-collect.loud"),
-    ], values={"table-collect.columns": ["loud"]}))
+    ], values={"table-collect.columns": ["loud"]}), registry)
     made = graph.run().results["table-collect"]["result"]
 
     assert [i.field.type for i in graph.describe().nodes["table-collect"].inputs if i.field.name == "records"] == ["Table"]
@@ -238,9 +238,9 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     held = NodeRegistry()
     held.add_subregistry(REGISTRY)
     held.add(people_table)
-    graph = held.load(make_graph(people_table, series.split, words, tables.collect, edges=[
+    graph = Graph.compile(make_graph(people_table, series.split, words, tables.collect, edges=[
         ("people.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("words.result", "table-collect.word"),
-    ], values={"table-collect.columns": ["word"]}))
+    ], values={"table-collect.columns": ["word"]}), held)
     assert graph.problems == []
     cause = graph.run().state.cause
     assert (cause.type, cause.loc, cause.ctx) == ("columns_not_aligned", ("table-collect",), expected)
@@ -255,9 +255,9 @@ def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_
     held = NodeRegistry()
     held.add_subregistry(REGISTRY)
     held.add(two_people)
-    graph = held.load(make_graph(two_people, series.split, sentence, tables.collect, edges=[
+    graph = Graph.compile(make_graph(two_people, series.split, sentence, tables.collect, edges=[
         ("two-people.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("sentence.result", "table-collect.team"),
-    ], values={"table-collect.columns": ["team"]}))
+    ], values={"table-collect.columns": ["team"]}), held)
     assert graph.problems == []
     cause = graph.run().state.cause
     assert (cause.type, cause.ctx["values"]) == ("columns_not_aligned", 1)

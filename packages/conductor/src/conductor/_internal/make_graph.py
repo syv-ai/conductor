@@ -43,7 +43,7 @@ def make_graph(
 
     The record is written and nothing is loaded: an input or output a node
     doesn't have, a value its field refuses, an edge between types that don't
-    meet and a graph half drawn are in ``registry.load(record).problems``.
+    meet and a graph half drawn are in ``Graph.compile(record, registry).problems``.
 
     Raises:
         InvalidCallError: Listing every fault in writing the record itself: a value or default addressed to

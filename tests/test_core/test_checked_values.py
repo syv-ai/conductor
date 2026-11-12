@@ -19,6 +19,7 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeRecord,
@@ -45,7 +46,7 @@ def _returning(returned: Any, return_type: Any) -> Any:
         return returned
 
     made = node("give", title="Give", description="For a test.")(give)
-    return registry_of(made).load(GraphRecord(nodes=[NodeRecord(id="g", node="give")])).run()
+    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="give")]), registry_of(made)).run()
 
 
 def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
@@ -56,9 +57,9 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
 
     made = node("give", title="Give", description="For a test.")(give)
     (name,) = sink.inputs
-    return registry_of(made, sink).load(GraphRecord(
+    return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="a", node="give"), NodeRecord(id="b", node=sink.id)], edges=[("a.result", f"b.{name}")],
-    )).run()
+    ), registry_of(made, sink)).run()
 
 
 # -- what a node returns ----------------------------------------------------------
@@ -164,7 +165,7 @@ def _computed(returned: Any) -> Any:
     def computed() -> Any:
         return returned
 
-    return registry_of(computed).load(GraphRecord(nodes=[NodeRecord(id="c", node="computed")])).run()
+    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="c", node="computed")]), registry_of(computed)).run()
 
 
 def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
@@ -225,7 +226,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given(
     brought = _feeding(yes_no, Table, total)
     assert (brought.state.cause.type, brought.state.cause.loc, brought.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
     with pytest.raises(InvalidCallError) as given:
-        registry_of(total).load(GraphRecord(nodes=[NodeRecord(id="t", node="total")])).run(lines=yes_no)
+        Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="total")]), registry_of(total)).run(lines=yes_no)
     assert [p.type for p in given.value.errors()] == ["invalid_input"]
 
 
@@ -245,7 +246,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
 
     given = pl.DataFrame({"level": [1], "score": [3]}).with_columns(pl.lit(True).alias(column))
     with pytest.raises(InvalidCallError) as refused:
-        registry_of(count_rows).load(GraphRecord(nodes=[NodeRecord(id="c", node="count_rows")])).run(rows=given)
+        Graph.compile(GraphRecord(nodes=[NodeRecord(id="c", node="count_rows")]), registry_of(count_rows)).run(rows=given)
     assert [(p.type, p.ctx.get("column")) for p in refused.value.errors()] == [("invalid_input", column)]
 
 
@@ -299,9 +300,9 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_item():
     def at_least_five(n: Annotated[int, Param(ge=5)]) -> int:
         return n
 
-    run = registry_of(numbers, at_least_five).load(GraphRecord(
+    run = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="a", node="numbers"), NodeRecord(id="b", node="at_least_five")], edges=[("a.result", "b.n")],
-    )).run()
+    ), registry_of(numbers, at_least_five)).run()
 
     assert (run.state.cause.type, run.state.cause.loc) == ("invalid_edge_value", ("b", 1))
     assert [(e["type"], e["msg"]) for e in run.state.cause.ctx["errors"]] == [("greater_than_equal", "Input should be greater than or equal to 5")]
@@ -335,7 +336,7 @@ def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made
     def count_contacts(contacts: Table[Contacts]) -> int:
         return contacts.height
 
-    graph = registry_of(count_contacts).load(make_graph(count_contacts))
+    graph = Graph.compile(make_graph(count_contacts), registry_of(count_contacts))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}])  # polars would make the 5 a text
     assert refused.value.errors()[0].ctx["column"] == "name"
@@ -357,9 +358,9 @@ def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatc
     def total(rows: Table[Amounts]) -> int:
         return int(rows["result"].sum())
 
-    graph = registry_of(texts, total).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="a", node="texts"), NodeRecord(id="b", node="total")], edges=[("a.result", "b.rows")],
-    ))
+    ), registry_of(texts, total))
 
     [problem] = graph.problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("b", "rows"), "Table[result: str]", "Table[result: int]")
@@ -445,7 +446,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
     def tally(scores: dict[str, int], people: list[ByPerson]) -> str:
         return "ok"
 
-    graph = registry_of(tally).load(GraphRecord(nodes=[NodeRecord(id="t", node="tally")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="tally")]), registry_of(tally))
 
     for given, loc in (({"scores": {SECRET: "x"}, "people": []}, ()), ({"scores": {}, "people": [{"counts": {}}, {"counts": {SECRET: "x"}}]}, (1, "counts"))):
         with pytest.raises(InvalidCallError) as refused:
@@ -486,7 +487,7 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_holds_up_no_other_unit
         assert _SlowOutput.check_began.wait(timeout=10)
         return 1
 
-    graph = registry_of(slow, other).load(GraphRecord(nodes=[NodeRecord(id="s", node="slow"), NodeRecord(id="o", node="other")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="slow"), NodeRecord(id="o", node="other")]), registry_of(slow, other))
 
     async def go() -> str:
         async for event in graph.with_inputs().stream():
@@ -552,7 +553,7 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
 def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_reader_naming_the_field(declared: Any, returned: Any):
     """A record whose type declares no fields is wired by field on trust, so a missing one is the reader's ``invalid_edge_value``."""
     give = _giving(returned, declared)
-    graph = registry_of(give, _anything_in).load(make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]))
+    graph = Graph.compile(make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(give, _anything_in))
     assert graph.is_runnable
     assert _fails_with(graph) == ("failed", "invalid_edge_value", ("anything-in",), "x", "name")
     assert SECRET not in graph.run().state.cause.msg and "no field 'name'" in graph.run().state.cause.msg
@@ -560,14 +561,14 @@ def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_rea
 
 def test_a_field_an_item_or_a_column_of_unknown_columns_lacks_fails_the_reader_at_that_item_and_a_gather_whole():
     items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
-    per_item = registry_of(items, _anything_in).load(make_graph(items, _anything_in, edges=[("give.result.name", "anything-in.x")]))
+    per_item = Graph.compile(make_graph(items, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(items, _anything_in))
     assert _fails_with(per_item) == ("failed", "invalid_edge_value", ("anything-in", 1), "x", "name")
-    gathered = registry_of(items, _all_of).load(make_graph(items, _all_of, edges=[("give.result.name", "all-of.values")]))
+    gathered = Graph.compile(make_graph(items, _all_of, edges=[("give.result.name", "all-of.values")]), registry_of(items, _all_of))
     assert _fails_with(gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
     by_column = _giving(pl.DataFrame({"other": ["a", "b"]}), Series[Any])
-    column_read = registry_of(by_column, _anything_in).load(make_graph(by_column, _anything_in, edges=[("give.result.name", "anything-in.x")]))
+    column_read = Graph.compile(make_graph(by_column, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(by_column, _anything_in))
     assert _fails_with(column_read) == ("failed", "invalid_edge_value", ("anything-in", 0), "x", "name")
-    column_gathered = registry_of(by_column, _all_of).load(make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]))
+    column_gathered = Graph.compile(make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]), registry_of(by_column, _all_of))
     assert _fails_with(column_gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
 
 
@@ -596,7 +597,7 @@ def test_a_run_that_failed_on_a_field_a_record_lacks_shows_its_results_with_a_bl
     """The failure is the run's cause; a host that reads the run afterwards is shown a blank where the field was read."""
     give = _giving(returned, declared)
     edges = [("words.result", f"{reader.id}.word"), ("give.result.name", f"{reader.id}.{input_name}"), (f"{reader.id}.result", "all-of.values")]
-    graph = registry_of(_words, give, reader, _all_of).load(make_graph(_words, give, reader, _all_of, edges=edges))
+    graph = Graph.compile(make_graph(_words, give, reader, _all_of, edges=edges), registry_of(_words, give, reader, _all_of))
     run = graph.run({"words.text": "a b"})
     assert (run.status, run.state.cause.type, run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "name")
     for read in (run, graph.load_run(run.to_json())):

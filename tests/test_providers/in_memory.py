@@ -9,7 +9,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from conductor import Ask, GraphRecord, NodeRegistry, Run, Series, make_graph
+from conductor import Ask, Graph, GraphRecord, NodeRegistry, Run, Series, make_graph
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.router import RunView
 from conductor_providers.fastapi.stored_run import Outcome, RunAsRead, StoredState
@@ -106,7 +106,7 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Ev
     graph = make_graph(*nodes, edges=[("approve.result", "after.ok"), *([("three.result", "each.i")] if items else [])])
     inputs: dict[str, Any] = {"busy.text": "x", "approve.text": "y", **({"three.n": 3} if items else {})}
     gate.set()
-    (waiting,) = registry.load(graph).run(inputs).waiting
+    (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
     gate.clear()
     return registry, graph, gate, inputs, waiting.id
 

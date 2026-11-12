@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, GraphRecord, NodeRecord, Param, Problem, Waiting, node
+from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRecord, Param, Problem, Waiting, node
 from conductor.events import NodeComplete, NodeFailed, NodeWaiting, RunEnd
 from conductor.widgets import Textarea
 
@@ -19,7 +19,7 @@ def _payload(event: Any) -> dict:
 
 
 def _events(graph: GraphRecord, *nodes: Any) -> list[Any]:
-    run = registry_of(*nodes).load(graph).with_inputs()
+    run = Graph.compile(graph, registry_of(*nodes)).with_inputs()
 
     async def collect() -> list[Any]:
         return [event async for event in run.stream()]

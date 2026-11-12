@@ -5,7 +5,7 @@ One module, on three text nodes declared at the top. Events, errors and serving 
 ```python
 from typing import Annotated
 
-from conductor import Ask, GraphRecord, NodeRecord, NodeRegistry, Param, Series, node
+from conductor import Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, Series, node
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -22,7 +22,7 @@ def uppercase(text: str) -> str:
 
 
 # loading never raises for a bad graph; key on each Problem's type
-broken = registry.load(GraphRecord(nodes=[NodeRecord(id="loud", node="text-uppercase")], edges=[("ghost.result", "loud.text")]))
+broken = Graph.compile(GraphRecord(nodes=[NodeRecord(id="loud", node="text-uppercase")], edges=[("ghost.result", "loud.text")]), registry)
 assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
 
 
@@ -32,10 +32,10 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
 
 
 registry.add(approve)
-asking = registry.load(GraphRecord(
+asking = Graph.compile(GraphRecord(
     nodes=[NodeRecord(id="drafts", node="text-split", values={"text": "first,second"}), NodeRecord(id="approve", node="approve")],
     edges=[("drafts.result", "approve.proposal")],
-))
+), registry)
 
 first = asking.run()
 assert first.status == "waiting" and [unit.inputs["proposal"] for unit in first.waiting] == ["first", "second"]

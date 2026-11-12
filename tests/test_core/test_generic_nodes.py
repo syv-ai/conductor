@@ -9,7 +9,7 @@ from typing import Annotated, Any, TypedDict
 
 import polars as pl
 import pytest
-from conductor import SKIPPED, GraphRecord, NodeDeclarationError, Param, Series, Table, node
+from conductor import SKIPPED, Graph, GraphRecord, NodeDeclarationError, Param, Series, Table, node
 
 from tests.test_core.nodes import registry_of
 
@@ -88,7 +88,7 @@ def upper(text: str) -> str:
 def _loaded(*definitions: Any, edges: list[list[str]], values: dict[str, dict[str, Any]] | None = None) -> Any:
     """Each definition as a node named by its id, wired by ``edges``; ``values`` are typed in by node id."""
     nodes = [{"id": d.id, "node": d.id, "values": (values or {}).get(d.id, {})} for d in definitions]
-    return registry_of(*definitions).load(GraphRecord.model_validate({"nodes": nodes, "edges": edges}))
+    return Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges}), registry_of(*definitions))
 
 
 def _types(graph: Any, node_id: str) -> dict[str, tuple[bool, str]]:
@@ -108,7 +108,7 @@ def test_only_an_edge_binds_so_a_typed_in_value_and_an_open_input_read_as_any() 
     typed = _loaded(keep, edges=[], values={"keep": {"value": 3}})
     assert _types(typed, "keep") == {"value": (False, "Any"), "result": (False, "Any")}
     assert typed.run().outputs == {"keep.result": 3}
-    assert registry_of(keep).load(GraphRecord.model_validate({"nodes": [{"id": "keep", "node": "keep"}]})).run(value="x").outputs == {"keep.result": "x"}
+    assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "keep", "node": "keep"}]}), registry_of(keep)).run(value="x").outputs == {"keep.result": "x"}
 
 
 def test_an_output_is_checked_against_the_type_the_edge_bound() -> None:

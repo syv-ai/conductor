@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, Ask, GraphRecord, NodeRegistry, Param, Series, make_graph
+from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRegistry, Param, Series, make_graph
 
 REGISTRY = NodeRegistry()
 
@@ -145,7 +145,7 @@ REGISTRY.stored_graph("pair-then-items-then-up", title="Pair then items then up"
 
 
 def ran(nodes: dict[str, str], edges: list[tuple[str, str]], **inputs: str) -> Any:
-    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), REGISTRY)
     assert not graph.problems, graph.problems
     run = graph.run(**inputs)
     assert run.status == "complete"
@@ -290,7 +290,7 @@ def test_a_long_chain_of_alternatives_in_the_items_is_asked_node_by_node_however
         edges += [(f"t{stage}.result", f"w{stage}.go"), (f"w{stage}.yes", f"x{stage}.b"), (f"w{stage}.no", f"y{stage}.b")]
         edges += [(source, f"{node_id}{stage}.a") for source in before for node_id in "xy"]
         before = [f"x{stage}.result", f"y{stage}.result"]
-    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [*nodes, {"id": "n", "node": "count"}], "edges": [list(edge) for edge in [*edges, *((source, "n.values") for source in before)]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [*nodes, {"id": "n", "node": "count"}], "edges": [list(edge) for edge in [*edges, *((source, "n.values") for source in before)]]}), REGISTRY)
     assert not graph.problems, graph.problems
     assert came_to(graph.run(), "n") == n
 
@@ -371,14 +371,14 @@ REGISTRY.stored_graph("summary-and-letters", title="Summary and letters", descri
 def test_a_series_input_fed_the_one_value_made_for_the_item_its_node_runs_for_receives_that_value_drawn_in_the_graph_or_inside_an_embedded_one() -> None:
     """A document's summary beside the document's letters: the node runs per document for the letters it gathers,
     so the summary its other ``Series`` input is wired to is the one of its own document, never every document's."""
-    flat = REGISTRY.load(GraphRecord.model_validate({
+    flat = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "s", "node": "items"}, {"id": "u", "node": "up"}, {"id": "c", "node": "chars"}, {"id": "x", "node": "maybe"}, {"id": "j", "node": "both"}],
         "edges": [["s.result", "u.a"], ["s.result", "c.a"], ["c.result", "x.a"], ["u.result", "j.a"], ["x.result", "j.b"]],
-    }))
-    embedded = REGISTRY.load(GraphRecord.model_validate({
+    }), REGISTRY)
+    embedded = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "s", "node": "items"}, {"id": "e", "node": "summary-and-letters"}],
         "edges": [["s.result", "e.up.a"], ["s.result", "e.chars.a"]],
-    }))
+    }), REGISTRY)
     assert not flat.problems and not embedded.problems
     feed = {field.field.name: (field.feed.mode, field.feed.series) for field in flat.describe().nodes["j"].inputs}
     assert feed == {"a": ("collected", None), "b": ("collected", "c.result")}
@@ -417,7 +417,7 @@ def approve(a: str) -> str:
 
 
 def test_the_results_of_a_run_that_waits_show_the_items_so_far_with_a_blank_where_one_still_waits_live_and_after_a_load() -> None:
-    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "items"}, {"id": "q", "node": "approve"}], "edges": [["s.result", "q.a"]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "items"}, {"id": "q", "node": "approve"}], "edges": [["s.result", "q.a"]]}), REGISTRY)
     waiting = graph.run(text="a b")
     assert waiting.results["q"]["result"] == [None, None]
     one = waiting.answer(waiting.waiting[0].id, "yes").resume()
@@ -442,6 +442,6 @@ REGISTRY.stored_graph("words-up-and-letters", title="Words and letters", descrip
 def test_two_series_inputs_fed_by_outputs_a_stored_graph_returns_per_word_and_per_letter_are_called_per_word_as_drawn_flat() -> None:
     """The letters are a list per word, so the node is called once per word with that word's letters, and the
     other input receives that word's one value as a list of one."""
-    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "words-up-and-letters"}, {"id": "n", "node": "both"}], "edges": [["e.up.result", "n.a"], ["e.maybe.result", "n.b"]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "words-up-and-letters"}, {"id": "n", "node": "both"}], "edges": [["e.up.result", "n.a"], ["e.maybe.result", "n.b"]]}), REGISTRY)
     assert not graph.problems
     assert graph.run(text="ab cd").results["n"]["result"] == ["AB:AB", "CD:CD"]

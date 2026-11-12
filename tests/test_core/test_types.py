@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 from conductor import (
     Ask,
+    Graph,
     GraphRecord,
     NodeDeclarationError,
     NodeRegistry,
@@ -46,7 +47,7 @@ class Money(BaseModel):
 def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **values: Any) -> Any:
     """``definition`` as node ``q`` with ``values`` typed in, and each of ``more`` as a node named by its id; the run, resumed."""
     nodes = [{"id": "q", "node": definition.id, "values": values}, *({"id": other.id, "node": other.id} for other in more)]
-    graph = registry_of(definition, *more).load(GraphRecord.model_validate({"nodes": nodes, "edges": edges or []}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges or []}), registry_of(definition, *more))
     assert not graph.problems, graph.problems
     return graph.run().resume()
 
@@ -65,7 +66,7 @@ def test_a_limit_on_a_hosts_text_is_held() -> None:
     def short(text: Annotated[Text, Param(max_length=3)]) -> str:
         return text
 
-    graph = registry_of(short).load(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "short", "values": {"text": "too long"}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "short", "values": {"text": "too long"}}]}), registry_of(short))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
@@ -86,10 +87,10 @@ def test_a_model_does_not_land_on_a_json_value() -> None:
     def json(value: JsonValue) -> str:
         return str(value)
 
-    graph = registry_of(money, json).load(GraphRecord.model_validate({
+    graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "m", "node": "money"}, {"id": "j", "node": "json"}],
         "edges": [["m.result", "j.value"]],
-    }))
+    }), registry_of(money, json))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -112,7 +113,7 @@ def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
     registry = NodeRegistry()
     registry.add(money, take)
     registry.describe()
-    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "money"}, {"id": "t", "node": "take"}], "edges": [["m.result", "t.offer"]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "money"}, {"id": "t", "node": "take"}], "edges": [["m.result", "t.offer"]]}), registry)
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -147,7 +148,7 @@ def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:
     def total(numbers: list[int]) -> int:
         return sum(numbers)
 
-    graph = registry_of(total).load(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "total", "values": {"numbers": [True]}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "total", "values": {"numbers": [True]}}]}), registry_of(total))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
@@ -165,10 +166,10 @@ def test_a_list_of_whole_numbers_lands_on_a_list_of_numbers_and_never_on_a_list_
         return len(texts)
 
     assert _run(mean, ints, edges=[["ints.result", "q.numbers"]]).outputs == {"q.result": 1.5}
-    graph = registry_of(ints, words).load(GraphRecord.model_validate({
+    graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "i", "node": "ints"}, {"id": "w", "node": "words"}],
         "edges": [["i.result", "w.texts"]],
-    }))
+    }), registry_of(ints, words))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -179,7 +180,7 @@ def test_a_limit_spelled_as_pydantic_spells_it_is_carried() -> None:
     def count(times: PositiveInt, least: Annotated[int, Field(ge=2)] = 2) -> int:
         return times * least
 
-    graph = registry_of(count).load(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "values": {"times": 0}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "values": {"times": 0}}]}), registry_of(count))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
     assert _run(count, times=3).outputs == {"q.result": 6}
 
@@ -259,7 +260,7 @@ def test_a_table_stands_in_a_union_and_in_a_series() -> None:
     assert _run(size, value=["a", "b"]).outputs == {"q.result": 2}
     run = _run(size, each, edges=[["each.result", "q.value"]])
     assert run.outputs == {"q.result": [1, 2]}
-    back = registry_of(size, each).load(run.graph.record).load_run(run.to_json())
+    back = Graph.compile(run.graph.record, registry_of(size, each)).load_run(run.to_json())
     assert [frame.to_dicts() for frame in back.results["each"]["result"]] == [[{"name": "Ann"}], [{"name": "Bo"}, {"name": "Cy"}]]
 
 
@@ -277,7 +278,7 @@ def test_a_record_with_a_date_is_no_json_value() -> None:
         return str(value)
 
     def problems(source: Any) -> list[str]:
-        graph = registry_of(source, json).load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": source.id}, {"id": "j", "node": "json"}], "edges": [["s.result", "j.value"]]}))
+        graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": source.id}, {"id": "j", "node": "json"}], "edges": [["s.result", "j.value"]]}), registry_of(source, json))
         return [problem.type for problem in graph.problems]
 
     assert problems(dated) == ["type_mismatch"] and problems(named) == []
@@ -297,7 +298,7 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
         return text.upper()
 
     def loaded(field: str) -> Any:
-        return registry_of(address, shout).load(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "address"}, {"id": "s", "node": "shout"}], "edges": [[f"a.result.{field}", "s.text"]]}))
+        return Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "address"}, {"id": "s", "node": "shout"}], "edges": [[f"a.result.{field}", "s.text"]]}), registry_of(address, shout))
 
     assert loaded("city").run().outputs == {"s.result": "AARHUS"}
     for wrong in ("town", "type_id"):

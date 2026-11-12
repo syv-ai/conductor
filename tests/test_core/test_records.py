@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeRecord,
@@ -70,10 +71,10 @@ def mails(found: Series[str | None]) -> int:
 
 
 def _graph(source: Any = contacts) -> Any:
-    return registry_of(source, greet, one, every, names, mails).load(GraphRecord(
+    return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="c", node=source.id), *(NodeRecord(id=n, node=n) for n in ("greet", "one", "every", "names", "mails"))],
         edges=[("c.result.name", "greet.name"), ("c.result", "one.contact"), ("c.result", "every.found"), ("c.result.name", "names.found"), ("c.result.email", "mails.found")],
-    ))
+    ), registry_of(source, greet, one, every, names, mails))
 
 
 @pytest.mark.parametrize("source", [contacts, listed], ids=["returned as a table", "returned as a list"])
@@ -116,7 +117,7 @@ def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_i
     def wrong(text: str) -> Series[Contact]:
         return frame  # type: ignore[return-value]
 
-    run = registry_of(wrong).load(make_graph(wrong)).run(text="x")
+    run = Graph.compile(make_graph(wrong), registry_of(wrong)).run(text="x")
 
     assert (run.status, run.state.cause.type, run.state.cause.ctx["reason"], run.state.cause.ctx["column"]) == ("failed", "invalid_output", reason, "name")
 
@@ -126,7 +127,7 @@ def test_a_table_is_no_series_of_anything_but_records() -> None:
     def texts(text: str) -> Series[str]:
         return FRAME  # type: ignore[return-value]
 
-    run = registry_of(texts).load(make_graph(texts)).run(text="x")
+    run = Graph.compile(make_graph(texts), registry_of(texts)).run(text="x")
 
     assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
 
@@ -140,7 +141,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
     def show(record: Any) -> str:
         return repr(record)
 
-    graph = registry_of(anything, show).load(make_graph(anything, show, edges=[("anything.result", "show.record")]))
+    graph = Graph.compile(make_graph(anything, show, edges=[("anything.result", "show.record")]), registry_of(anything, show))
     run = graph.run(text="x")
 
     assert run.outputs["show.result"] == ["{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}", "{'name': 'bo', 'email': None, 'age': 52}"]
@@ -166,7 +167,7 @@ def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_s
     registry = registry_of(parts, contacts, count)
     inner = GraphRecord(nodes=[NodeRecord(id="p", node="parts"), NodeRecord(id="c", node="contacts")], edges=[("p.result", "c.text")])
     registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
-    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="count", node="count")], edges=[("e.c.result", "count.found")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="count", node="count")], edges=[("e.c.result", "count.found")]), registry)
     RECEIVED.clear()
     run = graph.run(text="x,y")
 
@@ -182,7 +183,7 @@ def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -
     def people(text: str) -> Table[Contact]:
         return FRAME
 
-    graph = registry_of(people, split, greet).load(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]))
+    graph = Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet))
     run = graph.run(text="x")
 
     assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
@@ -198,7 +199,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
     def five(text: str) -> Series[dict]:
         return [{"name": "a"}, {"name": "b"}, {"other": "c"}, {"name": "d"}, {"name": "e"}]
 
-    graph = registry_of(five, greet).load(make_graph(five, greet, edges=[("five.result.name", "greet.name")]))
+    graph = Graph.compile(make_graph(five, greet, edges=[("five.result.name", "greet.name")]), registry_of(five, greet))
     run = graph.run(text="x")
 
     cause = run.state.cause
@@ -208,7 +209,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
 
 @pytest.mark.parametrize("source", [contacts, listed], ids=["returned as a table", "returned as a list"])
 def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_field_an_edge_reads(source: Any) -> None:
-    graph = registry_of(source, greet).load(make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]))
+    graph = Graph.compile(make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]), registry_of(source, greet))
     run = graph.run(text="x")
 
     stored = run._outcomes[source.id][()].outputs["result"]
@@ -225,7 +226,7 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
         got.append(table)
         return table.height
 
-    graph = registry_of(contacts, rows).load(make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]))
+    graph = Graph.compile(make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]), registry_of(contacts, rows))
     run = graph.run(text="x")
 
     stored = run._outcomes["contacts"][()].outputs["result"]
@@ -244,9 +245,9 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
         got.append((table, mails))
         return table.height
 
-    graph = registry_of(contacts, mail, both).load(make_graph(contacts, mail, both, edges=[
+    graph = Graph.compile(make_graph(contacts, mail, both, edges=[
         ("contacts.result.email", "mail.email"), ("contacts.result", "both.table"), ("mail.result", "both.mails"),
-    ]))
+    ]), registry_of(contacts, mail, both))
     run = graph.run(text="x")
 
     assert run.outputs["both.result"] == 1  # bo has no email, so mail was not called for him
@@ -285,7 +286,7 @@ def copied(table: Table[Contact]) -> Table[Contact]:
 def _read_then_split() -> Any:
     from conductor_nodes.series import split
 
-    return registry_of(people, split, greet, copied).load(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]))
+    return Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet, copied))
 
 
 def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_again_when_loaded() -> None:
@@ -305,7 +306,7 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
 
 
 def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_loads() -> None:
-    graph = registry_of(people, copied).load(make_graph(people, copied, edges=[("people.result", "copied.table")]))
+    graph = Graph.compile(make_graph(people, copied, edges=[("people.result", "copied.table")]), registry_of(people, copied))
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
@@ -314,7 +315,7 @@ def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_
 
 
 def test_a_save_of_a_graph_with_no_table_has_no_tables_written_once_key() -> None:
-    graph = registry_of(listed, greet).load(make_graph(listed, greet, edges=[("listed.result.name", "greet.name")]))
+    graph = Graph.compile(make_graph(listed, greet, edges=[("listed.result.name", "greet.name")]), registry_of(listed, greet))
     assert "tables_written_once" not in json.loads(graph.run(text="x").to_json())
 
 
@@ -333,7 +334,7 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
     registry = registry_of(people, split, greet)
     inner = GraphRecord(nodes=[NodeRecord(id="people", node="people"), NodeRecord(id="split", node=split.id)], edges=[("people.result", "split.value")])
     registry.add(stored_graph("inner", title="Inner", description="For a test.")(inner))
-    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]), registry)
     run = graph.run(text="x")
 
     assert json.loads(run.to_json())["tables_written_once"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
@@ -368,7 +369,7 @@ def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refu
     def as_contacts(table: Table) -> Series[Contact]:
         return table  # type: ignore[return-value]
 
-    graph = registry_of(any_table, as_contacts).load(make_graph(any_table, as_contacts, edges=[("any-table.result", "as-contacts.table")]))
+    graph = Graph.compile(make_graph(any_table, as_contacts, edges=[("any-table.result", "as-contacts.table")]), registry_of(any_table, as_contacts))
     saved = json.loads(graph.run(text="x").to_json())
     assert saved["tables_written_once"] == [{"output": ["as-contacts", "result", 0], "same_as": ["any-table", "result", 0]}]
     saved["outcomes"]["any-table"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"  # a table of any columns takes it
@@ -382,7 +383,7 @@ def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refu
 def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> None:
     import pandas as pd
 
-    graph = registry_of(people).load(make_graph(people))
+    graph = Graph.compile(make_graph(people), registry_of(people))
     table = json.loads(graph.run(text="x").outputs_json())["people.result"]
 
     in_polars = pl.DataFrame({c["name"]: c["values"] for c in table["columns"]})

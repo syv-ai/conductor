@@ -85,7 +85,7 @@ What changes in how you work, before the name-by-name tables:
   read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
   value or a date's ISO text is a choice. A value an edge brings is held to the input's limits and choices
   alike (`invalid_edge_value`).
-- **Loading never raises for a fault in the graph.** `registry.load(record)` returns a `Graph`;
+- **Loading never raises for a fault in the graph.** `Graph.compile(record, registry)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
@@ -94,7 +94,7 @@ What changes in how you work, before the name-by-name tables:
   (`invalid_record` at `("record", "edges", index, end)`, as loading the same record says it), a
   chain it can't draw), and an input a node doesn't have, a value its field refuses, a default no
   caller reaches or an edge whose types don't meet (`type_mismatch`) is in
-  `registry.load(record).problems`. A record's `values`, `defaults` and
+  `Graph.compile(record, registry).problems`. A record's `values`, `defaults` and
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A stored graph used as a node offers
@@ -108,7 +108,7 @@ What changes in how you work, before the name-by-name tables:
   of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
   `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a unit's is a
   problem's (`("e", 0, "ask")`), a node's its id behind the embedding's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
-- **`registry.load` and `registry.upgrade` take a `GraphRecord` or its JSON text.** A dict is not taken: a
+- **`Graph.compile` and `registry.upgrade` take a `GraphRecord` or its JSON text.** A dict is not taken: a
   host that holds one writes `GraphRecord.model_validate(data)`. `InvalidCallError` with `invalid_record`
   problems is what JSON text of the wrong shape raises.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says how the leg
@@ -153,7 +153,7 @@ What changes in how you work, before the name-by-name tables:
   (`state_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
-- **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `registry.load(record).problems` holds `default_on_later_node`.
+- **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `Graph.compile(record, registry).problems` holds `default_on_later_node`.
 - **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_json` hold `null` where the Series was never made for a blank outside the items, or a branch there wasn't taken (they held `[]`, the same as for a Series made with no items), and `null` where every item is skipped from outside (they held a list of `null`s). A blank outside still shows a blank in each place. The same nodes inside a stored graph show the same.
 - **An output made inside two loops is shown as a list of lists.** `run.results`, `run.outputs` and `outputs_json` show the output of a node called per item of a list that is itself made per item as one list per outer item, `null` for an outer item whose inner list was never made (it was one flat list over every item): three documents split into lines, the second empty, show `[["A", "B"], null, ["C"]]`. The same nodes inside a stored graph show the same.
 - **A node outside a stored graph reads its outputs as it would read the same nodes drawn in its own graph.** For the stored graph `documents -> lines -> shout`, a `Series[str]` input wired to `shout.result` is called once per document with that document's lines (it was called once, with one flat list over every document), and an input of one `str` once per line; a node outside and `run.results` see the same list per document. A loop outside is named by the list inside that is looped over (`runs_on` says `per item of e.documents.result`; it named the offered output), so outputs returned in the same loop inside line up: one item of each of two of them reaches one call (it was `series_not_nested`), and a `Series` input beside an input of one value wired to the same per-item output receives that item's one value, as drawn flat (it received every item). The output is described as `many` with one `Series` per loop (`type` `Series[str]` for a list per document) and lists its `loops`; every field description gains `loops`, empty but here. A `Series` returned once per document is `Series[Series[T]]` too (it was a `Series` of whole lists). `series_not_nested` for a list inside a stored graph has `ctx.hint` `inside_stored_graph` and tells the author what they can do.
@@ -246,18 +246,18 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `widgets` | `conductor.widgets`, imported as a module |
 | `WidgetType` | a widget's `type` field |
 | **Graphs and loading** | |
-| `compile` | `registry.load(record)`, which returns a `Graph` and never raises for a fault in the graph |
+| `compile` | `Graph.compile(record, registry)`, which returns a `Graph` and never raises for a fault in the graph |
 | `CompiledGraph` | `Graph` |
 | `conductor.expr`: `Expression`, `ExpressionError`, `ExpressionParseError`, `ExpressionRuntimeError`, `ExpressionTypeError`, `evaluate`, `parse` | gone with CEL guards on edges |
 | `conductor.flow_format.dump_flow` | `record.model_dump_json()` |
 | `conductor.flow_format.flow_to_dict` | `record.model_dump(mode="json")` |
 | `conductor.flow_format.flow_to_yaml` | gone: YAML isn't written |
-| `conductor.flow_format.load_flow_from_path` | gone: read the file and `registry.load` its text |
-| `conductor.flow_format.load_flow` | `registry.load(json_text)` or `GraphRecord.model_validate_json` |
+| `conductor.flow_format.load_flow_from_path` | gone: read the file and `Graph.compile` its text |
+| `conductor.flow_format.load_flow` | `Graph.compile(json_text, registry)` or `GraphRecord.model_validate_json` |
 | `conductor.flow_format.yaml_to_flow` | gone: YAML isn't read |
 | `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs of one `exclusive_group` are the branches |
 | `conductor.graph.compiler.ExtensionResolver` | gone: a stored graph is a node, `stored_graph("id", title=, description=)(record)`, added to a registry |
-| `conductor.graph.dynamic_inputs.resolve_node_inputs` | `registry.load(record).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
+| `conductor.graph.dynamic_inputs.resolve_node_inputs` | `Graph.compile(record, registry).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
 | `DefinitionSource` | gone with `RegistryView` |
 | `expr` | gone with CEL guards on edges |
 | `Flow` | `GraphRecord`; see "Converting a stored 1.x graph" |
@@ -266,8 +266,8 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `GraphEdge` | a pair `("a.result", "b.text")` in `GraphRecord.edges` |
 | `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
 | `RegistryView` | `registry.filter(predicate)` and `add_subregistry`; a request's own nodes go in a registry of their own |
-| `resolve_graph_inputs` | `registry.load(record).inputs`, each a `GraphInput` |
-| `resolve_graph_outputs` | `registry.load(record).outputs` |
+| `resolve_graph_inputs` | `Graph.compile(record, registry).inputs`, each a `GraphInput` |
+| `resolve_graph_outputs` | `Graph.compile(record, registry).outputs` |
 | **Running** | |
 | `compute_for_each_end_outputs` | gone: a `Series[X]` input gathers the items |
 | `conductor.compound.CompoundNodeType` | gone with compound nodes |

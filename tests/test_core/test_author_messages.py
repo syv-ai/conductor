@@ -3,7 +3,7 @@
 import typing
 from typing import Any, TypedDict
 
-from conductor import GraphRecord, NodeRegistry, Series, Table, node
+from conductor import Graph, GraphRecord, NodeRegistry, Series, Table, node
 
 
 class Contact(TypedDict):
@@ -70,7 +70,7 @@ for _definition in (contacts, csv, tags, people, records, send, report, count, d
 
 
 def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
-    graph = REGISTRY.load(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), REGISTRY)
     (found,) = graph.problems
     return found
 
@@ -130,7 +130,7 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
-    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "csv"}, {"id": "lines", "node": "lines"}, {"id": "send", "node": "send"}], "edges": [["read.result", "lines.table"], ["lines.result.email", "send.to"]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "csv"}, {"id": "lines", "node": "lines"}, {"id": "send", "node": "send"}], "edges": [["read.result", "lines.table"], ["lines.result.email", "send.to"]]}), registry)
     assert graph.is_runnable and graph.runs_on["send"].series == "lines.result"
 
 
@@ -159,7 +159,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(amounts)
-    (found,) = registry.load(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "amounts"}, {"id": "r", "node": "report"}], "edges": [["a.result", "r.table"]]})).problems
+    (found,) = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "amounts"}, {"id": "r", "node": "report"}], "edges": [["a.result", "r.table"]]}), registry).problems
     assert found.type == "type_mismatch" and "hint" not in found.ctx and found.ctx["got"] == "Table[name: str, amount: str]"
 
 
@@ -177,10 +177,10 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
 
 
 def test_the_wire_it_names_nests_them():
-    graph = REGISTRY.load(GraphRecord.model_validate({
+    graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "upload", "node": "documents"}, {"id": "list", "node": "questions"}, {"id": "ask", "node": "ask"}],
         "edges": [["list.result", "ask.question"], ["upload.result", "ask.document"], ["upload.result", "list.about"]],
-    }))
+    }), REGISTRY)
     assert graph.is_runnable and graph.runs_on["ask"].series == "list.result" and graph.runs_on["list"].series == "upload.result"
 
 
@@ -201,5 +201,5 @@ def test_a_hook_reads_the_row_type_of_the_table_arriving():
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(look)
-    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "contacts"}, {"id": "look", "node": "look"}], "edges": [["read.result", "look.table"]]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "contacts"}, {"id": "look", "node": "look"}], "edges": [["read.result", "look.table"]]}), registry)
     assert graph.is_runnable and seen == [(Contact,)]

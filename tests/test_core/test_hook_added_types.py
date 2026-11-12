@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from conductor import GraphRecord, NodeDeclarationError, NodeRegistry, Series, node
+from conductor import Graph, GraphRecord, NodeDeclarationError, NodeRegistry, Series, node
 
 
 def _columns(names: list[str]) -> dict[str, Any]:
@@ -36,7 +36,7 @@ for _definition in (pass_on, number, words):
 
 def _load(edges: list[list[str]], names: list[str], **typed_in: Any):
     nodes = [{"id": "n", "node": "number"}, {"id": "w", "node": "words"}, {"id": "p", "node": "pass-on", "values": {"names": names, **typed_in}}]
-    return REGISTRY.load(GraphRecord.model_validate({"nodes": nodes, "edges": edges}))
+    return Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges}), REGISTRY)
 
 
 def _output_types(graph) -> dict[str, str | None]:

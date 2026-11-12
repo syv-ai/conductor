@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor import (
-    Ask, EndedEarly, ExternalError, FromRun, GraphRecord, InvalidCallError, NodeDeclarationError,
+    Ask, EndedEarly, ExternalError, FromRun, Graph, GraphRecord, InvalidCallError, NodeDeclarationError,
     NodeError, NodeRegistry, Param, Policy, Series, Upgrade, host_type, make_graph, node, stored_graph,
 )
 from conductor.testing import check_registry
@@ -70,17 +70,17 @@ def who(caller: FromRun[Caller]) -> str:
     return caller.name
 
 
-asking_who = registry.load(make_graph(who))
+asking_who = Graph.compile(make_graph(who), registry)
 
 
 def problems(drawing: dict) -> list[str]:
     """The codes of what loading ``drawing`` finds."""
-    return [problem.type for problem in registry.load(GraphRecord.model_validate(drawing)).problems]
+    return [problem.type for problem in Graph.compile(GraphRecord.model_validate(drawing), registry).problems]
 
 
 def told(drawing: dict) -> list[str]:
     """What loading ``drawing`` tells a person, a sentence for each problem."""
-    return [problem.msg for problem in registry.load(GraphRecord.model_validate(drawing)).problems]
+    return [problem.msg for problem in Graph.compile(GraphRecord.model_validate(drawing), registry).problems]
 
 
 def refused(call) -> list[str]:
@@ -212,7 +212,7 @@ inner_record = GraphRecord.model_validate({"nodes": [{"id": "again", "node": "it
 itself = stored_graph("itself", title="Itself", description="A graph that contains itself.")(inner_record)
 looping = NodeRegistry()
 looping.add(itself)
-broken = looping.load(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "itself"}]})).problems[0]
+broken = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "itself"}]}), looping).problems[0]
 print(broken.type, broken.loc)  # embeds_itself ('i', 'again')
 print(broken.msg)  # The node 'itself' is a graph that contains itself; embed a graph that does not contain this one.
 ```
@@ -320,10 +320,10 @@ Its `ctx` keys are in the reference: `python -m conductor.about series-inputs-ne
 ### `series_not_nested`
 
 ```python
-unpaired = registry.load(GraphRecord.model_validate({
+unpaired = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "names", "node": "words"}, {"id": "greetings", "node": "words"}, {"id": "g", "node": "greet"}],
     "edges": [["names.result", "g.name"], ["greetings.result", "g.greeting"]],
-})).problems[0]
+}), registry).problems[0]
 print(unpaired.type, unpaired.ctx["wire_from"], unpaired.ctx["wire_into"])  # series_not_nested names.result greetings
 print(unpaired.msg)  # 'g' reads items of names.result, greetings.result, and neither is made inside the other, so nothing says which item goes with which. Make one inside the other (wire 'names.result' into 'greetings', the node that makes the other), or give one of them whole to a Series input.
 ```
@@ -390,10 +390,10 @@ def contacts(text: str) -> Table[Contact]:
     return pl.DataFrame([dict(zip(("name", "email"), line.split(), strict=True)) for line in text.splitlines()])
 
 
-whole = registry.load(GraphRecord.model_validate({
+whole = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result", "u.text"]],
-})).problems[0]
+}), registry).problems[0]
 print(whole.type, whole.ctx["hint"], whole.ctx["fields"])  # type_mismatch split_first ['name', 'email']
 print(whole.msg)  # 'c.result' is a whole table and 'u.text' takes one str. To run 'u' once for each record or item in it, put a Split between them and wire Split's result, or one field of it.
 ```
@@ -408,10 +408,10 @@ def total(invoices: Table[Invoice]) -> int:
     return int(invoices["amount"].sum())
 
 
-lacking = registry.load(GraphRecord.model_validate({
+lacking = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "t", "node": "total"}],
     "edges": [["c.result", "t.invoices"]],
-})).problems[0]
+}), registry).problems[0]
 print(lacking.type, lacking.ctx["hint"], lacking.ctx["column"])  # type_mismatch add_column amount
 print(lacking.msg)  # 't.invoices' needs the column 'amount' (int); 'c.result' has name, email. Add the column in a node between, or connect a table that has it.
 ```
@@ -475,10 +475,10 @@ print(told(drawing)[0])  # 'a.text' is not something that node gives; it gives a
 A field named on a whole table or list has a sentence of its own, with `ctx.hint` set to `split_first`:
 
 ```python
-column = registry.load(GraphRecord.model_validate({
+column = Graph.compile(GraphRecord.model_validate({
     "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
     "edges": [["c.result.email", "u.text"]],
-})).problems[0]
+}), registry).problems[0]
 print(column.type, column.ctx["hint"])  # unknown_output split_first
 print(column.msg)  # 'c.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it and wire the field from Split's result.
 ```
@@ -533,7 +533,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about value-and-edge`.
 ### `answer_stale`
 
 ```python
-approving = registry.load(GraphRecord.model_validate({"nodes": [{"id": "approve", "node": "approve"}]}))
+approving = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "approve", "node": "approve"}]}), registry)
 asked = approving.run(amount=5000)
 asked_again = asked.again(amount=5500)
 print(refused(lambda: asked_again.answer(asked.waiting[0].id, True)))  # ['answer_stale']
@@ -570,7 +570,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about from-run-missing
 ### `input_given_twice`
 
 ```python
-uppering = registry.load(make_graph(upper))
+uppering = Graph.compile(make_graph(upper), registry)
 print(refused(lambda: uppering.run({"upper.text": "a"}, text="b")))  # ['input_given_twice']
 print(said(lambda: uppering.run({"upper.text": "a"}, text="b"))[0])  # 'text' is given twice, by its name and by its address 'upper.text'; give it once.
 ```
@@ -582,7 +582,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about input-given-twic
 ### `invalid_answer`
 
 ```python
-waiting = registry.load(GraphRecord.model_validate({"nodes": [{"id": "approve", "node": "approve"}]})).run(amount=5000)
+waiting = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "approve", "node": "approve"}]}), registry).run(amount=5000)
 print(refused(lambda: waiting.answer(waiting.waiting[0], "yes")))  # ['invalid_answer']
 print(said(lambda: waiting.answer(waiting.waiting[0], "yes"))[0])  # That is not a valid answer: Input should be a valid boolean
 ```
@@ -605,7 +605,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about invalid-checkpoi
 ### `invalid_input`
 
 ```python
-counting = registry.load(make_graph(count))
+counting = Graph.compile(make_graph(count), registry)
 print(refused(lambda: counting.run(n="many")))  # ['invalid_input']
 print(said(lambda: counting.run(n="many"))[0])  # The value given for 'n' is not valid: Input should be a valid integer, unable to parse string as an integer. Give a value of the type the input takes.
 print(refused(lambda: uppering.run(text=["a", "b"])))  # ['invalid_input']
@@ -640,8 +640,8 @@ Its `ctx` keys are in the reference: `python -m conductor.about invalid-timeout`
 ### `invalid_record`
 
 ```python
-print(refused(lambda: registry.load('{"nodes": [{"id": "u", "type": "upper"}]}')))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
-print(said(lambda: registry.load('{"nodes": [{"id": "u", "type": "upper"}]}'))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
+print(refused(lambda: Graph.compile('{"nodes": [{"id": "u", "type": "upper"}]}', registry)))  # ['invalid_record', 'invalid_record']: 1.x's 'type', and no 'node'
+print(said(lambda: Graph.compile('{"nodes": [{"id": "u", "type": "upper"}]}', registry))[0])  # The record is not a graph record at 'nodes.0.node': Field required. Fix the record's JSON.
 ```
 
 **Fix.** Fix the record's JSON: `ctx.at` says where it stopped being a graph record. A drawing that is well formed but unfinished loads, with its problems in `graph.problems`.
@@ -749,7 +749,7 @@ def raw(text: str) -> bytes:
     return b"\xff" + text.encode()
 
 
-unwritable = registry.load(make_graph(raw)).run(text="a")
+unwritable = Graph.compile(make_graph(raw), registry).run(text="a")
 print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
 print(said(lambda: unwritable.to_json())[0])  # The run can't be written as JSON at 'raw.result': a value has no JSON form. Give that field a type pydantic writes as JSON.
 ```
@@ -770,7 +770,7 @@ def divide(n: int) -> float:
     return 1 / n
 
 
-failed = registry.load(make_graph(divide)).run(n=0)
+failed = Graph.compile(make_graph(divide), registry).run(n=0)
 match failed.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # execution_failed
@@ -789,7 +789,7 @@ def fetch(url: str) -> str:
     raise ConnectionError(url)
 
 
-cut_off = registry.load(make_graph(fetch)).run(url="https://example.com")
+cut_off = Graph.compile(make_graph(fetch), registry).run(url="https://example.com")
 match cut_off.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # external_failed
@@ -808,7 +808,7 @@ def read_pdf(path: str) -> str:
     raise NodeError("The document could not be read.")
 
 
-unread = registry.load(make_graph(read_pdf)).run(path="a.pdf")
+unread = Graph.compile(make_graph(read_pdf), registry).run(path="a.pdf")
 match unread.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # failed
@@ -828,7 +828,7 @@ def confirm(text: str) -> bool:
     raise Ask("Sure?", default="maybe")
 
 
-misasked = registry.load(make_graph(confirm)).run(text="a")
+misasked = Graph.compile(make_graph(confirm), registry).run(text="a")
 match misasked.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # invalid_ask
@@ -852,7 +852,7 @@ def small(n: Annotated[int, Param(le=3)]) -> int:
     return n
 
 
-too_big = registry.load(make_graph(letters, small)).run(text="many letters")
+too_big = Graph.compile(make_graph(letters, small), registry).run(text="many letters")
 match too_big.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # invalid_edge_value
@@ -871,7 +871,7 @@ def guess(text: str) -> int:
     return text  # type: ignore[return-value]
 
 
-wrong = registry.load(make_graph(guess)).run(text="12")
+wrong = Graph.compile(make_graph(guess), registry).run(text="12")
 match wrong.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # invalid_output
@@ -885,7 +885,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about invalid-output`.
 ### `item_ceiling`
 
 ```python
-per_word = registry.load(make_graph(words, upper))
+per_word = Graph.compile(make_graph(words, upper), registry)
 capped = per_word.run(text="a b c", max_items=2)
 match capped.state:
     case EndedEarly(cause=cause):
@@ -907,7 +907,7 @@ def approve_file(data: bytes) -> bool:
     raise Ask("Send this file?")
 
 
-unshown = registry.load(make_graph(approve_file)).run(data=b"\xff")
+unshown = Graph.compile(make_graph(approve_file), registry).run(data=b"\xff")
 match unshown.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # question_unwritable
@@ -949,7 +949,7 @@ def slow(text: str) -> str:
     return text
 
 
-timed_out = registry.load(make_graph(slow)).run(text="a", timeout=0.05)
+timed_out = Graph.compile(make_graph(slow), registry).run(text="a", timeout=0.05)
 match timed_out.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # run_timed_out
@@ -969,7 +969,7 @@ def stuck(text: str) -> str:
     return text
 
 
-late = registry.load(make_graph(stuck)).run(text="a")
+late = Graph.compile(make_graph(stuck), registry).run(text="a")
 match late.state:
     case EndedEarly(cause=cause):
         print(cause.type)  # timeout

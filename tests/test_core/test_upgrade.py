@@ -13,6 +13,7 @@ from typing import Annotated
 
 import pytest
 from conductor import (
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
@@ -130,7 +131,7 @@ def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clea
     upgraded = registry.upgrade(_graph(), "r")
 
     assert upgraded.edges == (("r.text", "e.text"),)
-    graph = registry.load(upgraded)
+    graph = Graph.compile(upgraded, registry)
     assert graph.is_runnable and graph.problems == [], graph.problems
 
 
@@ -183,7 +184,7 @@ def test_an_edge_into_an_input_a_rewrite_leaves_gone_goes_with_it_and_the_graph_
 
     upgraded = registry.upgrade(graph, "s")
     assert (upgraded.edges, upgraded.nodes[1].values) == ((), {"a": 1})
-    assert registry.load(upgraded).problems == []
+    assert Graph.compile(upgraded, registry).problems == []
 
 
 def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
@@ -219,7 +220,7 @@ def test_a_downgrade_or_an_unknown_node_raises():
 
 def test_compile_leaves_a_pinned_version_alone():
     registry = _registry()
-    graph = registry.load(_graph())
+    graph = Graph.compile(_graph(), registry)
 
     assert graph.describe().nodes["r"].version == 1
     assert graph.is_runnable, graph.problems
@@ -250,7 +251,7 @@ def test_a_renamed_input_takes_its_value_with_it():
     graph_node = upgraded.nodes[0]
     assert graph_node.values == {"full": "Ada"}
     assert upgraded.edges == (("r.text", "e.text"),)
-    assert registry.load(upgraded).problems == []
+    assert Graph.compile(upgraded, registry).problems == []
 
 
 def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge():

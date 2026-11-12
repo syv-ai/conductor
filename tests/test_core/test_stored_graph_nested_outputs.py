@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor import NodeRegistry, Series, make_graph
+from conductor import Graph, NodeRegistry, Series, make_graph
 
 REGISTRY = NodeRegistry()
 
@@ -79,7 +79,7 @@ REGISTRY.stored_graph("wrapped", title="Wrapped", description="A stored graph wh
 
 def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: str) -> Any:
     """The ``result`` of the node ``node_id`` after a run of the graph of ``nodes`` and ``edges`` on ``text``."""
-    graph = REGISTRY.load(make_graph(*nodes, edges=edges))
+    graph = Graph.compile(make_graph(*nodes, edges=edges), REGISTRY)
     assert not graph.problems, graph.problems
     run = graph.run(text=text)
     assert run.status == "complete"
@@ -97,13 +97,13 @@ def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
     def as_given(values: Series[str]) -> list[str]:
         return list(values)
 
-    graph = REGISTRY.load(make_graph(REGISTRY["shout-lines"], as_given, edges=[("shout-lines.shout.result", "as-given.values")]))
+    graph = Graph.compile(make_graph(REGISTRY["shout-lines"], as_given, edges=[("shout-lines.shout.result", "as-given.values")]), REGISTRY)
     run = graph.run(text="a,b;;c")
     assert run.results["shout-lines"]["shout.result"] == run.results["as-given"]["result"] == [["A", "B"], None, ["C"]]
 
 
 def test_the_output_is_described_as_a_series_of_series() -> None:
-    graph = REGISTRY.load(make_graph(REGISTRY["shout-lines"], show, edges=[("shout-lines.shout.result", "show.values")]))
+    graph = Graph.compile(make_graph(REGISTRY["shout-lines"], show, edges=[("shout-lines.shout.result", "show.values")]), REGISTRY)
     described = graph.describe().nodes["shout-lines"].outputs[0]
     assert (described.many, described.type, described.json_schema) == (True, "Series[str]", {"type": "array", "items": {"type": "string"}})
     in_palette = next(entry for entry in REGISTRY.describe().nodes if entry.id == "shout-lines").outputs[0]
@@ -132,7 +132,7 @@ def test_a_series_returned_once_per_document_is_offered_as_a_series_of_series_to
         drawn = results([documents, lines, reader], [*drawn_edges, ("lines.result", f"{reader_id}.{port}")], reader_id, "a,b;;c")
         stored = results([REGISTRY["split-lines"], reader], [("split-lines.lines.result", f"{reader_id}.{port}")], reader_id, "a,b;;c")
         assert drawn == stored == expected
-    described = REGISTRY.load(make_graph(REGISTRY["split-lines"])).describe().nodes["split-lines"].outputs[0]
+    described = Graph.compile(make_graph(REGISTRY["split-lines"]), REGISTRY).describe().nodes["split-lines"].outputs[0]
     assert (described.many, described.type) == (True, "Series[str]")
 
 
@@ -188,7 +188,7 @@ def test_one_item_of_a_list_inside_a_stored_graph_and_of_a_list_outside_it_is_re
     """``whisper`` runs once per line inside the stored graph; outside, each title is split into a list of its
     own. A node that takes one item of each has two lists side by side, and no edge outside can nest them."""
     edges = [("titled.title.result", "lines.document"), ("lines.result", "pair.b"), ("titled.whisper.result", "pair.a")]
-    refused = REGISTRY.load(make_graph(REGISTRY["titled"], lines, pair, edges=edges)).problems[0]
+    refused = Graph.compile(make_graph(REGISTRY["titled"], lines, pair, edges=edges), REGISTRY).problems[0]
     assert (refused.type, refused.ctx["hint"], refused.ctx["stored_graphs"]) == ("series_not_nested", "inside_stored_graph", ["titled"])
     assert sorted(refused.ctx["series"]) == ["lines.result", "titled.lines.result"]
     assert "wire '" not in refused.msg and "Give one of them whole to a Series input" in refused.msg

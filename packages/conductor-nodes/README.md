@@ -10,12 +10,12 @@ uv add syv-conductor-nodes
 
 ```python
 import conductor_nodes
-from conductor import NodeRegistry, make_graph
+from conductor import Graph, NodeRegistry, make_graph
 
 registry = NodeRegistry()
 registry.add_subregistry(conductor_nodes.text.registry)
 
-graph = registry.load(make_graph(conductor_nodes.text.split, conductor_nodes.text.uppercase))
+graph = Graph.compile(make_graph(conductor_nodes.text.split, conductor_nodes.text.uppercase), registry)
 print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
 ```
 
@@ -56,12 +56,12 @@ def greet(name: str) -> str:
     return f"Hello {name}"
 
 
-contacts = registry.load(make_graph(read_contacts, split, greet, collect, edges=[
+contacts = Graph.compile(make_graph(read_contacts, split, greet, collect, edges=[
     ("read-contacts.result", "series-split.value"),
     ("series-split.result.name", "greet.name"),
     ("series-split.result", "table-collect.records"),
     ("greet.result", "table-collect.greeting"),
-], values={"table-collect.columns": ["greeting"]}))
+], values={"table-collect.columns": ["greeting"]}), registry)
 print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 
@@ -81,7 +81,7 @@ print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dic
 ```python
 from conductor_nodes.control import decision
 
-graph = conductor_nodes.registry.load(make_graph(conductor_nodes.text.length, decision, edges=[("text-length.result", "control-decide.value")]))
+graph = Graph.compile(make_graph(conductor_nodes.text.length, decision, edges=[("text-length.result", "control-decide.value")]), conductor_nodes.registry)
 print([field.type for field in graph.describe().nodes["control-decide"].outputs])  # ['int', 'int']
 ```
 

@@ -16,6 +16,7 @@ import pytest
 from conductor import (
     Ask,
     FromRun,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeError,
@@ -231,7 +232,7 @@ async def test_a_cancel_reaches_the_leg_an_answer_queued_during_the_last_one_sta
     inputs = {"items.text": "a,b", "busy.text": "x", "approve.text": "y"}
     for gate in ("first", "second"):
         gates[gate].set()
-    (waiting,) = registry.load(graph).run(inputs).waiting
+    (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
     gates["first"].clear()
     gates["second"].clear()
     calls.clear()
@@ -252,7 +253,7 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     registry, graph, gates, calls = gated()
     for gate in gates.values():
         gate.set()
-    run = registry.load(graph).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    run = Graph.compile(graph, registry).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
     answered = run.answer({run.waiting[0].id: True})
     calls.clear()
     store = MemoryStore()
@@ -504,7 +505,7 @@ async def test_an_answer_queued_during_a_leg_that_raised_stays_queued_and_is_tak
 
     store = MemoryStore()
     worker = _worker(store, registry, from_run=fails_on_the_first_leg)
-    left = left_running("left", graph, registry.load(graph).with_inputs(inputs), owner="a-dead-worker")
+    left = left_running("left", graph, Graph.compile(graph, registry).with_inputs(inputs), owner="a-dead-worker")
     await store.create(left)
     assert await worker.answer(await worker.read("left"), {waiting_id: True}) == "queued"
 
@@ -563,7 +564,7 @@ async def test_a_queued_answer_whose_check_raises_is_refused_as_not_checked_and_
     graph = GraphRecord(nodes=[NodeRecord(id="ask", node="ask"), NodeRecord(id="busy", node="busy")])
     inputs = {"ask.text": "y", "busy.text": "x"}
     gate.set()
-    (waiting,) = registry.load(graph).run(inputs).waiting
+    (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
     gate.clear()
     worker = _worker(store, registry, lease=0.15)
 
@@ -630,7 +631,7 @@ def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], 
     inputs = {"approve.text": "y", "one.text": "x"}
     for gate in gates.values():
         gate.set()
-    (waiting,) = registry.load(graph).run(inputs).waiting
+    (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
     for gate in gates.values():
         gate.clear()
     calls.clear()
@@ -824,7 +825,7 @@ async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_tha
     failed = await store.ended(run_id)
 
     assert failed.cause is not None and (failed.status, failed.cause.type) == ("failed", "state_unwritable")
-    stored = registry.load(graph).load_run(store.rows[run_id].run)
+    stored = Graph.compile(graph, registry).load_run(store.rows[run_id].run)
     assert [unit.id for unit in failed.waiting] == [unit.id for unit in stored.waiting] and len(failed.waiting) == 1
 
 
@@ -862,7 +863,7 @@ async def test_a_run_that_cant_be_loaded_fails_its_leg_and_lists_nothing_as_wait
     gate.set()
     store = MemoryStore()
     worker = _worker(store, registry)
-    await store.create(dataclasses.replace(left_running("left", graph, registry.load(graph).run(inputs), owner="a-dead-worker"), run="{"))
+    await store.create(dataclasses.replace(left_running("left", graph, Graph.compile(graph, registry).run(inputs), owner="a-dead-worker"), run="{"))
 
     await worker.sweep()
     failed = await store.ended("left")
@@ -1024,7 +1025,7 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
     run = await worker.read(run_id)
     view = RunView.of(run)
     assert (view.status, view.cause, run.row.owner, run.row.lease_until) == ("running", None, None, 0.0)
-    assert registry.load(run.row.graph).load_run(run.row.run).status == "running"
+    assert Graph.compile(run.row.graph, registry).load_run(run.row.run).status == "running"
 
 
 async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> None:
@@ -1207,7 +1208,7 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fail
 
     store = SweepFailsOnce()
     worker = _worker(store, registry, lease=0.15)
-    left = left_running("left", graph, registry.load(graph).with_inputs({"text": "a"}), owner=None)
+    left = left_running("left", graph, Graph.compile(graph, registry).with_inputs({"text": "a"}), owner=None)
     if fails == "a row that can't be read":
         await store.create(dataclasses.replace(left, id="broken", state="{"))
     await store.create(left)
@@ -1271,7 +1272,7 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
     registry, graph, gates, calls = gated()
     for gate in gates.values():
         gate.set()
-    run = registry.load(graph).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    run = Graph.compile(graph, registry).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
     checkpoint = run.answer({run.waiting[0].id: True})
     calls.clear()
     store = MemoryStore()

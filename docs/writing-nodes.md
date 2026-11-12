@@ -2,7 +2,7 @@
 
 This page is for you if you write nodes that other people place in graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host loading and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. An input a node doesn't have, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet is in `registry.load(record).problems`.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. An input a node doesn't have, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet is in `Graph.compile(record, registry).problems`.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -13,7 +13,7 @@ Keep your nodes in a registry. Its `category`, `tags` and `extra` are defaults f
 ```python
 from typing import Annotated
 
-from conductor import GraphRecord, NodeRegistry, Param, make_graph
+from conductor import Graph, GraphRecord, NodeRegistry, Param, make_graph
 from conductor.widgets import NumberInput, TextInput
 
 text_nodes = NodeRegistry(category="text", tags=["acme"])
@@ -50,7 +50,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 ```python
 drawn = {"nodes": [{"id": "repeat", "node": "repeat", "values": {"times": 20}}]}  # as an editor saves it
-graph = host.load(GraphRecord.model_validate(drawn))
+graph = Graph.compile(GraphRecord.model_validate(drawn), host)
 
 for problem in graph.problems:
     print(problem.loc, problem.type)
@@ -151,7 +151,7 @@ def reachable(contacts: Table[Contact]) -> Table[Contact]:
     return contacts.filter(pl.col("email").is_not_null())
 
 
-run = tables.load(make_graph(contacts, reachable)).run(csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n")
+run = Graph.compile(make_graph(contacts, reachable), tables).run(csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n")
 print(run.outputs["reachable.result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
 ```
 
@@ -208,7 +208,7 @@ def report(temperature: Temperature) -> str:
     return f"{temperature.degrees} degrees"
 
 
-print(tables.load(make_graph(measure, report)).run().outputs)  # {'report.result': '21.5 degrees'}
+print(Graph.compile(make_graph(measure, report), tables).run().outputs)  # {'report.result': '21.5 degrees'}
 ```
 
 `accepts` only lets the edge be drawn. Your class reads the value itself, so it has to be able to: here `from_attributes` does it.
@@ -248,7 +248,7 @@ def count(texts: Series[str]) -> int:
 
 
 letter = make_graph(open_letter, tag, count, edges=[("open.lines", "tag.line"), ("open.sender", "tag.sender"), ("tag.result", "count.texts")])
-run = registry.load(letter).run(text="Ida\nhello\nsee you")
+run = Graph.compile(letter, registry).run(text="Ida\nhello\nsee you")
 print(run.results["tag"]["result"])  # ['Ida: hello', 'Ida: see you']
 print(run.outputs)                   # {'count.result': 2}
 ```
@@ -278,13 +278,13 @@ def compare(line: str, others: Series[str]) -> str:
 
 
 own = make_graph(open_letter, shout, compare, edges=[("open.lines", "shout.line"), ("open.lines", "compare.line"), ("shout.result", "compare.others")])
-print(registry.load(own).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 1', 'see you against 1']
+print(Graph.compile(own, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 1', 'see you against 1']
 
 every = make_graph(
     open_letter, shout, gather, compare,
     edges=[("open.lines", "shout.line"), ("shout.result", "series-gather.values"), ("open.lines", "compare.line"), ("series-gather.result", "compare.others")],
 )
-print(registry.load(every).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 2', 'see you against 2']
+print(Graph.compile(every, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 2', 'see you against 2']
 ```
 
 - In `own`, `compare` runs once per line for its `line`, and `shout` made one text for that line: `others` is that one text.
@@ -320,7 +320,7 @@ def notify(amount: int) -> str:
     return f"told the manager about {amount}"
 
 
-graph = registry.load(make_graph(route, notify, edges=[("route.large", "notify.amount")]))
+graph = Graph.compile(make_graph(route, notify, edges=[("route.large", "notify.amount")]), registry)
 print(graph.run(amount=5000).results["notify"])  # {'result': 'told the manager about 5000'}
 print(graph.run(amount=5).results["notify"])     # {'result': None}
 ```
@@ -337,7 +337,7 @@ def keep[T](value: T) -> T:
     return value
 
 
-graph = registry.load(make_graph(route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]))
+graph = Graph.compile(make_graph(route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]), registry)
 print(graph.describe().nodes["keep"].outputs[0].type)  # int
 print(graph.run(amount=5000).outputs)                  # {'notify.result': 'told the manager about 5000'}
 ```
@@ -365,7 +365,7 @@ def greet_contact(name: str) -> str:
     return f"Hello {name}"
 
 
-graph = registry.load(make_graph(address_book, each, greet_contact, edges=[("address-book.result", "each.value"), ("each.result.name", "greet-contact.name")]))
+graph = Graph.compile(make_graph(address_book, each, greet_contact, edges=[("address-book.result", "each.value"), ("each.result.name", "greet-contact.name")]), registry)
 print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'greet-contact.result': ['Hello Ida', 'Hello Bo']}
 ```
 
@@ -403,7 +403,7 @@ def cells(line: str, names: list[str]) -> dict[str, str]:
     return dict(zip(names, line.split(",")))
 
 
-graph = registry.load(make_graph(cells, values={"cells.names": ["name", "city"]}))
+graph = Graph.compile(make_graph(cells, values={"cells.names": ["name", "city"]}), registry)
 print(graph.outputs)                           # ['cells.name', 'cells.city']
 print(graph.run(line="Ida,Aarhus").outputs)    # {'cells.name': 'Ida', 'cells.city': 'Aarhus'}
 ```
@@ -429,7 +429,7 @@ def assign(ticket: str) -> str:
     raise Ask(f"Who takes {ticket}?", choices=["ida", "bo"], default="ida")
 
 
-run = registry.load(make_graph(assign)).run(ticket="T-1")
+run = Graph.compile(make_graph(assign), registry).run(ticket="T-1")
 print(run.waiting[0].questions[0].choices)  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
 ```
 
@@ -452,7 +452,7 @@ def review(proposal: str) -> Review:
     raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
 
-graph = registry.load(make_graph(review))
+graph = Graph.compile(make_graph(review), registry)
 run = graph.run(proposal="Move the server")
 stored = run.to_json()  # a waiting run is JSON: store it, and the person may answer next week
 
@@ -483,7 +483,7 @@ def parse(text: str) -> int:
     return int(text)
 
 
-run = registry.load(make_graph(parse)).run(text="twelve")
+run = Graph.compile(make_graph(parse), registry).run(text="twelve")
 match run.state:  # a run that failed, stopped or timed out says why
     case EndedEarly(status=status, cause=cause):
         print(status, cause.type, cause.msg)  # failed not_a_number The text is not a number.
@@ -509,7 +509,7 @@ def fetch(url: str) -> str:
     return "<html>"
 
 
-run = registry.load(make_graph(fetch)).run(url="https://example.com")
+run = Graph.compile(make_graph(fetch), registry).run(url="https://example.com")
 print(run.status, len(attempts))  # complete 3
 ```
 
@@ -533,7 +533,7 @@ def sign(text: str, who: FromRun[Caller]) -> str:
     return f"{text}, {who.name}"
 
 
-run = registry.load(make_graph(sign)).run(text="Done", from_run={Caller: Caller("Ida")})
+run = Graph.compile(make_graph(sign), registry).run(text="Done", from_run={Caller: Caller("Ida")})
 print(run.outputs)  # {'sign.result': 'Done, Ida'}
 ```
 
@@ -556,7 +556,7 @@ def greet(person: str, greeting: str = "Hello") -> str:
 
 
 saved = make_graph(greet_v1, values={"greet.name": "Ida"})
-print(registry.load(saved).run().outputs)  # {'greet.result': 'Hello Ida'}: it still runs version 1
+print(Graph.compile(saved, registry).run().outputs)  # {'greet.result': 'Hello Ida'}: it still runs version 1
 
 moved = registry.upgrade(saved, "greet")
 print(moved.nodes[0].version, moved.nodes[0].values)  # 2 {'person': 'Ida'}

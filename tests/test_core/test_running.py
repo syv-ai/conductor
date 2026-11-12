@@ -21,6 +21,7 @@ from conductor import (
     Ask,
     ExternalError,
     FromRun,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeRecord,
@@ -57,10 +58,10 @@ def _numbers(count: int) -> str:
 
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
     """``split`` making ``items`` items, read by ``definition`` as node ``slow``."""
-    return registry_of(split, definition, *more).load(GraphRecord(
+    return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(items)}), NodeRecord(id="slow", node=definition.id)],
         edges=[("split.result", "slow.text")],
-    ))
+    ), registry_of(split, definition, *more))
 
 
 def _events(run: Any, **kwargs: Any) -> list[Any]:
@@ -96,7 +97,7 @@ def send(email: str) -> str:
 
 
 def test_node_complete_counts_the_items_a_blank_kept_the_node_from_and_a_saved_run_names_them():
-    graph = registry_of(addresses, send).load(make_graph(addresses, send))
+    graph = Graph.compile(make_graph(addresses, send), registry_of(addresses, send))
 
     events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
 
@@ -130,10 +131,10 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
     def meet(a: str, b: str) -> str:
         return f"{a}|{b}"
 
-    graph = registry_of(source, left, right, meet).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="s", node="source"), NodeRecord(id="l", node="left"), NodeRecord(id="r", node="right"), NodeRecord(id="m", node="meet")],
         edges=[("s.result", "l.text"), ("s.result", "r.text"), ("l.result", "m.a"), ("r.result", "m.b")],
-    ))
+    ), registry_of(source, left, right, meet))
 
     events = _events(graph.with_inputs(text="abc"))
 
@@ -149,7 +150,7 @@ def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never
             raise ValueError("not this one")
         return text
 
-    graph = registry_of(split, picky, join).load(make_graph(split, picky, join, values={"split.text": "0,1,2"}))
+    graph = Graph.compile(make_graph(split, picky, join, values={"split.text": "0,1,2"}), registry_of(split, picky, join))
 
     events = _events(graph.with_inputs())
 
@@ -170,11 +171,11 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
             raise ValueError("no c")
         return text
 
-    skipping = registry_of(only_short).load(GraphRecord(nodes=[NodeRecord(id="o", node="only-short")]))
+    skipping = Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="only-short")]), registry_of(only_short))
     assert skipping.run(text="long").outputs == {"o.result": None}
     assert skipping.run(text="ab").outputs == {"o.result": "ab"}
 
-    failing = registry_of(split, fails_on_c).load(make_graph(split, fails_on_c))
+    failing = Graph.compile(make_graph(split, fails_on_c), registry_of(split, fails_on_c))
     failed = failing.run(text="a,b,c")
     assert failed.status == "failed" and failed.results["fails-on-c"]["result"] == ["a", "b", None]
 
@@ -216,7 +217,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
             raise Ask("Is this right?")
         return text
 
-    graph = registry_of(split, maybe).load(make_graph(split, maybe, values={"split.text": "ask,b,c"}))
+    graph = Graph.compile(make_graph(split, maybe, values={"split.text": "ask,b,c"}), registry_of(split, maybe))
 
     events = _events(graph.with_inputs())
 
@@ -255,8 +256,8 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
         raise ExternalError("never retried")
 
     registry = registry_of(fetch_two)
-    pinned = registry.load(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=1)]))
-    newest = registry.load(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=2)]))
+    pinned = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=1)]), registry)
+    newest = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=2)]), registry)
 
     assert pinned.run(text="x").outputs == {"f.result": "one"} and calls == [1, 1, 1]
     calls.clear()
@@ -293,7 +294,7 @@ def test_a_leg_of_nodes_at_concurrency_one_makes_no_threads_of_its_own():
 
     nodes = [NodeRecord(id="s", node="split", values={"text": _numbers(20)})] + [NodeRecord(id=f"n{i}", node="step") for i in range(100)]
     edges = [("s.result", "n0.text")] + [(f"n{i - 1}.result", f"n{i}.text") for i in range(1, 100)]
-    graph = registry_of(split, step).load(GraphRecord(nodes=nodes, edges=edges))
+    graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, step))
 
     assert graph.run().status == "complete"
     assert seen == {threading.get_ident()}
@@ -311,7 +312,7 @@ def test_the_retry_delay_doubles_each_time_and_another_item_takes_the_slot_while
         finished.append(text)
         return text
 
-    graph = registry_of(split, flaky).load(make_graph(split, flaky, values={"split.text": "flaky,steady"}))
+    graph = Graph.compile(make_graph(split, flaky, values={"split.text": "flaky,steady"}), registry_of(split, flaky))
 
     events = _events(graph.with_inputs())
 
@@ -333,10 +334,10 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
     def instant(texts: Series[str]) -> str:
         return "now"
 
-    graph = registry_of(split, sleeper, instant).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(40)}), NodeRecord(id="slow", node="sleeper"), NodeRecord(id="i", node="instant")],
         edges=[("split.result", "slow.text"), ("split.result", "i.texts")],
-    ))
+    ), registry_of(split, sleeper, instant))
 
     run = graph.run()
 
@@ -356,10 +357,10 @@ def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_check
     def needs_text(text: str) -> str:
         return text
 
-    graph = registry_of(split, first_is_last, needs_text).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(4)}), NodeRecord(id="slow", node="first-is-last"), NodeRecord(id="after", node="needs-text")],
         edges=[("split.result", "slow.text"), ("slow.result", "after.text")],
-    ))
+    ), registry_of(split, first_is_last, needs_text))
     in_item_order = [("after", 0), ("after", 1), ("after", 2), ("after", 3)]
 
     async def streamed() -> list[Any]:
@@ -401,10 +402,10 @@ def test_a_reader_made_ready_by_each_of_two_nodes_it_reads_is_called_once(items:
     first = [NodeRecord(id="s", node="from-a-thread", values={"text": "x"})] if items is None else [
         NodeRecord(id="split", node="split", values={"text": _numbers(items)}), NodeRecord(id="s", node="from-a-thread"),
     ]
-    graph = registry_of(split, from_a_thread, left, right, both).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[*first, NodeRecord(id="a", node="left"), NodeRecord(id="b", node="right"), NodeRecord(id="r", node="both")],
         edges=[*([] if items is None else [("split.result", "s.text")]), ("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "r.left"), ("b.result", "r.right")],
-    ))
+    ), registry_of(split, from_a_thread, left, right, both))
 
     run = graph.run()
 
@@ -442,7 +443,7 @@ def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume
         nodes = [NodeRecord(id="split", node="split", values={"text": _numbers(4)}), NodeRecord(id="f", node="first"), NodeRecord(id="t", node="then"), NodeRecord(id="l", node="last")]
         edges = [("split.result", "f.text"), ("f.result", "t.text"), ("t.result", "l.texts")]
         expected, outputs = 9, {"l.result": "0!+1!+2!+3!"}
-    graph = registry_of(split, first, then, last).load(GraphRecord(nodes=nodes, edges=edges))
+    graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, first, then, last))
 
     run = graph.run()
 
@@ -483,7 +484,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
         time.sleep(1.0)
         return "done"
 
-    graph = registry_of(slow_second).load(GraphRecord(nodes=[NodeRecord(id="s", node="slow-second")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="slow-second")]), registry_of(slow_second))
 
     assert graph.run(text="x").outputs == {"s.result": "done"}
 
@@ -501,7 +502,7 @@ def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
     def raises(text: str) -> str:
         raise raised
 
-    graph = registry_of(raises).load(GraphRecord(nodes=[NodeRecord(id="r", node="raises")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="r", node="raises")]), registry_of(raises))
 
     run = graph.run(text="x")
     streamed = _events(graph.with_inputs(text="x"))[-1].run
@@ -517,7 +518,7 @@ def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_strea
     def echo(text: str) -> str:
         return text
 
-    graph = registry_of(echo).load(GraphRecord(nodes=[NodeRecord(id="e", node="echo")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="echo")]), registry_of(echo))
     prepared = graph.with_inputs(text="x")
 
     def broken(*args: Any, **kwargs: Any) -> Any:
@@ -731,7 +732,7 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
     def source(tag: int = 0) -> Series[Line]:
         return [Line(text=str(n)) for n in range(100)]
 
-    graph = registry_of(source, echo).load(make_graph(source, echo))
+    graph = Graph.compile(make_graph(source, echo), registry_of(source, echo))
     prepared = graph.run(tag=0).with_inputs(tag=1)
 
     async def go() -> Any:
@@ -798,7 +799,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run
         calls.append(1)
         raise ExternalError("try again")
 
-    prepared = registry_of(flaky).load(GraphRecord(nodes=[NodeRecord(id="f", node="flaky")])).with_inputs(text="x")
+    prepared = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="flaky")]), registry_of(flaky)).with_inputs(text="x")
 
     async def go() -> Any:
         cancel, last = asyncio.Event(), None
@@ -824,7 +825,7 @@ def test_a_stream_that_cannot_start_raises_at_the_call_before_any_event():
     def signed(text: str, who: FromRun[Caller]) -> str:
         return text
 
-    prepared = registry_of(signed).load(GraphRecord(nodes=[NodeRecord(id="s", node="signed")])).with_inputs(text="x")
+    prepared = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed)).with_inputs(text="x")
 
     with pytest.raises(InvalidCallError) as refused:
         prepared.stream()
@@ -844,7 +845,7 @@ def test_a_type_no_node_needs_from_the_run_is_fine():
     def signed(text: str, who: FromRun[Caller]) -> str:
         return text
 
-    graph = registry_of(signed).load(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="signed")]), registry_of(signed))
 
     assert graph.run(text="x", from_run={Caller: Caller(), Unused: Unused()}).outputs == {"s.result": "x"}
 
@@ -854,7 +855,7 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
     def echo(text: str) -> str:
         return text
 
-    graph = registry_of(split, echo, join).load(make_graph(split, echo, join))
+    graph = Graph.compile(make_graph(split, echo, join), registry_of(split, echo, join))
 
     async def inside() -> Any:
         return graph.run(text="a,b")
@@ -884,10 +885,10 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
     def width(reading: Reading, checked: str) -> str:
         return f"{reading.low}..{reading.high} {checked}"
 
-    graph = registry_of(measure, check, width).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="m", node="measure"), NodeRecord(id="c", node="check"), NodeRecord(id="w", node="width")],
         edges=[("m.result", "c.reading"), ("m.result", "w.reading"), ("c.result", "w.checked")],
-    ))
+    ), registry_of(measure, check, width))
     paused = graph.run(text="x")
 
     loaded = graph.load_run(paused.to_json())
@@ -916,10 +917,10 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
     def greet(email: str) -> str:
         return email
 
-    graph = registry_of(bare, contact_records, greet).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="b", node="bare"), NodeRecord(id="r", node="contact-records"), NodeRecord(id="g", node="greet")],
         edges=[("b.result", "r.table"), ("r.result.email", "g.email")],
-    ))
+    ), registry_of(bare, contact_records, greet))
 
     run = graph.run(text="x")
 
@@ -940,10 +941,10 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
     def records(table: Table[Reachable]) -> Series[Reachable]:
         return table.to_dicts()
 
-    graph = registry_of(contacts, records, send).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="c", node="contacts"), NodeRecord(id="r", node="records"), NodeRecord(id="m", node="send")],
         edges=[("c.result", "r.table"), ("r.result.email", "m.email")],
-    ))
+    ), registry_of(contacts, records, send))
     run = graph.run(text="x")
 
     loaded = graph.load_run(run.to_json())
@@ -965,7 +966,7 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_
             return True
         raise Ask(f"Approve {name}?")
 
-    graph = registry_of(read, approve).load(make_graph(read, approve))
+    graph = Graph.compile(make_graph(read, approve), registry_of(read, approve))
     paused = graph.run(text="ida,bo")
     answered = paused.answer(paused.waiting[0], True).resume()
 
@@ -985,7 +986,7 @@ def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_f
         time.sleep(0.2)
         return ["a", "b", "c", "d"]
 
-    graph = registry_of(boom, many).load(GraphRecord(nodes=[NodeRecord(id="b", node="boom"), NodeRecord(id="m", node="many")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="b", node="boom"), NodeRecord(id="m", node="many")]), registry_of(boom, many))
     run = graph.run({"b.text": "x", "m.text": "y"}, max_items=2)
 
     assert (run.status, run.state.cause.type) == ("failed", "execution_failed")
@@ -1005,7 +1006,7 @@ def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_an
         time.sleep(0.9)
         return text
 
-    graph = registry_of(late, long).load(GraphRecord(nodes=[NodeRecord(id="l", node="late"), NodeRecord(id="o", node="long")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="l", node="late"), NodeRecord(id="o", node="long")]), registry_of(late, long))
     run = graph.run({"l.text": "mail", "o.text": "x"})
     assert (run.status, run.state.cause.type) == ("failed", "timeout") and effects == ["mail"]
 
@@ -1033,7 +1034,7 @@ def _counting_llm(calls: list[int], seconds: float) -> Any:
 def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_calls_in_flight():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.005)
-    graph = registry_of(numbers, llm).load(make_graph(numbers, llm))
+    graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
 
     async def until_killed() -> tuple[str, int]:
         saved, start = None, time.monotonic()
@@ -1059,7 +1060,7 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
 def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drains():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.3)
-    graph = registry_of(numbers, llm).load(make_graph(numbers, llm))
+    graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
 
     async def cancelled() -> list[Any]:
         cancel, seen = asyncio.Event(), []
@@ -1080,7 +1081,7 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
 def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_of_a_running_run_and_no_run_end():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.3)
-    graph = registry_of(numbers, llm).load(make_graph(numbers, llm))
+    graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
 
     async def handed_back() -> list[Any]:
         hand_back, seen = asyncio.Event(), []
@@ -1102,7 +1103,7 @@ def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_
 
 
 def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
-    graph = registry_of(numbers).load(make_graph(numbers))
+    graph = Graph.compile(make_graph(numbers), registry_of(numbers))
 
     async def both() -> Any:
         cancel, hand_back = asyncio.Event(), asyncio.Event()
@@ -1116,7 +1117,7 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
 
 @pytest.mark.parametrize("every", [0, -1])
 def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
-    graph = registry_of(split).load(make_graph(split))
+    graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(text="a").stream(checkpoint_every=every)
     assert [p.type for p in refused.value.errors()] == ["invalid_checkpoint_every"]
@@ -1124,7 +1125,7 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
 
 @pytest.mark.parametrize("timeout", [0, -1, math.nan])
 def test_a_legs_timeout_is_a_number_of_seconds_above_zero_refused_at_the_call(timeout: Any) -> None:
-    graph = registry_of(split).load(make_graph(split))
+    graph = Graph.compile(make_graph(split), registry_of(split))
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
             call(graph.with_inputs(text="a"))
@@ -1135,7 +1136,7 @@ def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_cal
     """A checkpoint keeps the earlier work not yet taken as it stood, written after the stream ended or at once."""
     calls: list[int] = []
     llm = _counting_llm(calls, 0.0005)
-    graph = registry_of(numbers, llm).load(make_graph(numbers, llm))
+    graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
     first = graph.run(n=list(range(300)))
     calls.clear()
 
@@ -1157,7 +1158,7 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
         time.sleep(0.3)
         return n
 
-    graph = registry_of(numbers, flaky).load(make_graph(numbers, flaky))
+    graph = Graph.compile(make_graph(numbers, flaky), registry_of(numbers, flaky))
 
     async def leg() -> list[Any]:
         return [e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)]
@@ -1178,9 +1179,9 @@ def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_
         return text.upper()
 
     inner = stored_graph("twice", title="Twice", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
-    graph = registry_of(words, upper, inner).load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="emb", node="twice")], edges=[("w.result", "emb.text")],
-    ))
+    ), registry_of(words, upper, inner))
     events = _events(graph.with_inputs(text="a _ b _"))
 
     complete = {e.loc: (e.outcomes, e.not_called) for e in events if e.type == "node_complete"}

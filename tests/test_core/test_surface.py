@@ -26,6 +26,7 @@ from conductor import (
     SKIPPED,
     Deprecation,
     ExternalError,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
@@ -113,8 +114,8 @@ def test_a_registry_prints_its_nodes_each_as_its_own_repr():
 def test_a_loaded_graph_prints_a_one_line_summary():
     registry = _registry()
 
-    assert repr(registry.load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale"}]}))) == "<Graph of 1 node, runnable>"
-    assert repr(registry.load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "nope"}]}))) == "<Graph of 1 node, 1 problem>"
+    assert repr(Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale"}]}), registry)) == "<Graph of 1 node, runnable>"
+    assert repr(Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "nope"}]}), registry)) == "<Graph of 1 node, 1 problem>"
 
 
 def test_a_record_prints_only_what_is_not_at_its_default():
@@ -144,7 +145,7 @@ def test_skipped_is_falsy():
 
 
 def test_a_problem_dumps_to_json_and_reads_back():
-    graph = _registry().load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}), _registry())
     (told,) = graph.problems
 
     dumped = json.loads(told.model_dump_json())
@@ -171,10 +172,10 @@ def test_a_problem_read_back_refuses_a_key_it_does_not_have():
 
 
 def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
-    graph = _registry().load(GraphRecord.model_validate({
+    graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "a", "node": "hello", "values": {"name": "x"}}, {"id": "b", "node": "scale", "values": {"facter": 2}}],
         "edges": [["a.reslt", "b.value"]],
-    }))
+    }), _registry())
 
     assert {problem.type for problem in graph.problems} == {"unknown_output", "unknown_input"}
     for problem in graph.problems:
@@ -183,17 +184,17 @@ def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
 
 
 def test_an_edge_to_a_missing_output_says_what_the_node_has():
-    graph = _registry().load(GraphRecord.model_validate({
+    graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "a", "node": "hello", "values": {"name": "x"}}, {"id": "b", "node": "scale"}],
         "edges": [["a.reslt", "b.value"]],
-    }))
+    }), _registry())
 
     (found,) = graph.problems
     assert found.type == "unknown_output" and found.ctx["outputs"] == ["a.result"] and "it gives a.result" in found.msg
 
 
 def test_an_unknown_input_names_the_inputs_the_node_has():
-    graph = _registry().load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}), _registry())
 
     (found,) = graph.problems
     assert found.msg == "'s' has no input 'facter'; it has value, factor."
@@ -201,7 +202,7 @@ def test_an_unknown_input_names_the_inputs_the_node_has():
 
 def test_a_bad_typed_in_value_names_the_field_and_the_type_but_never_the_value():
     """A host streams problems to a browser, so what a person typed stays out of them."""
-    graph = _registry().load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "factor": "seventy"}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "factor": "seventy"}}]}), _registry())
 
     (found,) = graph.problems
     assert (found.type, found.loc) == ("invalid_value", ("s", "factor"))
@@ -210,7 +211,7 @@ def test_a_bad_typed_in_value_names_the_field_and_the_type_but_never_the_value()
 
 
 def test_a_refused_run_lists_each_problem_with_its_place_and_code():
-    graph = _registry().load(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}), _registry())
 
     with pytest.raises(InvalidCallError) as raised:
         graph.run()
@@ -231,7 +232,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
             raise ValueError("no")
         return n
 
-    run = registry.load(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "numbers"}, {"id": "e", "node": "each"}], "edges": [["n.result", "e.n"]]})).run(upto=3)
+    run = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "numbers"}, {"id": "e", "node": "each"}], "edges": [["n.result", "e.n"]]}), registry).run(upto=3)
 
     assert run.status == "failed" and run.state.cause is not None and run.state.cause.loc == ("e", 1)
     with pytest.raises(InvalidCallError) as raised:
@@ -321,7 +322,7 @@ def _streamed_events() -> list[Any]:
     def same(x: float) -> float:
         return x
 
-    graph = registry.load(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "frame"}, {"id": "s", "node": "same"}]}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "frame"}, {"id": "s", "node": "same"}]}), registry)
 
     async def stream() -> list[Any]:
         return [event async for event in graph.with_inputs({"f.x": math.nan, "s.x": math.inf}).stream()]
@@ -520,7 +521,7 @@ def test_english_and_other_libraries_words_are_not_a_host_word(line):
 def test_a_problems_ctx_holds_lists_as_lists_and_its_message_writes_them():
     from conductor import NodeRegistry
 
-    empty = NodeRegistry().load(GraphRecord.model_validate({"nodes": [{"id": "x", "node": "read"}]})).problems[0]
+    empty = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "x", "node": "read"}]}), NodeRegistry()).problems[0]
     assert (empty.ctx["choices"], empty.msg) == ([], "There is no node 'read'; the nodes are none.")
 
 
@@ -543,7 +544,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     described = registry.describe()
     assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], FunctionNodeDescription)
     assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[0].json_schema == {"type": "string"}
-    assert isinstance(registry.load(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}]})).describe(), GraphDescription)
+    assert isinstance(Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}]}), registry).describe(), GraphDescription)
     for record in (RegistryDescription, GraphDescription):
         assert "schema" in json.dumps(record.model_json_schema(mode="serialization"))
     assert RegistryDescription.model_validate_json(described.model_dump_json()) == described

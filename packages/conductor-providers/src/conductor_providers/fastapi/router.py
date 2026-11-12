@@ -8,6 +8,7 @@ from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
 from conductor import (
+    Graph,
     GraphDescription,
     GraphRecord,
     InvalidCallError,
@@ -295,7 +296,7 @@ def run_router(
     @router.post("/load")
     def load_graph(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
         """The graph as loading reads it: each node's fields, where it runs, and every problem."""
-        return nodes_for(who).load(graph).describe()
+        return Graph.compile(graph, nodes_for(who)).describe()
 
     @router.post("/runs", status_code=202)
     async def start_run(body: StartRun, who: Annotated[C, Depends(caller)]) -> Started:

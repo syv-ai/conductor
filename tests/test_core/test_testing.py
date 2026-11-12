@@ -7,6 +7,7 @@ from conductor import (
     Ask,
     ExternalError,
     FromRun,
+    Graph,
     InvalidCallError,
     NodeRegistry,
     Param,
@@ -94,7 +95,7 @@ def test_a_from_run_value_is_taken_by_the_class_the_node_names_and_a_subclass_ke
 
     registry = registry_of(who)
     assert found(registry, examples={"who": [{"text": "a"}]}, from_run={Session: TestSession()}) == []
-    graph = registry.load(make_graph(who, values={"who.text": "a"}))
+    graph = Graph.compile(make_graph(who, values={"who.text": "a"}), registry)
     assert graph.run(from_run={Session: TestSession()}).outputs == {"who.result": "a"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run(from_run={TestSession: TestSession()})
@@ -279,7 +280,7 @@ def test_a_protocol_from_run_given_under_another_key_is_from_run_missing():
     def read(x: int, authority: FromRun[Authority]) -> int:
         return x
 
-    graph = registry_of(read).load(make_graph(read, values={"read.x": 1}))
+    graph = Graph.compile(make_graph(read, values={"read.x": 1}), registry_of(read))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(from_run={str: "a session"})
     assert [p.type for p in refused.value.errors()] == ["from_run_missing"]

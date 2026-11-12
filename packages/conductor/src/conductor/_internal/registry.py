@@ -29,10 +29,11 @@ naming both. ``describe()`` is what an editor reads: every node and every
 type, once, as a ``RegistryDescription``, each type with the ids of every
 type here that admits it (``accepted_as``).
 
-``registry.load(record)`` reads a stored graph into a ``Graph`` that keeps
-its own copy of the definitions it resolved, so a later change to the
-registry doesn't reach it. ``registry.upgrade(record, node_id)`` moves one
-node of a record to a newer version.
+``Graph.compile(record, registry)`` compiles a graph record against the
+registry's definitions into a ``Graph`` that keeps its own copy of the
+definitions it resolved, so a later change to the registry doesn't reach it.
+``registry.upgrade(record, node_id)`` moves one node of a record to a newer
+version.
 """
 
 from __future__ import annotations
@@ -45,9 +46,8 @@ from typing import Any, Concatenate
 
 from pydantic import JsonValue
 
-from conductor._internal.compiled import compile_graph
+from conductor._internal.compiled import CompiledGraph, compile_graph
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, values_as_json
 from conductor._internal.node_definition import (
     FunctionDefinition,
@@ -267,22 +267,14 @@ class NodeRegistry:
             case StoredGraphDefinition():
                 pass
         if definition.id not in self._graph_descriptions:
-            described = self.load(GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])).describe().nodes["node"]
+            record = GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])
+            described = compile_graph(record, self._nodes, CompiledGraph).describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
                 StoredGraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
             )
         return self._graph_descriptions[definition.id]
 
     # -- graphs ------------------------------------------------------------------
-
-    def load(self, record: GraphRecord | str | bytes) -> Graph:
-        """Load a stored graph, given as a ``GraphRecord`` or as its JSON text.
-
-        It never raises for a half-finished drawing: what is wrong is in
-        ``graph.problems``. The graph keeps its own copy of the definitions
-        as they are when it loads.
-        """
-        return compile_graph(as_record(record), self._nodes, Graph)
 
     def upgrade(self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.

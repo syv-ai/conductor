@@ -30,10 +30,10 @@ def join(texts: Series[str]) -> str:
 
 assert upper("a") == "A"  # a node is called like its function
 
-graph = registry.load(GraphRecord.model_validate({            # a graph is data: a GraphRecord, or its JSON text
+graph = Graph.compile(GraphRecord.model_validate({            # a graph is data: a GraphRecord, or its JSON text
     "nodes": [{"id": "lines", "node": "lines"}, {"id": "upper", "node": "upper"}, {"id": "join", "node": "join"}],
     "edges": [["lines.result", "upper.text"], ["upper.result", "join.texts"]],
-}))
+}), registry)
 assert graph.is_runnable, graph.problems
 
 run = graph.run(text="a\nb\nc")    # by address: graph.run({"lines.text": ...})
@@ -42,7 +42,7 @@ run.results["upper"]["result"]     # ["A", "B", "C"]: ran once per item of lines
 run.results["join"]["result"]      # "A+B+C": Series[str] received every value, once
 ```
 
-`make_graph(*nodes, edges=None, values={}, defaults={})` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`. With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller. `make_graph` writes the record and loads nothing. It raises one `InvalidCallError` listing what it can't write: a value or default addressed to a node it wasn't given (`node_not_in_graph`), a value with no JSON form or holding a set (`invalid_value`), an edge that is no address (`invalid_record`), a chain it can't draw (`not_a_chain`). Everything else (an input or output a node doesn't have, a value its field refuses, a default no caller reaches, an edge between types that don't meet, a graph half drawn) is in `registry.load(record).problems`.
+`make_graph(*nodes, edges=None, values={}, defaults={})` writes a `GraphRecord`, each node at its version and under its own id (`upper-1`, `upper-2` when one is used twice). With no `edges` the nodes form a chain: each takes its one required input nothing typed in fills from the one output before it (`not_a_chain` otherwise). A chain reads the fields each node declares; a stored graph, or a node whose fields a hook works out, takes `edges=`. With `edges=[("upper.result", "join.texts")]` those are every edge; nothing is matched by name. `values={"upper.text": "x"}` types values in, fixed; `defaults=` the same, open to the caller. `make_graph` writes the record and loads nothing. It raises one `InvalidCallError` listing what it can't write: a value or default addressed to a node it wasn't given (`node_not_in_graph`), a value with no JSON form or holding a set (`invalid_value`), an edge that is no address (`invalid_record`), a chain it can't draw (`not_a_chain`). Everything else (an input or output a node doesn't have, a value its field refuses, a default no caller reaches, an edge between types that don't meet, a graph half drawn) is in `Graph.compile(record, registry).problems`.
 
 ## Core Concepts
 
@@ -125,7 +125,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 ### Loading
 
-`registry.load(record)` takes a `GraphRecord` or its JSON text; a host that holds a dict writes `GraphRecord.model_validate(data)`. JSON text that isn't a record's shape raises `InvalidCallError` of `invalid_record` problems. It never raises for a fault in the graph: each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) in `graph.problems`, and `graph.is_runnable` says whether there are none.
+`Graph.compile(record, registry)` takes a `GraphRecord` or its JSON text; a host that holds a dict writes `GraphRecord.model_validate(data)`. JSON text that isn't a record's shape raises `InvalidCallError` of `invalid_record` problems. It never raises for a fault in the graph: each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) in `graph.problems`, and `graph.is_runnable` says whether there are none.
 
 - The rule: the shape is the call's, what the shape says is the graph's. What doesn't have a record's shape raises `InvalidCallError`, one `invalid_record` problem per fault, at `("record", *where)`, with pydantic's code in `ctx.error`. That covers text that isn't JSON, a key a record doesn't have (`vaules`, or `type` for `node`), a field of the wrong type, and an edge that isn't a pair of addresses.
 - The graph keeps its own copy of the definitions it resolved, so a later change to the registry doesn't reach it.
@@ -172,7 +172,7 @@ def approve(invoice: str) -> bool:
     raise Ask(f"Approve {invoice}?")
 
 
-approving = registry.load(make_graph(approve, values={"approve.invoice": "INV-1"}))
+approving = Graph.compile(make_graph(approve, values={"approve.invoice": "INV-1"}), registry)
 paused = approving.run()                                 # paused.status == "waiting"
 answered = paused.answer(paused.waiting[0], True)        # raises here if wrong; no node runs
 finished = answered.resume()
@@ -203,7 +203,7 @@ def send(contact: str) -> str:
     return f"sent to {contact}"
 
 
-sending = registry.load(make_graph(lines, send))
+sending = Graph.compile(make_graph(lines, send), registry)
 first = sending.run(text="ida@a.dk\nbo@b.dk")                # two mails
 second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added: one mail
 ```

@@ -21,7 +21,7 @@ uv add syv-conductor
 Three functions, a graph of them, a run:
 
 ```python
-from conductor import NodeRegistry, Series, make_graph
+from conductor import Graph, NodeRegistry, Series, make_graph
 
 registry = NodeRegistry()
 
@@ -41,7 +41,7 @@ def join(texts: Series[str]) -> str:
     return "+".join(texts)
 
 
-graph = registry.load(make_graph(lines, shout, join))
+graph = Graph.compile(make_graph(lines, shout, join), registry)
 run = graph.run(text="a\nb\nc")
 print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
 print(run.outputs)                     # {'join.result': 'A!+B!+C!'}
@@ -119,7 +119,7 @@ drawing = """{
   ]
 }"""
 
-graph = registry.load(drawing)
+graph = Graph.compile(drawing, registry)
 print(list(graph.inputs))  # ['csv']
 print(graph.outputs)       # ['summary.result']
 print({node_id: runs.msg for node_id, runs in graph.runs_on.items()})  # {'read': 'once', 'approve': 'per item of read.result', 'summary': 'once'}
@@ -132,14 +132,14 @@ Nobody declares what the graph takes or returns. Its inputs are the open inputs 
 A half-finished drawing still loads. Everything wrong is a problem with a place, so an editor can mark it on the node. Only JSON that isn't a graph record at all, such as a misspelled key, raises `InvalidCallError`:
 
 ```python
-unfinished = registry.load("""{
+unfinished = Graph.compile("""{
   "nodes": [
     {"id": "read", "node": "read"},
     {"id": "approve", "node": "approve"},
     {"id": "mail", "node": "send-mail"}
   ],
   "edges": [["read.result.name", "approve.name"]]
-}""")
+}""", registry)
 
 print(unfinished.is_runnable)  # False
 for problem in unfinished.problems:
@@ -177,7 +177,7 @@ saved = run.to_json()
 Days later, in another process, load the same graph, read the run back and answer:
 
 ```python
-run = registry.load(drawing).load_run(saved)
+run = Graph.compile(drawing, registry).load_run(saved)
 run = run.answer(run.waiting[0], True).resume()
 
 print(run.status)   # complete

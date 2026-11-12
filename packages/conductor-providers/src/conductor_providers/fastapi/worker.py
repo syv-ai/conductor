@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import GraphRecord, InvalidCallError, NodeRegistry, Run, Waiting
+from conductor import Graph, GraphRecord, InvalidCallError, NodeRegistry, Run, Waiting
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -166,7 +166,7 @@ class Worker(Generic[C]):
             InvalidCallError: The graph can't run on ``who``'s nodes, or refuses the inputs.
         """
         nodes = self._nodes_for(who)
-        saved = await asyncio.to_thread(lambda: nodes.load(graph).with_inputs(inputs, max_items=self._max_items).to_json())
+        saved = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items).to_json())
         return await self._create(graph.model_dump_json(), who, saved)
 
     async def again(self, run: RunAsRead, inputs: Mapping[str, Any], who: C) -> str:
@@ -634,4 +634,4 @@ def _loaded(row: StoredRun, nodes: NodeRegistry) -> Run:
     Returns:
         The run as the row's ``run`` saved it.
     """
-    return nodes.load(row.graph).load_run(row.run)
+    return Graph.compile(row.graph, nodes).load_run(row.run)

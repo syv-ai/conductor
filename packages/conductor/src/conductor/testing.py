@@ -149,7 +149,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
         return [kit_problem.needs_example(version.id, version.version, inputs=missing)]
-    failed = [p for p in registry.load(_one_node_graph(version, values)).problems if p.type in _HOOK_CODES]
+    failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type in _HOOK_CODES]
     return [kit_problem.hook_failed(version.id, version.version, reason=p.msg, cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
 
 
@@ -168,7 +168,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
         upgraded = registry.upgrade(record, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
         return [kit_problem.upgrade_raised(older.id, older.version, newest=newest, error=type(raised).__name__, reason=str(raised))]
-    problems = registry.load(upgraded).problems
+    problems = Graph.compile(upgraded, registry).problems
     if not problems:
         return []
     reason = "; ".join(f"{p.type}: {p.msg}" for p in problems)

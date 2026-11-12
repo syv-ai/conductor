@@ -17,6 +17,7 @@ from typing import Annotated, Any, Literal, TypedDict
 import pytest
 from conductor import (
     Deprecation,
+    Graph,
     GraphRecord,
     NodeDeclarationError,
     NodeRecord,
@@ -410,7 +411,7 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
     registry.add(_node("kept"), _node("dropped"))
     narrowed = registry.filter(lambda definition: definition.id == "kept")
 
-    graph = narrowed.load(GraphRecord(nodes=[NodeRecord(id="d", node="dropped")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="d", node="dropped")]), narrowed)
 
     assert [problem.type for problem in graph.problems] == ["unknown_node"]
 
@@ -747,8 +748,8 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
 
     registry.add(stored_graph("loud", title="Loud", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
     loads = []
-    load = NodeRegistry.load
-    monkeypatch.setattr(NodeRegistry, "load", lambda self, record: loads.append(record) or load(self, record))
+    compile_graph = registry_module.compile_graph
+    monkeypatch.setattr(registry_module, "compile_graph", lambda record, *rest: loads.append(record) or compile_graph(record, *rest))
 
     first, second = registry.describe(), registry.describe()
     assert first == second and len(loads) == 1

@@ -503,7 +503,7 @@ def stored_graph(
 
         enrich = stored_graph("enrich", title="Enrich", description="Looks up and adds the company's details.")(record)
 
-    The record is given as ``registry.load`` takes one: a ``GraphRecord`` or
+    The record is given as ``Graph.compile`` takes one: a ``GraphRecord`` or
     its JSON text. Text of the wrong shape raises ``InvalidCallError`` with
     ``invalid_record`` problems. The arguments mean what they mean on
     ``@node``. There is no ``policy`` and there are no hooks: the nodes inside

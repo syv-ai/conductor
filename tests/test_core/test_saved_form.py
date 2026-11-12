@@ -14,6 +14,7 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
+    Graph,
     GraphRecord,
     InvalidCallError,
     NodeRecord,
@@ -116,7 +117,7 @@ def _registry() -> NodeRegistry:
 def _everything() -> Any:
     """A graph with a skipped output, a blank output, a skipped item, an empty Series, a waiting unit, an embedded
     graph and tables."""
-    return _registry().load(GraphRecord(
+    return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id=n, node=kind) for n, kind in (
             ("lines", "lines"), ("gate", "gate"), ("maybe", "maybe"), ("letters", "letters"), ("ask", "ask"), ("frame", "frame"),
             ("typed", "typed-frame"), ("reading", "reading"), ("long", "join"), ("e", "inner"),
@@ -125,7 +126,7 @@ def _everything() -> Any:
             ("lines.result.text", "gate.text"), ("lines.result.text", "maybe.text"), ("lines.result.text", "letters.text"),
             ("lines.result.text", "ask.text"), ("gate.long", "long.texts"), ("lines.result.text", "e.text"),
         ],
-    ))
+    ), _registry())
 
 
 def _inputs(text: str) -> dict[str, str]:
@@ -259,7 +260,7 @@ def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
-    graph = _registry().load(GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")]), _registry())
     run = graph.run({"lines.text": "ab", "reading.text": "inf", "loose.text": "x", "float-or-text.text": "x", "typed-frame.text": "x", "frame.text": "p"})
     json.loads(run.to_json(), parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}"))
 
@@ -315,7 +316,7 @@ def test_a_value_with_no_json_form_is_refused_at_the_save_naming_its_output() ->
 
     registry = NodeRegistry()
     registry.add(odd)
-    run = registry.load(GraphRecord(nodes=[NodeRecord(id="o", node="odd")])).run(text="x")
+    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x")
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -331,9 +332,9 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
 
     registry = _registry()
     registry.add(rows)
-    graph = registry.load(GraphRecord(
+    graph = Graph.compile(GraphRecord(
         nodes=[NodeRecord(id=n, node=n) for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")], edges=[("lines.result.text", "letters.text")],
-    ))
+    ), registry)
     run = graph.run({"lines.text": "ab,xa", "reading.text": "inf", "loose.text": "x", "typed-frame.text": "x", "rows.text": "x"})
 
     written = run.outputs_json()
@@ -360,7 +361,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     registry = NodeRegistry()
     registry.add(odd)
     with pytest.raises(InvalidCallError) as refused:
-        registry.load(GraphRecord(nodes=[NodeRecord(id="o", node="odd")])).run(text="x").outputs_json()
+        Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x").outputs_json()
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc, problem.ctx["at"]) == ("state_unwritable", ("outputs", "o.result"), "o.result")
 
@@ -428,7 +429,7 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() ->
 
     registry = NodeRegistry()
     registry.add(listed, letters)
-    graph = registry.load(GraphRecord(nodes=[NodeRecord(id="listed", node="listed"), NodeRecord(id="letters", node="letters")]))
+    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="listed", node="listed"), NodeRecord(id="letters", node="letters")]), registry)
     run = graph.run({"listed.text": "ax", "letters.text": "ax"})
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["outcomes"]["listed"]
