@@ -273,6 +273,12 @@ class NodeRegistry[C]:
         return self._context_type
 
     @property
+    def definitions(self) -> Mapping[str, NodeDefinition]:
+        """Every node definition by its id, in the order they arrived: what a graph compiled here looks its nodes up in.
+        Read-only."""
+        return MappingProxyType(self._nodes)
+
+    @property
     def types(self) -> Mapping[str, type]:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)

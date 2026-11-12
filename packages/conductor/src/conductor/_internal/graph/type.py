@@ -40,7 +40,7 @@ class Graph[C](CompiledGraph):
             read = read_record(record)
         except RefusedError as refused:
             raise InvalidCallError(refused.problems) from None
-        return compile_graph(read, {definition.id: definition for definition in registry}, registry.context_type, Graph)
+        return compile_graph(read, registry.definitions, registry.context_type, Graph)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,
