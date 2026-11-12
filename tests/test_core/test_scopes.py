@@ -167,7 +167,7 @@ def load(nodes: dict[str, str | dict], edges: list[tuple[str, str]], registry: N
 
 
 def feeds(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
-    return {i.field.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes[node_id].inputs}
+    return {i.field.name: (i.source.mode, i.source.series) for i in graph.describe().nodes[node_id].inputs}
 
 
 def problems(graph) -> list[tuple[str, tuple]]:

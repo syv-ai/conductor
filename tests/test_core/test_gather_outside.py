@@ -380,7 +380,7 @@ def test_a_series_input_fed_the_one_value_made_for_the_item_its_node_runs_for_re
         "edges": [["s.result", "e.up.a"], ["s.result", "e.chars.a"]],
     }), REGISTRY)
     assert not flat.problems and not embedded.problems
-    feed = {field.field.name: (field.feed.mode, field.feed.series) for field in flat.describe().nodes["j"].inputs}
+    feed = {field.field.name: (field.source.mode, field.source.series) for field in flat.describe().nodes["j"].inputs}
     assert feed == {"a": ("collected", None), "b": ("collected", "c.result")}
     assert flat.run(text="ab c").results["j"]["result"] == embedded.run(text="ab c").results["e"]["both.result"] == ["AB:AB", "C:C"]
 

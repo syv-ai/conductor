@@ -675,7 +675,7 @@ def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], 
     outputs, and its problems."""
     described = graph.describe().nodes[node_id]
     return (
-        described.found, described.runs.msg if described.runs else None, {i.field.name: i.feed.mode for i in described.inputs},
+        described.found, described.runs.msg if described.runs else None, {i.field.name: i.source.mode for i in described.inputs},
         [o.name for o in described.outputs], [p.type for p in described.problems],
     )
 

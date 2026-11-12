@@ -772,9 +772,9 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     nodes = loaded.describe().nodes
 
     def fed(node_id: str) -> dict[str, str]:
-        return {i.field.name: i.feed.msg for i in nodes[node_id].inputs}
+        return {i.field.name: i.source.msg for i in nodes[node_id].inputs}
 
-    assert nodes["k"].inputs[0].feed.model_dump() == {"mode": "outer_value", "series": None, "msg": "the value of the graph"}
+    assert nodes["k"].inputs[0].source.model_dump() == {"mode": "outer_value", "series": None, "msg": "the value of the graph"}
     assert nodes["j"].runs == RunsOn(mode="once", msg="once")
     assert loaded.runs_on["u"] == RunsOn(mode="per_item", series="s.result", msg="per item of s.result")
     assert fed("u") == {"text": "per item of s.result"}
@@ -1507,7 +1507,7 @@ def test_a_loop_over_items_made_inside_a_stored_graph_is_named_by_the_list_insid
                    edges=(("e.upper.result", "u2.text"),), registry=registry_of(split, upper, inner))
 
     assert {k: v.msg for k, v in loaded.runs_on.items()} == {"e": "once", "split": "once", "u2": "per item of e.split.result"}
-    assert loaded.describe().nodes["u2"].inputs[0].feed.series == "e.split.result"
+    assert loaded.describe().nodes["u2"].inputs[0].source.series == "e.split.result"
 
 
 def test_exclusive_groups_of_an_embedding_name_the_outputs_it_offers():

@@ -452,7 +452,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
         ("upload.result.text", "llm.text"),
     ], constants={"text-list.items": QUESTIONS}), REGISTRY)
     assert graph.runs_on["text-list"].series == "upload.result" and graph.runs_on["llm"].series == "text-list.result"
-    feeds = {i.field.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes["llm"].inputs}
+    feeds = {i.field.name: (i.source.mode, i.source.series) for i in graph.describe().nodes["llm"].inputs}
     assert feeds == {"prompt": ("item", "text-list.result"), "text": ("outer_value", "upload.result")}
 
     ASKED.clear()

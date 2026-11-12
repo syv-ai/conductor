@@ -68,11 +68,11 @@ class NodeInputDescription(ConductorModel):
 
     Attributes:
         field: The input as its node's hooks and edges made it.
-        feed: Where it gets its value on each call of its node.
+        source: Where it gets its value on each call of its node.
     """
 
     field: FieldDescription
-    feed: InputSource
+    source: InputSource
 
 
 class GraphNodeDescription(ConductorModel):
