@@ -299,13 +299,13 @@ def _read_signature(
             raise NodeDeclarationError(declaration.parameter_not_by_name(), name)
         if name not in hints:
             raise NodeDeclarationError(declaration.input_without_type(), name)
-        hint, marker = _without_asked(hints[name], name)
-        if marker is not None:
+        hint, asked_metadata = _without_asked(hints[name], name)
+        if asked_metadata is not None:
             if asked is not None:
                 raise NodeDeclarationError(declaration.asked_twice(), name)
             if parameter.default is not Parameter.empty:
                 raise NodeDeclarationError(declaration.asked_with_default(), name)
-            asked = (name, hint, marker)
+            asked = (name, hint, asked_metadata)
             continue
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
         inputs[name] = declared_field(name, hint, default)
@@ -342,8 +342,8 @@ def _read_signature(
                 raise NodeDeclarationError(declaration.type_variable_only_in_return(variable=variable.__name__), field.name)
     if asked is None:
         return inputs, context, outputs, kind, None
-    name, hint, marker = asked
-    return inputs, context, outputs, kind, _asked_parameter(function, declared_field(name, hint, REQUIRED), marker, inputs, context)
+    name, hint, asked_metadata = asked
+    return inputs, context, outputs, kind, _asked_parameter(function, declared_field(name, hint, REQUIRED), asked_metadata, inputs, context)
 
 
 def _without_asked(hint: Any, name: str) -> tuple[Any, Asked | None]:
@@ -356,17 +356,17 @@ def _without_asked(hint: Any, name: str) -> tuple[Any, Asked | None]:
         NodeDeclarationError: Two ``Asked`` around one parameter (``asked_twice``), or one inside its type
             (``asked_not_on_a_parameter``).
     """
-    marker: Asked | None = None
+    asked_metadata: Asked | None = None
     if typing.get_origin(hint) is Annotated:
-        markers = [m for m in hint.__metadata__ if isinstance(m, Asked)]
-        if len(markers) > 1:
+        found = [metadata for metadata in hint.__metadata__ if isinstance(metadata, Asked)]
+        if len(found) > 1:
             raise NodeDeclarationError(declaration.asked_twice(), name)
-        if markers:
-            (marker,) = markers
-            kept = tuple(m for m in hint.__metadata__ if not isinstance(m, Asked))
+        if found:
+            (asked_metadata,) = found
+            kept = tuple(metadata for metadata in hint.__metadata__ if not isinstance(metadata, Asked))
             hint = Annotated[(hint.__origin__, *kept)] if kept else hint.__origin__
     _refuse_asked(hint, name)
-    return hint, marker
+    return hint, asked_metadata
 
 
 def _refuse_asked(hint: Any, name: str | None) -> None:
@@ -381,7 +381,7 @@ def _refuse_asked(hint: Any, name: str | None) -> None:
 
 
 def _asked_parameter(
-    function: Callable[..., Any], field: Field, marker: Asked, inputs: Mapping[str, Field], context: ContextParameter | None,
+    function: Callable[..., Any], field: Field, asked_metadata: Asked, inputs: Mapping[str, Field], context: ContextParameter | None,
 ) -> AskedParameter:
     """Reads an ``Asked`` parameter's function against the node it is on.
 
@@ -391,7 +391,7 @@ def _asked_parameter(
     Args:
         function: The node's function, whose signature names the parameter's type.
         field: The parameter, read by its hint without the ``Asked``.
-        marker: The ``Asked``.
+        asked_metadata: The ``Asked``.
         inputs: The node's inputs, by name.
         context: The node's ``Context`` parameter, or ``None``.
 
@@ -400,7 +400,7 @@ def _asked_parameter(
             parameters is not a parameter of the node taken by name (``asking_function_parameter_unknown``), or it
             does not return the parameter's type (``asking_function_returns_another_type``).
     """
-    asking = marker.function
+    asking = asked_metadata.function
     name = field.name
     if inspect.iscoroutinefunction(asking) or inspect.isasyncgenfunction(asking):
         raise NodeDeclarationError(declaration.async_run(), name)

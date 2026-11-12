@@ -139,7 +139,7 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         if Type(bare).item is not None:
             raise NodeDeclarationError(declaration.nested_series())
         param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
-    if any(isinstance(mark, Widget) for mark in beside_param):  # pydantic would pass it by, and the field would show no control
+    if any(isinstance(metadata, Widget) for metadata in beside_param):  # pydantic would pass it by, and the field would show no control
         raise NodeDeclarationError(declaration.widget_outside_param())
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))

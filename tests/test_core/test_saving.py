@@ -100,14 +100,14 @@ def test_a_float_reads_back_bit_for_bit():
     assert [struct.pack("<d", f) for f in read_back] == [struct.pack("<d", f) for f in floats]
 
 
-def test_a_text_that_spells_the_skipped_marker_reads_back_as_text():
-    @node("marker", title="Marker", description="For a test.")
-    def marker(text: str) -> Series[str]:
+def test_a_text_that_spells_the_skipped_sentinel_reads_back_as_text():
+    @node("spelled", title="Spelled", description="For a test.")
+    def spelled(text: str) -> Series[str]:
         return ["__skipped__", "SKIPPED", ""]
 
-    run = Graph.compile(make_graph(marker), registry_of(marker)).run(text="x")
+    run = Graph.compile(make_graph(spelled), registry_of(spelled)).run(text="x")
 
-    assert _round_trip(run).results["marker"]["result"] == ["__skipped__", "SKIPPED", ""]
+    assert _round_trip(run).results["spelled"]["result"] == ["__skipped__", "SKIPPED", ""]
 
 
 def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:

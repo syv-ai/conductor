@@ -468,7 +468,7 @@ The node isn't called again for that call: the answer is its outputs. `note` has
 
 ### A parameter a person fills
 
-The answer above is the node's outputs. When the outputs are more than the answer, say an approval that hands the invoice on, a parameter can be the question instead. `Asked(function)` marks it, and the function returns its value or raises `Ask`:
+The answer above is the node's outputs. When the outputs are more than the answer, say an approval that hands the invoice on, a parameter can be the question instead. `Asked(function)` in its annotation says so, and the function returns its value or raises `Ask`:
 
 ```python
 from conductor import Asked
@@ -570,7 +570,7 @@ print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 known=3 tot
 print(estimated.resume().progress.finished)   # 4
 ```
 
-`resume(only_costs_nothing=True)` is one call of `resume()` that calls only the marked nodes, with its `timeout`, its events when streamed, and its checkpoints; the run is `ready` afterwards. The next `resume()` calls the rest and makes none of those calls again. A marked node that raises `Ask` or fails then is left without an outcome, and asks or fails at the next `resume()`. A node that takes the run's context is refused the mark ([`costs_nothing_takes_context`](problems.md#costs_nothing_takes_context)): it uses the host's objects, so its call is not free.
+`resume(only_costs_nothing=True)` is one call of `resume()` that calls only the marked nodes, with its `timeout`, its events when streamed, and its checkpoints; the run is `ready` afterwards. The next `resume()` calls the rest and makes none of those calls again. A marked node that raises `Ask` or fails then is left without an outcome, and asks or fails at the next `resume()`. A node that takes the run's context is refused `costs_nothing=True` ([`costs_nothing_takes_context`](problems.md#costs_nothing_takes_context)): it uses the host's objects, so its call is not free.
 
 `run.progress` is read from the run's outcomes each time, for the run and for each node: how many calls are `finished` (they have an outcome that is not waiting), how many are `waiting` for a person, how many are `known` so far, and the `total`. The `total` is `None` while it depends on a node that has not been called yet, such as a language model that finds the invoices in a document; `known` is then the least the total can be, and it only grows.
 

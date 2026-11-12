@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor.about import problems_page, write_markers
+from conductor.about import fill_placeholders, problems_page
 from mkdocs.structure.files import File, Files
 
 
@@ -20,5 +20,5 @@ def on_files(files: Files, config: Any) -> Files:
 
 
 def on_page_markdown(markdown: str, **_: Any) -> str:
-    """Replaces each marker line of a page by what it stands for."""
-    return write_markers(markdown)
+    """Replaces each placeholder line of a page by what it stands for."""
+    return fill_placeholders(markdown)

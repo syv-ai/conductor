@@ -47,8 +47,8 @@ _T = TypeVar("_T")
 
 
 class _Context:
-    """The mark ``Context`` leaves on a parameter. ``@node`` takes it off a node's first parameter; anywhere else in
-    a hint it refuses to be read."""
+    """The metadata ``Context[X]`` puts beside ``X``: ``Context[X]`` is ``Annotated[X, _Context()]``. ``@node`` takes
+    it off a node's first parameter; anywhere else in a hint it refuses to be read."""
 
     def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Refuses a ``Context`` read as an input's or output's type: on a later or keyword-only parameter, inside
@@ -59,14 +59,14 @@ class _Context:
         """
         raise NodeDeclarationError(declaration.context_misplaced())
 
-#: ``Context[X]``: marks a node's first parameter as the run's context, the object the host passes as ``context=``.
-#: To a type checker the parameter is an ``X``.
+#: ``Context[X]``: the type of a node's first parameter that is the run's context, the object the host passes as
+#: ``context=``. To a type checker the parameter is an ``X``.
 Context = Annotated[_T, _Context()]
 
 
 def is_context(hint: Any) -> bool:
     """Whether ``hint`` is ``Context[X]`` for some ``X``."""
-    return typing.get_origin(hint) is Annotated and any(isinstance(mark, _Context) for mark in typing.get_args(hint)[1:])
+    return typing.get_origin(hint) is Annotated and any(isinstance(metadata, _Context) for metadata in typing.get_args(hint)[1:])
 
 
 @dataclass(frozen=True, slots=True)

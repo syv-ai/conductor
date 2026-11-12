@@ -78,7 +78,7 @@ def _written(hint: Any) -> str:
     return qualified_name(hint) if isinstance(hint, type) else repr(hint)
 
 
-def _written_metadata(mark: Any) -> str:
+def _written_metadata(metadata: Any) -> str:
     """One thing ``Annotated`` holds beside the type, as ``Type.reads_as`` writes it::
 
         _written_metadata(AfterValidator(strip))  # "AfterValidator(func=my_module.strip)"
@@ -90,14 +90,14 @@ def _written_metadata(mark: Any) -> str:
 
     Two lambdas written in one function have one name, so they are written the same.
     """
-    if isinstance(mark, (FunctionType, MethodType)):
-        return qualified_name(mark)
-    if dataclasses.is_dataclass(mark):
-        written = ", ".join(f"{f.name}={_written_metadata(getattr(mark, f.name))}" for f in dataclasses.fields(mark) if f.repr)
-        return f"{type(mark).__qualname__}({written})"
-    if type(mark).__repr__ is object.__repr__:
-        return qualified_name(type(mark))
-    return repr(mark)
+    if isinstance(metadata, (FunctionType, MethodType)):
+        return qualified_name(metadata)
+    if dataclasses.is_dataclass(metadata):
+        written = ", ".join(f"{f.name}={_written_metadata(getattr(metadata, f.name))}" for f in dataclasses.fields(metadata) if f.repr)
+        return f"{type(metadata).__qualname__}({written})"
+    if type(metadata).__repr__ is object.__repr__:
+        return qualified_name(type(metadata))
+    return repr(metadata)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

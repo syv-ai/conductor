@@ -146,10 +146,10 @@ def _problems(catalogue: ProblemCatalogue) -> str:
     return "\n\n".join(out)
 
 
-def write_markers(page: str) -> str:
-    """``page`` with each ``names`` and ``problems`` marker line replaced by what it stands for."""
-    page = _NAMES.sub(lambda marker: _names(marker[1]), page)
-    return _PROBLEMS.sub(lambda marker: _problems(getattr(import_module(marker[1]), marker[2])), page)
+def fill_placeholders(page: str) -> str:
+    """``page`` with each ``names`` and ``problems`` placeholder line replaced by what it stands for."""
+    page = _NAMES.sub(lambda line: _names(line[1]), page)
+    return _PROBLEMS.sub(lambda line: _problems(getattr(import_module(line[1]), line[2])), page)
 
 
 def _parse_sections(text: str) -> dict[str, str]:
@@ -176,13 +176,13 @@ def _parse_sections(text: str) -> dict[str, str]:
 
 def get_content() -> str:
     """The rules, ``llms.txt``, with each public module's names written in."""
-    return write_markers(files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8"))
+    return fill_placeholders(files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8"))
 
 
 def problems_page() -> str:
     """The problems page, ``problems.md``, with every kind of problem of the core, of a declaration and of ``check_registry``
     written in."""
-    return write_markers(files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8"))
+    return fill_placeholders(files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8"))
 
 
 def _both_pages() -> list[dict[str, str]]:

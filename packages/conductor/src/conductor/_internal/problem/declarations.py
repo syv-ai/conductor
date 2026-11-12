@@ -87,7 +87,7 @@ def asked_and_asks() -> str:
 def asked_not_on_a_parameter() -> str:
     """``Asked`` is written on a return type, on a field of the outputs, or inside a type rather than around it.
 
-    ``Asked`` marks a parameter the node is called with, so it goes around the whole annotation of a parameter:
+    ``Asked`` is metadata of a parameter the node is called with, so it goes around the whole annotation of a parameter:
     ``ok: Annotated[bool, Asked(approval_of_check)]``, or ``note: Annotated[str | None, Asked(note_of)]``. A node whose own
     function asks says ``asks=True`` on its ``@node``.
 
@@ -102,7 +102,7 @@ def asked_not_on_a_parameter() -> str:
 
         declaration_refused(lambda: node("check", title="Check", description="Says whether to pay an amount.")(check))
     """
-    return "Asked marks a parameter: write it around a parameter's whole annotation, and asks=True on a node whose own function asks"
+    return "Asked is metadata of a parameter: write it around a parameter's whole annotation, and asks=True on a node whose own function asks"
 
 
 @DECLARATION_PROBLEMS.problem()

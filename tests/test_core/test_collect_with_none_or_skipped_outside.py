@@ -94,8 +94,8 @@ def count_or_none(values: Series[str] | None) -> str:
     return "none" if values is None else str(len(values))
 
 
-@_node("marks-taking-none")
-def marks_taking_none(values: Series[str | None]) -> str:
+@_node("dashes-for-none")
+def dashes_for_none(values: Series[str | None]) -> str:
     return "".join("-" if value is None else "x" for value in values)
 
 
@@ -217,12 +217,12 @@ def test_a_series_input_whose_items_take_none_gets_a_none_per_item_for_a_none_ou
     run = _nested_loops("join-taking-none", "no-value", "ab cd")
     assert (run.results["j"]["result"], outcome_of(run, "n")) == (["--", "--"], 2)
     assert outcome_of(_nested_loops("join-taking-none", "skip", "ab cd"), "n") == "skipped"
-    nodes, edges = {"s": "items", "t": "outside-value", "p": "pair", "n": "marks-taking-none"}, [("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
+    nodes, edges = {"s": "items", "t": "outside-value", "p": "pair", "n": "dashes-for-none"}, [("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
     assert [outcome_of(ran(nodes, edges, kind="no-value", text=text), "n") for text in ("a b", "")] == ["--", ""]
 
 
 def test_a_series_never_returned_is_none_for_the_whole_input_whatever_its_items_take() -> None:
-    nodes = {"t": "outside-value", "s": "items", "u": "up", "n": "marks-taking-none", "o": "count-or-none"}
+    nodes = {"t": "outside-value", "s": "items", "u": "up", "n": "dashes-for-none", "o": "count-or-none"}
     run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], kind="no-value")
     assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("not called", "none")
 
@@ -307,7 +307,7 @@ def test_forty_stages_of_alternatives_in_the_loop_are_decided_node_by_node_not_p
     assert outcome_of(graph.run(), "n") == n
 
 
-@pytest.mark.parametrize("counter", ["count", "count-or-none", "marks-taking-none"])
+@pytest.mark.parametrize("counter", ["count", "count-or-none", "dashes-for-none"])
 def test_a_series_never_returned_into_a_branch_node_skips_the_collect_as_no_branch_was_chosen(counter: str) -> None:
     nodes, edges = {"t": "outside-value", "s": "items", "w": "decide"}, [("t.result", "s.text"), ("s.result", "w.go")]
     direct = ran({**nodes, "n": counter}, [*edges, ("w.no", "n.values")], kind="no-value")
@@ -322,10 +322,10 @@ def test_a_series_never_returned_is_none_for_the_collect_even_where_the_loop_bod
 
 
 def test_one_none_wired_to_a_series_input_is_a_list_of_one_none_where_its_items_take_none() -> None:
-    nodes = {"t": "outside-value", "n": "count", "o": "count-or-none", "k": "marks-taking-none"}
+    nodes = {"t": "outside-value", "n": "count", "o": "count-or-none", "k": "dashes-for-none"}
     run = ran(nodes, [("t.result", "n.values"), ("t.result", "o.values"), ("t.result", "k.values")], kind="no-value")
     assert (outcome_of(run, "n"), outcome_of(run, "o"), outcome_of(run, "k")) == ("not called", "none", "-")
-    assert outcome_of(ran({"t": "outside-value", "k": "marks-taking-none"}, [("t.result", "k.values")], kind="skip"), "k") == "skipped"
+    assert outcome_of(ran({"t": "outside-value", "k": "dashes-for-none"}, [("t.result", "k.values")], kind="skip"), "k") == "skipped"
 
 
 def test_a_list_of_one_none_from_outside_the_loop_is_taken_only_where_its_items_take_none() -> None:

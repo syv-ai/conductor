@@ -92,7 +92,7 @@ def test_a_node_takes_the_context_as_its_first_parameter_and_a_test_calls_it_wit
     assert upper.context is None
 
 
-def test_the_context_is_recognised_by_its_marker_whatever_the_parameter_is_called():
+def test_the_context_is_recognised_by_its_metadata_whatever_the_parameter_is_called():
     @node("signed", title="Signed", description="For a test.")
     def signed(app: Context[AppContext], /, text: str) -> str:
         return f"{text}, {app.caller.name}"

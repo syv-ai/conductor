@@ -63,7 +63,7 @@ class Ask(BaseException):
 
 @dataclass(frozen=True, slots=True)
 class Asked:
-    """Marks a node's parameter as filled by a function that returns its value or asks a person for it.
+    """The metadata of a node's parameter that is filled by a function that returns its value or asks a person for it.
 
     Example: the parameter ``ok`` of ``approve`` is ``approval``'s return value, or a person's answer when
     ``approval`` raises ``Ask``::
