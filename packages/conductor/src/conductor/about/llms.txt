@@ -316,7 +316,7 @@ Frozen models with a `type`, and a host subclasses `Widget` for a control of its
 
 Each kind of problem it returns, with what its `ctx` holds:
 
-<!-- problems: conductor._internal.kit_problem.REGISTRY_CHECK_PROBLEMS -->
+<!-- problems: conductor.testing.problems.REGISTRY_CHECK_PROBLEMS -->
 
 ### conductor.events
 

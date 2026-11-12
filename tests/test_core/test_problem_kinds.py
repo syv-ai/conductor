@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import pytest
 from conductor import PROBLEMS, Problem, ProblemCatalogue
-from conductor._internal.kit_problem import REGISTRY_CHECK_PROBLEMS
+from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 from conductor_providers.fastapi import ROUTER_PROBLEMS
 
 catalogue = ProblemCatalogue()

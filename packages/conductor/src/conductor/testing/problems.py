@@ -1,12 +1,15 @@
-"""The problems ``check_registry`` returns, one function each.
+"""The ten kinds of problem ``check_registry`` returns, one function each.
 
-``@REGISTRY_CHECK_PROBLEMS.problem()`` makes the function under it a kind of problem: its name is the code, its keyword-only
-parameters are the keys of ``ctx``, and what it returns is the English. Calling it builds the ``Problem``,
-``kit_problem.needs_example("upper", 1, inputs=["text"])``, so a call that leaves a key out or gives one the wrong
-type is a type error where it is written. ``ProblemCatalogue.problem`` has the rules in full.
+A kind is called to make its ``Problem``::
 
-Each is at ``(node_id, version)``, the version of a node it is about. A developer reads them in a test run; a host
-never meets them.
+    problems.needs_example("upper", 1, inputs=["text"])
+    # Problem(type="needs_example", loc=("upper", 1), msg="its hooks read ['text'], ...", ctx={"inputs": ["text"]})
+
+The function's name is the problem's code unless the decorator names another, its keyword-only parameters are the keys
+of ``ctx``, and the text it returns is ``msg``. ``ProblemCatalogue.problem`` has the rules in full.
+
+Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``. A developer reads them
+in a test run; a host never gets one from a graph or a run, which is why they are not in ``conductor.PROBLEMS``.
 """
 
 from __future__ import annotations
@@ -106,7 +109,7 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed")
-def example_not_loaded(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
     """An example doesn't load, for a fault that is not a hook's.
 
     Args:

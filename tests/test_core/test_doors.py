@@ -40,7 +40,7 @@ DOORS: dict[str, list[str]] = {
 def test_the_package_holds_the_doors_and_one_private_directory():
     package = ROOT / "packages" / "conductor" / "src" / "conductor"
     entries = {entry.name for entry in package.iterdir() if entry.name != "__pycache__"}
-    assert entries == {"__init__.py", "widgets.py", "events.py", "testing.py", "about", "_internal", "py.typed"}
+    assert entries == {"__init__.py", "widgets.py", "events.py", "testing", "about", "_internal", "py.typed"}
 
 
 @pytest.mark.parametrize("door", sorted(DOORS))

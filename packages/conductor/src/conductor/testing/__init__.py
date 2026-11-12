@@ -48,7 +48,6 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal
 
-from conductor._internal import kit_problem
 from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
@@ -65,6 +64,7 @@ from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run.state import EndedEarly
 from conductor._internal.value_type import FieldValueError, Param, kind_of_value
+from conductor.testing import problems
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
@@ -94,11 +94,11 @@ def check_registry(
     for key, calls in examples.items():
         if isinstance(key, str):  # the newest version, by the id alone
             if key not in registry:
-                found.append(kit_problem.example_for_no_node(key, named=repr(key)))
+                found.append(problems.example_for_no_node(key, named=repr(key)))
                 continue
             place = (key, registry[key].version)
         elif key[0] not in registry or key[1] not in registry[key[0]].versions:
-            found.append(kit_problem.example_for_no_node(*key, named=repr(key)))
+            found.append(problems.example_for_no_node(*key, named=repr(key)))
             continue
         else:
             place = key
@@ -131,9 +131,9 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
     """
-    typed, problems = values_as_json(version.id, constants)
-    if problems:
-        raise InvalidCallError(problems)
+    typed, value_problems = values_as_json(version.id, constants)
+    if value_problems:
+        raise InvalidCallError(value_problems)
     return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, constants=typed)])
 
 
@@ -148,9 +148,9 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].default is REQUIRED}
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
-        return [kit_problem.needs_example(version.id, version.version, inputs=missing)]
+        return [problems.needs_example(version.id, version.version, inputs=missing)]
     failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type in _HOOK_CODES]
-    return [kit_problem.hook_failed(version.id, version.version, reason=p.msg, cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
+    return [problems.hook_failed(version.id, version.version, reason=p.msg, cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
 
 
 def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
@@ -167,12 +167,12 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     try:
         upgraded = registry.upgrade(record, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
-        return [kit_problem.upgrade_raised(older.id, older.version, newest=newest, error=type(raised).__name__, reason=str(raised))]
-    problems = Graph.compile(upgraded, registry).problems
-    if not problems:
+        return [problems.upgrade_raised(older.id, older.version, newest=newest, error=type(raised).__name__, reason=str(raised))]
+    graph_problems = Graph.compile(upgraded, registry).problems
+    if not graph_problems:
         return []
-    reason = "; ".join(f"{p.type}: {p.msg}" for p in problems)
-    return [kit_problem.upgrade_broken(older.id, older.version, newest=newest, reason=reason, cause=[p.type for p in problems], problems=[p.model_dump(mode="json") for p in problems])]
+    reason = "; ".join(f"{p.type}: {p.msg}" for p in graph_problems)
+    return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=reason, cause=[p.type for p in graph_problems], problems=[p.model_dump(mode="json") for p in graph_problems])]
 
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, context: Mapping[type, Any]) -> list[Problem]:
@@ -188,36 +188,36 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     try:
         record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
-        return _not_loaded(version, refused.errors())
+        return _not_compiled(version, refused.errors())
     graph = compile_graph(record, definitions, Graph)
     if graph.problems:
-        return _not_loaded(version, graph.problems)
+        return _not_compiled(version, graph.problems)
     try:
         run = graph.run(context=context)
     except InvalidCallError as refused:
-        faults = refused.errors()
-        return [kit_problem.example_refused(
-            version.id, version.version, reason="; ".join(p.msg for p in faults), cause=[p.type for p in faults], problems=[p.model_dump(mode="json") for p in faults],
+        call_problems = refused.errors()
+        return [problems.example_refused(
+            version.id, version.version, reason="; ".join(p.msg for p in call_problems), cause=[p.type for p in call_problems], problems=[p.model_dump(mode="json") for p in call_problems],
         )]
     found = [
-        kit_problem.changed_its_inputs(version.id, version.version, input=name)
+        problems.changed_its_inputs(version.id, version.version, input=name)
         for name in changed
     ]
     match run.state:
         case EndedEarly(status=status, cause=cause):
             # a body's own exception reaches the problem as its class only; the message says which
             reason = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
-            found.append(kit_problem.run_failed(version.id, version.version, status=status, reason=reason, cause=[cause.type], problems=[cause.model_dump(mode="json")]))
+            found.append(problems.run_failed(version.id, version.version, status=status, reason=reason, cause=[cause.type], problems=[cause.model_dump(mode="json")]))
     return found
 
 
-def _not_loaded(version: NodeDefinition, problems: Sequence[Problem]) -> list[Problem]:
-    """The one problem of an example that doesn't load: a hook's when every cause is, else the run's."""
-    reason = "; ".join(p.msg for p in problems)
-    cause, written = [p.type for p in problems], [p.model_dump(mode="json") for p in problems]
-    if all(p.type in _HOOK_CODES for p in problems):
-        return [kit_problem.hook_failed_on_an_example(version.id, version.version, reason=reason, cause=cause, problems=written)]
-    return [kit_problem.example_not_loaded(version.id, version.version, reason=reason, cause=cause, problems=written)]
+def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) -> list[Problem]:
+    """The one problem for an example whose graph has problems: ``hook_failed`` when a hook caused every one, else ``run_failed``."""
+    reason = "; ".join(p.msg for p in graph_problems)
+    cause, written = [p.type for p in graph_problems], [p.model_dump(mode="json") for p in graph_problems]
+    if all(p.type in _HOOK_CODES for p in graph_problems):
+        return [problems.hook_failed_on_an_example(version.id, version.version, reason=reason, cause=cause, problems=written)]
+    return [problems.example_not_compiled(version.id, version.version, reason=reason, cause=cause, problems=written)]
 
 
 def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[..., Any], list[str]]:

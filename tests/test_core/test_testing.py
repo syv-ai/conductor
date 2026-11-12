@@ -225,7 +225,7 @@ def test_a_run_failed_that_a_body_raised_names_the_error_class():
     assert problem.msg.endswith("raised ZeroDivisionError")
 
 
-# -- the kit's own inputs --------------------------------------------------------------------------
+# -- what check_registry is given --------------------------------------------------------------------------
 
 
 def test_an_example_for_a_node_or_version_not_there_is_example_for_no_node():
