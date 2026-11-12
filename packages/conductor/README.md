@@ -1,6 +1,6 @@
 # syv-conductor
 
-The core of Conductor: nodes that are typed Python functions, graphs of them as data, and an engine that runs a node once per item wherever a node gives many, with retries and runs that pause for a person.
+The core of Conductor: nodes that are typed Python functions, graphs of them as data, and an engine that calls a node once per item wherever it is wired to a list another node returns as a `Series`, with retries and runs that pause for a person.
 
 ```python
 import conductor

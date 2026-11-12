@@ -66,15 +66,15 @@ print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dic
 ```
 
 - `series-split.result.name` is one field of each record. `greet` takes one name, so it runs once per contact.
-- `table-collect` gathers: it runs once, with every record and every greeting. Each name in `columns` is an input taking one value per record, blank where a record got none.
-- Each name in `constant_columns` is an input taking one value made outside the records, written on every one of them: the file's name on each line.
-- The two are a pair. A value made per record goes in `columns`; a value made once goes in `constant_columns`. A node that runs once wired into a name in `columns` holds one value for all the records, and the run fails with `columns_not_aligned`, which names `constant_columns` for a column that holds one value.
+- `table-collect` collects the loop: it is called once, with every record and every greeting. Each name in `columns` is an input taking one value per record, `None` where a record got none.
+- Each name in `constant_columns` is an input taking one value from outside the loop, an outer value, written on every record: the file's name on each line.
+- The two are a pair. A value returned per record goes in `columns`; a value returned once goes in `constant_columns`. A node that runs once wired into a name in `columns` has one value for all the records, and the run fails with `columns_not_aligned`, which names `constant_columns` for a column that has one value.
 
-`series-split` takes the type that arrives: a table of contacts gives contacts, a list of numbers gives numbers, and anything else is a `type_mismatch` on the edge. `series-stack` goes the other way for tables: where a node makes a table per item, say the lines of each invoice, it puts them into one table, one under the other.
+`series-split` takes the type that arrives: a table of contacts returns contacts, a list of numbers returns numbers, and anything else is a `type_mismatch` on the edge. `series-stack` goes the other way for tables: where a node returns a table per item, say the lines of each invoice, it puts them into one table, one under the other.
 
 `series-collect` is the way back to one list: it is called once and returns the value of every item, in order.
 
-`text-split` splits a text into its lines, or at another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it, so each document gets every question.
+`text-split` splits a text into its lines, or at another separator. `text-list` returns the texts written in its constant; wire a series to `for_each` and it returns them once for each item of it, so each document gets every question.
 
 `control-decide` gives its `value` on `if_true` or `if_false` by `when`, and what is wired to the other way doesn't run for that item. Its outputs take the type that arrives on `value`:
 
