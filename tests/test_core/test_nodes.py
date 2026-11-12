@@ -1,4 +1,5 @@
-"""What a node author declares with ``@node``, and what a host reads back from it: fields, hooks, versions, widgets."""
+"""What a node author declares with ``@node``, and what a host reads back from it: inputs and outputs, hooks, versions,
+widgets."""
 import dataclasses
 import datetime
 import json
@@ -39,18 +40,18 @@ from pydantic import BaseModel, ValidationError
 
 
 def registry_of(*definitions):
-    held = NodeRegistry()
-    held.add(*definitions)
-    return held
+    registry = NodeRegistry()
+    registry.add(*definitions)
+    return registry
 
 
-def load(*definitions, record=None, constants=None):
-    """The graph of ``record``, or of ``definitions`` chained, loaded against exactly ``definitions``."""
+def compiled_graph(*definitions, record=None, constants=None):
+    """The graph of ``record``, or of ``definitions`` chained, compiled with a registry of exactly ``definitions``."""
     return Graph.compile(record if record is not None else make_graph(*definitions, constants=constants or {}), registry_of(*definitions))
 
 
-def placed(node_id, kind, **record):
-    return NodeRecord(id=node_id, node=kind, **record)
+def node_record(node_id, definition_id, **record):
+    return NodeRecord(id=node_id, node=definition_id, **record)
 
 
 def codes(graph):
@@ -58,7 +59,7 @@ def codes(graph):
 
 
 def declared(function, **options):
-    """``function`` as a node ``x``; a declaration fault raises here."""
+    """``function`` declared as the node definition ``x``; a declaration error raises here."""
     title = function.__name__.replace("_", " ").strip().capitalize()
     return node("x", **{"title": title, "description": "For a test.", **options})(function)
 
@@ -82,7 +83,7 @@ class Invoice(TypedDict):
     amount: int
 
 
-# -- declaration faults ------------------------------------------------------------------------
+# -- declaration errors ------------------------------------------------------------------------
 
 
 def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_function():
@@ -120,7 +121,7 @@ def test_node_given_a_record_in_place_of_a_function_raises_pythons_own_error_tha
     ("   ", "Does something.", "title"),
     ("Something", "   ", "description"),
 ])
-def test_an_empty_title_or_description_is_refused_where_a_node_or_a_stored_graph_is_declared(title, description, empty):
+def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_declared(title, description, empty):
     for declaration in (
         lambda: node("x", title=title, description=description),
         lambda: subgraph("x", title=title, description=description),
@@ -138,8 +139,8 @@ def test_a_node_id_in_a_record_with_a_tilde_is_invalid_node_id():
     def upper(text: str) -> str:
         return text.upper()
 
-    loaded = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a~b", "node": "upper"}]}), registry)
-    assert [(p.type, p.loc) for p in loaded.problems] == [("invalid_node_id", ("a~b",))]
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a~b", "node": "upper"}]}), registry)
+    assert [(p.type, p.loc) for p in graph.problems] == [("invalid_node_id", ("a~b",))]
 
 
 def test_an_async_function_is_refused():
@@ -169,7 +170,7 @@ def test_a_default_outside_its_own_bounds_fails_where_it_is_written():
     assert raised.value.code == "default_invalid"
 
 
-def test_a_series_default_is_held_to_the_limits_of_each_item():
+def test_a_series_default_is_checked_against_the_limits_of_each_item():
     def f(xs: Annotated[Series[int], Param(ge=0)] = [1, -1]) -> int:  # noqa: B006
         return sum(xs)
 
@@ -190,13 +191,13 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
     def on_table(x: Annotated[Table, Param(min_length=1)]) -> int:
         return 0
 
-    def on_text_or_blank(x: Annotated[str | None, Param(ge=0)] = None) -> str:
+    def on_text_or_none(x: Annotated[str | None, Param(ge=0)] = None) -> str:
         return ""
 
     def on_texts(x: Annotated[Series[str], Param(ge=0)]) -> str:
         return ""
 
-    for wrong in (on_text, on_table, on_text_or_blank, on_texts):
+    for wrong in (on_text, on_table, on_text_or_none, on_texts):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
         assert raised.value.code == "bound_invalid"
@@ -211,7 +212,7 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
 
     for one in (summary, anything):
         assert list(declared(one).outputs) == ["result"], one
-    assert load(declared(summary)).run(labels=["a", "b", "a"]).outputs == {"x.result": {"a": 2, "b": 1}}
+    assert compiled_graph(declared(summary)).run(labels=["a", "b", "a"]).outputs == {"x.result": {"a": 2, "b": 1}}
 
     @dataclass
     class Loose:
@@ -297,7 +298,7 @@ def test_a_sink_node_declares_no_outputs_and_runs():
     def log(text: str) -> None:
         seen.append(text)
 
-    graph = load(log)
+    graph = compiled_graph(log)
     assert log.outputs == {} and graph.problems == [] and graph.outputs == []
     assert graph.run(text="hi").status == "complete" and seen == ["hi"]
 
@@ -317,9 +318,9 @@ def test_each_of_several_outputs_carries_its_own_type_and_title():
     outputs = {f.name: f for f in parts.describe().outputs}
     assert {n: f.type for n, f in outputs.items()} == {"name": "str", "count": "int", "case_sensitive": "bool", "renamed": "float"}
     assert {n: f.title for n, f in outputs.items()} == {"name": "Name", "count": "Count", "case_sensitive": "Case sensitive", "renamed": "Score"}
-    # the field typed `| None` takes a blank, its sibling doesn't
+    # the output typed `| None` may be None, the one beside it may not
     assert {"type": "null"} in outputs["count"].json_schema["anyOf"] and "anyOf" not in outputs["name"].json_schema
-    assert load(parts).run(text="a").results["parts"] == {"name": "a", "count": None, "case_sensitive": True, "renamed": 1.0}
+    assert compiled_graph(parts).run(text="a").results["parts"] == {"name": "a", "count": None, "case_sensitive": True, "renamed": 1.0}
 
 
 def test_an_untitled_field_reads_as_its_name_in_everyday_words():
@@ -330,10 +331,10 @@ def test_an_untitled_field_reads_as_its_name_in_everyday_words():
     assert [i.title for i in f.describe().inputs] == ["Case sensitive", "Texts", "Given"]
 
 
-# -- the type of a field -----------------------------------------------------------------------
+# -- the type of an input or output ------------------------------------------------------------
 
 
-def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
+def test_an_input_or_output_that_may_be_none_is_described_by_its_type_without_none():
     @node("f", title="F", description="For a test.")
     def f(many: Series[Text | None], one: Text | None) -> Text | None:
         return None
@@ -341,27 +342,27 @@ def test_the_bare_type_is_what_a_field_is_typed_as_when_it_may_be_blank():
     assert [(i.name, i.type, i.is_series) for i in f.describe().inputs] == [("many", "Text", True), ("one", "Text", False)]
     output = field_of(f, "result", "outputs")
     assert output.type == "Text" and {"type": "null"} in output.json_schema["anyOf"]
-    assert load(f, record=GraphRecord(nodes=[placed("f", "f", constants={"many": [None], "one": None})])).run().results["f"] == {"result": None}
+    assert compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"many": [None], "one": None})])).run().results["f"] == {"result": None}
 
 
-def test_a_none_default_with_a_blank_hint_is_optional_and_arrives_as_none():
+def test_a_none_default_on_an_optional_type_is_not_required_and_arrives_as_none():
     @node("f", title="F", description="For a test.")
     def f(x: int | None = None, picked: Annotated[str | None, Param(widget=TextInput())] = None) -> str:
         return f"{x}-{picked}"
 
     assert [i.required for i in f.describe().inputs] == [False, False]
-    assert load(f).run().results["f"]["result"] == "None-None"
+    assert compiled_graph(f).run().results["f"]["result"] == "None-None"
 
 
-def test_a_series_that_may_be_none_takes_none_given_typed_in_or_left_out_and_its_items_are_never_blank():
+def test_a_series_that_may_be_none_takes_none_given_as_a_constant_or_left_out_but_no_item_may_be_none():
     @node("f", title="F", description="For a test.")
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
-    graph = load(f)
+    graph = compiled_graph(f)
     assert graph.run().results["f"]["result"] == "None"
     assert graph.run(xs=None).results["f"]["result"] == "None"
-    assert load(f, record=GraphRecord(nodes=[placed("f", "f", constants={"xs": None})])).run().results["f"]["result"] == "None"
+    assert compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"xs": None})])).run().results["f"]["result"] == "None"
     assert graph.run(xs=[1, 2]).results["f"]["result"] == "[1, 2]"
     with pytest.raises(InvalidCallError):
         graph.run(xs=[1, None])
@@ -373,9 +374,9 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
         return repr(xs)
 
     with pytest.raises(InvalidCallError) as refused:
-        load(f).run(xs=None)
+        compiled_graph(f).run(xs=None)
     assert [p.type for p in refused.value.errors()] == ["invalid_input"]
-    assert codes(load(f, record=GraphRecord(nodes=[placed("f", "f", constants={"xs": None})]))) == ["invalid_value"]
+    assert codes(compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"xs": None})]))) == ["invalid_value"]
 
     def g(xs: Series[int] = None) -> int:  # type: ignore[assignment]
         return 0
@@ -385,12 +386,12 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
     assert raised.value.code == "default_invalid"
 
 
-def test_a_blank_on_an_input_that_takes_one_is_held_to_no_bound():
+def test_none_on_an_input_that_takes_none_is_not_checked_against_its_limits():
     @node("f", title="F", description="For a test.")
     def f(x: Annotated[str | None, Param(max_length=2)] = "ab") -> str:
         return repr(x)
 
-    graph = load(f)
+    graph = compiled_graph(f)
     assert graph.run(x=None).results["f"]["result"] == "None"
     assert graph.run(x="ok").results["f"]["result"] == "'ok'"
 
@@ -403,27 +404,27 @@ def test_bounds_are_on_the_field_an_editor_reads():
     assert [i.json_schema for i in f.describe().inputs] == [{"type": "integer", "minimum": 0, "maximum": 9}, {"type": "string", "maxLength": 3}]
 
 
-def test_a_value_typed_into_a_series_is_checked_item_by_item_at_load_and_arrives_as_a_list():
+def test_a_constant_of_a_series_input_is_checked_item_by_item_at_compile_and_arrives_as_a_list():
     @node("total", title="Total", description="For a test.")
     def total(xs: Annotated[Series[int], Param(ge=0)]) -> str:
         return f"{type(xs).__name__}:{sum(xs)}"
 
-    def typed(values):
-        return load(total, record=GraphRecord(nodes=[placed("t", "total", constants={"xs": values})]))
+    def with_constant(values):
+        return compiled_graph(total, record=GraphRecord(nodes=[node_record("t", "total", constants={"xs": values})]))
 
-    assert codes(typed([1, -1])) == ["invalid_value"]
-    assert typed([1, 2]).run().results["t"]["result"] == "list:3"
+    assert codes(with_constant([1, -1])) == ["invalid_value"]
+    assert with_constant([1, 2]).run().results["t"]["result"] == "list:3"
 
 
-def test_a_subclass_of_a_builtin_is_checked_as_the_builtin_then_made_one():
+def test_a_subclass_of_a_builtin_is_checked_as_the_builtin_then_converted_to_the_subclass():
     @node("kind", title="Kind", description="For a test.")
     def kind(t: Text) -> str:
         return type(t).__name__
 
-    assert load(kind).run(t="a").results["kind"]["result"] == "Text"
+    assert compiled_graph(kind).run(t="a").results["kind"]["result"] == "Text"
 
 
-def test_a_subclass_lands_where_its_parent_is_asked_for_and_not_the_other_way():
+def test_a_subclass_output_fits_an_input_of_its_parent_type_and_not_the_other_way():
     @node("make", title="Make", description="For a test.")
     def make(x: str) -> Text:
         return Text(x)
@@ -440,9 +441,9 @@ def test_a_subclass_lands_where_its_parent_is_asked_for_and_not_the_other_way():
     def on_text(t: Text) -> str:
         return t
 
-    assert load(make, on_str).run(x="a").results["on_str"]["result"] == "Text"
-    mistyped = GraphRecord(nodes=[placed("plain", "plain"), placed("on_text", "on_text")], edges=[("plain.result", "on_text.t")])
-    assert codes(load(plain, on_text, record=mistyped)) == ["type_mismatch"]
+    assert compiled_graph(make, on_str).run(x="a").results["on_str"]["result"] == "Text"
+    mistyped = GraphRecord(nodes=[node_record("plain", "plain"), node_record("on_text", "on_text")], edges=[("plain.result", "on_text.t")])
+    assert codes(compiled_graph(plain, on_text, record=mistyped)) == ["type_mismatch"]
 
 
 def test_each_plain_type_carries_its_own_value():
@@ -458,8 +459,8 @@ def test_each_plain_type_carries_its_own_value():
     def when(day: datetime.date) -> datetime.date:
         return day + datetime.timedelta(days=1)
 
-    graph = load(flags, flip, when, record=GraphRecord(
-        nodes=[placed("f", "flags"), placed("n", "flip"), placed("w", "when")],
+    graph = compiled_graph(flags, flip, when, record=GraphRecord(
+        nodes=[node_record("f", "flags"), node_record("n", "flip"), node_record("w", "when")],
         edges=[("f.result", "n.on")],
     ))
     run = graph.run({"on": True, "f.day": datetime.date(2026, 1, 1), "w.day": datetime.date(2026, 1, 1)})
@@ -481,7 +482,7 @@ def test_a_pydantic_model_travels_on_an_edge_and_through_json():
     def show(visit: Visit) -> str:
         return f"{visit.who} {visit.when.isoformat()}"
 
-    graph = load(make, show)
+    graph = compiled_graph(make, show)
     run = graph.run(who="Bo")
     back = Run.from_json(run.to_json(), graph)
     assert back.results == run.results and back.results["show"]["result"] == "Bo 2026-01-02"
@@ -519,7 +520,7 @@ def test_a_parameter_named_like_a_pydantic_model_attribute_checks_and_runs_witho
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        run = load(f).run(schema=1, copy=2, json=3, model_config=4, json_=5)
+        run = compiled_graph(f).run(schema=1, copy=2, json=3, model_config=4, json_=5)
     assert run.results["f"]["result"] == "12345"
 
 
@@ -596,7 +597,7 @@ def test_a_file_upload_offers_every_kind_as_an_empty_tuple_and_takes_no_none():
         FileUpload(accept=None)  # type: ignore[arg-type]
 
 
-def test_a_host_declares_a_control_of_its_own_and_it_loads_runs_and_describes_whole():
+def test_a_hosts_own_widget_compiles_runs_and_is_described_with_its_config():
     class EntityPicker(Widget):
         type: Literal["entity-picker"] = "entity-picker"
         entity_kind: str = ""
@@ -606,7 +607,7 @@ def test_a_host_declares_a_control_of_its_own_and_it_loads_runs_and_describes_wh
         return f"hi {who}"
 
     assert greet.describe().inputs[0].widget == {"type": "entity-picker", "entity_kind": "user"}
-    graph = load(greet)
+    graph = compiled_graph(greet)
     assert graph.problems == [] and graph.run(who="Bo").results["greet"]["result"] == "hi Bo"
 
 
@@ -633,7 +634,7 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
     with pytest.raises(KeyError, match="'v' has no version 4; it has 3, 2, 1"):
         v3.version_of(4)
     for saved, body in ((1, "one"), (3, "three")):
-        graph = load(v3, record=GraphRecord(nodes=[placed("n", "v", version=saved)]))
+        graph = compiled_graph(v3, record=GraphRecord(nodes=[node_record("n", "v", version=saved)]))
         assert graph.run(x="a").results["n"]["result"] == body
 
 
@@ -655,7 +656,7 @@ def test_a_deprecation_is_kept_as_written_and_is_never_a_problem():
         return x
 
     assert old.deprecation == Deprecation() and going.deprecation.alternative == "new"
-    assert load(going).problems == []
+    assert compiled_graph(going).problems == []
 
 
 def test_a_chain_written_wrong_is_refused_where_it_is_written():
@@ -677,7 +678,7 @@ def test_a_chain_written_wrong_is_refused_where_it_is_written():
     assert raised.value.code == "upgrade_missing"
 
 
-def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
+def test_a_subgraph_may_be_declared_at_a_version_of_its_own():
     @node("read", title="Read", description="For a test.")
     def read(text: str) -> str:
         return text
@@ -685,7 +686,7 @@ def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
     inner = subgraph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,)
     assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "subgraph"
-    graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
+    graph = compiled_graph(read, inner, record=GraphRecord(nodes=[node_record("e", "inner", version=3)]))
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 
 
@@ -711,7 +712,7 @@ def test_a_hook_parameter_must_name_an_input_by_name():
         assert raised.value.code == "hook_parameter_unknown", hook
 
 
-def test_added_inputs_need_kwargs_to_land_in():
+def test_a_compute_added_inputs_hook_needs_a_var_keyword_parameter():
     def f(x: int) -> int:
         return x
 
@@ -720,7 +721,7 @@ def test_added_inputs_need_kwargs_to_land_in():
     assert raised.value.code == "compute_added_inputs_without_var_keyword"
 
 
-def test_a_hook_gets_the_typed_in_value_or_else_the_declared_default():
+def test_a_hook_gets_the_constant_or_else_the_declared_default():
     seen = []
 
     def outputs(n: int):
@@ -731,9 +732,9 @@ def test_a_hook_gets_the_typed_in_value_or_else_the_declared_default():
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
-    assert load(fan, record=GraphRecord(nodes=[placed("fan", "fan")])).describe().nodes["fan"].outputs[1].name == "o1"
+    assert compiled_graph(fan, record=GraphRecord(nodes=[node_record("fan", "fan")])).describe().nodes["fan"].outputs[1].name == "o1"
     assert seen == [2]
-    load(fan, record=GraphRecord(nodes=[placed("fan", "fan", constants={"n": 3})]))
+    compiled_graph(fan, record=GraphRecord(nodes=[node_record("fan", "fan", constants={"n": 3})]))
     assert seen == [2, 3]
 
 
@@ -748,11 +749,11 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
     def fan(n: int) -> dict:
         return {"result": n}
 
-    graph = load(fan)
+    graph = compiled_graph(fan)
     assert seen == [] and codes(graph) == ["hook_needs_value"] and graph.problems[0].loc == ("fan", "n")
 
 
-def test_an_added_inputs_hook_reads_only_what_the_author_typed_never_an_edge():
+def test_an_added_inputs_hook_reads_only_a_constant_or_default_never_an_edge():
     seen = []
 
     def added(n: int = 2):
@@ -767,7 +768,7 @@ def test_an_added_inputs_hook_reads_only_what_the_author_typed_never_an_edge():
     def joiner(n: int = 2, **parts: Any) -> str:
         return ",".join(parts.values())
 
-    load(number, joiner, record=GraphRecord(nodes=[placed("u", "number"), placed("j", "joiner")], edges=[("u.result", "j.n")]))
+    compiled_graph(number, joiner, record=GraphRecord(nodes=[node_record("u", "number"), node_record("j", "joiner")], edges=[("u.result", "j.n")]))
     assert seen == [2]
 
 
@@ -781,16 +782,16 @@ def test_each_version_has_its_own_hooks():
         return {"second": x}
 
     for saved, name in ((1, "first"), (2, "second")):
-        graph = load(h2, record=GraphRecord(nodes=[placed("n", "h", version=saved)]))
+        graph = compiled_graph(h2, record=GraphRecord(nodes=[node_record("n", "h", version=saved)]))
         assert graph.run(x="a").results["n"] == {name: "a"}
 
 
-def test_a_field_built_by_a_hook_takes_a_blank_when_its_hint_says_so():
+def test_an_output_a_hook_declares_may_be_none_when_its_type_says_so():
     @node("maybe", title="Maybe", description="For a test.", compute_outputs=lambda: {"result": int | None})
     def maybe(x: str) -> dict:
         return {"result": None}
 
-    graph = load(maybe)
+    graph = compiled_graph(maybe)
     output = graph.describe().nodes["maybe"].outputs[0]
     assert output.type == "int" and {"type": "null"} in output.json_schema["anyOf"]
     assert graph.run(x="a").results["maybe"]["result"] is None
@@ -812,8 +813,8 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
     def double(n: int) -> int:
         return n * 2
 
-    graph = load(lengths, first, double, record=GraphRecord(
-        nodes=[placed("lengths", "lengths"), placed("first", "first"), placed("double", "double")],
+    graph = compiled_graph(lengths, first, double, record=GraphRecord(
+        nodes=[node_record("lengths", "lengths"), node_record("first", "first"), node_record("double", "double")],
         edges=[("lengths.result", "first.items"), ("first.result", "double.n")],
     ))
     assert graph.problems == [] and graph.describe().nodes["first"].outputs[0].type == "int"
@@ -821,7 +822,7 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
     assert graph.run(text="ab c").results["double"]["result"] == 4
 
 
-def test_a_hook_reads_any_on_an_input_no_edge_feeds_even_with_a_value_typed_in():
+def test_a_hook_gets_any_for_an_unwired_any_input_even_with_a_constant():
     seen = []
 
     def outputs(x: type):
@@ -832,17 +833,17 @@ def test_a_hook_reads_any_on_an_input_no_edge_feeds_even_with_a_value_typed_in()
     def f(x: Any) -> dict:
         return {"result": 1}
 
-    load(f, record=GraphRecord(nodes=[placed("f", "f")]))
-    load(f, record=GraphRecord(nodes=[placed("f", "f", constants={"x": "typed"})]))
+    compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f")]))
+    compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"x": "typed"})]))
     assert seen == [Any, Any]
 
 
-def test_a_node_whose_hook_gives_no_outputs_yet_leaves_the_graph_runnable():
+def test_a_node_whose_hook_gives_no_outputs_leaves_the_graph_runnable():
     @node("empty", title="Empty", description="For a test.", compute_outputs=lambda: {})
     def empty(x: str) -> dict:
         return {}
 
-    graph = load(empty)
+    graph = compiled_graph(empty)
     assert graph.problems == [] and graph.outputs == [] and graph.run(x="a").status == "complete"
 
 
@@ -865,13 +866,14 @@ def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
         return ""
 
     for kind, definition in (("outs", outs), ("adds", adds)):
-        graph = load(definition, echo, record=GraphRecord(nodes=[placed("n", kind), placed("r", "echo")], edges=[("n.result", "r.v")]))
-        assert [(p.type, p.loc) for p in graph.problems] == [("compute_hook_failed", ("n",))], kind  # the reader carries no echo
+        graph = compiled_graph(definition, echo, record=GraphRecord(nodes=[node_record("n", kind), node_record("r", "echo")], edges=[("n.result", "r.v")]))
+        assert [(p.type, p.loc) for p in graph.problems] == [("compute_hook_failed", ("n",))], kind  # the node downstream has no problem of its own
         assert graph.problems[0].ctx["error"] == "ValueError"
 
 
 def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothing_is_wired_to():
-    """No type arrives on a refused edge, so the hook answers as it does for a half-drawn graph and the node keeps its fields."""
+    """A refused edge gives no type, so the hook gets ``Any`` as for an unwired input, and the node keeps its inputs and
+    outputs."""
     arrived: list[Any] = []
 
     def of_what_arrives(x: type) -> dict[str, Any]:
@@ -882,16 +884,16 @@ def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothi
     def outs(x: str) -> dict:
         return {}
 
-    graph = load(echo, outs, record=GraphRecord(nodes=[placed("e", "echo"), placed("n", "outs")], edges=[("e.nothing", "n.x")]))
+    graph = compiled_graph(echo, outs, record=GraphRecord(nodes=[node_record("e", "echo"), node_record("n", "outs")], edges=[("e.nothing", "n.x")]))
     assert codes(graph) == ["unknown_output"] and arrived == [Any]
     assert [o.type for o in graph.describe().nodes["n"].outputs] == ["Any"]
 
 
-def test_a_series_of_tables_from_a_hook_loads_with_no_problems():
+def test_a_series_of_tables_from_a_hook_compiles_with_no_problems():
     def h(x: str) -> dict:
         return {}
 
-    assert codes(load(node("h", title="H", description="For a test.", compute_outputs=lambda: {"result": Series[Table]})(h))) == []
+    assert codes(compiled_graph(node("h", title="H", description="For a test.", compute_outputs=lambda: {"result": Series[Table]})(h))) == []
 
 
 def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_problem():
@@ -905,7 +907,7 @@ def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_pro
         return lambda: {"result": hint}
 
     for hint in (Sheet, Series[Sheet]):
-        assert codes(load(node("h", title="H", description="For a test.", compute_outputs=giving(hint))(h))) == ["compute_hook_failed"], hint
+        assert codes(compiled_graph(node("h", title="H", description="For a test.", compute_outputs=giving(hint))(h))) == ["compute_hook_failed"], hint
 
 
 def _computing(hook: Any) -> Any:
@@ -913,7 +915,7 @@ def _computing(hook: Any) -> Any:
     def h(x: str = "a") -> dict:
         return {}
 
-    return load(node("h", title="H", description="For a test.", compute_outputs=hook)(h))
+    return compiled_graph(node("h", title="H", description="For a test.", compute_outputs=hook)(h))
 
 
 @pytest.mark.parametrize("returned", [None, ["result"], "result"])
@@ -946,7 +948,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
     with caplog.at_level(logging.ERROR, logger="conductor"):
         [problem] = _computing(boom).problems
     assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "KeyError")
-    logged = caplog.records[0]  # once for each time the graph is loaded
+    logged = caplog.records[0]  # once for each time the graph is compiled
     assert logged.exc_info is not None and logged.exc_info[0] is KeyError and "'h'" in logged.getMessage() and "compute_outputs" in logged.getMessage()
 
 
@@ -955,14 +957,14 @@ def test_a_hook_adding_an_input_whose_name_an_address_cannot_carry_is_refused():
     def adds(**kwargs: Any) -> int:
         return 1
 
-    graph = load(adds)
+    graph = compiled_graph(adds)
     assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("adds", "a.b"))]
 
 
 # -- what a signature says that conductor refuses or reads as written ------------------------
 
 
-def test_a_none_default_on_an_input_that_takes_no_blank_is_refused():
+def test_a_none_default_on_an_input_that_takes_no_none_is_refused():
     def f(x: int = None) -> int:  # type: ignore[assignment]
         return 1
 
@@ -976,10 +978,10 @@ def test_a_default_reaches_the_function_as_its_declared_type():
     def kind(x: Whole = 3, t: Text = "a") -> str:  # type: ignore[assignment]
         return f"{type(x).__name__} {type(t).__name__}"
 
-    assert load(kind).run().results["kind"]["result"] == "Whole Text"
+    assert compiled_graph(kind).run().results["kind"]["result"] == "Whole Text"
 
 
-def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignored_and_a_limit_of_annotated_types_is_held():
+def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignored_and_an_annotated_types_limit_is_checked():
     def noted(x: Annotated[int, "a note"]) -> int:
         return x
 
@@ -987,9 +989,9 @@ def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignore
         return str(x)
 
     assert declared(noted).inputs["x"].type.bare is int
-    graph = load(
+    graph = compiled_graph(
         declared(limited),
-        record=GraphRecord(nodes=[placed("l", "x", constants={"x": -1})]),
+        record=GraphRecord(nodes=[node_record("l", "x", constants={"x": -1})]),
     )
     assert codes(graph) == ["invalid_value"]
 
@@ -1022,9 +1024,9 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
     def total(n: Series[count], m: Series[count | None] | None = None) -> int:
         return sum(n)
 
-    for name, blank in (("n", False), ("m", True)):
+    for name, may_be_none in (("n", False), ("m", True)):
         field = total.inputs[name]
-        assert (field.type.bare, field.description.title, field.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
+        assert (field.type.bare, field.description.title, field.param.limits) == (int | None if may_be_none else int, "Count", {"ge": 0})
         for wrong in ([-1], [True]):
             with pytest.raises(ValidationError):
                 validator_of(field.whole).validate_python(wrong)
@@ -1033,7 +1035,7 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
     assert graph.run(text="ab c").outputs == {"total.result": 3}
 
 
-def test_a_tables_column_annotated_with_a_param_declares_and_its_limits_hold_on_what_the_node_returns():
+def test_a_param_on_a_tables_column_limits_what_the_node_returns():
     class Row(TypedDict):
         n: Annotated[int, Param(ge=0)]
 
@@ -1041,8 +1043,8 @@ def test_a_tables_column_annotated_with_a_param_declares_and_its_limits_hold_on_
     def rows(text: str) -> Table[Row]:
         return pl.DataFrame({"n": [-1]})
 
-    assert Graph.compile(GraphRecord(nodes=[placed("r", "rows")]), registry_of(rows)).problems == []
-    run = Graph.compile(GraphRecord(nodes=[placed("r", "rows")]), registry_of(rows)).run(text="x")
+    assert Graph.compile(GraphRecord(nodes=[node_record("r", "rows")]), registry_of(rows)).problems == []
+    run = Graph.compile(GraphRecord(nodes=[node_record("r", "rows")]), registry_of(rows)).run(text="x")
     assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
 
 
@@ -1055,7 +1057,7 @@ def test_a_params_choices_limit_a_hosts_own_model_as_they_limit_a_nodes_field():
         Settings(colour="green")
 
 
-def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits():
+def test_a_value_from_an_edge_is_checked_against_the_inputs_choices_as_against_its_limits():
     registry = NodeRegistry()
 
     @registry.node("give", title="Give", description="For a test.")
@@ -1072,7 +1074,7 @@ def test_a_value_an_edge_brings_is_held_to_the_inputs_choices_as_to_its_limits()
     assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
 
 
-def test_a_params_choices_hold_on_a_field_of_a_dataclass_a_node_takes_as_its_limits_do():
+def test_a_params_choices_limit_a_field_of_a_dataclass_input_as_its_limits_do():
     @host_type("Order", title="Order")
     @dataclass(frozen=True)
     class Order:
@@ -1108,7 +1110,7 @@ def test_a_bare_series_is_many_values_of_anything():
         return len(xs)
 
     assert [(i.is_series, i.type) for i in count.describe().inputs] == [(True, "Any")]
-    assert load(count, record=GraphRecord(nodes=[placed("c", "count", constants={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
+    assert compiled_graph(count, record=GraphRecord(nodes=[node_record("c", "count", constants={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
 
 
 def test_a_series_that_may_be_none_is_still_many_values():
@@ -1119,7 +1121,7 @@ def test_a_series_that_may_be_none_is_still_many_values():
     assert [(i.is_series, i.type) for i in f.describe().inputs] == [(True, "int")]
 
 
-def test_a_limit_its_type_cant_hold_names_the_type_as_it_is_written():
+def test_a_limit_its_type_cannot_take_is_refused_naming_the_type_as_written():
     def f(x: Annotated[str | None, Param(ge=0)] = None) -> str:
         return ""
 
@@ -1152,8 +1154,8 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
     def look(rows: Table) -> dict:
         return {"result": ",".join(rows.columns)}
 
-    graph = load(read, look)
-    row_type = typing.get_args(seen[0])[0]  # Table[R] carries R, a TypedDict of the arriving columns
+    graph = compiled_graph(read, look)
+    row_type = typing.get_args(seen[0])[0]  # Table[R]'s R is a TypedDict of the columns the input gets
     assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
     assert graph.run(text="Bo").results["look"]["result"] == "name,amount"
 
@@ -1326,24 +1328,24 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     {"compute_outputs": lambda: {"x": int}},
     {"compute_added_inputs": lambda: {"x": int}},
 ])
-def test_a_stored_graph_takes_no_policy_or_hook_since_its_own_nodes_run_by_theirs(given: dict[str, Any]) -> None:
+def test_a_subgraph_takes_no_policy_or_hook_as_its_inner_nodes_have_their_own(given: dict[str, Any]) -> None:
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         subgraph("x", title="X", description="d", **given)
 
 
-def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in_a_model_a_node_takes_too():
+def test_a_limit_pydantic_supports_on_a_type_is_kept_and_one_it_does_not_is_refused_in_a_model_too():
     import dataclasses
     import datetime
     from decimal import Decimal
 
-    def held(
+    def limited(
         price: Annotated[Decimal, Param(ge=0)],
         wait: Annotated[datetime.timedelta, Param(ge=datetime.timedelta(0))],
         tags: Annotated[list[str], Param(min_length=1)],
     ) -> int:
         return 0
 
-    spec = declared(held).inputs
+    spec = declared(limited).inputs
     with pytest.raises(ValidationError, match="greater than or equal"):
         validator_of(spec["price"].whole).validate_python(Decimal("-1"))
     with pytest.raises(ValidationError, match="at least 1"):
@@ -1388,7 +1390,7 @@ def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared(defau
     assert raised.value.code == "default_invalid"
 
 
-def test_a_default_is_described_and_offered_by_a_loaded_graph_as_its_json():
+def test_a_default_is_described_and_offered_by_a_compiled_graph_as_its_json():
     class Row(TypedDict):
         n: int
 

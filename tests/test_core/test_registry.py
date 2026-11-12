@@ -69,10 +69,10 @@ def _registry_with(*definitions: Any) -> NodeRegistry:
 
 def _node(node_id: str, **declared: Any) -> Any:
     @node(node_id, **{"title": "Made", "description": "For a test.", **declared})
-    def made(x: str = "") -> str:
+    def defined(x: str = "") -> str:
         return x
 
-    return made
+    return defined
 
 
 # --- looking a node up ------------------------------------------------------
@@ -125,10 +125,10 @@ def test_a_plain_node_registers_nothing():
 # --- add, replace, remove ---------------------------------------------------
 
 
-def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate():
+def test_declaring_an_id_the_registry_has_is_a_duplicate_even_when_replaces_names_another_node():
     registry = NodeRegistry()
-    held = _node("upper")
-    registry.add(held)
+    on_registry = _node("upper")
+    registry.add(on_registry)
 
     with pytest.raises(NodeDeclarationError, match="two nodes have the id 'upper'"):
 
@@ -136,7 +136,7 @@ def test_replaces_naming_a_node_the_registry_does_not_hold_is_still_a_duplicate(
         def other(x: str = "") -> str:
             return x
 
-    assert registry["upper"] is held
+    assert registry["upper"] is on_registry
 
 
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
@@ -157,7 +157,7 @@ def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
         registry.add(second)
 
     assert raised.value.code == "duplicate_node_id"
-    assert str(raised.value).count("made") == 2
+    assert str(raised.value).count("defined") == 2
     assert registry["dup"] is first
 
 
@@ -209,7 +209,7 @@ def test_remove_takes_a_node_out_and_the_types_only_it_declared():
     assert "registry-test-text" not in registry.types
 
 
-def test_a_deprecation_may_name_an_alternative_the_registry_does_not_hold():
+def test_a_deprecation_may_name_an_alternative_the_registry_does_not_have():
     """Which nodes a registry offers is the host's choice, so narrowing one never breaks a deprecation notice."""
     registry = NodeRegistry()
 
@@ -259,12 +259,12 @@ def test_every_version_of_a_node_takes_the_registrys_defaults():
     registry.add(split)
 
     for version in (1, 2):
-        held = registry["split"].version_of(version)
-        assert (held.category, held.tags, dict(held.extra)) == ("text", ("builtin",), {"icon": "scissors"})
+        version_declared = registry["split"].version_of(version)
+        assert (version_declared.category, version_declared.tags, dict(version_declared.extra)) == ("text", ("builtin",), {"icon": "scissors"})
 
 
 @pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
-def test_declaring_a_node_on_a_registry_that_holds_its_id_is_a_duplicate_whatever_it_replaces(defaults: dict[str, Any]):
+def test_declaring_a_node_on_a_registry_that_has_its_id_is_a_duplicate_whatever_it_replaces(defaults: dict[str, Any]):
     registry = NodeRegistry(**defaults)
 
     @registry.node("up", title="Up", description="For a test.")
@@ -304,7 +304,7 @@ def test_a_chain_is_a_plain_older_version_and_the_newest_declared_on_the_registr
     assert up.version_of(1).category == defaults.get("category", "")
 
 
-def test_replace_swaps_a_held_version_for_its_successor():
+def test_replace_swaps_the_version_on_the_registry_for_its_successor():
     @node("up", title="Up", description="For a test.")
     def up_v1(text: str) -> str:
         return text
@@ -322,7 +322,7 @@ def test_replace_swaps_a_held_version_for_its_successor():
     assert registry["up"].version_of(1) is up_v1
 
 
-def test_a_node_with_nothing_to_take_is_held_as_it_is():
+def test_a_registry_with_no_defaults_adds_a_node_as_it_is():
     registry = NodeRegistry()
     registry.add(echo)
 
@@ -385,10 +385,10 @@ def test_a_registry_per_request_leaves_the_shared_one_as_it_was():
 
     per_request = NodeRegistry()
     per_request.add_subregistry(shared)
-    per_request.add(_node("loaded"))
+    per_request.add(_node("uploaded"))
 
-    assert "loaded" in per_request and "built-in" in per_request
-    assert "loaded" not in shared
+    assert "uploaded" in per_request and "built-in" in per_request
+    assert "uploaded" not in shared
 
 
 # --- filter -----------------------------------------------------------------
@@ -432,22 +432,22 @@ def test_extra_is_json_kept_and_described_but_never_read():
 # --- what a version declares ------------------------------------------------
 
 
-def test_inputs_extracted_from_signature():
+def test_a_nodes_inputs_are_its_parameters_with_their_titles():
     older = echo.replaces
     assert older is not None and list(older.inputs) == ["text"]
     assert older.inputs["text"].description.title == "Input"
 
 
-def test_outputs_extracted_from_return_type():
+def test_a_return_type_that_is_not_a_record_is_the_one_output_result():
     assert list(echo.outputs) == ["result"]
     assert echo.outputs["result"].description.title == "Output"
 
 
-def test_multi_input_node():
+def test_the_inputs_keep_the_order_of_the_parameters():
     assert list(echo.inputs) == ["text", "prefix"]
 
 
-def test_default_values_captured():
+def test_a_parameter_without_a_default_is_required_and_one_with_a_default_keeps_it():
     text, prefix = echo.inputs.values()
     assert text.default is REQUIRED
     assert prefix.default == ""
@@ -455,8 +455,8 @@ def test_default_values_captured():
 
 
 def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
-    """``**values`` is where the inputs a ``compute_added_inputs`` hook adds arrive;
-    the hook declares them, so without one it is refused."""
+    """``**values`` gets the inputs a ``compute_added_inputs`` hook adds; the hook declares them, so a ``**values``
+    without the hook is refused."""
 
     @node("varkw", title="Var kw", description="For a test.", compute_added_inputs=lambda: {"extra_one": str})
     def var_kw(text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
@@ -481,7 +481,7 @@ def test_var_positional_is_refused():
             return text
 
 
-# --- the types a registry holds ---------------------------------------------
+# --- the types a registry has -----------------------------------------------
 
 
 @host_type("text", title="Text")
@@ -515,7 +515,7 @@ def weigh(text: Text, weights: Series[Number], tags: list[str] = []) -> Text:  #
     return text
 
 
-def test_a_new_registry_holds_no_types():
+def test_a_new_registry_has_no_types():
     assert dict(NodeRegistry().types) == {}
 
 
@@ -572,9 +572,9 @@ def test_adding_a_node_adds_the_types_it_declares_a_series_giving_its_item_and_a
     assert dict(registry.types) == {"text": Text, "number": Number, "list": list, "str": str}
 
 
-def test_every_class_a_fields_type_names_is_one_the_registry_holds_and_a_table_names_none():
+def test_every_class_an_input_or_output_type_names_is_on_the_registry_and_a_table_names_none():
     """A union names each member, a ``Literal`` its values' types and a generic its class and its arguments'. ``None``
-    names no class a value is made of, and a table is known by its columns, so its id is no class a registry holds."""
+    names no class a value is made of, and a table is known by its columns, so its id is no class a registry has."""
 
     @host_type("cash", title="Cash")
     class Cash(float):
@@ -608,7 +608,7 @@ def test_an_any_input_adds_no_type():
     assert [t.model_dump() for t in registry.describe().types] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
 
 
-def test_two_classes_may_claim_one_id_until_one_registry_holds_both():
+def test_two_classes_may_claim_one_id_until_one_registry_has_both():
     first, second = _declare_text(), _declare_text()
     assert first is not second
 
@@ -702,7 +702,7 @@ def test_a_registry_is_a_container_and_not_a_mapping():
     assert not hasattr(registry, "get") and not hasattr(registry, "items")
 
 
-def test_a_stored_graph_made_a_node_is_read_as_load_reads_a_record():
+def test_a_subgraph_given_json_text_reads_it_as_a_graph_record_and_refuses_an_unknown_key():
     from conductor import InvalidCallError, subgraph
 
     with pytest.raises(InvalidCallError) as refused:
@@ -723,7 +723,7 @@ def test_an_infinite_default_writes_as_text():
     assert json.loads(far.describe().model_dump_json())["inputs"][0]["default"] == "Infinity"
 
 
-def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_not_by_its_definition():
+def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_definition():
     from conductor import make_graph, node
 
     @node("upper", title="Upper", description="For a test.")
@@ -739,8 +739,9 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
 
 
-def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch: MonkeyPatch) -> None:
-    """``describe()`` is what an editor's palette asks on every open, so a subgraph's fields are worked out once."""
+def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(monkeypatch: MonkeyPatch) -> None:
+    """An editor calls ``describe()`` each time it opens its list of nodes, so a subgraph's inputs and outputs are
+    worked out once."""
     registry = NodeRegistry()
 
     @registry.node("shout", title="Shout", description="For a test.")
@@ -748,12 +749,12 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
         return text.upper()
 
     registry.add(subgraph("loud", title="Loud", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
-    loads = []
+    compiled_records = []
     compile_graph = registry_module.compile_graph
-    monkeypatch.setattr(registry_module, "compile_graph", lambda record, *rest: loads.append(record) or compile_graph(record, *rest))
+    monkeypatch.setattr(registry_module, "compile_graph", lambda record, *rest: compiled_records.append(record) or compile_graph(record, *rest))
 
     first, second = registry.describe(), registry.describe()
-    assert first == second and len(loads) == 1
+    assert first == second and len(compiled_records) == 1
 
     @node("shout", title="Shout in words", description="For a test.")
     def shout_in_words(words: str) -> str:
@@ -761,7 +762,7 @@ def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch
 
     registry.replace(shout_in_words)
     (loud,) = [n for n in registry.describe().nodes if n.id == "loud"]
-    assert [field.name for field in loud.inputs] == ["words"] and len(loads) == 2
+    assert [field.name for field in loud.inputs] == ["words"] and len(compiled_records) == 2
 
 
 def test_the_modules_own_example_runs():

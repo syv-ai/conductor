@@ -1,9 +1,8 @@
-"""Loading a graph record: what ``Graph.compile`` checks, what the graph offers a caller, and subgraphs.
+"""Compiling a graph record: what ``Graph.compile`` checks, what the graph offers a caller, and subgraphs.
 
-A record that says something impossible loads into a graph whose
-``problems`` say what and where, never an exception; a graph with problems
-refuses to run. A caller fills the open inputs of the first nodes, checked
-by ``with_inputs`` all at once.
+A record that says something impossible compiles into a graph whose ``problems`` say what and where, never an
+exception; a graph with problems refuses to run. A caller gives the graph inputs, and ``with_inputs`` checks them all
+at once.
 """
 
 import json
@@ -70,7 +69,7 @@ def fan() -> Series[int]:
 
 @node("maybe", title="Maybe", description="For a test.")
 def maybe(text: str | None) -> str:
-    return text or "blank"
+    return text or "none"
 
 
 @node("greet", title="Greet", description="For a test.")
@@ -92,7 +91,7 @@ def styled(
 
 @host_type("Name", title="Name")
 class Name(str):
-    """A ``str`` that lands wherever a ``str`` is asked for."""
+    """A subclass of ``str``: it fits any input that takes a ``str``."""
 
 
 @node("name", title="Name of", description="For a test.")
@@ -199,7 +198,7 @@ def test_a_node_record_without_the_node_it_uses_is_refused():
         NodeRecord.model_validate({"id": "u"})
 
 
-def test_a_stored_graph_with_a_misspelled_key_is_refused_naming_it():
+def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": [{"id": "u", "node": "upper", "valuse": {"text": "x"}}]}), REGISTRY)
     assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "valuse"), "extra_forbidden")]
@@ -219,7 +218,7 @@ def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_er
     assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith("The record is not a graph record at")
 
 
-def test_a_half_finished_drawing_with_a_records_shape_loads_with_its_problems():
+def test_a_half_finished_graph_record_compiles_with_its_problems():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "x", "node": "nothing"}], "edges": [["u.result", "y.text"]]}), REGISTRY)
     assert {p.type for p in graph.problems} == {"unknown_node", "edge_names_missing_node"}
 
@@ -242,14 +241,14 @@ def test_what_a_host_saves_reads_back_as_it_was_written():
         assert type(model).model_validate_json(model.model_dump_json()) == model, model
 
 
-def test_loading_leaves_the_record_it_was_given_as_it_was():
+def test_compiling_leaves_the_record_it_was_given_unchanged():
     record = GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="t", node="tail", constants={"text": "x"})], edges=[("u.result", "t.text")])
     before = record.model_dump_json()
     Graph.compile(record, REGISTRY)
     assert record.model_dump_json() == before
 
 
-def test_loading_one_record_twice_gives_the_same_graph():
+def test_compiling_one_record_twice_gives_the_same_graph():
     record = {"nodes": [{"id": "s", "node": "fan"}, {"id": "n", "node": "nonempty", "constants": {"text": ""}}, {"id": "t", "node": "tail"}]}
     first, second = Graph.compile(GraphRecord.model_validate(record), REGISTRY), Graph.compile(GraphRecord.model_validate(record), REGISTRY)
     assert first.problems == second.problems and first.describe() == second.describe()
@@ -258,10 +257,10 @@ def test_loading_one_record_twice_gives_the_same_graph():
     assert first.runs_on == second.runs_on and list(first.inputs) == list(second.inputs) and first.outputs == second.outputs
 
 
-# -- typed-in values ---------------------------------------------------------------------------
+# -- constants ------------------------------------------------------------------------------------
 
 
-def test_a_typed_in_value_is_read_once_when_the_graph_loads_and_not_again_per_item():
+def test_a_constant_is_validated_once_when_the_graph_compiles_and_not_again_per_item():
     reads = []
 
     @host_type("Counted", title="Counted")
@@ -284,17 +283,17 @@ def test_a_typed_in_value_is_read_once_when_the_graph_loads_and_not_again_per_it
     assert reads == ["x"]
 
 
-def test_a_typed_in_blank_is_refused_unless_the_input_takes_a_blank():
+def test_a_none_constant_is_refused_unless_the_input_takes_none():
     assert _problems({"nodes": [{"id": "u", "node": "upper", "constants": {"text": None}}]}) == [("invalid_value", ("u", "text"))]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "maybe", "constants": {"text": None}}]}), REGISTRY)
-    assert graph.problems == [] and graph.run().outputs == {"m.result": "blank"}
+    assert graph.problems == [] and graph.run().outputs == {"m.result": "none"}
 
 
-def test_a_value_its_types_own_constructor_refuses_is_a_problem_where_it_was_typed():
+def test_a_constant_its_types_own_validator_refuses_is_a_problem_on_its_input():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "nonempty", "constants": {"text": ""}}]}), REGISTRY)
     [problem] = graph.problems
     assert (problem.type, problem.loc) == ("invalid_value", ("n", "text"))
-    assert "empty" not in problem.msg  # the type's own words may quote the value
+    assert "empty" not in problem.msg  # the type's own error text is left out of the message: it may quote the value
 
 
 def test_a_problem_of_a_refused_value_equals_what_its_own_json_reads_back():
@@ -308,7 +307,7 @@ def test_a_problem_of_a_refused_value_equals_what_its_own_json_reads_back():
     assert Problem.model_validate_json(problem.model_dump_json()) == problem
 
 
-def test_a_single_value_typed_into_a_series_input_is_refused_not_wrapped_into_a_list_of_one():
+def test_a_single_value_as_the_constant_of_a_series_input_is_refused_not_wrapped_into_a_list():
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "j", "node": "join", "constants": {"texts": "a"}}]}), REGISTRY).problems
     assert (problem.type, problem.loc) == ("invalid_value", ("j", "texts"))
     assert problem.ctx["reason"] == "Input should be a valid list"
@@ -328,7 +327,7 @@ def test_graph_inputs_come_in_the_order_of_the_nodes():
     assert list(graph.inputs) == ["mode", "u.text", "g.text"]
 
 
-def test_a_node_one_of_whose_outputs_is_read_offers_none_of_its_outputs():
+def test_a_node_with_one_output_wired_gives_no_graph_outputs():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "w", "node": "two"}, {"id": "u", "node": "upper"}], "edges": [["w.zed", "u.text"]]}), REGISTRY)
     assert graph.outputs == ["u.result"]
 
@@ -355,7 +354,7 @@ def test_a_description_of_a_broken_graph_is_json_and_carries_its_problems():
     assert list(described["inputs"]) == ["text"]
 
 
-# -- what loading refuses --------------------------------------------------------------------------
+# -- the problems compiling reports ----------------------------------------------------------------
 
 
 def test_nodes_reading_each_other_are_a_cycle_on_each_and_the_graph_does_not_run():
@@ -389,20 +388,20 @@ def test_a_hook_that_raises_is_a_problem_on_its_node_never_an_exception():
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("r",), "ValueError")
 
 
-def test_a_value_its_type_refuses_never_reaches_a_hook_and_is_said_once():
-    # "refuses" reads its mode in a hook; a list typed into the str would have reached it
+def test_a_constant_its_type_refuses_never_reaches_a_hook_and_is_one_problem():
+    # "refuses" reads its mode in a hook, which a list given as the constant of a str input would otherwise reach
     problems = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "r", "node": "refuses", "constants": {"mode": ["a", "b"]}}]}), REGISTRY).problems
     assert [(p.type, p.loc) for p in problems] == [("invalid_value", ("r", "mode"))]
 
 
-def test_a_subtype_lands_where_its_parent_is_asked_for_and_not_the_other_way():
+def test_a_subtype_output_fits_an_input_of_its_parent_type_and_not_the_other_way():
     assert _problems({"nodes": [{"id": "n", "node": "name"}, {"id": "u", "node": "upper"}], "edges": [["n.result", "u.text"]]}) == []
     assert _problems({"nodes": [{"id": "u", "node": "upper"}, {"id": "n", "node": "nonempty"}], "edges": [["u.result", "n.text"]]}) == [
         ("type_mismatch", ("n", "text")),
     ]
 
 
-def test_a_list_of_anything_a_hook_computes_loads_into_a_typed_input_and_a_table_input_without_a_crash():
+def test_a_series_of_any_an_output_hook_declares_compiles_into_a_str_input_and_a_table_input():
     into_text = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "anything"}, {"id": "u", "node": "upper"}], "edges": [["a.items", "u.text"]]}), REGISTRY)
     assert into_text.problems == [] and into_text.run().outputs == {"u.result": ["X", "X"]}
     assert _problems({"nodes": [{"id": "a", "node": "anything"}, {"id": "h", "node": "height"}], "edges": [["a.items", "h.rows"]]}) == []
@@ -421,19 +420,19 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
     assert [(p.type, p.loc, p.ctx["source"]) for p in problems] == [("unknown_output", ("u", "text"), "h.text")]
 
 
-def test_a_broken_edge_is_one_problem_and_no_echo_on_the_nodes_downstream():
+def test_a_broken_edge_is_one_problem_not_repeated_on_the_nodes_downstream():
     record = {"nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "tail"}], "edges": [["a.nope", "b.text"], ["b.result", "c.text"]]}
     assert _problems(record) == [("unknown_output", ("b", "text"))]
 
 
-def test_an_edge_from_a_node_that_did_not_load_is_not_reported_again():
+def test_an_edge_from_a_node_that_did_not_compile_is_not_reported_again():
     unknown = {"nodes": [{"id": "x", "node": "gone"}, {"id": "u", "node": "upper"}], "edges": [["x.result", "u.text"]]}
     assert _problems(unknown) == [("unknown_node", ("x",))]
     refused_id = {"nodes": [{"id": "a@b", "node": "upper"}, {"id": "u", "node": "tail"}], "edges": [["a@b.result", "u.text"]]}
     assert _problems(refused_id) == [("invalid_node_id", ("a@b",))]
 
 
-def test_an_edge_from_a_slashed_name_under_a_plain_node_names_a_node_the_graph_lacks():
+def test_an_edge_from_a_node_path_under_a_function_node_names_a_missing_node():
     problems = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper"}, {"id": "u", "node": "tail"}], "edges": [["a/b.result", "u.text"]]}), REGISTRY).problems
     assert [(p.type, p.loc, p.ctx["missing"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "a/b")]
 
@@ -455,7 +454,7 @@ def test_a_bare_name_two_inputs_share_is_refused_naming_the_addresses():
     assert [p.ctx for p in not_offered] == [{"name": "text", "inputs": ["a.text", "b.text"]}]
 
 
-def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
+def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "styled"}, {"id": "u", "node": "upper", "constants": {"text": "fixed"}}]}), REGISTRY)
     assert list(graph.inputs) == ["mode"]
     with pytest.raises(InvalidCallError) as refused:
@@ -468,7 +467,7 @@ def test_with_inputs_refuses_every_fault_at_once_listing_what_it_offers():
 # -- subgraphs -------------------------------------------------------------------------------
 
 
-def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
+def test_a_subgraph_node_offers_its_inner_graph_input_and_output_as_its_own():
     assert enrich.title == "Enrich"
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}]}), REGISTRY)
     assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].field.title == "Text"
@@ -476,12 +475,12 @@ def test_an_embedding_offers_its_inner_open_input_and_output_as_one_node():
     assert graph.outputs == ["e.tail.result"] and run.outputs == {"e.tail.result": "HI."} and run.results["e"] == {"tail.result": "HI."}
 
 
-def test_a_value_typed_on_an_embedding_reaches_the_inner_input_it_offers():
+def test_a_constant_on_a_subgraph_node_reaches_the_inner_input_it_offers():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich", "constants": {"text": "hi"}}]}), REGISTRY)
     assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"e.tail.result": "HI."}
 
 
-def test_an_unfed_embedding_keeps_its_inner_defaults_and_runs_once():
+def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "defaulted"}]}), REGISTRY)
     assert {k: v.mode for k, v in graph.runs_on.items()} == {"d": "once"}
     assert graph.run().outputs == {"d.g.result": "inside"}
@@ -492,27 +491,27 @@ def test_an_inner_input_with_a_default_is_offered_as_not_required():
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}]}), REGISTRY).inputs["text"].field.required is True
 
 
-def test_a_graph_inside_a_graph_is_one_node_from_outside():
+def test_a_subgraph_inside_a_subgraph_is_one_node_from_outside():
     run = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "t", "node": "top"}]}), REGISTRY).run(text="hi")
     assert run.outputs == {"t.inner.up.result": "HI"} and run.results == {"t": {"inner.up.result": "HI"}}
 
 
-def test_renaming_a_node_inside_an_embedding_keeps_its_inputs_names_and_moves_its_outputs_address():
+def test_renaming_an_inner_node_keeps_the_subgraphs_input_names_and_moves_its_output_address():
     renamed = subgraph("enrich", title="Enrich", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="shout", node="upper"), NodeRecord(id="end", node="tail")], edges=[("shout.result", "end.text")]))
     record = {"nodes": [{"id": "g", "node": "greet"}, {"id": "e", "node": "enrich"}], "edges": [["g.result", "e.text"]]}
-    for embedded, output in ((enrich, "e.tail.result"), (renamed, "e.end.result")):
-        graph = Graph.compile(GraphRecord.model_validate(record), registry_of(greet, upper, tail, embedded))
+    for definition, output in ((enrich, "e.tail.result"), (renamed, "e.end.result")):
+        graph = Graph.compile(GraphRecord.model_validate(record), registry_of(greet, upper, tail, definition))
         assert graph.problems == [] and graph.run(text="hi").outputs == {output: "HI."}
 
 
-def test_a_value_on_an_input_the_embedding_does_not_offer_is_an_unknown_input():
-    fed_inside = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich", "constants": {"text": "a", "result": "b"}}]}), REGISTRY).problems
-    assert [(p.type, p.loc) for p in fed_inside] == [("unknown_input", ("e", "result"))]
+def test_a_constant_for_an_input_the_subgraph_does_not_offer_is_unknown_input():
+    named_like_an_output = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich", "constants": {"text": "a", "result": "b"}}]}), REGISTRY).problems
+    assert [(p.type, p.loc) for p in named_like_an_output] == [("unknown_input", ("e", "result"))]
     by_inner_address = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich", "constants": {"upper.text": "a"}}]}), REGISTRY).problems
     assert [(p.type, p.loc, p.ctx["inputs"]) for p in by_inner_address] == [("unknown_input", ("e", "upper.text"), ["text"])]
 
 
-def test_a_table_made_inside_an_embedding_is_offered_whole_as_the_one_value_it_is():
+def test_a_table_returned_inside_a_subgraph_is_offered_whole_as_one_value():
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "t", "node": "team"}, {"id": "p", "node": "each-person"}, {"id": "u", "node": "upper"}],
         "edges": [["t.people.result", "p.table"], ["p.result.email", "u.text"]],
@@ -521,7 +520,7 @@ def test_a_table_made_inside_an_embedding_is_offered_whole_as_the_one_value_it_i
     assert graph.run(text="name,email\nIda,ida@a.dk\nBo,bo@b.dk\n").outputs == {"u.result": ["IDA@A.DK", "BO@B.DK"]}
 
 
-def test_a_node_built_from_a_graph_offers_its_inner_inputs_and_carries_its_deprecation():
+def test_a_subgraph_offers_its_inner_inputs_and_carries_its_deprecation():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "w", "node": "wrapped"}]}), REGISTRY)
     assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"w.upper.result": "A"}
     assert REGISTRY.describe().nodes[[n.id for n in REGISTRY].index("wrapped")].deprecation.header == "Gone"
@@ -548,15 +547,16 @@ unfed_inside = subgraph("unfed_inside", title="Unfed inside", description="For a
 BROKEN = registry_of(upper, pair, nonempty, formula, gone_inside, around, invalid_inside, unfed_inside)
 
 
-def test_a_hook_is_not_handed_a_required_input_nobody_typed_in_and_the_node_says_why():
+def test_a_hook_is_not_called_without_a_required_input_and_the_problem_says_it_needs_a_value():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula"}]}), BROKEN)
     assert [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("f", "formula"))]
-    typed = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula", "constants": {"formula": "a b"}}]}), BROKEN)
-    assert typed.problems == [] and list(typed.inputs) == ["a", "b"]
+    given = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula", "constants": {"formula": "a b"}}]}), BROKEN)
+    assert given.problems == [] and list(given.inputs) == ["a", "b"]
 
 
-def test_an_input_a_hook_reads_is_fixed_when_the_graph_loads_and_never_a_graph_input():
-    """The fields a hook works out hold for every run, so what it read is the record's, never the caller's."""
+def test_an_input_a_hook_reads_is_a_constant_of_the_graph_never_a_graph_input():
+    """The outputs a hook works out are the same for every run, so the input it reads comes from the graph record,
+    never from the caller."""
 
     def outputs(mode: str) -> dict[str, Any]:
         return {"a": int} if mode == "a" else {"b": str}
@@ -576,30 +576,30 @@ def test_an_input_a_hook_reads_is_fixed_when_the_graph_loads_and_never_a_graph_i
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula"}]}), BROKEN).problems[0].type == "hook_needs_value"
 
 
-def test_a_broken_graphs_problems_are_its_own_where_it_is_embedded_with_the_embedding_in_front():
+def test_a_problem_inside_a_subgraph_is_reported_at_its_node_path():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "g", "node": "gone_inside"}]}), BROKEN)
     assert [(p.type, p.loc) for p in graph.problems] == [("unknown_node", ("g", "x"))]
     assert not graph.is_runnable and graph.inputs == {}
 
 
-def test_a_broken_graph_two_levels_down_breaks_the_graph_around_it_where_it_is_embedded():
+def test_a_problem_two_subgraphs_down_is_reported_at_its_full_node_path():
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "around"}]}), BROKEN).problems
     assert (problem.type, problem.loc) == ("unknown_node", ("a", "b", "x"))
 
 
-def test_an_invalid_value_typed_inside_makes_the_embedding_not_runnable():
+def test_an_invalid_constant_inside_a_subgraph_makes_the_outer_graph_not_runnable():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "invalid_inside"}]}), BROKEN)
     assert [(p.type, p.loc) for p in graph.problems] == [("invalid_value", ("i", "n", "text"))]
     with pytest.raises(InvalidCallError):
         graph.run()
 
 
-def test_a_graph_with_a_required_input_on_a_later_node_nobody_feeds_cannot_be_embedded():
+def test_a_subgraph_whose_inner_node_has_a_required_input_no_edge_gives_is_unbound_on_later_node():
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "unfed_inside"}]}), BROKEN).problems
     assert (problem.type, problem.loc) == ("unbound_on_later_node", ("u", "pair", "b"))
 
 
-def test_a_value_typed_on_a_broken_embedding_adds_no_second_problem():
+def test_a_constant_on_a_broken_subgraph_node_adds_no_second_problem():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "g", "node": "gone_inside", "constants": {"text": "x"}}]}), BROKEN)
     assert [(p.type, p.loc) for p in graph.problems] == [("unknown_node", ("g", "x"))]
 
@@ -637,7 +637,7 @@ picky = subgraph("picky", title="Picky", description="For a test.")(make_graph(r
 OUTSIDE = registry_of(upper, tail, refuses_bad, both_halves, taken, enrich, halves, picky)
 
 
-def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_below_keeps_its_fields():
+def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_downstream_is_still_described():
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "tail"}],
         "edges": [["a.result", "b.text"], ["b.result", "a.text"], ["b.result", "c.text"]],
@@ -646,19 +646,19 @@ def test_only_the_nodes_on_a_cycle_are_a_cycle_and_a_node_below_keeps_its_fields
     assert set(graph.describe().nodes) == {"a", "b", "c"}
 
 
-def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded():
+def test_describe_lists_every_node_of_a_half_broken_graph_and_which_definitions_were_found():
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "tail"}, {"id": "x", "node": "gone"}],
         "edges": [["a.nope", "b.text"], ["b.result", "c.text"]],
     }), REGISTRY)
-    drawn = json.loads(graph.describe().model_dump_json())["nodes"]
-    assert list(drawn) == ["a", "b", "c", "x"]
-    assert {node_id: d["found"] for node_id, d in drawn.items()} == {"a": True, "b": True, "c": True, "x": False}
+    described_nodes = json.loads(graph.describe().model_dump_json())["nodes"]
+    assert list(described_nodes) == ["a", "b", "c", "x"]
+    assert {node_id: d["found"] for node_id, d in described_nodes.items()} == {"a": True, "b": True, "c": True, "x": False}
 
 
-def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
-    """A node as an editor draws it: whether its fields are known, where it runs, how each input is fed, its
-    outputs, and its problems."""
+def _described(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
+    """A node as ``describe()`` gives it to an editor: whether its definition was found, which loop it is inside,
+    where each input gets its value, its outputs, and its problems."""
     described = graph.describe().nodes[node_id]
     return (
         described.found, described.runs.msg if described.runs else None, {i.field.name: i.source.mode for i in described.inputs},
@@ -666,44 +666,45 @@ def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], 
     )
 
 
-def test_a_node_with_a_refused_edge_is_drawn_with_its_fields_and_so_is_a_sound_node_that_reads_it():
-    """The node its problem is on keeps its fields, the refused input marked; what reads it is planned as in a graph with no problem."""
+def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_node_downstream():
+    """The node with the problem keeps its inputs and outputs, the refused input marked missing; the nodes downstream
+    are compiled as in a graph with no problem."""
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "f", "node": "fan"}, {"id": "u", "node": "upper"}, {"id": "t", "node": "tail"}, {"id": "j", "node": "join"}],
         "edges": [["f.result", "u.text"], ["u.result", "t.text"], ["t.result", "j.texts"]],
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("u", "text"))]
-    assert _drawn(graph, "u") == (True, "once", {"text": "missing"}, ["result"], ["type_mismatch"])
-    assert _drawn(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
-    assert _drawn(graph, "j") == (True, "once", {"texts": "collected"}, ["result"], [])
+    assert _described(graph, "u") == (True, "once", {"text": "missing"}, ["result"], ["type_mismatch"])
+    assert _described(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
+    assert _described(graph, "j") == (True, "once", {"texts": "collected"}, ["result"], [])
     assert list(graph.runs_on) == ["f", "u", "t", "j"] and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
     assert [p.type for p in refused.value.errors()] == ["type_mismatch"]
 
 
-def test_the_nodes_on_a_cycle_and_a_node_below_it_are_drawn_with_their_fields():
+def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inputs():
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "c", "node": "tail"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
         "edges": [["a.result", "b.text"], ["b.result", "a.text"], ["b.result", "c.text"]],
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
-    assert _drawn(graph, "a") == (True, "once", {"text": "missing"}, ["result"], ["cycle"])  # the edge that closes the cycle brings it nothing
-    assert _drawn(graph, "b") == (True, "once", {"text": "one_value"}, ["result"], ["cycle"])
-    assert _drawn(graph, "c") == (True, "once", {"text": "one_value"}, ["result"], [])
+    assert _described(graph, "a") == (True, "once", {"text": "missing"}, ["result"], ["cycle"])  # the edge that closes the cycle gives it no value
+    assert _described(graph, "b") == (True, "once", {"text": "one_value"}, ["result"], ["cycle"])
+    assert _described(graph, "c") == (True, "once", {"text": "one_value"}, ["result"], [])
 
 
-def test_an_input_whose_series_never_pairs_with_the_nodes_other_is_marked_and_the_node_is_drawn():
+def test_an_input_looping_over_a_series_not_nested_with_the_others_is_marked_missing_and_the_node_described():
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "x", "node": "fan"}, {"id": "y", "node": "fan"}, {"id": "b", "node": "both_ints"}, {"id": "t", "node": "tail"}],
         "edges": [["x.result", "b.a"], ["y.result", "b.b"], ["b.result", "t.text"]],
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("series_not_nested", ("b",))]
-    assert _drawn(graph, "b") == (True, "per item of x.result", {"a": "item", "b": "missing"}, ["result"], ["series_not_nested"])
-    assert _drawn(graph, "t") == (True, "per item of x.result", {"text": "item"}, ["result"], [])
+    assert _described(graph, "b") == (True, "per item of x.result", {"a": "item", "b": "missing"}, ["result"], ["series_not_nested"])
+    assert _described(graph, "t") == (True, "per item of x.result", {"text": "item"}, ["result"], [])
 
 
-def test_only_a_node_whose_definition_or_hook_gave_no_fields_is_drawn_without_them_and_its_reader_keeps_its_own():
+def test_a_node_not_found_or_whose_hook_failed_has_no_inputs_or_outputs_and_the_nodes_downstream_keep_theirs():
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "gone", "node": "gone"}, {"id": "old", "node": "upper", "version": 9}, {"id": "r", "node": "refuses", "constants": {"mode": "bad"}},
                   {"id": "u", "node": "upper"}, {"id": "t", "node": "tail"}, {"id": "v", "node": "upper"}],
@@ -711,9 +712,9 @@ def test_only_a_node_whose_definition_or_hook_gave_no_fields_is_drawn_without_th
     }), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("unknown_node", ("gone",)), ("unknown_version", ("old",)), ("compute_hook_failed", ("r",))]
     for unknown in ("gone", "old", "r"):
-        assert _drawn(graph, unknown)[:4] == (False, None, {}, [])
-    for reader in ("u", "t", "v"):
-        assert _drawn(graph, reader) == (True, "once", {"text": "missing"}, ["result"], [])
+        assert _described(graph, unknown)[:4] == (False, None, {}, [])
+    for downstream in ("u", "t", "v"):
+        assert _described(graph, downstream) == (True, "once", {"text": "missing"}, ["result"], [])
 
 
 def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failure():
@@ -721,7 +722,7 @@ def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failur
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("d",), "added_input_taken")
 
 
-def test_a_wrong_address_on_an_embedding_is_unknown_output_or_unknown_input_on_it():
+def test_a_wrong_address_on_a_subgraph_node_is_unknown_output_or_unknown_input_on_it():
     def found(record: dict[str, Any]) -> list[tuple[str, tuple[Any, ...]]]:
         return [(p.type, p.loc) for p in Graph.compile(GraphRecord.model_validate(record), OUTSIDE).problems]
 
@@ -732,48 +733,48 @@ def test_a_wrong_address_on_an_embedding_is_unknown_output_or_unknown_input_on_i
 
 
 @pytest.mark.parametrize("ctx", [{"tables": [1, 2]}, {"source": "e/report.pdf", "node_id": "anything"}])
-def test_an_inner_nodes_own_error_is_said_where_it_is_inside_the_embedding_with_its_ctx_as_its_author_wrote_it(ctx):
+def test_an_inner_nodes_error_is_reported_at_its_node_path_with_the_ctx_its_author_wrote(ctx):
     @node("unreadable", title="Unreadable", description="For a test.")
     def unreadable(text: str) -> str:
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
 
-    embedding = subgraph("e", title="E", description="For a test.")(make_graph(unreadable))
-    run = Graph.compile(make_graph(embedding), registry_of(unreadable, embedding)).run(text="hi")
+    sub = subgraph("e", title="E", description="For a test.")(make_graph(unreadable))
+    run = Graph.compile(make_graph(sub), registry_of(unreadable, sub)).run(text="hi")
 
     assert (run.status, run.state.cause.msg) == ("failed", "The document could not be read.")
     assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("unreadable", ("e", "unreadable"), ctx)
 
 
-def test_an_outer_edge_never_reads_inside_an_embedding_by_an_inner_id():
+def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
     problems = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e/upper.result", "u.text"]]}), OUTSIDE).problems
     assert [(p.type, p.loc, p.ctx["missing"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "e/upper")]
 
 
-def test_an_edge_from_a_missing_node_into_an_embedding_is_its_problem_at_the_field_it_offers():
+def test_an_edge_from_a_missing_node_into_a_subgraph_node_is_a_problem_at_the_input_it_offers():
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}], "edges": [["ghost.result", "e.text"]]}), OUTSIDE).problems
     assert (problem.type, problem.loc, problem.ctx["missing"]) == ("edge_names_missing_node", ("e", "text"), "ghost")
     assert (problem.ctx["source"], problem.ctx["target"]) == ("ghost.result", "e.text")
 
 
-def test_an_inner_input_a_hook_reads_is_set_inside_the_graph_so_a_value_typed_for_it_on_the_embedding_is_an_unknown_input():
+def test_an_inner_input_a_hook_reads_is_not_offered_so_a_constant_for_it_on_the_subgraph_node_is_unknown_input():
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "p", "node": "picky"}]}), OUTSIDE).inputs == {}
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "p", "node": "picky", "constants": {"mode": "bad"}}]}), OUTSIDE).problems
     assert (problem.type, problem.loc, problem.ctx["inputs"]) == ("unknown_input", ("p", "mode"), [])
 
 
-def test_an_embeddings_inputs_are_filled_by_its_own_address():
+def test_a_subgraph_nodes_inputs_are_given_by_its_own_address():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}]}), OUTSIDE)
     assert {name: i.address for name, i in graph.inputs.items()} == {"e.text": "e.text", "u.text": "u.text"}
     assert graph.run({"e.text": "hi", "u.text": "yo"}).outputs == {"e.tail.result": "HI.", "u.result": "YO"}
 
 
-def test_two_inner_inputs_sharing_a_name_are_offered_by_the_inner_records_ids():
+def test_two_inner_inputs_sharing_a_name_are_offered_by_their_inner_node_ids():
     assert [f.name for f in next(n for n in OUTSIDE.describe().nodes if n.id == "halves").inputs] == ["x.text", "y.text"]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "upper"}, {"id": "c", "node": "halves", "constants": {"y.text": "b"}}], "edges": [["s.result", "c.x.text"]]}), OUTSIDE)
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 
 
-def test_an_authored_id_with_a_slash_beside_an_embedding_is_refused_alone_and_stays_the_authors():
+def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_on_its_own():
     beside = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "e/upper", "node": "upper"}]}), OUTSIDE).problems
     assert [(p.type, p.loc) for p in beside] == [("invalid_node_id", ("e/upper",))]
     broken = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "gone"}, {"id": "e/upper", "node": "upper"}]}), REGISTRY).problems
@@ -797,7 +798,7 @@ def test_a_set_given_for_a_series_input_is_refused_as_it_has_no_order():
 
 
 def _nested_forty_deep() -> tuple[Any, str]:
-    """A registry of forty graphs, each holding the one before it, and the id of the outermost."""
+    """A registry of forty subgraphs, each with the one before it as its only node, and the id of the outermost."""
     from conductor import NodeRegistry
 
     registry = NodeRegistry()
@@ -813,8 +814,9 @@ def _nested_forty_deep() -> tuple[Any, str]:
     return registry, inner
 
 
-def test_graphs_embedded_forty_deep_load_at_once():
-    """Each subgraph is loaded alone once per load, however deep it nests, so depth costs time in proportion."""
+def test_subgraphs_nested_forty_deep_compile_in_under_two_seconds():
+    """Each subgraph is compiled once per ``Graph.compile``, however deep it is nested, so the time grows in proportion
+    to the depth."""
     import time
 
     registry, outermost = _nested_forty_deep()
@@ -823,7 +825,7 @@ def test_graphs_embedded_forty_deep_load_at_once():
     assert time.monotonic() - started < 2 and graph.problems == [] and list(graph.inputs) == ["text"]
 
 
-def test_graphs_embedded_forty_deep_run_as_the_one_node_inside_them():
+def test_subgraphs_nested_forty_deep_run_as_the_one_function_node_inside_them():
     registry, outermost = _nested_forty_deep()
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "top", "node": outermost}]}), registry).run(text="z").outputs == {"top" + ".n" * 40 + ".result": "Z"}
 
@@ -852,7 +854,7 @@ def test_a_type_mismatch_into_a_series_says_the_series_it_reads():
     assert [p.type for p in Graph.compile(make_graph(words, count), registry).problems] == ["type_mismatch"]
 
 
-def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
+def test_a_constant_default_or_edge_on_a_subgraph_node_replaces_the_inner_default():
     from conductor import NodeRegistry, make_graph, node
 
     @node("upper", title="Upper", description="For a test.")
@@ -867,15 +869,15 @@ def test_what_the_outside_gives_an_embedded_input_replaces_the_inner_default():
     registry.add(upper, hello, subgraph("shout", title="Shout", description="For a test.")(make_graph(upper, defaults={"upper.text": "inner"})))
     shout = registry["shout"]
     assert Graph.compile(make_graph(shout), registry).run().outputs == {"shout.upper.result": "INNER"}
-    typed = Graph.compile(make_graph(shout, constants={"shout.text": "outer"}), registry)
-    assert typed.problems == [] and typed.run().outputs == {"shout.upper.result": "OUTER"}
+    with_constant = Graph.compile(make_graph(shout, constants={"shout.text": "outer"}), registry)
+    assert with_constant.problems == [] and with_constant.run().outputs == {"shout.upper.result": "OUTER"}
     defaulted = Graph.compile(make_graph(shout, defaults={"shout.text": "outer"}), registry)
     assert defaulted.problems == [] and defaulted.run().outputs == {"shout.upper.result": "OUTER"}
     fed = Graph.compile(make_graph(hello, shout, edges=[("hello.result", "shout.text")]), registry)
     assert fed.problems == [] and fed.run().outputs == {"shout.upper.result": "HI"}
 
 
-def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_names():
+def test_a_bool_output_into_a_float_input_is_a_type_mismatch_and_a_union_is_named_by_its_members():
     from conductor import NodeRegistry, node
 
     @host_type("Text", title="Text")
@@ -901,7 +903,7 @@ def test_a_yes_or_no_never_lands_on_a_number_and_a_union_is_said_by_its_members_
         assert (problem.type, problem.ctx["got"]) == ("type_mismatch", got)
 
 
-def test_a_graph_input_is_its_fields_record_and_writes_as_json():
+def test_a_graph_input_has_its_field_and_address_and_writes_as_json():
     import json
 
     from conductor import GraphInput, NodeRegistry, make_graph, node
@@ -918,7 +920,7 @@ def test_a_graph_input_is_its_fields_record_and_writes_as_json():
     assert (graph.inputs["t"].field.name, graph.inputs["t"].address, graph.inputs["t"].field.required) == ("t", "u.t", True)
 
 
-def test_a_yes_or_no_typed_in_or_given_never_lands_on_a_number():
+def test_a_bool_as_a_constant_or_a_graph_input_is_refused_for_a_float_input():
     from conductor import NodeRegistry, node
 
     @node("double", title="Double", description="For a test.")
@@ -935,7 +937,7 @@ def test_a_yes_or_no_typed_in_or_given_never_lands_on_a_number():
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "double"}]}), registry).run(x=2).outputs == {"d.result": 4.0}
 
 
-def test_a_table_into_a_series_is_said_as_the_table_it_is():
+def test_a_table_wired_into_a_series_input_is_a_type_mismatch_naming_table():
     import polars as pl
     from conductor import NodeRegistry, Series, Table, node
 
@@ -953,7 +955,7 @@ def test_a_table_into_a_series_is_said_as_the_table_it_is():
     assert (problem.ctx["got"], problem.ctx["expected"]) == ("Table", "Series[int]")
 
 
-def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_int_in():
+def test_a_bool_is_refused_for_a_hosts_number_type_that_accepts_int():
     from conductor import Ask, NodeRegistry, make_graph
 
     @host_type("number", title="Number", accepts=[int])
@@ -988,7 +990,7 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
         waiting.answer(waiting.waiting[0], True)
 
 
-def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(monkeypatch: MonkeyPatch) -> None:
+def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector(monkeypatch: MonkeyPatch) -> None:
     import gc
     import weakref
 
@@ -998,28 +1000,28 @@ def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(m
     def upper(text: str) -> str:
         return text.upper()
 
-    loads: list[object] = []
-    load = _Compiler.compile
+    compiles: list[object] = []
+    original = _Compiler.compile
 
     def counted(self: Any, *args: Any, **kwargs: Any) -> Any:
-        loads.append(self)
-        return load(self, *args, **kwargs)
+        compiles.append(self)
+        return original(self, *args, **kwargs)
 
     monkeypatch.setattr(_Compiler, "compile", counted)
     registry = registry_of(upper)
     gc.disable()
     try:
         graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper", "defaults": {"text": "a"}}]}), registry)
-        held, loaded = weakref.ref(graph), len(loads)
-        del graph, loads[:]
-        assert loaded == 1
-        assert held() is None
+        graph_ref, count = weakref.ref(graph), len(compiles)
+        del graph, compiles[:]
+        assert count == 1
+        assert graph_ref() is None
     finally:
         gc.enable()
 
 
 @pytest.mark.parametrize("ran", ["once", "per item", "again per item"])
-def test_a_run_holds_the_graph_that_was_loaded_and_both_are_freed_without_the_cycle_collector(ran: str) -> None:
+def test_a_run_keeps_its_graph_and_both_are_freed_without_the_cycle_collector(ran: str) -> None:
     import gc
     import weakref
 
@@ -1046,14 +1048,14 @@ def test_a_run_holds_the_graph_that_was_loaded_and_both_are_freed_without_the_cy
             graph = Graph.compile(make_graph(words, upper, join), registry)
             run = graph.run(text="a b") if ran == "per item" else graph.run(text="a b").again(text="c")
         assert run.graph is graph
-        held = [weakref.ref(graph), weakref.ref(run)]
+        refs = [weakref.ref(graph), weakref.ref(run)]
         del graph, run
-        assert [ref() for ref in held] == [None, None]
+        assert [ref() for ref in refs] == [None, None]
     finally:
         gc.enable()
 
 
-def test_a_typed_dict_on_a_field_is_a_record_with_its_fields_and_an_edge_may_name_one():
+def test_a_typed_dict_output_is_a_record_and_an_edge_may_name_one_of_its_fields():
     class Contact(TypedDict):
         name: str
 
@@ -1076,10 +1078,10 @@ def adds(names: list[str] = [], **values: Any) -> str:  # noqa: B006
     return ",".join(f"{k}={v}" for k, v in values.items())
 
 
-def test_an_embedding_offers_the_fields_its_graph_offers_alone_as_its_hooks_made_them():
+def test_a_subgraph_offers_the_inputs_and_outputs_its_inner_hooks_add():
     added = GraphRecord(nodes=[NodeRecord(id="a", node="adds", constants={"names": ["who"]})])
-    made = GraphRecord(nodes=[NodeRecord(id="c", node="columns", constants={"names": ["x", "y"]})])
-    registry = registry_of(adds, columns, subgraph("box_in", title="Box in", description="For a test.")(added), subgraph("box_out", title="Box out", description="For a test.")(made))
+    computed = GraphRecord(nodes=[NodeRecord(id="c", node="columns", constants={"names": ["x", "y"]})])
+    registry = registry_of(adds, columns, subgraph("box_in", title="Box in", description="For a test.")(added), subgraph("box_out", title="Box out", description="For a test.")(computed))
     assert list(Graph.compile(added, registry).inputs) == ["who"]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "b", "node": "box_in"}]}), registry)
     assert graph.problems == [] and list(graph.inputs) == ["who"] and graph.run(who="x").outputs == {"b.a.result": "who=x"}

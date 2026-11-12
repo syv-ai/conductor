@@ -1,10 +1,8 @@
-"""Upgrading a node in a graph from the version it was saved at to a newer one.
+"""Upgrading a node of a graph record from the version it was saved at to a later one.
 
-A node's ``Upgrade`` steps are checked when the node is declared, and
-``registry.upgrade`` applies them to one node of a graph record: its values and
-defaults, its version, the edges into the inputs a step renames and every
-edge that read an output it renamed. Loading never upgrades on its own; a graph pinned at an old
-version runs that version.
+A node definition's ``Upgrade`` steps are checked when it is declared. ``registry.upgrade`` applies them to one node
+of a graph record: its constants and defaults, its version, the edges into an input a step renames and the edges out
+of an output it renames. ``Graph.compile`` never upgrades: a node pinned at an old version runs that version.
 """
 
 from collections.abc import Mapping
@@ -62,8 +60,7 @@ def rename(
     first: Annotated[Txt, _param("First")] = Txt(""),
     last: Annotated[Txt, _param("Last")] = Txt(""),
 ) -> Named:
-    """Version 1 took ``name``; 2 splits it into ``first`` and ``last``; 3
-    renames the output ``result`` to ``text``."""
+    """Version 1 took ``name``; 2 splits it into ``first`` and ``last``; 3 renames the output ``result`` to ``text``."""
     return Named(text=Txt(f"{first} {last}"))
 
 
@@ -84,7 +81,7 @@ def _graph(version: int = 1) -> GraphRecord:
     ], edges=[("r.result" if version < 3 else "r.text", "e.text")])
 
 
-# --- a field name gone from the next version needs an upgrade -------------------
+# --- an input or output the next version drops needs an upgrade ------------------
 
 
 def _older_x(x: Annotated[Txt, _param("X")]) -> Annotated[Txt, Param(title="R")]:
@@ -115,10 +112,10 @@ def test_a_version_keeping_its_fields_needs_no_upgrade():
     assert node("two", title="Older x", description="For a test.", replaces=node("two", title="Older x", description="For a test.")(_older_x))(_older_x).version == 2
 
 
-# --- registry.upgraded -----------------------------------------------------------
+# --- registry.upgrade ------------------------------------------------------------
 
 
-def test_a_two_step_chain_rewrites_the_typed_in_values_and_the_version():
+def test_a_two_step_upgrade_rewrites_the_constants_and_sets_the_last_version():
     upgraded = _registry().upgrade(_graph(), "r")
 
     graph_node = next(n for n in upgraded.nodes if n.id == "r")
@@ -126,7 +123,7 @@ def test_a_two_step_chain_rewrites_the_typed_in_values_and_the_version():
     assert graph_node.constants == {"first": "Ada", "last": "Lovelace"}
 
 
-def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clean():
+def test_a_renamed_output_moves_the_edges_out_of_it_and_the_graph_compiles_clean():
     registry = _registry()
     upgraded = registry.upgrade(_graph(), "r")
 
@@ -135,14 +132,14 @@ def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clea
     assert graph.is_runnable and graph.problems == [], graph.problems
 
 
-def test_to_stops_the_chain_early():
+def test_upgrade_with_to_stops_at_that_version():
     upgraded = _registry().upgrade(_graph(), "r", to=2)
 
     assert next(n for n in upgraded.nodes if n.id == "r").version == 2
     assert upgraded.edges == (("r.result", "e.text"),)
 
 
-def test_a_node_already_there_returns_the_graph_unchanged():
+def test_a_node_already_at_its_latest_version_returns_the_graph_unchanged():
     graph = _graph(version=3)
     assert _registry().upgrade(graph, "r") is graph
 
@@ -167,11 +164,11 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     assert upgraded.edges == (("src.result", "r.full"),)
 
 
-def test_an_edge_into_an_input_a_rewrite_leaves_gone_goes_with_it_and_the_graph_loads_clean():
+def test_an_edge_into_an_input_a_rewrite_removes_is_removed_and_the_graph_compiles_clean():
     def summed_v1(a: int, b: int) -> int:
         return a + b
 
-    @node("summed", title="Summed", description="For a test.", replaces=node("summed", title="Summed v1", description="For a test.")(summed_v1), upgrade=Upgrade(rewrite=lambda typed: {k: v for k, v in typed.items() if k != "b"}))
+    @node("summed", title="Summed", description="For a test.", replaces=node("summed", title="Summed v1", description="For a test.")(summed_v1), upgrade=Upgrade(rewrite=lambda before: {k: v for k, v in before.items() if k != "b"}))
     def summed(a: int) -> int:
         return a
 
@@ -187,11 +184,11 @@ def test_an_edge_into_an_input_a_rewrite_leaves_gone_goes_with_it_and_the_graph_
     assert Graph.compile(upgraded, registry).problems == []
 
 
-def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
+def test_a_rewrite_sees_constants_and_defaults_together_and_a_default_stays_a_default():
     def counted_v1(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0) -> Annotated[Txt, Param(title="R")]:
         return src
 
-    @node("counted", title="Counted", description="For a test.", replaces=node("counted", title="Counted v1", description="For a test.")(counted_v1), upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": typed.get("n", 0) + 1, "added": 1}))
+    @node("counted", title="Counted", description="For a test.", replaces=node("counted", title="Counted v1", description="For a test.")(counted_v1), upgrade=Upgrade(rewrite=lambda before: {**before, "n": before.get("n", 0) + 1, "added": 1}))
     def counted(src: Annotated[Txt, _param("Source")] = Txt(""), n: int = 0, added: int = 0) -> Annotated[Txt, Param(title="R")]:
         return src
 
@@ -203,7 +200,7 @@ def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
     assert (with_neither.constants, with_neither.defaults) == ({"n": 1, "added": 1}, {})
 
 
-def test_an_edge_reading_a_column_of_a_renamed_output_moves_with_it():
+def test_an_edge_reading_a_field_of_a_renamed_output_moves_with_it():
     registry = _registry()
     graph = GraphRecord(nodes=[NodeRecord(id="r", node="rename", version=2), NodeRecord(id="e", node="echo")], edges=[("r.result.text", "e.text")])
 
@@ -254,10 +251,9 @@ def test_a_renamed_input_takes_its_value_with_it():
     assert Graph.compile(upgraded, registry).problems == []
 
 
-def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge():
-    """Step 1 renames ``result`` to ``first``; step 2 brings back an output
-    named ``result`` and renames it to ``second``. An edge saved at version 1
-    read the output that is ``first`` now."""
+def test_an_edge_follows_its_output_when_a_later_step_reuses_the_outputs_old_name():
+    """Step 1 renames ``result`` to ``first``; step 2 declares an output named ``result`` again and renames it to
+    ``second``. An edge saved at version 1 read the output that version 3 calls ``first``."""
 
     def reuse_outputs():
         return {}
@@ -283,18 +279,17 @@ def test_a_later_step_reusing_a_renamed_away_name_does_not_catch_an_older_edge()
     assert upgraded.edges == (("u.first", "e.text"),)
 
 
-def test_a_definition_with_no_steps_only_has_its_version_set():
-    """A subgraph arrives by value, one version per saved flow, with
-    no ``@upgrade`` to run: the node moves to the new version with its
-    values as saved, and compile says what the new version makes of them."""
+def test_upgrading_a_subgraph_sets_only_its_version():
+    """A subgraph's versions are graph records, with no ``Upgrade`` to run: the node gets the later version and keeps
+    its constants as saved, and compiling says whether that version accepts them."""
 
-    def embedded(inner_id: str) -> GraphRecord:
+    def inner_graph(inner_id: str) -> GraphRecord:
         return GraphRecord(nodes=[NodeRecord(id=inner_id, node="echo")])
 
-    first = subgraph("embedded", title="Embedded", description="d")(embedded("inner"))
-    registry = registry_of(echo, subgraph("embedded", title="Embedded", description="d", replaces=first)(embedded("renamed")))
+    first = subgraph("inner_graph", title="Sub", description="d")(inner_graph("inner"))
+    registry = registry_of(echo, subgraph("inner_graph", title="Sub", description="d", replaces=first)(inner_graph("renamed")))
     graph = GraphRecord(nodes=[
-        NodeRecord(id="f", node="embedded", constants={"text": "x"}),
+        NodeRecord(id="f", node="inner_graph", constants={"text": "x"}),
     ])
 
     upgraded = registry.upgrade(graph, "f")
@@ -324,22 +319,22 @@ def _newer_out() -> _Y:
 
 
 @pytest.mark.parametrize("upgrade", [Upgrade(renamed_inputs={}), Upgrade(rewrite=dict)], ids=["no-rename", "a-rewrite"])
-def test_an_upgrade_that_leaves_an_output_gone_and_not_renamed_is_refused_where_it_is_declared(upgrade: Upgrade) -> None:
-    """A rewrite reads what is typed into the node, never the edges out of it, so it can't say where an output went."""
+def test_an_upgrade_that_drops_an_output_without_renaming_it_is_refused_where_it_is_declared(upgrade: Upgrade) -> None:
+    """A rewrite reads the node's constants, never the edges out of it, so it cannot say where an output went."""
     with pytest.raises(NodeDeclarationError, match="'x'") as raised:
         node("o", title="Newer out", description="For a test.", replaces=node("o", title="Older out", description="For a test.")(_older_out), upgrade=upgrade)(_newer_out)
     assert raised.value.code == "upgrade_missing"
 
 
-def test_an_output_an_upgrade_renamed_is_accounted_for():
+def test_an_output_an_upgrade_renames_needs_nothing_more():
     assert node("o", title="Newer out", description="For a test.", replaces=node("o", title="Older out", description="For a test.")(_older_out), upgrade=Upgrade(renamed_outputs={"x": "y"}))(_newer_out).version == 2
 
 
-def test_a_rewrite_returning_a_set_is_set_has_no_order_at_the_node():
+def test_a_rewrite_returning_a_set_is_refused_as_set_has_no_order_at_the_node():
     def tagged_v1(tag: str) -> str:
         return tag
 
-    @node("tagged", title="Tagged", description="For a test.", replaces=node("tagged", title="Tagged v1", description="For a test.")(tagged_v1), upgrade=Upgrade(rewrite=lambda typed: {"tags": set(typed.values())}))
+    @node("tagged", title="Tagged", description="For a test.", replaces=node("tagged", title="Tagged v1", description="For a test.")(tagged_v1), upgrade=Upgrade(rewrite=lambda before: {"tags": set(before.values())}))
     def tagged(tags: list[str]) -> str:
         return ",".join(tags)
 
@@ -361,7 +356,7 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
     saved = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "when", "constants": {"day": "2026-01-02"}}]})
     for returned, written in ((datetime.date(2026, 1, 2), "2026-01-02"), (pl.DataFrame({"a": [1]}), None)):
 
-        @node("when", title="When", description="For a test.", replaces=when_v1, upgrade=Upgrade(rewrite=lambda typed, r=returned: {"day": r}))
+        @node("when", title="When", description="For a test.", replaces=when_v1, upgrade=Upgrade(rewrite=lambda before, r=returned: {"day": r}))
         def when(day: datetime.date) -> str:
             return day.isoformat()
 
