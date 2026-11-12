@@ -87,7 +87,7 @@ def approve(text: str) -> bool:
     raise Ask(f"approve {text}?")
 
 
-def drawn(*nodes: tuple[str, str] | dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> dict[str, Any]:
+def record_of(*nodes: tuple[str, str] | dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> dict[str, Any]:
     """A record: each node ``(id, node)`` or a node record of its own, and edges ``(from, to)``."""
     return {
         "nodes": [n if isinstance(n, dict) else {"id": n[0], "node": n[1]} for n in nodes],
@@ -105,9 +105,9 @@ def ran(record: dict[str, Any], reg: NodeRegistry = registry, max_items: int | N
 
 FILES = [f"k{i}" for i in range(11)]
 UPLOAD = ("upload.result", "read.file")
-PER = drawn(("upload", "upload"), ("read", "read"), ("review", "review"), edges=(UPLOAD, ("read.result", "review.text")))
-TOGETHER = drawn(("upload", "upload"), ("read", "read"), ("overall", "overall"), edges=(UPLOAD, ("read.result", "overall.texts")))
-BOTH = drawn(("upload", "upload"), ("read", "read"), ("review", "review"), ("overall", "overall"),
+PER = record_of(("upload", "upload"), ("read", "read"), ("review", "review"), edges=(UPLOAD, ("read.result", "review.text")))
+TOGETHER = record_of(("upload", "upload"), ("read", "read"), ("overall", "overall"), edges=(UPLOAD, ("read.result", "overall.texts")))
+BOTH = record_of(("upload", "upload"), ("read", "read"), ("review", "review"), ("overall", "overall"),
              edges=(UPLOAD, ("read.result", "review.text"), ("review.result", "overall.texts")))
 
 
@@ -126,7 +126,7 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     assert ran(PER, files=[]).outputs == {"review.result": []} and CALLS == {}
 
 
-def test_eleven_contracts_reviewed_all_together_make_one_call_and_one_file_gathers_as_a_series_of_one():
+def test_eleven_contracts_reviewed_all_together_make_one_call_and_one_file_is_collected_as_a_list_of_one():
     run = ran(TOGETHER, files=FILES)
     assert CALLS == {"read": 11, "overall": 1} and run.outputs == {"overall.result": "overall(11)"}
     assert ran(TOGETHER, files=FILES[:1]).outputs == {"overall.result": "overall(1)"}
@@ -138,7 +138,7 @@ def test_both_in_one_graph_review_each_contract_and_then_all_of_them_once():
     assert ran(BOTH, files=FILES[:1]).outputs == {"overall.result": "overall(1)"}
 
 
-def test_a_graph_is_the_one_graph_that_was_loaded_however_many_files_a_run_is_given():
+def test_a_compiled_graph_stays_the_same_graph_however_many_files_a_run_is_given():
     graph = Graph.compile(GraphRecord.model_validate(PER), registry)
     fingerprint = graph.fingerprint
     for files in ([], ["a"], ["a", "b"]):
@@ -150,12 +150,12 @@ def test_a_graph_is_the_one_graph_that_was_loaded_however_many_files_a_run_is_gi
 # -- two uploads ---------------------------------------------------------------------------------------------------
 
 
-TWO = drawn(("c", "upload"), ("a", "upload"), ("cmp", "compare"), edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")))
-ONE_CONTRACT = drawn(("c", "read"), ("a", "upload"), ("cmp", "compare"), edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")))
-GATHERED = drawn(("c", "upload"), ("a", "upload"), ("w", "with_appendices"), edges=(("c.result", "w.contract"), ("a.result", "w.appendices")))
+TWO = record_of(("c", "upload"), ("a", "upload"), ("cmp", "compare"), edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")))
+ONE_CONTRACT = record_of(("c", "read"), ("a", "upload"), ("cmp", "compare"), edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")))
+COLLECTED = record_of(("c", "upload"), ("a", "upload"), ("w", "with_appendices"), edges=(("c.result", "w.contract"), ("a.result", "w.appendices")))
 
 
-def test_two_uploads_meeting_at_a_node_are_refused_at_load_and_one_contract_is_there_beside_each_appendix():
+def test_two_uploads_meeting_at_a_node_are_a_problem_and_one_contract_meets_each_appendix():
     """Which contract goes with which appendix is the author's to draw, never guessed."""
     (problem,) = Graph.compile(GraphRecord.model_validate(TWO), registry).problems
     assert (problem.type, problem.loc, problem.ctx["series"]) == ("series_not_nested", ("cmp",), ["c.result", "a.result"])
@@ -163,9 +163,9 @@ def test_two_uploads_meeting_at_a_node_are_refused_at_load_and_one_contract_is_t
     assert CALLS == {"read": 1, "compare": 2}
 
 
-def test_each_contract_with_all_the_appendices_gathers_the_appendices_whole_beside_each_contract():
-    assert ran(GATHERED, **{"c.files": ["c"], "a.files": []}).outputs == {"w.result": ["c+0"]}
-    run = ran(GATHERED, **{"c.files": ["c1", "c2"], "a.files": ["a1", "a2", "a3"]})
+def test_each_contract_is_called_with_every_appendix_collected_whole():
+    assert ran(COLLECTED, **{"c.files": ["c"], "a.files": []}).outputs == {"w.result": ["c+0"]}
+    run = ran(COLLECTED, **{"c.files": ["c1", "c2"], "a.files": ["a1", "a2", "a3"]})
     assert run.outputs == {"w.result": ["c1+3", "c2+3"]}
     assert CALLS == {"with_appendices": 2}
 
@@ -186,26 +186,26 @@ def _refused(call: Any) -> list[tuple[str, tuple[str, ...]]]:
     return [(p.type, p.loc) for p in refused.value.errors()]
 
 
-def test_a_list_given_or_typed_at_an_input_of_one_value_is_refused_and_makes_no_items():
-    graph = Graph.compile(GraphRecord.model_validate(drawn(("r", "review"))), registry)
+def test_a_list_given_or_set_as_a_constant_at_an_input_of_one_value_is_refused_and_starts_no_loop():
+    graph = Graph.compile(GraphRecord.model_validate(record_of(("r", "review"))), registry)
     assert _refused(lambda: graph.run(text=["a", "b"])) == [("invalid_input", ("inputs", "text"))]
     assert _refused(lambda: graph.run(text=["a"])) == [("invalid_input", ("inputs", "text"))]
     assert graph.run(text="a").outputs == {"r.result": "rev(a)"}
 
-    typed = Graph.compile(GraphRecord.model_validate(drawn({"id": "cmp", "node": "compare", "constants": {"contract": ["c1", "c2"], "appendix": "a"}})), registry)
-    assert [(p.type, p.loc) for p in typed.problems] == [("invalid_value", ("cmp", "contract"))]
+    with_constant = Graph.compile(GraphRecord.model_validate(record_of({"id": "cmp", "node": "compare", "constants": {"contract": ["c1", "c2"], "appendix": "a"}})), registry)
+    assert [(p.type, p.loc) for p in with_constant.problems] == [("invalid_value", ("cmp", "contract"))]
 
 
 def test_an_input_whose_type_takes_a_list_takes_it_as_one_value_and_a_series_input_takes_only_a_list():
-    assert ran(drawn(("t", "tags")), tags=["x", "y"]).outputs == {"t.result": 2}
-    assert ran(drawn(("v", "anything")), value=["x", "y"]).outputs == {"v.result": "list"}
-    overall_alone = Graph.compile(GraphRecord.model_validate(drawn(("o", "overall"))), registry)
+    assert ran(record_of(("t", "tags")), tags=["x", "y"]).outputs == {"t.result": 2}
+    assert ran(record_of(("v", "anything")), value=["x", "y"]).outputs == {"v.result": "list"}
+    overall_alone = Graph.compile(GraphRecord.model_validate(record_of(("o", "overall"))), registry)
     assert overall_alone.run(texts=["one"]).outputs == {"o.result": "overall(1)"}
     assert _refused(lambda: overall_alone.run(texts="one")) == [("invalid_input", ("inputs", "texts"))]
 
 
-def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
-    graph = Graph.compile(GraphRecord.model_validate(drawn(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),))), registry)
+def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
+    graph = Graph.compile(GraphRecord.model_validate(record_of(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),))), registry)
     run = graph.run(text="a,b")
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = Run.from_json(run.to_json(), graph)
@@ -217,29 +217,29 @@ def test_a_run_that_waits_per_item_saves_and_loads_back_onto_the_same_items():
 # -- a subgraph, per outer item -----------------------------------------------------------------------------
 
 
-def test_an_embedded_graph_fed_one_file_per_outer_item_runs_per_item_whether_it_reviews_each_or_all():
+def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_reviews_each_or_all():
     reg = NodeRegistry()
     reg.add_subregistry(registry)
-    per = drawn(("read", "read"), ("review", "review"), edges=(("read.result", "review.text"),))
-    together = drawn(("read", "read"), ("overall", "overall"), edges=(("read.result", "overall.texts"),))
+    per = record_of(("read", "read"), ("review", "review"), edges=(("read.result", "review.text"),))
+    together = record_of(("read", "read"), ("overall", "overall"), edges=(("read.result", "overall.texts"),))
     reg.add(subgraph("per", title="Per", description="For a test.")(GraphRecord.model_validate(per)), subgraph("together", title="Together", description="For a test.")(GraphRecord.model_validate(together)))
     for inner, results in (("per", ["rev(X)", "rev(Y)", "rev(Z)"]), ("together", ["overall(1)", "overall(1)", "overall(1)"])):
-        outer = drawn(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),))
+        outer = record_of(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),))
         assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]
-    assert ran(drawn(("e", "per")), reg, file="a").outputs == {"e.review.result": "rev(A)"}
+    assert ran(record_of(("e", "per")), reg, file="a").outputs == {"e.review.result": "rev(A)"}
 
 
 # -- what a yes or no, and a limit, land on ------------------------------------------------------------------------
 
 
 def _checked_registry() -> NodeRegistry:
-    held = NodeRegistry()
+    local_registry = NodeRegistry()
 
-    @held.node("level", title="Level", description="For a test.")
+    @local_registry.node("level", title="Level", description="For a test.")
     def level(n: Literal[1, 2, 3]) -> int:
         return n
 
-    return held
+    return local_registry
 
 
 def _refused_as(call: Any) -> list[tuple[str, str]]:
@@ -256,37 +256,37 @@ def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
 
 
 def test_a_yes_or_no_never_lands_on_a_union_a_number_is_in_and_a_yes_or_no_is_not():
-    held = NodeRegistry()
+    local_registry = NodeRegistry()
 
-    @held.node("either", title="Either", description="For a test.")
+    @local_registry.node("either", title="Either", description="For a test.")
     def either(n: int | float) -> str:
         return repr(n)
 
-    @held.node("or-text", title="Or text", description="For a test.")
+    @local_registry.node("or-text", title="Or text", description="For a test.")
     def or_text(n: int | str | None = None) -> str:
         return repr(n)
 
-    @held.node("or-flag", title="Or flag", description="For a test.")
+    @local_registry.node("or-flag", title="Or flag", description="For a test.")
     def or_flag(n: int | bool) -> str:
         return repr(n)
 
-    @held.node("returns-yes", title="Returns yes", description="For a test.")
+    @local_registry.node("returns-yes", title="Returns yes", description="For a test.")
     def returns_yes(n: int) -> Literal[1, 2] | float:
         return True  # type: ignore[return-value]
 
     for node_id in ("either", "or-text"):
-        graph = Graph.compile(GraphRecord(nodes=[{"id": "x", "node": node_id}]), held)
+        graph = Graph.compile(GraphRecord(nodes=[{"id": "x", "node": node_id}]), local_registry)
         assert _refused_as(lambda: graph.run(n=True)) == [("invalid_input", "bool_is_not_a_number")]
         assert graph.run(n=2).outputs == {"x.result": "2"}
-    assert Graph.compile(GraphRecord(nodes=[{"id": "x", "node": "or-flag"}]), held).run(n=True).outputs == {"x.result": "True"}
-    assert Graph.compile(GraphRecord(nodes=[{"id": "x", "node": "returns-yes"}]), held).run(n=1).status == "failed"
+    assert Graph.compile(GraphRecord(nodes=[{"id": "x", "node": "or-flag"}]), local_registry).run(n=True).outputs == {"x.result": "True"}
+    assert Graph.compile(GraphRecord(nodes=[{"id": "x", "node": "returns-yes"}]), local_registry).run(n=1).status == "failed"
 
 
 class Order(BaseModel):
     count: Annotated[int, Param(title="Count", ge=0)]
 
 
-def test_a_param_holds_its_limits_inside_a_hosts_own_model_and_its_schema_says_them():
+def test_a_param_keeps_its_limits_inside_a_hosts_own_model_and_its_schema_says_them():
     with pytest.raises(ValidationError) as refused:
         Order(count=-1)
     assert refused.value.errors()[0]["type"] == "greater_than_equal"
@@ -297,13 +297,13 @@ Tree = TypeAliasType("Tree", "dict[str, Tree] | list[Tree] | int")
 
 
 def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
-    held = NodeRegistry()
+    local_registry = NodeRegistry()
 
-    @held.node("depth", title="Depth", description="For a test.")
+    @local_registry.node("depth", title="Depth", description="For a test.")
     def depth(tree: Tree) -> str:
         return repr(tree)
 
-    graph = Graph.compile(GraphRecord(nodes=[{"id": "d", "node": "depth"}]), held)
+    graph = Graph.compile(GraphRecord(nodes=[{"id": "d", "node": "depth"}]), local_registry)
 
     assert graph.run(tree=[1, [2]]).outputs == {"d.result": "[1, [2]]"}
 

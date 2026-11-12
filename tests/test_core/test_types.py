@@ -62,7 +62,7 @@ def test_an_answer_to_a_series_of_dates_is_read_from_its_json() -> None:
     assert run.answer("q", ["2026-01-01"]).resume().outputs == {"q.result": [datetime.date(2026, 1, 1)]}
 
 
-def test_a_limit_on_a_hosts_text_is_held() -> None:
+def test_a_limit_on_a_hosts_text_refuses_a_constant_over_it() -> None:
     @node("short", title="Short", description="For a test.")
     def short(text: Annotated[Text, Param(max_length=3)]) -> str:
         return text
@@ -269,7 +269,7 @@ class Dated(TypedDict):
     born: datetime.date
 
 
-def test_a_table_read_as_its_row_type_holds_exactly_its_columns_a_nodes_own_return_included() -> None:
+def test_a_table_read_as_its_row_type_has_exactly_its_columns_also_on_a_nodes_own_return() -> None:
     @node("people", title="People", description="For a test.")
     def people() -> Table[Named]:
         return pl.DataFrame({"name": ["Ann"], "email": ["ann@x.dk"]})
@@ -282,21 +282,21 @@ def test_a_table_read_as_its_row_type_holds_exactly_its_columns_a_nodes_own_retu
     assert _run(everything).results["q"]["result"].columns == ["name", "email"]
 
 
-def test_a_table_of_no_rows_holds_every_declared_column_of_its_declared_type() -> None:
+def test_a_table_of_no_rows_has_every_declared_column_of_its_declared_type() -> None:
     @node("nobody", title="Nobody", description="For a test.")
     def nobody() -> Table[Dated]:
         return pl.DataFrame()
 
-    @node("gathered", title="Gathered", description="For a test.")
-    def gathered(people: Table[Dated]) -> int:
+    @node("count-people", title="Count people", description="For a test.")
+    def count_people(people: Table[Dated]) -> int:
         assert people.schema == pl.Schema({"name": pl.String, "born": pl.Date})
         return people.height
 
     assert _run(nobody).results["q"]["result"].schema == pl.Schema({"name": pl.String, "born": pl.Date})
-    assert _run(gathered, people=[]).outputs == {"q.result": 0}
+    assert _run(count_people, people=[]).outputs == {"q.result": 0}
 
 
-def test_records_gathered_into_a_table_are_read_once_each_cell_by_its_columns_type() -> None:
+def test_records_collected_into_a_table_are_read_once_each_cell_by_its_columns_type() -> None:
     @node("person", title="Person", description="For a test.")
     def person() -> Series[Dated]:
         return [{"name": "Ann", "born": datetime.date(1990, 1, 2)}, {"name": "Bo", "born": datetime.date(1991, 3, 4)}]
@@ -309,7 +309,7 @@ def test_records_gathered_into_a_table_are_read_once_each_cell_by_its_columns_ty
     assert run.outputs == {"q.result": datetime.date(1990, 1, 2)}
 
 
-def test_a_table_stands_in_a_union_and_in_a_series() -> None:
+def test_a_table_type_works_inside_a_union_and_inside_a_series() -> None:
     @node("size", title="Size", description="For a test.")
     def size(value: Table[Named] | list[str]) -> int:
         return len(value)
@@ -359,12 +359,12 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
     def shout(text: str) -> str:
         return text.upper()
 
-    def loaded(field: str) -> Any:
+    def compiled(field: str) -> Any:
         return Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "address"}, {"id": "s", "node": "shout"}], "edges": [[f"a.result.{field}", "s.text"]]}), registry_of(address, shout))
 
-    assert loaded("city").run().outputs == {"s.result": "AARHUS"}
+    assert compiled("city").run().outputs == {"s.result": "AARHUS"}
     for wrong in ("town", "type_id"):
-        (problem,) = loaded(wrong).problems
+        (problem,) = compiled(wrong).problems
         assert (problem.type, problem.ctx["outputs"]) == ("unknown_output", ["a.result.city"])
 
 
@@ -445,7 +445,7 @@ class _Marked:
     """Metadata with no ``repr`` of its own: Python writes it with its memory address."""
 
 
-def test_what_a_code_fingerprint_says_of_a_hint_holds_no_memory_address() -> None:
+def test_the_code_fingerprint_of_a_hint_has_no_memory_address() -> None:
     """A function or an object in ``Annotated`` is written by its name, never by ``repr``, which gives its address in
     this process. The fingerprint is saved with a run, so it has to come out the same in the process that loads it."""
     from conductor._internal.value_type import Type
@@ -462,7 +462,7 @@ def test_what_a_code_fingerprint_says_of_a_hint_holds_no_memory_address() -> Non
 
     assert Type(Annotated[str, AfterValidator(_stripped)]).reads_as == f"builtins.str['AfterValidator(func={__name__}._stripped)']"
     assert Type(Annotated[str, _Marked()]).reads_as == f"builtins.str['{__name__}._Marked']"
-    here = f"{__name__}.test_what_a_code_fingerprint_says_of_a_hint_holds_no_memory_address.<locals>"
+    here = f"{__name__}.test_the_code_fingerprint_of_a_hint_has_no_memory_address.<locals>"
     assert Type(Annotated[str, AfterValidator(local)]).reads_as == f"builtins.str['AfterValidator(func={here}.local)']"
     assert Type(Annotated[str, AfterValidator(lambda text: text)]).reads_as == f"builtins.str['AfterValidator(func={here}.<lambda>)']"
     assert Type(Annotated[str, AfterValidator(another_of_the_same_name())]).reads_as != Type(Annotated[str, AfterValidator(local)]).reads_as  # named by where it is written
@@ -502,7 +502,7 @@ else:
 """
 
 
-def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_holds_a_function(tmp_path: Any) -> None:
+def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_has_a_function(tmp_path: Any) -> None:
     import subprocess
     import sys
 

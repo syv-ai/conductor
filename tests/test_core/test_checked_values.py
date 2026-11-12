@@ -47,8 +47,8 @@ def _returning(returned: Any, return_type: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    made = node("give", title="Give", description="For a test.")(give)
-    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="give")]), registry_of(made)).run()
+    definition = node("give", title="Give", description="For a test.")(give)
+    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="give")]), registry_of(definition)).run()
 
 
 def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
@@ -57,11 +57,11 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
 
-    made = node("give", title="Give", description="For a test.")(give)
+    definition = node("give", title="Give", description="For a test.")(give)
     (name,) = sink.inputs
     return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="a", node="give"), NodeRecord(id="b", node=sink.id)], edges=[("a.result", f"b.{name}")],
-    ), registry_of(made, sink)).run()
+    ), registry_of(definition, sink)).run()
 
 
 # -- what a node returns ----------------------------------------------------------
@@ -84,7 +84,7 @@ def test_returning_none_needs_the_hint():
 
 @pytest.mark.parametrize(("returned", "return_type"), [([1], list[int] | None), ("a", Literal["a", "b"] | None)],
                          ids=["a-list", "a-literal"])
-def test_a_blank_taking_output_of_a_type_that_is_not_a_class_takes_its_value(returned, return_type):
+def test_an_optional_output_of_a_type_that_is_not_a_class_is_read_by_its_type(returned, return_type):
     """``-> list[int] | None`` returning ``[1]`` is read by its type as ``-> list[int]`` is, not held to the class ``NoneType``."""
     run = _returning(returned, return_type)
 
@@ -121,7 +121,7 @@ class Square(Shape):
         return core_schema.no_info_plain_validator_function(lambda value: value)
 
 
-def test_an_answer_is_held_to_its_types_own_class_as_a_return_is():
+def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
     @node("square", title="Square", description="For a test.")
     def square() -> Square:
         raise Ask("Which square?")
@@ -166,7 +166,7 @@ def test_a_dataclass_whose_one_field_is_named_result_is_spread_like_any_dataclas
     assert (run.state.cause.type, run.state.cause.loc) == ("invalid_output", ("g",)) and "OnlyResult" in run.state.cause.ctx["reason"]
 
 
-def test_a_unit_whose_second_output_is_invalid_writes_none_of_its_outputs():
+def test_a_call_whose_second_output_is_invalid_writes_none_of_its_outputs():
     run = _returning(Pair("ok", "many"), Pair)  # type: ignore[arg-type]
 
     assert (run.state.cause.type, run.state.cause.ctx["name"]) == ("invalid_output", "count")
@@ -203,7 +203,7 @@ class Routed:
     short: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
 
 
-def test_what_a_node_with_several_outputs_returns_is_held_to_its_shape_before_its_values():
+def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values():
     """Two alternatives both given are the fault reported, though ``count``, declared first, is refused too."""
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
 
@@ -257,7 +257,7 @@ def test_a_float_column_for_an_int_one_fails_even_when_whole():
     assert _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).state.cause.type == "invalid_output"
 
 
-def test_a_column_holds_a_blank_only_where_its_type_takes_one():
+def test_a_column_may_have_none_only_where_its_type_takes_none():
     """A type means what it says: a blank in an ``int`` column is refused where the table arrives, naming the column;
     a column that may be blank is declared ``int | None``."""
 
@@ -265,14 +265,14 @@ def test_a_column_holds_a_blank_only_where_its_type_takes_one():
         item: str
         amount: int | None
 
-    with_a_blank = pl.DataFrame({"item": ["a", "b"], "amount": [12, None]})
-    refused = _returning(with_a_blank, Table[Line]).state.cause
+    with_a_none = pl.DataFrame({"item": ["a", "b"], "amount": [12, None]})
+    refused = _returning(with_a_none, Table[Line]).state.cause
     assert (refused.type, refused.ctx["column"]) == ("invalid_output", "amount")
-    kept = _returning(with_a_blank, Table[Loose]).results["g"]["result"]
+    kept = _returning(with_a_none, Table[Loose]).results["g"]["result"]
     assert kept.to_dicts() == [{"item": "a", "amount": 12}, {"item": "b", "amount": None}]
 
 
-def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given():
+def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_given():
     """A yes or no never lands on a number, though Python counts ``True`` as 1: a column is held to it as a value is."""
     yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
     assert (_returning(yes_no, Table[Line]).state.cause.type, _returning(yes_no, Table[Line]).state.cause.ctx["column"]) == ("invalid_output", "amount")
@@ -281,8 +281,8 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_brought_or_given(
     def total(lines: Table[Line]) -> int:
         return int(lines["amount"].sum())
 
-    brought = _feeding(yes_no, Table, total)
-    assert (brought.state.cause.type, brought.state.cause.loc, brought.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
+    on_edge = _feeding(yes_no, Table, total)
+    assert (on_edge.state.cause.type, on_edge.state.cause.loc, on_edge.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
     with pytest.raises(InvalidCallError) as given:
         Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="total")]), registry_of(total)).run(lines=yes_no)
     assert [p.type for p in given.value.errors()] == ["invalid_input"]
@@ -337,7 +337,7 @@ class PickyId(str):
 
 
 
-def test_a_value_an_edge_brings_that_the_input_refuses_fails_the_node_it_reached_quoting_nothing():
+def test_a_value_on_an_edge_that_the_input_refuses_fails_the_target_node_quoting_nothing():
     @node("sink", title="Sink", description="For a test.")
     def sink(identifier: PickyId) -> str:
         return identifier
@@ -400,7 +400,7 @@ def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made
     assert refused.value.errors()[0].ctx["column"] == "name"
 
 
-def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatch_when_the_graph_loads():
+def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatch_at_compile():
     """Two tables are compared by their columns where the graph loads: a text column is never an ``int`` column."""
     class Amounts(TypedDict):
         result: int
@@ -424,7 +424,7 @@ def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatc
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("b", "rows"), "Table[result: str]", "Table[result: int]")
 
 
-def test_a_column_of_a_table_of_unknown_columns_its_input_wont_take_fails_that_node_as_what_the_edge_brought():
+def test_a_column_of_an_untyped_table_its_input_wont_take_fails_the_target_as_invalid_edge_value():
     class Amounts(TypedDict):
         result: int
 
@@ -533,7 +533,7 @@ class _SlowOutput(str):
         return core_schema.no_info_plain_validator_function(check)
 
 
-def test_a_slow_output_check_runs_on_its_nodes_thread_and_holds_up_no_other_unit():
+def test_a_slow_output_check_runs_on_its_nodes_thread_and_delays_no_other_call():
     """The other node finishes only after the check began, and the check passes only once the stream reported it."""
 
     @node("slow", title="Slow", description="For a test.", policy=Policy(concurrency=2))
@@ -617,17 +617,17 @@ def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_rea
     assert SECRET not in graph.run().state.cause.msg and "no field 'name'" in graph.run().state.cause.msg
 
 
-def test_a_field_an_item_or_a_column_of_unknown_columns_lacks_fails_the_reader_at_that_item_and_a_gather_whole():
+def test_a_field_an_item_or_untyped_column_lacks_fails_the_target_at_that_item_or_the_collect_whole():
     items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
     per_item = Graph.compile(make_graph(items, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(items, _anything_in))
     assert _fails_with(per_item) == ("failed", "invalid_edge_value", ("anything-in", 1), "x", "name")
-    gathered = Graph.compile(make_graph(items, _all_of, edges=[("give.result.name", "all-of.values")]), registry_of(items, _all_of))
-    assert _fails_with(gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
+    collected = Graph.compile(make_graph(items, _all_of, edges=[("give.result.name", "all-of.values")]), registry_of(items, _all_of))
+    assert _fails_with(collected) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
     by_column = _giving(pl.DataFrame({"other": ["a", "b"]}), Series[Any])
     column_read = Graph.compile(make_graph(by_column, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(by_column, _anything_in))
     assert _fails_with(column_read) == ("failed", "invalid_edge_value", ("anything-in", 0), "x", "name")
-    column_gathered = Graph.compile(make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]), registry_of(by_column, _all_of))
-    assert _fails_with(column_gathered) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
+    column_collected = Graph.compile(make_graph(by_column, _all_of, edges=[("give.result.name", "all-of.values")]), registry_of(by_column, _all_of))
+    assert _fails_with(column_collected) == ("failed", "invalid_edge_value", ("all-of",), "values", "name")
 
 
 @node("words", title="Words", description="For a test.")
@@ -649,7 +649,7 @@ def _with_them(word: str, values: Series[Any]) -> str:
     ("returned", "declared", "reader", "input_name"),
     [({"other": 1}, dict, _with_it, "x"), ([{"name": "a"}, {"other": "b"}], Series[dict], _with_them, "values"), (pl.DataFrame({"other": ["a"]}), Series[Any], _with_them, "values")],
 )
-def test_a_run_that_failed_on_a_field_a_record_lacks_shows_its_results_with_a_blank_for_each_item_never_called(
+def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_called(
     returned: Any, declared: Any, reader: Any, input_name: str,
 ):
     """The failure is the run's cause; a host that reads the run afterwards is shown a blank where the field was read."""
