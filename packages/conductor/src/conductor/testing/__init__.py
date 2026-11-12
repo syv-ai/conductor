@@ -65,7 +65,7 @@ from conductor._internal.node import (
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run.state import EndedEarly
+from conductor._internal.run import EndedEarly
 from conductor._internal.types import Param, kind_of_value
 from conductor.testing import problems
 

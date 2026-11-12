@@ -19,6 +19,7 @@ from conductor._internal.compiled.input import (
     EdgeSource,
     InputCollectsLoopResults,
     InputConstant,
+    InputFromEdges,
     InputFromGraphInput,
     InputReadsOneValue,
     InputWrapsOneValue,

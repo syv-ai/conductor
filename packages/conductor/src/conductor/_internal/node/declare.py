@@ -67,13 +67,16 @@ from conductor._internal.ask import Asked
 from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field
-from conductor._internal.gate import AskedValueDoor, RefusedError, declared_field, read_record
-from conductor._internal.gate.returned import (
+from conductor._internal.gate import (
+    AskedValueDoor,
     HookOutputs,
     NoOutputs,
     OneResult,
     OutputsClass,
+    RefusedError,
     ReturnShape,
+    declared_field,
+    read_record,
 )
 from conductor._internal.node.policy import Deprecation, Policy
 from conductor._internal.node.type import (

@@ -19,8 +19,7 @@ from conductor._internal.ask import Ask
 from conductor._internal.base import qualified_name
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
-from conductor._internal.gate import AskedValueDoor, RefusedError
-from conductor._internal.gate.returned import ReturnShape
+from conductor._internal.gate import AskedValueDoor, RefusedError, ReturnShape
 from conductor._internal.node.describe import FunctionNodeDescription, SubgraphDescription
 from conductor._internal.node.policy import Deprecation, Policy
 from conductor._internal.problem import catalogue as problem

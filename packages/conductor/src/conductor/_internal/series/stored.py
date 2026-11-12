@@ -19,8 +19,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.types import Type
-from conductor._internal.types.record import NoSuchFieldError, field_of
+from conductor._internal.types import NoSuchFieldError, Type, field_of
 
 
 class ColumnsOnDemand(dict[str, list[Any]]):

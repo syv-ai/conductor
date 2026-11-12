@@ -56,11 +56,20 @@ from conductor._internal.gate.inputs import InputsDoor, check_limits
 from conductor._internal.gate.raised import AskDoor, undeclared_ask
 from conductor._internal.gate.record import read_record, record_values
 from conductor._internal.gate.refused import RefusedError
-from conductor._internal.gate.returned import AskedValueDoor, ReturnDoor
+from conductor._internal.gate.returned import (
+    AskedValueDoor,
+    HookOutputs,
+    NoOutputs,
+    OneResult,
+    OutputsClass,
+    ReturnDoor,
+    ReturnShape,
+)
 from conductor._internal.gate.rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
-    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "bound_field", "check_limits", "declared_field",
+    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
+    "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
     "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_values",
     "undeclared_ask", "validator_of",
 ]
