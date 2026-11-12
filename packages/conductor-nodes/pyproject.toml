@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor-nodes"
 version = "2.0.0"
-description = "Standard-library nodes for conductor — text, math, logic, JSON, regex, and a decision gate."
+description = "Nodes for conductor that only compute: text, numbers, yes or no, JSON, regular expressions, series, tables and a decision."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"

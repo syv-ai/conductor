@@ -6,6 +6,7 @@ nav:
   - How it works: OVERVIEW.md
   - A graph inside a graph: subgraphs.md
   - Serving runs over HTTP: serving-runs.md
+  - The design, for reviewers: design.md
   - Problem codes: problems.md
 markdown_extensions:
   # docs/index.md is README.md, included whole, so the first page has one source.

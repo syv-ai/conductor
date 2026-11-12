@@ -1,7 +1,7 @@
 [project]
 name = "syv-conductor"
 version = "2.0.0"
-description = "Run graphs of typed Python functions: a graph is JSON that loads with its problems listed, runs a node once per row, and pauses for a person in a run that saves as JSON."
+description = "Run graphs of typed Python functions: a graph is JSON that compiles with its problems listed, calls a node once per item of a list another node returns, and pauses for a person in a run that saves as JSON."
 requires-python = ">=3.12"
 authors = [{ name = "Syvai", email = "billy@syv.ai" }]
 license = "Apache-2.0"
