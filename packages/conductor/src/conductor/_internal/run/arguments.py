@@ -110,7 +110,7 @@ class ResultReader:
         ready = True
         for name, node_input, accepts_none in node.edge_arguments:
             try:
-                value = self.read_input(node_input, item_indexes)
+                value = node_input.value(self, item_indexes)
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
                 if fault is None:
                     reason = f"it has no field '{missing.field}'"
@@ -131,18 +131,12 @@ class ResultReader:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_input(self, node_input: EdgeInput | CollectingInput, item_indexes: ItemIndexes) -> Any:
-        """Returns the value an input that edges lead to reads for the call at ``item_indexes``.
-
-        In the example, ``shout.line`` reads ``"b"`` for ``(1,)``, and ``join.texts`` reads ``["A!", "B!"]`` for
-        ``()``. A ``Series`` input wired to a value made once per call gets that value as a list of one;
-        ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are.
-        """
-        if type(node_input) is CollectingInput:
-            return self.collect(node_input, item_indexes)
+    def read_as_list(self, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any:
+        """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
+        ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
         sources = node_input.sources
         value = self.read_output(sources[0], item_indexes) if len(sources) == 1 else self.read_alternatives(sources, item_indexes)
-        if not node_input.as_list or value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return [value]
 

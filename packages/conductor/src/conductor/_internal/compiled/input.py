@@ -20,7 +20,8 @@ Each input of a compiled node is an ``Input``, of one of five kinds:
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
 input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
-loops. A run reads the value of an input an edge leads to with ``ResultReader.read_input`` (``run/arguments.py``).
+loops. An input an edge leads to reads its value for one call with ``value(reader, item_indexes)``, from a ``Reader``
+(the run's ``ResultReader``, ``run/arguments.py``).
 
 The same classes are used twice. The compiler makes the inputs of a compiled graph, and there a source names a
 node of that graph by its id. ``flat.py`` makes the inputs a run reads from those: there a source names the
@@ -32,8 +33,9 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, final
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, Protocol, final
 
+from conductor._internal.base import ItemIndexes
 from conductor._internal.field import Field
 from conductor._internal.types import Type
 
@@ -162,6 +164,19 @@ class GraphInput:
     loops: ClassVar[tuple[OutputAddress, ...]] = ()
 
 
+class Reader(Protocol):
+    """What an input that edges lead to reads its value from: the run's outcomes, as ``run/arguments.py``'s
+    ``ResultReader`` reads them. Declared here so the inputs read through it without importing the run."""
+
+    def read_output(self, edge: Edge, item_indexes: ItemIndexes) -> Any: ...
+
+    def read_alternatives(self, edges: tuple[Edge, ...], item_indexes: ItemIndexes) -> Any: ...
+
+    def read_as_list(self, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any: ...
+
+    def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any: ...
+
+
 @final
 @dataclass(frozen=True, slots=True)
 class EdgeInput:
@@ -186,6 +201,14 @@ class EdgeInput:
     sources: tuple[Edge, ...]
     loops: tuple[OutputAddress, ...]
     as_list: bool = False
+
+    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+        """The value a call at ``item_indexes`` gets: what the edge reads (``"b"`` for ``shout.line`` at ``(1,)``), or
+        from the branch chosen when there are several edges, or with ``as_list`` that value as a list of one."""
+        if self.as_list:
+            return reader.read_as_list(self, item_indexes)
+        sources = self.sources
+        return reader.read_output(sources[0], item_indexes) if len(sources) == 1 else reader.read_alternatives(sources, item_indexes)
 
 
 @final
@@ -212,6 +235,10 @@ class CollectingInput:
     loops: tuple[OutputAddress, ...]
     sources: tuple[Edge, ...]
     loop_body: tuple[FlatFunctionNode, ...] = ()
+
+    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+        """The list a call at ``item_indexes`` gets: ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
+        return reader.collect(self, item_indexes)
 
 
 #: How one input of a node gets its value.

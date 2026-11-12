@@ -106,7 +106,7 @@ class DisplayReader(ResultReader):
         """
         node_input = node_inputs[len(item_indexes)]
         if len(item_indexes) == len(node_inputs) - 1:
-            value = self.read_input(node_input, item_indexes)
+            value = node_input.value(self, item_indexes)
             return None if value is SKIPPED else value
         looped_over = self._list_looped_over(cast("CollectingInput", node_input), item_indexes)  # every input before the last lists one loop
         if looped_over is None or looped_over is SKIPPED:
