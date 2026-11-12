@@ -163,7 +163,7 @@ def input_source_of(loops: tuple[OutputAddress, ...], node_input: Input) -> Inpu
         case MissingInput():
             return InputSource(mode="missing", msg="no value: a problem of the graph says why")
         case CollectingInput(series=series):
-            return InputSource(mode="collected", series=series.address, msg=f"every item of {series.address}")
+            return InputSource(mode="collected", series=str(series), msg=f"every item of {series}")
         case EdgeInput(as_list=True):
             return InputSource(mode="collected", msg="the one value, as a Series of one")
         case EdgeInput(loops=value_loops):

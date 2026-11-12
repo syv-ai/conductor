@@ -15,8 +15,8 @@ from conductor._internal.base import SKIPPED, ItemIndexes, split_address
 from conductor._internal.compiled import (
     CollectingInput,
     CompiledGraph,
+    Edge,
     EdgeInput,
-    EdgeSource,
     FlatFunctionNode,
     display_inputs_of,
 )
@@ -60,7 +60,7 @@ class DisplayReader(ResultReader):
 
     __slots__ = ()
 
-    def read_output(self, source: EdgeSource, item_indexes: ItemIndexes) -> Any:
+    def read_output(self, source: Edge, item_indexes: ItemIndexes) -> Any:
         """Returns what ``ResultReader.read_output`` returns, as a host is shown it: ``None`` when the node has
         not returned yet, or when the edge names a field the record does not have, and the value of a
         ``Series`` output as a plain list of its items."""

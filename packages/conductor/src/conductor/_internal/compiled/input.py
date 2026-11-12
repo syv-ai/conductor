@@ -18,7 +18,7 @@ Each input of a compiled node is an ``Input``, of one of five kinds:
 - A ``MissingInput`` gets no value, because the graph has a problem at this input; such a graph is never run.
 
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
-input it has. ``sources`` has one ``EdgeSource`` for each edge into the input: the output the edge comes from,
+input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
 loops. A run reads the value of an input an edge leads to with ``ResultReader.read_input`` (``run/arguments.py``).
 
@@ -56,60 +56,40 @@ class OutputAddress(NamedTuple):
         return f"{self.node_id}.{self.output}"
 
 
-# -- what an edge reads ------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class OutputInLoops:
-    """One output of one node, with the loops that node is inside.
-
-    Example, in ``lines -> shout -> join``: ``shout`` is called once per item of ``lines.result``, so its output is
-    ``OutputInLoops("shout", "result", loops=(OutputAddress("lines", "result"),))``, with ``depth`` 1. The output
-    has one value per call of ``shout``, and a call is found by ``depth`` item indexes.
-
-    Attributes:
-        node_id: The node. In a compiled graph's own inputs it is the node's id. In the flat graph it is the
-            name of the function node (``"loud/shout"`` inside a subgraph).
-        output: The output's name.
-        loops: The loops the node is inside, outermost first, each as the output that is the list looped over.
-        depth: How many loops the node is inside: the number of item indexes that say which call of it.
-    """
-
-    node_id: str
-    output: str
-    loops: tuple[OutputAddress, ...]
-    depth: int = dataclasses.field(init=False, compare=False, repr=False)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "depth", len(self.loops))
-
-    @property
-    def address(self) -> str:
-        """The address an edge names it by, ``node.output``."""
-        return f"{self.node_id}.{self.output}"
-
-
 @final
 @dataclass(frozen=True, slots=True)
-class EdgeSource(OutputInLoops):
-    """What one edge reads from an output.
+class Edge:
+    """What one edge reads from an output, as compiled: the input it leads to holds one per edge.
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
-    ``shout``, so it is ``EdgeSource("lines", "result", (), None, Type(str), item=True)``. The edge from
-    ``shout.result`` reads the value one call of ``shout`` returned, so it has ``item=False``.
+    ``shout``, so it is ``Edge("lines", "result", (), None, Type(str), item=True)``. The edge from ``shout.result``
+    reads the value one call of ``shout`` returned, ``Edge("shout", "result", (OutputAddress("lines", "result"),),
+    None, Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index.
 
     Attributes:
+        node_id: The node the edge comes from. In a compiled graph's own inputs it is the node's id. In the flat
+            graph it is the name of the function node (``"loud/shout"`` inside a subgraph).
+        output: The output it reads.
+        loops: The loops that node is inside, outermost first, each as the output that is the list looped over.
         record_field: The field of a record that the edge reads (``email`` in ``split.result.email``); ``None``
             when it reads the whole value.
         type: The type of the value the edge reads.
         item: Whether the output is a ``Series`` and the edge reads one item of it. The node the edge leads to
             is then inside the loop over this output, and an item is found by one more item index than
             ``depth``.
+        depth: How many loops the node is inside: the number of item indexes that say which call of it.
     """
 
+    node_id: str
+    output: str
+    loops: tuple[OutputAddress, ...]
     record_field: str | None
     type: Type
     item: bool
+    depth: int = dataclasses.field(init=False, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "depth", len(self.loops))
 
     @property
     def address(self) -> str:
@@ -118,8 +98,8 @@ class EdgeSource(OutputInLoops):
 
     @property
     def loops_of_value(self) -> tuple[OutputAddress, ...]:
-        """The loops a node must be inside to read one value from this source, outermost first: the loops of
-        the source's node, and for an item of a ``Series`` also the loop over that ``Series``."""
+        """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
+        node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
         return (*self.loops, OutputAddress(self.node_id, self.output)) if self.item else self.loops
 
 
@@ -141,7 +121,7 @@ class ConstantInput:
 
     field: Field
     value: Any
-    sources: ClassVar[tuple[EdgeSource, ...]] = ()
+    sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[OutputAddress, ...]] = ()
 
 
@@ -159,7 +139,7 @@ class MissingInput:
     """
 
     field: Field
-    sources: ClassVar[tuple[EdgeSource, ...]] = ()
+    sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[OutputAddress, ...]] = ()
 
 
@@ -178,7 +158,7 @@ class GraphInput:
 
     field: Field
     address: str
-    sources: ClassVar[tuple[EdgeSource, ...]] = ()
+    sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[OutputAddress, ...]] = ()
 
 
@@ -203,7 +183,7 @@ class EdgeInput:
     """
 
     field: Field
-    sources: tuple[EdgeSource, ...]
+    sources: tuple[Edge, ...]
     loops: tuple[OutputAddress, ...]
     as_list: bool = False
 
@@ -217,7 +197,9 @@ class CollectingInput:
 
     Attributes:
         field: The input, as its node declares it.
-        series: The list whose loop the input collects.
+        series: The list whose loop the input collects: ``lines.result``.
+        loops: The loops the input's node must be inside to read the list, outermost first: the loops the node
+            that returns ``series`` is inside. The loop over ``series`` itself is not one of them.
         sources: What each edge into the input reads for one item. Several edges come from different branches
             of one decision, as for any input.
         loop_body: In the flat graph, the function nodes inside the loop that the input's value depends on,
@@ -226,15 +208,10 @@ class CollectingInput:
     """
 
     field: Field
-    series: OutputInLoops
-    sources: tuple[EdgeSource, ...]
+    series: OutputAddress
+    loops: tuple[OutputAddress, ...]
+    sources: tuple[Edge, ...]
     loop_body: tuple[FlatFunctionNode, ...] = ()
-
-    @property
-    def loops(self) -> tuple[OutputAddress, ...]:
-        """The loops the input's node must be inside to read the list, outermost first: the loops the node
-        that returns ``series`` is inside. The loop over ``series`` itself is not one of them."""
-        return self.series.loops
 
 
 #: How one input of a node gets its value.

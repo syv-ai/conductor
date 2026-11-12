@@ -23,10 +23,9 @@ from conductor._internal.compiled.flat import (
 from conductor._internal.compiled.input import (
     CollectingInput,
     ConstantInput,
+    Edge,
     EdgeInput,
-    EdgeSource,
     GraphInput,
-    OutputInLoops,
 )
 from conductor._internal.compiled.node import (
     CompiledFunctionNode,

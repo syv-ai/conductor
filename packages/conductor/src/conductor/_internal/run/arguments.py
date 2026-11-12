@@ -38,8 +38,8 @@ from typing import Any, Final, Literal
 from conductor._internal.base import SKIPPED, ItemIndexes
 from conductor._internal.compiled import (
     CollectingInput,
+    Edge,
     EdgeInput,
-    EdgeSource,
     FlatFunctionNode,
 )
 from conductor._internal.gate import RefusedError
@@ -138,7 +138,7 @@ class ResultReader:
             return value
         return [value]
 
-    def read_alternatives(self, sources: tuple[EdgeSource, ...], item_indexes: ItemIndexes) -> Any:
+    def read_alternatives(self, sources: tuple[Edge, ...], item_indexes: ItemIndexes) -> Any:
         """Returns what an input with several edges into it reads for ``item_indexes``.
 
         The edges come from different branches of one decision, so for one call at most one of them has a
@@ -160,7 +160,7 @@ class ResultReader:
                 return value
         return best
 
-    def read_output(self, source: EdgeSource, item_indexes: ItemIndexes) -> Any:
+    def read_output(self, source: Edge, item_indexes: ItemIndexes) -> Any:
         """Returns what one edge reads from the output ``source`` for the call at ``item_indexes``.
 
         In the example, the edge into ``shout.line`` reads one item of ``lines.result``: for ``(1,)`` it reads
@@ -214,7 +214,7 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        depth = node_input.series.depth
+        depth = len(node_input.loops)
         if len(item_indexes) < depth:
             return self._edges_for_any_item(node_input, item_indexes)
         item_indexes = item_indexes[:depth]

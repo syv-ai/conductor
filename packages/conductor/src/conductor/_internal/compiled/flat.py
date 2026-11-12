@@ -31,7 +31,7 @@ import dataclasses
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, assert_never
+from typing import Any, NamedTuple, assert_never
 
 from conductor._internal.base import (
     REQUIRED,
@@ -44,13 +44,12 @@ from conductor._internal.base import (
 from conductor._internal.compiled.input import (
     CollectingInput,
     ConstantInput,
+    Edge,
     EdgeInput,
-    EdgeSource,
     GraphInput,
     Input,
     MissingInput,
     OutputAddress,
-    OutputInLoops,
 )
 from conductor._internal.compiled.node import (
     CompiledFunctionNode,
@@ -63,6 +62,21 @@ from conductor._internal.series import Series
 
 if typing.TYPE_CHECKING:
     from conductor._internal.compiled.type import CompiledGraph
+
+
+class EdgeArgument(NamedTuple):
+    """One argument a call of a flat function node reads through edges: ``EdgeArgument("line", shout_line, False)``
+    for ``shout(line: str)``, where ``shout_line`` is the ``EdgeInput`` that reads one item of ``lines.result``.
+
+    Attributes:
+        name: The parameter's name.
+        input: The compiled input that says what the edges read.
+        accepts_none: Whether the parameter accepts ``None``.
+    """
+
+    name: str
+    input: EdgeInput | CollectingInput
+    accepts_none: bool
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -105,8 +119,8 @@ class FlatFunctionNode(_FlatNodeBase):
             ``None`` for every other input. The arguments of a call start as a copy of it.
         graph_inputs: The inputs the caller gives a value for: the input's name, and the key the run keeps the
             caller's value under (``"lines.text"``).
-        edge_inputs: The inputs that edges lead to, in the order declared: the input's name, the compiled input, and
-            whether the input accepts ``None``. A collecting input is here twice: first with an input that reads
+        edge_inputs: The inputs that edges lead to, in the order declared, each an ``EdgeArgument``. A collecting input
+            is here twice: first with an input that reads
             the list it collects as one value (so a list that is ``None``, skipped or not made yet is seen
             before any item is read), then as itself.
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
@@ -137,7 +151,7 @@ class FlatFunctionNode(_FlatNodeBase):
     policy: Policy
     constants: dict[str, Any]
     graph_inputs: tuple[tuple[str, str], ...]
-    edge_inputs: tuple[tuple[str, EdgeInput | CollectingInput, bool], ...]
+    edge_inputs: tuple[EdgeArgument, ...]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     edge_door: EdgeDoor | None
     function: Callable[..., Any]
@@ -247,7 +261,7 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeInput | 
     """
     node_inputs = node.display_inputs.get(output)
     if node_inputs is None:
-        source = EdgeSource(node.name, output, _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
+        source = Edge(node.name, output, _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
         per_loop = [_collecting_input(_DISPLAY_FIELD, looped_over, (source,), functions) for looped_over in node.loops]
         node_inputs = node.display_inputs[output] = tuple(per_loop) or (EdgeInput(_DISPLAY_FIELD, (source,), source.loops),)
@@ -298,12 +312,12 @@ def _add_flat_nodes(
             continue
         constants: dict[str, Any] = {}
         graph_inputs: list[tuple[str, str]] = []
-        edge_inputs: list[tuple[str, EdgeInput | CollectingInput, bool]] = []
+        edge_inputs: list[EdgeArgument] = []
         upstream: dict[FlatFunctionNode, int] = {}
-        collecting: dict[OutputInLoops, list[tuple[str, bool]]] = {}
+        collecting: dict[OutputAddress, list[tuple[str, bool]]] = {}
         for name, node_input in inputs.items():
             constants[name] = None
-            outputs_read: tuple[OutputInLoops, ...]
+            read: list[tuple[str, int]]  # the node each value read comes from, and how many loops it is inside
             outside_the_loop: list[tuple[FlatFunctionNode, int]] = []
             match node_input:
                 case ConstantInput(value=value):
@@ -315,9 +329,9 @@ def _add_flat_nodes(
                 case MissingInput():
                     raise RuntimeError(f"'{node_path_text(node_path)}' has an input that gets no value: a graph with problems has no flat graph")
                 case EdgeInput(sources=sources):
-                    outputs_read = sources
+                    read = [(source.node_id, source.depth) for source in sources]
                 case CollectingInput(field=field, series=series, sources=sources):
-                    outputs_read = (series, *sources)
+                    read = [(series.node_id, len(node_input.loops)), *[(source.node_id, source.depth) for source in sources]]
                     series_node = functions[series.node_id]
                     looped_over = (series_node, series.output)
                     # what a node inside the loop reads from outside it can say that no item will have a value
@@ -325,14 +339,14 @@ def _add_flat_nodes(
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
                     collecting.setdefault(series, []).append((name, field.accepts_none_items))
                     series_type = series_node.compiled_node.outputs[series.output].whole
-                    whole_list = EdgeSource(series.node_id, series.output, series.loops, None, series_type, item=False)
+                    whole_list = Edge(series.node_id, series.output, node_input.loops, None, series_type, item=False)
                     # the list first, then (below) its items
-                    edge_inputs.append((name, EdgeInput(field, (whole_list,), series.loops), field.whole.optional))
+                    edge_inputs.append(EdgeArgument(name, EdgeInput(field, (whole_list,), node_input.loops), field.whole.optional))
                 case _:
                     assert_never(node_input)
-            edge_inputs.append((name, node_input, node_input.field.whole.optional))
+            edge_inputs.append(EdgeArgument(name, node_input, node_input.field.whole.optional))
             depth = len(node_input.loops)
-            for upstream_node, shared_indexes in (*[(functions[read.node_id], min(read.depth, depth)) for read in outputs_read], *outside_the_loop):
+            for upstream_node, shared_indexes in (*[(functions[node_id], min(read_depth, depth)) for node_id, read_depth in read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
         read_by_door = {name: node_input.field for name, node_input in inputs.items() if _demands_more(node_input)}
         definition = compiled_node.definition
@@ -374,11 +388,11 @@ def _flat_input(
         functions: Every function node made so far, by name.
     """
 
-    def flat_source(source: EdgeSource, starts_loop: bool) -> EdgeSource:
+    def flat_source(source: Edge, starts_loop: bool) -> Edge:
         source_node, output = nodes_by_id[source.node_id].source_of(source.output)
         if starts_loop and source.item:
             source_node.looped_outputs.setdefault(output, (nodes_by_id[source.node_id], source.output))
-        return EdgeSource(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, item=source.item)
+        return Edge(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, item=source.item)
 
     match node_input:
         case ConstantInput() | MissingInput():
@@ -395,7 +409,7 @@ def _flat_input(
             assert_never(node_input)
 
 
-def _collecting_input(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FlatFunctionNode]) -> CollectingInput:
+def _collecting_input(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[Edge, ...], functions: Mapping[str, FlatFunctionNode]) -> CollectingInput:
     """Returns the flat graph's input for an input that collects one value per item of the list
     ``looped_over``. Used for a node's own input and for what ``run.results`` shows.
 
@@ -406,9 +420,8 @@ def _collecting_input(field: Field, looped_over: tuple[FlatFunctionNode, str], s
         functions: The function nodes the sources name, by name.
     """
     series_node, output = looped_over
-    series = OutputInLoops(series_node.name, output, _loops_by_name(series_node.loops))
     loop_body = _loop_body_of(looped_over, [functions[source.node_id] for source in sources])
-    return CollectingInput(field, series, sources, loop_body)
+    return CollectingInput(field, OutputAddress(series_node.name, output), _loops_by_name(series_node.loops), sources, loop_body)
 
 
 def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:

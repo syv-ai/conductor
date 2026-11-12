@@ -45,13 +45,12 @@ from conductor._internal.compiled.describe import GraphInputDescription
 from conductor._internal.compiled.input import (
     CollectingInput,
     ConstantInput,
+    Edge,
     EdgeInput,
-    EdgeSource,
     GraphInput,
     Input,
     MissingInput,
     OutputAddress,
-    OutputInLoops,
 )
 from conductor._internal.compiled.node import (
     CompiledFunctionNode,
@@ -382,7 +381,7 @@ class _Compiler:
                     refused_defaults.add(name)
         first = not any(name in fields for name in edges)  # no edge leads into the node, so its open inputs are graph inputs
         inputs: dict[str, Input] = {}
-        readable: dict[str, list[EdgeSource]] = {}  # the inputs whose edges can be read, planned once the node's loops are known
+        readable: dict[str, list[Edge]] = {}  # the inputs whose edges can be read, planned once the node's loops are known
         collecting: set[str] = set()
         for name, field in fields.items():
             if name in refused_defaults:
@@ -523,7 +522,7 @@ class _Compiler:
 
     # -- edges ------------------------------------------------------------------
 
-    def _sources(self, node_id: str, name: str, addresses: list[str]) -> list[EdgeSource] | None:
+    def _sources(self, node_id: str, name: str, addresses: list[str]) -> list[Edge] | None:
         """Returns what the edges from ``addresses`` into one input read, in the record's order of their nodes
         and then of the outputs of each node.
 
@@ -532,7 +531,7 @@ class _Compiler:
             gets the problem), or its node was not compiled (a problem of its own says why, or it is on a cycle
             and comes later).
         """
-        sources: list[EdgeSource] = []
+        sources: list[Edge] = []
         for address in addresses:
             source = self._source(address, node_id, name)
             if source is None:
@@ -542,7 +541,7 @@ class _Compiler:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _edges_fit(self, node_id: str, field: Field, expected: Type, sources: list[EdgeSource]) -> bool:
+    def _edges_fit(self, node_id: str, field: Field, expected: Type, sources: list[Edge]) -> bool:
         """Whether every edge into the input ``field`` reads a value of the type ``expected``; for the first that does
         not, the graph gets the problem.
 
@@ -555,7 +554,7 @@ class _Compiler:
                 return False
         return True
 
-    def _source(self, address: str, node_id: str, name: str) -> EdgeSource | None:
+    def _source(self, address: str, node_id: str, name: str) -> Edge | None:
         """Returns what an edge from ``address`` reads: ``node.output``, or ``node.output.field`` for one field
         of a record.
 
@@ -589,21 +588,21 @@ class _Compiler:
             fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=record_field or None))
             return None
-        return EdgeSource(source_id, output, source.loops_around(output), record_field or None, read_type, item=field.is_series)
+        return Edge(source_id, output, source.loops_around(output), record_field or None, read_type, item=field.is_series)
 
-    def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
+    def _edge_order(self, source: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index in the record, then by
         its output's index in that node."""
         return self.position[source.node_id], list(self.nodes[source.node_id].outputs).index(source.output), source.address
 
     # -- branches ---------------------------------------------------------------
 
-    def _branches_required_for(self, source: EdgeSource) -> frozenset[RequiredBranch]:
+    def _branches_required_for(self, source: Edge) -> frozenset[RequiredBranch]:
         """The branches that must be chosen for the output ``source`` reads to have a value."""
         return self.nodes[source.node_id].branches_required_for(source.output)
 
     def _inputs_with_conflicting_edges(
-        self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[EdgeSource]], collecting: set[str],
+        self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
     ) -> set[str]:
         """Finds the inputs whose edges cannot be read together, and adds a problem for each.
 
@@ -666,7 +665,7 @@ class _Compiler:
         return frozenset(required_branches)
 
 
-def _collects_and_expected_type(field: Field, sources: list[EdgeSource]) -> tuple[bool, Type]:
+def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:
     """Returns whether the input ``field`` collects what ``sources`` read, and the type each source must fit:
     the input's whole type when it reads one value; when it collects, the type of one item of the ``Series`` or of
     one record of the table.
@@ -682,7 +681,7 @@ def _collects_and_expected_type(field: Field, sources: list[EdgeSource]) -> tupl
     return collects, field.whole if not collects else field.type if record is None else record
 
 
-def _edge_input(field: Field, sources: list[EdgeSource], deepest: tuple[OutputAddress, ...], loops: tuple[OutputAddress, ...], *, collects: bool) -> EdgeInput | CollectingInput:
+def _edge_input(field: Field, sources: list[Edge], deepest: tuple[OutputAddress, ...], loops: tuple[OutputAddress, ...], *, collects: bool) -> EdgeInput | CollectingInput:
     """Returns the compiled input of an input whose edges read ``sources``, for a node inside ``loops``.
 
     In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what
@@ -704,10 +703,10 @@ def _edge_input(field: Field, sources: list[EdgeSource], deepest: tuple[OutputAd
     if deepest == loops[: len(deepest)] and not any(s.item for s in sources):
         return EdgeInput(field, tuple(sources), deepest, as_list=True)
     source_node, output = deepest[-1]
-    return CollectingInput(field, OutputInLoops(source_node, output, deepest[:-1]), tuple(sources))
+    return CollectingInput(field, OutputAddress(source_node, output), deepest[:-1], tuple(sources))
 
 
-def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] | None]) -> dict[TypeVar, Any]:
+def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Edge] | None]) -> dict[TypeVar, Any]:
     """Returns the type each type variable of a node's inputs gets from the edges into them. When edges into
     two inputs that share a variable read ``int`` and ``str``, the variable gets ``int | str``.
 
@@ -758,7 +757,7 @@ def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     return None
 
 
-def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
+def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
     """Returns the ``type_mismatch`` problem of an edge from ``source`` into the input ``field``.
 
     Where one mistake explains it, the problem says the fix: a whole table or list wired to an input that takes
