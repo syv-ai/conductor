@@ -123,6 +123,21 @@ def test_an_edge_is_two_addresses():
         GraphRecord.model_validate({"nodes": [{"id": "a", "node": "t", "bindings": {}}]})
 
 
+def test_an_edge_is_two_texts_in_json_and_in_the_json_schema_and_edges_are_sorted_by_their_text():
+    """``-`` sorts before ``.``, so ``a-b.x`` comes before ``a.x`` by its text, though ``a`` comes before ``a-b``."""
+    written = {"nodes": [], "edges": [["a.x", "c.y"], ["a-b.x", "c.y"]]}
+    record = GraphRecord.model_validate(written)
+
+    assert json.loads(record.model_dump_json()) == {"nodes": [], "edges": [["a-b.x", "c.y"], ["a.x", "c.y"]]}
+    assert GraphRecord.model_validate_json(record.model_dump_json()) == record
+    for mode in ("validation", "serialization"):
+        edges = GraphRecord.model_json_schema(mode=mode)["properties"]["edges"]
+        assert edges["items"]["prefixItems"] == [{"type": "string"}, {"type": "string"}]
+    with pytest.raises(ValidationError) as not_text:
+        GraphRecord.model_validate({"edges": [[1, "c.y"]]})
+    assert [(error["type"], error["loc"]) for error in not_text.value.errors()] == [("string_type", ("edges", 0, 0))]
+
+
 def test_edges_are_a_set_so_their_order_never_tells_two_records_apart():
     nodes = [NodeRecord(id="a", node="t"), NodeRecord(id="b", node="t")]
     one_way = GraphRecord(nodes=nodes, edges=[("a.x", "b.x"), ("a.y", "b.y")])
