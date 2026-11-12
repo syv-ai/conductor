@@ -167,6 +167,11 @@ class _RefusingRoute(APIRoute):
         return refusing
 
 
+def _name_of_route(route: APIRoute) -> str:
+    """The operation id of ``route`` in the served schema: its function's name, ``list_nodes`` for ``def list_nodes``."""
+    return route.name
+
+
 def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
     """The refusal of a call.
 
@@ -279,7 +284,7 @@ def run_router(
         store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), context=context,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, resume_timeout=resume_timeout, poll=poll,
     )
-    router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute)
+    router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute, generate_unique_id_function=_name_of_route)
 
     async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> RunAsRead:
         """The run of a route under ``/runs/{run_id}``, for the caller: the access rule of every such route.
