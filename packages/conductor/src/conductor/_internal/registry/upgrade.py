@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from conductor._internal.base import Address
-from conductor._internal.gate import RefusedError, read_record, record_values
+from conductor._internal.gate import RefusedError, keyed_graph_record, read_record, record_values
 from conductor._internal.node import NodeDefinition, declared_inputs
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
@@ -48,9 +48,10 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
         graph = read_record(record)
     except RefusedError as refused:
         raise InvalidCallError(refused.problems) from None
-    node_record = next((n for n in graph.nodes if n.id == node_id), None)
+    keyed = keyed_graph_record(graph)
+    node_record = keyed.nodes.get(node_id)
     if node_record is None:
-        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=[n.id for n in graph.nodes])])
+        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=list(keyed.nodes))])
     if node_record.node not in nodes:
         raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(nodes))])
     newest = nodes[node_record.node]
@@ -65,7 +66,7 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     version_chain = newest.version_of(target).version_chain
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
     constants, defaults = dict(node_record.constants), dict(node_record.defaults)
-    edges = [(Address.parse(source), Address.parse(target_)) for source, target_ in graph.edges]
+    edges = keyed.edges
     for step, older in reversed(steps):
         upgrade = step.upgrade
         constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)

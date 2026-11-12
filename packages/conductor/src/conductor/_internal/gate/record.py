@@ -83,6 +83,7 @@ class KeyedGraphRecord:
     Attributes:
         nodes: The nodes an edge can name, by id, in the record's order: each id that is a name (``is_name``), with
             the first node that has it.
+        edges: Every edge of the record, in its order, as its source and its target.
         edges_into: For each of ``nodes``, by input name, the sources of the edges into that input, in the record's
             order, an edge listed twice once. An edge from a node the record lacks is kept, so its input is no graph
             input.
@@ -91,13 +92,14 @@ class KeyedGraphRecord:
     """
 
     nodes: dict[str, NodeRecord]
+    edges: list[tuple[Address, Address]]
     edges_into: dict[str, dict[str, list[Address]]]
     problems: list[Problem]
 
 
 def keyed_graph_record(record: GraphRecord) -> KeyedGraphRecord:
     """Returns ``record`` read for compiling, with what is wrong with its ids and edges. The record's validators have
-    checked each edge's text; it is read into ``Address`` values here, and compiling reads those."""
+    checked each edge's text; it is read into ``Address`` values here, and compiling and ``registry.upgrade`` read those."""
     nodes: dict[str, NodeRecord] = {}
     invalid: dict[str, None] = {}  # the ids that are not names, in the record's order
     twice: set[str] = set()
@@ -110,10 +112,12 @@ def keyed_graph_record(record: GraphRecord) -> KeyedGraphRecord:
             nodes[node.id] = node
     problems = [problem.invalid_node_id(node_id) for node_id in invalid]
     problems += [problem.duplicate_node_id(node_id) for node_id in sorted(twice)]
+    edges: list[tuple[Address, Address]] = []
     edges_into: dict[str, dict[str, list[Address]]] = {node_id: {} for node_id in nodes}
     previous: tuple[str, str] | None = None
     for source_text, target_text in record.edges:  # sorted, so an edge listed twice follows its first
         source, target = Address.parse(source_text), Address.parse_input(target_text)
+        edges.append((source, target))
         if (source_text, target_text) == previous:
             problems.append(problem.repeated_edge(target.node, target.name, source=source_text))
             continue
@@ -123,7 +127,7 @@ def keyed_graph_record(record: GraphRecord) -> KeyedGraphRecord:
             problems.append(problem.edge_names_missing_node(target.node, target.name, missing=missing, source=source_text, target=target_text))
         if target.node in nodes:  # kept even when the source does not exist, so the input is no graph input
             edges_into[target.node].setdefault(target.name, []).append(source)
-    return KeyedGraphRecord(nodes, edges_into, problems)
+    return KeyedGraphRecord(nodes, edges, edges_into, problems)
 
 
 #: The constants or defaults ``make_graph`` is given, keyed by the addresses of inputs (``"shout.mark"``).
