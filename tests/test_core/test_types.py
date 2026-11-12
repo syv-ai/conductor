@@ -436,6 +436,83 @@ def _returning_its_input(hint: Any) -> Any:
     return passes
 
 
+def _stripped(text: str) -> str:
+    return text.strip()
+
+
+class _Marked:
+    """Metadata with no ``repr`` of its own: Python writes it with its memory address."""
+
+
+def test_what_a_code_fingerprint_says_of_a_hint_holds_no_memory_address() -> None:
+    """A function or an object in ``Annotated`` is written by its name, never by ``repr``, which gives its address in
+    this process. The fingerprint is saved with a run, so it has to come out the same in the process that loads it."""
+    from conductor._internal.value_type import Type
+    from pydantic import AfterValidator
+
+    def local(text: str) -> str:
+        return text
+
+    def another_of_the_same_name() -> Any:
+        def local(text: str) -> str:
+            return text
+
+        return local
+
+    assert Type(Annotated[str, AfterValidator(_stripped)]).reads_as == f"builtins.str['AfterValidator(func={__name__}._stripped)']"
+    assert Type(Annotated[str, _Marked()]).reads_as == f"builtins.str['{__name__}._Marked']"
+    here = f"{__name__}.test_what_a_code_fingerprint_says_of_a_hint_holds_no_memory_address.<locals>"
+    assert Type(Annotated[str, AfterValidator(local)]).reads_as == f"builtins.str['AfterValidator(func={here}.local)']"
+    assert Type(Annotated[str, AfterValidator(lambda text: text)]).reads_as == f"builtins.str['AfterValidator(func={here}.<lambda>)']"
+    assert Type(Annotated[str, AfterValidator(another_of_the_same_name())]).reads_as != Type(Annotated[str, AfterValidator(local)]).reads_as  # named by where it is written
+    assert Type(Annotated[str, AfterValidator(str.strip)]).reads_as == "builtins.str[\"AfterValidator(func=<method 'strip' of 'str' objects>)\"]"  # a repr with no address stays
+
+
+_A_NODE_WITH_A_FUNCTION_IN_ITS_HINT = """
+import sys
+from typing import Annotated
+
+from conductor import Graph, NodeRegistry, Run, make_graph
+from pydantic import AfterValidator
+
+calls = []
+padding = [object() for _ in range(int(sys.argv[2]))]  # so the function below is at another address in each process
+
+
+def stripped(text: str) -> str:
+    return text.strip()
+
+
+registry = NodeRegistry()
+
+
+@registry.node("shout", title="Shout", description="For a test.")
+def shout(text: Annotated[str, AfterValidator(stripped)]) -> str:
+    calls.append(text)
+    return text.upper()
+
+
+graph = Graph.compile(make_graph(shout), registry)
+if sys.argv[2] == "0":
+    open(sys.argv[1], "w").write(graph.run(text=" a ").to_json())
+else:
+    again = Run.from_json(open(sys.argv[1]).read(), graph).again(text=" a ")
+    print(again.outputs, "calls:", len(calls))
+"""
+
+
+def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_holds_a_function(tmp_path: Any) -> None:
+    import subprocess
+    import sys
+
+    program, saved = tmp_path / "shout.py", tmp_path / "run.json"
+    program.write_text(_A_NODE_WITH_A_FUNCTION_IN_ITS_HINT)
+    for padding, printed in (("0", ""), ("100000", "{'shout.result': 'A'} calls: 0\n")):
+        child = subprocess.run([sys.executable, str(program), str(saved), padding], capture_output=True, text=True, timeout=120, check=False)
+        assert child.returncode == 0, child.stderr
+        assert child.stdout == printed
+
+
 def test_what_a_code_fingerprint_says_of_a_series_and_a_table_names_no_internal_module() -> None:
     """A unit's reuse digest is made of each field's ``reads_as``, and a stored waiting id of that digest. So the
     text must not change when the class behind ``Series`` or ``Table`` moves to another file."""

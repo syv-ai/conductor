@@ -7,11 +7,12 @@ packages.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import functools
 import typing
 from collections.abc import Callable, Mapping
-from types import UnionType
+from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
 
@@ -74,6 +75,28 @@ def _written(hint: Any) -> str:
         name = "Union" if origin in (Union, UnionType) else _written(origin)
         return f"{name}[{', '.join(map(_written, args))}]"
     return f"{hint.__module__}.{hint.__qualname__}" if isinstance(hint, type) else repr(hint)
+
+
+def _written_metadata(mark: Any) -> str:
+    """One thing ``Annotated`` holds beside the type, as ``Type.reads_as`` writes it::
+
+        _written_metadata(AfterValidator(strip))  # "AfterValidator(func=my_module.strip)"
+
+    Python's ``repr`` of a function, or of an object with no ``repr`` of its own, gives its memory address, which is
+    another number in every process. So a function is written as its module and qualified name, a dataclass
+    (pydantic's ``AfterValidator`` and ``Discriminator``, ``annotated_types``' ``Ge``) as its class name and each
+    field written this way, and an object with no ``repr`` of its own as its class. Anything else is its ``repr``.
+
+    Two lambdas written in one function have one name, so they are written the same.
+    """
+    if isinstance(mark, (FunctionType, MethodType)):
+        return f"{mark.__module__}.{mark.__qualname__}"
+    if dataclasses.is_dataclass(mark):
+        written = ", ".join(f"{f.name}={_written_metadata(getattr(mark, f.name))}" for f in dataclasses.fields(mark) if f.repr)
+        return f"{type(mark).__qualname__}({written})"
+    if type(mark).__repr__ is object.__repr__:
+        return f"{type(mark).__module__}.{type(mark).__qualname__}"
+    return repr(mark)
 
 
 class Type:
@@ -172,14 +195,15 @@ class Type:
         """A text that is the same in every process and differs between any two types that read a value differently.
 
         A class is written by its module and name, a generic by its arguments, a ``Literal`` by its values, a type
-        alias by its name, and a limit or a choice by what it holds. A title, a description and a widget are left
+        alias by its name, a limit or a choice by what it holds, and anything else in ``Annotated`` by its name
+        (``_written_metadata``). A title, a description and a widget are left
         out, as they change nothing that is read. What a unit's result rests on about a field is this text.
         """
         bare, param, others = self._parts
         held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
         if param.choices is not None:
             held.append(f"choices={[choice.id for choice in param.choices]!r}")
-        held += [repr(other) for other in others]
+        held += [_written_metadata(other) for other in others]
         return f"{_written(bare)}{held}" if held else _written(bare)
 
     @functools.cached_property

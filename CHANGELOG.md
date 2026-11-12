@@ -20,7 +20,8 @@ What changes in how you work, before the name-by-name tables:
   bound from its edges when a graph loads. Generic arguments are compared (`list[int]` lands on
   `list[float]`, never on `list[str]`) and shown in a type's id. `Annotated` metadata that is no `Param`
   is pydantic's, except pydantic's `Field(...)`, which is refused (`pydantic_field_in_hint`): `Param` is the one way to
-  write a title, a description and limits on an input or an output. A host type is declared with `@host_type("money", title="Money", accepts=[...])` above the class, checked when the class statement ends;
+  write a title, a description and limits on an input or an output. A function in a hint (`AfterValidator(strip)`) is
+  written into a node's code fingerprint by its module and name, so a run saved in one process is reused in another. A host type is declared with `@host_type("money", title="Money", accepts=[...])` above the class, checked when the class statement ends;
   `accepts` widens what lands on it, and a subclass of a builtin needs no schema of its own. A table's one JSON form is
   `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `series-stack`.
 
