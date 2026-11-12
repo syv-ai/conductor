@@ -1,6 +1,6 @@
 """The nodes the served app's tests run, shared by worker processes through two files in the app's directory.
 
-``gate`` waits for the file ``open`` to exist, so a test holds a leg mid-way; every call a test counts is a line
+``gate`` waits for the file ``open`` to exist, so a test can stop a run in the middle of a resume call; every call a test counts is a line
 appended to ``calls``, so the calls of every worker are counted together.
 """
 

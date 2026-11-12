@@ -52,7 +52,7 @@ async def _started(worker: Worker[str], graph: GraphRecord, inputs: Mapping[str,
 
 
 async def _resume_calls(store: MemoryStore, run_id: str) -> int:
-    """How many resume_calls of the run have started."""
+    """How many resume calls of the run have started: one ``run_start`` event each."""
     return [event["type"] for event in await store.stored_events(run_id)].count("run_start")
 
 
@@ -127,7 +127,7 @@ async def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> Non
     assert (ended.status, ended.outputs) == ("complete", {"as-table.result": columns})
 
 
-# -- a ceiling, a resume --------------------------------------------------------------------------
+# -- an item limit, a resume ----------------------------------------------------------------------
 
 
 async def test_a_run_stopped_at_its_item_limit_says_why_and_is_resumed_at_the_same_or_a_higher_limit() -> None:
@@ -176,7 +176,7 @@ async def test_an_item_limit_raised_by_a_resume_applies_to_every_resume_call_aft
     assert (await store.ended(run_id)).status == "stopped"
 
     await worker.resume(await worker.read(run_id), max_items=10)
-    assert json.loads(store.rows[run_id].run)["max_items"] == 10  # written with the claim, so a leg given up before its first checkpoint is gone on with under it
+    assert json.loads(store.rows[run_id].run)["max_items"] == 10  # written with the claim, so a resume call given up before its first checkpoint is resumed under it
     waiting = (await store.ended(run_id)).waiting
     assert len(waiting) == 5
     assert await worker.answer(await worker.read(run_id), {waiting[0].id: 7}) == "started"
@@ -349,7 +349,7 @@ async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_lon
     registry, graph, gate, inputs, waiting_id = asking()
 
     class SlowEnd(MemoryStore):
-        """Writes the end of a leg, the write that takes the queued answers, after three of the lease's renewals."""
+        """Writes the end of a resume call (the write that takes the queued answers) after three lease renewals."""
 
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if {"run", "state"} <= changes.keys():
@@ -395,7 +395,7 @@ async def test_the_end_of_a_resume_call_costs_one_read_one_event_and_one_write_a
     gate.set()
 
     assert (await store.ended(run_id)).status == "complete"
-    assert (store.reads, store.writes) == (2, 2)  # one of each for the end of each of the two resume_calls
+    assert (store.reads, store.writes) == (2, 2)  # one of each for the end of each of the two resume calls
     assert [event["type"] for event in await store.stored_events(run_id)].count("run_end") == 2
 
 
@@ -404,7 +404,7 @@ async def test_an_answer_queued_just_before_a_resume_call_writes_its_end_starts_
     gate.set()
 
     class AnswerAtTheEnd(MemoryStore):
-        """Takes an answer from another worker, queued for the running leg, just before the write that ends the leg."""
+        """Takes an answer from another worker, queued for the running resume call, just before the write that ends it."""
 
         answered = False
 
@@ -430,7 +430,7 @@ async def test_a_run_that_takes_longer_than_the_lease_to_write_stays_with_its_wo
     to_json = Run.to_json
 
     def slow_to_json(self: Run) -> str:
-        if self.status == "waiting":  # the run as the leg's end writes it
+        if self.status == "waiting":  # the run as the end of the resume call writes it
             slow_writes.append(self.status)
             time.sleep(0.5)  # a large run, longer than the lease
         return to_json(self)
@@ -456,7 +456,7 @@ async def test_an_answer_queued_during_a_resume_call_stopped_at_the_item_limit_s
     run_id = await _started(worker, graph, inputs)
     assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
     gate.set()
-    ended = await store.ended(run_id)  # the next leg meets the same ceiling
+    ended = await store.ended(run_id)  # the next resume call stops at the same item limit
 
     assert (ended.status, ended.waiting, ended.refused) == ("stopped", [], {})
     assert await _resume_calls(store, run_id) == 2
@@ -469,7 +469,7 @@ async def test_an_answer_queued_for_a_question_a_timed_out_resume_call_never_ask
 
     run_id = await _started(worker, graph, inputs)
     assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    await asyncio.sleep(0.3)  # past the leg's timeout; the call it waits for then finishes
+    await asyncio.sleep(0.3)  # past the resume call's timeout; the node call it waits for then finishes
     gate.set()
     ended = await store.ended(run_id)
 
@@ -515,7 +515,7 @@ async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_an
     assert (failed.status, failed.refused, (await worker.read("left")).state.queued_answers) == ("failed", {}, {waiting_id: True})
 
     await worker.resume(await worker.read("left"))
-    completed = await store.ended("left")  # the leg after the resume ended waiting, and took the answer queued two resume_calls before
+    completed = await store.ended("left")  # the resume call after the resume ended waiting, and took the answer queued two resume calls before
     assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
 
 
@@ -530,7 +530,7 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
     waiting = await store.ended(run_id)
     assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
     queued_before = (await worker.read(run_id)).state.model_copy(update={"queued_answers": {waiting_id: False}})
-    store.rows[run_id] = dataclasses.replace(store.rows[run_id], **queued_before.columns())  # as a leg that raised leaves an answer queued
+    store.rows[run_id] = dataclasses.replace(store.rows[run_id], **queued_before.columns())  # as a resume call that raised leaves an answer queued
 
     assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
     completed = await store.ended(run_id)
@@ -539,7 +539,7 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
 
 @host_type("fragile", title="Fragile")
 class Fragile:
-    """A host's type whose own check has a bug: it raises what is no refusal of the value."""
+    """A host's type whose own check has a bug: it raises a ``KeyError`` instead of refusing the value."""
 
 
     @classmethod
@@ -574,7 +574,7 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
         assert await worker.answer(await worker.read(run_id), {waiting.id: "anything"}) == "queued"
         gate.set()
         ended = await store.ended(run_id)
-        await asyncio.sleep(0.4)  # leases in which a leg given up would start again
+        await asyncio.sleep(0.4)  # long enough for a resume call given up to be started again
 
     assert (ended.status, [(problem.type, problem.ctx) for problem in ended.refused[waiting.id]]) == (
         "waiting", [("answer_check_failed", {"waiting_id": waiting.id, "error": "KeyError"})],
@@ -660,7 +660,7 @@ async def test_a_cancel_sent_as_a_resume_call_ends_cancels_the_one_an_answer_que
     registry, graph, gate, inputs, waiting_id = asking()
 
     class CancelAtTheEnd(MemoryStore):
-        """Takes a cancel from another worker just before the write that ends the first leg."""
+        """Takes a cancel from another worker just before the write that ends the first resume call."""
 
         cancelled = False
 
@@ -706,7 +706,7 @@ async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resum
     assert (after.status, [waiting_call.id for waiting_call in after.waiting]) == ("failed", [failed.waiting[1].id])
 
 
-# -- a leg that raised ----------------------------------------------------------------------------
+# -- a resume call that raised --------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("fails", ["the write of an event", "the write of a checkpoint"])
@@ -714,7 +714,7 @@ async def test_a_resume_call_the_store_raises_in_is_given_up_and_the_run_is_resu
     registry, graph, called, calls = _slow_items()
 
     class RaisesOnce(MemoryStore):
-        """Raises once mid-leg, as a database that drops one statement."""
+        """Raises once in the middle of a resume call, as a database that drops one statement does."""
 
         def __init__(self) -> None:
             super().__init__()
@@ -743,7 +743,7 @@ async def test_a_resume_call_the_store_raises_in_is_given_up_and_the_run_is_resu
         async with asyncio.timeout(5):
             await store.raised.wait()
         at_the_raise = len(calls)
-        await asyncio.sleep(0.1)  # a leg still running would have called more by now, and no lease has run out
+        await asyncio.sleep(0.1)  # a resume call still running would have called more by now, and no lease has run out
         assert len(calls) <= at_the_raise + 1 and store.rows[run_id].status == "running"
         ended = await store.ended(run_id)  # once the lease ran out and a sweep took the run
 
@@ -874,7 +874,7 @@ async def test_a_run_whose_end_the_store_fails_to_write_stays_running_and_is_res
     registry, graph = _shout()
 
     class EndFailsOnce(MemoryStore):
-        """Raises once in the write that ends a leg, after its ``run_end`` is stored."""
+        """Raises once in the write that ends a resume call, after its ``run_end`` is stored."""
 
         raised = False
 
@@ -922,7 +922,7 @@ async def test_a_run_that_cant_be_written_fails_with_run_unwritable_the_first_ti
     async with worker.serving():
         run_id = await _started(worker, graph, {"text": "a"})
         ended = await store.ended(run_id)
-        await asyncio.sleep(0.4)  # leases in which a leg retried would start again
+        await asyncio.sleep(0.4)  # long enough for a retried resume call to start
 
     ends = [(event["status"], event["cause"]["type"]) for event in await store.stored_events(run_id) if event["type"] == "run_end"]
     assert ended.cause is not None
@@ -951,7 +951,7 @@ async def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_
         return [event async for event in worker.events(run, after)]
 
     following = asyncio.create_task(followed())
-    await asyncio.sleep(0.1)  # the follower has the leg's first events by now
+    await asyncio.sleep(0.1)  # the follower has the resume call's first events by now
     before = store.reads
     await asyncio.sleep(0.3)  # thirty polls that find no event
     during = store.reads - before
@@ -1143,18 +1143,18 @@ async def test_a_worker_whose_renewal_never_returns_stops_once_another_took_the_
             run_id = await _started(hung, graph, {"n": 40})
             async with other.serving():
                 ended = await store.ended(run_id)
-        # leaving ``hung.serving()`` waits for its leg, which ends only if the leg learnt it lost the run
+        # leaving ``hung.serving()`` waits for its resume call, which ends only once it learns it lost the run
 
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
     assert (ended.status, ends, ended.outputs) == ("complete", ["complete"], {"slow.result": list(range(40))})
-    assert len(calls) < 2 * 40  # the leg that lost the run stopped before it had called everything again
+    assert len(calls) < 2 * 40  # the resume call that lost the run stopped before it had called everything again
 
 
 async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the_run_running_for_the_worker_that_takes_it() -> None:
     registry, graph, called, calls = _slow_items()
 
     class HandBackFails(MemoryStore):
-        """Raises once in the write of a checkpoint, once ``armed``: the one a leg handed back ends with."""
+        """Once ``armed``, raises once in the write of a checkpoint: the last one, written as the run is handed back."""
 
         armed = raised = False
 
@@ -1310,7 +1310,7 @@ async def test_a_worker_whose_run_another_took_stops_resuming_it_and_writes_noth
     store = MemoryStore()
     slow, taker = _worker(store, registry, lease=0.15), _worker(store, registry)
 
-    async with slow.serving():  # leaving it waits for the leg the slow worker still runs
+    async with slow.serving():  # leaving it waits for the resume call the slow worker still runs
         run_id = await _started(slow, graph, inputs)
         row = (await slow.read(run_id)).row
         assert await store.update(run_id, row.rev, {"lease_until": 0.0})  # as when its lease ran out unrenewed

@@ -112,7 +112,7 @@ class Worker:
         raise AssertionError(f"never {statuses}: {row}")
 
     async def until_refused(self, run_id: str) -> dict[str, Any]:
-        """The run once it holds a refused answer, which is written just after the leg's own last write."""
+        """The run once it has a refused answer, which is written just after the resume call's own last write."""
         for _ in range(3000):
             row = await self.read(run_id)
             if row["refused"]:
@@ -217,7 +217,7 @@ def test_two_workers_answering_one_run_at_once_start_one_resume_call(served: Ser
                 b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: False}),
             )
             said = sorted([first.json() if first.status_code == 202 else 409, second.json() if second.status_code == 202 else 409], key=str)
-            # the later answer is refused at once, or, if it read the run once the leg had started, queued and then refused
+            # the later answer is refused at once, or, if it read the run once the resume call had started, queued and then refused
             assert said in ([409, {"answers": "started"}], [{"answers": "queued"}, {"answers": "started"}])
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
@@ -262,8 +262,8 @@ def test_a_cancel_sent_to_either_worker_stops_the_run_and_a_resume_finishes_it(s
             run_id = await a.start(_GATE_ASK)
             await served.until_calls(1)
             assert (await b.client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
-            await asyncio.sleep(0.6)  # the worker running the leg sees the flag at its next renewal
-            served.open_the_gate()  # a cancel waits for the call already work_calls, and keeps it
+            await asyncio.sleep(0.6)  # the worker resuming the run sees the cancel at its next lease renewal
+            served.open_the_gate()  # a cancel waits for the node call already started, and keeps its outcome
             await a.until_status(run_id, "cancelled")
 
             assert (await b.client.post(f"/runs/{run_id}/resume", json={})).status_code == 202
@@ -282,7 +282,7 @@ def test_a_run_that_timed_out_is_resumed_by_its_route_until_it_completes(served:
                 await a.until_status(run_id, "timed_out", "complete")
                 if (await a.read(run_id))["status"] == "complete":
                     break
-            assert sorted(served.calls) == sorted(f"work {i}" for i in range(30))  # a timed-out leg keeps what it called
+            assert sorted(served.calls) == sorted(f"work {i}" for i in range(30))  # a resume call that timed out keeps what it called
             assert (await a.client.post(f"/runs/{run_id}/resume", json={})).status_code == 409
 
     _run(scenario)
@@ -313,7 +313,7 @@ def test_a_wrong_answer_sent_while_a_resume_call_runs_is_refused_alone_and_the_o
             queued = await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: False, third["id"]: "not a yes or no"})
             assert queued.json() == {"answers": "queued"}
             served.open_the_gate()
-            for _ in range(1000):  # the first leg ends, the queued answers are applied, and the next leg ends
+            for _ in range(1000):  # the first resume call ends, the queued answers are applied, and the next one ends
                 row = await b.read(run_id)
                 if row["status"] == "waiting" and len(row["waiting"]) == 1:
                     break

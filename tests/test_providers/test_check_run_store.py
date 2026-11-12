@@ -1,4 +1,4 @@
-"""``check_run_store`` on the stores the suite has: the one in memory and the page's SQLite one pass, and a fault is
+"""``check_run_store`` on the stores the suite has: the one in memory and the page's SQLite one pass, and a problem is
 reported once, at the method that has it.
 
 Each kind's own broken store is its example on the page on serving runs, run by ``test_problems_page``.

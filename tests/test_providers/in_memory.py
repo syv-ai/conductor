@@ -1,4 +1,4 @@
-"""A ``RunStore`` in memory that a test can wait on, and the graphs the worker's and the routes' tests per_item mid-leg."""
+"""A ``RunStore`` in memory that a test can wait on, and the graphs the worker's and the routes' tests stop in the middle of a resume call."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ class MemoryStore:
         return self.rows[run_id]
 
     async def ended(self, run_id: str) -> RunView:
-        """The run as its view once no leg is wanted for it."""
+        """The run as its view once its row is no longer running."""
         return RunView.of(RunAsRead.of(await self.until(run_id, lambda row: row.status != "running")))
 
     async def stored_events(self, run_id: str) -> list[dict[str, Any]]:
@@ -70,7 +70,7 @@ class MemoryStore:
 
 
 def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None) -> StoredRun:
-    """A row of ``anna``'s as a worker that is gone left it mid-leg: running, at ``run``, its lease run out."""
+    """A row of ``anna``'s as a worker that died in a resume call left it: running, saved at ``run``, its lease run out."""
     return StoredRun(
         id=run_id, graph=graph.model_dump_json(), caller='"anna"', run=run.to_json(), **StoredState.started().columns(),
         outcome=Outcome.empty().model_dump_json(), rev=0, owner=owner, lease_until=0.0,
@@ -78,8 +78,9 @@ def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None
 
 
 def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent, dict[str, Any], str]:
-    """A graph whose leg waits on ``gate`` beside a question, its inputs, and the waiting id the question gets; with
-    ``items``, beside a Series of three items read one at a time too, for a ceiling of 1 to stop."""
+    """A graph with a node that waits on ``gate`` beside a node that asks a question: the registry, the graph, the
+    gate, its inputs and the waiting id of the question. With ``items``, the graph also loops over three items, so
+    that an item limit of 1 stops the run."""
     registry, gate = NodeRegistry(), ThreadEvent()
 
     @registry.node("busy", title="Busy", description="For a test.")
@@ -113,8 +114,9 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent,
 
 
 def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str]]:
-    """A graph whose first leg waits on ``first`` beside a question, and whose leg after the answer waits on ``second``
-    on its first item of two; ``per_item_called`` is set once that item is called."""
+    """A graph whose first resume call waits on ``first`` beside a question, and whose resume call after the answer
+    waits on ``second`` in the call for the first of two items; ``per_item_called`` is set once that call started.
+    ``calls`` lists the items called."""
     registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "second", "per_item_called")}, []
 
     @registry.node("items", title="Items", description="For a test.")
