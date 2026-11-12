@@ -86,7 +86,7 @@ def test_a_catalogue_lists_its_kinds_and_their_codes() -> None:
     assert [(kind.code, kind.variant) for kind in catalogue] == [("unknown_shelf", None), ("unknown_shelf", "another_room"), ("room_closed", None)]
 
 
-def test_a_kind_has_a_sentence_with_a_placeholder_for_each_ctx_key_and_a_type_for_its_ctx() -> None:
+def test_a_kind_has_a_sentence_with_a_replacement_field_for_each_ctx_key_and_a_type_for_its_ctx() -> None:
     assert unknown_shelf.sentence == "'{room}' has no shelf '{shelf}'; it has {shelves}."
     assert typing.get_type_hints(unknown_shelf.ctx_type) == {"room": str, "shelf": str, "shelves": list[str], "nearest": str}
     assert unknown_shelf.ctx_type.__required_keys__ == {"room", "shelf", "shelves"}

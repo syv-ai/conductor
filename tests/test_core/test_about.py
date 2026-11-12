@@ -159,7 +159,7 @@ def _library_names() -> set[str]:
 def test_every_name_the_reference_puts_in_backticks_exists():
     """A stale name here is broken code on an agent's next task. Every
     class-like name in backticks is one a reader can import (a one-letter
-    placeholder like ``X`` aside), and every dotted ``conductor…`` path
+    name like ``X``, which stands for any class, aside), and every dotted ``conductor…`` path
     imports."""
     known = _library_names()
     missing: set[str] = set()

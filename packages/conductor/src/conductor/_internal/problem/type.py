@@ -86,7 +86,7 @@ class ProblemKind[**Params]:
             ``None`` for a code's main message.
         of_a_hook: Whether the problem is in a node's ``compute_...`` hook, which the node's developer fixes. Any
             other problem of a compiled graph is fixed in the graph.
-        sentence: The message with ``{key}`` in place of each ``ctx`` value.
+        sentence: The message with a replacement field ``{key}`` in place of each ``ctx`` value.
         ctx_type: The keys of ``ctx`` and their types, as a ``TypedDict``. A key that may be left out is not required.
         section: The title of the catalogue's section the kind is declared in; empty when the catalogue has none.
     """
@@ -105,11 +105,11 @@ class ProblemKind[**Params]:
         self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
-        # The message with "{key}" for each ctx value. A key that may be left out is not passed, so the function writes
+        # The message with a replacement field "{key}" for each ctx value. A key that may be left out is not passed, so the function writes
         # the message it writes when the key is absent.
-        placeholders = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
-        loc_placeholders = [placeholders.pop(name) for name in self._loc_parameters]
-        self.sentence = typing.cast("Callable[..., str]", write_message)(*loc_placeholders, **placeholders)
+        replacement_fields = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
+        loc_replacement_fields = [replacement_fields.pop(name) for name in self._loc_parameters]
+        self.sentence = typing.cast("Callable[..., str]", write_message)(*loc_replacement_fields, **replacement_fields)
         self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # fields built from the signature, which a type checker cannot follow
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
             **({"variant": Literal[variant]} if variant else {}),

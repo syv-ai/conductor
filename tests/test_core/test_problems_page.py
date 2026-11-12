@@ -54,8 +54,8 @@ def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
     if kind.code in _MESSAGE_IS_THE_NODES:
         return True
     pattern = re.escape(kind.sentence)
-    for placeholder in re.findall(r"\\\{\w+\\\}", pattern):
-        pattern = pattern.replace(placeholder, ".*")
+    for replacement_field in re.findall(r"\\\{\w+\\\}", pattern):
+        pattern = pattern.replace(replacement_field, ".*")
     return re.fullmatch(pattern, problem.msg, re.S) is not None
 
 
