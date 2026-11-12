@@ -47,7 +47,7 @@ class Money(BaseModel):
 
 def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **values: Any) -> Any:
     """``definition`` as node ``q`` with ``values`` typed in, and each of ``more`` as a node named by its id; the run, resumed."""
-    nodes = [{"id": "q", "node": definition.id, "values": values}, *({"id": other.id, "node": other.id} for other in more)]
+    nodes = [{"id": "q", "node": definition.id, "constants": values}, *({"id": other.id, "node": other.id} for other in more)]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges or []}), registry_of(definition, *more))
     assert not graph.problems, graph.problems
     return graph.run().resume()
@@ -67,7 +67,7 @@ def test_a_limit_on_a_hosts_text_is_held() -> None:
     def short(text: Annotated[Text, Param(max_length=3)]) -> str:
         return text
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "short", "values": {"text": "too long"}}]}), registry_of(short))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "short", "constants": {"text": "too long"}}]}), registry_of(short))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
@@ -149,7 +149,7 @@ def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:
     def total(numbers: list[int]) -> int:
         return sum(numbers)
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "total", "values": {"numbers": [True]}}]}), registry_of(total))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "total", "constants": {"numbers": [True]}}]}), registry_of(total))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
@@ -181,7 +181,7 @@ def test_a_limit_spelled_as_pydantic_spells_it_is_carried() -> None:
     def count(times: PositiveInt, least: Annotated[int, Field(ge=2)] = 2) -> int:
         return times * least
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "values": {"times": 0}}]}), registry_of(count))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "constants": {"times": 0}}]}), registry_of(count))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
     assert _run(count, times=3).outputs == {"q.result": 6}
 

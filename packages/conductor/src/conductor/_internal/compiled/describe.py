@@ -6,6 +6,8 @@ from typing import Literal
 
 from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,
+    InputConstant,
+    InputFromGraphInput,
     InputMissing,
     InputPlan,
     InputReadsOneValue,
@@ -35,17 +37,19 @@ class Feed(ConductorModel):
     """How an input is fed on each call of its node.
 
     Attributes:
-        mode: ``one_value`` for a value typed in, a default or the caller's; ``per_item`` for one item of
+        mode: ``constant`` for a value written in the graph record or the input's default, the same on every call
+            in every run; ``graph_input`` for a value the caller gives when a run starts; ``one_value`` for the
+            output of a node that is called once; ``per_item`` for one item of
             ``series``; ``outer_value`` for a value made outside the items the node runs per; ``collected`` for
             every item of ``series`` as one list; ``unset`` for an input with no value to give, which a problem
             of the graph says why.
         series: The address of the Series the mode names: for ``outer_value``, the one whose item the value
-            belongs to. ``None`` for ``one_value``, for an ``outer_value`` made once in the graph, and for the
+            belongs to. ``None`` for ``constant``, ``graph_input`` and ``one_value``, for an ``outer_value`` made once in the graph, and for the
             one value of a source that runs once, ``collected`` as a Series of one.
         msg: The same, in English.
     """
 
-    mode: Literal["one_value", "per_item", "outer_value", "collected", "unset"]
+    mode: Literal["constant", "graph_input", "one_value", "per_item", "outer_value", "collected", "unset"]
     series: str | None = None
     msg: str
 
@@ -135,5 +139,9 @@ def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> Feed:
             return Feed(mode="per_item", series=str(fed_in[-1]), msg=f"per item of {fed_in[-1]}")
         case InputMissing():
             return Feed(mode="unset", msg="no value: a problem of the graph says why")
+        case InputConstant():
+            return Feed(mode="constant", msg="a constant")
+        case InputFromGraphInput():
+            return Feed(mode="graph_input", msg="the graph input")
         case _:
             return Feed(mode="one_value", msg="one value")

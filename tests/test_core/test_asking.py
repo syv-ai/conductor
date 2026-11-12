@@ -54,7 +54,7 @@ def upper(text: str) -> str:
 def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
     """``split`` making its items of ``text``, each item read by ``definition`` as node ``q``; the graph and its first run."""
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "split", "values": {"text": text}}, {"id": "q", "node": definition.id}],
+        "nodes": [{"id": "s", "node": "split", "constants": {"text": text}}, {"id": "q", "node": definition.id}],
         "edges": [["s.result", f"q.{next(iter(definition.inputs))}"]],
     }), registry_of(split, definition, *more))
     return graph, graph.run()
@@ -62,7 +62,7 @@ def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
 
 def _once(definition: Any, **values: Any) -> Any:
     """``definition`` alone as node ``q``, run once; the graph and its run."""
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": definition.id, "values": values}]}), registry_of(definition))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": definition.id, "constants": values}]}), registry_of(definition))
     return graph, graph.run()
 
 
@@ -181,7 +181,7 @@ def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type
     def weekday(day: datetime.date) -> int:
         return day.isoweekday()
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "when", "values": {"name": "x"}}, {"id": "w", "node": "weekday"}],
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "when", "constants": {"name": "x"}}, {"id": "w", "node": "weekday"}],
                                               "edges": [["q.result", "w.day"]]}), registry_of(when, weekday))
     run = graph.run()
     assert run.waiting[0].questions[0].json_schema == {"format": "date", "type": "string"}
@@ -296,7 +296,7 @@ def line_items(table: Table[Line]) -> Series[Line]:
 def _lines_graph() -> Any:
     """``lines`` asking for a table as node ``q``, split into one record per line, each read by ``each``."""
     return Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "q", "node": "lines", "values": {"order": "O-1"}}, {"id": "i", "node": "line-items"}, {"id": "e", "node": "each"}],
+        "nodes": [{"id": "q", "node": "lines", "constants": {"order": "O-1"}}, {"id": "i", "node": "line-items"}, {"id": "e", "node": "each"}],
         "edges": [["q.result", "i.table"], ["i.result.sku", "e.sku"], ["i.result.qty", "e.qty"]],
     }), registry_of(lines, line_items, each))
 
@@ -365,7 +365,7 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
         raise Ask(f"Keep {text}?")
 
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "q", "node": "route", "values": {"text": "a"}}, {"id": "k", "node": "upper"}, {"id": "d", "node": "upper"}],
+        "nodes": [{"id": "q", "node": "route", "constants": {"text": "a"}}, {"id": "k", "node": "upper"}, {"id": "d", "node": "upper"}],
         "edges": [["q.keep", "k.text"], ["q.drop", "d.text"]],
     }), registry_of(route, upper))
     run = graph.run()
@@ -386,7 +386,7 @@ def colours(name: str) -> Series[Literal["red", "green", "blue"]]:
 
 def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json():
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "split", "values": {"text": "Ida,Bo"}}, {"id": "q", "node": "colours"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}],
+        "nodes": [{"id": "s", "node": "split", "constants": {"text": "Ida,Bo"}}, {"id": "q", "node": "colours"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}],
         "edges": [["s.result", "q.name"], ["q.result", "u.text"], ["u.result", "j.texts"]],
     }), registry_of(split, colours, upper, join))
     run = Run.from_json(graph.run().to_json(), graph)
@@ -413,7 +413,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
 
 
 def test_a_reader_left_with_no_items_by_an_answer_shows_so_before_the_next_leg():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "colours", "values": {"name": "x"}}, {"id": "u", "node": "upper"}],
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "colours", "constants": {"name": "x"}}, {"id": "u", "node": "upper"}],
                                                "edges": [["q.result", "u.text"]]}), registry_of(colours, upper))
     answered = graph.run().answer("q", [])
     assert answered.results["u"]["result"] == []
@@ -451,7 +451,7 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     def approve(label: str, value: Any) -> bool:
         raise Ask("ok?")
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "make"}, {"id": "a", "node": "approve", "values": {"label": "x"}}],
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "make"}, {"id": "a", "node": "approve", "constants": {"label": "x"}}],
                                              "edges": [["m.result", "a.value"]]}), registry_of(make, approve))
 
     async def streamed() -> Any:
@@ -605,7 +605,7 @@ def test_a_value_no_question_can_read_is_refused_as_a_problem_never_an_exception
 def test_after_an_answer_the_next_leg_calls_only_what_waited_on_it_and_an_item_left_unanswered_waits_on():
     gate, called = _counted()
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "split", "values": {"text": "a,b1,b2"}}, {"id": "q", "node": "gate"}, {"id": "u", "node": "upper"}],
+        "nodes": [{"id": "s", "node": "split", "constants": {"text": "a,b1,b2"}}, {"id": "q", "node": "gate"}, {"id": "u", "node": "upper"}],
         "edges": [["s.result", "q.text"], ["q.result", "u.text"]],
     }), registry_of(split, gate, upper))
     run = graph.run()
@@ -628,7 +628,7 @@ def test_a_node_that_reads_the_world_is_not_called_again_when_a_run_goes_on_from
     def ask(text: str) -> str:
         raise Ask("?")
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "now", "values": {"text": "x"}}, {"id": "q", "node": "ask"}], "edges": [["n.result", "q.text"]]}), registry_of(now, ask))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "now", "constants": {"text": "x"}}, {"id": "q", "node": "ask"}], "edges": [["n.result", "q.text"]]}), registry_of(now, ask))
     graph.run().answer("q", "y").resume()
     assert read == ["x"]
 
@@ -640,7 +640,7 @@ def test_an_item_skipped_above_never_asks_and_the_others_complete_when_answered(
 
     gate, called = _counted()
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "split", "values": {"text": "a,b1,b2"}}, {"id": "o", "node": "only-b"}, {"id": "q", "node": "gate"}],
+        "nodes": [{"id": "s", "node": "split", "constants": {"text": "a,b1,b2"}}, {"id": "o", "node": "only-b"}, {"id": "q", "node": "gate"}],
         "edges": [["s.result", "o.text"], ["o.result", "q.text"]],
     }), registry_of(split, only_b, gate))
     run = graph.run()
@@ -659,7 +659,7 @@ def test_waiting_units_are_in_node_then_item_order_whatever_order_they_asked_in(
         raise Ask(text)
 
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "split", "values": {"text": "0,1,2"}}, {"id": "a", "node": "slow-ask"}, {"id": "b", "node": "ask"}],
+        "nodes": [{"id": "s", "node": "split", "constants": {"text": "0,1,2"}}, {"id": "a", "node": "slow-ask"}, {"id": "b", "node": "ask"}],
         "edges": [["s.result", "a.text"], ["s.result", "b.text"]],
     }), registry_of(split, slow_ask, ask))
     run = graph.run()
@@ -757,7 +757,7 @@ def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
         raise Ask(f"How urgent is {ticket}?")
 
     assert [field.type for field in priority.describe().inputs] == ["str", "str"]
-    run = Graph.compile(make_graph(priority, values={"priority.level": "a"}), registry_of(priority)).run(ticket="T-1")
+    run = Graph.compile(make_graph(priority, constants={"priority.level": "a"}), registry_of(priority)).run(ticket="T-1")
     (question,) = run.waiting[0].questions
     assert question.type == "str" and question.json_schema == {"enum": ["low", "high"], "type": "string"}
 
@@ -811,7 +811,7 @@ def test_a_question_inside_an_embedding_is_the_inner_nodes_own_and_its_waiting_u
 
     registry = NodeRegistry()
     registry.add(ask, ask2, subgraph("both", title="Both", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="q2", node="ask2")])))
-    run = Graph.compile(make_graph(registry["both"], values={"both.q.text": "a", "both.q2.text": "b"}), registry).run()
+    run = Graph.compile(make_graph(registry["both"], constants={"both.q.text": "a", "both.q2.text": "b"}), registry).run()
     assert [(w.id.partition("~")[0], w.loc, [q.name for q in w.questions]) for w in run.waiting] == [("both/q", ("both", "q"), ["result"]), ("both/q2", ("both", "q2"), ["result"])]
     done = run.answer({w.id: "yes" for w in run.waiting}).resume()
     assert done.outputs == {"both.q.result": "yes", "both.q2.result": "yes"}

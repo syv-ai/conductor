@@ -669,7 +669,7 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
     registry = registry_of(sheet, sheet_rows, ok_row, column_order)
     record = {
         "nodes": [
-            {"id": "s", "node": "sheet", "values": {"options": {"bb": 2, "a": 1, "ccc": 3}}},
+            {"id": "s", "node": "sheet", "constants": {"options": {"bb": 2, "a": 1, "ccc": 3}}},
             {"id": "r", "node": "sheet_rows"},
             {"id": "q", "node": "ok_row"},
             {"id": "o", "node": "column_order"},

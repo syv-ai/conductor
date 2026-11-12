@@ -32,7 +32,7 @@ graph = GraphRecord(
     nodes=[
         NodeRecord(id="words", node="text-split"),
         NodeRecord(id="loud", node="text-uppercase"),
-        NodeRecord(id="joined", node="text-join", values={"separator": " + "}),
+        NodeRecord(id="joined", node="text-join", constants={"separator": " + "}),
     ],
     edges=[("words.result", "loud.text"), ("loud.result", "joined.parts")],
 )
@@ -49,9 +49,9 @@ assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
 assert loaded.runs_on["joined"].mode == "once"            # parts is Series[str]: one call
 ```
 
-The same record as JSON is `{"nodes": [{"id": "words", "node": "text-split"}, ...], "edges": [["words.result", "loud.text"], ...]}`, what an editor writes and a host stores. From Python, `make_graph(split, uppercase, join, values={"text-join.separator": " + "})` writes it too: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice.
+The same record as JSON is `{"nodes": [{"id": "words", "node": "text-split"}, ...], "edges": [["words.result", "loud.text"], ...]}`, what an editor writes and a host stores. From Python, `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes it too: with no `edges` the nodes form a chain, each taking its one required open input from the one output before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice.
 
-An input takes an edge, a value or a default, never two: `values` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input gathers them again; a value made outside the items is there on every call. A list or a table is one value, so a list given or typed in at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `series-split` in `syv-conductor-nodes`, makes the items. An edge may name one field of a record, `series-split.result.email`. Several edges into one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id is not empty and may not contain `.`, `/`, `@` or `~`.
+An input takes an edge, a value or a default, never two: `constants` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input gathers them again; a value made outside the items is there on every call. A list or a table is one value, so a list given or typed in at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `series-split` in `syv-conductor-nodes`, makes the items. An edge may name one field of a record, `series-split.result.email`. Several edges into one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id is not empty and may not contain `.`, `/`, `@` or `~`.
 
 ## Quick reference
 

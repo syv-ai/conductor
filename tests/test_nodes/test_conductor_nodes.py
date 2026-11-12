@@ -10,7 +10,7 @@ from conductor_nodes import control, json_ops, regex_ops, text
 
 def _run(node_id: str, **values: Any) -> dict[str, Any]:
     """One node of the registry in a graph, its inputs typed in, run to the end."""
-    record = make_graph(conductor_nodes.registry[node_id], values={f"{node_id}.{name}": value for name, value in values.items()})
+    record = make_graph(conductor_nodes.registry[node_id], constants={f"{node_id}.{name}": value for name, value in values.items()})
     run = Graph.compile(record, conductor_nodes.registry).run()
     assert run.status == "complete", run.state
     return run.results[node_id]
@@ -48,7 +48,7 @@ def test_a_node_gives_its_result(node_id: str, values: dict[str, Any], expected:
 def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_takes_the_series_made_for_its_own_item_whole() -> None:
     graph = Graph.compile(make_graph(text.split, regex_ops.extract, text.join, edges=[
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
-    ], values={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}), conductor_nodes.registry)
+    ], constants={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}), conductor_nodes.registry)
 
     assert graph.runs_on["regex-extract"].msg == "per item of text-split.result"
     assert graph.runs_on["text-join"].msg == "per item of text-split.result"
@@ -78,14 +78,14 @@ def test_a_decisions_outputs_take_the_type_that_arrives_on_its_value() -> None:
     ("regex-match", {"text": "a", "pattern": "("}, "invalid_pattern"),
 ])
 def test_a_failure_says_what_went_wrong_in_a_code_of_its_own(node_id: str, values: dict[str, Any], code: str) -> None:
-    record = make_graph(conductor_nodes.registry[node_id], values={f"{node_id}.{name}": value for name, value in values.items()})
+    record = make_graph(conductor_nodes.registry[node_id], constants={f"{node_id}.{name}": value for name, value in values.items()})
     run = Graph.compile(record, conductor_nodes.registry).run()
 
     assert run.status == "failed" and run.state.cause is not None and run.state.cause.type == code
 
 
 def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_fault_not_the_patterns() -> None:
-    record = make_graph(regex_ops.replace_all, values={"regex-replace.text": "a", "regex-replace.pattern": "a", "regex-replace.replacement": r"\9"})
+    record = make_graph(regex_ops.replace_all, constants={"regex-replace.text": "a", "regex-replace.pattern": "a", "regex-replace.replacement": r"\9"})
 
     cause = Graph.compile(record, conductor_nodes.registry).run().state.cause
     assert cause is not None and cause.type == "invalid_replacement" and "pattern" not in cause.msg
@@ -101,7 +101,7 @@ def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> No
 
 def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(regex_ops, "TIMEOUT", 0.01)
-    record = make_graph(regex_ops.match, values={"regex-match.text": "a" * 50_000 + "b", "regex-match.pattern": r"(a|aa)+$"})
+    record = make_graph(regex_ops.match, constants={"regex-match.text": "a" * 50_000 + "b", "regex-match.pattern": r"(a|aa)+$"})
 
     run = Graph.compile(record, conductor_nodes.registry).run()
     assert run.state.cause is not None and run.state.cause.type == "pattern_timeout"

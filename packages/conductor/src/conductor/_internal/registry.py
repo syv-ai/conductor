@@ -281,8 +281,8 @@ class NodeRegistry:
 
         Runs each newer version's ``Upgrade`` in order and sets the version.
         Each step first moves what the record holds on the inputs it renames
-        (values, defaults and the edges into them), then rewrites
-        what is typed into the node, values and defaults as one map: a key
+        (constants, defaults and the edges into them), then rewrites
+        what is typed into the node, constants and defaults as one map: a key
         that was a default stays one, and every other key the rewrite returns
         is a value, fixed as the author's. An edge into an input the step
         neither keeps nor renames goes, as what was typed into it goes unless
@@ -313,23 +313,23 @@ class NodeRegistry:
             )])
         version_chain = newest.version_of(target).version_chain
         steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
-        values, defaults, edges = dict(node_record.values), dict(node_record.defaults), list(graph.edges)
+        constants, defaults, edges = dict(node_record.constants), dict(node_record.defaults), list(graph.edges)
         for step, older in reversed(steps):
             upgrade = step.upgrade
-            values, defaults = _with_keys_renamed(values, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
+            constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
             if upgrade.rewrite is not None:
-                rewritten, faults = values_as_json(node_id, upgrade.rewrite({**defaults, **values}))
+                rewritten, faults = values_as_json(node_id, upgrade.rewrite({**defaults, **constants}))
                 if faults:
                     raise InvalidCallError(faults)
-                defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in values}
-                values = {name: value for name, value in rewritten.items() if name not in defaults}
+                defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in constants}
+                constants = {name: value for name, value in rewritten.items() if name not in defaults}
             gone = {f"{node_id}.{name}" for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
             edges = [
                 (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
                 for source, target_ in edges
                 if target_ not in gone
             ]
-        moved = node_record.model_copy(update={"version": target, "values": values, "defaults": defaults})
+        moved = node_record.model_copy(update={"version": target, "constants": constants, "defaults": defaults})
         return GraphRecord(nodes=[moved if n is node_record else n for n in graph.nodes], edges=edges)
 
 

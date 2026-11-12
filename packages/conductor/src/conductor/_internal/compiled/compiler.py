@@ -333,7 +333,7 @@ class _Compiler:
             edges: The addresses wired into each input, by name.
             generic: Whether a field holds a type variable for the edges to bind.
         """
-        for name in sorted({*record.values, *record.defaults, *edges} - fields.keys()):
+        for name in sorted({*record.constants, *record.defaults, *edges} - fields.keys()):
             self.problems.append(problem.unknown_input(record.id, name, inputs=list(fields)))
         sources = {name: self._sources(record.id, name, edges[name]) for name in fields if name in edges}
         bound = None
@@ -343,14 +343,14 @@ class _Compiler:
         first = not any(name in fields for name in edges)  # a first node: nothing is wired into it, so the caller fills it
         inputs: dict[str, InputPlan] = {}
         for name, field in fields.items():
-            if name in record.values and name in record.defaults:
-                self.problems.append(problem.value_and_default(record.id, name))
+            if name in record.constants and name in record.defaults:
+                self.problems.append(problem.constant_and_default(record.id, name))
             if name in edges:
-                if name in record.values or name in record.defaults:
-                    self.problems.append(problem.value_and_edge(record.id, name))
+                if name in record.constants or name in record.defaults:
+                    self.problems.append(problem.constant_and_edge(record.id, name))
                 source_kind = sources[name]
                 inputs[name] = InputMissing(field) if source_kind is None else self._plan_from_edges(record.id, field, source_kind)
-            elif name in record.values:
+            elif name in record.constants:
                 inputs[name] = _constant_plan(field, constants[name])
             elif first and name not in constant_at_compile:
                 default = constants.get(name, field.default)
@@ -400,10 +400,10 @@ class _Compiler:
         ``_INVALID``, with the problem, where it can't."""
         constants: dict[str, Any] = {}
         for name, field in fields.items():
-            if name not in record.values and name not in record.defaults:
+            if name not in record.constants and name not in record.defaults:
                 continue
             try:
-                constants[name] = field.whole.read(record.values[name] if name in record.values else record.defaults[name])
+                constants[name] = field.whole.read(record.constants[name] if name in record.constants else record.defaults[name])
             except FieldValueError as refused:
                 self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
                 constants[name] = _INVALID

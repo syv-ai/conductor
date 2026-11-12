@@ -49,12 +49,12 @@ print(sorted(d.id for d in free))  # ['join', 'upper', 'words']
 
 - **A record is `{"nodes": [...], "edges": [[from, to], ...]}`**, nothing more: what a host keeps about the whole graph, such as a canvas viewport, it stores beside the record. A node is `{"id", "node", "version", "values", "defaults", "display"}`, with empty fields left out. `id` is where the node sits in this graph, and `node` is which definition it uses. One combined string would need parsing everywhere. In conductor's JSON, `node` always means the coded node and `node_id` a placed one.
 - **`version` defaults to 1, and loading never upgrades.** `registry.upgrade` does, when asked.
-- **`values` are fixed; `defaults` are prefilled and stay open.** There is one map per intent, chosen over a `locked` flag beside one map. A default is allowed only where a caller can reach it: on an open input of a first node. Anywhere else it is `default_on_later_node`.
+- **`constants` are fixed; `defaults` are prefilled and stay open.** There is one map per intent, chosen over a `locked` flag beside one map. A default is allowed only where a caller can reach it: on an open input of a first node. Anywhere else it is `default_on_later_node`.
 - **Typed-in values and a node's `display` are JSON.** A value typed in is kept as its JSON reads back: a date as its ISO text, a float that isn't finite as `"NaN"` or `"Infinity"`. So a record always equals its own JSON, and its fingerprint survives a store. A value with no JSON form, such as a polars frame, is `invalid_value` at the call. A hand-built record holding a float that isn't finite is `invalid_record`.
 - **A node's `display` is the host's.** Conductor stores it, never reads it, and leaves it out of the fingerprint. It sits on the node so it follows the node through an upgrade, a removal and an embedding.
 - **There is no setting flag on a field.** A node can't know every graph it sits in, so whether an input is fixed is said per graph: a `value` in the record is the graph author's, an open first-node input the caller's.
 - **Edges are a sorted list of address pairs** (`node.field`, or `node.output.field` for one field of a record). Two records that differ only in edge order are equal, and nothing a run does depends on the list's order: several edges into one input are alternatives, opposite branches of one decision, never a list to join. So a host may sort the list. Edges stored per node were rejected: reconnecting reorders either shape.
-- **`make_graph(*nodes, edges=, values=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required open input from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It writes a record and loads nothing. It raises one `InvalidCallError` listing what it can't write (a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw); everything else, a mistyped input or an edge between types that don't meet included, is in `Graph.compile(record, registry).problems`, so loading is the one place a record's faults are found. A script that only saves the record hears nothing until it is loaded.
+- **`make_graph(*nodes, edges=, constants=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required open input from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It writes a record and loads nothing. It raises one `InvalidCallError` listing what it can't write (a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw); everything else, a mistyped input or an edge between types that don't meet included, is in `Graph.compile(record, registry).problems`, so loading is the one place a record's faults are found. A script that only saves the record hears nothing until it is loaded.
 
 ```python
 record = make_graph(words, upper, join)
@@ -66,8 +66,8 @@ def half(n: float) -> float:
     return n / 2
 
 
-typed = make_graph(half, values={"half.n": float("nan")})
-print(typed.nodes[0].values)  # {'n': 'NaN'}
+typed = make_graph(half, constants={"half.n": float("nan")})
+print(typed.nodes[0].constants)  # {'n': 'NaN'}
 ```
 
 **Worth questioning:** the chain never matches by name. Matching by name silently left a same-named column unused. A chain that refuses to guess can't do that.

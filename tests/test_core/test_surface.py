@@ -145,7 +145,7 @@ def test_skipped_is_falsy():
 
 
 def test_a_problem_dumps_to_json_and_reads_back():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}), _registry())
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "constants": {"value": 1.0, "facter": 3}}]}), _registry())
     (told,) = graph.problems
 
     dumped = json.loads(told.model_dump_json())
@@ -173,7 +173,7 @@ def test_a_problem_read_back_refuses_a_key_it_does_not_have():
 
 def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "a", "node": "hello", "values": {"name": "x"}}, {"id": "b", "node": "scale", "values": {"facter": 2}}],
+        "nodes": [{"id": "a", "node": "hello", "constants": {"name": "x"}}, {"id": "b", "node": "scale", "constants": {"facter": 2}}],
         "edges": [["a.reslt", "b.value"]],
     }), _registry())
 
@@ -185,7 +185,7 @@ def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
 
 def test_an_edge_to_a_missing_output_says_what_the_node_has():
     graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "a", "node": "hello", "values": {"name": "x"}}, {"id": "b", "node": "scale"}],
+        "nodes": [{"id": "a", "node": "hello", "constants": {"name": "x"}}, {"id": "b", "node": "scale"}],
         "edges": [["a.reslt", "b.value"]],
     }), _registry())
 
@@ -194,7 +194,7 @@ def test_an_edge_to_a_missing_output_says_what_the_node_has():
 
 
 def test_an_unknown_input_names_the_inputs_the_node_has():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}), _registry())
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "constants": {"value": 1.0, "facter": 3}}]}), _registry())
 
     (found,) = graph.problems
     assert found.msg == "'s' has no input 'facter'; it has value, factor."
@@ -202,7 +202,7 @@ def test_an_unknown_input_names_the_inputs_the_node_has():
 
 def test_a_bad_typed_in_value_names_the_field_and_the_type_but_never_the_value():
     """A host streams problems to a browser, so what a person typed stays out of them."""
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "factor": "seventy"}}]}), _registry())
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "constants": {"value": 1.0, "factor": "seventy"}}]}), _registry())
 
     (found,) = graph.problems
     assert (found.type, found.loc) == ("invalid_value", ("s", "factor"))
@@ -211,7 +211,7 @@ def test_a_bad_typed_in_value_names_the_field_and_the_type_but_never_the_value()
 
 
 def test_a_refused_run_lists_each_problem_with_its_place_and_code():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "values": {"value": 1.0, "facter": 3}}]}), _registry())
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "constants": {"value": 1.0, "facter": 3}}]}), _registry())
 
     with pytest.raises(InvalidCallError) as raised:
         graph.run()

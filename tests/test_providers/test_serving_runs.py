@@ -166,8 +166,8 @@ def _run(scenario: Callable[[], Coroutine[Any, Any, None]]) -> None:
     asyncio.run(scenario())
 
 
-def _chain(*node_ids: str, edges: tuple[tuple[str, str], ...] = (), values: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
-    nodes = [{"id": n, "node": n, **({"values": values[n]} if values and n in values else {})} for n in node_ids]
+def _chain(*node_ids: str, edges: tuple[tuple[str, str], ...] = (), constants: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    nodes = [{"id": n, "node": n, **({"constants": constants[n]} if constants and n in constants else {})} for n in node_ids]
     return {"nodes": nodes, "edges": [list(edge) for edge in edges]}
 
 
@@ -384,7 +384,7 @@ def test_a_leg_that_cannot_start_leaves_the_run_failed_and_its_follower_is_told(
 def test_a_node_connects_to_the_database_itself_and_gets_the_caller_who_started_the_run(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            counted = await a.start(_chain("count_runs", values={"count_runs": {"status": "running"}}))
+            counted = await a.start(_chain("count_runs", constants={"count_runs": {"status": "running"}}))
             assert (await a.until_status(counted, "complete"))["outputs"] == {"count_runs.result": 1}
 
             a.client.headers["X-User"] = "bo"

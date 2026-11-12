@@ -4,14 +4,14 @@ A graph record is its nodes and its edges, and nothing else::
 
     {
         "nodes": [
-            {"id": "read", "node": "read_file", "values": {"path": "in.txt"}},
+            {"id": "read", "node": "read_file", "constants": {"path": "in.txt"}},
             {"id": "up", "node": "upper"}
         ],
         "edges": [["read.text", "up.text"]]
     }
 
 A node names the definition it uses (``node``) and the version (``version``,
-1 when left out). ``values`` are typed into its inputs and fixed there: no
+1 when left out). ``constants`` are typed into its inputs and fixed there: no
 caller may change them. ``defaults`` fill an input that stays open, so a
 caller may still give it another value. A list given to an input that takes
 one value, by the caller or typed in, is many values: the node runs once per
@@ -83,8 +83,8 @@ class NodeRecord(ConductorModel):
     node: str
     #: Left out of the saved record when it is 1, as is each field below when empty.
     version: int = Field(default=1, exclude_if=lambda version: version == 1)
-    #: Typed into these inputs and fixed: no caller may change them.
-    values: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
+    #: The constants of these inputs: each has this value on every call in every run, and no caller may change it.
+    constants: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
     #: Typed into these inputs, which stay open for a caller to change.
     defaults: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own: position, size, titles a person edited. Stored and never read here.

@@ -44,7 +44,7 @@ from tests.test_core.nodes import place, registry_of
 
 def _alone(definition: Any, **values: Any) -> Any:
     """A graph of one node, ``n``, with these values typed in."""
-    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="n", node=definition.id, values=values)]), registry_of(definition))
+    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="n", node=definition.id, constants=values)]), registry_of(definition))
 
 
 @node("each", title="Each", description="For a test.")
@@ -259,7 +259,7 @@ def test_a_failed_item_is_retried_alone():
             raise ExternalError("transient")
         return text.upper()
 
-    graph = Graph.compile(make_graph(split, flaky_on_b, values={"split.text": "a,b,c"}), registry_of(split, flaky_on_b))
+    graph = Graph.compile(make_graph(split, flaky_on_b, constants={"split.text": "a,b,c"}), registry_of(split, flaky_on_b))
 
     assert graph.run().results["flaky-on-b"]["result"] == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -285,7 +285,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
         return f"{a}+{b}"
 
     graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="n1", node="flaky-a", values={"text": "x"}), NodeRecord(id="n2", node="fast-b", values={"text": "y"}), NodeRecord(id="n3", node="join-two")],
+        nodes=[NodeRecord(id="n1", node="flaky-a", constants={"text": "x"}), NodeRecord(id="n2", node="fast-b", constants={"text": "y"}), NodeRecord(id="n3", node="join-two")],
         edges=[("n1.result", "n3.a"), ("n2.result", "n3.b")],
     ), registry_of(flaky_a, fast_b, join_two))
 
@@ -308,7 +308,7 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
             raise ValueError("smtp down")
         return f"sent {to}"
 
-    graph = Graph.compile(make_graph(split, mail, values={"split.text": "a,b,c"}), registry_of(split, mail))
+    graph = Graph.compile(make_graph(split, mail, constants={"split.text": "a,b,c"}), registry_of(split, mail))
     failed = graph.run()
     broken["on"] = False
     resumed = Run.from_json(failed.to_json(), graph).resume()
@@ -330,7 +330,7 @@ def test_a_cancelled_leg_keeps_what_it_finished_and_resuming_calls_none_of_it_ag
         calls.append(text)
         return text
 
-    graph = Graph.compile(make_graph(split, count_calls, values={"split.text": "a,b,c,d"}), registry_of(split, count_calls))
+    graph = Graph.compile(make_graph(split, count_calls, constants={"split.text": "a,b,c,d"}), registry_of(split, count_calls))
 
     async def cancel_after_two() -> Any:
         cancel = asyncio.Event()
@@ -546,7 +546,7 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
     registry = registry_of(mk)
     for i in range(60):
         kind = "date" if i % 2 == 0 else "str"
-        graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="m", node="mk", values={"kind": kind})]), registry)
+        graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="m", node="mk", constants={"kind": kind})]), registry)
         value = Run.from_json(graph.run().to_json(), graph).results["m"]["result"]["v"][0]
         assert isinstance(value, date) == (kind == "date"), (i, value)
         del graph
@@ -695,7 +695,7 @@ def test_again_with_changed_items_above_an_embedded_graph_gives_its_inner_fixed_
         return text
 
     inner = subgraph("tagged", title="Tagged", description="For a test.")(GraphRecord(
-        nodes=[NodeRecord(id="same", node="same"), NodeRecord(id="label", node="label", values={"prefix": "p"}), NodeRecord(id="pair", node="pair")],
+        nodes=[NodeRecord(id="same", node="same"), NodeRecord(id="label", node="label", constants={"prefix": "p"}), NodeRecord(id="pair", node="pair")],
         edges=[("same.result", "pair.text"), ("label.result", "pair.tag")],
     ))
     graph = Graph.compile(GraphRecord(
@@ -1593,7 +1593,7 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
 
     def drawn(prompt: str) -> Any:
         return Graph.compile(GraphRecord(
-            nodes=[_EACH, NodeRecord(id="e", node="enrich"), NodeRecord(id="s", node="summarize", values={"prompt": prompt})],
+            nodes=[_EACH, NodeRecord(id="e", node="enrich"), NodeRecord(id="s", node="summarize", constants={"prompt": prompt})],
             edges=[("each.result", "e.text"), ("e.result", "s.text")],
         ), registry)
 

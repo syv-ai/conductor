@@ -192,7 +192,7 @@ def test_a_list_given_or_typed_at_an_input_of_one_value_is_refused_and_makes_no_
     assert _refused(lambda: graph.run(text=["a"])) == [("invalid_input", ("inputs", "text"))]
     assert graph.run(text="a").outputs == {"r.result": "rev(a)"}
 
-    typed = Graph.compile(GraphRecord.model_validate(drawn({"id": "cmp", "node": "compare", "values": {"contract": ["c1", "c2"], "appendix": "a"}})), registry)
+    typed = Graph.compile(GraphRecord.model_validate(drawn({"id": "cmp", "node": "compare", "constants": {"contract": ["c1", "c2"], "appendix": "a"}})), registry)
     assert [(p.type, p.loc) for p in typed.problems] == [("invalid_value", ("cmp", "contract"))]
 
 

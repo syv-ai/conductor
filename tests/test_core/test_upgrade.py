@@ -79,7 +79,7 @@ def _registry() -> NodeRegistry:
 
 def _graph(version: int = 1) -> GraphRecord:
     return GraphRecord(nodes=[
-        NodeRecord(id="r", node="rename", version=version, values={"name": "Ada Lovelace"} if version == 1 else {}),
+        NodeRecord(id="r", node="rename", version=version, constants={"name": "Ada Lovelace"} if version == 1 else {}),
         NodeRecord(id="e", node="echo"),
     ], edges=[("r.result" if version < 3 else "r.text", "e.text")])
 
@@ -123,7 +123,7 @@ def test_a_two_step_chain_rewrites_the_typed_in_values_and_the_version():
 
     graph_node = next(n for n in upgraded.nodes if n.id == "r")
     assert graph_node.version == 3
-    assert graph_node.values == {"first": "Ada", "last": "Lovelace"}
+    assert graph_node.constants == {"first": "Ada", "last": "Lovelace"}
 
 
 def test_a_renamed_output_rewrites_the_readers_edges_and_the_graph_compiles_clean():
@@ -180,10 +180,10 @@ def test_an_edge_into_an_input_a_rewrite_leaves_gone_goes_with_it_and_the_graph_
         return 3
 
     registry = registry_of(three, summed)
-    graph = GraphRecord(nodes=[NodeRecord(id="t", node="three"), NodeRecord(id="s", node="summed", values={"a": 1})], edges=[("t.result", "s.b")])
+    graph = GraphRecord(nodes=[NodeRecord(id="t", node="three"), NodeRecord(id="s", node="summed", constants={"a": 1})], edges=[("t.result", "s.b")])
 
     upgraded = registry.upgrade(graph, "s")
-    assert (upgraded.edges, upgraded.nodes[1].values) == ((), {"a": 1})
+    assert (upgraded.edges, upgraded.nodes[1].constants) == ((), {"a": 1})
     assert Graph.compile(upgraded, registry).problems == []
 
 
@@ -196,11 +196,11 @@ def test_a_rewrite_sees_values_and_defaults_as_one_and_a_default_stays_one():
         return src
 
     registry = registry_of(counted)
-    with_both = registry.upgrade(GraphRecord(nodes=[NodeRecord(id="c", node="counted", values={"n": 2}, defaults={"src": "x"})]), "c").nodes[0]
+    with_both = registry.upgrade(GraphRecord(nodes=[NodeRecord(id="c", node="counted", constants={"n": 2}, defaults={"src": "x"})]), "c").nodes[0]
     with_neither = registry.upgrade(GraphRecord(nodes=[NodeRecord(id="c", node="counted")]), "c").nodes[0]
 
-    assert (with_both.values, with_both.defaults) == ({"n": 3, "added": 1}, {"src": "x"})
-    assert (with_neither.values, with_neither.defaults) == ({"n": 1, "added": 1}, {})
+    assert (with_both.constants, with_both.defaults) == ({"n": 3, "added": 1}, {"src": "x"})
+    assert (with_neither.constants, with_neither.defaults) == ({"n": 1, "added": 1}, {})
 
 
 def test_an_edge_reading_a_column_of_a_renamed_output_moves_with_it():
@@ -242,14 +242,14 @@ def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
 def test_a_renamed_input_takes_its_value_with_it():
     registry = registry_of(echo, renames)
     graph = GraphRecord(nodes=[
-        NodeRecord(id="r", node="renames", values={"name": "Ada"}),
+        NodeRecord(id="r", node="renames", constants={"name": "Ada"}),
         NodeRecord(id="e", node="echo"),
     ], edges=[("r.result", "e.text")])
 
     upgraded = registry.upgrade(graph, "r")
 
     graph_node = upgraded.nodes[0]
-    assert graph_node.values == {"full": "Ada"}
+    assert graph_node.constants == {"full": "Ada"}
     assert upgraded.edges == (("r.text", "e.text"),)
     assert Graph.compile(upgraded, registry).problems == []
 
@@ -294,13 +294,13 @@ def test_a_definition_with_no_steps_only_has_its_version_set():
     first = subgraph("embedded", title="Embedded", description="d")(embedded("inner"))
     registry = registry_of(echo, subgraph("embedded", title="Embedded", description="d", replaces=first)(embedded("renamed")))
     graph = GraphRecord(nodes=[
-        NodeRecord(id="f", node="embedded", values={"text": "x"}),
+        NodeRecord(id="f", node="embedded", constants={"text": "x"}),
     ])
 
     upgraded = registry.upgrade(graph, "f")
 
     assert upgraded.nodes[0].version == 2
-    assert upgraded.nodes[0].values == {"text": "x"}
+    assert upgraded.nodes[0].constants == {"text": "x"}
     with pytest.raises(InvalidCallError, match="it has 1, 2"):
         registry.upgrade(graph, "f", to=5)
 
@@ -344,7 +344,7 @@ def test_a_rewrite_returning_a_set_is_set_has_no_order_at_the_node():
         return ",".join(tags)
 
     with pytest.raises(InvalidCallError) as refused:
-        registry_of(tagged).upgrade(GraphRecord(nodes=[NodeRecord(id="t", node="tagged", values={"tag": "a"})]), "t")
+        registry_of(tagged).upgrade(GraphRecord(nodes=[NodeRecord(id="t", node="tagged", constants={"tag": "a"})]), "t")
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("t", "tags"), ["set_has_no_order"])
 
@@ -358,7 +358,7 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
     def when_v1(day: str) -> str:
         return day
 
-    saved = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "when", "values": {"day": "2026-01-02"}}]})
+    saved = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "when", "constants": {"day": "2026-01-02"}}]})
     for returned, written in ((datetime.date(2026, 1, 2), "2026-01-02"), (pl.DataFrame({"a": [1]}), None)):
 
         @node("when", title="When", description="For a test.", replaces=when_v1, upgrade=Upgrade(rewrite=lambda typed, r=returned: {"day": r}))
@@ -373,5 +373,5 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
             assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_value", ("w", "day"))]
         else:
             upgraded = registry.upgrade(saved, "w")
-            assert upgraded.nodes[0].values == {"day": written}
+            assert upgraded.nodes[0].constants == {"day": written}
             assert GraphRecord.model_validate_json(upgraded.model_dump_json()) == upgraded

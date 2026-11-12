@@ -380,19 +380,19 @@ def half(x: float) -> float:
 
 def test_added_inputs_from_typed_value():
     reg3 = registry_of(number, formula)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "number"}, {"id": "f", "node": "formula", "values": {"formula": "{a} * 10 + {b}", "b": 2}}],
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "number"}, {"id": "f", "node": "formula", "constants": {"formula": "{a} * 10 + {b}", "b": 2}}],
                        "edges": [["n.result", "f.a"]]}), reg3)
     assert not graph.problems, graph.problems
     assert list(graph.inputs) == ["text"]
     run = graph.run(text="abc")
     assert run.outputs["f.result"] == 32.0, run.outputs
-    broken = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula", "values": {"formula": "{a}"}}, {"id": "g", "node": "formula"}], "edges": [["f.result", "g.zz"]]}), reg3)
+    broken = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula", "constants": {"formula": "{a}"}}, {"id": "g", "node": "formula"}], "edges": [["f.result", "g.zz"]]}), reg3)
     assert [p.type for p in broken.problems] == ["unknown_input"], broken.problems
 
 
 def test_outputs_typed_by_what_arrives():
     reg3 = registry_of(split, number, route, half, upper)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "split"}, {"id": "n", "node": "number"}, {"id": "r", "node": "route", "values": {"cases": ["3"]}},
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "split"}, {"id": "n", "node": "number"}, {"id": "r", "node": "route", "constants": {"cases": ["3"]}},
                                  {"id": "h", "node": "half"}],
                        "edges": [["s.result", "n.text"], ["n.result", "r.value"], ["r.3", "h.x"], ["r.otherwise", "h.x"]]}), reg3)
     assert not graph.problems, graph.problems
@@ -466,7 +466,7 @@ def test_own_types_accept_and_round_trip():
     assert run.outputs == {"s.result": 3}
     again = Run.from_json(run.to_json(), graph)
     assert again.results["a"]["result"].content == b"6.0"
-    assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "double", "values": {"x": "1,5"}}]}), reg4).run().outputs == {"d.result": 3.0}
+    assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "double", "constants": {"x": "1,5"}}]}), reg4).run().outputs == {"d.result": 3.0}
     wrong = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "d", "node": "double"}, {"id": "c", "node": "count"}], "edges": [["d.result", "c.text"]]}), reg4)
     assert [p.type for p in wrong.problems] == ["type_mismatch"]
 
@@ -631,7 +631,7 @@ def test_describe_for_a_palette_and_a_drawing():
 
 def test_a_drawing_describes_the_added_inputs_of_a_node_one_of_which_nothing_feeds_yet():
     reg7 = registry_of(count, formula)
-    drawing = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "values": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]}), reg7)
+    drawing = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "constants": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]}), reg7)
     placed = json.loads(drawing.describe().model_dump_json())["nodes"]
     assert [f["field"]["name"] for f in placed["f"]["inputs"]] == ["formula", "a", "b"], placed["f"]
 

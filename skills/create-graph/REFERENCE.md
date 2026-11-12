@@ -33,7 +33,7 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
 
 registry.add(approve)
 asking = Graph.compile(GraphRecord(
-    nodes=[NodeRecord(id="drafts", node="text-split", values={"text": "first,second"}), NodeRecord(id="approve", node="approve")],
+    nodes=[NodeRecord(id="drafts", node="text-split", constants={"text": "first,second"}), NodeRecord(id="approve", node="approve")],
     edges=[("drafts.result", "approve.proposal")],
 ), registry)
 

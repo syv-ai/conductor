@@ -2,7 +2,7 @@
 
 This page is for you if you write nodes that other people place in graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host loading and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `values={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. An input a node doesn't have, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet is in `Graph.compile(record, registry).problems`.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead. `constants={"a.text": "hi"}` types a value in, and `defaults=` gives one a caller may change. Every key is a `"node.input"` address. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. An input a node doesn't have, a value of the wrong type, a default on an input no caller reaches or an edge between types that don't meet is in `Graph.compile(record, registry).problems`.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -49,7 +49,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 `Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. They are checked on every value someone types in or a caller gives:
 
 ```python
-drawn = {"nodes": [{"id": "repeat", "node": "repeat", "values": {"times": 20}}]}  # as an editor saves it
+drawn = {"nodes": [{"id": "repeat", "node": "repeat", "constants": {"times": 20}}]}  # as an editor saves it
 graph = Graph.compile(GraphRecord.model_validate(drawn), host)
 
 for problem in graph.problems:
@@ -57,7 +57,7 @@ for problem in graph.problems:
 # ('repeat', 'times') invalid_value
 ```
 
-`make_graph(repeat, values={"repeat.times": 20})` writes the same record, and loading it reports the same problem: a record's faults are found in one place, `graph.problems`.
+`make_graph(repeat, constants={"repeat.times": 20})` writes the same record, and loading it reports the same problem: a record's faults are found in one place, `graph.problems`.
 
 An alias may be wrapped again: with `Line = Annotated[str, Param(widget=TextInput())]`, `Annotated[Line, Param(min_length=1)]` keeps the widget and adds the limit. Stacked `Param`s merge as pydantic's stacked `Field`s do, the later one winning per argument and per limit. A `Param` on a `Series` item, `Series[Annotated[int, Param(ge=0)]]`, is the field's.
 
@@ -403,7 +403,7 @@ def cells(line: str, names: list[str]) -> dict[str, str]:
     return dict(zip(names, line.split(",")))
 
 
-graph = Graph.compile(make_graph(cells, values={"cells.names": ["name", "city"]}), registry)
+graph = Graph.compile(make_graph(cells, constants={"cells.names": ["name", "city"]}), registry)
 print(graph.outputs)                           # ['cells.name', 'cells.city']
 print(graph.run(line="Ida,Aarhus").outputs)    # {'cells.name': 'Ida', 'cells.city': 'Aarhus'}
 ```
@@ -555,11 +555,11 @@ def greet(person: str, greeting: str = "Hello") -> str:
     return f"{greeting} {person}"
 
 
-saved = make_graph(greet_v1, values={"greet.name": "Ida"})
+saved = make_graph(greet_v1, constants={"greet.name": "Ida"})
 print(Graph.compile(saved, registry).run().outputs)  # {'greet.result': 'Hello Ida'}: it still runs version 1
 
 moved = registry.upgrade(saved, "greet")
-print(moved.nodes[0].version, moved.nodes[0].values)  # 2 {'person': 'Ida'}
+print(moved.nodes[0].version, moved.nodes[0].constants)  # 2 {'person': 'Ida'}
 ```
 
 Loading never upgrades. A host calls `registry.upgrade` and shows the author the result. `Deprecation(...)` on a version's `@node` tells an editor it is going away.

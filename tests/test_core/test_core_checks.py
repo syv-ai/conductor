@@ -147,7 +147,7 @@ def test_answer_stays_with_its_item_on_again():
 
 def test_half_finished_drawing():
     drawing = invoices_then(
-        {"id": "approve", "node": "approve"}, {"id": "mystery", "node": "gone"}, {"id": "rep", "node": "repeat", "values": {"times": -1}},
+        {"id": "approve", "node": "approve"}, {"id": "mystery", "node": "gone"}, {"id": "rep", "node": "repeat", "constants": {"times": -1}},
         edges=[["each.result.name", "approve.name"], ["each.result.nope", "rep.text"], ["ghost.result", "approve.amount"]],
     )
     graph = Graph.compile(GraphRecord.model_validate(drawing), invoicing)
@@ -178,7 +178,7 @@ def test_every_fault_of_one_node_is_said_at_once():
 
 def test_nested_series_gather_one_level_at_a_time():
     # documents -> lines -> per-line upper -> per-document join; the lines read whole are a list per document too.
-    record = {"nodes": [{"id": "docs", "node": "split", "values": {"sep": ";"}}, {"id": "lines", "node": "split"},
+    record = {"nodes": [{"id": "docs", "node": "split", "constants": {"sep": ";"}}, {"id": "lines", "node": "split"},
                         {"id": "up", "node": "upper"}, {"id": "per_doc", "node": "join"}, {"id": "all", "node": "join"}],
               "edges": [["docs.result", "lines.text"], ["lines.result", "up.text"], ["up.result", "per_doc.texts"], ["lines.result", "all.texts"]]}
     graph = Graph.compile(GraphRecord.model_validate(record), registry)
@@ -278,7 +278,7 @@ def test_upgrade_renames():
         return f"hello {who}{punct}"
 
     reg = registry_of(greet, upper)
-    stored = GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "g", "node": "greet", "values": {}}], "edges": [["u.result", "g.name"]]})
+    stored = GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "g", "node": "greet", "constants": {}}], "edges": [["u.result", "g.name"]]})
     assert Graph.compile(stored, reg).run(text="ida").outputs == {"g.result": "hello IDA"}
     moved = reg.upgrade(stored, "g")
     assert moved.edges == (("u.result", "g.who"),) and Graph.compile(moved, reg).run(text="ida").outputs == {"g.result": "hello IDA!"}
@@ -325,7 +325,7 @@ def test_pause_on_a_nested_item():
         return text
 
     reg = registry_of(split, check, join)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "docs", "node": "split", "values": {"sep": ";"}}, {"id": "lines", "node": "split"}, {"id": "c", "node": "check"},
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "docs", "node": "split", "constants": {"sep": ";"}}, {"id": "lines", "node": "split"}, {"id": "c", "node": "check"},
                                 {"id": "j", "node": "join"}], "edges": [["docs.result", "lines.text"], ["lines.result", "c.text"], ["c.result", "j.texts"]]}), reg)
     run = graph.run(text="a,b;c")
     assert [place(w) for w in run.waiting] == ["c@0@1"] and run.results["j"]["result"] == [None, "c"]

@@ -88,13 +88,13 @@ What changes in how you work, before the name-by-name tables:
 - **Loading never raises for a fault in the graph.** `Graph.compile(record, registry)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A value typed in or given that its field refuses
-  (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, values=, defaults=)`
+  (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, constants=, defaults=)`
   writes a record from Python and loads nothing: it raises one error listing what it can't write
   (a value for a node it wasn't given, a value with no JSON form, an edge that is no address
   (`invalid_record` at `("record", "edges", index, end)`, as loading the same record says it), a
   chain it can't draw), and an input a node doesn't have, a value its field refuses, a default no
   caller reaches or an edge whose types don't meet (`type_mismatch`) is in
-  `Graph.compile(record, registry).problems`. A record's `values`, `defaults` and
+  `Graph.compile(record, registry).problems`. A record's `constants`, `defaults` and
   `display` are JSON values; `make_graph` writes each value typed in as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A subgraph offers
@@ -396,7 +396,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ..
 |---|---|
 | `GraphNode.id` | `id`, without `.`, `/` or `@` |
 | `GraphNode.type` | `node` (the id of the node it uses) and `version`, 1 when left out |
-| `GraphNode.data` | `values` for what is fixed, `defaults` for what a caller may change; an input wired by an edge has neither |
+| `GraphNode.data` | `constants` for what is fixed, `defaults` for what a caller may change; an input wired by an edge has neither |
 | `GraphNode.produces` | gone: the node's outputs are its return type's |
 | `GraphNode.consumes` | gone: the node's inputs are its signature's |
 | `GraphNode.compensation` | gone with compensation |

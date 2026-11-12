@@ -72,7 +72,7 @@ base = NodeRegistry()
 base.add(trim, upper)
 clean = subgraph("clean", title="Clean", description="For a test.")(make_graph(trim, upper))
 base.add(clean)
-outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], values={"clean.text": "  hi  "})
+outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], constants={"clean.text": "  hi  "})
 assert Graph.compile(outer, base).run().outputs == {"upper.result": "HI"}
 """
 

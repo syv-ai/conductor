@@ -242,7 +242,7 @@ def test_a_series_input_gets_the_one_value_of_a_source_that_runs_once_as_a_serie
 
 
 def test_a_list_typed_into_an_input_of_one_value_is_not_a_value_of_its_type():
-    graph = load({"u": {"node": "upper", "values": {"text": ["a", "b"]}}}, [])
+    graph = load({"u": {"node": "upper", "constants": {"text": ["a", "b"]}}}, [])
     assert problems(graph) == [("invalid_value", ("u", "text"))]
 
 
@@ -373,7 +373,7 @@ def test_a_first_nodes_open_inputs_are_the_graphs_and_a_later_nodes_must_be_fed(
 def test_a_graph_input_of_a_series_is_given_whole_and_opens_no_map():
     graph = load({"c": "count"}, [])
     assert graph.is_runnable and graph.inputs["items"].field.many and graph.runs_on["c"].mode == "once"
-    assert feeds(graph, "c") == {"items": ("one_value", None)}
+    assert feeds(graph, "c") == {"items": ("graph_input", None)}
 
 
 def test_a_list_given_at_an_input_of_one_value_is_refused_saying_what_makes_a_graph_run_per_item():

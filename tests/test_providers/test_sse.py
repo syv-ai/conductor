@@ -33,7 +33,7 @@ def split(text: str) -> list[str]:
 
 
 def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
-    (ending,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="s", node="split", values={"text": "a,b"})]), split) if isinstance(e, RunEnd)]
+    (ending,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="s", node="split", constants={"text": "a,b"})]), split) if isinstance(e, RunEnd)]
 
     assert _payload(ending) == {"type": "run_end", "status": "complete", "cause": None}
     assert ending.run.outputs == {"s.result": ["a", "b"]}
@@ -44,7 +44,7 @@ def test_a_waiting_units_question_and_a_failures_cause_are_records():
     def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
         raise Ask("Hvad?", default="forslag")
 
-    (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", values={"text": "x"})]), ask) if isinstance(e, NodeWaiting)]
+    (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", constants={"text": "x"})]), ask) if isinstance(e, NodeWaiting)]
     failed = _payload(NodeFailed(loc=("n",), cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
     unit = _payload(waiting)["waiting"]
@@ -72,7 +72,7 @@ def if_empty(text: str) -> Emptiness:
 
 
 def test_a_branch_nodes_completion_streams_with_the_branch_not_taken_blank():
-    events = _events(GraphRecord(nodes=[NodeRecord(id="d", node="if-empty", values={"text": "x"})]), if_empty)
+    events = _events(GraphRecord(nodes=[NodeRecord(id="d", node="if-empty", constants={"text": "x"})]), if_empty)
 
     (completed,) = [_payload(event) for event in events if event.type == "node_complete"]
 

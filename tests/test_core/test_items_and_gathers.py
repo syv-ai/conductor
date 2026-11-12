@@ -205,7 +205,7 @@ def test_a_series_that_may_be_nothing_reads_an_explicit_none_like_leaving_it_out
         return str(xs)
 
     reg = registry_of(maybe)
-    set_to_none = ran({"id": "m", "node": "maybe", "values": {"xs": None}}, registry=reg)
+    set_to_none = ran({"id": "m", "node": "maybe", "constants": {"xs": None}}, registry=reg)
     left_out = ran({"id": "m", "node": "maybe"}, registry=reg)
     assert set_to_none.outputs == left_out.outputs == {"m.result": "None"}
 
@@ -562,8 +562,8 @@ def test_a_gather_over_a_series_a_blank_kept_from_being_made_is_not_called_and_i
 # -- items, outer values and gathers -----------------------------------------------------------
 
 THREE_LEVELS = (
-    {"id": "docs", "node": "split", "values": {"sep": "|"}},
-    {"id": "paras", "node": "split", "values": {"sep": ";"}},
+    {"id": "docs", "node": "split", "constants": {"sep": "|"}},
+    {"id": "paras", "node": "split", "constants": {"sep": ";"}},
     {"id": "lines", "node": "split"},
 )
 THREE_EDGES = (("docs.result", "paras.text"), ("paras.result", "lines.text"))
@@ -638,7 +638,7 @@ def test_a_value_made_once_is_there_on_each_call_of_a_node_that_runs_per_item():
 
 
 def test_a_document_is_there_on_each_call_for_a_line_of_it():
-    run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "p", "node": "pair"},
+    run = ran({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "lines", "node": "split", "constants": {"sep": "/"}}, {"id": "p", "node": "pair"},
               edges=(("docs.result", "lines.text"), ("lines.result", "p.a"), ("docs.result", "p.b")), text="a/b|c")
     assert run.graph.runs_on["p"].msg == "per item of lines.result"
     assert run.results["p"]["result"] == [["a:a/b", "b:a/b"], ["c:c"]]
@@ -655,7 +655,7 @@ def test_a_series_input_with_a_typed_in_list_or_its_default_gets_it_whole_once()
         return "+".join(texts) or "nothing"
 
     reg = registry_of(join, join_or_nothing)
-    run = ran({"id": "typed", "node": "join", "values": {"texts": ["a", "b"]}}, {"id": "absent", "node": "join-or-nothing"}, registry=reg)
+    run = ran({"id": "typed", "node": "join", "constants": {"texts": ["a", "b"]}}, {"id": "absent", "node": "join-or-nothing"}, registry=reg)
     assert {k: v.msg for k, v in run.graph.runs_on.items()} == {"typed": "once", "absent": "once"}
     assert run.results == {"typed": {"result": "a+b"}, "absent": {"result": "nothing"}}
 
@@ -674,7 +674,7 @@ def test_a_closed_list_input_is_one_value_with_its_list_and_with_its_default():
         return "|".join(tags)
 
     reg = registry_of(tags)
-    assert ran({"id": "t", "node": "tags", "values": {"tags": ["a", "b", "c"]}}, registry=reg).outputs == {"t.result": "a|b|c"}
+    assert ran({"id": "t", "node": "tags", "constants": {"tags": ["a", "b", "c"]}}, registry=reg).outputs == {"t.result": "a|b|c"}
     assert ran({"id": "t", "node": "tags"}, registry=reg).outputs == {"t.result": "x"}
 
 
@@ -704,7 +704,7 @@ def test_two_gathers_one_level_apart_run_the_node_where_the_deeper_one_lands_wit
 
 
 def test_a_document_with_no_lines_is_called_with_an_empty_series():
-    run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "n", "node": "labelled"},
+    run = ran({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "n", "node": "labelled"},
               edges=(("docs.result", "lines.text"), ("docs.result", "n.label"), ("lines.result", "n.texts")), registry=DEEP, text="a||b")
     assert run.results["n"]["result"] == ["a=a", "=", "b=b"]
 
@@ -740,7 +740,7 @@ def test_a_series_read_whole_lands_beside_each_item_of_another_series_of_the_sam
         return f"{invoice}[{'/'.join(keywords)}]"
 
     reg = registry_of(split, parts, beside)
-    nodes = ({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"})
+    nodes = ({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "p", "node": "parts"}, {"id": "b", "node": "beside"})
     edges = (("docs.result", "p.text"), ("p.invoices", "b.invoice"), ("p.keywords", "b.keywords"))
     run = ran(*nodes, edges=edges, registry=reg, text="i1,i2:k1,k2|i3:k3")
 
@@ -766,7 +766,7 @@ def test_two_series_outputs_of_one_node_and_two_series_under_one_document_never_
 
 
 def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
-    loaded = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, {"id": "p", "node": "pair", "values": {"b": "x"}},
+    loaded = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, {"id": "p", "node": "pair", "constants": {"b": "x"}},
                    {"id": "k", "node": "pair"},
                    edges=(("s.result", "u.text"), ("u.result", "j.texts"), ("u.result", "p.a"), ("j.result", "k.a"), ("u.result", "k.b")))
     nodes = loaded.describe().nodes
@@ -779,9 +779,9 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     assert loaded.runs_on["u"] == RunsOn(mode="per_item", series="s.result", msg="per item of s.result")
     assert fed("u") == {"text": "per item of s.result"}
     assert fed("j") == {"texts": "every item of s.result"}
-    assert fed("p") == {"a": "per item of s.result", "b": "one value"}
+    assert fed("p") == {"a": "per item of s.result", "b": "a constant"}
     assert fed("k") == {"a": "the value of the graph", "b": "per item of s.result"}
-    assert fed("s") == {"text": "one value", "sep": "one value"}
+    assert fed("s") == {"text": "the graph input", "sep": "the graph input"}
 
 
 # -- no items, and skips above them ------------------------------------------------------------
@@ -849,7 +849,7 @@ def test_a_branch_not_taken_outside_the_items_skips_the_gather_and_every_item_re
 
 
 def test_a_skip_on_a_document_reaches_a_reader_on_its_lines_and_the_other_document_runs():
-    run = ran({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
+    run = ran({"id": "d", "node": "split", "constants": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
               {"id": "t", "node": "pair"}, {"id": "u", "node": "upper"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("t.result", "u.text")), text="a,b|c,no")
     assert run.graph.runs_on["u"].msg == "per item of l.result"
@@ -857,7 +857,7 @@ def test_a_skip_on_a_document_reaches_a_reader_on_its_lines_and_the_other_docume
 
 
 def test_a_skip_on_a_document_skips_the_gather_over_its_lines_and_survives_json():
-    run = ran({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
+    run = ran({"id": "d", "node": "split", "constants": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
               {"id": "p", "node": "pair"}, {"id": "j", "node": "join"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "p.a"), ("g.yes", "p.b"), ("p.result", "j.texts")), text="x|y,no")
     assert run.results["j"]["result"] == ["x:x", None]
@@ -865,7 +865,7 @@ def test_a_skip_on_a_document_skips_the_gather_over_its_lines_and_survives_json(
 
 
 def test_a_skip_above_an_empty_series_hides_what_the_gather_returned():
-    run = ran({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
+    run = ran({"id": "d", "node": "split", "constants": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
               {"id": "t", "node": "pair"}, {"id": "m", "node": "split"}, {"id": "x", "node": "pair"}, {"id": "j", "node": "join"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("l.result", "m.text"),
                      ("t.result", "x.a"), ("m.result", "x.b"), ("x.result", "j.texts")), text="p,no")
@@ -874,7 +874,7 @@ def test_a_skip_above_an_empty_series_hides_what_the_gather_returned():
 
 
 def test_a_document_whose_branch_is_not_taken_makes_no_lines_and_the_gather_over_them_is_skipped():
-    run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "lines", "node": "split"},
+    run = ran({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "lines", "node": "split"},
               {"id": "up", "node": "upper"}, {"id": "j", "node": "labelled"},
               edges=(("docs.result", "g.text"), ("g.yes", "lines.text"), ("lines.result", "up.text"), ("docs.result", "j.label"), ("up.result", "j.texts")),
               registry=registry_of(split, decide, upper, labelled), text="a,b|no")
@@ -890,7 +890,7 @@ def test_a_gather_waits_for_the_decision_above_its_items_before_it_runs_on_nothi
         release.wait(5)
         return YesNo(SKIPPED, text) if "no" in text else YesNo(text, SKIPPED)
 
-    loaded = graph({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "g", "node": "held"}, {"id": "l", "node": "split"},
+    loaded = graph({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "g", "node": "held"}, {"id": "l", "node": "split"},
                    {"id": "j", "node": "join"}, edges=(("docs.result", "g.text"), ("g.yes", "l.text"), ("l.result", "j.texts")),
                    registry=registry_of(split, held, join))
     CALLED.clear()
@@ -1052,7 +1052,7 @@ def test_a_bare_table_offers_no_columns():
 
 
 def test_a_typed_in_list_of_records_is_one_table_not_many():
-    run = ran({"id": "x", "node": "show", "values": {"table": [{"a": "1"}, {"a": "2"}]}})
+    run = ran({"id": "x", "node": "show", "constants": {"table": [{"a": "1"}, {"a": "2"}]}})
     assert run.graph.runs_on["x"].msg == "once"
     assert isinstance(run.results["x"]["result"], pl.DataFrame) and run.results["x"]["result"].to_dicts() == [{"a": "1"}, {"a": "2"}]
 
@@ -1111,21 +1111,21 @@ def test_a_caller_s_table_missing_a_column_is_refused_naming_it_and_an_empty_lis
 
 
 def test_a_typed_in_table_reads_each_cell_through_its_column_s_own_type():
-    run = ran({"id": "t", "node": "total-price", "values": {"rows": [{"price": "1,5"}, {"price": "2"}]}}, registry=DATED)
+    run = ran({"id": "t", "node": "total-price", "constants": {"rows": [{"price": "1,5"}, {"price": "2"}]}}, registry=DATED)
 
     assert run.results["t"]["result"] == 3.5
 
 
 def test_a_typed_in_cell_its_type_cannot_read_is_refused_at_load_naming_the_column():
-    loaded = graph({"id": "d", "node": "describe-dated", "values": {"rows": [{"name": "a", "when": "junk"}]}}, registry=DATED)
+    loaded = graph({"id": "d", "node": "describe-dated", "constants": {"rows": [{"name": "a", "when": "junk"}]}}, registry=DATED)
 
     (problem,) = loaded.problems
     assert (problem.type, problem.loc, problem.ctx["column"]) == ("invalid_value", ("d", "rows"), "when")
-    assert ran({"id": "d", "node": "describe-dated", "values": {"rows": [{"name": "a", "when": "2024-01-02"}]}}, registry=DATED).status == "complete"
+    assert ran({"id": "d", "node": "describe-dated", "constants": {"rows": [{"name": "a", "when": "2024-01-02"}]}}, registry=DATED).status == "complete"
 
 
 def test_a_typed_in_frame_on_a_table_of_any_columns_arrives_with_the_columns_it_holds():
-    run = ran({"id": "s", "node": "show", "values": {"table": [{"email": "a@b.dk", "n": 1}]}}, registry=DATED)
+    run = ran({"id": "s", "node": "show", "constants": {"table": [{"email": "a@b.dk", "n": 1}]}}, registry=DATED)
 
     assert run.results["s"]["result"].columns == ["email", "n"]
 
@@ -1146,7 +1146,7 @@ def test_series_inputs_reading_what_hangs_off_opposite_branches_per_item_are_ref
 
 
 def test_a_decision_per_document_read_by_nodes_per_line_still_keeps_two_branches_apart():
-    assert problems({"id": "s", "node": "split", "values": {"sep": "|"}}, {"id": "d", "node": "parity"}, {"id": "sp", "node": "split"},
+    assert problems({"id": "s", "node": "split", "constants": {"sep": "|"}}, {"id": "d", "node": "parity"}, {"id": "sp", "node": "split"},
                     {"id": "ua", "node": "pair"}, {"id": "ub", "node": "pair"}, {"id": "z", "node": "two-series"},
                     edges=(("s.result", "d.n"), ("s.result", "sp.text"), ("sp.result", "ua.a"), ("d.yes", "ua.b"), ("sp.result", "ub.a"), ("d.no", "ub.b"),
                            ("ua.result", "z.a"), ("ub.result", "z.b")),
@@ -1323,7 +1323,7 @@ def answer(doc: str, question: str) -> bool:
 
 
 ASKING = registry_of(split, decide, questions, answer)
-QUESTIONS = {"id": "l", "node": "questions", "values": {"items": ["a", "b", "c"]}}
+QUESTIONS = {"id": "l", "node": "questions", "constants": {"items": ["a", "b", "c"]}}
 
 
 def test_questions_listed_per_document_are_asked_of_each_document_and_each_answer_lands_on_its_own_question():
@@ -1437,7 +1437,7 @@ def test_with_max_items_is_the_same_run_with_its_ceiling_raised_and_starts_nothi
 
 
 def test_the_ceiling_is_on_each_series_made_never_on_the_items_of_all_of_them_together():
-    loaded = graph({"id": "d", "node": "split", "values": {"sep": "|"}}, {"id": "l", "node": "split"}, {"id": "u", "node": "upper"},
+    loaded = graph({"id": "d", "node": "split", "constants": {"sep": "|"}}, {"id": "l", "node": "split"}, {"id": "u", "node": "upper"},
                    edges=(("d.result", "l.text"), ("l.result", "u.text")))
 
     assert loaded.run(text="a,b|c,d|e,f", max_items=3).status == "complete"  # six lines in all, never more than three in one Series
@@ -1558,13 +1558,13 @@ def test_a_nested_embedding_runs_with_its_fields_named_as_each_record_says_them(
 
 
 def test_a_series_made_inside_an_embedding_that_runs_per_item_is_made_for_each_item_fed_or_not():
-    fed = embedded("splitter", {"id": "lines", "node": "split", "values": {"sep": "/"}}, {"id": "join", "node": "join"}, edges=(("lines.result", "join.texts"),))
+    fed = embedded("splitter", {"id": "lines", "node": "split", "constants": {"sep": "/"}}, {"id": "join", "node": "join"}, edges=(("lines.result", "join.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, join, fed), text="a/b,c")
     assert run.graph.runs_on["emb"].msg == "per item of docs.result"
     assert run.results["emb"]["join.result"] == ["a+b", "c"]
 
-    unfed = embedded("splitter-unfed", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+    unfed = embedded("splitter-unfed", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
                      {"id": "join", "node": "join"}, {"id": "p", "node": "pair"},
                      edges=(("lines.result", "join.texts"), ("entered.result", "p.a"), ("join.result", "p.b")))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "splitter-unfed"}, edges=(("docs.result", "emb.text"),),
@@ -1574,7 +1574,7 @@ def test_a_series_made_inside_an_embedding_that_runs_per_item_is_made_for_each_i
 
 def test_an_inner_output_made_per_item_inside_is_a_series_for_each_item_the_embedding_runs_per():
     """Inside, ``p`` reads the entering value and each item of ``lines``: the embedding gives a Series per outer item."""
-    inner = embedded("letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+    inner = embedded("letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
                      {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")))
     run = ran({"id": "docs", "node": "split"}, {"id": "emb", "node": "letters"}, edges=(("docs.result", "emb.text"),),
               registry=registry_of(split, upper, pair, inner), text="a,b")
@@ -1588,7 +1588,7 @@ def test_inputs_from_a_document_and_from_its_lines_run_the_embedding_per_line():
 
     inner = embedded("pair-up", {"id": "ua", "node": "shout"}, {"id": "ub", "node": "upper"}, {"id": "p", "node": "pair"},
                      edges=(("ua.result", "p.a"), ("ub.result", "p.b")))
-    run = ran({"id": "docs", "node": "split", "values": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "emb", "node": "pair-up"},
+    run = ran({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "emb", "node": "pair-up"},
               edges=(("docs.result", "lines.text"), ("docs.result", "emb.word"), ("lines.result", "emb.text")),
               registry=registry_of(split, upper, pair, shout, inner), text="a,b|c")
     assert run.graph.runs_on["emb"].msg == "per item of lines.result"
@@ -1611,7 +1611,7 @@ def test_an_embedding_reading_a_series_whole_and_per_item_gets_the_whole_series_
 
 
 def test_a_graph_embedded_under_an_item_gives_what_the_same_nodes_drawn_flat_give_for_that_item():
-    nodes = ({"id": "i", "node": "split", "values": {"sep": ";"}}, {"id": "c", "node": "split", "values": {"sep": "/"}}, {"id": "p", "node": "pair"})
+    nodes = ({"id": "i", "node": "split", "constants": {"sep": ";"}}, {"id": "c", "node": "split", "constants": {"sep": "/"}}, {"id": "p", "node": "pair"})
     edges = (("i.result", "c.text"), ("c.result", "p.a"), ("i.result", "p.b"))
     inner = embedded("deep", *nodes, edges=edges)
     reg = registry_of(split, pair, inner)
@@ -1660,11 +1660,11 @@ def test_an_embedding_with_one_output_per_inner_item_and_one_per_run_runs_per_it
     inner = make_graph(
         names, case, greet, count, shout,
         edges=[("names.result", "greet.name"), ("case.result", "greet.case"), ("greet.result", "count.texts"), ("greet.result", "shout.text")],
-        values={"names.text": "Ida Bo"},
+        constants={"names.text": "Ida Bo"},
     )
     registry = registry_of(split, names, case, greet, count, shout)
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
-    graph = Graph.compile(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], values={"split.text": "A-1,B-2"}), registry)
+    graph = Graph.compile(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], constants={"split.text": "A-1,B-2"}), registry)
     assert graph.runs_on["inner"].series == "split.result"
     assert graph.run().results["inner"] == {"count.result": [2, 2], "shout.result": [["IDA A-1", "BO A-1"], ["IDA B-2", "BO B-2"]]}
 
@@ -1678,7 +1678,7 @@ def test_an_embedded_node_gathering_a_series_made_inside_and_one_entering_gather
     """``c`` gathers the lines made inside and the texts the embedding is fed; which of them the record lists first
     changes nothing about what each gather receives."""
     drawn = {
-        "lines": {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+        "lines": {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
         "ent": {"id": "ent", "node": "each"},
         "c": {"id": "c", "node": "two-series"},
     }
@@ -1696,7 +1696,7 @@ def test_an_embedded_node_gathering_a_series_made_inside_and_one_entering_gather
 def test_an_embedding_fed_by_a_series_drawn_after_it_loads_and_runs_as_one_drawn_before_it():
     """The node feeding an embedding may come after it in the record."""
     inner = embedded(
-        "letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "values": {"text": "x/y", "sep": "/"}},
+        "letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
         {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")),
     )
     registry = registry_of(split, upper, pair, inner)

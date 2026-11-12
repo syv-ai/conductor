@@ -85,9 +85,9 @@ def upper(text: str) -> str:
     return text.upper()
 
 
-def _loaded(*definitions: Any, edges: list[list[str]], values: dict[str, dict[str, Any]] | None = None) -> Any:
-    """Each definition as a node named by its id, wired by ``edges``; ``values`` are typed in by node id."""
-    nodes = [{"id": d.id, "node": d.id, "values": (values or {}).get(d.id, {})} for d in definitions]
+def _loaded(*definitions: Any, edges: list[list[str]], constants: dict[str, dict[str, Any]] | None = None) -> Any:
+    """Each definition as a node named by its id, wired by ``edges``; ``constants`` are typed in by node id."""
+    nodes = [{"id": d.id, "node": d.id, "constants": (constants or {}).get(d.id, {})} for d in definitions]
     return Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges}), registry_of(*definitions))
 
 
@@ -105,7 +105,7 @@ def test_a_type_variable_is_what_arrives_on_the_edge_in_every_input_and_in_the_r
 
 
 def test_only_an_edge_binds_so_a_typed_in_value_and_an_open_input_read_as_any() -> None:
-    typed = _loaded(keep, edges=[], values={"keep": {"value": 3}})
+    typed = _loaded(keep, edges=[], constants={"keep": {"value": 3}})
     assert _types(typed, "keep") == {"value": (False, "Any"), "result": (False, "Any")}
     assert typed.run().outputs == {"keep.result": 3}
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "keep", "node": "keep"}]}), registry_of(keep)).run(value="x").outputs == {"keep.result": "x"}
@@ -129,7 +129,7 @@ def test_one_or_many_is_decided_first_so_a_series_at_a_variable_runs_per_item() 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
     from_table = _loaded(rows, split, edges=[["rows.result", "split.value"]])
     assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs["split.result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
-    from_list = _loaded(keep, split, edges=[["keep.result", "split.value"]], values={"keep": {"value": [1, 2]}})
+    from_list = _loaded(keep, split, edges=[["keep.result", "split.value"]], constants={"keep": {"value": [1, 2]}})
     assert _types(from_list, "split")["result"] == (True, "Any")
     graph = _loaded(text, split, edges=[["text.result", "split.value"]])
     assert [(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems] == [("type_mismatch", ("split", "value"), "str", "Table | list")]
@@ -160,7 +160,7 @@ def test_a_bare_variable_binds_without_the_blank_so_a_blank_leaves_the_node_unca
     assert not graph.describe().nodes["seen"].inputs[0].field.json_schema.get("anyOf")
     run = graph.run()
     assert calls == [] and [(n.loc, n.input) for n in run.not_called] == [(("seen",), "value")]
-    inside_a_list = _loaded(keep, seen, edges=[["keep.result", "seen.value"]], values={"keep": {"value": 1}})
+    inside_a_list = _loaded(keep, seen, edges=[["keep.result", "seen.value"]], constants={"keep": {"value": 1}})
     assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any takes a blank, and says so
 
 

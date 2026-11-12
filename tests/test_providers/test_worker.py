@@ -170,7 +170,7 @@ async def test_a_ceiling_raised_by_a_resume_holds_for_the_legs_after_it() -> Non
         raise Ask("ok?")
 
     worker = _worker(store, registry, max_items=3)
-    run_id = await _started(worker, make_graph(split, ask, edges=[("split.result", "ask.x")], values={"split.n": 5}), {})
+    run_id = await _started(worker, make_graph(split, ask, edges=[("split.result", "ask.x")], constants={"split.n": 5}), {})
     assert (await store.ended(run_id)).status == "stopped"
 
     await worker.resume(await worker.read(run_id), max_items=10)

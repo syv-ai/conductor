@@ -281,11 +281,11 @@ def test_alternatives_in_the_items_skip_a_gather_only_when_the_branch_of_every_o
 def test_a_long_chain_of_alternatives_in_the_items_is_asked_node_by_node_however_many_ways_lead_through_it(ways: list[str], n: Any) -> None:
     """Forty stages, each two nodes on opposite branches of a decision made outside the items, both fed by both
     nodes of the stage before: a million million ways up, eighty nodes to ask."""
-    nodes: list[dict[str, Any]] = [{"id": "s", "node": "items", "values": {"text": "p q"}}]
+    nodes: list[dict[str, Any]] = [{"id": "s", "node": "items", "constants": {"text": "p q"}}]
     edges: list[tuple[str, str]] = []
     before = ["s.result"]
     for stage, way in enumerate(ways):
-        nodes += [{"id": f"t{stage}", "node": "template", "values": {"kind": way}}, {"id": f"w{stage}", "node": "decide"}]
+        nodes += [{"id": f"t{stage}", "node": "template", "constants": {"kind": way}}, {"id": f"w{stage}", "node": "decide"}]
         nodes += [{"id": f"x{stage}", "node": "pair"}, {"id": f"y{stage}", "node": "pair"}]
         edges += [(f"t{stage}.result", f"w{stage}.go"), (f"w{stage}.yes", f"x{stage}.b"), (f"w{stage}.no", f"y{stage}.b")]
         edges += [(source, f"{node_id}{stage}.a") for source in before for node_id in "xy"]

@@ -142,7 +142,7 @@ def pick(names: str) -> dict[str, str]:
     return {name: name for name in names.split(",")}
 
 
-drawing = {"nodes": [{"id": "pick", "node": "pick", "values": {"names": ""}}]}
+drawing = {"nodes": [{"id": "pick", "node": "pick", "constants": {"names": ""}}]}
 print(problems(drawing))  # ['compute_hook_failed']
 print(told(drawing)[0])  # The node could not work out its fields from what it was given: no names. Check what is typed into the node and what is wired to it.
 ```
@@ -177,7 +177,7 @@ print(problems(drawing))  # ['default_on_later_node']
 print(told(drawing)[0])  # 'greeting' is not an open input of the graph, so a caller can't change its default; make it a value.
 ```
 
-**Fix.** Write it as a value (`values`), which fixes it. Only an open input of a first node is the caller's to fill, so only there does a default mean anything; an input a hook reads is never open.
+**Fix.** Write it as a constant (`constants`), which fixes it. Only an open input of a first node is the caller's to fill, so only there does a default mean anything; an input a hook reads is never open.
 
 Its `ctx` keys are in the reference: `python -m conductor.about default-on-later-node`.
 
@@ -250,7 +250,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about invalid-node-id`
 ### `invalid_value`
 
 ```python
-drawing = {"nodes": [{"id": "c", "node": "count", "values": {"n": "many"}}]}
+drawing = {"nodes": [{"id": "c", "node": "count", "constants": {"n": "many"}}]}
 print(problems(drawing))  # ['invalid_value']
 print(told(drawing)[0])  # The value typed into 'n' is not valid: Input should be a valid integer, unable to parse string as an integer. Type a value of the field's type.
 ```
@@ -271,7 +271,7 @@ def fields(names: str) -> dict[str, str]:
     return {}
 
 
-drawing = {"nodes": [{"id": "f", "node": "fields", "values": {"names": "a.b"}}]}
+drawing = {"nodes": [{"id": "f", "node": "fields", "constants": {"names": "a.b"}}]}
 print(problems(drawing))  # ['parameter_name_invalid']
 print(told(drawing)[0])  # 'a.b' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field.
 ```
@@ -438,7 +438,7 @@ Its `ctx` keys are in the reference: `python -m conductor.about unbound-on-later
 ### `unknown_input`
 
 ```python
-drawing = {"nodes": [{"id": "u", "node": "upper", "values": {"txt": "a"}}]}
+drawing = {"nodes": [{"id": "u", "node": "upper", "constants": {"txt": "a"}}]}
 print(problems(drawing))  # ['unknown_input']
 print(told(drawing)[0])  # 'u' has no input 'txt'; it has text.
 ```
@@ -499,11 +499,11 @@ print(told(drawing)[0])  # 'upper' has no version 9; the newest is 1.
 
 Its `ctx` keys are in the reference: `python -m conductor.about unknown-version`.
 
-### `value_and_default`
+### `constant_and_default`
 
 ```python
-drawing = {"nodes": [{"id": "u", "node": "upper", "values": {"text": "a"}, "defaults": {"text": "b"}}]}
-print(problems(drawing))  # ['value_and_default']
+drawing = {"nodes": [{"id": "u", "node": "upper", "constants": {"text": "a"}, "defaults": {"text": "b"}}]}
+print(problems(drawing))  # ['constant_and_default']
 print(told(drawing)[0])  # Field 'text' has both a value and a default; keep one.
 ```
 
@@ -511,14 +511,14 @@ print(told(drawing)[0])  # Field 'text' has both a value and a default; keep one
 
 Its `ctx` keys are in the reference: `python -m conductor.about value-and-default`.
 
-### `value_and_edge`
+### `constant_and_edge`
 
 ```python
 drawing = {
-    "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper", "values": {"text": "x"}}],
+    "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper", "constants": {"text": "x"}}],
     "edges": [["a.result", "b.text"]],
 }
-print(problems(drawing))  # ['value_and_edge']
+print(problems(drawing))  # ['constant_and_edge']
 print(told(drawing)[0])  # Field 'text' has an edge and a typed-in value; keep one.
 ```
 

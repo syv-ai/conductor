@@ -336,7 +336,7 @@ def test_an_unfed_required_input_of_a_later_embedded_graph_is_unbound_like_any_n
 
 def test_an_inner_input_a_hook_reads_is_set_inside_and_not_offered():
     assert list(load({"e": "columns-inner"}).inputs) == ["text"]
-    typed_in = load({"e": {"node": "columns-inner", "values": {"names": "a,b"}}})
+    typed_in = load({"e": {"node": "columns-inner", "constants": {"names": "a,b"}}})
     assert problems(typed_in) == [("unknown_input", ("e", "names"))]
 
 
@@ -401,7 +401,7 @@ def test_an_embedded_graph_runs_once_and_per_item_as_its_nodes_would_drawn_flat(
 
 
 def test_a_value_a_default_and_an_edge_on_the_embedding_are_any_nodes():
-    graph = load({"w": "words", "e": {"node": "greet-inner", "values": {"greeting": "hej"}}}, [("w.result", "e.text")])
+    graph = load({"w": "words", "e": {"node": "greet-inner", "constants": {"greeting": "hej"}}}, [("w.result", "e.text")])
     assert graph.run(text="ab cd").results["e"]["g.result"] == ["hej ab", "hej cd"]
     first = load({"e": {"node": "greet-inner", "defaults": {"greeting": "hi"}}})
     assert first.inputs["greeting"].field.default == "hi"

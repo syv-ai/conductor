@@ -61,7 +61,7 @@ contacts = Graph.compile(make_graph(read_contacts, split, greet, collect, edges=
     ("series-split.result.name", "greet.name"),
     ("series-split.result", "table-collect.records"),
     ("greet.result", "table-collect.greeting"),
-], values={"table-collect.columns": ["greeting"]}), registry)
+], constants={"table-collect.columns": ["greeting"]}), registry)
 print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 

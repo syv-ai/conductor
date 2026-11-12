@@ -60,7 +60,7 @@ def _numbers(count: int) -> str:
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
     """``split`` making ``items`` items, read by ``definition`` as node ``slow``."""
     return Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(items)}), NodeRecord(id="slow", node=definition.id)],
+        nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(items)}), NodeRecord(id="slow", node=definition.id)],
         edges=[("split.result", "slow.text")],
     ), registry_of(split, definition, *more))
 
@@ -151,7 +151,7 @@ def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never
             raise ValueError("not this one")
         return text
 
-    graph = Graph.compile(make_graph(split, picky, join, values={"split.text": "0,1,2"}), registry_of(split, picky, join))
+    graph = Graph.compile(make_graph(split, picky, join, constants={"split.text": "0,1,2"}), registry_of(split, picky, join))
 
     events = _events(graph.with_inputs())
 
@@ -218,7 +218,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
             raise Ask("Is this right?")
         return text
 
-    graph = Graph.compile(make_graph(split, maybe, values={"split.text": "ask,b,c"}), registry_of(split, maybe))
+    graph = Graph.compile(make_graph(split, maybe, constants={"split.text": "ask,b,c"}), registry_of(split, maybe))
 
     events = _events(graph.with_inputs())
 
@@ -293,7 +293,7 @@ def test_a_leg_of_nodes_at_concurrency_one_makes_no_threads_of_its_own():
         seen.add(threading.get_ident())
         return text
 
-    nodes = [NodeRecord(id="s", node="split", values={"text": _numbers(20)})] + [NodeRecord(id=f"n{i}", node="step") for i in range(100)]
+    nodes = [NodeRecord(id="s", node="split", constants={"text": _numbers(20)})] + [NodeRecord(id=f"n{i}", node="step") for i in range(100)]
     edges = [("s.result", "n0.text")] + [(f"n{i - 1}.result", f"n{i}.text") for i in range(1, 100)]
     graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, step))
 
@@ -313,7 +313,7 @@ def test_the_retry_delay_doubles_each_time_and_another_item_takes_the_slot_while
         finished.append(text)
         return text
 
-    graph = Graph.compile(make_graph(split, flaky, values={"split.text": "flaky,steady"}), registry_of(split, flaky))
+    graph = Graph.compile(make_graph(split, flaky, constants={"split.text": "flaky,steady"}), registry_of(split, flaky))
 
     events = _events(graph.with_inputs())
 
@@ -336,7 +336,7 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
         return "now"
 
     graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(40)}), NodeRecord(id="slow", node="sleeper"), NodeRecord(id="i", node="instant")],
+        nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(40)}), NodeRecord(id="slow", node="sleeper"), NodeRecord(id="i", node="instant")],
         edges=[("split.result", "slow.text"), ("split.result", "i.texts")],
     ), registry_of(split, sleeper, instant))
 
@@ -359,7 +359,7 @@ def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_check
         return text
 
     graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="split", node="split", values={"text": _numbers(4)}), NodeRecord(id="slow", node="first-is-last"), NodeRecord(id="after", node="needs-text")],
+        nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(4)}), NodeRecord(id="slow", node="first-is-last"), NodeRecord(id="after", node="needs-text")],
         edges=[("split.result", "slow.text"), ("slow.result", "after.text")],
     ), registry_of(split, first_is_last, needs_text))
     in_item_order = [("after", 0), ("after", 1), ("after", 2), ("after", 3)]
@@ -400,8 +400,8 @@ def test_a_reader_made_ready_by_each_of_two_nodes_it_reads_is_called_once(items:
         calls.append((left, right))
         return left + right
 
-    first = [NodeRecord(id="s", node="from-a-thread", values={"text": "x"})] if items is None else [
-        NodeRecord(id="split", node="split", values={"text": _numbers(items)}), NodeRecord(id="s", node="from-a-thread"),
+    first = [NodeRecord(id="s", node="from-a-thread", constants={"text": "x"})] if items is None else [
+        NodeRecord(id="split", node="split", constants={"text": _numbers(items)}), NodeRecord(id="s", node="from-a-thread"),
     ]
     graph = Graph.compile(GraphRecord(
         nodes=[*first, NodeRecord(id="a", node="left"), NodeRecord(id="b", node="right"), NodeRecord(id="r", node="both")],
@@ -437,11 +437,11 @@ def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume
         return "+".join(texts)
 
     if shape == "chain":
-        nodes = [NodeRecord(id="f", node="first", values={"text": "x"}), *(NodeRecord(id=f"t{i}", node="then") for i in range(5))]
+        nodes = [NodeRecord(id="f", node="first", constants={"text": "x"}), *(NodeRecord(id=f"t{i}", node="then") for i in range(5))]
         edges = [("f.result", "t0.text"), *((f"t{i}.result", f"t{i + 1}.text") for i in range(4))]
         expected, outputs = 6, {"t4.result": "x!!!!!"}
     else:
-        nodes = [NodeRecord(id="split", node="split", values={"text": _numbers(4)}), NodeRecord(id="f", node="first"), NodeRecord(id="t", node="then"), NodeRecord(id="l", node="last")]
+        nodes = [NodeRecord(id="split", node="split", constants={"text": _numbers(4)}), NodeRecord(id="f", node="first"), NodeRecord(id="t", node="then"), NodeRecord(id="l", node="last")]
         edges = [("split.result", "f.text"), ("f.result", "t.text"), ("t.result", "l.texts")]
         expected, outputs = 9, {"l.result": "0!+1!+2!+3!"}
     graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, first, then, last))

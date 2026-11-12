@@ -19,18 +19,18 @@ from conductor._internal.problem import catalogue as problem
 def make_graph(
     *nodes: NodeDefinition,
     edges: Sequence[tuple[str, str]] | None = None,
-    values: Mapping[str, Any] = MappingProxyType({}),
+    constants: Mapping[str, Any] = MappingProxyType({}),
     defaults: Mapping[str, Any] = MappingProxyType({}),
 ) -> GraphRecord:
     """A graph record written from Python, each node at its version::
 
         make_graph(read_file, upper)                                  # a chain
         make_graph(read_file, upper, edges=[("read_file.result", "upper.text")])
-        make_graph(read_file, upper, values={"read_file.path": "in.txt"})
+        make_graph(read_file, upper, constants={"read_file.path": "in.txt"})
 
     A node's id in the graph is its definition's id; a definition used more
     than once is ``upper-1``, ``upper-2``, and so on, skipping an id another
-    node already has. ``values`` and ``defaults`` are keyed by ``"node.input"``
+    node already has. ``constants`` and ``defaults`` are keyed by ``"node.input"``
     addresses of those ids, as the record's fields of those names are: a value
     is fixed, and a default stays open to the caller. A list typed into an input
     that takes one value is refused: a node that returns a ``Series`` makes
@@ -53,9 +53,9 @@ def make_graph(
     """
     ids = _ids_of(nodes)
     problems: list[Problem] = []
-    typed_values: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
+    typed_constants: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
     typed_defaults: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
-    for given, typed in ((values, typed_values), (defaults, typed_defaults)):
+    for given, typed in ((constants, typed_constants), (defaults, typed_defaults)):
         by_node: dict[str, dict[str, Any]] = {}
         for address, value in given.items():
             node_id, _, name = address.partition(".")
@@ -67,12 +67,12 @@ def make_graph(
             typed[node_id], faults = values_as_json(node_id, named)
             problems += faults
     if edges is None:
-        edges, faults = _chain_edges(ids, nodes, typed_values, typed_defaults)
+        edges, faults = _chain_edges(ids, nodes, typed_constants, typed_defaults)
         problems += faults
     try:
         record = GraphRecord(
             nodes=[
-                NodeRecord(id=node_id, node=definition.id, version=definition.version, values=typed_values[node_id], defaults=typed_defaults[node_id])
+                NodeRecord(id=node_id, node=definition.id, version=definition.version, constants=typed_constants[node_id], defaults=typed_defaults[node_id])
                 for node_id, definition in zip(ids, nodes, strict=True)
             ],
             edges=edges,
@@ -101,14 +101,14 @@ def _ids_of(nodes: Sequence[NodeDefinition]) -> list[str]:
 
 
 def _chain_edges(
-    ids: Sequence[str], nodes: Sequence[NodeDefinition], typed_values: Mapping[str, Mapping[str, JsonValue]], typed_defaults: Mapping[str, Mapping[str, JsonValue]],
+    ids: Sequence[str], nodes: Sequence[NodeDefinition], typed_constants: Mapping[str, Mapping[str, JsonValue]], typed_defaults: Mapping[str, Mapping[str, JsonValue]],
 ) -> tuple[list[tuple[str, str]], list[Problem]]:
     """The one edge from each node into the next, and ``not_a_chain`` for each pair without exactly one."""
     edges: list[tuple[str, str]] = []
     problems: list[Problem] = []
     for index in range(1, len(nodes)):
         before_id, before, after_id, after = ids[index - 1], nodes[index - 1], ids[index], nodes[index]
-        filled = typed_values[after_id].keys() | typed_defaults[after_id].keys()
+        filled = typed_constants[after_id].keys() | typed_defaults[after_id].keys()
         match before, after:
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)

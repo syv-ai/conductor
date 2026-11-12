@@ -217,7 +217,7 @@ def _csv_llm_summary():
         ("read-csv.result", "series-split.value"),
         ("series-split.result.text", "llm.text"),
         ("llm.result", "llm-all.texts"),
-    ], values={"llm.prompt": "Classify:", "llm-all.prompt": "Summarise"}), REGISTRY)
+    ], constants={"llm.prompt": "Classify:", "llm-all.prompt": "Summarise"}), REGISTRY)
 
 
 def test_scenario_2_csv_then_a_model_call_per_record_then_a_summary():
@@ -249,7 +249,7 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
         ("find-invoices.result", "table-collect.records"),
         ("upload.result.name", "table-collect.document"),
         ("table-collect.result", "excel.table"),
-    ], values={"table-collect.constant_columns": ["document"]}), REGISTRY)
+    ], constants={"table-collect.constant_columns": ["document"]}), REGISTRY)
     assert {n: graph.runs_on[n].series for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
     assert [c["properties"]["name"]["const"] for c in graph.describe().nodes["table-collect"].outputs[0].json_schema["properties"]["columns"]["prefixItems"]] == ["number", "vendor", "amount", "document"]
 
@@ -266,7 +266,7 @@ def test_scenario_3_a_document_with_no_invoices_gets_an_excel_with_the_columns_a
         ("find-invoices.result", "table-collect.records"),
         ("upload.result.name", "table-collect.document"),
         ("table-collect.result", "excel.table"),
-    ], values={"table-collect.constant_columns": ["document"]}), REGISTRY)
+    ], constants={"table-collect.constant_columns": ["document"]}), REGISTRY)
     run = graph.run(files=[A_PDF, B_PDF])
     assert run.status == "complete" and run.results["excel"]["result"][1].text == "number,vendor,amount,document\n"
 
@@ -286,13 +286,13 @@ CONTRACTS = [File(name=f"{n}.pdf", text=f"contract {n}") for n in range(11)]
 
 def test_scenario_4_each_contract_alone():
     ASKED.clear()
-    graph = Graph.compile(make_graph(upload, llm, edges=[("upload.result.text", "llm.text")], values={"llm.prompt": "Summarise:"}), REGISTRY)
+    graph = Graph.compile(make_graph(upload, llm, edges=[("upload.result.text", "llm.text")], constants={"llm.prompt": "Summarise:"}), REGISTRY)
     assert len(graph.run(files=CONTRACTS).outputs["llm.result"]) == 11 and len(ASKED) == 11
 
 
 def test_scenario_4_all_contracts_together():
     ASKED.clear()
-    graph = Graph.compile(make_graph(upload, llm_all, edges=[("upload.result.text", "llm-all.texts")], values={"llm-all.prompt": "Compare"}), REGISTRY)
+    graph = Graph.compile(make_graph(upload, llm_all, edges=[("upload.result.text", "llm-all.texts")], constants={"llm-all.prompt": "Compare"}), REGISTRY)
     assert graph.run(files=CONTRACTS).outputs == {"llm-all.result": "Compare 11 texts"} and len(ASKED) == 1
 
 
@@ -300,7 +300,7 @@ def test_scenario_4_each_contract_and_then_all_of_them():
     ASKED.clear()
     graph = Graph.compile(make_graph(upload, llm, llm_all, edges=[
         ("upload.result.text", "llm.text"), ("llm.result", "llm-all.texts"),
-    ], values={"llm.prompt": "Summarise:", "llm-all.prompt": "Give an overview of"}), REGISTRY)
+    ], constants={"llm.prompt": "Summarise:", "llm-all.prompt": "Give an overview of"}), REGISTRY)
     assert graph.run(files=CONTRACTS).outputs == {"llm-all.result": "Give an overview of 11 texts"} and len(ASKED) == 12
 
 
@@ -326,7 +326,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
         ("series-split.result", "table-collect.records"),
         ("send-mail.result", "table-collect.sent"),
         ("table-collect.result", "excel.table"),
-    ], values={"send-mail.body": "Hello", "table-collect.columns": ["sent"]}), REGISTRY)
+    ], constants={"send-mail.body": "Hello", "table-collect.columns": ["sent"]}), REGISTRY)
     run = graph.run(file=CONTACTS)
     assert run.status == "complete" and [(n.loc[0], n.loc[1:], n.input) for n in run.not_called] == [("send-mail", (1,), "to")]
     assert run.results["send-mail"]["result"] == ["sent to ann@x.dk", None, "sent to cy@x.dk"]
@@ -402,7 +402,7 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
 
 def test_scenario_11_a_sub_graph_per_item():
     enrich = subgraph("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
-        make_graph(llm, values={"llm.prompt": "Write a greeting for"})
+        make_graph(llm, constants={"llm.prompt": "Write a greeting for"})
     )
     graph = Graph.compile(make_graph(read_contacts, split, enrich, edges=[
         ("read-contacts.result", "series-split.value"), ("series-split.result.name", "enrich.text"),
@@ -416,7 +416,7 @@ def test_scenario_11_a_sub_graph_per_item():
 
 def test_scenario_12_a_sub_graph_given_the_whole_table():
     table_report = subgraph("table-report", title="Report on a table", description="Writes a report on a table.")(
-        make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], values={"llm.prompt": "Write a report on"})
+        make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], constants={"llm.prompt": "Write a report on"})
     )
     graph = Graph.compile(make_graph(read_csv, table_report, edges=[("read-csv.result", "table-report.table")]), registry_with(table_report))
     assert graph.runs_on["table-report"].mode == "once"
@@ -429,7 +429,7 @@ def test_scenario_12_a_sub_graph_given_the_whole_table():
 def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
     graph = Graph.compile(make_graph(read_csv, read_csv, join_tables, edges=[
         ("read-csv-1.result", "join-tables.left"), ("read-csv-2.result", "join-tables.right"),
-    ], values={"join-tables.on": "customer_id"}), REGISTRY)
+    ], constants={"join-tables.on": "customer_id"}), REGISTRY)
     assert all(runs.mode == "once" for runs in graph.runs_on.values())
     customers = File(name="customers.csv", text="customer_id,name\n1,Ann\n2,Bo\n")
     orders = File(name="orders.csv", text="customer_id,item\n2,lamp\n1,desk\n1,chair\n")
@@ -450,7 +450,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
         ("upload.result", "text-list.for_each"),
         ("text-list.result", "llm.prompt"),
         ("upload.result.text", "llm.text"),
-    ], values={"text-list.items": QUESTIONS}), REGISTRY)
+    ], constants={"text-list.items": QUESTIONS}), REGISTRY)
     assert graph.runs_on["text-list"].series == "upload.result" and graph.runs_on["llm"].series == "text-list.result"
     feeds = {i.field.name: (i.feed.mode, i.feed.series) for i in graph.describe().nodes["llm"].inputs}
     assert feeds == {"prompt": ("per_item", "text-list.result"), "text": ("outer_value", "upload.result")}
@@ -467,7 +467,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
 def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_the_problem_names_the_wire():
     graph = Graph.compile(make_graph(upload, text_list, llm, edges=[
         ("text-list.result", "llm.prompt"), ("upload.result.text", "llm.text"),
-    ], values={"text-list.items": QUESTIONS}), REGISTRY)
+    ], constants={"text-list.items": QUESTIONS}), REGISTRY)
     (problem,) = graph.problems
     assert (problem.type, problem.loc) == ("series_not_nested", ("llm",))
     assert (problem.ctx["wire_from"], problem.ctx["wire_into"], problem.ctx["inputs"]) == ("upload.result", "text-list", ["prompt", "text"])
@@ -475,5 +475,5 @@ def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_th
 
 def test_scenario_14b_the_summary_of_several_takes_one_document_as_a_series_of_one():
     ASKED.clear()
-    graph = Graph.compile(make_graph(read_pdf, llm_all, edges=[("read-pdf.result", "llm-all.texts")], values={"llm-all.prompt": "Summarise"}), REGISTRY)
+    graph = Graph.compile(make_graph(read_pdf, llm_all, edges=[("read-pdf.result", "llm-all.texts")], constants={"llm-all.prompt": "Summarise"}), REGISTRY)
     assert graph.run(file=A_PDF).outputs == {"llm-all.result": "Summarise 1 texts"} and ASKED == [A_PDF.text]

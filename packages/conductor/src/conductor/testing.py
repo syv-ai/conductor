@@ -126,15 +126,15 @@ def _version_problems(version: NodeDefinition, registry: NodeRegistry, given: Se
     return [problem for example in given for problem in _run_problems(version, registry, example, from_run)]
 
 
-def _one_node_graph(version: NodeDefinition, values: Mapping[str, Any]) -> GraphRecord:
-    """A graph of this one node, at its version, with ``values`` typed in, placed under its own id.
+def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> GraphRecord:
+    """A graph of this one node, at its version, with ``constants`` typed in, placed under its own id.
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
     """
-    typed, problems = values_as_json(version.id, values)
+    typed, problems = values_as_json(version.id, constants)
     if problems:
         raise InvalidCallError(problems)
-    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, values=typed)])
+    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, constants=typed)])
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Problem]:

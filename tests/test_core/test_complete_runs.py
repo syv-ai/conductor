@@ -133,7 +133,7 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
     registry.add(subgraph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(inner)))
     joined = {"nodes": [*inner["nodes"], {"id": "j", "node": "join"}], "edges": [*chain, ["u.result", "j.items"]]}
     registry.add(subgraph("join-words", title="Join words", description="The words of a text in capitals, joined.")(GraphRecord.model_validate(joined)))
-    stamped = {"nodes": [{"id": "u", "node": "upper"}, {"id": "k", "node": "upper", "values": {"text": "k"}}], "edges": []}
+    stamped = {"nodes": [{"id": "u", "node": "upper"}, {"id": "k", "node": "upper", "constants": {"text": "k"}}], "edges": []}
     registry.add(subgraph("shout-and-stamp", title="Shout and stamp", description="A text in capitals, and a K.")(GraphRecord.model_validate(stamped)))
     return registry
 

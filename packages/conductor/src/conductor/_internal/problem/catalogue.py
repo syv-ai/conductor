@@ -357,7 +357,7 @@ def unknown_version(*loc: str | int, node: str, version: int, newest: int) -> st
 
 
 @PROBLEMS.problem()
-def value_and_default(node_id: str, field: str) -> str:
+def constant_and_default(node_id: str, field: str) -> str:
     """An input has a value and a default in the record.
 
     Args:
@@ -368,7 +368,7 @@ def value_and_default(node_id: str, field: str) -> str:
 
 
 @PROBLEMS.problem()
-def value_and_edge(node_id: str, field: str) -> str:
+def constant_and_edge(node_id: str, field: str) -> str:
     """An input has an edge into it and a value in the record.
 
     Args:
