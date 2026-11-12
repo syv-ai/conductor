@@ -1,8 +1,10 @@
-"""Asking a person: the return type says what the answer is, ``raise Ask`` adds what the run knows.
+"""Asking a person: a node with ``asks=True`` raises ``Ask``, its return type says what the answer is, and the ``Ask``
+adds what only the run knows.
 
-A waiting unit is a ``Waiting`` whose ``questions`` are the outputs' field
-records with what the ``Ask`` added; ``run.answer`` checks an answer against
-them and the node's types, refuses every fault at once, and runs nothing.
+A waiting call is a ``Waiting`` whose ``questions`` are the field records of the node's outputs with what the ``Ask``
+set: ``approve(line: str) -> bool`` raising ``Ask("Approve b?")`` has one question, ``result``, a yes or no.
+``run.answer`` checks an answer against the questions and the node's types, refuses every fault at once, and calls
+nothing. An ``Asked`` parameter, the other way a node asks, is tested in ``test_asked.py``.
 """
 
 import datetime
@@ -52,7 +54,8 @@ def upper(text: str) -> str:
 
 
 def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
-    """``split`` making its items of ``text``, each item read by ``definition`` as node ``q``; the graph and its first run."""
+    """A graph of ``split``, which splits ``text`` at commas, and ``definition`` as node ``q``, called once per piece;
+    returns the graph and its first run."""
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "s", "node": "split", "constants": {"text": text}}, {"id": "q", "node": definition.id}],
         "edges": [["s.result", f"q.{next(iter(definition.inputs))}"]],
@@ -61,7 +64,8 @@ def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
 
 
 def _once(definition: Any, **values: Any) -> Any:
-    """``definition`` alone as node ``q``, run once; the graph and its run."""
+    """A graph of ``definition`` alone as node ``q`` with ``values`` as its constants, run once; returns the graph and
+    the run."""
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": definition.id, "constants": values}]}), registry_of(definition))
     return graph, graph.run()
 
@@ -204,7 +208,7 @@ def test_a_lone_output_is_titled_by_its_own_label_never_by_the_node():
     assert (question.title, question.description) == ("Decision", "What you decided")
 
 
-def test_a_question_whose_type_takes_a_blank_may_be_answered_with_none():
+def test_a_question_whose_type_takes_none_may_be_answered_with_none():
     @node("note", title="Note", description="For a test.", asks=True)
     def note(name: str) -> str | None:
         raise Ask("A note?")
@@ -235,7 +239,7 @@ def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
     assert (due.default, due.required) == ("2026-12-01", False)  # a field's own default is proposed
 
 
-def test_a_form_left_short_takes_its_defaults_and_blanks_and_refuses_what_has_neither():
+def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_and_refuses_one_with_neither():
     graph, run = _waiting_outcomes(review)
     answered = run.answer({"q@0": {"approved": True}, "q@1": {"approved": False, "amount": 5, "note": "late", "due": "2027-01-01"}}).resume()
     assert answered.results["q"] == {
@@ -412,7 +416,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"q.result": ["carl", "ida"]}
 
 
-def test_a_reader_left_with_no_items_by_an_answer_shows_so_before_the_next_leg():
+def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and_after_resume():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "colours", "constants": {"name": "x"}}, {"id": "u", "node": "upper"}],
                                                "edges": [["q.result", "u.text"]]}), registry_of(colours, upper))
     answered = graph.run().answer("q", [])
@@ -491,7 +495,7 @@ def test_a_default_obeys_what_an_answer_must():
     assert _once(twice)[1].state.cause.ctx["reason"] == "the default for 'result' is not an answer it takes: a choice is picked twice"
 
 
-def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_takes_a_blank():
+def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_takes_none():
     @dataclass(frozen=True)
     class Pick:
         who: str | None
@@ -580,7 +584,7 @@ def test_answering_with_ids_that_are_no_waiting_id_is_refused_as_problems():
     ]
 
 
-def test_one_answer_is_a_unit_and_its_value_and_several_a_mapping():
+def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
     assert run.answer(run.waiting[0], "1").answer("q@1", "2").to_json() == run.answer({"q@0": "1", "q@1": "2"}).to_json()
@@ -604,7 +608,7 @@ def test_a_value_no_question_can_read_is_refused_as_a_problem_never_an_exception
         assert [f.type for f in _refused(lambda value=value: graph.run().answer("q", value))] == ["invalid_answer"]
 
 
-def test_after_an_answer_the_next_leg_calls_only_what_waited_on_it_and_an_item_left_unanswered_waits_on():
+def test_after_an_answer_resume_calls_only_what_waited_on_it_and_an_item_left_unanswered_waits_on():
     gate, called = _counted()
     graph = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "s", "node": "split", "constants": {"text": "a,b1,b2"}}, {"id": "q", "node": "gate"}, {"id": "u", "node": "upper"}],
@@ -612,10 +616,10 @@ def test_after_an_answer_the_next_leg_calls_only_what_waited_on_it_and_an_item_l
     }), registry_of(split, gate, upper))
     run = graph.run()
     called.clear()
-    leg = Run.from_json(run.answer("q@1", "yes").to_json(), graph).resume()
-    assert called == [] and leg.status == "waiting" and [place(w) for w in leg.waiting] == ["q@2"]
-    assert leg.results["u"]["result"] == ["A", "YES", None]
-    assert leg.waiting[0] == run.waiting[1]  # the question is as it was asked
+    resumed = Run.from_json(run.answer("q@1", "yes").to_json(), graph).resume()
+    assert called == [] and resumed.status == "waiting" and [place(w) for w in resumed.waiting] == ["q@2"]
+    assert resumed.results["u"]["result"] == ["A", "YES", None]
+    assert resumed.waiting[0] == run.waiting[1]  # the question is as it was asked
 
 
 def test_a_node_that_reads_the_world_is_not_called_again_when_a_run_goes_on_from_waiting():
@@ -650,7 +654,7 @@ def test_an_item_skipped_above_never_asks_and_the_others_complete_when_answered(
     assert run.answer({"q@1": "1", "q@2": "2"}).resume().results["q"]["result"] == [None, "1", "2"]
 
 
-def test_waiting_units_are_in_node_then_item_order_whatever_order_they_asked_in():
+def test_waiting_calls_are_listed_in_node_then_item_order_whatever_order_they_asked_in():
     @node("slow-ask", title="Slow ask", description="For a test.", policy=Policy(concurrency=4), asks=True)
     def slow_ask(text: str) -> str:
         time.sleep(0.02 * (3 - int(text)))
@@ -669,7 +673,7 @@ def test_waiting_units_are_in_node_then_item_order_whatever_order_they_asked_in(
     assert [place(w) for w in Run.from_json(run.to_json(), graph).waiting] == [place(w) for w in run.waiting]
 
 
-def test_a_waiting_unit_keeps_the_table_and_series_it_received_through_a_save():
+def test_a_waiting_call_keeps_the_table_and_series_it_received_through_a_save():
     class Row(TypedDict):
         name: str
 
@@ -702,7 +706,7 @@ def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
     assert Run.from_json(run.answer("q@1", "B").to_json(), graph).resume().outputs == {"q.result": ["a", "B"]}
 
 
-def test_an_answer_names_an_item_by_its_place_so_one_for_an_item_that_no_longer_waits_is_refused():
+def test_an_answer_names_its_item_by_index_so_one_for_an_item_that_no_longer_waits_is_refused():
     gate, _ = _counted()
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "split"}, {"id": "q", "node": "gate"}], "edges": [["s.result", "q.text"]]}), registry_of(split, gate))
     run = graph.run(text="b1,a")
@@ -711,7 +715,7 @@ def test_an_answer_names_an_item_by_its_place_so_one_for_an_item_that_no_longer_
     assert [f.type for f in _refused(lambda: moved.answer("q@0", "B1"))] == ["not_waiting"]
 
 
-def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
+def test_a_saved_waiting_call_the_graph_has_no_call_for_is_refused_on_load():
     gate, _ = _counted()
     graph, run = _waiting_outcomes(gate, text="a,b")
     saved = json.loads(run.to_json())
@@ -723,8 +727,9 @@ def test_a_saved_waiting_unit_the_graph_never_made_is_refused_on_load():
     assert (fault.type, fault.ctx["where"]) == ("saved_run_unreadable", "outcomes.q")
 
 
-def test_a_save_cannot_hold_a_waiting_unit_without_its_question():
-    """A unit waits by the question its slot holds, so with the question taken out of a save the unit hasn't run."""
+def test_a_saved_waiting_call_with_its_question_taken_out_reads_as_not_yet_made():
+    """A saved call waits because its question is saved with it, so with the question taken out the call reads as not
+    yet made."""
     gate, _ = _counted()
     graph, run = _waiting_outcomes(gate, text="a,b")
     saved = json.loads(run.to_json())
@@ -772,7 +777,7 @@ def test_one_item_answered_twice_in_one_call_is_refused_and_nothing_is_answered(
     assert [place(w) for w in run.waiting] == ["q@0", "q@1"]
 
 
-def test_an_id_whose_place_is_no_place_answers_nothing_not_even_a_node_that_runs_once():
+def test_an_id_whose_item_index_is_not_a_number_answers_nothing_not_even_a_node_called_once():
     @node("once", title="Once", description="For a test.", asks=True)
     def once(text: str) -> str:
         raise Ask("ok?")
@@ -800,7 +805,7 @@ async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_
     assert resumed.status == "waiting" and [place(w) for w in resumed.waiting] == ["q@1"]
 
 
-def test_a_question_inside_an_embedding_is_the_inner_nodes_own_and_its_waiting_unit_says_where_it_is():
+def test_a_question_inside_a_subgraph_is_the_inner_nodes_own_and_its_waiting_call_says_where_it_is():
     from conductor import GraphRecord, NodeRecord, NodeRegistry, make_graph, node
 
     @node("ask", title="Ask", description="For a test.", asks=True)
@@ -819,7 +824,7 @@ def test_a_question_inside_an_embedding_is_the_inner_nodes_own_and_its_waiting_u
     assert done.outputs == {"both.q.result": "yes", "both.q2.result": "yes"}
 
 
-def test_a_form_inside_an_embedding_is_answered_by_the_inner_nodes_own_field_names():
+def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_field_names():
     from dataclasses import dataclass
 
     from conductor import GraphRecord, NodeRecord, NodeRegistry, node
