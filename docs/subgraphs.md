@@ -45,7 +45,7 @@ version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-
 
 Wire it like any node. Its inputs are its graph's inputs, by their names there, and its outputs are its graph's
 outputs, by their addresses there, so an edge from it reads `shout.exclaim.result`. `make_graph` wants its `edges=` written
-out: it chains only function nodes:
+out: with a subgraph in the list and no `edges=`, it raises `not_a_chain`:
 
 ```python
 graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]), registry)
@@ -66,11 +66,10 @@ as it does for any node. A subgraph takes no `Policy` of its own, because it is 
 From outside, a subgraph is one node:
 
 - **Its inputs** are its graph's inputs (`graph.inputs` of the subgraph compiled alone): the inputs no edge reaches on its first
-  nodes, under the names that graph gives them, the input's own name, or `node.input` where two inner nodes have an input
-  of one name. A constant, a default or an edge on it works as on any node. An inner input that a hook reads (a function that
+  nodes, under the names that graph gives them: the input's own name, or, for just the inputs whose name two inner nodes share, `node.input`. A constant, a default or an edge on it works as on any node. An inner input that a hook reads (a function that
   computes a node's inputs or outputs when the graph is compiled, see [writing nodes](writing-nodes.md#inputs-and-outputs-that-a-constant-decides))
   must be a constant inside the subgraph, so it is not offered.
-- **Its outputs** are its graph's outputs (`graph.outputs` of the subgraph): the outputs of its last nodes, under their
+- **Its outputs** are its graph's outputs (`graph.outputs` of the subgraph): the outputs of its last nodes, the nodes no edge leaves, under their
   addresses there, `node.output`.
 - An output its graph returns once has the inner node's type. One returned inside loops is one `Series`
   for each loop: an output returned per line of each document is `Series[Series[str]]`, a list of lines per
@@ -82,8 +81,8 @@ From outside, a subgraph is one node:
   is `decide.answer`.
 - Two outputs downstream of opposite branches of one inner node may be wired into one input outside, as they could
   be if the nodes were drawn in the outer graph: each call gets the value from the branch that was chosen. Wired
-  into two `Series` inputs of one node they are refused, as they would be in the outer graph
-  (`lists_from_different_loops`).
+  into two `Series` inputs of one node, one per branch, they are refused, as they would be in the outer graph
+  (`lists_from_different_loops`): one branch's list would always be empty.
 
 ```python
 side_by_side = subgraph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
@@ -247,10 +246,10 @@ the subgraph node's id and, inside a loop, its item index, outermost first.
   `("shout", "upper", "text")`. A failure of an inner node for the second word is at `("shout", 1, "upper")`.
 - An entry of `run.waiting` (a call that asked a person) and an entry of `run.not_called` have the same kind of `loc`:
   `("shout", 1, "upper")` is `upper` inside `shout`, for the second word.
-- The `id` of a waiting call says the same as text: `shout@1/ask~3fa2c0d1` is an inner node `ask` inside `shout`, for the second word.
-  The part after `~` is a fingerprint of the question, so an answer meant for a question that has since changed is refused.
+- The `id` of a waiting call says the same as text: if `shout` had an inner node `ask` that asked a person, `shout@1/ask~3fa2c0d1` would be its call for the second word.
+  The part after `~` is a fingerprint of the node and the arguments the call got, so an answer meant for a call whose arguments have since changed is refused.
 - The events `run.stream()` yields for an inner node (`node_start`, `node_complete` and the rest) come once for every word together, as for any node
-  that runs per item. Their `loc` is the node's id behind the subgraph node's id, `("shout", "upper")`.
+  that runs per item. Their `loc` is the node's id behind the subgraph node's id, `("shout", "upper")`. The subgraph node has events too, `loc` `("shout",)`: `node_start` when its first inner node starts, `node_complete` when its last one is complete.
 
 A subgraph's entry in `registry.describe()` (the list of nodes an editor offers) lists its inputs and outputs, which that registry
 works out from the nodes the subgraph uses. A subgraph's definition has no `describe()` of its own, because its inputs and outputs depend on the registry.

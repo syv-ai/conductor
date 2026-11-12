@@ -2,7 +2,7 @@
 
 This page is for you if you write nodes that other people use in their graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host (the application that runs graphs) compiling and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one. The blocks run in order as one script.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` gives one a value the caller may change. Every key is an address, `"node.input"`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a default on an input the caller can't give (one with an edge, or on a node that has incoming edges), an edge between types that don't fit.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` gives one a value the caller may change. Every key is an address, `"node.input"`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge that is no address, a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a default on an input that isn't a graph input (a caller gives only the inputs with no edge on the nodes no edge leads into), an edge between types that don't fit.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -114,7 +114,7 @@ A type of your own is shown to people, so you declare it with `@host_type`: the 
 
 An editor reads an input's type as an id, and the id says what is inside: a `list[Address]` input has the type `list[address]`, and a generic pydantic model `Box[int]` declared as `box` is `box[int]`. So a class of your own inside a list or a dict is declared too.
 
-Why a decorator and not a base class: a base class would run before the class is finished, and that breaks correct code. Pydantic's `Box[int]` and `@dataclass(slots=True)` each make the class a second time without the base's keywords, an enum must list such a base first or Python refuses it, and a library's class can't be given a base at all. A decorator runs once the class is finished, on any class, and a type checker flags a missing title on every kind of class.
+Why a decorator and not a base class: a decorator works on any class, a base class doesn't. A generic pydantic model (`Box[int]`) and `@dataclass(slots=True)` both build the class a second time, without a base class's keyword arguments; an enum must list such a base first; and a library's class can't be given a new base at all. A decorator runs after the class is built, so none of that matters.
 
 - `X | None` takes `None`. An input receives `None` only if its type says so, with `| None` or as `Any`. Otherwise the node isn't called where the input's value is `None` (`run.not_called` lists it), and its outputs are `None` there too. If those outputs are branches (below), neither branch is chosen there.
 - `Series[X]` is many values of `X`, a plain list to your function.
@@ -257,9 +257,9 @@ print(run.outputs)                   # {'count.result': 2}
 - `count` takes a `Series`, so it collects the loop: it is called once, with every tagged line as a list, in order. A `Table[R]` input collects records into a table the same way.
 - `open.sender` is returned once, outside the loop, so every call of `tag` gets the same sender. Such a value is an outer value.
 
-A table never starts a loop by itself. Return `Series[R]`, with `R` a `TypedDict`, to return its records one item each; then an edge may name one field of each, `read.result.email`. You may return the records as a list or as the table they are in, which is cheaper for a large one: the nodes downstream receive the same plain records either way. The companion package `syv-conductor-nodes` (`uv add syv-conductor-nodes`) has a Split node that does this for any table or list.
+A table never starts a loop by itself. Return `Series[R]`, with `R` a `TypedDict`, to return its records one item each; then an edge may name one field of each, written `node.output.field`, as `each.result.name` does below. You may return the records as a list or as the table they are in, which is cheaper for a large one: the nodes downstream receive the same plain records either way. The companion package `syv-conductor-nodes` (`uv add syv-conductor-nodes`) has a Split node that does this for any table or list.
 
-A `Series` input collects only the loops its node is not inside. When the node itself runs once per item, because another input takes one item, and the `Series` input is wired to a node inside the same loop, each call gets that node's one output for the same item, as a list of one. To give every call all the items, collect them with a node that is outside the loop, such as the Collect node of `syv-conductor-nodes` (`series-collect`), and wire its list in:
+A `Series` input collects only loops its own node is not inside. Below, `compare.line` takes one line, so `compare` runs once per line. Its `others` input is wired to `shout`, which runs once per line too, in the same loop: so for the line "hello", `others` gets only `shout`'s output for "hello", a list of one. To give every call all the lines, collect them first with a node that is outside the loop, such as the Collect node of `syv-conductor-nodes` (`series-collect`, which takes a `Series` and returns it as one list), and wire that list in:
 
 ```python
 from conductor_nodes.series import collect
@@ -564,7 +564,7 @@ Compiling never upgrades. A host calls `registry.upgrade` and shows the author t
 
 ## Test the whole registry
 
-Calling a node tests its body. `check_registry` tests what a host relies on and a call can't show: an upgrade that breaks a saved node, a body that changes the value it was given, an `Ask` no example reaches. It returns every problem at once:
+Calling a node tests its body. `check_registry` tests what a host relies on and a call can't show: an upgrade that breaks a saved node, a hook that fails, a body that changes the value it was given, an example that fails. It returns every problem at once:
 
 ```python
 from conductor.testing import check_registry

@@ -47,7 +47,7 @@ print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
 print(run.outputs)                     # {'join.result': 'A!+B!+C!'}
 ```
 
-`lines` returns three texts. `shout` takes one, so it was called three times, once per text. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python. Given no edges, it chains the nodes in order: each node's one required input (`line`; `mark` has a default) gets an edge from the one output of the node before it, here `result`, the name of a function's return value. An editor writes the same record as JSON, as the rest of this page shows. `Graph.compile` checks the record against your registry and works out how often each node runs. `run.results` is every node's outputs, by node id and then output name; `run.outputs` is only the graph's outputs, those of its last nodes, by address `node.output`.
+`lines` returns three texts. `shout` takes one, so it was called three times, once per text. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python and returns it, a `GraphRecord`. Given no edges, it chains the nodes in order: each node's one required input (`line`; `mark` has a default) gets an edge from the one output of the node before it, here `result`, the name of a function's return value. A node with two required inputs needs its edges written out, `edges=[...]`. An editor writes the same record as JSON, as the rest of this page shows. `Graph.compile` checks the record against your registry and works out how often each node runs. `run.results` is every node's outputs, by node id and then output name; `run.outputs` is only the graph's outputs, those of its last nodes, by address `node.output`.
 
 ## One or many
 
@@ -129,7 +129,7 @@ Nobody declares what the graph takes or returns. Its inputs are the inputs no ed
 
 ## Show problems
 
-A half-finished graph still compiles. Compiling never raises for a wrong graph: everything wrong is a problem in `graph.problems`, with a `loc` that says which node and input it is on, so an editor can mark it there. A graph with problems does not run. Only JSON that isn't a graph record at all, such as a misspelled key, raises `InvalidCallError`:
+A half-finished graph still compiles. Compiling never raises for a wrong graph: everything wrong is a problem in `graph.problems`, with a `loc` that says which node and input it is on, so an editor can mark it there. Running a graph with problems raises `InvalidCallError`, listing them. Only JSON that isn't a graph record at all, such as a misspelled key, raises `InvalidCallError`:
 
 ```python
 unfinished = Graph.compile("""{
@@ -162,7 +162,7 @@ for waiting in run.waiting:
 # Approve Bo, 5000 kr.?
 ```
 
-Ida's invoice was approved by the node itself. Bo's waits for a person, and so does `summary`, which needs every answer. Each entry of `run.waiting` is one call that asked: its `id`, its `prompt`, and its `questions`, one per output of the node. `approve` has one output, so it has one question, whose `schema` is `{"type": "boolean"}`: a host draws a yes-or-no from it. A node with several outputs asks a form, one question per output, and is answered with a dict by output name. `run.status` is one of `ready`, `running`, `waiting`, `complete`, `failed`, `stopped`, `cancelled` and `timed_out`.
+Ida's invoice was approved by the node itself. Bo's waits for a person, and so does `summary`, which needs every answer. Each entry of `run.waiting` is one call that asked: its `id`, its `prompt`, and its `questions`, one per output of the node. `approve` has one output, so it has one question, whose `schema` is `{"type": "boolean"}`: a host draws a yes-or-no from it. A node with several outputs asks a form, one question per output, and is answered with a dict by output name. `run.status` is `waiting` here. It can also be `ready` (not started), `running` (while `resume()` is going on, as another process sees a saved run), `complete`, `failed` (a node raised), `stopped` (a series was longer than the run's item limit, `max_items`), `cancelled` (the host cancelled a stream) or `timed_out` (`resume(timeout=...)` ran out).
 
 ## Store it
 
@@ -184,7 +184,7 @@ print(run.status)   # complete
 print(run.outputs)  # {'summary.result': '2 of 2 approved'}
 ```
 
-`answer` checks the answer against its question and returns a new run; nothing is called until `resume()`. A wrong answer raises `InvalidCallError`, and the run stays as it was. `resume()` calls every node that is ready, until the run is complete, waits for a person again, fails or is stopped. No node is called twice for an invoice.
+`answer` checks the answer against its question and returns a new run; nothing is called until `resume()`, which blocks until it is done and returns the run. A wrong answer raises `InvalidCallError`, and the run stays as it was. `resume()` calls every node that is ready, until the run is complete, waits for a person again, fails or is stopped. No node is called twice for an invoice.
 
 ## Change one invoice
 
