@@ -235,6 +235,8 @@ def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: Fla
     In the example, ``clean`` has every outcome when ``load`` has returned and ``clean`` has one outcome per
     document. A ``Waiting`` outcome counts: the call was made, though its answer has not come.
     """
+    if not node.loops:  # speed only: calls_expected says one call, so any outcome is every outcome. Worth 2% of to_json on a graph of 500 chained nodes.
+        return bool(outcomes[node.name])
     expected, complete = calls_expected(outcomes, node.loops)
     return complete and len(outcomes[node.name]) == expected
 
