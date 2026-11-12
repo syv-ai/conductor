@@ -6,7 +6,7 @@ import functools
 from typing import TYPE_CHECKING, Any, get_args
 
 from pydantic import GetCoreSchemaHandler
-from pydantic_core import CoreSchema, SchemaValidator, core_schema
+from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.series.read import series_schema
 from conductor._internal.series.stored import SeriesItems, StoredSeries
@@ -77,21 +77,6 @@ class SeriesType(Type, of=_Series):
         read_as = {form.__name__: core_schema.no_info_after_validator_function(form, form.returned_type(self.item).adapter.core_schema) for _, form in forms}
         choices: dict[Any, CoreSchema] = {SeriesItems.__name__: items, **read_as}
         return core_schema.tagged_union_schema(choices, discriminator=form_of)
-
-    @functools.cached_property
-    def returned_validator(self) -> SchemaValidator:
-        """Pydantic's validator of ``returned_schema``."""
-        return SchemaValidator(self.returned_schema)
-
-    def read_returned(self, value: Any) -> StoredSeries | None:
-        """Validates what a node returned for the Series, strictly, and returns it as the run stores it: a
-        ``SeriesItems``, or, for a value of a class registered with ``returned_as`` (a frame), that class's form.
-
-        Raises:
-            ValidationError: ``value`` is not valid for the type.
-        """
-        stored: StoredSeries | None = self.returned_validator.validate_python(value, strict=True)
-        return stored
 
     @functools.cached_property
     def _returned_forms(self) -> list[tuple[type, type[StoredSeries]]]:

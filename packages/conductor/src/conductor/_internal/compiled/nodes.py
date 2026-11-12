@@ -24,6 +24,7 @@ from conductor._internal.address import split_address
 from conductor._internal.ask import output_questions
 from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.gate import ReturnDoor
 from conductor._internal.hashing import short_hash
 from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
 from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
@@ -133,6 +134,12 @@ class CompiledFunctionNode(_CompiledNodeBase):
         loops = tuple([str(series) for series in self.loops])
         written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, loops))
         return short_hash(written.encode(), 8)
+
+    @functools.cached_property
+    def return_door(self) -> ReturnDoor:
+        """Reads what the node's function returns into its outputs by name: ``{"result": "B!"}`` for ``shout``
+        returning ``"B!"``. Built on the node's first call."""
+        return ReturnDoor(self.definition.returns, self.outputs)
 
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:

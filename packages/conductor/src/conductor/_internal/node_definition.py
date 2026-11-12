@@ -68,12 +68,11 @@ from pydantic import Field as PydanticField
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.context import _Context
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import RefusedError
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.text import comma_separated, qualified_name
+from conductor._internal.text import qualified_name
 from conductor._internal.value_type import Type
 
 
@@ -559,7 +558,7 @@ def _version_number(
         replaces: The version this one replaces, or ``None``.
         upgrade: The upgrade given, or ``None``.
 
-    ReturnShape:
+    Returns:
         ``version`` when given; else one more than the version replaced, or 1 for a first version.
 
     Raises:
@@ -606,7 +605,7 @@ def context_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]
         definitions: Each placed function node, as its id and definition.
         context: The values the caller gave, by class.
 
-    ReturnShape:
+    Returns:
         ``context`` as a dict, once every parameter is known to be filled.
 
     Raises:
@@ -627,10 +626,6 @@ def context_values(definitions: Iterable[tuple[str, FunctionDefinition[..., Any]
 class OneResult:
     """The function returns one value, its output ``result``."""
 
-    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
-        """The value as the output ``result``, and whether it needs no checking: one value already of a plain class."""
-        return {"result": returned}, type(returned) in outputs["result"].whole.exact_classes
-
 
 @dataclass(frozen=True, slots=True)
 class OutputsClass:
@@ -642,38 +637,15 @@ class OutputsClass:
 
     cls: type
 
-    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
-        """Each field of the dataclass returned as its output, to be checked."""
-        if not isinstance(returned, self.cls):
-            raise RefusedError([problem.invalid_output(reason=f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}")])
-        return {name: getattr(returned, name) for name in outputs}, False
-
 
 @dataclass(frozen=True, slots=True)
 class HookOutputs:
-    """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph loaded."""
-
-    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
-        """Each output of the mapping returned, to be checked; one missing or not an output is refused."""
-        if not isinstance(returned, Mapping):
-            raise RefusedError([problem.invalid_output(reason=f"the node returns its outputs as a mapping of {comma_separated(outputs, empty='nothing')}, not a {type(returned).__name__}")])
-        unknown = sorted(set(returned) - outputs.keys())
-        missing = [name for name in outputs if name not in returned]
-        if unknown or missing:
-            name = (missing or unknown)[0]
-            raise RefusedError([problem.invalid_output(reason=f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", name=str(name))])
-        return {name: returned[name] for name in outputs}, False
+    """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph was compiled."""
 
 
 @dataclass(frozen=True, slots=True)
 class NoOutputs:
     """The function returns ``None``: the node has no outputs."""
-
-    def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
-        """No outputs; anything but ``None`` returned is refused."""
-        if returned is not None:
-            raise RefusedError([problem.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
-        return {}, True
 
 
 #: What a node's function returns, read from its signature at ``@node``.
@@ -685,7 +657,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
-    ReturnShape:
+    Returns:
         The inputs by name, the ``Context`` parameters (the class each takes), the outputs by name, and what kind
         of value the function returns them as.
 
@@ -781,7 +753,7 @@ def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, F
         inputs: The node's declared inputs, by name.
         adds_inputs: Whether the node has a ``compute_added_inputs`` hook, so there are added inputs to read.
 
-    ReturnShape:
+    Returns:
         What each parameter receives, by the parameter's name.
 
     Raises:

@@ -177,6 +177,50 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
     assert _computed(["Ida", 3]).state.cause.type == "invalid_output"
 
 
+def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_in_order_of_name():
+    run = _computed({"zeta": 1, "name": "Ida", "age": 3, "beta": 2})
+
+    assert (run.state.cause.ctx["name"], run.state.cause.ctx["reason"]) == ("beta", "'beta' is not one of the outputs it returns")
+
+
+@dataclass(frozen=True)
+class Routed:
+    count: int = 0
+    long: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+    short: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+
+
+def test_what_a_node_with_several_outputs_returns_is_held_to_its_shape_before_its_values():
+    """Two alternatives both given are the fault reported, though ``count``, declared first, is refused too."""
+    run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
+
+    assert (run.state.cause.type, run.state.cause.ctx["name"]) == ("invalid_output", "short")
+    assert run.state.cause.ctx["reason"] == "'long' and 'short' are alternatives of 'length', and both hold a value"
+    assert _returning(Routed(long="a", count=2), Routed).results["g"] == {"count": 2, "long": "a", "short": None}
+
+
+class Entry(TypedDict):
+    item: str
+    amount: int
+
+
+@dataclass(frozen=True)
+class Squares:
+    first: Square
+    lines: Series[Entry]
+
+
+def test_an_output_of_several_is_refused_as_its_own_type_says_naming_the_output():
+    run = _returning(Squares(Shape(side=2), [{"item": "a", "amount": 1}]), Squares)  # type: ignore[arg-type]
+
+    assert (run.state.cause.ctx["name"], run.state.cause.ctx["errors"][0]["type"]) == ("first", "not_its_class")
+    assert run.state.cause.ctx["reason"] == "its type's own check gave a Shape, not a Square"
+    run = _returning(Squares(Square(side=2), pl.DataFrame({"item": ["a"], "amount": [1.5]})), Squares)  # type: ignore[arg-type]
+
+    assert (run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("lines", "amount")
+    assert run.state.cause.ctx["reason"].startswith("column 'amount': ")
+
+
 def test_a_series_with_a_skipped_item_is_checked_around_the_gap():
     run = _returning([1, SKIPPED, 2], Series[int])
 

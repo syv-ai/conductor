@@ -24,7 +24,7 @@ in the file named; they move here one by one.
                                                             invalid_checkpoint_every
     a person's answer                                       answer (not yet: ask.py)
                                                             invalid_answer
-    what a node's function returns                          returned (not yet: scheduler/call.py)
+    what a node's function returns                          returned
                                                             invalid_output
     a value an edge gives an input that demands more        edge (not yet: scheduler/call.py)
         than the edge's source declares                     invalid_edge_value
@@ -39,5 +39,6 @@ declared, by the type they are declared on.
 """
 
 from conductor._internal.gate.refused import RefusedError
+from conductor._internal.gate.returned import ReturnDoor
 
-__all__ = ["RefusedError"]
+__all__ = ["RefusedError", "ReturnDoor"]

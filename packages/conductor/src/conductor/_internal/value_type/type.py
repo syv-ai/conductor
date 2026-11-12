@@ -26,6 +26,7 @@ from pydantic_core import (
     PydanticCustomError,
     PydanticSerializationError,
     SchemaError,
+    SchemaValidator,
     core_schema,
     to_json,
 )
@@ -422,13 +423,40 @@ class Type:
             return value
         return self._validate(value, strict=strict)
 
+    @functools.cached_property
+    def returned_schema(self) -> CoreSchema:
+        """The schema that reads what a node returned for the type, strictly, into the form a run keeps.
+
+        It is pydantic's schema of the type. A host's class may give its own schema, and so another class than
+        itself: a type whose classes are a host's holds what pydantic gives to those classes too
+        (``not_its_class``). A ``Series`` stores the list in a form of its own.
+        """
+        schema = self.adapter.core_schema
+        exact = self.exact_classes
+        if not exact or set(exact) <= _SCALARS:
+            return schema
+        type_id = self.id
+
+        def of_its_class(read: Any) -> Any:
+            if not isinstance(read, exact):
+                raise PydanticCustomError("not_its_class", "its type's own check gave a {got}, not a {type}", {"got": type(read).__name__, "type": type_id})
+            return read
+
+        return core_schema.no_info_after_validator_function(of_its_class, schema)
+
+    @functools.cached_property
+    def returned_validator(self) -> SchemaValidator:
+        """Pydantic's validator of ``returned_schema``: the type's own when the schema is the type's."""
+        schema = self.returned_schema
+        return self.adapter.validator if schema is self.adapter.core_schema else SchemaValidator(schema)  # type: ignore[return-value]
+
     def read_returned(self, value: Any) -> Any:
-        """Reads what a node returned for the type, strictly, as a unit holds it.
+        """Reads a value a node returned for the type, strictly, by ``returned_schema``, as a run keeps it.
 
         Raises:
             ValidationError: The type refuses the value.
         """
-        return self.read(value, strict=True)
+        return self.returned_validator.validate_python(value, strict=True)
 
     def written_once(self, stored: Any) -> Any | None:
         """Returns the object inside ``stored``, a stored value of the type, that a save should write only once
