@@ -252,7 +252,14 @@ class Type:
                 (``type_not_carried``).
         """
         bare, param, others = self._parts
-        if any(isinstance(other, FieldInfo) for other in others):  # Annotated[int, Field(ge=0)], here or on an item of a list
+        pydantic_fields = [other for other in others if isinstance(other, FieldInfo)]  # Annotated[int, Field(ge=0)], here or on an item of a list
+        if any(field.discriminator is not None for field in pydantic_fields):
+            raise NodeDeclarationError(
+                "pydantic's Field(discriminator=...) in the hint; pydantic's Discriminator says which member of a union a value is, "
+                'so write Annotated[Cat | Dog, Discriminator("kind")] where you had Annotated[Cat | Dog, Field(discriminator="kind")]',
+                code="pydantic_field_in_hint",
+            )
+        if pydantic_fields:
             raise NodeDeclarationError(
                 "pydantic's Field(...) in the hint; an input or output takes its title, description and limits from Param, "
                 "so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]",

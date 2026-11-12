@@ -1360,7 +1360,9 @@ except NodeDeclarationError as error:
     print(error)  # @node('repeat') on repeat: times: pydantic's Field(...) in the hint; an input or output takes its title, description and limits from Param, so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]
 ```
 
-**Fix.** Write the title, the description and the limits on `Param`, which takes them by the same names: `Annotated[int, Param(ge=0)]`. There is one way to write them on an input or an output, so `Field(...)` is refused wherever it is written in the hint: on the parameter, on the return type, on an item (`Series[Annotated[int, Field(ge=0)]]`, `list[Annotated[int, Field(ge=0)]]`) and on a column of a table's row type. A type that has its limits is still a type: `PositiveInt`, `constr(min_length=1)` and `Annotated[int, annotated_types.Gt(0)]` are read as pydantic reads them, a union is told apart with `Discriminator("kind")`, and `Field(...)` on the fields of your own model or dataclass is that class's.
+**Fix.** Write the title, the description and the limits on `Param`, which takes them by the same names: `Annotated[int, Param(ge=0)]`. There is one way to write them on an input or an output, so `Field(...)` is refused wherever it is written in the hint: on the parameter, on the return type, on an item (`Series[Annotated[int, Field(ge=0)]]`, `list[Annotated[int, Field(ge=0)]]`) and on a column of a table's row type. A type that has its limits is still a type: `PositiveInt`, `constr(min_length=1)` and `Annotated[int, annotated_types.Gt(0)]` are read as pydantic reads them, and `Field(...)` on the fields of your own model or dataclass is that class's.
+
+A `Field(discriminator="kind")` on a union is refused with a message of its own, which shows pydantic's `Discriminator` to write: `Annotated[Cat | Dog, Discriminator("kind")]`.
 
 ### `replaces_another_node`
 

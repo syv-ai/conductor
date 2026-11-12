@@ -210,6 +210,25 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
         assert raised.value.code == "pydantic_field_in_hint", returned
 
 
+def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discriminator_to_write() -> None:
+    from pydantic import Discriminator, Field
+
+    @host_type("cat", title="Cat")
+    class Cat(BaseModel):
+        kind: Literal["cat"] = "cat"
+
+    @host_type("dog", title="Dog")
+    class Dog(BaseModel):
+        kind: Literal["dog"] = "dog"
+
+    with pytest.raises(NodeDeclarationError, match=r"value: pydantic's Field\(discriminator=\.\.\.\) in the hint.*Annotated\[Cat \| Dog, Discriminator\(\"kind\"\)\]") as raised:
+        node("pet", title="Pet", description="For a test.")(_returning_its_input(Annotated[Cat | Dog, Field(discriminator="kind")]))
+    assert raised.value.code == "pydantic_field_in_hint" and "Param" not in str(raised.value)
+
+    pet = node("pet", title="Pet", description="For a test.")(_returning_its_input(Annotated[Cat | Dog, Discriminator("kind")]))
+    assert _run(pet, value={"kind": "dog"}).outputs == {"q.result": "kind='dog'"}
+
+
 def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
     from pydantic import Field
 
