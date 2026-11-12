@@ -1,7 +1,7 @@
 """``run_router``: the routes that start, follow, read, answer, resume and cancel runs, on any number of workers.
 
 Each route parses its call, asks the process's ``Worker`` and says what it
-answered; the worker runs the legs.
+answered; the worker resumes the runs.
 """
 
 from collections.abc import AsyncIterable, Callable, Coroutine, Mapping
@@ -73,8 +73,9 @@ class Answered(BaseModel):
     """The body of a ``POST /runs/{id}/answers`` that was taken.
 
     Attributes:
-        answers: ``started`` when the answers were checked and started the next leg; ``queued`` when a leg was
-            running, so they are checked when it ends, and any refused then is in ``RunView.refused``.
+        answers: ``started`` when the answers were checked and the run was resumed with them; ``queued`` when the
+            run was running, so they are checked when it stops running, and any refused then is in
+            ``RunView.refused``.
     """
 
     answers: Literal["started", "queued"]
@@ -85,31 +86,34 @@ class Resume(BaseModel):
 
     Attributes:
         max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling; it
-            holds for the run's later legs. Left out, the run keeps the ceiling it has.
+            holds for the run from then on. Left out, the run keeps the ceiling it has.
     """
 
     max_items: PositiveInt | None = None
 
 
 class Cancelled(BaseModel):
-    """Whether a running leg was asked to stop; a run that isn't running has nothing to cancel."""
+    """Whether a running run was asked to stop; a run that isn't running has nothing to cancel."""
 
     cancelled: bool
 
 
 class RunView(Outcome):
-    """The body of ``GET /runs/{id}``: a run as its last leg left it, read without loading the run.
+    """The body of ``GET /runs/{id}``: a run as it was when it last stopped running, read without loading the run.
 
     Attributes:
-        waiting: What waits for a person, as of the last leg's end; each ``id`` is what
-            ``POST /runs/{id}/answers`` takes. After a leg that raised, what waits in the run's last checkpoint.
+        waiting: What waits for a person, as of when the run last stopped running; each ``id`` is what
+            ``POST /runs/{id}/answers`` takes. When the worker raised while resuming the run, what waits in the
+            run's last checkpoint.
         outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
             columns); ``None`` until then.
         id: The run's id, as ``POST /runs`` gave it.
-        status: Where the run is: ``running`` while a leg runs, ``waiting`` for answers, ``complete``, or how its
-            last leg ended early, which ``POST /runs/{id}/resume`` goes on from.
-        refused: Answers sent while a leg ran that were refused when it ended, by waiting id, each with its problems.
-        cause: Why the run's last leg ended early; ``None`` while it runs, waits or once complete.
+        status: Where the run is: ``running`` while a worker resumes it, ``waiting`` for answers, ``complete``, or
+            how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which
+            ``POST /runs/{id}/resume`` goes on from.
+        refused: Answers sent while the run was running that were refused when it stopped, by waiting id, each
+            with its problems.
+        cause: Why the run ended early; ``None`` while it runs, waits or once complete.
     """
 
     id: str
@@ -230,27 +234,28 @@ def run_router(
     resume_timeout: float | None = 300.0,
     poll: float = 0.1,
 ) -> APIRouter:
-    """The runs routes, with the worker that runs their legs; mount them with ``app.include_router(...)``.
+    """The runs routes, with the worker that resumes their runs; mount them with ``app.include_router(...)``.
 
     Args:
         store: Where runs and events are kept.
         registry: The nodes graphs may use, or a function of the caller giving them, for a registry per tenant. It
-            is called again for every request and every leg, so a function caches what it builds.
+            is called again for every request and every time a run is resumed, so a function caches what it builds.
         caller: A FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
             dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a
             run is built again on any worker. Let it hold what identifies the caller and nothing that changes: a
             run keeps its caller as they were when it started.
         may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run. Given whenever
             ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
-        context: Gives a leg its ``Context`` values from the caller who started it. A leg runs on threads of its
-            own, so a value is a way to connect, never an open connection.
+        context: Gives a run its ``Context`` values, from the caller who started it, each time it is resumed. A
+            run's nodes are called on threads of their own, so a value is a way to connect, never an open
+            connection.
         published: A FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
             ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that
             graph on inputs alone.
         max_items: The ceiling on the items of any one Series a node works through, which a run starts with; a
-            resume may raise it for that run, and the raised ceiling holds for its later legs.
+            resume may raise it for that run, and the raised ceiling holds for that run from then on.
         lease: The seconds a worker holds a run between renewals.
-        checkpoint_every: The seconds between saves of a running leg.
+        checkpoint_every: The seconds between saves of a running run.
         resume_timeout: The seconds one call of ``resume()`` may take before the run ends ``timed_out``; ``None`` for no limit.
         poll: The seconds between a follower's reads of new events.
 
@@ -316,7 +321,7 @@ def run_router(
 
     @router.get("/runs/{run_id}", responses=_NOT_FOUND)
     def read_run(run: Annotated[RunAsRead, Depends(stored)]) -> RunView:
-        """The run as its last leg left it: its status, what waits for a person, its outputs once complete, the
+        """The run as it was when it last stopped running: its status, what waits for a person, its outputs once complete, the
         queued answers that were refused, and why it ended early if it did."""
         return RunView.of(run)
 
@@ -329,20 +334,20 @@ def run_router(
     @router.post("/runs/{run_id}/answers", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
     async def answer_run(
         run: Annotated[RunAsRead, Depends(stored)],
-        answers: Annotated[dict[str, Any], Body(description="An answer for each waiting unit, by its `id` in the run's `waiting`.")],
+        answers: Annotated[dict[str, Any], Body(description="An answer for each waiting call, by its `id` in the run's `waiting`.")],
     ) -> Answered:
-        """Answer what waits by its ids, and start the next leg on the answers.
+        """Answer what waits by its ids, and resume the run with the answers.
 
         The run takes them as ``run.answer`` does, whatever its status: a run that failed, stopped, timed out or was
         cancelled with questions waiting is answered and goes on, and every answer the run refuses is in the 422. A complete run
-        has nothing to answer and is a 409. While a leg runs, the answers wait for it to end, and a question
+        has nothing to answer and is a 409. While the run is running, the answers wait until it stops, and a question
         answered once meanwhile is refused a second answer.
         """
         return Answered(answers=await worker.answer(run, answers))
 
     @router.post("/runs/{run_id}/resume", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
     async def resume_run(run: Annotated[RunAsRead, Depends(stored)], body: Resume = Resume()) -> Started:
-        """Go on with a run whose last leg ended early; nothing finished is called again. ``{"max_items": ...}`` raises
+        """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
         the ceiling of a run that stopped at it; a resume needs no body."""
         await worker.resume(run, body.max_items)
         return Started(id=run.row.id)
@@ -359,7 +364,7 @@ def run_router(
 
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
     async def cancel_run(run: Annotated[RunAsRead, Depends(stored)]) -> Cancelled:
-        """Stop a running leg before its next unit; the calls already made are kept, and ``resume`` goes on."""
+        """Stop a running run before its next node call; the calls already made are kept, and ``resume`` goes on."""
         return Cancelled(cancelled=await worker.cancel(run))
 
     return router

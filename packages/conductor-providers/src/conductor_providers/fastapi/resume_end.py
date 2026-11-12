@@ -27,7 +27,7 @@ class RowAfterResume:
     """What to write to a run's row after one call of ``resume()`` ended.
 
     Attributes:
-        state: The row's new state. Its ``leg_wanted`` says whether the run is to be resumed again.
+        state: The row's new state. Its ``is_running`` says whether the run is to be resumed again at once.
         changes: The new values of the row's ``run`` and ``outcome`` columns; a column that stays as it is, is left out.
     """
 
@@ -46,7 +46,7 @@ class ResumeEnd(ABC):
 
     @abstractmethod
     def row_after(self, state: StoredState) -> RowAfterResume:
-        """What a row holds after this end.
+        """What to write to the row after a resume call that ended this way.
 
         Args:
             state: The row's state as last read.
@@ -58,13 +58,13 @@ class ResumeEnd(ABC):
 
 @dataclass(frozen=True)
 class Ended(ResumeEnd):
-    """A leg that ended with a run.
+    """A resume call that returned a run: complete, waiting, or ended early by the run's own account.
 
     Attributes:
-        run: The run the leg ended with.
+        run: The run the call returned.
         saved: That run, as JSON.
-        outcome: The row's ``outcome`` after the leg, as JSON.
-        run_end: The leg's ``run_end`` event, as JSON.
+        outcome: The row's ``outcome`` to write, as JSON.
+        run_end: The call's ``run_end`` event, as JSON.
     """
 
     run: Run
@@ -73,14 +73,15 @@ class Ended(ResumeEnd):
     run_end: str
 
     def row_after(self, state: StoredState) -> RowAfterResume:
-        """What a row holds after this end, once the run has been given the answers queued during the leg.
+        """What to write to the row, after the run has been given the answers queued while it was running.
 
-        Each queued answer is given to the run on its own, as ``run.answer`` takes one whatever the run's status:
-        one the run refuses stays in ``refused`` with its problems, and the ones it takes make the run the next
-        leg starts from. An answer whose check raises what is no refusal (a fault in a host's type) is logged and
-        refused as ``answer_check_failed``, so one such answer doesn't cost the leg its end. A cancel that was
-        asked and that this leg did not end on is kept for that next leg, which then ends before it calls
-        anything; one the leg ended on, or that no leg is left to hear, is done with.
+        Each queued answer is given to the run on its own, with ``run.answer``, which takes one whatever the run's
+        status. An answer the run refuses goes to ``refused`` with its problems. If the run takes any, the row's
+        state is ``running`` again and its ``run`` is the answered run, so the worker resumes it at once. An
+        answer whose check raises something other than a refusal (a fault in a host's type) is logged and refused
+        as ``answer_check_failed``, so one such answer doesn't keep the end from being written. A cancel that was
+        asked but did not end this resume call stays asked when the run is resumed for the answers, and that
+        resume call ends before it calls any node. Otherwise the cancel is cleared.
         """
         run, taken, refused = self.run, [], {}
         for waiting_id, value in state.queued_answers.items():
@@ -102,12 +103,12 @@ class Ended(ResumeEnd):
 
 @dataclass(frozen=True)
 class Raised(ResumeEnd):
-    """A leg that raised outside a node, or that conductor refused: it ended with no run to store.
+    """A resume call that raised outside a node, or that conductor refused: it returned no run to store.
 
     Attributes:
         cause: Why the run failed.
-        outcome: The row's ``outcome`` after the leg, as JSON.
-        run_end: The leg's ``run_end`` event, as JSON.
+        outcome: The row's ``outcome`` to write, as JSON.
+        run_end: The ``run_end`` event to store for the call, as JSON.
     """
 
     cause: Problem
@@ -116,14 +117,14 @@ class Raised(ResumeEnd):
 
     @classmethod
     def because(cls, cause: Problem, waiting: list[Waiting]) -> Raised:
-        """The end of a leg that raised.
+        """The end of a resume call that raised.
 
         The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
-        writes, and a leg that raised has none.
+        writes as JSON, and a call that raised returned none.
 
         Args:
             cause: Why the run failed.
-            waiting: What waits in the run as the row holds it, its last checkpoint: the run an answer is given
+            waiting: What waits in the run as the row has it, its last checkpoint: the run an answer is given
                 to. Nothing, for a run that could not be loaded.
 
         Returns:
@@ -134,14 +135,14 @@ class Raised(ResumeEnd):
 
     @classmethod
     def refused(cls, refusal: InvalidCallError, waiting: list[Waiting]) -> Raised:
-        """The end of a leg that conductor refused: the run can't start its leg, or can't be read or written.
+        """The end of a resume call that conductor refused: the run can't be resumed, or can't be read or written.
 
         Trying again would be refused again, so the run fails with conductor's own problem as its cause. A cause
         is one problem: of several, it is the first.
 
         Args:
             refusal: What conductor raised.
-            waiting: What waits in the run as the row holds it.
+            waiting: What waits in the run as the row has it.
 
         Returns:
             The end, its cause the first of the refusal's problems.
@@ -149,38 +150,39 @@ class Raised(ResumeEnd):
         return cls.because(refusal.errors()[0], waiting)
 
     def row_after(self, state: StoredState) -> RowAfterResume:
-        """What a row holds after this end: the run failed, and the row keeps its last checkpoint, lists what
-        waits in it, and keeps the answers queued during the leg for the end of the next leg to deal with."""
+        """What to write to the row: the run failed. The row keeps its last checkpoint as ``run``, its ``outcome``
+        lists what waits in that checkpoint, and the answers queued while the run was running stay queued until
+        the run is resumed and stops again."""
         after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
         return RowAfterResume(after, {"outcome": self.outcome})
 
 
 @dataclass(frozen=True)
 class HandedBack(ResumeEnd):
-    """A leg its worker stopped to shut down: the run did not end, and the row holds it as the leg left it."""
+    """A resume call its worker stopped in order to shut down: the run did not end, and the row has its last checkpoint."""
 
     run_end: None = None
 
     def row_after(self, state: StoredState) -> RowAfterResume:
-        """What a row holds after this end: what it held, a cancel asked meanwhile included, for the worker that
-        takes the run to go on from."""
+        """What to write to the row: nothing. Its state, a cancel asked meanwhile included, is what the worker
+        that takes the run goes on from."""
         return RowAfterResume(state, {})
 
 
 def end_of(run_end: RunEnd, stored: list[Waiting]) -> ResumeEnd:
-    """The end of a leg whose stream ended with a ``run_end``.
+    """The end of a resume call whose stream ended with a ``run_end``.
 
     A run that can't be written as JSON (``run_unwritable``: a value in it has no JSON form) can't be stored
-    however often it is tried, so its leg ended as one that raised, with that problem as the cause.
+    however often it is tried, so the call is treated as one that raised, with that problem as the cause.
 
     Args:
-        run_end: The leg's last event, with the run the leg ended with.
-        stored: What waits in the run as the row holds it, its last checkpoint, which stays when the run can't
+        run_end: The stream's last event, with the run the call returned.
+        stored: What waits in the run as the row has it, its last checkpoint, which stays when the run can't
             be written.
 
     Returns:
         The end with that run: the run as JSON, what waits in it and, once complete, its outputs, each written by
-        its type as the run writes it. Or the end of a leg that raised, for a run that can't be written.
+        its type as the run writes it. Or ``Raised``, for a run that can't be written.
     """
     run = run_end.run
     try:

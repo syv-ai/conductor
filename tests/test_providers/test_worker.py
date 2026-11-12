@@ -774,7 +774,7 @@ async def test_a_leg_that_raised_outside_a_node_reads_failed_with_a_cause_that_i
     run_id = await _started(_worker(store, registry, context=_no_values), graph, {"text": "a"})
     failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "leg_failed", ())
+    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == ("failed", "resume_failed", ())
     assert await store.stored_events(run_id) == [{"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}]
 
 
@@ -854,7 +854,7 @@ async def test_a_run_whose_leg_raised_lists_what_waits_in_the_run_as_stored_and_
 
     assert await worker.answer(await worker.read(run_id), {first: True}) == "started"
     failed = await store.ended(run_id)
-    assert failed.cause is not None and (failed.status, failed.cause.type, [unit.id for unit in failed.waiting]) == ("failed", "leg_failed", [second, third])
+    assert failed.cause is not None and (failed.status, failed.cause.type, [unit.id for unit in failed.waiting]) == ("failed", "resume_failed", [second, third])
 
     assert await worker.answer(await worker.read(run_id), {second: True}) == "started"
     assert [unit.id for unit in (await store.ended(run_id)).waiting] == [third]

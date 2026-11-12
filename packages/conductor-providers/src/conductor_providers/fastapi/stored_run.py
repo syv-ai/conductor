@@ -24,17 +24,17 @@ class StoredRun:
         id: The run's id.
         graph: The ``GraphRecord`` the run is of, as JSON; never changed.
         caller: The caller who started it, as JSON, so any worker can build the run's ``context`` again; never changed.
-        run: ``run.to_json()``: the last checkpoint while a leg runs, the whole run once it ends.
-        status: ``running`` while a leg is wanted, else how the last leg left the run. It is for the host's own
+        run: ``run.to_json()``: the last checkpoint while the run is running, the whole run once it stops.
+        status: ``running`` while a worker resumes the run or is to, else how the run was left. It is for the host's own
             queries: the router writes it in the same ``update`` as ``state``, from it, and reads only ``state``.
-        state: How the run stands and what was asked of its running leg, as JSON: its status and why it ended
-            early, the answers queued and refused, a cancel that was asked. Small whatever the run holds.
-        outcome: What the last leg's end left for a reader, as JSON: what waits for a person and, once the run is
-            complete, its outputs. Written when a leg ends, so reading a run doesn't load it.
+        state: The run's status and what was asked of it while it was running, as JSON: its status and why it
+            ended early, the answers queued and refused, a cancel that was asked. Small however large the run is.
+        outcome: What a reader gets without loading the run, as JSON: what waits for a person and, once the run is
+            complete, its outputs. Written each time the run stops running.
         rev: Moved one on by every ``update``.
-        owner: The worker running a leg of it.
+        owner: The worker resuming it.
         lease_until: Until when the owner's lease holds, as seconds since the epoch; a time already past for a run
-            handed back for any worker to go on with; ``None`` when no leg is wanted.
+            handed back for any worker to go on with; ``None`` when the run is not running.
     """
 
     id: str
@@ -60,12 +60,12 @@ class RunChanges(TypedDict, total=False):
     lease_until: float | None
 
 
-#: The state of a run a leg is wanted for.
+#: The state of a run that a worker resumes or is to resume.
 RUNNING = Going("running")
 
 
 class Outcome(BaseModel):
-    """What a leg's end leaves for a reader, so that reading a run doesn't load it: a row's ``outcome``, as JSON.
+    """What a reader gets of a run without loading it, written each time the run stops running: a row's ``outcome``, as JSON.
 
     Attributes:
         waiting: What waits for a person.
@@ -77,23 +77,28 @@ class Outcome(BaseModel):
 
     @classmethod
     def empty(cls) -> Outcome:
-        """The outcome of a run no leg has ended: nothing waits, no outputs."""
+        """The outcome of a run that has not stopped running yet: nothing waits, no outputs."""
         return cls(waiting=[], outputs=None)
 
 
 class StoredState(BaseModel):
-    """How a run stands and what was asked of its running leg: a row's ``state``, as JSON.
+    """A run's status and what was asked of it while it was running: a row's ``state``, as JSON.
 
-    It is small whatever the run holds, so a route that queues an answer or asks a cancel reads and writes it
-    without touching the run's ``outcome``.
+    Example: ``{"run_state": {"status": "running"}, "queued_answers": {"approve@1~3fa2c0d1": true}, "refused": {},
+    "cancel_asked": false}`` for a running run that one answer was sent to.
+
+    It is small however large the run is, so a route that queues an answer or asks a cancel reads and writes it
+    without touching the row's ``run`` or ``outcome``.
 
     Attributes:
-        run_state: ``running`` while a leg is wanted; else how the last leg left the run, as the run itself says
-            it, with its cause when it ended early.
-        queued_answers: Answers that came while a leg ran, by waiting id; the run gets them when the leg ends.
-        refused: Queued answers the run refused when a leg ended, by waiting id, each with its problems.
-        cancel_asked: Whether someone asked the running leg to stop. The end of the leg that stopped for it clears
-            it; one that came too late for its leg is kept for the next leg, when a queued answer starts one.
+        run_state: ``running`` while a worker resumes the run or is to; else the run's own state when it last
+            stopped running, with its cause when it ended early.
+        queued_answers: Answers that came while the run was running, by waiting id; the run is given them when it
+            stops.
+        refused: Queued answers the run refused when it stopped, by waiting id, each with its problems.
+        cancel_asked: Whether someone asked the running run to stop. It is cleared when the run stops for it. A
+            cancel that came after the last node call is kept when a queued answer makes the run running again, and
+            stops it then.
     """
 
     run_state: RunState
@@ -103,12 +108,12 @@ class StoredState(BaseModel):
 
     @classmethod
     def started(cls) -> StoredState:
-        """The state of a run that has just started: a leg is wanted, and nothing is queued, refused or asked."""
+        """The state of a run that has just started: it is running, and nothing is queued, refused or asked."""
         return cls(run_state=RUNNING, queued_answers={}, refused={}, cancel_asked=False)
 
     @property
-    def leg_wanted(self) -> bool:
-        """Whether a leg is wanted for the run: a worker runs one, or the run waits for a worker to take it."""
+    def is_running(self) -> bool:
+        """Whether the run's status is ``running``: a worker resumes it, or it waits for a worker to take it."""
         return self.run_state == RUNNING
 
     def answered(self, waiting_ids: Collection[str]) -> StoredState:
@@ -128,7 +133,7 @@ class StoredState(BaseModel):
 
     @property
     def cause(self) -> Problem | None:
-        """Why the run's last leg ended early; ``None`` for a run whose last leg didn't, which is not resumed."""
+        """Why the run ended early; ``None`` for a run that didn't, which can't be resumed."""
         return self.run_state.cause if isinstance(self.run_state, EndedEarly) else None
 
     def columns(self) -> RunChanges:

@@ -58,7 +58,7 @@ class RunStore(Protocol):
             now: The time, as seconds since the epoch.
 
         Returns:
-            The runs whose ``lease_until`` is before ``now``. A run that wants no leg has no ``lease_until``, so
+            The runs whose ``lease_until`` is before ``now``. A run that is not running has no ``lease_until``, so
             it is never one of them.
         """
         ...
