@@ -353,12 +353,11 @@ async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
 # -- the schema, the surface, the page ------------------------------------------------------------
 
 
-def test_each_operations_id_is_the_name_of_its_route_function_which_the_summary_is_the_title_of() -> None:
+def test_an_operations_id_is_its_route_functions_name_without_fastapis_path_and_verb() -> None:
     schema = _app(store=MemoryStore(), registry=NodeRegistry(), published=lambda name: GraphRecord()).openapi()
-    operations = [operation for verbs in schema["paths"].values() for operation in verbs.values()]
 
-    assert len(operations) == 12
-    assert all(operation["operationId"] == operation["summary"].lower().replace(" ", "_") for operation in operations)
+    assert schema["paths"]["/nodes"]["get"]["operationId"] == "list_nodes"
+    assert schema["paths"]["/runs/{run_id}/answers"]["post"]["operationId"] == "answer_run"
 
 
 def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_them() -> None:

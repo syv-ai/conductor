@@ -47,7 +47,7 @@ def read_record(record: GraphRecord | str | bytes) -> GraphRecord:
         raise _refusal(invalid) from None
 
 
-def record_from_parts(nodes: Sequence[NodeRecord], edges: Sequence[Any]) -> GraphRecord:
+def record_from_parts(nodes: Sequence[NodeRecord], edges: Sequence[tuple[str, str]]) -> GraphRecord:
     """Returns the ``GraphRecord`` of ``nodes`` and ``edges`` a caller wrote in Python, refusing an edge that is no address.
 
     Raises:
