@@ -127,7 +127,7 @@ except InvalidCallError as e:
 
 - **A `None` keeps the node from being called for that item.** If an argument is `None` and the input's type lacks `| None`, the node isn't called there, its outputs are `None` (of branches in an `exclusive_group`, none is chosen), and `run.not_called` records the node, the item and the input. Pydantic refuses `None` for a `str`, and failing the whole run after other items' side effects went out is worse.
 - **`Series[X]` leaves `None` out, `Series[X | None]` keeps it, and `Series[X] | None` is a list that may itself be `None`.** Each spelling says one thing. `Table[R] | None` reads the same way: a table that was never returned reaches the input as `None`.
-- **`SKIPPED` is a branch not chosen**, not a `None`. Inside a loop it skips the nodes downstream for that item; outside a loop it skips them altogether. A skip wins over a `None`: a node with one input skipped and another `None` is skipped, whichever comes first in its signature.
+- **`SKIPPED` is a branch not chosen**, not a `None`. Inside a loop it skips the nodes downstream for that item; outside a loop it skips them altogether. A skip wins over everything else an input reads: a node with one input skipped and another `None`, or another whose edge names a field its record lacks, is skipped, whichever comes first in its signature. Without a skip, the first such fault in the signature fails the call, and without a fault, the first `None` an input does not accept makes the node not called for it.
 - **An outer value is the same on every call of the loop.** Nothing is copied, and it starts no loop of its own: wiring in a document's name changes nothing about how often a node runs.
 
 ```python

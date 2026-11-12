@@ -642,12 +642,11 @@ def _decide(text: str) -> _YesNo:
     return _YesNo(text, SKIPPED)
 
 
-@pytest.mark.parametrize(("values_first", "ended"), [(True, ("failed", "invalid_edge_value")), (False, ("complete", None))])
-def test_a_field_a_record_lacks_fails_the_call_when_its_input_is_read_before_a_skipped_one(values_first: bool, ended: tuple[Any, ...]):
-    """both collects give.result.name from records one of which has no name, and takes one from a
-    branch not chosen. The inputs are read in the order of the signature, and the first that settles the call wins:
-    with values first the run fails with invalid_edge_value; with one first the call is skipped, and
-    values is never read."""
+@pytest.mark.parametrize("values_first", [True, False])
+def test_a_skipped_input_skips_the_call_also_when_an_input_before_it_names_a_field_a_record_lacks(values_first: bool):
+    """``both`` collects ``give.result.name`` from records one of which has no ``name``, and takes ``one`` from a
+    branch not chosen. A skip wins over a fault whichever input comes first in the signature: the call is skipped,
+    and the missing field fails nothing."""
     items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
     if values_first:
         @node("both", title="Both", description="For a test.")
@@ -660,9 +659,21 @@ def test_a_field_a_record_lacks_fails_the_call_when_its_input_is_read_before_a_s
     edges = [("give.result.name", "both.values"), ("decide.no", "both.one")]
     graph = Graph.compile(make_graph(_decide, items, both, edges=edges), registry_of(_decide, items, both))
     run = graph.run({"decide.text": "ok"})
-    cause = run.state.cause.type if run.status == "failed" else None
-    states = json.loads(run.to_json())["outcomes"].get("both", {}).get("states")
-    assert ((run.status, cause), states) == (ended, None if values_first else ["skipped"])
+    assert (run.status, json.loads(run.to_json())["outcomes"]["both"]["states"]) == ("complete", ["skipped"])
+
+
+def test_the_first_fault_in_the_signature_fails_a_call_that_no_skip_settles():
+    """Two inputs name fields their records lack: the call fails on the first in the signature, ``first``."""
+    items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
+
+    @node("two", title="Two", description="For a test.")
+    def two(first: Series[Any], second: Series[Any]) -> int:
+        return len(first)
+
+    edges = [("give.result.email", "two.first"), ("give.result.name", "two.second")]
+    graph = Graph.compile(make_graph(items, two, edges=edges), registry_of(items, two))
+    run = graph.run()
+    assert (run.status, run.state.cause.type, run.state.cause.ctx["name"], run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "first", "email")
 
 
 @node("words", title="Words", description="For a test.")

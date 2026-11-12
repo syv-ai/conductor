@@ -82,9 +82,11 @@ class ResultReader:
 
         In the example, ``arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``.
 
-        Every input is read before ``NOT_READY`` or ``NoneInput`` is returned, because a later input may read
-        ``SKIPPED``, and that skips the node whatever the earlier inputs are. So the order of a node's
-        parameters never changes the result.
+        Every input is read before anything else is decided, so the order of a node's parameters never changes
+        the result: an input that reads ``SKIPPED`` skips the call, whatever the other inputs read; else a value
+        that does not exist yet makes the call ``NOT_READY``, to be tried again; else an edge that names a field
+        its record lacks fails the call, the first such input in the signature; else an input that reads ``None``
+        and does not accept it makes the call a ``NoneInput``, naming the first such input.
 
         ``_list_looped_over`` calls this with item indexes one index shorter than the node's own. The result
         then says what a call of the node would be for any item: ``Skipped`` or ``NoneInput`` when every item
@@ -104,13 +106,16 @@ class ResultReader:
         for name, address in node.graph_inputs:
             arguments[name] = graph_inputs[address]
         none_input: str | None = None
+        fault: RefusedError | None = None
         ready = True
         for name, node_input, accepts_none in node.edge_arguments:
             try:
                 value = self.read_input(node_input, item_indexes)
-            except NoSuchFieldError as missing:
-                reason = f"it has no field '{missing.field}'"
-                raise RefusedError([problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)]) from None
+            except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
+                if fault is None:
+                    reason = f"it has no field '{missing.field}'"
+                    fault = RefusedError([problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)])
+                continue
             if value is SKIPPED:
                 return Skipped(node.compiled_node.outputs_when_skipped)
             if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node
@@ -120,6 +125,8 @@ class ResultReader:
             arguments[name] = value
         if not ready:
             return NotReady.NOT_READY
+        if fault is not None:
+            raise fault
         if none_input is not None:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
