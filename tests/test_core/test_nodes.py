@@ -685,7 +685,7 @@ def test_a_definition_may_hold_a_graph_at_a_version_of_its_own():
 
     inner = subgraph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,)
-    assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "graph"
+    assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "subgraph"
     graph = load(read, inner, record=GraphRecord(nodes=[placed("e", "inner", version=3)]))
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 

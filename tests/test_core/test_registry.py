@@ -734,7 +734,7 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     registry = NodeRegistry()
     registry.add(upper, shout)
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
-    assert listed.kind == "graph" and not hasattr(shout, "describe")
+    assert listed.kind == "subgraph" and not hasattr(shout, "describe")
     assert not {"policy", "takes_added_inputs", "computes_outputs"} & listed.model_dump(mode="json").keys()
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
 

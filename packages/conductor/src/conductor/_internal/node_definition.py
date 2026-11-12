@@ -390,14 +390,16 @@ class FunctionNodeDescription(_NodeDescription):
 
 
 class SubgraphDescription(_NodeDescription):
-    """A node that is a subgraph, as an editor's palette shows it: its fields are the ones its graph offers,
-    which only a registry holding the nodes that graph uses can work out.
+    """A subgraph as an editor's palette shows it.
+
+    Its inputs and outputs are the graph inputs and graph outputs of its graph record, so only a registry that
+    has the node definitions that record uses can describe it.
 
     Attributes:
-        kind: ``"graph"``.
+        kind: ``"subgraph"``.
     """
 
-    kind: Literal["graph"] = "graph"
+    kind: Literal["subgraph"] = "subgraph"
 
 
 #: A node as an editor's palette shows it, one of two kinds told apart by ``kind``.
