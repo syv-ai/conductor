@@ -36,7 +36,6 @@ from conductor import (
     subgraph,
 )
 from pydantic import BaseModel, ValidationError
-from pytest import MonkeyPatch
 
 from tests.test_core.nodes import place, registry_of
 
@@ -65,26 +64,27 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 # -- failures ---------------------------------------------------------------------
 
 
-def test_a_code_fingerprint_names_a_loop_by_its_address_not_by_how_the_address_class_prints(monkeypatch: MonkeyPatch):
-    """A waiting call's id and a saved run contain the code fingerprint, so it names a node's loops by their
-    addresses as an author writes them (``words.result``), whatever the engine's address class prints."""
-    from conductor._internal.base import Address
+def test_a_code_fingerprint_is_the_same_on_every_compile_and_names_the_loop_the_node_is_inside():
+    """A waiting call's id and a saved run contain the code fingerprint, so compiling the same record again gives
+    the same one, and the same node inside the loop over another output gets another."""
 
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str]:
         return text.split()
 
+    @node("letters", title="Letters", description="For a test.")
+    def letters(text: str) -> Series[str]:
+        return list(text)
+
     @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
-    def digest() -> str:
-        graph = Graph.compile(make_graph(words, upper), registry_of(words, upper))
+    def digest(first: Any) -> str:
+        graph = Graph.compile(make_graph(first, upper), registry_of(first, upper))
         return json.loads(graph.run(text="a").to_json())["code"]["upper"]
 
-    before = digest()
-    monkeypatch.setattr(Address, "__repr__", lambda self: f"Renamed({self.node}, {self.name})")
-    assert digest() == before
+    assert digest(words) == digest(words) != digest(letters)
 
 
 def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothing(caplog):

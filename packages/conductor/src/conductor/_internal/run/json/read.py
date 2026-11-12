@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.ask import Answer
-from conductor._internal.base import SKIPPED, ItemIndexes, parse_node_path
+from conductor._internal.base import SKIPPED, Address, ItemIndexes, parse_node_path
 from conductor._internal.compiled import CompiledGraph
 from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
@@ -222,7 +222,7 @@ def with_shared_tables(
                 reason = "that is not an output written in full before it"
             raise PydanticCustomError(
                 "same_as_unreadable", "tables_written_once: '{output}' can't be read as the table at '{same_as}': {reason}",
-                {"output": f"{node}.{output}[{call_number}]", "same_as": f"{from_node}.{from_output}[{from_call_number}]", "reason": reason},
+                {"output": f"{Address(node, output)}[{call_number}]", "same_as": f"{Address(from_node, from_output)}[{from_call_number}]", "reason": reason},
             ) from None
     return saved
 

@@ -42,14 +42,14 @@ class Edge:
     """What one edge reads from an output, as compiled: the input it leads to holds one per edge.
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
-    ``shout``, so it is ``Edge("lines", "result", (), None, Type(str), item=True)``. The edge from ``shout.result``
-    reads the value one call of ``shout`` returned, ``Edge("shout", "result", (Address("lines", "result"),),
-    None, Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index.
+    ``shout``, so it is ``Edge(Address("lines", "result"), (), None, Type(str), item=True)``. The edge from
+    ``shout.result`` reads the value one call of ``shout`` returned, ``Edge(Address("shout", "result"),
+    (Address("lines", "result"),), None, Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by
+    one item index.
 
     Attributes:
-        node_id: The node the edge comes from. In a compiled graph's own inputs it is the node's id. In the flat
+        source: The output the edge reads. In a compiled graph's own inputs its node is the node's id. In the flat
             graph it is the name of the function node (``"loud/shout"`` inside a subgraph).
-        output: The output it reads.
         loops: The loops that node is inside, outermost first, each as the output that is the list looped over.
         record_field: The field of a record that the edge reads (``email`` in ``split.result.email``); ``None``
             when it reads the whole value.
@@ -60,8 +60,7 @@ class Edge:
         depth: How many loops the node is inside: the number of item indexes that say which call of it.
     """
 
-    node_id: str
-    output: str
+    source: Address
     loops: tuple[Address, ...]
     record_field: str | None
     type: Type
@@ -74,13 +73,13 @@ class Edge:
     @property
     def address(self) -> str:
         """The address an edge names it by, ``node.output`` or ``node.output.field``."""
-        return str(Address.of_field(self.node_id, self.output, self.record_field))
+        return str(Address.of_field(self.source.node, self.source.name, self.record_field))
 
     @property
     def loops_of_value(self) -> tuple[Address, ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
         node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return (*self.loops, Address(self.node_id, self.output)) if self.item else self.loops
+        return (*self.loops, self.source) if self.item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------

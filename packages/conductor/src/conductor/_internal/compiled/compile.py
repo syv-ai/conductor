@@ -594,18 +594,18 @@ class _Compiler:
             fields = [str(Address.of_field(address.node, output, f)) for f in field.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=record_field))
             return None
-        return Edge(address.node, output, source.loops_around(output), record_field, read_type, item=field.is_series)
+        return Edge(Address(address.node, output), source.loops_around(output), record_field, read_type, item=field.is_series)
 
-    def _edge_order(self, source: Edge) -> tuple[int, int, str]:
+    def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index in the record, then by
         its output's index in that node."""
-        return self.position[source.node_id], list(self.nodes[source.node_id].outputs).index(source.output), source.address
+        return self.position[edge.source.node], list(self.nodes[edge.source.node].outputs).index(edge.source.name), edge.address
 
     # -- branches ---------------------------------------------------------------
 
-    def _branches_required_for(self, source: Edge) -> frozenset[RequiredBranch]:
-        """The branches that must be chosen for the output ``source`` reads to have a value."""
-        return self.nodes[source.node_id].branches_required_for(source.output)
+    def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
+        """The branches that must be chosen for the output ``edge`` reads to have a value."""
+        return self.nodes[edge.source.node].branches_required_for(edge.source.name)
 
     def _inputs_with_conflicting_edges(
         self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],

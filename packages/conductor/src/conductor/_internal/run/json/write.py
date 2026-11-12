@@ -12,7 +12,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Answer, Question
-from conductor._internal.base import SKIPPED, node_path_text
+from conductor._internal.base import SKIPPED, Address, node_path_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
@@ -284,7 +284,7 @@ def first_unwritable_value(
     written_alone = {address: (inputs[address], value) for address, value in saved.inputs.items()}
     by_node = [*saved.outcomes.items(), *((name, reusable.outcomes) for name, reusable in saved.reusable.items())]
     for name, outcomes in by_node:
-        written_alone.update({f"{name}.{output}": (saved_list_type(outputs[name][output]), values) for output, values in outcomes.outputs.items()})
+        written_alone.update({str(Address(name, output)): (saved_list_type(outputs[name][output]), values) for output, values in outcomes.outputs.items()})
     for where, (written_by, value) in written_alone.items():
         try:
             written_by.serializer.to_json(value)

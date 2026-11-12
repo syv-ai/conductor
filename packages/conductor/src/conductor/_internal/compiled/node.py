@@ -82,7 +82,7 @@ class _CompiledNodeBase:
     @functools.cached_property
     def upstream_ids(self) -> frozenset[str]:
         """The ids of the nodes that the edges into this node come from."""
-        return frozenset(source.node_id for node_input in self.inputs.values() for source in node_input.sources)
+        return frozenset(edge.source.node for node_input in self.inputs.values() for edge in node_input.sources)
 
     @functools.cached_property
     def plain_inputs(self) -> bool:
@@ -240,7 +240,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside = self.inner._branches_required_for(output)
         depth = len(self.loops)
         return self.required_branches | {
-            RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", str(Address(branch.node_id, branch.output)), depth + branch.depth)
+            RequiredBranch(self.id, str(Address(branch.node_id, branch.group)), str(Address(branch.node_id, branch.output)), depth + branch.depth)
             for branch in inside
         }
 

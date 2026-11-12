@@ -184,7 +184,7 @@ class CompiledGraph:
         for text, address in self._output_addresses.items():
             field = self._nodes[address.node].outputs[address.name]
             group = field.param.exclusive_group
-            hint = Annotated[field.hint, Param(exclusive_group=f"{address.node}.{group}")] if group else field.hint
+            hint = Annotated[field.hint, Param(exclusive_group=str(Address(address.node, group)))] if group else field.hint
             outputs[text] = Field(text, hint, field.default)
         return outputs
 

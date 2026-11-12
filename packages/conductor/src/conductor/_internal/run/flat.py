@@ -286,7 +286,7 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeArgument
     """
     node_inputs = node.display_inputs.get(output)
     if node_inputs is None:
-        source = Edge(node.name, output, _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
+        source = Edge(Address(node.name, output), _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
         per_loop = [
             _collecting_argument(CollectingInput(_DISPLAY_FIELD, Address(series_node.name, series), _loops_by_name(series_node.loops), (source,)), (series_node, series), (source,), functions)
@@ -390,10 +390,10 @@ def _add_flat_nodes(
                     graph_inputs.append((name, address))
                     continue
                 case EdgeArgument(edges=edges):
-                    read = [(edge.node_id, edge.depth) for edge in edges]
+                    read = [(edge.source.node, edge.depth) for edge in edges]
                     depth = max(len(edge.loops_of_value) for edge in edges)
                 case CollectingArgument(input=collecting_input, series=series, edges=edges, depth=depth):
-                    read = [(series.node, depth), *[(edge.node_id, edge.depth) for edge in edges]]
+                    read = [(series.node, depth), *[(edge.source.node, edge.depth) for edge in edges]]
                     looped_over = (functions[series.node], series.name)
                     # what a node inside the loop reads from outside it can say that no item will have a value
                     read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
@@ -464,10 +464,10 @@ def _flat_input(
     """
 
     def flat_edge(edge: Edge, starts_loop: bool) -> Edge:
-        source_node, output = nodes_by_id[edge.node_id].source_of(edge.output)
+        source_node, output = nodes_by_id[edge.source.node].source_of(edge.source.name)
         if starts_loop and edge.item:
-            source_node.looped_outputs.setdefault(output, (nodes_by_id[edge.node_id], edge.output))
-        return Edge(source_node.name, output, _loops_by_name(source_node.loops), edge.record_field, edge.type, item=edge.item)
+            source_node.looped_outputs.setdefault(output, (nodes_by_id[edge.source.node], edge.source.name))
+        return Edge(Address(source_node.name, output), _loops_by_name(source_node.loops), edge.record_field, edge.type, item=edge.item)
 
     match node_input:
         case ConstantInput():
@@ -498,7 +498,7 @@ def _collecting_argument(
         functions: The function nodes the edges name, by name.
     """
     series_node, output = looped_over
-    loop_body = _loop_body_of(looped_over, [functions[edge.node_id] for edge in edges])
+    loop_body = _loop_body_of(looped_over, [functions[edge.source.node] for edge in edges])
     return CollectingArgument(node_input, Address(series_node.name, output), len(series_node.loops), edges, loop_body)
 
 

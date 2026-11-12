@@ -166,8 +166,8 @@ class ResultReader:
                 return value
         return best
 
-    def read_output(self, source: Edge, item_indexes: ItemIndexes) -> Any:
-        """Returns what one edge reads from the output ``source`` for the call at ``item_indexes``.
+    def read_output(self, edge: Edge, item_indexes: ItemIndexes) -> Any:
+        """Returns what one edge reads from its output for the call at ``item_indexes``.
 
         In the example, the edge into ``shout.line`` reads one item of ``lines.result``: for ``(1,)`` it reads
         ``"b"``. The edge into ``join.texts`` reads ``shout.result``: for ``(1,)`` it reads ``"B!"``.
@@ -181,20 +181,20 @@ class ResultReader:
         Raises:
             NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
         """
-        depth = source.depth
-        outcome = self.outcomes[source.node_id].get(item_indexes[:depth])
+        depth = edge.depth
+        outcome = self.outcomes[edge.source.node].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
-                would_be = self.for_any_item[source.node_id]
+                would_be = self.for_any_item[edge.source.node]
                 if isinstance(would_be, dict):
                     return MAY_HAVE_VALUE
-                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[source.output]
+                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[edge.source.name]
             return NotReady.NOT_READY
-        value = outcome.outputs[source.output]
+        value = outcome.outputs[edge.source.name]
         if value is None or value is SKIPPED:
             return value
-        record_field = source.record_field
-        if not source.item:
+        record_field = edge.record_field
+        if not edge.item:
             return value if record_field is None else field_of(value, record_field)
         try:  # ``value`` is a stored Series: one item of it, or one field of that item
             index = item_indexes[depth]

@@ -77,8 +77,11 @@ class Address:
     ``parse`` and ``parse_input`` are the grammar: the record door checks each edge by ``parse``, and ``make_graph``
     reads each key of ``constants`` and ``defaults`` by ``parse_input``.
 
+    The same text names a node's exclusive group inside a subgraph (``route.length``), and in a run a node by its
+    node path (``loud/shout.result``, an output of the node ``shout`` inside ``loud``).
+
     Attributes:
-        node: The node's id.
+        node: The node's id; in a run, its node path as text.
         name: The input or output, and for one field of a record, a dot and the field after it.
     """
 
