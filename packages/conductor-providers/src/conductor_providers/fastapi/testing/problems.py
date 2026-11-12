@@ -45,8 +45,8 @@ def run_not_found(*loc: str | int) -> str:
 def run_differs(*loc: str | int, columns: list[str]) -> str:
     """``get`` gave a run whose columns are not what ``create`` or ``update`` wrote.
 
-    A store keeps each column as it is written: the texts exactly, ``None`` as ``None``, a time to the fraction of a
-    second. ``update`` writes the columns it is given, leaves the others as they are and adds one to ``rev``. In the
+    A store keeps each column as it is written: a JSON column as the same JSON value (in any form of JSON), ``None``
+    as ``None``, a time to the fraction of a second. ``update`` writes the columns it is given, leaves the others as they are and adds one to ``rev``. In the
     example, ``update`` leaves out every column it is given ``None`` for, so a run given back keeps its ``owner``.
 
     Args:

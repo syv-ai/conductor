@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import re
 import sys
 from pathlib import Path
@@ -76,3 +77,26 @@ async def test_updates_at_once_that_all_get_through_are_reported_with_how_many()
 def test_every_kind_says_what_to_do() -> None:
     """A clause after what is wrong, as conductor's own messages have."""
     assert [kind.code for kind in RUN_STORE_CHECK_PROBLEMS if "; " not in kind.sentence] == []
+
+
+class _KeepsJsonAsJsonb(MemoryStore):
+    """Writes every JSON text back another way, keys sorted and spaced, as a Postgres ``jsonb`` column gives it."""
+
+    @staticmethod
+    def _rewritten(text: str) -> str:
+        return json.dumps(json.loads(text), sort_keys=True, indent=1)
+
+    async def create(self, run: StoredRun) -> None:
+        columns = {name: self._rewritten(getattr(run, name)) for name in ("graph", "caller", "run", "state", "outcome")}
+        await super().create(dataclasses.replace(run, **columns))
+
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        rewritten = {name: self._rewritten(value) if name in ("run", "state", "outcome") else value for name, value in changes.items()}
+        return await super().update(run_id, rev, rewritten)  # type: ignore[arg-type]
+
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        return await super().add_event(run_id, owner, self._rewritten(body))
+
+
+async def test_a_store_that_writes_its_json_another_way_passes() -> None:
+    assert await check_run_store(_KeepsJsonAsJsonb()) == []

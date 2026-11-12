@@ -20,6 +20,10 @@ class StoredRun:
     A store acts on ``id``, ``rev``, ``owner`` and ``lease_until``. ``status`` and ``caller`` are columns for the
     host's own queries. The other four are text the router writes and reads, which a store only keeps.
 
+    ``graph``, ``caller``, ``run``, ``state`` and ``outcome`` are JSON, and so is an event's body. A store may keep
+    them in any form that reads back as the same JSON value, such as a Postgres ``jsonb`` column, which orders keys and
+    spaces its own way: the router and conductor parse them, and never compare or hash the text itself.
+
     Attributes:
         id: The run's id.
         graph: The ``GraphRecord`` the run is of, as JSON; never changed.

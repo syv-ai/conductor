@@ -8,7 +8,8 @@ A host puts one test in its suite, on an empty database of the test's own::
         assert await check_run_store(PostgresRunStore(test_database_url)) == []
 
 It writes runs and events through the store's six methods and reads them back. It checks that a run is kept as
-written; that ``get`` gives ``None`` for an id no run has; that ``update`` writes only at the ``rev`` it is given, and
+written (a JSON column, and an event's body, as the same JSON value: a ``jsonb`` column that writes it another way
+passes); that ``get`` gives ``None`` for an id no run has; that ``update`` writes only at the ``rev`` it is given, and
 that of several updates at one ``rev`` made at once exactly one is written; that ``expired`` gives the runs whose
 lease ran out and no other; that ``add_event`` appends only for the run's owner, numbering each run's events from ``0``;
 and that ``events`` gives them in order above the number asked. A store that raises where an answer is expected is
@@ -78,9 +79,36 @@ def _new_run(*, owner: str | None, lease_until: float | None) -> StoredRun:
     return StoredRun(id=f"check-run-store-{uuid.uuid4().hex}", graph='{"nodes": [], "edges": []}', caller='"Zoë"', rev=0, **written)
 
 
+#: The columns that hold JSON: compared as the values they read back as, so a store may keep them in any form of JSON.
+_JSON_COLUMNS = frozenset({"graph", "caller", "run", "state", "outcome"})
+
+
+def _as_json_value(text: str) -> str:
+    """The JSON value that ``text`` reads as, written one way: keys sorted, no spaces. Text that is no JSON is itself.
+
+    ``_as_json_value('{"b": 1, "a": 2.0}')`` is ``'{"a":2.0,"b":1}'``, as is the same object read back from a Postgres
+    ``jsonb`` column. Written out again, ``true`` and ``1`` stay two values, as they are to the router.
+    """
+    try:
+        return json.dumps(json.loads(text), sort_keys=True, separators=(",", ":"))
+    except ValueError:
+        return text
+
+
 def _columns_not_kept(found: StoredRun, written: StoredRun) -> list[str]:
-    """The columns of ``found`` that differ from ``written``, in the order ``StoredRun`` declares them."""
-    return [field.name for field in dataclasses.fields(StoredRun) if getattr(found, field.name) != getattr(written, field.name)]
+    """The columns of ``found`` that differ from ``written``, in the order ``StoredRun`` declares them; a JSON column
+    differs only when it reads back as another value."""
+
+    def kept_as(name: str, run: StoredRun) -> object:
+        value = getattr(run, name)
+        return _as_json_value(value) if name in _JSON_COLUMNS else value
+
+    return [field.name for field in dataclasses.fields(StoredRun) if kept_as(field.name, found) != kept_as(field.name, written)]
+
+
+def _as_events(given: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Events with each body as the JSON value it reads as, so a store may keep a body in any form of JSON."""
+    return [(number, _as_json_value(body)) for number, body in given]
 
 
 async def _read_back(store: RunStore, written: StoredRun, method: str) -> Problem | None:
@@ -177,14 +205,14 @@ async def _events_are_numbered_and_kept_for_the_owner(store: RunStore) -> list[P
     if not all(added):
         return [problems.event_refused("add_event")]
     for after in (-1, 0, 2):
-        if (given := await _answer(store.events, run.id, after)) != list(enumerate(bodies))[after + 1:]:
+        if _as_events(given := await _answer(store.events, run.id, after)) != _as_events(list(enumerate(bodies))[after + 1:]):
             return [problems.events_not_as_added("events", after=after, numbers=[number for number, _ in given])]
     if not await _answer(store.update, run.id, run.rev, {"owner": "worker-b"}):
         return []  # the check of update reports it
     for not_held in (run, other, not_running):  # by worker-a, which holds none of them now
         if await _answer(store.add_event, not_held.id, "worker-a", '{"type": "run_end"}'):
             return [problems.event_added_by_another("add_event")]
-    if await _answer(store.events, run.id, -1) != list(enumerate(bodies)):
+    if _as_events(await _answer(store.events, run.id, -1)) != _as_events(list(enumerate(bodies))):
         return [problems.event_added_by_another("add_event")]
     return []
 
