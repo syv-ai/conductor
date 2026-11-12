@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+import pydantic_core
 from pydantic_core import PydanticSerializationError
 
+from conductor._internal.address import node_path_text
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
 from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
+from conductor._internal.outcomes import (
+    Answered,
+    Done,
+    NotCalled,
+    Outcome,
+    Skipped,
+    Waiting,
+    all_item_indexes,
+    has_every_outcome,
+)
+from conductor._internal.problem import InvalidCallError
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.json.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -23,11 +36,72 @@ from conductor._internal.run.json.type import (
 from conductor._internal.run.reuse import ReusableOutcomes
 from conductor._internal.value_type import Type
 
+if TYPE_CHECKING:
+    from conductor._internal.compiled import FlatFunctionNode
+    from conductor._internal.run.type import Run
+
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.
 _STATE_WORD: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
 
 #: The kinds of unit that hold outputs.
 _HOLDS_OUTPUTS = frozenset({Done, Answered})
+
+
+def run_to_json(run: Run) -> str:
+    """The run as JSON: its inputs, each node's units as a column per output, and what it went on from."""
+    saved, codec = saved_run(run), run.graph._run_codec
+    try:
+        return codec.serializer.to_json(saved, exclude_defaults=True).decode()
+    except PydanticSerializationError:
+        at = first_unwritable_value(codec.inputs, codec.outputs, saved)
+        raise InvalidCallError([problem.run_unwritable("state", at, where=at, reason="a value has no JSON form")]) from None
+
+
+def outputs_to_json(run: Run) -> str:
+    """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
+    writes it: a table as its columns, a float that isn't finite as its text, a host's type by its own schema.
+
+    Raises:
+        InvalidCallError: The run is not complete (``run_not_complete``), or an output holds a value with no
+            JSON form (``run_unwritable``, naming the output).
+    """
+    written = {}
+    for address, value in run.outputs.items():
+        function, output = run._function_of(address)
+        hint: Any = function.compiled_node.outputs[output].saved_type.hint
+        for _ in function.loops:  # one list, or None in its place, for each loop the function is called in
+            hint = list[hint] | None
+        try:
+            written[address] = Type(hint).to_json(value)
+        except PydanticSerializationError:
+            raise InvalidCallError([problem.run_unwritable("outputs", address, where=address, reason="a value has no JSON form")]) from None
+    return pydantic_core.to_json(written).decode()
+
+
+def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
+    """The run as its graph's ``RunCodec`` writes it. A node inside a subgraph is saved as any node,
+    under its path. A subgraph's node holds no unit, so nothing is written of it."""
+    graph = run.graph
+    functions = graph._functions
+    outcomes = {
+        node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))
+        for node in graph._flat_function_nodes if run._outcomes[node.name]
+    }
+    previous = {node_path_text(path): saved_reusable(functions[path].outputs, of_node) for path, of_node in run._reusable.items() if of_node.by_fingerprint or of_node.answers}
+    code = {name: run._code_changed.get(path) or compiled_node.code_fingerprint for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in previous}
+    complete = [node.name for node in graph._flat_function_nodes if node.node_path in run._finished_nodes]
+    codec = graph._run_codec
+    written_once = tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None
+    return SavedRun(graph=graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=previous, code=code, complete=complete, tables_written_once=written_once)
+
+
+def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome | None]:
+    """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
+    instance hasn't run."""
+    outcomes = run._outcomes[node.name]
+    if has_every_outcome(run._outcomes, node):  # the units as they stand
+        return list(outcomes.values())
+    return [outcomes.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
 
 
 def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | None]) -> SavedOutcomes:

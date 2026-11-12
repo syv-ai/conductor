@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
 from pydantic_core import PydanticCustomError
 
+from conductor._internal.address import ItemIndexes, parse_node_path
 from conductor._internal.field import Field
 from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
+from conductor._internal.outcomes import (
+    Answered,
+    Done,
+    NotCalled,
+    Outcome,
+    Skipped,
+    Waiting,
+    all_item_indexes,
+)
+from conductor._internal.problem import InvalidCallError, value_free_errors
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.json.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -19,6 +31,50 @@ from conductor._internal.run.json.type import (
 )
 from conductor._internal.run.reuse import ReusableOutcomes
 from conductor._internal.value_type import FieldValueError
+
+if TYPE_CHECKING:
+    from conductor._internal.graph import Graph
+    from conductor._internal.run.type import Run
+
+
+def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph) -> Run:
+    """The run of ``graph`` that ``run.to_json()`` wrote as ``saved``: ``Run.from_json(run.to_json(), graph)`` is ``run`` again.
+
+    A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
+    save is read once, by the graph's ``RunCodec``, from its JSON text, so each value is read as its type reads
+    JSON: a date, and a float that isn't finite, from their text.
+
+    Raises:
+        InvalidCallError: The graph's problems; ``saved_run_of_another_graph``; or ``saved_run_unreadable`` at the place
+            pydantic names (the section, the node, the output, the slot), quoting nothing of a value; or a node
+            that doesn't hold one slot for each instance the saved run made of it (``saved_run_unreadable``).
+    """
+    if graph.problems:
+        raise InvalidCallError(graph.problems)
+    try:
+        read: SavedRun[list[Outcome | None], ReusableOutcomes] = graph._run_codec.validator.validate_json(saved)
+    except ValidationError as error:
+        first = error.errors(include_url=False, include_input=False)[0]
+        if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
+            raise InvalidCallError([problem.saved_run_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
+        at = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # a place in the save comes after the fingerprint it was read under
+        raise InvalidCallError([problem.saved_run_unreadable("state", where=at, reason=value_free_errors(error)[0]["msg"])]) from None
+    outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
+    for node in graph._flat_function_nodes:  # each after the nodes it reads, so the Series its instances are of are in place
+        outcomes[node.name] = {}
+        if (node_outcomes := read.outcomes.get(node.name)) is not None:
+            every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
+            if len(node_outcomes) != len(every_item_indexes):
+                at, reason = f"outcomes.{node.name}", f"it holds {len(node_outcomes)} slots for the {len(every_item_indexes)} instances the saved run made of the node"
+                raise InvalidCallError([problem.saved_run_unreadable("state", where=at, reason=reason)])
+            outcomes[node.name] = {item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, node_outcomes, strict=True) if outcome is not None}
+    functions = graph._functions
+    code_changed = {path: digest for name, digest in read.code.items() if digest != functions[path := parse_node_path(name)].code_fingerprint}
+    reusable = {path: of_node for name, of_node in read.reusable.items() if (path := parse_node_path(name)) not in code_changed}  # work of other code is never taken
+    return run_type(
+        graph, read.inputs, read.max_items, outcomes, reusable, state=read.state, _code_changed=code_changed,
+        _finished_nodes=frozenset(parse_node_path(name) for name in read.complete),
+    )
 
 
 def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
