@@ -66,9 +66,7 @@ docs = [
 ]
 
 # The packages of conductor._internal, top to bottom: a package imports only packages below it. Packages on one
-# line with " | " between them import none of each other. Bottom to top this is the order of the module map
-# (plans: D-L143), with its third row split where its packages stand on one another: series on types, and
-# table, field and context on those.
+# line with " | " between them import none of each other.
 [tool.importlinter]
 root_packages = ["conductor"]
 
