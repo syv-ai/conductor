@@ -2,7 +2,9 @@
 
 The keys of a saved run are declared once, by the classes of ``type.py``. ``run_codec`` takes pydantic's
 schemas of those classes and puts in what only the graph knows: the names of its nodes, inputs and outputs, and
-the type of each value.
+the type of each value. How a saved run writes one value is declared here too: ``saved_type`` and
+``saved_list_type`` are the type of an output's value on one call and on all of a node's calls, ``saved_schema``
+the schema a value is written and read by.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from conductor._internal.compiled import (
 )
 from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
-from conductor._internal.types import Type
+from conductor._internal.types import Type, list_of, union_of
 
 from .read import (
     outcomes_from_saved,
@@ -46,6 +48,68 @@ _INDEXES_BY_CALL_NUMBER = TypeAdapter(dict[NonNegativeInt, list[NonNegativeInt]]
 
 #: The schema of a call number as a key: a whole number of at least 0, written as text in JSON.
 _CALL_NUMBER = TypeAdapter(NonNegativeInt).core_schema
+
+
+#: ``saved_type`` and ``saved_list_type`` of each output, kept while the output's ``Field`` lives. A ``Type`` keeps
+#: pydantic's adapter for its hint, so a graph compiled again from the same node definitions reuses the adapters at
+#: its first save; a definition that is dropped takes its entries with it.
+_SAVED_TYPES: WeakKeyDictionary[Field, Type] = WeakKeyDictionary()
+_SAVED_LIST_TYPES: WeakKeyDictionary[Field, Type] = WeakKeyDictionary()
+
+#: ``saved_schema`` of each type, kept while the ``Type`` lives, as ``Type.schema`` itself is.
+_SAVED_SCHEMAS: WeakKeyDictionary[Type, CoreSchema] = WeakKeyDictionary()
+
+
+def saved_type(output: Field) -> Type:
+    """The type of ``output``'s value on one call, as a saved run and ``run.outputs_to_json()`` write it.
+
+    For ``shout.result``, a ``str``, it is ``Type(str | None)``: ``None`` where the call has no outputs. For a
+    ``Series`` it is the form a run stores the list in (``SeriesItems``, or ``Records`` for a table), or ``None``.
+    """
+    saved = _SAVED_TYPES.get(output)
+    if saved is None:
+        saved = _SAVED_TYPES[output] = Type(union_of((output.whole.stored_hint, type(None))))
+    return saved
+
+
+def saved_list_type(output: Field) -> Type:
+    """The type of ``output``'s values on all of a node's calls, as a saved run writes them: a list of ``saved_type``.
+
+    For ``shout.result``, called once per line, it is ``Type(list[str | None])``.
+    """
+    saved = _SAVED_LIST_TYPES.get(output)
+    if saved is None:
+        saved = _SAVED_LIST_TYPES[output] = Type(list_of(saved_type(output).hint))
+    return saved
+
+
+def _holds_a_model(schema: Any) -> bool:
+    """Says whether a core schema has a pydantic model or a dataclass anywhere in it."""
+    if isinstance(schema, dict):
+        return schema.get("type") in ("model", "dataclass") or any(map(_holds_a_model, schema.values()))
+    return isinstance(schema, list) and any(map(_holds_a_model, schema))
+
+
+def saved_schema(value_type: Type) -> CoreSchema:
+    """The schema a saved run writes and reads a value of ``value_type`` by: pydantic's own schema of the type.
+
+    ``saved_schema(Type(list[float | None]))`` is ``Type(list[float | None]).schema``, and ``inf`` is written as
+    ``"Infinity"`` (``NON_FINITE_FLOATS``), which a ``float`` reads back as the float. A pydantic model or a
+    dataclass writes its fields by its own config, whatever schema it is inside, and by default writes ``inf`` as
+    ``null``, which a ``float`` field does not read back. So a type with one in it is written as ``Type.to_json``
+    writes it: first as Python's JSON values, which keep the float, then as text by the codec's config.
+    """
+    saved = _SAVED_SCHEMAS.get(value_type)
+    if saved is None:
+        saved = _SAVED_SCHEMAS[value_type] = value_type.schema
+        if _holds_a_model(saved):
+            as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(value_type.serializer.to_python, mode="json"))
+            if saved["type"] == "definitions":  # what pydantic defined beside the type stays beside it
+                saved = {**saved, "schema": {**saved["schema"], "serialization": as_json}}  # type: ignore[typeddict-unknown-key]
+            else:
+                saved = {**saved, "serialization": as_json}  # type: ignore[typeddict-unknown-key]
+            _SAVED_SCHEMAS[value_type] = saved
+    return saved
 
 
 class RunCodec(NamedTuple):
@@ -102,13 +166,13 @@ def run_codec(
     outcomes, reusable = {}, {}
     for node, node_outputs in outputs.items():
         skipped_outputs, not_called_outputs = outputs_when_skipped(node_outputs), outputs_when_not_called(node_outputs)
-        same_outputs = tuple((name, output.saved_list_type, output.is_series, not_called_outputs[name]) for name, output in node_outputs.items())
+        same_outputs = tuple((name, saved_list_type(output), output.is_series, not_called_outputs[name]) for name, output in node_outputs.items())
         if same_outputs not in references:
             outcomes_ref, reusable_ref = f"outcomes:{len(references)}", f"reusable:{len(references)}"
             of_node = _with_field_schemas(
                 outcomes_schema,
                 outputs=_exact_keys_schema(
-                    {name: _inline_definitions(numbers_refuse_bools(output.saved_list_type.saved_schema), shared) for name, output in node_outputs.items()},
+                    {name: _inline_definitions(numbers_refuse_bools(saved_schema(saved_list_type(output))), shared) for name, output in node_outputs.items()},
                 ),
                 skipped=_exact_keys_schema({}, dict.fromkeys(node_outputs, _CALL_NUMBERS)),
                 skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.is_series}),
@@ -123,12 +187,12 @@ def run_codec(
     run = _with_field_schemas(
         _inline_definitions(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
-        inputs=_exact_keys_schema({address: _inline_definitions(numbers_refuse_bools(of_input.saved_schema), shared) for address, of_input in inputs.items()}),
+        inputs=_exact_keys_schema({address: _inline_definitions(numbers_refuse_bools(saved_schema(of_input)), shared) for address, of_input in inputs.items()}),
         outcomes=_exact_keys_schema({}, outcomes),
         reusable=_exact_keys_schema({}, reusable),
         code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),
         answers=core_schema.nullable_schema(_exact_keys_schema({}, {
-            node: core_schema.dict_schema(_CALL_NUMBER, _inline_definitions(numbers_refuse_bools(field.whole.saved_schema), shared))
+            node: core_schema.dict_schema(_CALL_NUMBER, _inline_definitions(numbers_refuse_bools(saved_schema(field.whole)), shared))
             for node, field in asked.items()
         })),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),

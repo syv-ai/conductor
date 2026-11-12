@@ -23,7 +23,7 @@ from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..results import function_of
 from ..reuse import ReusableOutcomes
-from .codec import codec_of
+from .codec import codec_of, saved_list_type, saved_type
 from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -79,7 +79,7 @@ def outputs_to_json(run: Run) -> str:
     written = {}
     for address, value in run.outputs.items():
         function, output = function_of(run.graph, address)
-        hint: Any = function.compiled_node.outputs[output].saved_type.hint
+        hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
         try:
@@ -283,7 +283,7 @@ def first_unwritable_value(
     written_alone = {address: (inputs[address], value) for address, value in saved.inputs.items()}
     by_node = [*saved.outcomes.items(), *((name, reusable.outcomes) for name, reusable in saved.reusable.items())]
     for name, outcomes in by_node:
-        written_alone.update({f"{name}.{output}": (outputs[name][output].saved_list_type, values) for output, values in outcomes.outputs.items()})
+        written_alone.update({f"{name}.{output}": (saved_list_type(outputs[name][output]), values) for output, values in outcomes.outputs.items()})
     for where, (written_by, value) in written_alone.items():
         try:
             written_by.serializer.to_json(value)

@@ -16,7 +16,6 @@ from conductor._internal.problem import declarations as declaration
 from conductor._internal.types import (
     Param,
     Type,
-    list_of,
     split_hint,
     union_members,
     union_of,
@@ -26,12 +25,14 @@ from conductor.widgets import Widget
 from .describe import FieldDescription
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Field:
     """One input or output of a node: ``Field("times", Annotated[int, Param(ge=0)], 1)``.
 
     The constructor is the only way to a field: one renamed, given another default or bound to a type variable
-    is a new ``Field`` of the changed ``name``, ``default`` or ``hint``, so nothing it holds can go stale.
+    is a new ``Field`` of the changed ``name``, ``default`` or ``hint``, so nothing it holds can go stale. Two fields
+    are equal only when they are the same object (``eq=False``), so a field is a weak dictionary key even when its
+    default or hint can't be hashed (a list default): ``run/json/codec.py`` keeps a saved run's types per field so.
     What the hint costs to read is kept per hint, so a second field of it is cheap.
 
     Attributes:
@@ -92,18 +93,6 @@ class Field:
         """Whether a field that gathers keeps the place of an item with no value, as a blank: a ``Series`` whose
         item type takes one. A table never does, as a record is never blank."""
         return self.is_series and self.type.optional
-
-    @functools.cached_property
-    def saved_type(self) -> Type:
-        """The type of the field's value on one unit, as a saved run and a run's written outputs hold it: blank
-        where the call returned none, else the form its type stores (``SeriesItems`` or ``Records`` for a ``Series``,
-        the value itself for any other type)."""
-        return Type(union_of((self.whole.stored_hint, type(None))))
-
-    @functools.cached_property
-    def saved_list_type(self) -> Type:
-        """The type of the field's values over many units: a list of what ``saved_type`` is the type of."""
-        return Type(list_of(self.saved_type.hint))
 
     @functools.cached_property
     def description(self) -> FieldDescription:

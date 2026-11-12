@@ -25,7 +25,6 @@ from pydantic_core import (
     ErrorDetails,
     SchemaError,
     SchemaSerializer,
-    core_schema,
 )
 
 from conductor._internal.base import NON_FINITE_FLOATS, plain_json, qualified_name
@@ -54,13 +53,6 @@ _CONTAINERS = (list, dict, tuple, set, frozenset)
 
 #: Maps ``Series`` and ``Table`` to their ``Type`` subclass (``SeriesType``, ``TableType``).
 _KINDS: dict[Any, type[Type]] = {}
-
-
-def _holds_a_model(schema: Any) -> bool:
-    """Says whether a core schema holds a pydantic model or a dataclass anywhere in it."""
-    if isinstance(schema, dict):
-        return schema.get("type") in ("model", "dataclass") or any(map(_holds_a_model, schema.values()))
-    return isinstance(schema, list) and any(map(_holds_a_model, schema))
 
 
 def _written(hint: Any) -> str:
@@ -400,24 +392,6 @@ class Type:
             PydanticSerializationError: The value has no JSON form.
         """
         return plain_json(self.serializer.to_python(value, mode="json"))
-
-    @functools.cached_property
-    def saved_schema(self) -> CoreSchema:
-        """The schema a saved run reads and writes a value of the type by: pydantic's own of the type.
-
-        A float that isn't finite is written as its text, which a ``float`` reads back as the float and a type
-        that takes a text keeps as the text. A pydantic model and a dataclass write by their own config whatever
-        stands around them, and by default write such a float as ``null``, which a ``float`` field doesn't read
-        back. So a type that holds one is written as ``to_json`` writes it: first as Python's JSON values, which
-        keep the float.
-        """
-        schema = self.schema
-        if not _holds_a_model(schema):
-            return schema
-        as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(self.serializer.to_python, mode="json"))
-        if schema["type"] == "definitions":  # what pydantic defined beside the type stays beside it
-            return {**schema, "schema": {**schema["schema"], "serialization": as_json}}  # type: ignore[typeddict-unknown-key]
-        return {**schema, "serialization": as_json}  # type: ignore[typeddict-unknown-key]
 
     def fits(self, source: Type) -> dict[TypeVar, Any] | None:
         """Says whether a value of ``source`` may land on this type, and what that binds its type variables to.
