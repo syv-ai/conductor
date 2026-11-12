@@ -10,10 +10,10 @@ The example graph::
 
     NodeStart(lines)
     NodeStart(shout)
-    NodeProgress(shout, done=1, total=3)
+    NodeProgress(shout, finished=1, total=3)
     NodeStart(join)
     NodeComplete(lines, outcomes=1)
-    NodeProgress(shout, done=3, total=3)
+    NodeProgress(shout, finished=3, total=3)
     NodeComplete(shout, outcomes=3)
     NodeComplete(join, outcomes=1)
 
@@ -91,7 +91,7 @@ class NodeEvents:
         changed: The nodes with an outcome recorded since they were last looked at for ``NodeComplete``.
         reused: How many outcomes each node took from the previous run, for ``NodeComplete.reused``.
         progress_at: When each node last had ``NodeProgress``, as ``time.monotonic()``.
-        progress_done: The ``done`` of each node's last ``NodeProgress``.
+        progress_finished: The ``finished`` of each node's last ``NodeProgress``.
     """
 
     def __init__(
@@ -124,7 +124,7 @@ class NodeEvents:
         self.changed = with_outcomes - complete_before
         self.reused: defaultdict[FlatFunctionNode, int] = defaultdict(int)
         self.progress_at: dict[FlatFunctionNode, float] = {}
-        self.progress_done: dict[FlatFunctionNode, int] = {}
+        self.progress_finished: dict[FlatFunctionNode, int] = {}
 
     def call_starts(self, node: FlatNode) -> None:
         """A call of ``node`` is about to be made: ``NodeStart``, unless the node has started."""
@@ -176,7 +176,7 @@ class NodeEvents:
             if node in self.complete or Waiting in {type(outcome) for outcome in outcomes.values()} or not has_every_outcome(self.outcomes, node):
                 continue
             self.complete.add(node)
-            if node.loops and node in self.progress_done:
+            if node.loops and node in self.progress_finished:
                 self._progress(node, last=True)
             if outcomes and all(_is_skipped(outcome) for outcome in outcomes.values()):
                 self.skipped.add(node)
@@ -192,7 +192,7 @@ class NodeEvents:
         self.changed.update(self.nodes)
         self.nothing_is_ready(())
         for node in self.nodes:
-            if node.loops and node in self.progress_done:
+            if node.loops and node in self.progress_finished:
                 self._progress(node, last=True)
 
     def _progress(self, node: FlatFunctionNode, last: bool = False) -> None:
@@ -202,9 +202,9 @@ class NodeEvents:
         if not (last or now - self.progress_at.get(node, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
         count = call_count(self.outcomes, node)
-        if self.progress_done.get(node) != count.done:
-            self.progress_at[node], self.progress_done[node] = now, count.done
-            self.emit(NodeProgress(loc=node.node_path, done=count.done, total=count.total))
+        if self.progress_finished.get(node) != count.finished:
+            self.progress_at[node], self.progress_finished[node] = now, count.finished
+            self.emit(NodeProgress(loc=node.node_path, finished=count.finished, total=count.total))
 
     def _complete_subgraphs_around(self, node: FlatNode, announce: bool) -> None:
         """Mark the subgraph node ``node`` is inside as complete when every node inside it is, then the subgraph

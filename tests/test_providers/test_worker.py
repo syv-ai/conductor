@@ -1028,8 +1028,8 @@ async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run
     await store.ended(run_id)
 
     assert written and {outcome["waiting"] == [] and outcome["outputs"] is None for outcome in written} == {True}
-    done = [outcome["progress"]["nodes"]["slow"]["done"] for outcome in written]
-    assert done == sorted(done) and done[0] < 20 and written[0]["progress"]["nodes"]["slow"]["total"] == 20
+    finished = [outcome["progress"]["nodes"]["slow"]["finished"] for outcome in written]
+    assert finished == sorted(finished) and finished[0] < 20 and written[0]["progress"]["nodes"]["slow"]["total"] == 20
 
 
 async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_so_does_the_run_saved_for_it() -> None:

@@ -8,10 +8,10 @@ The example graph::
 
 Before any call, ``graph.with_inputs(text="a\\nb\\nc").progress`` is::
 
-    Progress(done=0, waiting=0, known=2, total=None, nodes={
-        "lines": CallCount(done=0, waiting=0, known=1, total=1),
-        "shout": CallCount(done=0, waiting=0, known=0, total=None),
-        "join":  CallCount(done=0, waiting=0, known=1, total=1)})
+    Progress(finished=0, waiting=0, known=2, total=None, nodes={
+        "lines": CallCount(finished=0, waiting=0, known=1, total=1),
+        "shout": CallCount(finished=0, waiting=0, known=0, total=None),
+        "join":  CallCount(finished=0, waiting=0, known=1, total=1)})
 
 How many calls ``shout`` has depends on how many lines ``lines`` returns, so its ``total`` is ``None``. Once
 ``lines`` has returned three lines, ``shout`` has ``known=3, total=3``, and the run ``known=5, total=5``. If
@@ -36,13 +36,14 @@ if TYPE_CHECKING:
 
 
 class CallCount(ConductorModel):
-    """How many calls of one node have an outcome, and how many it will have: ``CallCount(done=1, waiting=0,
+    """How many calls of one node have an outcome, and how many it will have: ``CallCount(finished=1, waiting=0,
     known=3, total=3)`` for ``shout`` after its first line.
 
     A subgraph node is never called itself: its count is the sum of the counts of the nodes inside it.
 
     Attributes:
-        done: How many calls have an outcome that is not waiting: done, answered, skipped or not called.
+        finished: How many calls are finished: they have an outcome that is not waiting (done, answered, skipped
+            or not called).
         waiting: How many calls wait for a person.
         known: How many calls the node has so far: one per item of every series it is looped over that exists.
             It only grows as the run goes.
@@ -50,7 +51,7 @@ class CallCount(ConductorModel):
             yet; then ``known`` is the least it can be.
     """
 
-    done: int
+    finished: int
     waiting: int
     known: int
     total: int | None
@@ -79,13 +80,13 @@ def call_count(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFuncti
         node: The node.
 
     Returns:
-        Its count: ``CallCount(done=0, waiting=0, known=0, total=None)`` for ``shout`` before ``lines`` has
+        Its count: ``CallCount(finished=0, waiting=0, known=0, total=None)`` for ``shout`` before ``lines`` has
         returned.
     """
     of_node = outcomes[node.name]
     waiting = sum(1 for outcome in of_node.values() if type(outcome) is Waiting)
     known, final = calls_expected(outcomes, node.loops)
-    return CallCount.model_construct(done=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
+    return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
 def progress_of(graph: Graph, outcomes: dict[str, dict[ItemIndexes, Outcome]]) -> Progress:
@@ -106,14 +107,14 @@ def progress_of(graph: Graph, outcomes: dict[str, dict[ItemIndexes, Outcome]]) -
         else:
             nodes[name] = call_count(outcomes, flat)
     run = _sum(nodes[node.name] for node in graph._flat_function_nodes)
-    return Progress.model_construct(done=run.done, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
+    return Progress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
 
 
 def _sum(counts: Iterable[CallCount]) -> CallCount:
     """The sum of several counts: ``total`` is ``None`` when any of theirs is."""
-    done = waiting = known = 0
+    finished = waiting = known = 0
     total: int | None = 0
     for count in counts:
-        done, waiting, known = done + count.done, waiting + count.waiting, known + count.known
+        finished, waiting, known = finished + count.finished, waiting + count.waiting, known + count.known
         total = None if total is None or count.total is None else total + count.total
-    return CallCount.model_construct(done=done, waiting=waiting, known=known, total=total)
+    return CallCount.model_construct(finished=finished, waiting=waiting, known=known, total=total)

@@ -11,10 +11,10 @@ The example graph, the first in conductor's README::
     RunStart(waiting=())
     NodeStart(loc=("lines",))
     NodeStart(loc=("shout",))
-    NodeProgress(loc=("shout",), done=1, total=2)
+    NodeProgress(loc=("shout",), finished=1, total=2)
     NodeStart(loc=("join",))
     NodeComplete(loc=("lines",), outcomes=1)
-    NodeProgress(loc=("shout",), done=2, total=2)
+    NodeProgress(loc=("shout",), finished=2, total=2)
     NodeComplete(loc=("shout",), outcomes=2)
     NodeComplete(loc=("join",), outcomes=1)
     RunEnd(status="complete")
@@ -25,7 +25,7 @@ instead). In between, a node's ``NodeStart``, when it has one, comes before ever
 rules explain the order above:
 
 - ``NodeProgress`` comes at most four times a second per node, so ``shout``'s second call was made before
-  ``NodeStart(join)``, but ``done=2`` is told only with the final count, just before ``NodeComplete(shout)``.
+  ``NodeStart(join)``, but ``finished=2`` is told only with the final count, just before ``NodeComplete(shout)``.
 - The engine looks for complete nodes only when no call is ready to be made. Here that is first after ``join``'s
   call, so even ``lines`` is complete only after ``NodeStart(join)``.
 
@@ -111,15 +111,16 @@ class NodeProgress(_NodeEvent):
 
     It comes after a call's outcome is written, and once more with the final count before the node's
     ``NodeComplete`` or at the end of the stream, unless the count has not changed. A node inside no loop has no
-    ``NodeProgress``. In the example ``shout`` has ``NodeProgress(done=1, total=2)``, then ``done=2, total=2``.
+    ``NodeProgress``. In the example ``shout`` has ``NodeProgress(finished=1, total=2)``, then ``finished=2, total=2``.
 
     Attributes:
-        done: How many calls of the node have an outcome that is not waiting: done, answered, skipped or not called.
+        finished: How many calls of the node are finished: they have an outcome that is not waiting (done,
+            answered, skipped or not called).
         total: How many calls the node will have. ``None`` while that depends on a series that does not exist yet.
     """
 
     type: Literal["node_progress"] = "node_progress"
-    done: int
+    finished: int
     total: int | None
 
 
@@ -262,7 +263,7 @@ class RunCheckpoint(EventBase):
     - With ``stream(checkpoint_every=seconds)``: after a call's outcome is written, when at least that many seconds
       have passed since the stream started or since the last checkpoint. With a node ``slow`` that takes 20
       milliseconds per line and ``checkpoint_every=0.01``, ``text="a\\nb"`` gives ``NodeStart(slow)``,
-      ``RunCheckpoint``, ``NodeProgress(slow, done=1, total=2)``, ``RunCheckpoint``, and so on. One more comes at
+      ``RunCheckpoint``, ``NodeProgress(slow, finished=1, total=2)``, ``RunCheckpoint``, and so on. One more comes at
       the moment the run stops (a call failed, or ``cancel``, ``hand_back`` or ``timeout``) while calls are still
       running on threads, before those calls are back: if the process dies while it waits for them, the host has
       everything but them.

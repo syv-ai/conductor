@@ -167,7 +167,7 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
         assert (started.status_code, view) == (
             202, {"id": run_id, "status": "running", "waiting": [], "outputs": None, "refused": {}, "cause": None},
         )
-        assert (progress["done"], progress["waiting"]) == (0, 0)  # the run as it was stored, before any call
+        assert (progress["finished"], progress["waiting"]) == (0, 0)  # the run as it was stored, before any call
         cancelled = await client.post(f"/runs/{run_id}/cancel")
         assert (cancelled.status_code, cancelled.json()) == (200, {"cancelled": True})
         gate.set()
@@ -323,7 +323,7 @@ async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothin
         published = await client.post("/graphs/uploads/estimate", json={"files": ["a"]})
 
     assert estimated.status_code == 200
-    assert estimated.json()["nodes"]["review"] == {"done": 0, "waiting": 0, "known": 3, "total": 3}
+    assert estimated.json()["nodes"]["review"] == {"finished": 0, "waiting": 0, "known": 3, "total": 3}
     assert published.json()["nodes"]["review"]["total"] == 1
     assert calls == ["upload", "upload"] and store.rows == {}
 
@@ -346,8 +346,8 @@ async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
         await store.ended(run_id)
         view = (await client.get(f"/runs/{run_id}")).json()
 
-    assert (view["progress"]["done"], view["progress"]["total"]) == (3, 3)
-    assert view["progress"]["nodes"]["review"] == {"done": 2, "waiting": 0, "known": 2, "total": 2}
+    assert (view["progress"]["finished"], view["progress"]["total"]) == (3, 3)
+    assert view["progress"]["nodes"]["review"] == {"finished": 2, "waiting": 0, "known": 2, "total": 2}
 
 
 # -- the schema, the surface, the page ------------------------------------------------------------

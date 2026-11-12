@@ -192,7 +192,7 @@ def test_progress_counts_items_between_start_and_complete_with_the_total_once_th
 
     kinds = [(e.type, getattr(e, "loc", None)) for e in events]
     progress = [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
-    assert progress and all(e.total == 3 for e in progress) and progress[-1].done >= 1
+    assert progress and all(e.total == 3 for e in progress) and progress[-1].finished >= 1
     assert kinds.index(("node_start", ("slow",))) < kinds.index(("node_progress", ("slow",))) < kinds.index(("node_complete", ("slow",)))
 
 
@@ -207,7 +207,7 @@ def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_endin
 
     progress = [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
     assert len(progress) <= took / 0.25 + 2
-    assert (progress[-1].done, progress[-1].total) == (20_000, 20_000)
+    assert (progress[-1].finished, progress[-1].total) == (20_000, 20_000)
     complete = next(i for i, e in enumerate(events) if e.type == "node_complete" and e.loc[0] == "slow")
     assert events.index(progress[-1]) < complete
 
@@ -225,7 +225,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
     events = _events(graph.with_inputs())
 
     last = [e for e in events if e.type == "node_progress" and e.loc[0] == "maybe"][-1]
-    assert (last.done, last.total) == (2, 3)
+    assert (last.finished, last.total) == (2, 3)
     assert events[-1].status == "waiting"
 
 
