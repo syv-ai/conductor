@@ -63,10 +63,10 @@ def fetch(address: Annotated[str, Param(title="Address", widget=TextInput())]) -
 
 def columns_outputs(names: str) -> dict[str, Any]:
     if not names:
-        raise ValueError("Type at least one column name.")   # a problem on the node when a graph loads, not an exception
+        raise ValueError("Type at least one column name.")   # a problem on the node when a graph is compiled, not an exception
     return {name: str for name in names.split(",")}
 
-@node("columns", title="Columns", description="One output per column name typed in.", category="table", compute_outputs=columns_outputs)
+@node("columns", title="Columns", description="One output for each column name.", category="table", compute_outputs=columns_outputs)
 def columns(names: Annotated[str, Param(title="Column names", widget=TextInput())]) -> Mapping[str, Any]:
     return {name: name.upper() for name in names.split(",")}
 
@@ -78,7 +78,7 @@ class Checked[T]:                     # generic outputs: each takes the type tha
 
 
 @node("check", title="Check", description="Sends a value one way if it passed and the other if it failed.", category="logic")
-def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T is bound by the edge when a graph loads
+def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T is bound by the edge when a graph is compiled
     return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
 
 
@@ -86,6 +86,6 @@ assert approve.context is not None and approve.context.cls is AppContext and lis
 ```
 
 - A pydantic model a node returns is one value, not one output per field.
-- A hook is for fields a setting names. A type that follows what arrives is a type variable, with no hook.
+- A hook is for inputs or outputs a constant names. A type that follows what arrives is a type variable, with no hook.
 - `Ask` is a `BaseException`: an `except Exception` in the node lets it through.
 - Only `ExternalError` and `retry_on` classes retry, on the schedule `python -m conductor.about` gives. A timed-out attempt is final.

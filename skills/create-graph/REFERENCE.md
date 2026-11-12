@@ -21,7 +21,7 @@ def uppercase(text: str) -> str:
     return text.upper()
 
 
-# loading never raises for a bad graph; key on each Problem's type
+# compiling never raises for a bad graph; key on each Problem's type
 broken = Graph.compile(GraphRecord(nodes=[NodeRecord(id="loud", node="text-uppercase")], edges=[("ghost.result", "loud.text")]), registry)
 assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
 
@@ -38,14 +38,14 @@ asking = Graph.compile(GraphRecord(
 ), registry)
 
 first = asking.run()
-assert first.status == "waiting" and [unit.inputs["proposal"] for unit in first.waiting] == ["first", "second"]
-stored = Run.from_json(first.to_json(), asking)               # how a host keeps the run between legs
+assert first.status == "waiting" and [waiting.inputs["proposal"] for waiting in first.waiting] == ["first", "second"]
+stored = Run.from_json(first.to_json(), asking)               # how a host keeps the run until it is answered
 answered = stored.answer(stored.waiting[1].id, "Second, approved")
 second = answered.resume()
-assert [unit.inputs["proposal"] for unit in second.waiting] == ["first"]
+assert [waiting.inputs["proposal"] for waiting in second.waiting] == ["first"]
 ```
 
-- An asking node waits with its readers; the rest runs on. Each entry of `run.waiting` carries `id`, `loc` (the node, then its item), `prompt`, `inputs` and `questions`: one per output, the field record `describe()` writes, with the `choices`, `default` and `widget` the node asked with.
-- `run.answer(unit, value)` takes the unit or its id, and a value of what the node returns (a mapping by output name for several outputs); `run.answer({unit_id: value, ...})` answers several at once. A unit not answered goes on waiting and is not called again.
-- A wrong answer raises `InvalidCallError`; a missing `Context` value raises `InvalidCallError` too. `run.again(**changed)` reuses the calls whose inputs match, and runs the rest.
-- An event writes itself as JSON (`event.model_dump(mode="json")`), its outputs already JSON. Leaving `async for event in run.stream():` ends the leg before its next unit.
+- An asking node's call waits, with the calls downstream of it; the rest runs on. Each entry of `run.waiting` carries `id`, `loc` (the node, then its item), `prompt`, `inputs` and `questions`: one per output, the field record `describe()` writes, with the `choices`, `default` and `widget` the node asked with.
+- `run.answer(waiting, value)` takes an entry of `run.waiting` or its id, and a value of what the node returns (a mapping by output name for several outputs); `run.answer({waiting_id: value, ...})` answers several at once. A call not answered goes on waiting and is not called again.
+- A wrong answer raises `InvalidCallError` (`invalid_answer`); so does a run that needs a context and is given none (`context_missing`). `run.again(**changed)` reuses the calls whose inputs match, and runs the rest.
+- An event writes itself as JSON (`event.model_dump(mode="json")`). Events carry counts, not values: read a node's values from `run.results`. Setting `cancel=` stops the stream before its next call, as does leaving the loop once the stream is closed (`async with contextlib.aclosing(run.stream()) as events:`).
