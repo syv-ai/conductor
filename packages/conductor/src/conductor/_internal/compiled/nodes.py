@@ -14,6 +14,7 @@ output ``result: str``. A compiled node has nothing from a run in it: it is made
 
 from __future__ import annotations
 
+import dis
 import functools
 import inspect
 import typing
@@ -262,10 +263,35 @@ class CompiledSubgraphNode(_CompiledNodeBase):
 CompiledNode = CompiledFunctionNode | CompiledSubgraphNode
 
 
+#: The code flag that says a function has a docstring, from Python 3.14; ``None`` before.
+_HAS_DOCSTRING_FLAG: int | None = getattr(inspect, "CO_HAS_DOCSTRING", None)
+
+
 def _code_text(code: Any) -> str:
-    """Returns a function's bytecode, constants and names as text that is the same in every process. A function
-    defined inside it is written by its own code."""
-    return f"{code.co_code.hex()}:{[_constant_text(c) for c in code.co_consts]}:{code.co_names}"
+    """Returns a function's bytecode, constants and names as text that is the same in every process, without its
+    docstrings. A function or class defined inside it is written by its own code.
+
+    A docstring does not change what a node does, so adding, changing or removing one keeps the text. A function's
+    docstring is its first constant, so it is written as ``None``: Python 3.12 and 3.13 keep that place for it
+    (``None`` when there is none), and from 3.14 a flag says whether there is one. A class body sets ``__doc__`` with two instructions of its own, so it is written
+    instruction by instruction without them.
+    """
+    if not code.co_flags & inspect.CO_NEWLOCALS:
+        instructions = list(dis.get_instructions(code))
+        kept = [
+            instruction for index, instruction in enumerate(instructions)
+            if not (instruction.opname == "STORE_NAME" and instruction.argval == "__doc__")
+            and not (instruction.opname == "LOAD_CONST" and index + 1 < len(instructions) and instructions[index + 1].argval == "__doc__")
+        ]
+        return f"{[(i.opname, _constant_text(i.argval) if i.opname == 'LOAD_CONST' else repr(i.argval)) for i in kept]}"
+    constants = list(code.co_consts)
+    if _HAS_DOCSTRING_FLAG is None:
+        has_docstring = bool(constants) and isinstance(constants[0], str) and code.co_name != "<genexpr>"
+    else:
+        has_docstring = bool(code.co_flags & _HAS_DOCSTRING_FLAG)
+    if has_docstring:
+        constants[0] = None
+    return f"{code.co_code.hex()}:{[_constant_text(c) for c in constants]}:{code.co_names}"
 
 
 def _constant_text(constant: Any) -> str:

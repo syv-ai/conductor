@@ -1261,6 +1261,106 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_new_work_
     assert again.results["e"]["result"] == "ab"
 
 
+#: One node, ``ask``, written four ways. Each is compiled from its own text, so the functions inside have the same
+#: qualified names: those are constants of the node's code, and they would differ between four functions of this file.
+_ASK = {
+    "without docstrings": '''
+def ask(name: str) -> bool:
+    def polite(text: str) -> str:
+        return text.title()
+
+    class Note:
+        pass
+
+    raise Ask(f"Mail {polite(name)}?")
+''',
+    "with docstrings": '''
+def ask(name: str) -> bool:
+    """Asks whether to mail the person."""
+    def polite(text: str) -> str:
+        """Returns the text in title case."""
+        return text.title()
+
+    class Note:
+        """A note."""
+
+    raise Ask(f"Mail {polite(name)}?")
+''',
+    "with other docstrings": '''
+def ask(name: str) -> bool:
+    """Asks a person whether a mail goes to ``name``."""
+    def polite(text: str) -> str:
+        """``"ida"`` gives ``"Ida"``."""
+        return text.title()
+
+    class Note:
+        """Another note."""
+
+    raise Ask(f"Mail {polite(name)}?")
+''',
+    "with another message": '''
+def ask(name: str) -> bool:
+    """Asks whether to mail the person."""
+    def polite(text: str) -> str:
+        """Returns the text in title case."""
+        return text.title()
+
+    class Note:
+        """A note."""
+
+    raise Ask(f"Send to {polite(name)}?")
+''',
+}
+
+
+def _waiting_id(source: str) -> str:
+    """Returns the id of the call that the node ``ask`` written as ``source`` leaves waiting for ``name="ida"``."""
+    namespace: dict[str, Any] = {"Ask": Ask}
+    exec(source, namespace)
+    function = namespace["ask"]
+    record = GraphRecord(nodes=[NodeRecord(id="a", node="ask")])
+    (waiting,) = Graph.compile(record, registry_of(node("ask", title="Ask", description="For a test.")(function))).run(name="ida").waiting
+    return waiting.id
+
+
+def test_a_docstring_of_a_node_or_of_a_function_or_class_inside_it_is_not_part_of_its_code():
+    """Adding or changing a docstring keeps a waiting call's id; another message gives another id."""
+    ids = {way: _waiting_id(source) for way, source in _ASK.items()}
+
+    assert ids["without docstrings"] == ids["with docstrings"] == ids["with other docstrings"]
+    assert ids["with another message"] != ids["with docstrings"]
+
+
+def test_a_node_redeclared_with_only_another_docstring_is_reused_after_a_save_and_one_with_another_constant_is_called_again():
+    calls: list[str] = []
+
+    @node("echo", title="Echo", description="For a test.")
+    def echo(text: str) -> str:
+        """Returns the text in capitals."""
+        calls.append("echo")
+        return text.upper() + "!"
+
+    @node("echo", title="Echo", description="For a test.")
+    def echo_documented(text: str) -> str:
+        """``"ab"`` gives ``"AB!"``."""
+        calls.append("echo")
+        return text.upper() + "!"
+
+    @node("echo", title="Echo", description="For a test.")
+    def echo_other_mark(text: str) -> str:
+        """Returns the text in capitals."""
+        calls.append("echo")
+        return text.upper() + "?"
+
+    record = GraphRecord(nodes=[NodeRecord(id="e", node="echo")])
+    saved = Graph.compile(record, registry_of(echo)).run(text="ab").to_json()
+    Run.from_json(saved, Graph.compile(record, registry_of(echo_documented))).again(text="ab")
+    assert calls == ["echo"]
+
+    again = Run.from_json(saved, Graph.compile(record, registry_of(echo_other_mark))).again(text="ab")
+    assert calls == ["echo", "echo"] and again.results["e"]["result"] == "AB?"
+
+
 @pytest.mark.parametrize(("before", "after", "given"), [
     (list[int], list[str], []),
     (Literal["a", "b"], Literal["a"], "a"),
