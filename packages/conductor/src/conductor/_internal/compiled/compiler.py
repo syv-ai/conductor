@@ -313,7 +313,7 @@ class _Compiler:
             self.compiled_subgraphs[key] = _Compiler(self.definitions, stack, self.compiled_subgraphs).compile(definition.graph, CompiledGraph)
         inner = self.compiled_subgraphs[key]
         if inner.problems:
-            self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
+            self.problems += [inner_problem.model_copy(update={"loc": (record.id, *inner_problem.loc)}) for inner_problem in inner.problems]
             return
         fields = {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in inner._input_fields.values()}
         outputs: dict[str, Field] = {}
