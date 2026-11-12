@@ -7,14 +7,10 @@ import hashlib
 import inspect
 import typing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import output_questions
-from conductor._internal.compiled.input_plans import (
-    InputFromEdges,
-    InputPlan,
-    OutputAddress,
-)
+from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
 from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
@@ -25,26 +21,49 @@ if TYPE_CHECKING:
     from conductor._internal.compiled.type import CompiledGraph
 
 
+class RequiredBranch(NamedTuple):
+    """One branch that must be chosen for a node to be called, or for an output to have a value.
+
+    Example: ``route`` returns one of its outputs ``long`` and ``short`` per call, and ``shout`` is wired to
+    ``route.long``. ``shout`` is called only where ``route`` chose ``long``:
+    ``RequiredBranch("route", "length", "long", depth=0)``. Two edges into one input are allowed when what they
+    read needs different outputs of one group, since a call then gets a value from at most one of them.
+
+    Attributes:
+        node_id: The node that chooses, by its id in the graph being compiled.
+        group: The exclusive group of the outputs it chooses between.
+        output: The output of the group that must be the chosen one.
+        depth: How many loops the choosing node is inside.
+    """
+
+    node_id: str
+    group: str
+    output: str
+    depth: int
+
+
 @dataclass(frozen=True, kw_only=True)
 class _CompiledNodeBase:
     """What every node of a compiled graph has, whether it is a function or a subgraph. Never made on its own.
 
     Attributes:
         id: The node's id in the record.
-        loops: The scope it runs in.
+        loops: The loops the node is inside, outermost first.
         inputs: How each input gets its value, by name; the fields are the node's as its hooks made them.
         outputs: Each output's field, by name, as its hooks made them.
+        required_branches: The branches that must be chosen upstream for the node to be called.
     """
 
     id: str
     loops: tuple[OutputAddress, ...]
     inputs: dict[str, InputPlan]
     outputs: dict[str, Field]
+    required_branches: frozenset[RequiredBranch]
 
     @functools.cached_property
-    def reads(self) -> frozenset[str]:
-        """The nodes its inputs read."""
-        return frozenset(source.node_id for plan in self.inputs.values() if isinstance(plan, InputFromEdges) for source in plan.sources)
+    def upstream_ids(self) -> frozenset[str]:
+        """The ids of the nodes its edges come from."""
+        return frozenset(source.node_id for plan in self.inputs.values() for source in plan.sources)
 
     @functools.cached_property
     def plain_inputs(self) -> bool:
@@ -54,6 +73,12 @@ class _CompiledNodeBase:
     def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
         """The lists looped over to make one value of ``output``, outermost first: the loops the node is called in."""
         return self.loops
+
+    def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
+        """The branches that must be chosen for ``output`` to have a value: those the node needs to be called,
+        and ``output`` itself when the node chooses between it and other outputs."""
+        group = self.outputs[output].param.exclusive_group
+        return self.required_branches | {RequiredBranch(self.id, group, output, len(self.loops))} if group else self.required_branches
 
     def described_outputs(self) -> list[FieldDescription]:
         """Each output as an editor reads it."""
@@ -106,6 +131,11 @@ class CompiledFunctionNode(_CompiledNodeBase):
         """What a person is asked for each output when the node raises ``Ask``, before the ``Ask`` adds to it."""
         return output_questions(self.outputs)
 
+    @property
+    def functions_with_context(self) -> list[tuple[str, FunctionDefinition[..., Any]]]:
+        """The node's id and definition when the function has a ``Context`` parameter; else nothing."""
+        return [(self.id, self.definition)] if self.definition.context else []
+
 
 @typing.final
 @dataclass(frozen=True, kw_only=True)
@@ -145,6 +175,11 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         node_id, _, inner_output = output.partition(".")
         inside = self.inner._nodes[node_id].loops_around(inner_output)
         return (*self.loops, *[OutputAddress(self.id, str(loop)) for loop in inside])
+
+    @property
+    def functions_with_context(self) -> list[tuple[str, FunctionDefinition[..., Any]]]:
+        """Each function node inside the subgraph with a ``Context`` parameter, at any depth: its id and definition."""
+        return self.inner._needs_context
 
     def described_outputs(self) -> list[FieldDescription]:
         """Each output as an editor reads it: one ``Series`` for each loop inside, and the loops by name.

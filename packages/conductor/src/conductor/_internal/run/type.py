@@ -50,7 +50,6 @@ from conductor._internal.ask import (
 )
 from conductor._internal.compiled import (
     FlatFunctionNode,
-    FlatSubgraph,
     display_plans_of,
     outcome_loc,
 )
@@ -301,9 +300,9 @@ class Run:
             except ValueError:  # a place in it isn't a number
                 problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
-            node = self.graph._nodes_by_name.get(node_path_text(nodes))
-            found = self._outcomes[node.name].get(item_indexes) if type(node) is FlatFunctionNode else None
-            if type(node) is not FlatFunctionNode or type(found) is not outcomes.Waiting:
+            node = self.graph._function_nodes_by_name.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
+            found = self._outcomes[node.name].get(item_indexes) if node is not None else None
+            if node is None or type(found) is not outcomes.Waiting:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
                 problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
@@ -485,8 +484,7 @@ class Run:
         that function. For a subgraph (``e.upper.result``) it is the function inside the
         subgraph, since the subgraph's node is never called itself."""
         node_id, _, output = address.partition(".")
-        node = self.graph._nodes_by_name[node_id]
-        return node.output_sources[output] if type(node) is FlatSubgraph else (node, output)
+        return self.graph._nodes_by_name[node_id].source_of(output)
 
     # -- what a leg reads -------------------------------------------------------
 

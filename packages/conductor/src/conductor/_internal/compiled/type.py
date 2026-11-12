@@ -137,21 +137,25 @@ class CompiledGraph:
     # -- what a run walks -------------------------------------------------------
 
     @functools.cached_property
-    def _flat_nodes(self) -> tuple[list[FlatFunctionNode], dict[str, FlatNode]]:
-        """The graph's nodes and those of each graph embedded in it, where they stand (``flat_nodes``),
-        made when first read."""
+    def _flat_nodes(self) -> tuple[dict[str, FlatFunctionNode], dict[str, FlatNode]]:
+        """The flat graph (``flat_nodes``), made on the first read."""
         return flat_nodes(self)
 
-    @property
+    @functools.cached_property
     def _flat_function_nodes(self) -> list[FlatFunctionNode]:
-        """Every function of the graph and of each graph embedded in it, at any depth, each after the
-        functions it reads: the order a leg tries them in."""
+        """Every function node of the graph and of its subgraphs, at any depth, in the order a run tries
+        them: each after the nodes upstream of it."""
+        return list(self._flat_nodes[0].values())
+
+    @property
+    def _function_nodes_by_name(self) -> dict[str, FlatFunctionNode]:
+        """Every function node of ``_flat_function_nodes``, by its name (``"loud/shout"``)."""
         return self._flat_nodes[0]
 
     @property
     def _nodes_by_name(self) -> dict[str, FlatNode]:
-        """Each node of the graph and of each graph embedded in it, a function or a subgraph, by its
-        name (``e/ask``)."""
+        """Every node of the graph and of its subgraphs, a function or a subgraph, by its name
+        (``"loud"``, ``"loud/shout"``)."""
         return self._flat_nodes[1]
 
     @functools.cached_property

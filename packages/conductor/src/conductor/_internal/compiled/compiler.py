@@ -25,7 +25,7 @@ import logging
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, NamedTuple, TypeVar
+from typing import Annotated, Any, Literal, TypeVar
 
 from pydantic import StringConstraints, TypeAdapter, ValidationError
 
@@ -47,6 +47,7 @@ from conductor._internal.compiled.nodes import (
     CompiledFunctionNode,
     CompiledNode,
     CompiledSubgraphNode,
+    RequiredBranch,
 )
 from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.field import Field
@@ -81,28 +82,14 @@ _INVALID: Any = object()
 _HOOK_FIELDS = TypeAdapter(dict[Annotated[str, StringConstraints(min_length=1, pattern=r"^[^./@]+$")], Any])
 
 
-class RequiredBranch(NamedTuple):
-    """One way a decision must go for a node to hold a value.
-
-    Attributes:
-        node_id: The node that decides.
-        group: Its exclusive group.
-        output: The output of the group that must hold the value.
-    """
-
-    node_id: str
-    group: str
-    output: str
-
-
 @dataclass(frozen=True, slots=True)
 class _InputPlans:
     """A node's inputs, planned.
 
     Attributes:
         inputs: How each input gets its value, by name.
-        loops: The scope the node runs in.
-        required_branches: The branches the node rests on.
+        loops: The loops the node is inside, outermost first.
+        required_branches: The branches that must be chosen upstream for the node to be called.
         bound: What the node's type variables are bound to by what arrives on its edges; ``None`` for a node whose
             inputs hold no type variable, which is nearly every node, so nothing is bound or replaced for it.
     """
@@ -114,32 +101,31 @@ class _InputPlans:
 
 
 class _Compiler:
-    """Loads one record: the working state of placing its nodes, each after the nodes it reads.
+    """Compiles one graph record. It holds what is known so far while the nodes are compiled one at a time,
+    each after the nodes upstream of it.
 
     Attributes:
-        definitions: The newest version of each node, by id.
-        inside_subgraphs: The ids of the graph nodes this record sits in, outermost first, so one that embeds itself
-            is found.
-        alone: Each subgraph already loaded, shared by every compiler one compile makes, so each loads once.
-        problems: What is wrong with the record, as found.
-        nodes: Each node placed so far, by id.
-        branches: The ways decisions must go for each placed node to hold a value, as far as load can tell: what
-            every edge into one of its inputs rests on. It says which edges into one input are alternatives.
-        opened: Each first node's open input, with its default, in the order placed.
-        position: Each node's place in the record.
+        definitions: The newest version of each node definition, by id.
+        inside_subgraphs: The ids of the subgraph definitions this record is inside, outermost first, so a
+            subgraph that contains itself is found.
+        alone: Each subgraph compiled so far. Every compiler made for one ``compile_graph`` call shares it, so
+            a subgraph used twice is compiled once.
+        problems: The problems found so far.
+        nodes: Each node compiled so far, by id.
+        opened: Each graph input found so far, with its field, in the order found.
+        position: Each node's index in the record.
     """
 
     def __init__(self, definitions: Mapping[str, NodeDefinition], inside_subgraphs: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
         self.definitions, self.inside_subgraphs, self.alone = definitions, inside_subgraphs, alone
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
-        self.branches: dict[str, frozenset[RequiredBranch]] = {}
         self.opened: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
     def compile[GraphT: CompiledGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
-        """The graph of ``record``, as a ``graph_type``: every node whose fields are known placed, and every
-        problem noted."""
+        """Returns ``record`` compiled, as a ``graph_type``. It never raises for a wrong record: the graph has
+        the problems, and every node whose inputs and outputs could be worked out."""
         refused = {n.id for n in record.nodes if not is_node_id(n.id)}
         self.problems += [problem.invalid_node_id(node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
         known: dict[str, NodeRecord] = {}
@@ -185,13 +171,8 @@ class _Compiler:
         downstream: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
         needs_context: list[tuple[str, FunctionDefinition[..., Any]]] = []
         for compiled_node in self.nodes.values():
-            match compiled_node:
-                case CompiledFunctionNode(definition=function):
-                    if function.context:
-                        needs_context.append((compiled_node.id, function))
-                case CompiledSubgraphNode(inner=inner):
-                    needs_context += inner._needs_context
-            for source_id in compiled_node.reads:
+            needs_context += compiled_node.functions_with_context
+            for source_id in compiled_node.upstream_ids:
                 downstream[source_id].append(compiled_node)
         return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, needs_context)
 
@@ -243,9 +224,13 @@ class _Compiler:
     # -- placing a node ---------------------------------------------------------
 
     def _compile_function_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]]) -> None:
-        """Place a function node: its declared inputs and the ones its hook adds planned, then its outputs, as
-        declared or as its hook makes them of the types arriving. A node a hook gives no fields for is left out;
-        any other is kept, whatever problems its inputs have."""
+        """Compiles a node that is a function and adds it to ``nodes``.
+
+        Its inputs are the declared ones and those its ``compute_added_inputs`` hook adds; each gets an input
+        plan. Its outputs are the declared ones, or what its ``compute_outputs`` hook returns for the types its
+        edges read. A node whose hook fails is left out, with the problem. Any other node is added, whatever
+        problems its inputs have.
+        """
         fields = dict(definition.inputs)
         constants = self._constants_of(record, fields)
         added: dict[str, Field] = {}
@@ -264,24 +249,26 @@ class _Compiler:
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: field.bind(bound) for name, field in definition.outputs.items()}
         if definition.compute_outputs is not None:
-            arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if isinstance(plan, InputFromEdges)}
+            arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if plan.sources}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, constants, arriving, tuple(added))
         if outputs is not None:
-            self._add_node(CompiledFunctionNode(
-                id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition,
-            ), planned.required_branches)
+            self.nodes[record.id] = CompiledFunctionNode(
+                id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
+                definition=definition,
+            )
 
     def _compile_subgraph_node(self, record: NodeRecord, definition: SubgraphDefinition, edges: dict[str, list[str]]) -> None:
-        """Place a subgraph as one node: the inner graph loaded alone, its inputs and outputs this node's fields.
+        """Compiles a node that is a subgraph and adds it to ``nodes``.
 
-        An input is offered under the name the inner graph gives it (``graph.inputs``), and an output under its
-        address in the inner graph (``graph.outputs``), so an edge reads ``e.upper.result``. An output keeps the
-        field its node inside declares, and is read outside as it would be with the same nodes drawn in this
-        graph: ``CompiledSubgraphNode.loops_around`` names the loops inside it is returned in.
+        Example: the subgraph ``strip -> shout`` used as the node ``loud``. The subgraph's record is compiled on
+        its own first. The node's inputs are that graph's inputs under their names there (``line``), and its
+        outputs are that graph's outputs under their addresses there, so an edge reads ``loud.shout.result``.
+        An output keeps the field the node inside declares. An edge outside reads it as it would with the same
+        nodes drawn in this graph: ``loops_around`` on the node names the loops inside it is returned in.
 
-        A graph that embeds itself is a problem here. The inner graph's own problems are this graph's, each with
-        this node's id in front of its place. Either way the node is left out: what a graph with problems offers
-        isn't known.
+        A subgraph that contains itself is a problem. The problems of the subgraph are problems of this graph,
+        each with this node's id in front of its ``loc``. Either way the node is left out, as the inputs and
+        outputs of a graph with problems are not known.
         """
         if definition.id in self.inside_subgraphs:
             self.problems.append(problem.subgraph_contains_itself(record.id, node=definition.id))
@@ -305,31 +292,34 @@ class _Compiler:
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
             outputs[address] = Field(address, field.hint, field.default)
         planned = self._plan_inputs(record, fields, self._constants_of(record, fields), frozenset(), edges)
-        self._add_node(CompiledSubgraphNode(
-            id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, definition=definition, inner=inner,
-        ), planned.required_branches)
-
-    def _add_node(self, compiled_node: CompiledNode, required_branches: frozenset[RequiredBranch]) -> None:
-        """Keep a node that placed."""
-        self.nodes[compiled_node.id] = compiled_node
-        self.branches[compiled_node.id] = required_branches
+        self.nodes[record.id] = CompiledSubgraphNode(
+            id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
+            definition=definition, inner=inner,
+        )
 
     def _plan_inputs(
         self, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
         edges: dict[str, list[str]], *, generic: bool = False,
     ) -> _InputPlans:
-        """Plan every input of a node, and settle the scope it runs in.
+        """Makes the input plan of every input of a node, and works out which loops the node is inside.
 
-        An input whose edges bring nothing it takes, or can't meet the node's other inputs in one scope, is
-        ``InputMissing``, with the problem: the node is kept, for an editor to draw, in a graph that never runs.
+        In ``lines -> shout -> join``: ``shout.line`` reads one item of ``lines.result``, so ``shout`` is inside
+        the loop over ``lines.result``. A node is inside the loops of the input with the most loops, and the
+        loops of every other input must be the outermost of those (else ``series_not_nested``).
+
+        An input that cannot get a value (an edge it cannot read, loops that do not nest, edges that are not
+        alternatives) gets ``InputMissing``, with the problem. The node is kept so an editor can draw it; the
+        graph never runs.
 
         Args:
             record: The node in the record.
             fields: The node's inputs, by name.
-            constants: Each value and default typed into the record, as its field read it, by name.
-            constant_at_compile: The inputs a hook reads when the graph loads, which a caller therefore never fills.
-            edges: The addresses wired into each input, by name.
-            generic: Whether a field holds a type variable for the edges to bind.
+            constants: The constant and the default the record has for each input, already read by the input's
+                type, by name.
+            constant_at_compile: The inputs a hook reads when the graph is compiled. They never become graph
+                inputs.
+            edges: The addresses of the outputs wired into each input, by input name.
+            generic: Whether an input's type has a type variable, which the edges then bind.
         """
         for name in sorted({*record.constants, *record.defaults, *edges} - fields.keys()):
             self.problems.append(problem.unknown_input(record.id, name, inputs=list(fields)))
@@ -369,17 +359,16 @@ class _Compiler:
                 inputs[name] = InputConstant(field, field.default)
         for name in self._never_meet(record.id, inputs):
             inputs[name] = InputMissing(fields[name])
-        loops_of_inputs = [plan.loops for plan in inputs.values() if isinstance(plan, InputFromEdges)]
-        loops = max(loops_of_inputs, key=len, default=())
+        loops = max((plan.loops for plan in inputs.values()), key=len, default=())
         for name, plan in inputs.items():
             if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].loops_of_value) == loops[: len(made_in)] and not any(s.item for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
                 inputs[name] = InputWrapsOneValue(plan.field, plan.sources)
         for name, plan in inputs.items():
-            if isinstance(plan, InputFromEdges) and loops[: len(plan.loops)] != plan.loops:  # items of two Series never pair up
+            if loops[: len(plan.loops)] != plan.loops:  # the input's loops are not the node's outermost loops: items of two lists never pair up
                 series = [loops[-1], plan.loops[-1]]
                 outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))  # the one placed later can read the other with no cycle
-                reading = next(n for n, p in inputs.items() if isinstance(p, InputFromEdges) and p.loops == loops)
+                reading = next(n for n, p in inputs.items() if p.loops == loops)
                 subgraphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CompiledSubgraphNode)))
                 if subgraphs:  # an edge of this graph can't move a list inside a subgraph
                     self.problems.append(problem.loops_not_nested_inside_subgraph(
@@ -482,14 +471,15 @@ class _Compiler:
         return sources
 
     def _plan_from_edges(self, node_id: str, field: Field, sources: list[EdgeSource]) -> InputFromEdges | InputMissing:
-        """How edges bringing ``sources`` feed one input: one value on each call, or every value its source made.
+        """Returns the plan of an input whose edges read ``sources``.
 
-        An input of one value reads, whatever its type: a ``Series`` reaches it one item at a time. A ``Series``
-        input gathers. A ``Table`` input reads when every edge brings a table, a ``Series`` of tables one table at
-        a time, and else gathers records.
+        An input of one value reads one value per call, whatever its type; when a source is a ``Series`` that
+        is one item of it. A ``Series`` input collects the innermost loop its sources are made in, or wraps the
+        one value of a source made in no loop. A ``Table`` input reads a table when every edge reads one (a
+        ``Series`` of tables one table at a time), and else collects records.
 
         Returns:
-            The input's plan; ``InputMissing``, with the problem, when an edge brings a type the input doesn't take.
+            The plan. ``InputMissing``, with the problem, when an edge reads a type the input does not accept.
         """
         collects, expected = _collects_and_expected_type(field, sources)
         for source in sources:
@@ -502,8 +492,7 @@ class _Compiler:
         if not deepest:
             return InputWrapsOneValue(field, tuple(sources))
         source_node, output = deepest[-1]
-        series = OutputInLoops(source_node, output, deepest[:-1])
-        return InputCollectsLoopResults(field, (series, *sources))
+        return InputCollectsLoopResults(field, OutputInLoops(source_node, output, deepest[:-1]), tuple(sources))
 
     def _source(self, address: str, node_id: str, name: str) -> EdgeSource | None:
         """What an edge from ``address`` brings: ``node.output``, or ``node.output.field`` for one field of a record.
@@ -546,27 +535,27 @@ class _Compiler:
 
     # -- branches ---------------------------------------------------------------
 
-    def _branch(self, source: EdgeSource) -> frozenset[RequiredBranch]:
-        """The ways decisions must go for ``source`` to hold a value."""
-        group = self.nodes[source.node_id].outputs[source.output].param.exclusive_group
-        own = {RequiredBranch(source.node_id, group, source.output)} if group else set[RequiredBranch]()
-        return self.branches[source.node_id] | own
+    def _branches_required_for(self, source: EdgeSource) -> frozenset[RequiredBranch]:
+        """The branches that must be chosen for the output ``source`` reads to have a value."""
+        return self.nodes[source.node_id].branches_required_for(source.output)
 
     def _never_meet(self, node_id: str, inputs: Mapping[str, InputPlan]) -> set[str]:
-        """Refuse edges that can never bring a node a value together.
+        """Finds the inputs whose edges cannot be read together, and adds a problem for each.
 
-        Several edges into one input are alternatives: each on its own branch of one decision, so a call never has
-        two values for it, and all in one scope, so each call has a place for the one it gets. Two ``Series``
-        inputs that keep no blanks, fed only from opposite branches, would lose every item.
+        Several edges into one input must be alternatives. Each pair must need different outputs of one
+        exclusive group, so that a call gets a value from at most one of them
+        (``several_edges_into_one_input``). And all must be made in the same loops, so that whichever has the
+        value is found by the same item indexes (``alternatives_from_different_loops``).
+
+        Two collecting inputs that accept no ``None`` items and whose edges are all on opposite branches would
+        each drop the items the other keeps, leaving both lists empty (``lists_from_different_loops``).
 
         Returns:
-            The inputs whose edges don't meet these, each with its problem.
+            The names of the inputs with a problem.
         """
         refused: set[str] = set()
         for name, plan in inputs.items():
-            if not isinstance(plan, InputFromEdges):
-                continue
-            behind = [self._branch(s) for s in plan.sources]
+            behind = [self._branches_required_for(s) for s in plan.sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in plan.sources))
             if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
                 self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in plan.sources]))
@@ -576,7 +565,7 @@ class _Compiler:
                 self.problems.append(problem.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
         aligned = [
-            (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
+            (name, [self._branches_required_for(s) for s in plan.sources]) for name, plan in inputs.items()
             if isinstance(plan, InputCollectsLoopResults) and not plan.field.accepts_none_items and name not in refused
         ]
         for i, (a, behind_a) in enumerate(aligned):
@@ -587,16 +576,20 @@ class _Compiler:
         return refused
 
     def _required_branches(self, inputs: Mapping[str, InputPlan]) -> frozenset[RequiredBranch]:
-        """The branches a node rests on: for each input edges feed, what every edge into it rests on. A gather
-        rests only on what is decided where it runs or above, as a decision made per item skips items, never it."""
+        """Returns the branches that must be chosen for a node with these ``inputs`` to be called: for each
+        input, the branches that every edge into it needs.
+
+        A collecting input needs only the branches chosen outside the loop it collects. A branch chosen per
+        item inside the loop leaves items out of the list; the node is still called.
+        """
         required_branches: set[RequiredBranch] = set()
         for plan in inputs.values():
-            if not isinstance(plan, InputFromEdges):
+            if not plan.sources:
                 continue
-            behind = [self._branch(s) for s in plan.sources]
+            behind = [self._branches_required_for(s) for s in plan.sources]
             shared = behind[0].intersection(*behind[1:])
             if isinstance(plan, InputCollectsLoopResults):
-                shared = frozenset(b for b in shared if len(self.nodes[b.node_id].loops) <= len(plan.loops))
+                shared = frozenset(branch for branch in shared if branch.depth <= len(plan.loops))
             required_branches |= shared
         return frozenset(required_branches)
 

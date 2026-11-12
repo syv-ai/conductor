@@ -39,11 +39,9 @@ from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
     InputReadsOneValue,
-    OutputInLoops,
-    SeriesAsList,
 )
 from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import ItemIndexes, NotCalled, NotReady, Outcome, Skipped, Waiting
+from conductor._internal.outcomes import ItemIndexes, NotCalled, NotReady, Outcome, Skipped
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
@@ -127,7 +125,7 @@ class ResultReader:
             return NotCalled(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_alternatives(self, sources: tuple[OutputInLoops, ...], item_indexes: ItemIndexes) -> Any:
+    def read_alternatives(self, sources: tuple[EdgeSource, ...], item_indexes: ItemIndexes) -> Any:
         """Returns what an input with several edges into it reads for ``item_indexes``.
 
         The edges come from different branches of one decision, so for one call at most one of them has a
@@ -149,7 +147,7 @@ class ResultReader:
                 return value
         return best
 
-    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
+    def read_output(self, source: EdgeSource, item_indexes: ItemIndexes) -> Any:
         """Returns what one edge reads from the output ``source`` for the call at ``item_indexes``.
 
         In the example, the edge into ``shout.line`` reads one item of ``lines.result``: for ``(1,)`` it reads
@@ -166,7 +164,7 @@ class ResultReader:
         """
         depth = source.depth
         outcome = self.outcomes[source.node_id].get(item_indexes[:depth])
-        if outcome is None or type(outcome) is Waiting:
+        if outcome is None or not outcome.has_outputs:
             if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
                 would_be = self.for_any_item[source.node_id]
                 if isinstance(would_be, dict):
@@ -174,7 +172,7 @@ class ResultReader:
                 return would_be if would_be is NotReady.NOT_READY else would_be.outputs[source.output]
             return NotReady.NOT_READY
         value = outcome.outputs[source.output]
-        if value is None or value is SKIPPED or type(source) is not EdgeSource:  # the last: the list a loop goes through, as it is stored
+        if value is None or value is SKIPPED:
             return value
         record_field = source.record_field
         if not source.item:
@@ -203,10 +201,10 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        looped_over = plan.reads[0]
-        if len(item_indexes) < looped_over.depth:
+        depth = plan.series.depth
+        if len(item_indexes) < depth:
             return self._edges_for_any_item(plan, item_indexes)
-        item_indexes = item_indexes[: looped_over.depth]
+        item_indexes = item_indexes[:depth]
         series = self._list_looped_over(plan, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
@@ -251,7 +249,8 @@ class ResultReader:
             value = any_item._edges_for_any_item(plan, item_indexes)
             if value is not MAY_HAVE_VALUE:
                 return value
-        return self.read_output(plan.reads[0], item_indexes)
+        outcome = self.outcomes[plan.series.node_id].get(item_indexes)
+        return outcome.outputs[plan.series.output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
     def _edges_for_any_item(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
@@ -294,17 +293,22 @@ class DisplayReader(ResultReader):
 
     __slots__ = ()
 
-    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """The value of the output ``source`` for the item at ``item_indexes``; ``None`` when the node hasn't
-        returned yet, or when the edge names a field the record doesn't have. A ``Series`` output that
-        ``run.results`` shows (a ``SeriesAsList``) is returned as a plain list of its items."""
+    def read_output(self, source: EdgeSource, item_indexes: ItemIndexes) -> Any:
+        """Returns what ``ResultReader.read_output`` returns, as a host is shown it: ``None`` when the node has
+        not returned yet, or when the edge names a field the record does not have, and the value of a
+        ``Series`` output as a plain list of its items."""
         try:
             value = ResultReader.read_output(self, source, item_indexes)
         except NoSuchFieldError:
             return None
         if value is NotReady.NOT_READY:
             return None
-        return value.as_list() if type(source) is SeriesAsList and isinstance(value, StoredSeries) else value
+        return value.as_list() if isinstance(value, StoredSeries) else value
+
+    def _list_looped_over(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
+        """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
+        looped_over = ResultReader._list_looped_over(self, plan, item_indexes)
+        return None if looped_over is NotReady.NOT_READY else looped_over
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """The list a ``Series`` input with ``plan`` would be called with for the item at ``item_indexes``;

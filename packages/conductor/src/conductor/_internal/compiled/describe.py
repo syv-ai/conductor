@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, assert_never
 
 from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,
@@ -127,21 +127,28 @@ def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
 
 
 def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> Feed:
-    """How ``plan`` feeds its input on each call of a node that runs in ``loops``."""
+    """Returns how an input with ``plan`` gets its value on each call, for a node inside ``loops``.
+
+    In ``lines -> shout -> join``: ``shout.line`` is ``per_item`` of ``lines.result``, ``shout.mark`` is a
+    ``constant``, ``join.texts`` is ``collected`` from ``lines.result``, and ``lines.text`` is a ``graph_input``.
+    """
     match plan:
-        case InputCollectsLoopResults(series=series):
-            return Feed(mode="collected", series=series.address, msg=f"every item of {series.address}")
-        case InputWrapsOneValue():
-            return Feed(mode="collected", msg="the one value, as a Series of one")
-        case InputReadsOneValue(loops=fed_in) if fed_in != loops:
-            return Feed(mode="outer_value", series=str(fed_in[-1]) if fed_in else None, msg=f"the value of {f'the item of {fed_in[-1]}' if fed_in else 'the graph'}")
-        case InputReadsOneValue(loops=fed_in) if fed_in:
-            return Feed(mode="per_item", series=str(fed_in[-1]), msg=f"per item of {fed_in[-1]}")
-        case InputMissing():
-            return Feed(mode="unset", msg="no value: a problem of the graph says why")
         case InputConstant():
             return Feed(mode="constant", msg="a constant")
         case InputFromGraphInput():
             return Feed(mode="graph_input", msg="the graph input")
-        case _:
+        case InputMissing():
+            return Feed(mode="unset", msg="no value: a problem of the graph says why")
+        case InputCollectsLoopResults(series=series):
+            return Feed(mode="collected", series=series.address, msg=f"every item of {series.address}")
+        case InputWrapsOneValue():
+            return Feed(mode="collected", msg="the one value, as a Series of one")
+        case InputReadsOneValue(loops=value_loops):
+            if value_loops != loops:  # the value is made outside the node's innermost loop
+                made_for = f"the item of {value_loops[-1]}" if value_loops else "the graph"
+                return Feed(mode="outer_value", series=str(value_loops[-1]) if value_loops else None, msg=f"the value of {made_for}")
+            if value_loops:
+                return Feed(mode="per_item", series=str(value_loops[-1]), msg=f"per item of {value_loops[-1]}")
             return Feed(mode="one_value", msg="one value")
+        case _:
+            assert_never(plan)

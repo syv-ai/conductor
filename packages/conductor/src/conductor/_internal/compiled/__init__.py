@@ -1,8 +1,8 @@
-"""A graph record compiled against the nodes it uses, ready to run: loading, what loading makes, and what a host is shown.
+"""A graph record compiled against the node definitions it uses: compiling, what compiling makes, and what a host is shown.
 
-Code outside this package imports from here only. ``compiler.py`` has ``compile_graph`` and the compiler; ``type.py``
-``CompiledGraph``; ``nodes.py`` its nodes as the compiler places them; ``input_plans.py`` what an edge brings and how each input gets its value;
-``tree.py`` the nodes where they stand, which a run walks; ``describe.py`` what a host is shown of a loaded graph.
+Code outside this package imports from here only. ``compiler.py`` has ``compile_graph``; ``type.py`` has
+``CompiledGraph``; ``nodes.py`` its nodes; ``input_plans.py`` how each input of a node gets its value;
+``flat_nodes.py`` the flat graph, which a run works on; ``describe.py`` what a host is shown of a compiled graph.
 """
 
 from conductor._internal.compiled.compiler import compile_graph
@@ -23,7 +23,6 @@ from conductor._internal.compiled.input_plans import (
     InputReadsOneValue,
     InputWrapsOneValue,
     OutputInLoops,
-    SeriesAsList,
 )
 from conductor._internal.compiled.nodes import CompiledFunctionNode
 from conductor._internal.compiled.type import CompiledGraph

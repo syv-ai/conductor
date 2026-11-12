@@ -1,10 +1,28 @@
-"""The nodes of a compiled graph where they stand: what a run holds units of, and how each of their inputs is read.
+"""The flat graph: every function node of a compiled graph and of its subgraphs, in the order a run calls them.
 
-A graph loads once, alone, however many graphs embed it. What a run walks is every function of the graph and of
-each graph embedded in it, each a ``FlatFunctionNode``, with its inputs planned where it stands: an output of an
-subgraph is by definition an output of a function inside it, so a reader's plan names that output, and an open
-input inside has the plan the subgraph's node has for it. A call of a subgraph therefore costs what
-its functions cost, and its node (a ``FlatSubgraph``) holds no unit of its own: it is a name and a boundary.
+The example used in this file. ``loud`` is the subgraph ``strip -> shout``, used as one node of an outer graph::
+
+    lines(text: str) -> Series[str]     # called once; returns ["a", "b"]
+    loud                                # wired to lines.result: its nodes are called once per line
+        strip(line: str) -> str
+        shout(line: str) -> str
+    join(texts: Series[str]) -> str     # wired to loud.shout.result: called once, with ["A!", "B!"]
+
+The compiled graph has three nodes: ``lines``, ``loud`` and ``join``. A subgraph is never called: only the
+functions inside it are. So a run works on the flat graph, which ``flat_nodes(graph)`` makes once per graph. It
+has the four function nodes ``lines``, ``loud/strip``, ``loud/shout`` and ``join`` (each a
+``FlatFunctionNode``), and ``loud`` (a ``FlatSubgraph``), which has no outcomes of its own.
+
+In the flat graph every edge and every loop names a function node:
+
+- The edge into ``join.texts`` comes from ``loud.shout.result`` in the graph record. In the flat graph it reads
+  ``result`` of ``loud/shout``. Both kinds of flat node answer ``source_of(output)`` with the function node that
+  returns the output, so no code asks which kind of node an edge comes from.
+- The input of ``loud/strip`` is a graph input inside the subgraph. In the flat graph it has the plan the outer
+  graph made for ``loud``'s input: one item of ``lines.result``.
+- ``loud/strip`` and ``loud/shout`` are inside the loop over ``lines.result``, because ``loud`` is.
+
+A flat node has nothing from a run in it: it is made once and shared by every run of the graph.
 """
 
 from __future__ import annotations
@@ -13,7 +31,7 @@ import dataclasses
 import typing
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, assert_never
 
 from conductor._internal.address import Loc, NodePath, node_path_text
 from conductor._internal.compiled.input_plans import (
@@ -28,7 +46,6 @@ from conductor._internal.compiled.input_plans import (
     InputWrapsOneValue,
     OutputAddress,
     OutputInLoops,
-    SeriesAsList,
 )
 from conductor._internal.compiled.nodes import (
     CompiledFunctionNode,
@@ -46,20 +63,20 @@ if typing.TYPE_CHECKING:
 
 @dataclass(eq=False, slots=True, kw_only=True)
 class _FlatNodeBase:
-    """A node where it stands among the graphs a run is of: a node of the graph itself, or of a graph embedded
-    in it, at any depth. Never made on its own: it is a ``FlatFunctionNode`` or a ``FlatSubgraph``.
+    """What both kinds of flat node have. Never made on its own: it is a ``FlatFunctionNode`` or a
+    ``FlatSubgraph``.
 
-    A graph loads once and may be embedded in many places; this is a node of it in one of them. A node inside an
-    subgraph runs once for each item its subgraph node runs for, and then once per item of its own scope,
-    so the maps it runs in are the subgraph node's and then its own.
+    A subgraph is compiled once and may be used as a node in many places. A flat node is one node in one of
+    those places. In the example, ``loud/shout`` is ``shout`` inside ``loud``.
 
     Attributes:
-        parent: The subgraph's node it is directly inside; ``None`` for a node of the graph itself.
-        node_path: The ids of the subgraphs' nodes it is inside, outermost first, then its own id.
-        name: The path as a run and a save name the node, ``e/ask``.
-        loops: Every map it runs in, outermost first, each as the function whose ``Series`` output it is and
-            that output: those of the subgraph's node it is inside, then those of its own scope. A loop
-            over a ``Series`` a subgraph offers is the loop inside that graph (``_series_looped_over``).
+        parent: The subgraph the node is directly inside; ``None`` for a node of the graph itself.
+        node_path: The ids of the subgraphs the node is inside, outermost first, then its own id:
+            ``("loud", "shout")``.
+        name: The node path as text, ``"loud/shout"``. A run keeps the node's outcomes under this name.
+        loops: The loops the node is inside, outermost first: those of the subgraph it is inside, then its own.
+            Each is the function node that returns the list looped over, and the name of that output. In the
+            example, ``loud/shout`` has ``((lines, "result"),)``.
     """
 
     parent: FlatSubgraph | None
@@ -71,49 +88,43 @@ class _FlatNodeBase:
 @typing.final
 @dataclass(eq=False, slots=True, kw_only=True)
 class FlatFunctionNode(_FlatNodeBase):
-    """A function node of a graph with its subgraphs laid out flat. Built once per graph and shared by
-    every run of it; it holds nothing from a run.
+    """A function node of the flat graph: what a run calls and keeps outcomes of.
 
-    The arguments of one call come from three places: ``constants`` (the values typed into the graph and
-    the defaults, fixed when the graph is checked), the graph inputs (``graph_inputs``, fixed when
-    a run starts), and the values other nodes returned (``edge_inputs``, read for each call).
-
-    How each input gets its value is written for where the node stands: every output of a plan names a function
-    by its ``name``, so a plan is read the same wherever its node stands. An open input of a node inside an
-    subgraph has the plan that graph's node has for it, and an edge from a subgraph's output reads
-    the output inside that holds it.
+    The arguments of one call come from three places: ``constants`` (known when the graph is compiled),
+    ``graph_inputs`` (known when a run starts) and ``edge_inputs`` (read from the run's outcomes for each call).
+    In every input plan here, a source names a function node by its ``name``.
 
     Attributes:
-        compiled_node: The node, as its graph loaded it.
+        compiled_node: The node as its own graph compiled it.
         policy: The node's policy, as its definition declares it.
-        constants: What the arguments of every call start as: each input by name, in the order declared,
-            one that holds the same value on every call already holding it.
-        graph_inputs: The inputs the caller gives: the name, and the address a run keeps the caller's value by.
-        edge_inputs: What the node needs that edges bring, in the order declared: the input's name, a plan, and
-            whether the input takes a blank. A gathering input is two of them, as it needs two things: its
-            Series, read as the one value it is, and then what its edges bring for the items (the plan
-            itself, which names the functions it gathers through, ``InputCollectsLoopResults.loop_body``).
-        lists_from_same_loop: The gathering inputs that gather one Series, for each such Series: each input's name
-            and whether its items may be blank. They receive the same items.
-        validated_inputs: The inputs whose value is read by the input's type before a call, as the types the edges bring
-            don't settle it.
-        looped_outputs: The ``Series`` outputs some reader works through one item at a time where the node stands,
-            which a run holds to ``max_items``, each with the node and the output its reader's graph names it
-            by: its own, for a reader in its graph; for a reader of a subgraph's node around it, that
-            node and the output it offers, so the ceiling is said of what that graph's author drew. A reader
-            placed after the node adds to it, as its plan is written (``_flat_plan``).
-        upstream: Every function whose units its own are made from, each with how many places of an item
-            path of this node say which of that function's units: the unit at those places, and where that
-            function runs deeper every unit under them. They are the outputs its inputs' plans read (``reads``
-            of each), no deeper than the input sits; for a gathering input also what the functions it gathers
-            through read outside the items, which can settle it for every item at once; and, for a node that
-            reads anything from outside the innermost map it runs in, or reads nothing, the Series of that
-            map, since what it reads may be there before its items are.
-        downstream: Each function whose ``upstream`` holds this one, with the number held there.
-        position: Its place in the order a leg tries the functions in.
-        all_upstream: Every function it waits on, however far up; filled when first asked for.
-        display_plans: The input plans ``run.results`` reads each output with, by the output's name
-            (``display_plans_of``); filled when first asked for.
+        constants: Every input by name, in the order declared: the value of an input that is a constant, and
+            ``None`` for every other input. The arguments of a call start as a copy of it.
+        graph_inputs: The inputs the caller gives a value for: the input's name, and the key the run keeps the
+            caller's value under (``"lines.text"``).
+        edge_inputs: The inputs that edges lead to, in the order declared: the input's name, its plan, and
+            whether the input accepts ``None``. A collecting input is here twice: first with a plan that reads
+            the list it collects as one value (so a list that is ``None``, skipped or not made yet is seen
+            before any item is read), then with its own plan.
+        lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
+            whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
+            left out of every list of its group, so the lists of one group have the same items.
+        validated_inputs: The names of the inputs whose value is validated by the input's type before each
+            call, because the types of the outputs its edges read do not guarantee it.
+        looped_outputs: The ``Series`` outputs of the node that some edge reads one item at a time, by output
+            name. A run holds each to ``max_items``. The value is the node and output that the reading node's
+            graph names the list by: this node, or, when the reading node is outside a subgraph this node is
+            inside, that subgraph and the output's address in it. The item-limit problem names the list that
+            way.
+        upstream: Each function node whose outcomes a call of this node reads, with a number ``n``: the call at
+            ``item_indexes`` reads that node's outcome at ``item_indexes[:n]``, or, when that node is inside
+            more than ``n`` loops, every outcome of it whose item indexes start with those. In the example,
+            ``join`` has ``{loud/shout: 0, lines: 0}``: its one call reads every call of ``loud/shout``.
+        downstream: Each function node that has this one in its ``upstream``, with the number it has there.
+        position: The node's index in the order a run tries the function nodes in.
+        all_upstream: Every function node upstream of this one, at any distance. ``None`` until
+            ``all_upstream(node)`` works it out.
+        display_plans: The input plans ``run.results`` reads each output with, by output name. Filled by
+            ``display_plans_of``.
     """
 
     compiled_node: CompiledFunctionNode
@@ -130,67 +141,81 @@ class FlatFunctionNode(_FlatNodeBase):
     all_upstream: frozenset[FlatFunctionNode] | None = None
     display_plans: dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]])
 
+    def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
+        """Returns the function node that returns ``output``, and the output's name there: this node and
+        ``output``. A ``FlatSubgraph`` answers the same question with a node inside it."""
+        return self, output
+
 
 @typing.final
 @dataclass(eq=False, slots=True, kw_only=True)
 class FlatSubgraph(_FlatNodeBase):
-    """A placed subgraph where it stands among the graphs a run is of, made with the functions inside it
-    when a ``Graph``'s nodes are first walked. It is a name and a boundary: it is never called and a run
-    holds no unit of it. Its inputs are handed to the open inputs inside as their plans, and each output it
-    offers is the output of a function inside. What a run says of it (its results, that it started, that it is
-    complete) is read from the functions inside when asked.
+    """A subgraph in the flat graph: ``loud`` in the example. It is never called and a run keeps no outcomes of
+    it. What a run says about it (its results, that it started, that it is complete) is worked out from the
+    nodes inside it.
 
     Attributes:
-        compiled_node: The node, as its graph loaded it.
-        inputs: How each input gets its value where the node stands, by name: the plan an open input inside
-            is given for its own.
-        nodes: The nodes of the graph inside, where they stand.
-        output_sources: Each output it offers, by its address in the inner graph: the function inside that makes it, at
-            any depth of subgraphs, and that function's output.
+        compiled_node: The node as the outer graph compiled it.
+        inputs: The plan of each input, by name. A graph input of the subgraph gets the plan here under its
+            name: in the example, ``loud/strip``'s ``line`` has the plan ``inputs["line"]``.
+        inner_nodes: The nodes of the subgraph as flat nodes, by their id in the subgraph. Empty until they are
+            made, which is right after this node is.
     """
 
     compiled_node: CompiledSubgraphNode
     inputs: dict[str, InputPlan]
-    nodes: list[FlatNode] = dataclasses.field(default_factory=list["FlatNode"])
-    output_sources: dict[str, tuple[FlatFunctionNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatFunctionNode", str]])
+    inner_nodes: dict[str, FlatNode] = dataclasses.field(default_factory=dict[str, "FlatNode"])
+
+    def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
+        """Returns the function node inside the subgraph that returns ``output``, and the output's name there.
+
+        ``output`` is an address inside the subgraph. In the example, ``loud.source_of("shout.result")`` is
+        ``(loud/shout, "result")``. When the node inside is itself a subgraph, the answer is a function node
+        inside that one.
+        """
+        node_id, _, inner_output = output.partition(".")
+        return self.inner_nodes[node_id].source_of(inner_output)
 
 
-#: A node where it stands among the graphs a run is of: a function, or a subgraph.
+#: A node of the flat graph: a function, or a subgraph.
 FlatNode = FlatFunctionNode | FlatSubgraph
 
 
-
 def all_upstream(node: FlatFunctionNode) -> frozenset[FlatFunctionNode]:
-    """Every function ``node`` waits on, however far up; worked out when first asked, as most nodes never are."""
+    """Returns every function node upstream of ``node``, at any distance. Worked out on the first call and kept
+    on the node, as most nodes are never asked."""
     if node.all_upstream is None:
         seen: set[FlatFunctionNode] = set()
         stack = [node]
         while stack:
-            for read in stack.pop().upstream:
-                if read not in seen:
-                    seen.add(read)
-                    stack.append(read)
+            for upstream_node in stack.pop().upstream:
+                if upstream_node not in seen:
+                    seen.add(upstream_node)
+                    stack.append(upstream_node)
         node.all_upstream = frozenset(seen)
     return node.all_upstream
 
 
 def outcome_loc(node: FlatNode, item_indexes: ItemIndexes) -> Loc:
-    """Where the instance ``item_indexes`` of ``node`` is: the node's id, then the places of its own scope's items, after
-    the same for each subgraph's node it is inside, ``("e", 0, "ask", 2)``.
+    """Returns the loc of the call of ``node`` at ``item_indexes``: the ids of its node path, each followed by
+    the indexes of the loops entered at that node.
+
+    In the example, the call of ``loud/shout`` for the second line is ``("loud", 1, "shout")``: ``loud`` is
+    inside the loop over ``lines.result``, and ``shout`` is inside no further loop.
 
     Args:
         node: The node.
-        item_indexes: The instance; one cut off after the places of the subgraph's node gives the node's id alone
-            at the end, ``("e", 0, "ask")``.
+        item_indexes: The item indexes of the call. With only the indexes of the loops the node's subgraph is
+            inside, the loc ends at the node's id: ``("loud", 1, "shout")`` again.
     """
     if node.parent is None:
         return (node.compiled_node.id, *item_indexes)
-    around = len(node.parent.loops)  # the places of the subgraph's node's own item
-    return (*outcome_loc(node.parent, item_indexes[:around]), node.compiled_node.id, *item_indexes[around:])
+    parent_depth = len(node.parent.loops)
+    return (*outcome_loc(node.parent, item_indexes[:parent_depth]), node.compiled_node.id, *item_indexes[parent_depth:])
 
 
-#: What a host is shown of an output made per item is what an input of this type wired to it would be given:
-#: every item in its place, a blank where an item has no value.
+#: The input a host's read of an output stands in for: a ``Series`` input that accepts ``None`` items, so every
+#: item is shown at its index, with ``None`` for an item that has no value.
 _DISPLAY_FIELD = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
 
@@ -215,64 +240,53 @@ def display_plans_of(node: FlatFunctionNode, output: str) -> tuple[InputReadsOne
     """
     plans = node.display_plans.get(output)
     if plans is None:
-        field = node.compiled_node.outputs[output]
-        source = (SeriesAsList if field.many else EdgeSource)(node.name, output, _loops_by_name(node.loops), None, field.type, item=False)
+        source = EdgeSource(node.name, output, _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
         per_loop = [_collect_plan(_DISPLAY_FIELD, looped_over, (source,), functions) for looped_over in node.loops]
         plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (source,), source.loops),)
     return plans
 
 
-def flat_nodes(graph: CompiledGraph) -> tuple[list[FlatFunctionNode], dict[str, FlatNode]]:
-    """The nodes of ``graph`` and those of each graph embedded in it, where they stand: the functions in the
-    order a leg tries them, each after the functions it reads, and every node by its name."""
-    function_nodes: list[FlatFunctionNode] = []
+def flat_nodes(graph: CompiledGraph) -> tuple[dict[str, FlatFunctionNode], dict[str, FlatNode]]:
+    """Returns the flat graph of ``graph``: its function nodes by name, in the order a run tries them (each
+    after the nodes upstream of it), and every flat node (function or subgraph) by its name."""
+    functions: dict[str, FlatFunctionNode] = {}
     nodes_by_name: dict[str, FlatNode] = {}
-    _add_flat_nodes(graph, None, function_nodes, nodes_by_name)
-    for node in function_nodes:
-        for read, places in node.upstream.items():
-            read.downstream.append((node, places))
-    return function_nodes, nodes_by_name
+    _add_flat_nodes(graph, None, functions, nodes_by_name)
+    for node in functions.values():
+        for upstream_node, shared_indexes in node.upstream.items():
+            upstream_node.downstream.append((node, shared_indexes))
+    return functions, nodes_by_name
 
 
-def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_nodes: list[FlatFunctionNode], nodes_by_name: dict[str, FlatNode]) -> dict[str, FlatNode]:
-    """Add the functions of ``graph`` to ``function_nodes``, each after the functions it reads, those of each graph
-    embedded in it where that graph's node stands, and every node to ``nodes_by_name``.
+def _add_flat_nodes(
+    graph: CompiledGraph, parent: FlatSubgraph | None, functions: dict[str, FlatFunctionNode], nodes_by_name: dict[str, FlatNode],
+) -> dict[str, FlatNode]:
+    """Makes the flat nodes of ``graph``, and of each subgraph in it, and adds them to ``functions`` and
+    ``nodes_by_name``.
 
-    A plan of the compiled graph names the nodes of its own graph. Here each is written for where its node stands
-    (``_flat_plan``): the one place a subgraph's boundary is crossed, inwards for an open input and
-    outwards for an output.
+    In the example, called with the outer graph it adds ``lines``, then ``loud`` (calling itself with the
+    subgraph, which adds ``loud/strip`` and ``loud/shout``), then ``join``.
 
     Args:
-        graph: The graph: the one a run is of, or one embedded in it.
-        parent: The subgraph's node that ``graph`` is the inner graph of; ``None`` for the run's own.
-        function_nodes: The functions so far, added to.
-        nodes_by_name: Every node so far by its name, added to.
+        graph: The compiled graph: the one a run is of, or a subgraph of it.
+        parent: The flat node of the subgraph that ``graph`` is; ``None`` for the graph a run is of.
+        functions: The function nodes made so far, by name, in the order a run tries them. Added to.
+        nodes_by_name: Every flat node made so far, by name. Added to.
 
     Returns:
-        The nodes of ``graph`` where they stand, by id.
+        The flat nodes of ``graph`` itself, by their id in ``graph``.
     """
     parent_path = parent.node_path if parent is not None else ()
     outer_loops = parent.loops if parent is not None else ()
     nodes_by_id: dict[str, FlatNode] = {}
-    functions = typing.cast("dict[str, FlatFunctionNode]", nodes_by_name)  # an output of a plan at a path names a function
     for compiled_node in graph._nodes.values():
-        inputs: dict[str, InputPlan] = {}
-        for name, plan in compiled_node.inputs.items():
-            if parent is not None and isinstance(plan, InputFromGraphInput):  # the subgraph's node is given it, as a caller would give it
-                inputs[name] = parent.inputs[graph._input_fields[plan.address].name]
-            else:
-                inputs[name] = _flat_plan(plan, nodes_by_id, parent_path, functions)
-        loops = (*outer_loops, *[_series_looped_over(loop, parent_path, nodes_by_name) for loop in compiled_node.loops])
+        inputs = {name: _flat_plan(plan, graph, parent, nodes_by_id, functions) for name, plan in compiled_node.inputs.items()}
+        loops = (*outer_loops, *[nodes_by_id[loop.node_id].source_of(loop.output) for loop in compiled_node.loops])
         node_path = (*parent_path, compiled_node.id)
         if isinstance(compiled_node, CompiledSubgraphNode):
             subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, inputs=inputs)
-            within = _add_flat_nodes(compiled_node.inner, subgraph, function_nodes, nodes_by_name)
-            subgraph.nodes = list(within.values())
-            for address in compiled_node.inner.outputs:
-                source_node, _, output = address.partition(".")
-                last = within[source_node]
-                subgraph.output_sources[address] = last.output_sources[output] if isinstance(last, FlatSubgraph) else (last, output)
+            subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, functions, nodes_by_name)
             nodes_by_id[compiled_node.id] = nodes_by_name[subgraph.name] = subgraph
             continue
         constants: dict[str, Any] = {}
@@ -282,6 +296,8 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
         collecting: dict[OutputInLoops, list[tuple[str, bool]]] = {}
         for name, plan in inputs.items():
             constants[name] = None
+            outputs_read: tuple[OutputInLoops, ...]
+            outside_the_loop: list[tuple[FlatFunctionNode, int]] = []
             match plan:
                 case InputConstant(value=value):
                     constants[name] = value
@@ -290,121 +306,114 @@ def _add_flat_nodes(graph: CompiledGraph, parent: FlatSubgraph | None, function_
                     graph_inputs.append((name, address))
                     continue
                 case InputMissing():
-                    raise RuntimeError(f"'{node_path_text(node_path)}' has an input with no value to give: a graph with problems is never walked")
-            read_at = [(functions[at.node_id], min(at.depth, len(plan.loops))) for at in plan.reads]  # no deeper than the input sits
-            if isinstance(plan, InputCollectsLoopResults):
-                series = plan.series
-                items_of = (functions[series.node_id], series.output)  # what the functions it gathers through read outside the items can settle it too
-                read_at += [(read, places) for inner in plan.loop_body for read, places in inner.upstream.items() if items_of not in read.loops]
-                collecting.setdefault(series, []).append((name, plan.field.accepts_none_items))
-                whole = EdgeSource(series.node_id, series.output, series.loops, None, functions[series.node_id].compiled_node.outputs[series.output].whole, item=False)
-                edge_inputs.append((name, InputReadsOneValue(plan.field, (whole,), series.loops), plan.field.whole.optional))  # it needs its Series, and then its items
+                    raise RuntimeError(f"'{node_path_text(node_path)}' has an input that gets no value: a graph with problems has no flat graph")
+                case InputReadsOneValue(sources=sources) | InputWrapsOneValue(sources=sources):
+                    outputs_read = sources
+                case InputCollectsLoopResults(field=field, series=series, sources=sources):
+                    outputs_read = (series, *sources)
+                    series_node = functions[series.node_id]
+                    looped_over = (series_node, series.output)
+                    # what a node inside the loop reads from outside it can say that no item will have a value
+                    read_inside = [read for inner in plan.loop_body for read in inner.upstream.items()]
+                    outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
+                    collecting.setdefault(series, []).append((name, field.accepts_none_items))
+                    series_type = series_node.compiled_node.outputs[series.output].whole
+                    whole_list = EdgeSource(series.node_id, series.output, series.loops, None, series_type, item=False)
+                    # the list first, then (below) its items
+                    edge_inputs.append((name, InputReadsOneValue(field, (whole_list,), series.loops), field.whole.optional))
+                case _:
+                    assert_never(plan)
             edge_inputs.append((name, plan, plan.field.whole.optional))
-            for read, places in read_at:
-                upstream[read] = min(places, upstream.get(read, places))
+            depth = len(plan.loops)
+            for upstream_node, shared_indexes in (*[(functions[read.node_id], min(read.depth, depth)) for read in outputs_read], *outside_the_loop):
+                upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
             constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=tuple(edge_inputs), lists_from_same_loop=tuple(map(tuple, collecting.values())),
-            validated_inputs=tuple(name for name, plan in inputs.items() if _needs_validation(plan)), upstream=upstream,
+            validated_inputs=tuple(name for name, plan in inputs.items() if _needs_validation(plan)), upstream=upstream, position=len(functions),
         )
-        if loops and min(node.upstream.values(), default=0) < len(loops):  # what it reads may be there before its items are
+        if loops and min(node.upstream.values(), default=0) < len(loops):
+            # it reads something made outside its innermost loop, which may exist before the list looped over does
             node.upstream.setdefault(loops[-1][0], len(loops) - 1)
-        nodes_by_id[compiled_node.id] = nodes_by_name[node.name] = node
-        node.position = len(function_nodes)
-        function_nodes.append(node)
+        nodes_by_id[compiled_node.id] = nodes_by_name[node.name] = functions[node.name] = node
     return nodes_by_id
 
 
-def _source_function(port: OutputAddress, nodes_by_id: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
-    """The function that returns the output ``port`` names, and the output's name there: the node itself, or
-    for a subgraph's node the function inside it that returns what the node offers."""
-    source_node = nodes_by_id[port.node_id]
-    return source_node.output_sources[port.output] if isinstance(source_node, FlatSubgraph) else (source_node, port.output)
-
-
-def _series_looped_over(loop: OutputAddress, parent_path: NodePath, nodes_by_name: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
-    """The list one loop of a node's scope goes through, as the function that returns it and the output's name.
-
-    A loop over a function's ``Series`` output is that output. A loop a subgraph's node names is a loop
-    inside the subgraph. Example: ``e`` is the subgraph ``documents -> lines -> shout``, and a node
-    outside is called once per item of ``e.documents.result``: that is ``result`` of ``e/documents``.
-
-    Args:
-        loop: The loop, as a graph's scope names it.
-        parent_path: The path of the subgraph's node that graph is inside; empty for the run's own graph.
-        nodes_by_name: Every node placed so far, by its name.
-    """
-    source_node = nodes_by_name[node_path_text((*parent_path, loop.node_id))]
-    if isinstance(source_node, FlatSubgraph):
-        inner_id, _, inner_output = loop.output.partition(".")
-        return _series_looped_over(OutputAddress(inner_id, inner_output), source_node.node_path, nodes_by_name)
-    return source_node, loop.output
-
-
 def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[OutputAddress, ...]:
-    """``loops`` as the scope of a plan at a path, each Series named by the name of its function."""
-    return tuple([OutputAddress(series.name, output) for series, output in loops])
+    """Returns ``loops`` as an input plan of the flat graph names them: each list by the name of its function node."""
+    return tuple([OutputAddress(series_node.name, output) for series_node, output in loops])
 
 
-def _flat_plan(plan: InputPlan, nodes_by_id: Mapping[str, FlatNode], parent_path: NodePath, functions: Mapping[str, FlatFunctionNode]) -> InputPlan:
-    """A plan of a compiled graph as the plan of its node where it stands: each output names the function that
-    returns it by its ``name``, in the loops that function is called in.
+def _flat_plan(
+    plan: InputPlan, graph: CompiledGraph, parent: FlatSubgraph | None,
+    nodes_by_id: Mapping[str, FlatNode], functions: Mapping[str, FlatFunctionNode],
+) -> InputPlan:
+    """Returns the plan of the flat graph for an input whose own graph gave it ``plan``.
 
-    An output of a subgraph's node is the output of a function inside it: an edge from
-    ``e.shout.result`` reads ``result`` of ``e/shout``.
+    Every source is changed to name the function node that returns the output, by its name, with the loops
+    that function node is inside. In the example, the plan of ``join.texts`` reads ``loud.shout.result``; the
+    flat plan reads ``result`` of ``loud/shout``. A graph input of a subgraph gets the plan the outer graph
+    made for it: ``loud/strip``'s ``line`` gets the plan of ``loud``'s input ``line``.
 
     Args:
-        plan: The plan, as its graph loaded it.
-        nodes_by_id: The nodes of that graph placed so far, where they stand, by id.
-        parent_path: The path of the subgraph's node that graph is inside; empty for the run's own graph.
-        functions: Every function placed so far, by its name.
+        plan: The plan as the node's own graph compiled it.
+        graph: That graph.
+        parent: The flat node of the subgraph that ``graph`` is; ``None`` for the graph a run is of.
+        nodes_by_id: The flat nodes of ``graph`` made so far, by id.
+        functions: Every function node made so far, by name.
     """
 
-    def flat_source(source: EdgeSource, opened: bool) -> EdgeSource:
-        source_node, output = _source_function(OutputAddress(source.node_id, source.output), nodes_by_id)
-        if opened and source.item:
+    def flat_source(source: EdgeSource, starts_loop: bool) -> EdgeSource:
+        source_node, output = nodes_by_id[source.node_id].source_of(source.output)
+        if starts_loop and source.item:
             source_node.looped_outputs.setdefault(output, (nodes_by_id[source.node_id], source.output))
         return EdgeSource(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, item=source.item)
 
     match plan:
-        case InputReadsOneValue(field=field, reads=reads):
-            sources = tuple([flat_source(source, True) for source in reads])
-            return InputReadsOneValue(field, sources, max((source.loops_of_value for source in sources), key=len))
-        case InputWrapsOneValue(field=field, reads=reads):
-            return InputWrapsOneValue(field, tuple([flat_source(source, False) for source in reads]))
+        case InputConstant() | InputMissing():
+            return plan
+        case InputFromGraphInput(address=address):
+            return plan if parent is None else parent.inputs[graph._input_fields[address].name]
+        case InputReadsOneValue(field=field, sources=sources):
+            flat_sources = tuple([flat_source(source, True) for source in sources])
+            return InputReadsOneValue(field, flat_sources, max((source.loops_of_value for source in flat_sources), key=len))
+        case InputWrapsOneValue(field=field, sources=sources):
+            return InputWrapsOneValue(field, tuple([flat_source(source, False) for source in sources]))
         case InputCollectsLoopResults(field=field, series=series, sources=sources):
-            looped_over = _series_looped_over(OutputAddress(series.node_id, series.output), parent_path, functions)
+            looped_over = nodes_by_id[series.node_id].source_of(series.output)
             return _collect_plan(field, looped_over, tuple([flat_source(source, False) for source in sources]), functions)
         case _:
-            return plan
+            assert_never(plan)
 
 
 def _collect_plan(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FlatFunctionNode]) -> InputCollectsLoopResults:
-    """The plan of an input that collects one value per item of the list ``looped_over``, where its node
-    stands: the one way such a plan is made, for a node's own input and for what a host is shown.
+    """Returns the plan of the flat graph for an input that collects one value per item of the list
+    ``looped_over``. Used for a node's own input and for what ``run.results`` shows.
 
     Args:
         field: The input's field.
-        looped_over: The list, as the function that returns it and the output's name.
-        sources: What each edge brings for an item, each naming a function by its name.
-        functions: The functions the plan's outputs name, by name.
+        looped_over: The list, as the function node that returns it and the output's name.
+        sources: What each edge reads for one item, each naming a function node by its name.
+        functions: The function nodes the sources name, by name.
     """
-    source_node, output = looped_over
-    series = OutputInLoops(source_node.name, output, _loops_by_name(source_node.loops))
-    loop_body = _loop_body_of(looped_over, [functions[at.node_id] for at in sources])
-    return InputCollectsLoopResults(field, (series, *sources), loop_body)
+    series_node, output = looped_over
+    series = OutputInLoops(series_node.name, output, _loops_by_name(series_node.loops))
+    loop_body = _loop_body_of(looped_over, [functions[source.node_id] for source in sources])
+    return InputCollectsLoopResults(field, series, sources, loop_body)
 
 
 def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:
-    """Finds the functions made per item of ``series`` that a gathering input rests on, by what each one's
-    units are made from (``upstream``).
+    """Returns the function nodes inside the loop over ``series`` that a collecting input's value depends on.
+
+    In the example, ``join.texts`` collects the loop over ``lines.result`` and reads ``loud/shout``, which
+    reads ``loud/strip``: the result is ``(loud/strip, loud/shout)``.
 
     Args:
-        series: The Series the input gathers: the function that makes it, and its output.
-        sources: The functions whose outputs the input reads for an item.
+        series: The list the input collects the loop over: the function node that returns it, and the output.
+        sources: The function nodes the input's edges come from.
 
     Returns:
-        The functions, in the order a leg tries them, each after the ones it reads.
+        The function nodes, in the order a run tries them: each after the nodes upstream of it.
     """
     loop_body: set[FlatFunctionNode] = set()
     stack = sources
@@ -417,12 +426,14 @@ def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFuncti
 
 
 def _needs_validation(plan: InputPlan) -> bool:
-    """Whether what edges bring an input is read by the input's type before each call: not when every value they
-    bring is already one the field takes as it is, with no limit or choice to hold it to."""
+    """Whether the value of the input is validated by the input's type before each call. It is not when every
+    edge into it reads a type the input accepts as it is, with no limit or choice to check the value against."""
     match plan:
-        case InputReadsOneValue(field=field, sources=sources):
-            return not all(field.whole.holds(s.type) for s in sources)
-        case InputCollectsLoopResults(field=field, sources=sources) | InputWrapsOneValue(field=field, sources=sources):
-            return field.whole.record is not None or not all(field.type.holds(s.type) for s in sources)
-        case _:
+        case InputConstant() | InputFromGraphInput() | InputMissing():
             return False
+        case InputReadsOneValue(field=field, sources=sources):
+            return not all(field.whole.holds(source.type) for source in sources)
+        case InputCollectsLoopResults(field=field, sources=sources) | InputWrapsOneValue(field=field, sources=sources):
+            return field.whole.record is not None or not all(field.type.holds(source.type) for source in sources)
+        case _:
+            assert_never(plan)

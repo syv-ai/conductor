@@ -505,7 +505,7 @@ class Scheduler:
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if self.max_items is not None and node.looped_outputs and type(outcome) is not Waiting:
+        if self.max_items is not None and node.looped_outputs and outcome.has_outputs:
             for output in node.looped_outputs:
                 items = length(outcome.outputs[output])
                 if items > self.max_items:
@@ -519,7 +519,7 @@ class Scheduler:
                 self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
             if node.loops:
                 self._progress(node)
-        if trying_every_call or not self.going or type(outcome) is Waiting:  # nothing reads a unit that waits for a person
+        if trying_every_call or not self.going or not outcome.has_outputs:  # nothing reads a unit that waits for a person
             return
         depth = len(item_indexes)
         for reader, places in node.downstream:
@@ -584,7 +584,7 @@ class Scheduler:
         for node in self.nodes:
             for output in node.looped_outputs:
                 for item_indexes, outcome in self.outcomes[node].items():
-                    if type(outcome) is not Waiting and length(outcome.outputs[output]) > item_limit:
+                    if outcome.has_outputs and length(outcome.outputs[output]) > item_limit:
                         self._stop_at_item_limit(node, item_indexes, output, length(outcome.outputs[output]), item_limit)
                         return
 
@@ -614,7 +614,7 @@ class Scheduler:
         emit = self.emit
         if not emit or not (last or now - self.progress_at.get(node, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
-        done = sum(1 for outcome in self.outcomes[node].values() if type(outcome) is not Waiting)  # counted only when said, at most four times a second
+        done = sum(1 for outcome in self.outcomes[node].values() if outcome.has_outputs)  # counted only when said, at most four times a second
         if self.progress_said.get(node) != done:
             self.progress_at[node], self.progress_said[node] = now, done
             every_item_indexes, known = all_item_indexes(self.all_outcomes, node.loops, ())
@@ -648,10 +648,10 @@ class Scheduler:
         outwards; with ``announce``, tell the listener: skipped when every node inside was, else complete, with one
         unit for each item the subgraph's node runs for."""
         around = node.parent
-        while around is not None and around not in self.complete and all(inner in self.complete for inner in around.nodes):
+        while around is not None and around not in self.complete and all(inner in self.complete for inner in around.inner_nodes.values()):
             self.complete.add(around)
             if announce and self.emit is not None:
-                if all(inner in self.skipped for inner in around.nodes):
+                if all(inner in self.skipped for inner in around.inner_nodes.values()):
                     self.skipped.add(around)
                     self.emit(NodeSkipped(loc=around.node_path))
                 else:

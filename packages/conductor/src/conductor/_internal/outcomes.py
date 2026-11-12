@@ -23,9 +23,9 @@ An outcome is one of five classes:
   accept ``None``.
 - ``Waiting``: the function asked a person a question, and the answer has not come yet.
 
-The first four have ``out``, the node's outputs by name. Code that needs an output reads ``outcome.out[name]``
-and does not look at which of the four classes it has. ``Waiting`` has no outputs yet, so a node that needs
-one of them has to wait.
+The first four have ``outputs``, the node's outputs by name, and ``Waiting`` has none yet. Every class says
+which it is with ``has_outputs``. Code that needs an output asks ``outcome.has_outputs`` and then reads
+``outcome.outputs[name]``, without looking at which of the five classes it has.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 from conductor._internal.address import ItemIndexes
 from conductor._internal.ask import Question
@@ -76,9 +76,11 @@ class Done:
             may be ``None``. It is the marker ``SKIPPED`` when the function returned ``SKIPPED`` for that
             output, to say that the branch the output leads to is not chosen. For an output declared as a
             ``Series`` it is a ``StoredSeries``: an object that wraps the returned list and has ``len()``.
+        has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
+    has_outputs: ClassVar[Literal[True]] = True
 
 
 @final
@@ -89,10 +91,12 @@ class Answered:
     Attributes:
         outputs: The node's outputs by name, read from the answer.
         question: What the person was asked.
+        has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
     question: Question
+    has_outputs: ClassVar[Literal[True]] = True
 
 
 @final
@@ -109,9 +113,11 @@ class Skipped:
 
     Attributes:
         outputs: The node's outputs by name. Each is ``SKIPPED``.
+        has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
+    has_outputs: ClassVar[Literal[True]] = True
 
 
 @final
@@ -127,10 +133,12 @@ class NotCalled:
             (outputs of which the function picks one, like ``yes`` and ``no``): it is ``SKIPPED``, since the
             function never picked.
         input: The name of the input that was ``None``.
+        has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
     input: str
+    has_outputs: ClassVar[Literal[True]] = True
 
 
 @final
@@ -142,9 +150,11 @@ class Waiting:
 
     Attributes:
         question: What the person is asked.
+        has_outputs: ``False``.
     """
 
     question: Question
+    has_outputs: ClassVar[Literal[False]] = False
 
 
 #: What happened to one node for one set of item indexes. An outcome is never changed after it is made.
@@ -195,7 +205,7 @@ def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tup
         one_loop_deeper: list[ItemIndexes] = []
         for item_indexes in every_item_indexes:
             outcome = of_series_node.get(item_indexes)
-            if outcome is None or type(outcome) is Waiting:
+            if outcome is None or not outcome.has_outputs:
                 complete = False
                 continue
             one_loop_deeper.extend((*item_indexes, index) for index in range(length(outcome.outputs[output])))
@@ -222,7 +232,7 @@ def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple
     expected = 0
     for item_indexes in calls_of_series_node:
         outcome = of_series_node.get(item_indexes)
-        if outcome is None or type(outcome) is Waiting:
+        if outcome is None or not outcome.has_outputs:
             complete = False
         else:
             expected += length(outcome.outputs[output])
