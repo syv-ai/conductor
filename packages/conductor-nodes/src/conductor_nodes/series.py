@@ -1,7 +1,8 @@
 """Nodes that start and end a loop: ``series-split``, ``series-collect`` and ``series-stack``.
 
-A ``Series[T]`` is a list that a graph loops over: each node downstream of it is called once per item, until a node
-whose input takes a ``Series`` or a ``Table`` collects the results back into one list or table. In
+A ``Series[T]`` is a list that a graph loops over. A node with an input that takes one item, ``T``, wired from it is
+inside the loop: it is called once per item. A node whose inputs take the whole ``Series`` (or a ``Table``) collects
+the loop: it is called once, with every item's value in one list (or table). In
 ``series-split -> text-uppercase -> series-collect`` on ``["a", "b"]``, ``text-uppercase`` is called twice and
 ``series-collect`` once, with ``["A", "B"]``.
 
@@ -9,10 +10,12 @@ whose input takes a ``Series`` or a ``Table`` collects the results back into one
 them: a ``Table[Contact]`` gives ``Contact`` records, a ``list[int]`` gives ``int`` items, and any other type wired to
 it is a ``type_mismatch`` when the graph is compiled.
 
-``series-collect`` ends a loop: it is called once and returns every item's value as one list. It is needed where a
-node inside the loop must see every item. Such a node is called once per item, so a ``Series`` input wired straight
-from the loop gets a list of that one item's value: ``['A']`` on the call for ``"a"``. Wired from ``series-collect``
-instead, the input gets ``['A', 'B']`` on every call.
+``series-collect`` ends a loop: it is called once and returns every item's value as one list. Its result is a
+``Series`` too, so a node with an input of one item wired from it starts a new loop. It is needed by a node
+that is inside the loop, because another of its inputs takes one item, and must also see every item. That node is
+called once per item, and a ``Series`` input of it wired straight from the same loop gets only its own call's value:
+``['A']`` on the call for ``"a"``. Wired from ``series-collect`` instead, that input gets ``['A', 'B']`` on every
+call.
 
 ``series-stack`` ends a loop whose nodes return a table per item: it puts those tables into one table, row after row.
 """

@@ -11,7 +11,7 @@ is called once, with every record in one table. Each name in ``columns`` and ``c
 name and a column:
 
 - A name in ``columns`` is a ``Series`` input with one value per record, from a node called once for each record, such
-  as ``greet``. A record whose node was not called gets ``None``. A list with another number of values than there are
+  as ``greet``. A record for which that node was skipped, or not called because an argument was ``None``, gets ``None``. A list with another number of values than there are
   records fails the node with ``columns_not_aligned``.
 - A name in ``constant_columns`` is an input of one value, written on every record: the file's name on each line.
 
