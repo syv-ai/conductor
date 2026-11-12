@@ -26,7 +26,7 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import Address, NodePath, json_hash, plural
+from conductor._internal.base import Address, Loc, NodePath, json_hash, plural
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
 from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
@@ -141,9 +141,12 @@ class CompiledGraph:
         outputs of its subgraph. Each problem of a subgraph is a problem of this graph, with a ``loc`` that starts
         with the subgraph node's id and goes on with the place inside the subgraph.
         """
+        problems_of: dict[Loc, list[Problem]] = {}  # by the start of each problem's loc: its node's id
+        for found in self.problems:
+            problems_of.setdefault(found.loc[:1], []).append(found)
         nodes: dict[str, GraphNodeDescription] = {}
         for record in self.record.nodes:
-            own = [p for p in self.problems if p.loc[:1] == (record.id,)]
+            own = problems_of.get((record.id,), [])
             compiled_node = self._nodes.get(record.id)
             if compiled_node is None:
                 nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, found=False, problems=own)
