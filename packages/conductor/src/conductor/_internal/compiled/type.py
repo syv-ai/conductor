@@ -214,15 +214,15 @@ class CompiledGraph:
     def _context_door(self) -> ContextDoor:
         """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
         ``context_type`` and every node that takes the context, those inside subgraphs too."""
-        return ContextDoor(self._context_type, self._context_takers())
+        return ContextDoor(self._context_type, self._nodes_taking_context())
 
-    def _context_takers(self) -> list[tuple[NodePath, ContextParameter]]:
+    def _nodes_taking_context(self) -> list[tuple[NodePath, ContextParameter]]:
         """Every function node of the graph and of its subgraphs that takes the run's context, as its node path
         (``("loud", "shout")``) and its ``Context`` parameter, in the order a run tries them."""
         takers: list[tuple[NodePath, ContextParameter]] = []
         for compiled_node in self._nodes.values():
             if isinstance(compiled_node, CompiledSubgraphNode):
-                takers += [((compiled_node.id, *path), parameter) for path, parameter in compiled_node.inner._context_takers()]
+                takers += [((compiled_node.id, *path), parameter) for path, parameter in compiled_node.inner._nodes_taking_context()]
             elif (parameter := compiled_node.definition.context) is not None:
                 takers.append(((compiled_node.id,), parameter))
         return takers

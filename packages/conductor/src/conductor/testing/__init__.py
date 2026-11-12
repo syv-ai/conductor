@@ -186,8 +186,8 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example:
             definitions.add(version)
         case FunctionDefinition():
             watched, changed = _watched(version)
-            definitions = registry.filter(lambda _: False)
-            definitions.add(watched)
+            definitions = registry.filter(lambda held: held.id == version.id)
+            definitions.replace(watched)
     try:
         record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:

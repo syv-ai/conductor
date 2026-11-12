@@ -20,8 +20,9 @@ Each input of a compiled node is an ``Input``, of one of five kinds:
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
 input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
-loops. A source names a node of the compiled graph by its id; the run's flat graph (``run/flat.py``) makes its own
-inputs from these, naming function nodes by their names (``"loud/shout"`` for ``shout`` inside ``loud``).
+loops. A source names a node of the compiled graph by its id; the run's flat graph (``run/flat.py``) makes the
+arguments a call reads from these, naming function nodes by their names (``"loud/shout"`` for ``shout`` inside
+``loud``).
 """
 
 from __future__ import annotations

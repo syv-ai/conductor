@@ -487,8 +487,7 @@ class Run[C]:
         """
         return outputs_to_json(self)
 
-    # -- what a leg reads -------------------------------------------------------
-
+    # -- what a call reads ------------------------------------------------------
 
     @property
     def _reader(self) -> ResultReader:

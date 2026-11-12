@@ -96,8 +96,8 @@ def compile_graph[GraphT: CompiledGraph](
 
     Args:
         record: The graph record.
-        definitions: The newest version of each node definition, by id. An older version a node asks for is found
-            through it.
+        definitions: The registry: the newest version of each node definition, looked up by id. An older version a
+            node asks for is found through it.
         context_type: The class of the run's context, as the registry names it; ``None`` when it names none.
         graph_type: The class of the graph to return: ``Graph``, the class a host uses.
 
@@ -136,7 +136,7 @@ class _Compiler:
     keeps what it has found so far. A subgraph used as a node is compiled by a ``_Compiler`` of its own.
 
     Attributes:
-        definitions: The newest version of each node definition, by id.
+        definitions: The registry: the newest version of each node definition, looked up by id.
         context_type: The class of the run's context, which each node's ``Context[X]`` is checked against; ``None``
             when the registry names none.
         inside_subgraphs: The ids of the subgraph definitions whose records contain this record, outermost first.

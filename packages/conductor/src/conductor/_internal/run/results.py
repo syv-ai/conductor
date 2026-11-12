@@ -77,16 +77,16 @@ class DisplayReader(ResultReader):
             return None
         return value.as_list() if isinstance(value, StoredSeries) else value
 
-    def _list_looped_over(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def _list_looped_over(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
-        looped_over = ResultReader._list_looped_over(self, node_input, item_indexes)
+        looped_over = ResultReader._list_looped_over(self, argument, item_indexes)
         return None if looped_over is NotReady.NOT_READY else looped_over
 
-    def collect(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
-        """The list a ``Series`` input with ``node_input`` would be called with for the item at ``item_indexes``;
+    def collect(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+        """The list a ``Series`` input with ``argument`` would be called with for the item at ``item_indexes``;
         ``None`` when the edge names a field that a record in the list doesn't have."""
         try:
-            return ResultReader.collect(self, node_input, item_indexes)
+            return ResultReader.collect(self, argument, item_indexes)
         except NoSuchFieldError:
             return None
 
@@ -108,11 +108,11 @@ class DisplayReader(ResultReader):
             or when no item of it could have a value because of a skipped branch or a ``None`` outside the
             loop.
         """
-        node_input = node_inputs[len(item_indexes)]
+        argument = node_inputs[len(item_indexes)]
         if len(item_indexes) == len(node_inputs) - 1:
-            value = self.read_argument(node_input, item_indexes)
+            value = self.read_argument(argument, item_indexes)
             return None if value is SKIPPED else value
-        looped_over = self._list_looped_over(cast("CollectingArgument", node_input), item_indexes)  # every input before the last lists one loop
+        looped_over = self._list_looped_over(cast("CollectingArgument", argument), item_indexes)  # every input before the last lists one loop
         if looped_over is None or looped_over is SKIPPED:
             return None
         return [self.display_value(node_inputs, (*item_indexes, index)) for index in range(len(looped_over))]
