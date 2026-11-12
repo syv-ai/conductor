@@ -48,8 +48,7 @@ class InputsDoor:
                 or the address when two graph inputs share a name) and its field, whose default is used when the
                 caller gives none (``REQUIRED`` for none).
         """
-        self._fields = {address: field for address, (_, field) in inputs.items()}
-        self._names = {address: name for address, (name, _) in inputs.items()}
+        self._inputs = dict(inputs)
         self._addresses = {**{address: address for address in inputs}, **{name: address for address, (name, _) in inputs.items()}}
         self._validator = SchemaValidator(core_schema.typed_dict_schema(
             {address: _input_schema(name, address, field) for address, (name, field) in inputs.items()}, extra_behavior="forbid",
@@ -73,7 +72,7 @@ class InputsDoor:
 
     def addresses(self, given: Mapping[Any, Any]) -> set[str]:
         """The addresses of the graph inputs that ``given`` names, by name or by address; a name the graph does not
-        offer names none. ``{"text": ..., "shout.mark": ...}`` names ``{"lines.text", "shout.mark"}``."""
+        offer names none. For ``make_graph(shout)``, ``{"line": ..., "shout.mark": ...}`` names ``{"shout.line", "shout.mark"}``."""
         return {self._addresses[key] for key in given if key in self._addresses}
 
     def _problems(self, given: Mapping[Any, Any], errors: list[ErrorDetails]) -> list[Problem]:
@@ -85,22 +84,22 @@ class InputsDoor:
             key, *inside = error["loc"]
             if error["type"] in ("extra_forbidden", "invalid_key"):
                 names.append(self._name_problem(key))
-            else:  # a fault of an input, found under its name or its address
+            else:  # a fault of an input, under the text it was found by: its name or its address
                 by_input.setdefault(self._addresses[str(key)], []).append({**error, "loc": tuple(inside)})
-        return names + [self._input_problem(address, given, by_input[address]) for address in self._fields if address in by_input]
+        return names + [self._input_problem(address, given, by_input[address]) for address in self._inputs if address in by_input]
 
     def _name_problem(self, key: Any) -> Problem:
         """The problem of a key the caller gave that the door does not take: a name the graph does not offer, or
         the name or the address of an input found under its other key."""
-        address = self._addresses.get(key) if type(key) is str else None
+        address = self._addresses.get(key)
         if address is None:
-            return problem.not_offered("inputs", key, name=key, inputs=list(self._names.values()))
-        name = self._names[address]
+            return problem.not_offered("inputs", key, name=key, inputs=[name for name, _ in self._inputs.values()])
+        name, _ = self._inputs[address]
         return problem.input_given_twice("inputs", name, name=name, address=address)
 
     def _input_problem(self, address: str, given: Mapping[Any, Any], errors: list[ErrorDetails]) -> Problem:
         """The problem of one graph input whose value is missing or refused by its type."""
-        name, field = self._names[address], self._fields[address]
+        name, field = self._inputs[address]
         if errors[0]["type"] == "missing" and not errors[0]["loc"]:  # the input itself, not a field inside its value
             return problem.missing_input("inputs", name, name=name)
         refused = field.whole.refusal(errors)
