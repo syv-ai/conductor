@@ -1,4 +1,4 @@
-"""How each input of a node gets its value: one input plan per input, made when the graph is compiled.
+"""The compiled inputs of a node: for each input, where its value comes from. Made when the graph is compiled.
 
 The example graph used in this file::
 
@@ -6,26 +6,24 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-Its four inputs have four kinds of plan:
+Each input of a compiled node is an ``Input``, of one of five kinds:
 
-- ``lines.text`` is an ``InputFromGraphInput``: the caller gives the value when a run starts.
-- ``shout.mark`` is an ``InputConstant``: ``"!"`` on every call.
-- ``shout.line`` is an ``InputReadsOneValue``: each call reads one value through an edge, here one item of
-  ``lines.result``.
-- ``join.texts`` is an ``InputCollectsLoopResults``: a call gets one value per item of a loop, as a list. Here
-  that is what ``shout`` returned for each line.
-
-There are two more kinds. An ``InputWrapsOneValue`` is a ``Series`` input wired to a value that is not made per
-item of a loop: a call gets that one value as a list of one. An ``InputMissing`` gets no value, because the
-graph has a problem at this input; such a graph is never run.
+- ``lines.text`` is a ``GraphInput``: the caller gives the value when a run starts.
+- ``shout.mark`` is a ``ConstantInput``: ``"!"`` on every call.
+- ``shout.line`` is an ``EdgeInput``: each call reads one value through an edge, here one item of ``lines.result``.
+  A ``Series`` input wired to a value that is not made per item of a loop is an ``EdgeInput`` with ``as_list``: a
+  call gets that one value as a list of one.
+- ``join.texts`` is a ``CollectingInput``: a call gets one value per item of a loop, as a list. Here that is what
+  ``shout`` returned for each line.
+- A ``MissingInput`` gets no value, because the graph has a problem at this input; such a graph is never run.
 
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
-plan it has. ``sources`` has one ``EdgeSource`` for each edge into the input: the output the edge comes from,
-and whether the edge reads the whole output or one item of it. A plan no edge leads to has no sources and no
+input it has. ``sources`` has one ``EdgeSource`` for each edge into the input: the output the edge comes from,
+and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
 loops. A run reads the value of an input an edge leads to with ``ResultReader.read_input`` (``run/arguments.py``).
 
-The same classes are used twice. The compiler makes the plans of a compiled graph, and there a source names a
-node of that graph by its id. ``flat.py`` makes the plans a run reads from those: there a source names the
+The same classes are used twice. The compiler makes the inputs of a compiled graph, and there a source names a
+node of that graph by its id. ``flat.py`` makes the inputs a run reads from those: there a source names the
 function node that returns the output, by its name (``"loud/shout"`` for ``shout`` inside the subgraph
 ``loud``).
 """
@@ -70,7 +68,7 @@ class OutputInLoops:
     has one value per call of ``shout``, and a call is found by ``depth`` item indexes.
 
     Attributes:
-        node_id: The node. In a compiled graph's own plan it is the node's id. In the flat graph it is the
+        node_id: The node. In a compiled graph's own inputs it is the node's id. In the flat graph it is the
             name of the function node (``"loud/shout"`` inside a subgraph).
         output: The output's name.
         loops: The loops the node is inside, outermost first, each as the output that is the list looped over.
@@ -130,9 +128,9 @@ class EdgeSource(OutputInLoops):
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputConstant:
+class ConstantInput:
     """An input with the same value on every call of every run: the constant written in the graph record, or
-    else the input's default. In the example, ``shout.mark`` is ``InputConstant(mark, "!")``.
+    else the input's default. In the example, ``shout.mark`` is ``ConstantInput(mark, "!")``.
 
     Attributes:
         field: The input, as its node declares it.
@@ -149,7 +147,7 @@ class InputConstant:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputMissing:
+class MissingInput:
     """An input that gets no value, in a graph that has a problem saying why. Example: ``join.texts`` wired to
     an output ``shout`` does not have. The graph is never run. The node is kept in the compiled graph so an
     editor can still draw it, with this input shown as unset.
@@ -167,9 +165,9 @@ class InputMissing:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputFromGraphInput:
+class GraphInput:
     """An input whose value the caller gives when a run starts: a graph input. In the example, ``lines.text``
-    is ``InputFromGraphInput(text, "lines.text")``.
+    is ``GraphInput(text, "lines.text")``.
 
     Attributes:
         field: The input, as its node declares it.
@@ -186,9 +184,14 @@ class InputFromGraphInput:
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputReadsOneValue:
-    """An input that reads one value through an edge on each call. In the example, ``shout.line`` reads one item
+class EdgeInput:
+    """An input that reads one value through its edges on each call. In the example, ``shout.line`` reads one item
     of ``lines.result`` per call, so its ``loops`` is the loop over ``lines.result``.
+
+    With ``as_list``, it is a ``Series`` input (or a ``Table`` input wired to records) whose edges read one value per
+    call of its node, so there is no loop to collect, and a call gets that one value as a list of one. Example:
+    ``join.texts`` wired straight to an output ``title.result`` that is a ``str``: ``join`` is called with
+    ``["Title"]``.
 
     Attributes:
         field: The input, as its node declares it.
@@ -196,16 +199,18 @@ class InputReadsOneValue:
             one decision, and a call gets the value from the branch that was chosen.
         loops: The loops the input's node must be inside to read the value, outermost first: those of the
             source with the most loops.
+        as_list: Whether a call gets the value as a list of one.
     """
 
     field: Field
     sources: tuple[EdgeSource, ...]
     loops: tuple[OutputAddress, ...]
+    as_list: bool = False
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class InputCollectsLoopResults:
+class CollectingInput:
     """A ``Series`` input (or a ``Table`` input wired to records) that gets one value per item of a loop, as a
     list. In the example, ``join.texts`` collects the loop over ``lines.result``: ``series`` is ``lines.result``
     and the one source is ``shout.result``, so ``join`` is called once, with ``["A!", "B!"]``.
@@ -217,7 +222,7 @@ class InputCollectsLoopResults:
             of one decision, as for any input.
         loop_body: In the flat graph, the function nodes inside the loop that the input's value depends on,
             each after the nodes upstream of it: in the example, ``shout``. Empty in a compiled graph's own
-            plan.
+            inputs.
     """
 
     field: Field
@@ -232,30 +237,5 @@ class InputCollectsLoopResults:
         return self.series.loops
 
 
-@final
-@dataclass(frozen=True, slots=True)
-class InputWrapsOneValue:
-    """A ``Series`` input (or a ``Table`` input wired to records) whose edge reads one value per call of its
-    node, so there is no loop to collect. A call gets that one value as a list of one. Example: ``join.texts``
-    wired straight to an output ``title.result`` that is a ``str``: ``join`` is called with ``["Title"]``.
-
-    Attributes:
-        field: The input, as its node declares it.
-        sources: What each edge into the input reads. Several edges come from different branches of one
-            decision, as for any input.
-    """
-
-    field: Field
-    sources: tuple[EdgeSource, ...]
-
-    @property
-    def loops(self) -> tuple[OutputAddress, ...]:
-        """The loops the input's node must be inside to read the value, outermost first: those of its source."""
-        return self.sources[0].loops
-
-
-#: An input that reads its value through edges.
-InputFromEdges = InputReadsOneValue | InputCollectsLoopResults | InputWrapsOneValue
-
 #: How one input of a node gets its value.
-InputPlan = InputConstant | InputMissing | InputFromGraphInput | InputFromEdges
+Input = ConstantInput | MissingInput | GraphInput | EdgeInput | CollectingInput

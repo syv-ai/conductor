@@ -30,7 +30,7 @@ from typing import Annotated
 from conductor._internal.base import NodePath, canonical_json, plural, short_hash, split_address
 from conductor._internal.compiled.describe import (
     GraphDescription,
-    GraphInput,
+    GraphInputDescription,
     GraphNodeDescription,
     NodeInputDescription,
     RunsOn,
@@ -81,9 +81,9 @@ class CompiledGraph:
 
     record: GraphRecord
     problems: list[Problem]
-    inputs: dict[str, GraphInput]
+    inputs: dict[str, GraphInputDescription]
     #: Each node that was compiled, by id, each after the nodes upstream of it. A node with a problem on one of its
-    #: inputs is here too, with ``InputMissing`` for that input; a graph with problems never runs.
+    #: inputs is here too, with ``MissingInput`` for that input; a graph with problems never runs.
     _nodes: dict[str, CompiledNode]
     #: Each graph input as a run reads it, by address.
     _input_fields: dict[str, InputField]
@@ -152,7 +152,7 @@ class CompiledGraph:
                 continue
             nodes[record.id] = GraphNodeDescription(
                 node=record.node, version=record.version, found=True, problems=own, runs=runs_on(compiled_node.loops),
-                inputs=[NodeInputDescription(field=plan.field.description, source=input_source_of(compiled_node.loops, plan)) for plan in compiled_node.inputs.values()],
+                inputs=[NodeInputDescription(field=node_input.field.description, source=input_source_of(compiled_node.loops, node_input)) for node_input in compiled_node.inputs.values()],
                 outputs=compiled_node.described_outputs(),
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))

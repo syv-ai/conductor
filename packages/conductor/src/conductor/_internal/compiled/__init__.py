@@ -6,23 +6,26 @@ Code outside this package imports from here only. ``compile.py`` has ``compile_g
 """
 
 from conductor._internal.compiled.compile import compile_graph
-from conductor._internal.compiled.describe import GraphDescription, GraphInput, InputSource, RunsOn
+from conductor._internal.compiled.describe import (
+    GraphDescription,
+    GraphInputDescription,
+    InputSource,
+    RunsOn,
+)
 from conductor._internal.compiled.flat import (
     FlatFunctionNode,
     FlatNode,
     FlatSubgraph,
     all_upstream,
-    display_plans_of,
+    display_inputs_of,
     outcome_loc,
 )
 from conductor._internal.compiled.input import (
+    CollectingInput,
+    ConstantInput,
+    EdgeInput,
     EdgeSource,
-    InputCollectsLoopResults,
-    InputConstant,
-    InputFromEdges,
-    InputFromGraphInput,
-    InputReadsOneValue,
-    InputWrapsOneValue,
+    GraphInput,
     OutputInLoops,
 )
 from conductor._internal.compiled.node import (

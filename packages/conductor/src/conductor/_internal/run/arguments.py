@@ -37,11 +37,10 @@ from typing import Any, Final, Literal
 
 from conductor._internal.base import SKIPPED, ItemIndexes
 from conductor._internal.compiled import (
+    CollectingInput,
+    EdgeInput,
     EdgeSource,
     FlatFunctionNode,
-    InputCollectsLoopResults,
-    InputFromEdges,
-    InputReadsOneValue,
 )
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import catalogue as problem
@@ -105,9 +104,9 @@ class ResultReader:
             arguments[name] = graph_inputs[address]
         none_input: str | None = None
         ready = True
-        for name, plan, accepts_none in node.edge_inputs:
+        for name, node_input, accepts_none in node.edge_inputs:
             try:
-                value = self.read_input(plan, item_indexes)
+                value = self.read_input(node_input, item_indexes)
             except NoSuchFieldError as missing:
                 reason = f"it has no field '{missing.field}'"
                 raise RefusedError([problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)]) from None
@@ -124,18 +123,18 @@ class ResultReader:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_input(self, plan: InputFromEdges, item_indexes: ItemIndexes) -> Any:
+    def read_input(self, node_input: EdgeInput | CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the value an input that edges lead to reads for the call at ``item_indexes``.
 
         In the example, ``shout.line`` reads ``"b"`` for ``(1,)``, and ``join.texts`` reads ``["A!", "B!"]`` for
         ``()``. A ``Series`` input wired to a value made once per call gets that value as a list of one;
         ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are.
         """
-        if type(plan) is InputCollectsLoopResults:
-            return self.collect(plan, item_indexes)
-        sources = plan.sources
+        if type(node_input) is CollectingInput:
+            return self.collect(node_input, item_indexes)
+        sources = node_input.sources
         value = self.read_output(sources[0], item_indexes) if len(sources) == 1 else self.read_alternatives(sources, item_indexes)
-        if type(plan) is InputReadsOneValue or value is SKIPPED or value is NotReady.NOT_READY or (value is None and not plan.field.accepts_none_items):
+        if not node_input.as_list or value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return [value]
 
@@ -202,7 +201,7 @@ class ResultReader:
             raise NoSuchFieldError(record_field)
         return cell
 
-    def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
+    def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
 
         In the example, ``collect`` for ``join.texts`` at ``()`` returns ``["A!", "B!"]``: what the edge from
@@ -215,19 +214,19 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        depth = plan.series.depth
+        depth = node_input.series.depth
         if len(item_indexes) < depth:
-            return self._edges_for_any_item(plan, item_indexes)
+            return self._edges_for_any_item(node_input, item_indexes)
         item_indexes = item_indexes[:depth]
-        series = self._list_looped_over(plan, item_indexes)
+        series = self._list_looped_over(node_input, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
-        edges = plan.sources
+        edges = node_input.sources
         if len(edges) == 1 and edges[0].item:  # the input collects the list itself: its items, or one field of each
             record_field = edges[0].record_field
             if record_field is not None:
                 return series.field_as_list(record_field)
-            return series.as_table_input() if plan.field.whole.record is not None else series.as_list()
+            return series.as_table_input() if node_input.field.whole.record is not None else series.as_list()
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
         for index in range(len(series)):
@@ -238,8 +237,8 @@ class ResultReader:
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _list_looped_over(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
-        """Returns the list whose items the input of ``plan`` collects, when an item of it may have a value for
+    def _list_looped_over(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+        """Returns the list whose items the input of ``node_input`` collects, when an item of it may have a value for
         the input. When no item can, returns what the input is instead, however many items the list has.
 
         In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node
@@ -248,7 +247,7 @@ class ResultReader:
         every call of ``shout`` would be skipped, so ``join.texts`` is ``SKIPPED``, with two lines as with none.
 
         Args:
-            plan: The collecting input's plan.
+            node_input: The collecting input.
             item_indexes: The item indexes of the list.
 
         Returns:
@@ -256,23 +255,23 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        if plan.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
+        if node_input.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
             any_item = type(self)(self.outcomes, self.graph_inputs)
-            for node in plan.loop_body:  # each after the nodes it reads
+            for node in node_input.loop_body:  # each after the nodes it reads
                 any_item.for_any_item[node.name] = any_item.arguments_for(node, item_indexes)
-            value = any_item._edges_for_any_item(plan, item_indexes)
+            value = any_item._edges_for_any_item(node_input, item_indexes)
             if value is not MAY_HAVE_VALUE:
                 return value
-        outcome = self.outcomes[plan.series.node_id].get(item_indexes)
-        return outcome.outputs[plan.series.output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
+        outcome = self.outcomes[node_input.series.node_id].get(item_indexes)
+        return outcome.outputs[node_input.series.output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
-    def _edges_for_any_item(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
+    def _edges_for_any_item(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
         the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
         keeps as an item (``Series[str | None]``) counts as a value."""
-        edges = plan.sources
+        edges = node_input.sources
         value = self.read_output(edges[0], item_indexes) if len(edges) == 1 else self.read_alternatives(edges, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not plan.field.accepts_none_items):
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return MAY_HAVE_VALUE
 

@@ -906,7 +906,7 @@ def test_a_bool_output_into_a_float_input_is_a_type_mismatch_and_a_union_is_name
 def test_a_graph_input_has_its_field_and_address_and_writes_as_json():
     import json
 
-    from conductor import GraphInput, NodeRegistry, make_graph, node
+    from conductor import GraphInputDescription, NodeRegistry, make_graph, node
 
     @node("u", title="U", description="For a test.")
     def u(t: str, n: int = 1) -> str:
@@ -915,7 +915,7 @@ def test_a_graph_input_has_its_field_and_address_and_writes_as_json():
     registry = NodeRegistry()
     registry.add(u)
     graph = Graph.compile(make_graph(u), registry)
-    assert isinstance(graph.inputs["t"], GraphInput) and graph.describe().inputs == graph.inputs
+    assert isinstance(graph.inputs["t"], GraphInputDescription) and graph.describe().inputs == graph.inputs
     assert json.loads(json.dumps({name: i.field.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
     assert (graph.inputs["t"].field.name, graph.inputs["t"].address, graph.inputs["t"].field.required) == ("t", "u.t", True)
 

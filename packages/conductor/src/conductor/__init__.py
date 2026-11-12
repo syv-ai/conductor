@@ -17,7 +17,12 @@ from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask, Asked
 from conductor._internal.base import SKIPPED
-from conductor._internal.compiled import GraphDescription, GraphInput, InputSource, RunsOn
+from conductor._internal.compiled import (
+    GraphDescription,
+    GraphInputDescription,
+    InputSource,
+    RunsOn,
+)
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
 from conductor._internal.graph import Graph, make_graph
@@ -110,7 +115,7 @@ __all__ = [
     "RegistryDescription",
     "TypeDescription",
     "GraphDescription",
-    "GraphInput",
+    "GraphInputDescription",
     "RunsOn",
     "InputSource",
     # Errors

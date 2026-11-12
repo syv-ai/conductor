@@ -8,7 +8,7 @@ The example graph used in this file::
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
 ``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=(OutputAddress("lines", "result"),)``,
-an input plan for each of ``line`` (one item of ``lines.result``) and ``mark`` (the constant ``"!"``), and the
+a compiled input for each of ``line`` (one item of ``lines.result``) and ``mark`` (the constant ``"!"``), and the
 output ``result: str``. A compiled node has nothing from a run in it: it is made once and used by every run.
 """
 
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import Ask, Question, field_questions
 from conductor._internal.base import SKIPPED, short_hash
-from conductor._internal.compiled.input import InputPlan, OutputAddress
+from conductor._internal.compiled.input import Input, OutputAddress
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
@@ -64,7 +64,7 @@ class _CompiledNodeBase:
     Attributes:
         id: The node's id in the graph record.
         loops: The loops the node is inside, outermost first, each named by the output it loops over.
-        inputs: The input plan of each input, by name. Each plan's ``field`` is the input as compiled: it includes
+        inputs: The compiled input of each input, by name. Each one's ``field`` is the input as compiled: it includes
             the inputs a ``compute_added_inputs`` hook added, and a type variable is replaced by the type its edges
             read.
         outputs: Each output, by name, as compiled: as the definition declares it, or as a ``compute_outputs``
@@ -74,20 +74,20 @@ class _CompiledNodeBase:
 
     id: str
     loops: tuple[OutputAddress, ...]
-    inputs: dict[str, InputPlan]
+    inputs: dict[str, Input]
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
 
     @functools.cached_property
     def upstream_ids(self) -> frozenset[str]:
         """The ids of the nodes that the edges into this node come from."""
-        return frozenset(source.node_id for plan in self.inputs.values() for source in plan.sources)
+        return frozenset(source.node_id for node_input in self.inputs.values() for source in node_input.sources)
 
     @functools.cached_property
     def plain_inputs(self) -> bool:
         """Whether no input's type can contain a mapping, so a call's arguments can be hashed without sorting
         keys first."""
-        return all(plan.field.type.hashes_plainly for plan in self.inputs.values())
+        return all(node_input.field.type.hashes_plainly for node_input in self.inputs.values())
 
     def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: for a function node, the
@@ -129,7 +129,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         parameter, the code of the parameter's function and the parameter's type too.
         """
         definition = self.definition
-        specs = (*(plan.field for plan in self.inputs.values()), *self.outputs.values(), *([definition.asked.field] if definition.asked else []))
+        specs = (*(node_input.field for node_input in self.inputs.values()), *self.outputs.values(), *([definition.asked.field] if definition.asked else []))
         fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         functions: list[Callable[..., Any]] = [definition.function, *([definition.asked.function] if definition.asked else [])]
         code = [_code_text(inspect.unwrap(function).__code__) for function in functions]

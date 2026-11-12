@@ -18,7 +18,7 @@ In the flat graph every edge and every loop names a function node:
 - The edge into ``join.texts`` comes from ``loud.shout.result`` in the graph record. In the flat graph it reads
   ``result`` of ``loud/shout``. Both kinds of flat node answer ``source_of(output)`` with the function node that
   returns the output, so no code asks which kind of node an edge comes from.
-- The input of ``loud/strip`` is a graph input inside the subgraph. In the flat graph it has the plan the outer
+- The input of ``loud/strip`` is a graph input inside the subgraph. In the flat graph it has the input the outer
   graph made for ``loud``'s input: one item of ``lines.result``.
 - ``loud/strip`` and ``loud/shout`` are inside the loop over ``lines.result``, because ``loud`` is.
 
@@ -42,15 +42,13 @@ from conductor._internal.base import (
     split_address,
 )
 from conductor._internal.compiled.input import (
+    CollectingInput,
+    ConstantInput,
+    EdgeInput,
     EdgeSource,
-    InputCollectsLoopResults,
-    InputConstant,
-    InputFromEdges,
-    InputFromGraphInput,
-    InputMissing,
-    InputPlan,
-    InputReadsOneValue,
-    InputWrapsOneValue,
+    GraphInput,
+    Input,
+    MissingInput,
     OutputAddress,
     OutputInLoops,
 )
@@ -98,7 +96,7 @@ class FlatFunctionNode(_FlatNodeBase):
 
     The arguments of one call come from three places: ``constants`` (known when the graph is compiled),
     ``graph_inputs`` (known when a run starts) and ``edge_inputs`` (read from the run's outcomes for each call).
-    In every input plan here, a source names a function node by its ``name``.
+    In every input here, a source names a function node by its ``name``.
 
     Attributes:
         compiled_node: The node as its own graph compiled it.
@@ -107,10 +105,10 @@ class FlatFunctionNode(_FlatNodeBase):
             ``None`` for every other input. The arguments of a call start as a copy of it.
         graph_inputs: The inputs the caller gives a value for: the input's name, and the key the run keeps the
             caller's value under (``"lines.text"``).
-        edge_inputs: The inputs that edges lead to, in the order declared: the input's name, its plan, and
-            whether the input accepts ``None``. A collecting input is here twice: first with a plan that reads
+        edge_inputs: The inputs that edges lead to, in the order declared: the input's name, the compiled input, and
+            whether the input accepts ``None``. A collecting input is here twice: first with an input that reads
             the list it collects as one value (so a list that is ``None``, skipped or not made yet is seen
-            before any item is read), then with its own plan.
+            before any item is read), then as itself.
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
@@ -131,15 +129,15 @@ class FlatFunctionNode(_FlatNodeBase):
         position: The node's index in the order a run tries the function nodes in.
         all_upstream: Every function node upstream of this one, at any distance. ``None`` until
             ``all_upstream(node)`` works it out.
-        display_plans: The input plans ``run.results`` reads each output with, by output name. Filled by
-            ``display_plans_of``.
+        display_inputs: The compiled inputs ``run.results`` reads each output with, by output name. Filled by
+            ``display_inputs_of``.
     """
 
     compiled_node: CompiledFunctionNode
     policy: Policy
     constants: dict[str, Any]
     graph_inputs: tuple[tuple[str, str], ...]
-    edge_inputs: tuple[tuple[str, InputFromEdges, bool], ...]
+    edge_inputs: tuple[tuple[str, EdgeInput | CollectingInput, bool], ...]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     edge_door: EdgeDoor | None
     function: Callable[..., Any]
@@ -148,7 +146,7 @@ class FlatFunctionNode(_FlatNodeBase):
     downstream: list[tuple[FlatFunctionNode, int]] = dataclasses.field(default_factory=list[tuple["FlatFunctionNode", int]])
     position: int = 0
     all_upstream: frozenset[FlatFunctionNode] | None = None
-    display_plans: dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]] = dataclasses.field(default_factory=dict[str, tuple[InputReadsOneValue | InputCollectsLoopResults, ...]])
+    display_inputs: dict[str, tuple[EdgeInput | CollectingInput, ...]] = dataclasses.field(default_factory=dict[str, tuple[EdgeInput | CollectingInput, ...]])
 
     def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
         """Returns the function node that returns ``output``, and the output's name there: this node and
@@ -165,14 +163,14 @@ class FlatSubgraph(_FlatNodeBase):
 
     Attributes:
         compiled_node: The node as the outer graph compiled it.
-        inputs: The plan of each input, by name. A graph input of the subgraph gets the plan here under its
-            name: in the example, ``loud/strip``'s ``line`` has the plan ``inputs["line"]``.
+        inputs: The compiled input of each input, by name. A graph input of the subgraph gets the input here under its
+            name: in the example, ``loud/strip``'s ``line`` has the input ``inputs["line"]``.
         inner_nodes: The nodes of the subgraph as flat nodes, by their id in the subgraph. Empty until they are
             made, which is right after this node is.
     """
 
     compiled_node: CompiledSubgraphNode
-    inputs: dict[str, InputPlan]
+    inputs: dict[str, Input]
     inner_nodes: dict[str, FlatNode] = dataclasses.field(default_factory=dict[str, "FlatNode"])
 
     def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
@@ -228,12 +226,12 @@ def outcome_loc(node: FlatNode, item_indexes: ItemIndexes) -> Loc:
 _DISPLAY_FIELD = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
 
-def display_plans_of(node: FlatFunctionNode, output: str) -> tuple[InputReadsOneValue | InputCollectsLoopResults, ...]:
-    """The input plans ``run.results`` reads one output of a function node with.
+def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeInput | CollectingInput, ...]:
+    """The compiled inputs ``run.results`` reads one output of a function node with.
 
-    A host reads an output the way a node wired to it would, so the plans are the ones such a node's input
+    A host reads an output the way a node wired to it would, so the inputs are the ones such a node's input
     would have. Example: ``documents -> lines -> shout``, where ``lines`` is called once per document and
-    ``shout`` once per line. ``shout`` is called inside two loops, so its output has two plans: the first
+    ``shout`` once per line. ``shout`` is called inside two loops, so its output has two inputs: the first
     lists the documents, the second lists one document's lines and reads ``shout``'s return value for each.
     ``results`` then shows ``[["A", "B"], None, ["C"]]``: a list per document, ``None`` for a document
     whose lines were never made.
@@ -243,17 +241,17 @@ def display_plans_of(node: FlatFunctionNode, output: str) -> tuple[InputReadsOne
         output: The output's name.
 
     Returns:
-        For a node called once, one plan that reads the return value. For a node called per item, one plan
-        for each loop it is called in, outermost first; the plan at index ``n`` is used for one item of each
+        For a node called once, one input that reads the return value. For a node called per item, one input
+        for each loop it is called in, outermost first; the input at index ``n`` is used for one item of each
         of the ``n`` loops outside it.
     """
-    plans = node.display_plans.get(output)
-    if plans is None:
+    node_inputs = node.display_inputs.get(output)
+    if node_inputs is None:
         source = EdgeSource(node.name, output, _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
-        per_loop = [_collect_plan(_DISPLAY_FIELD, looped_over, (source,), functions) for looped_over in node.loops]
-        plans = node.display_plans[output] = tuple(per_loop) or (InputReadsOneValue(_DISPLAY_FIELD, (source,), source.loops),)
-    return plans
+        per_loop = [_collecting_input(_DISPLAY_FIELD, looped_over, (source,), functions) for looped_over in node.loops]
+        node_inputs = node.display_inputs[output] = tuple(per_loop) or (EdgeInput(_DISPLAY_FIELD, (source,), source.loops),)
+    return node_inputs
 
 
 def flat_nodes(graph: CompiledGraph) -> tuple[dict[str, FlatFunctionNode], dict[str, FlatNode]]:
@@ -290,7 +288,7 @@ def _add_flat_nodes(
     outer_loops = parent.loops if parent is not None else ()
     nodes_by_id: dict[str, FlatNode] = {}
     for compiled_node in graph._nodes.values():
-        inputs = {name: _flat_plan(plan, graph, parent, nodes_by_id, functions) for name, plan in compiled_node.inputs.items()}
+        inputs = {name: _flat_input(node_input, graph, parent, nodes_by_id, functions) for name, node_input in compiled_node.inputs.items()}
         loops = (*outer_loops, *[nodes_by_id[loop.node_id].source_of(loop.output) for loop in compiled_node.loops])
         node_path = (*parent_path, compiled_node.id)
         if isinstance(compiled_node, CompiledSubgraphNode):
@@ -300,43 +298,43 @@ def _add_flat_nodes(
             continue
         constants: dict[str, Any] = {}
         graph_inputs: list[tuple[str, str]] = []
-        edge_inputs: list[tuple[str, InputFromEdges, bool]] = []
+        edge_inputs: list[tuple[str, EdgeInput | CollectingInput, bool]] = []
         upstream: dict[FlatFunctionNode, int] = {}
         collecting: dict[OutputInLoops, list[tuple[str, bool]]] = {}
-        for name, plan in inputs.items():
+        for name, node_input in inputs.items():
             constants[name] = None
             outputs_read: tuple[OutputInLoops, ...]
             outside_the_loop: list[tuple[FlatFunctionNode, int]] = []
-            match plan:
-                case InputConstant(value=value):
+            match node_input:
+                case ConstantInput(value=value):
                     constants[name] = value
                     continue
-                case InputFromGraphInput(address=address):
+                case GraphInput(address=address):
                     graph_inputs.append((name, address))
                     continue
-                case InputMissing():
+                case MissingInput():
                     raise RuntimeError(f"'{node_path_text(node_path)}' has an input that gets no value: a graph with problems has no flat graph")
-                case InputReadsOneValue(sources=sources) | InputWrapsOneValue(sources=sources):
+                case EdgeInput(sources=sources):
                     outputs_read = sources
-                case InputCollectsLoopResults(field=field, series=series, sources=sources):
+                case CollectingInput(field=field, series=series, sources=sources):
                     outputs_read = (series, *sources)
                     series_node = functions[series.node_id]
                     looped_over = (series_node, series.output)
                     # what a node inside the loop reads from outside it can say that no item will have a value
-                    read_inside = [read for inner in plan.loop_body for read in inner.upstream.items()]
+                    read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
                     collecting.setdefault(series, []).append((name, field.accepts_none_items))
                     series_type = series_node.compiled_node.outputs[series.output].whole
                     whole_list = EdgeSource(series.node_id, series.output, series.loops, None, series_type, item=False)
                     # the list first, then (below) its items
-                    edge_inputs.append((name, InputReadsOneValue(field, (whole_list,), series.loops), field.whole.optional))
+                    edge_inputs.append((name, EdgeInput(field, (whole_list,), series.loops), field.whole.optional))
                 case _:
-                    assert_never(plan)
-            edge_inputs.append((name, plan, plan.field.whole.optional))
-            depth = len(plan.loops)
+                    assert_never(node_input)
+            edge_inputs.append((name, node_input, node_input.field.whole.optional))
+            depth = len(node_input.loops)
             for upstream_node, shared_indexes in (*[(functions[read.node_id], min(read.depth, depth)) for read in outputs_read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
-        read_by_door = {name: plan.field for name, plan in inputs.items() if _demands_more(plan)}
+        read_by_door = {name: node_input.field for name, node_input in inputs.items() if _demands_more(node_input)}
         definition = compiled_node.definition
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
@@ -353,23 +351,23 @@ def _add_flat_nodes(
 
 
 def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[OutputAddress, ...]:
-    """Returns ``loops`` as an input plan of the flat graph names them: each list by the name of its function node."""
+    """Returns ``loops`` as a compiled input of the flat graph names them: each list by the name of its function node."""
     return tuple([OutputAddress(series_node.name, output) for series_node, output in loops])
 
 
-def _flat_plan(
-    plan: InputPlan, graph: CompiledGraph, parent: FlatSubgraph | None,
+def _flat_input(
+    node_input: Input, graph: CompiledGraph, parent: FlatSubgraph | None,
     nodes_by_id: Mapping[str, FlatNode], functions: Mapping[str, FlatFunctionNode],
-) -> InputPlan:
-    """Returns the plan of the flat graph for an input whose own graph gave it ``plan``.
+) -> Input:
+    """Returns the flat graph's input for an input that its own graph compiled as ``node_input``.
 
     Every source is changed to name the function node that returns the output, by its name, with the loops
-    that function node is inside. In the example, the plan of ``join.texts`` reads ``loud.shout.result``; the
-    flat plan reads ``result`` of ``loud/shout``. A graph input of a subgraph gets the plan the outer graph
-    made for it: ``loud/strip``'s ``line`` gets the plan of ``loud``'s input ``line``.
+    that function node is inside. In the example, the compiled input ``join.texts`` reads ``loud.shout.result``; the
+    flat graph's reads ``result`` of ``loud/shout``. A graph input of a subgraph gets the input the outer graph
+    made for it: ``loud/strip``'s ``line`` gets the input of ``loud``'s input ``line``.
 
     Args:
-        plan: The plan as the node's own graph compiled it.
+        node_input: The input as the node's own graph compiled it.
         graph: That graph.
         parent: The flat node of the subgraph that ``graph`` is; ``None`` for the graph a run is of.
         nodes_by_id: The flat nodes of ``graph`` made so far, by id.
@@ -382,25 +380,23 @@ def _flat_plan(
             source_node.looped_outputs.setdefault(output, (nodes_by_id[source.node_id], source.output))
         return EdgeSource(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, item=source.item)
 
-    match plan:
-        case InputConstant() | InputMissing():
-            return plan
-        case InputFromGraphInput(address=address):
-            return plan if parent is None else parent.inputs[graph._input_fields[address].name]
-        case InputReadsOneValue(field=field, sources=sources):
-            flat_sources = tuple([flat_source(source, True) for source in sources])
-            return InputReadsOneValue(field, flat_sources, max((source.loops_of_value for source in flat_sources), key=len))
-        case InputWrapsOneValue(field=field, sources=sources):
-            return InputWrapsOneValue(field, tuple([flat_source(source, False) for source in sources]))
-        case InputCollectsLoopResults(field=field, series=series, sources=sources):
+    match node_input:
+        case ConstantInput() | MissingInput():
+            return node_input
+        case GraphInput(address=address):
+            return node_input if parent is None else parent.inputs[graph._input_fields[address].name]
+        case EdgeInput(field=field, sources=sources, as_list=as_list):
+            flat_sources = tuple([flat_source(source, not as_list) for source in sources])
+            return EdgeInput(field, flat_sources, max((source.loops_of_value for source in flat_sources), key=len), as_list=as_list)
+        case CollectingInput(field=field, series=series, sources=sources):
             looped_over = nodes_by_id[series.node_id].source_of(series.output)
-            return _collect_plan(field, looped_over, tuple([flat_source(source, False) for source in sources]), functions)
+            return _collecting_input(field, looped_over, tuple([flat_source(source, False) for source in sources]), functions)
         case _:
-            assert_never(plan)
+            assert_never(node_input)
 
 
-def _collect_plan(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FlatFunctionNode]) -> InputCollectsLoopResults:
-    """Returns the plan of the flat graph for an input that collects one value per item of the list
+def _collecting_input(field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[EdgeSource, ...], functions: Mapping[str, FlatFunctionNode]) -> CollectingInput:
+    """Returns the flat graph's input for an input that collects one value per item of the list
     ``looped_over``. Used for a node's own input and for what ``run.results`` shows.
 
     Args:
@@ -412,7 +408,7 @@ def _collect_plan(field: Field, looped_over: tuple[FlatFunctionNode, str], sourc
     series_node, output = looped_over
     series = OutputInLoops(series_node.name, output, _loops_by_name(series_node.loops))
     loop_body = _loop_body_of(looped_over, [functions[source.node_id] for source in sources])
-    return InputCollectsLoopResults(field, series, sources, loop_body)
+    return CollectingInput(field, series, sources, loop_body)
 
 
 def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:
@@ -438,15 +434,15 @@ def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFuncti
     return tuple(sorted(loop_body, key=lambda inner: inner.position))
 
 
-def _demands_more(plan: InputPlan) -> bool:
-    """Whether the input of ``plan`` is read by its edge door before each call: an input that edges lead to, whose
+def _demands_more(node_input: Input) -> bool:
+    """Whether the input of ``node_input`` is read by its edge door before each call: an input that edges lead to, whose
     type demands more than the outputs they read declare (``demands_more``)."""
-    match plan:
-        case InputConstant() | InputFromGraphInput() | InputMissing():
+    match node_input:
+        case ConstantInput() | GraphInput() | MissingInput():
             return False
-        case InputReadsOneValue(field=field, sources=sources):
-            return demands_more(field, [source.type for source in sources], per_item=False)
-        case InputCollectsLoopResults(field=field, sources=sources) | InputWrapsOneValue(field=field, sources=sources):
+        case EdgeInput(field=field, sources=sources, as_list=as_list):
+            return demands_more(field, [source.type for source in sources], per_item=as_list)
+        case CollectingInput(field=field, sources=sources):
             return demands_more(field, [source.type for source in sources], per_item=True)
         case _:
-            assert_never(plan)
+            assert_never(node_input)

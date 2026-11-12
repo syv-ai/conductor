@@ -12,13 +12,12 @@ from typing import Literal, assert_never
 
 from conductor._internal.base import ConductorModel
 from conductor._internal.compiled.input import (
-    InputCollectsLoopResults,
-    InputConstant,
-    InputFromGraphInput,
-    InputMissing,
-    InputPlan,
-    InputReadsOneValue,
-    InputWrapsOneValue,
+    CollectingInput,
+    ConstantInput,
+    EdgeInput,
+    GraphInput,
+    Input,
+    MissingInput,
     OutputAddress,
 )
 from conductor._internal.field import FieldDescription
@@ -108,7 +107,7 @@ class GraphNodeDescription(ConductorModel):
     outputs: list[FieldDescription] = []
 
 
-class GraphInput(ConductorModel):
+class GraphInputDescription(ConductorModel):
     """A graph input: an input of a node that no edge leads to, which the caller gives a value for when a run
     starts. The values of ``graph.inputs`` are these. In the example, ``lines.text``.
 
@@ -137,7 +136,7 @@ class GraphDescription(ConductorModel):
     """
 
     nodes: dict[str, GraphNodeDescription]
-    inputs: dict[str, GraphInput]
+    inputs: dict[str, GraphInputDescription]
     outputs: list[str]
     problems: list[Problem]
 
@@ -148,26 +147,26 @@ def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
     return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
-def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> InputSource:
-    """Returns how an input with ``plan`` gets its value on each call, for a node inside ``loops``.
+def input_source_of(loops: tuple[OutputAddress, ...], node_input: Input) -> InputSource:
+    """Returns how an input with ``node_input`` gets its value on each call, for a node inside ``loops``.
 
     In ``lines -> shout -> join``: ``shout.line`` is an ``item`` of ``lines.result``, ``shout.mark`` is a
     ``constant``, ``join.texts`` is ``collected`` from ``lines.result``, and ``lines.text`` is a ``graph_input``.
     An input of a node inside the loop over ``lines.result``, wired to an output of a node called once, is an
     ``outer_value``.
     """
-    match plan:
-        case InputConstant():
+    match node_input:
+        case ConstantInput():
             return InputSource(mode="constant", msg="a constant")
-        case InputFromGraphInput():
+        case GraphInput():
             return InputSource(mode="graph_input", msg="the graph input")
-        case InputMissing():
+        case MissingInput():
             return InputSource(mode="missing", msg="no value: a problem of the graph says why")
-        case InputCollectsLoopResults(series=series):
+        case CollectingInput(series=series):
             return InputSource(mode="collected", series=series.address, msg=f"every item of {series.address}")
-        case InputWrapsOneValue():
+        case EdgeInput(as_list=True):
             return InputSource(mode="collected", msg="the one value, as a Series of one")
-        case InputReadsOneValue(loops=value_loops):
+        case EdgeInput(loops=value_loops):
             if value_loops != loops:  # the value's node is inside fewer loops than this node: the same value for every item
                 if value_loops:
                     return InputSource(mode="outer_value", series=str(value_loops[-1]), msg=f"the value of the item of {value_loops[-1]}")
@@ -176,4 +175,4 @@ def input_source_of(loops: tuple[OutputAddress, ...], plan: InputPlan) -> InputS
                 return InputSource(mode="item", series=str(value_loops[-1]), msg=f"per item of {value_loops[-1]}")
             return InputSource(mode="one_value", msg="one value")
         case _:
-            assert_never(plan)
+            assert_never(node_input)

@@ -296,7 +296,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `GraphEdge` | a pair `("a.result", "b.text")` in `GraphRecord.edges` |
 | `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
 | `RegistryView` | `registry.filter(predicate)` and `add_subregistry`; a request's own nodes go in a registry of their own |
-| `resolve_graph_inputs` | `Graph.compile(record, registry).inputs`, each a `GraphInput` |
+| `resolve_graph_inputs` | `Graph.compile(record, registry).inputs`, each a `GraphInputDescription` |
 | `resolve_graph_outputs` | `Graph.compile(record, registry).outputs` |
 | **Running** | |
 | `compute_for_each_end_outputs` | gone: a `Series[X]` input collects the items |
