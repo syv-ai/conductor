@@ -224,6 +224,11 @@ def note(text: str) -> None:
     CALLS["note"] += 1
 
 
+@_node("show")
+def show(value: Any) -> str:
+    return str(value)
+
+
 def chain(*nodes: tuple[str, str]) -> dict[str, Any]:
     """Nodes in a line, each reading the ``result`` of the one before into its ``text``."""
     return {"nodes": [{"id": i, "node": n} for i, n in nodes], "edges": [[f"{a[0]}.result", f"{b[0]}.text"] for a, b in zip(nodes, nodes[1:], strict=False)]}
@@ -263,10 +268,18 @@ INNER = {
         "nodes": [{"id": "d", "node": "decide"}, {"id": "s", "node": "exclaim"}, {"id": "l", "node": "upper"}],
         "edges": [["d.short", "s.text"], ["d.long", "l.text"]],
     },
+    "words-deciding-inner": {
+        "nodes": [{"id": "w", "node": "words"}, {"id": "d", "node": "decide"}, {"id": "s", "node": "exclaim"}, {"id": "l", "node": "upper"}],
+        "edges": [["w.result", "d.text"], ["d.short", "s.text"], ["d.long", "l.text"]],
+    },
+    "deciding-twice-inner": {
+        "nodes": [{"id": "d", "node": "decide"}, {"id": "s", "node": "exclaim"}, {"id": "s2", "node": "upper"}],
+        "edges": [["d.short", "s.text"], ["d.short", "s2.text"]],
+    },
 }
 
 REGISTRY = NodeRegistry()
-for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note):
+for _definition in (words, sentences, chars, upper, exclaim, greet, count, ask, fetch, flaky, stuck, boom, maybe, decide, signed, columns, table, stamp, stagger, letters, height, sheets, record, note, show):
     REGISTRY.add(_definition)
 for _id, _record in INNER.items():
     REGISTRY.add(subgraph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
@@ -370,12 +383,36 @@ def test_a_table_made_per_item_inside_is_a_series_of_tables():
 
 
 def test_a_decision_inside_is_the_embeddings_by_where_it_is_made():
-    graph = load({"e": "deciding-inner", "j": "exclaim"}, [("e.s.result", "j.text"), ("e.l.result", "j.text")])
-    assert problems(graph) == [("several_edges_into_one_input", ("j", "text"))]  # s and l both rest on d, which the embedding hides
     last = load({"e": chain_node("decide")})
     assert last.exclusive_groups == {"e": {"d.way": ["d.short", "d.long"]}}
     joined = load({"e": chain_node("decide"), "j": "exclaim"}, [("e.d.short", "j.text"), ("e.d.long", "j.text")])
     assert joined.is_runnable
+
+
+def test_two_outputs_on_opposite_branches_of_a_decision_inside_are_alternatives_for_one_input_as_drawn_flat():
+    edges = [("w.result", "{}text"), ("{}s.result", "j.text"), ("{}l.result", "j.text"), ("j.result", "n.items")]
+    inside = load({"w": "words", "e": "deciding-inner", "j": "exclaim", "n": "count"}, [(a.format("e."), b.format("e.")) for a, b in edges])
+    drawn_flat = load({"w": "words", **{n["id"]: n["node"] for n in INNER["deciding-inner"]["nodes"]}, "j": "exclaim", "n": "count"},
+                      [("w.result", "d.text"), *map(tuple, INNER["deciding-inner"]["edges"]), *[(a.format(""), b.format("")) for a, b in edges[1:]]])
+    assert problems(inside) == problems(drawn_flat) == []
+    ran, ran_flat = inside.run(text="ab long cd"), drawn_flat.run(text="ab long cd")
+    assert ran.results["j"] == ran_flat.results["j"] == {"result": ["ab!!", "LONG!", "cd!!"]}
+    assert ran.results["n"] == ran_flat.results["n"] == {"result": 3}
+    same_branch = load({"e": "deciding-twice-inner", "j": "exclaim"}, [("e.s.result", "j.text"), ("e.s2.result", "j.text")])
+    assert problems(same_branch) == [("several_edges_into_one_input", ("j", "text"))]  # both need d.short: a call could get two values
+    nested = load({"e": chain_node("deciding-inner"), "j": "exclaim"}, [("e.d.s.result", "j.text"), ("e.d.l.result", "j.text")])
+    assert problems(nested) == [] and nested.run(text="ab").results["j"] == {"result": "ab!!"}
+
+
+def test_a_decision_made_per_item_inside_is_not_needed_by_an_input_outside_that_collects_the_items_as_drawn_flat():
+    edges = [("{}s.result", "n1.items"), ("{}l.result", "n2.items"), ("n1.result", "g.value"), ("n2.result", "g.value")]
+    nodes = {"n1": "count", "n2": "count", "g": "show"}
+    inside = load({"e": "words-deciding-inner", **nodes}, [(a.format("e."), b.format("e.")) for a, b in edges])
+    record = INNER["words-deciding-inner"]
+    flat_edges = [*map(tuple, record["edges"]), *[(a.format(""), b.format("")) for a, b in edges]]
+    drawn_flat = load({**{n["id"]: n["node"] for n in record["nodes"]}, **nodes}, flat_edges)
+    # n1 and n2 are each called whatever d chose for a word, so both have a value: they are no alternatives
+    assert problems(inside) == problems(drawn_flat) == [("several_edges_into_one_input", ("g", "value"))]
 
 
 def chain_node(node_id: str) -> str:

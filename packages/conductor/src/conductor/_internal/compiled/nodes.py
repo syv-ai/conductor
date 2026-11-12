@@ -176,6 +176,24 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside = self.inner._nodes[node_id].loops_around(inner_output)
         return (*self.loops, *[OutputAddress(self.id, str(loop)) for loop in inside])
 
+    def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
+        """The branches that must be chosen for ``output`` to have a value: those this node needs to be called,
+        then those the output needs inside the subgraph.
+
+        Example: the subgraph ``e`` is ``route -> shout`` and ``route -> whisper``, one on each output of
+        ``route``. ``branches_required_for("shout.result")`` is ``RequiredBranch("e", "route.length",
+        "route.long", 0)`` and that of ``whisper.result`` names ``route.short``, so one input outside may be
+        wired to both, as it may with the same nodes drawn in the outer graph. A branch inside is named by this
+        node's id, with the group and the output as addresses inside the subgraph.
+        """
+        node_id, _, inner_output = output.partition(".")
+        inside = self.inner._nodes[node_id].branches_required_for(inner_output)
+        depth = len(self.loops)
+        return self.required_branches | {
+            RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", f"{branch.node_id}.{branch.output}", depth + branch.depth)
+            for branch in inside
+        }
+
     @property
     def functions_with_context(self) -> list[tuple[str, FunctionDefinition[..., Any]]]:
         """Each function node inside the subgraph with a ``Context`` parameter, at any depth: its id and definition."""

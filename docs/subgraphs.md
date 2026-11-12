@@ -75,6 +75,8 @@ From outside, a subgraph is one node:
   [below](#an-output-returned-inside-two-loops). A `Series` returned once per document is `Series[Series[str]]` the
   same way, and a table returned once per document a `Series` of tables.
 - An exclusive group inside is named by the node that decides, `decide.answer`.
+- Two outputs that depend on opposite branches of one decision inside may be wired into one input outside, as the
+  same nodes drawn in the outer graph may: each call gets the value from the branch that was chosen.
 
 ```python
 side_by_side = subgraph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))

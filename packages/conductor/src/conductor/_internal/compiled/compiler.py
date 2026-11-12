@@ -263,8 +263,9 @@ class _Compiler:
         Example: the subgraph ``strip -> shout`` used as the node ``loud``. The subgraph's record is compiled on
         its own first. The node's inputs are that graph's inputs under their names there (``line``), and its
         outputs are that graph's outputs under their addresses there, so an edge reads ``loud.shout.result``.
-        An output keeps the field the node inside declares. An edge outside reads it as it would with the same
-        nodes drawn in this graph: ``loops_around`` on the node names the loops inside it is returned in.
+        An output keeps the field the node inside declares. What an edge outside needs to know about it is
+        asked of the node: ``loops_around`` for the loops inside it is returned in, ``branches_required_for``
+        for the branches inside it depends on. Both answer as the same nodes drawn in this graph would.
 
         A subgraph that contains itself is a problem. The problems of the subgraph are problems of this graph,
         each with this node's id in front of its ``loc``. Either way the node is left out, as the inputs and
