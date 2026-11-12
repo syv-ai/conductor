@@ -78,12 +78,12 @@ def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
 # -- a table or list not taken apart --------------------------------------------------------------------------------
 
 
-def test_a_whole_table_into_an_input_of_one_value_says_to_split_first_and_lists_the_fields():
+def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_lists_the_fields():
     found = problem({"read": "contacts", "send": "send"}, [("read.result", "send.to")])
     assert (found.type, found.loc) == ("type_mismatch", ("send", "to"))
     assert found.ctx == {
         "node_id": "send", "field": "to", "source": "read.result", "got": "Table[name: str, email: str]", "expected": "str",
-        "variant": "split_first", "whole": "table", "fields": ["name", "email"],
+        "variant": "make_a_series", "whole": "table", "fields": ["name", "email"],
     }
     assert found.msg == (
         "'read.result' is a whole table, and 'send.to' takes one str. To call 'send' once per row or item, "
@@ -91,14 +91,14 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_split_first_and_lists_
     )
 
 
-def test_a_table_of_any_columns_says_to_split_first_and_knows_no_fields():
+def test_a_table_of_any_columns_says_to_make_a_series_and_knows_no_fields():
     found = problem({"read": "csv", "send": "send"}, [("read.result", "send.to")])
-    assert (found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("split_first", "table", [])
+    assert (found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("make_a_series", "table", [])
 
 
-def test_a_whole_list_into_an_input_of_one_value_says_to_split_first():
+def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
     found = problem({"tags": "tags", "send": "send"}, [("tags.result", "send.to")])
-    assert (found.type, found.loc, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("type_mismatch", ("send", "to"), "split_first", "list", [])
+    assert (found.type, found.loc, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("type_mismatch", ("send", "to"), "make_a_series", "list", [])
     assert found.msg.startswith("'tags.result' is a whole list, and 'send.to' takes one str.")
     assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx["fields"] == ["name", "email"]
 
@@ -108,19 +108,19 @@ def test_a_whole_list_into_a_series_input_is_the_ordinary_mismatch():
     assert found.type == "type_mismatch" and "variant" not in found.ctx
 
 
-def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_split_first():
+def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series():
     found = problem({"read": "contacts", "send": "send"}, [("read.result.email", "send.to")])
     assert (found.type, found.loc) == ("unknown_output", ("send", "to"))
-    assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "record_field": "email", "variant": "split_first", "whole": "table", "fields": ["name", "email"]}
+    assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "record_field": "email", "variant": "make_a_series", "whole": "table", "fields": ["name", "email"]}
     assert found.msg == (
         "'read.result.email' names a field of a whole table, which has no fields to wire. Put a node after it that returns "
         "its rows or items as a Series, and wire the field from that node's result."
     )
 
 
-def test_a_field_named_on_a_whole_list_says_to_split_first_too():
+def test_a_field_named_on_a_whole_list_says_to_make_a_series_too():
     found = problem({"people": "people", "send": "send"}, [("people.result.email", "send.to")])
-    assert (found.type, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("unknown_output", "split_first", "list", ["name", "email"])
+    assert (found.type, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("unknown_output", "make_a_series", "list", ["name", "email"])
 
 
 def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrives():

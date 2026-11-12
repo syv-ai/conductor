@@ -582,7 +582,7 @@ class _Compiler:
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
         if record_field and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
-            self.problems.append(problem.unknown_output_split_first(
+            self.problems.append(problem.unknown_output_make_a_series(
                 node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=record_field,
                 whole=parts[0], fields=parts[1],
             ))
@@ -778,7 +778,7 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
             column_type = Type(field.whole.fields[missing[0]]).id
             return problem.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
     elif parts and not field.is_series:
-        return problem.type_mismatch_split_first(node_id, field.name, source=address, got=got, expected=expected, whole=parts[0], fields=parts[1])
+        return problem.type_mismatch_make_a_series(node_id, field.name, source=address, got=got, expected=expected, whole=parts[0], fields=parts[1])
     return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 

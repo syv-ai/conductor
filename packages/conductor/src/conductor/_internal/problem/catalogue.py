@@ -11,7 +11,7 @@ It returns the message. Calling it makes the problem::
 
 A type checker checks every call against the function's signature; ``ProblemCatalogue.problem`` in ``type.py`` gives
 the rules for the signature in full. A few kinds name their code in the decorator,
-``@PROBLEMS.problem("type_mismatch", variant="split_first")``: a second message under that code, for one particular
+``@PROBLEMS.problem("type_mismatch", variant="make_a_series")``: a second message under that code, for one particular
 mistake, and the problem's ``ctx.variant`` says which. ``of_a_hook=True`` marks a problem in a node's ``compute_...``
 hook, which the node's developer fixes rather than the graph's author; ``check_registry`` reports those as its own.
 
@@ -536,8 +536,8 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
     )
 
 
-@PROBLEMS.problem("type_mismatch", variant="split_first")
-def type_mismatch_split_first(node_id: str, field: str, /, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
+@PROBLEMS.problem("type_mismatch", variant="make_a_series")
+def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """A whole table or list is wired into an input that takes one value.
 
     A table or a list is one value. To call the node once per row or item, put a node between them that returns the
@@ -681,8 +681,8 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
     return f"'{source}' is not an output of that node; it has {comma_separated(outputs)}."
 
 
-@PROBLEMS.problem("unknown_output", variant="split_first")
-def unknown_output_split_first(*loc: str | int, source: str, outputs: list[str], record_field: str, whole: Literal["table", "list"], fields: list[str]) -> str:
+@PROBLEMS.problem("unknown_output", variant="make_a_series")
+def unknown_output_make_a_series(*loc: str | int, source: str, outputs: list[str], record_field: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """An edge's source names a field of a whole table or list.
 
     A table or a list is one value, so it has no field to wire. Put a node after it that returns its rows or items as

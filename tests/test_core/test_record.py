@@ -444,7 +444,7 @@ def test_an_edge_naming_a_column_of_a_whole_table_is_unknown_output_as_a_table_i
 
 @pytest.mark.parametrize("source", ["r.result.name", "r.result"])
 def test_a_table_wired_where_one_value_is_read_says_to_split_it_first(source):
-    assert _a_table_read_by_one_text(source).ctx["variant"] == "split_first"
+    assert _a_table_read_by_one_text(source).ctx["variant"] == "make_a_series"
 
 
 def test_a_series_of_tables_is_accepted_where_it_is_declared():
