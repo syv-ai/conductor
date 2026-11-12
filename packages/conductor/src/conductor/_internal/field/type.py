@@ -12,8 +12,8 @@ from pydantic import JsonValue
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.field.describe import FieldDescription
+from conductor._internal.markers import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.sentinels import REQUIRED, SKIPPED
 from conductor._internal.value_type import (
     FieldValueError,
     Param,

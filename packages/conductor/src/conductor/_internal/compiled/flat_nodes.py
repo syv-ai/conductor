@@ -37,9 +37,9 @@ from conductor._internal.compiled.nodes import (
     CompiledSubgraphNode,
 )
 from conductor._internal.field import Field
+from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import Policy
 from conductor._internal.outcomes import ItemIndexes
-from conductor._internal.sentinels import REQUIRED
 from conductor._internal.series import Series
 
 if typing.TYPE_CHECKING:

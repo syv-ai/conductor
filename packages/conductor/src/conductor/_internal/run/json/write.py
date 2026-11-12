@@ -9,6 +9,7 @@ import pydantic_core
 
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
+from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
 from conductor._internal.run.json.type import (
     SAVED_DONE,
@@ -20,7 +21,6 @@ from conductor._internal.run.json.type import (
     SavedRun,
 )
 from conductor._internal.run.reuse import ReusableOutcomes
-from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
 #: The state a save writes for a unit that holds outputs or is a branch not taken; any other has none.

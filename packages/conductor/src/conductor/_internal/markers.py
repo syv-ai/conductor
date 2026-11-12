@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 
-class _Sentinel:
+class _Marker:
     """One named value that is falsy and stays itself through a copy or a pickle: ``REQUIRED`` or ``SKIPPED``.
 
     Attributes:
@@ -28,8 +28,8 @@ class _Sentinel:
 
 
 #: The default of an input nothing defaults.
-REQUIRED: Any = _Sentinel("REQUIRED")
+REQUIRED: Any = _Marker("REQUIRED")
 
 #: The value of an output on a branch its node did not take. Typed ``Any``
 #: for a checker: it goes where a value would, on any output.
-SKIPPED: Any = _Sentinel("SKIPPED")
+SKIPPED: Any = _Marker("SKIPPED")

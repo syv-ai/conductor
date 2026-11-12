@@ -10,7 +10,7 @@ from typing import Any, get_args
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
-from conductor._internal.sentinels import SKIPPED
+from conductor._internal.markers import SKIPPED
 
 #: Why a set is refused wherever a list is read or written: its order differs between processes.
 SET_HAS_NO_ORDER = "a set has no order, so its items would come in another order in another process; give a list"

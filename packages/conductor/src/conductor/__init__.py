@@ -22,6 +22,7 @@ from conductor._internal.from_run import FromRun
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.make_graph import make_graph
+from conductor._internal.markers import SKIPPED
 from conductor._internal.node_definition import (
     Deprecation,
     FunctionDefinition,
@@ -47,8 +48,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import NotCalled, Run
-from conductor._internal.run_status import EndedEarly, Going, RunState, RunStatus
-from conductor._internal.sentinels import SKIPPED
+from conductor._internal.run.state import EndedEarly, Going, RunState, RunStatus
 from conductor._internal.series import Series
 from conductor._internal.table import Table
 from conductor._internal.value_type import Choice, Param, host_type

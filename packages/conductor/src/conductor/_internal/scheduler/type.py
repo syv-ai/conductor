@@ -55,6 +55,7 @@ from conductor._internal.compiled import (
     all_upstream,
     outcome_loc,
 )
+from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import (
     Answered,
     Done,
@@ -70,7 +71,7 @@ from conductor._internal.outcomes import (
 from conductor._internal.problem import CallRejectedError, ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
-from conductor._internal.run_status import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
+from conductor._internal.run.state import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
 from conductor._internal.scheduler.call import call, jsonable
 from conductor._internal.scheduler.events import (
     EventBase,
@@ -82,7 +83,6 @@ from conductor._internal.scheduler.events import (
     NodeStart,
     NodeWaiting,
 )
-from conductor._internal.sentinels import SKIPPED
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
 #: an output its type refused, a question for a person. Repeating the call repeats it.

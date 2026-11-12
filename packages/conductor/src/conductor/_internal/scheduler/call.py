@@ -10,10 +10,10 @@ import pydantic_core
 
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
+from conductor._internal.markers import SKIPPED
 from conductor._internal.node_definition import ReturnShape
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError, untyped_as_json
 
 

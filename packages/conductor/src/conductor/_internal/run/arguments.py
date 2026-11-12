@@ -46,11 +46,11 @@ from conductor._internal.compiled.input_plans import (
     OutputInLoops,
     SeriesAsList,
 )
+from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import ItemIndexes, NotCalled, NotReady, Outcome, Skipped, Waiting
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
-from conductor._internal.sentinels import SKIPPED
 from conductor._internal.series import places_of_none, without_places
 
 if TYPE_CHECKING:

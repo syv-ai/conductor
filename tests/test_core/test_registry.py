@@ -30,7 +30,7 @@ from conductor import (
     stored_graph,
 )
 from conductor._internal import registry as registry_module
-from conductor._internal.sentinels import REQUIRED
+from conductor._internal.markers import REQUIRED
 from conductor.widgets import Textarea
 
 

@@ -84,7 +84,7 @@ from conductor._internal.run.reuse import (
     arguments_fingerprint,
     outer_items_fingerprint,
 )
-from conductor._internal.run_status import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
+from conductor._internal.run.state import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.scheduler import (
     Event,
     EventBase,

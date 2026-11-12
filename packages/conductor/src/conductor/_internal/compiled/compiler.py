@@ -53,6 +53,7 @@ from conductor._internal.compiled.nodes import (
 from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord, NodeRecord
+from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
     FunctionDefinition,
     HookName,
@@ -63,7 +64,6 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import NodeDeclarationError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import FieldValueError, Param, Type
 
 _logger = logging.getLogger("conductor")

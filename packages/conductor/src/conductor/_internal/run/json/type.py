@@ -9,7 +9,7 @@ from pydantic import ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
 
 from conductor._internal.ask import Question
-from conductor._internal.run_status import EndedEarly, Going
+from conductor._internal.run.state import EndedEarly, Going
 
 #: Every record of a save refuses a key it doesn't declare, and writes a float that isn't finite as its text.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")

@@ -25,8 +25,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, final
 
 from conductor._internal.field import Field
+from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import ItemIndexes, NotReady
-from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:

@@ -8,11 +8,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from conductor._internal.compiled import CompiledGraph
+from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import Run, checked_max_items, no_outcomes, run_from_json
 from conductor._internal.run.json import RunCodec, run_codec
-from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import FieldValueError
 
 

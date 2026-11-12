@@ -8,6 +8,7 @@ from typing import Any
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.field import Field
+from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
 from conductor._internal.run.json.type import (
     SAVED_DONE,
@@ -17,7 +18,6 @@ from conductor._internal.run.json.type import (
     SavedRun,
 )
 from conductor._internal.run.reuse import ReusableOutcomes
-from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError
 
 

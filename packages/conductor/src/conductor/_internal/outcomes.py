@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any, final
 from conductor._internal.address import ItemIndexes
 from conductor._internal.ask import Question
 from conductor._internal.field import Field
-from conductor._internal.sentinels import SKIPPED
+from conductor._internal.markers import SKIPPED
 
 if TYPE_CHECKING:
     from conductor._internal.compiled.flat_nodes import FlatFunctionNode
