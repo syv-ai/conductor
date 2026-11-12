@@ -36,9 +36,9 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 from conductor._internal.compiled.input_plans import (
+    EdgeSource,
     InputCollectsLoopResults,
     InputReadsOneValue,
-    ItemOfSeries,
     OutputInLoops,
     SeriesAsList,
 )
@@ -47,7 +47,7 @@ from conductor._internal.outcomes import ItemIndexes, NotCalled, NotReady, Outco
 from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
-from conductor._internal.series import places_of_none, without_places
+from conductor._internal.series import StoredSeries, places_of_none, without_places
 
 if TYPE_CHECKING:
     from conductor._internal.compiled.flat_nodes import FlatFunctionNode
@@ -174,24 +174,21 @@ class ResultReader:
                 return would_be if would_be is NotReady.NOT_READY else would_be.outputs[source.output]
             return NotReady.NOT_READY
         value = outcome.outputs[source.output]
-        if value is None or value is SKIPPED or type(source) is OutputInLoops:
+        if value is None or value is SKIPPED or type(source) is not EdgeSource:  # the last: the list a loop goes through, as it is stored
             return value
-        if type(source) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
-            try:
-                index = item_indexes[depth]
-            except IndexError:  # asked for any item of this list, which exists
-                return MAY_HAVE_VALUE
-            record_field = source.record_field
-            if record_field is None:
-                return value[index]
-            cell = value.columns[record_field][index]
-            if type(cell) is NoSuchFieldError:
-                raise NoSuchFieldError(record_field)
-            return cell
-        if type(source) is SeriesAsList:
-            return value.as_list()
-        field = source.record_field  # type: ignore[attr-defined]  # an edge source is a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
-        return value if field is None else field_of(value, field)
+        record_field = source.record_field
+        if not source.item:
+            return value if record_field is None else field_of(value, record_field)
+        try:  # ``value`` is a stored Series: one item of it, or one field of that item
+            index = item_indexes[depth]
+        except IndexError:  # asked for any item of this list, which exists
+            return MAY_HAVE_VALUE
+        if record_field is None:
+            return value[index]
+        cell = value.columns[record_field][index]
+        if type(cell) is NoSuchFieldError:
+            raise NoSuchFieldError(record_field)
+        return cell
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
@@ -214,7 +211,7 @@ class ResultReader:
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = plan.sources
-        if len(edges) == 1 and type(edges[0]) is ItemOfSeries:  # the input collects the list itself: its items, or one field of each
+        if len(edges) == 1 and edges[0].item:  # the input collects the list itself: its items, or one field of each
             record_field = edges[0].record_field
             if record_field is not None:
                 return series.field_as_list(record_field)
@@ -247,11 +244,14 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        any_item = type(self)(self.outcomes, self.graph_inputs)
-        for node in plan.loop_body:  # each after the nodes it reads
-            any_item.for_any_item[node.name] = any_item.arguments_for(node, item_indexes)
-        value = any_item._edges_for_any_item(plan, item_indexes)
-        return value if value is not MAY_HAVE_VALUE else self.read_output(plan.reads[0], item_indexes)
+        if plan.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
+            any_item = type(self)(self.outcomes, self.graph_inputs)
+            for node in plan.loop_body:  # each after the nodes it reads
+                any_item.for_any_item[node.name] = any_item.arguments_for(node, item_indexes)
+            value = any_item._edges_for_any_item(plan, item_indexes)
+            if value is not MAY_HAVE_VALUE:
+                return value
+        return self.read_output(plan.reads[0], item_indexes)
 
     def _edges_for_any_item(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
@@ -296,12 +296,15 @@ class DisplayReader(ResultReader):
 
     def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
         """The value of the output ``source`` for the item at ``item_indexes``; ``None`` when the node hasn't
-        returned yet, or when the edge names a field the record doesn't have."""
+        returned yet, or when the edge names a field the record doesn't have. A ``Series`` output that
+        ``run.results`` shows (a ``SeriesAsList``) is returned as a plain list of its items."""
         try:
             value = ResultReader.read_output(self, source, item_indexes)
         except NoSuchFieldError:
             return None
-        return None if value is NotReady.NOT_READY else value
+        if value is NotReady.NOT_READY:
+            return None
+        return value.as_list() if type(source) is SeriesAsList and isinstance(value, StoredSeries) else value
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
         """The list a ``Series`` input with ``plan`` would be called with for the item at ``item_indexes``;

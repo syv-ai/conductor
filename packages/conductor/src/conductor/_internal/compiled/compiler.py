@@ -40,10 +40,8 @@ from conductor._internal.compiled.input_plans import (
     InputPlan,
     InputReadsOneValue,
     InputWrapsOneValue,
-    ItemOfSeries,
     OutputAddress,
     OutputInLoops,
-    WholeOutput,
 )
 from conductor._internal.compiled.nodes import (
     CompiledFunctionNode,
@@ -374,9 +372,9 @@ class _Compiler:
         loops_of_inputs = [plan.loops for plan in inputs.values() if isinstance(plan, InputFromEdges)]
         loops = max(loops_of_inputs, key=len, default=())
         for name, plan in inputs.items():
-            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].loops_of_value) == loops[: len(made_in)] and all(isinstance(s, WholeOutput) for s in plan.sources):
+            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].loops_of_value) == loops[: len(made_in)] and not any(s.item for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
-                inputs[name] = InputWrapsOneValue(plan.field, typing.cast("tuple[WholeOutput, ...]", plan.sources))
+                inputs[name] = InputWrapsOneValue(plan.field, plan.sources)
         for name, plan in inputs.items():
             if isinstance(plan, InputFromEdges) and loops[: len(plan.loops)] != plan.loops:  # items of two Series never pair up
                 series = [loops[-1], plan.loops[-1]]
@@ -502,7 +500,7 @@ class _Compiler:
         if not collects:
             return InputReadsOneValue(field, tuple(sources), deepest)
         if not deepest:
-            return InputWrapsOneValue(field, tuple(s for s in sources if isinstance(s, WholeOutput)))
+            return InputWrapsOneValue(field, tuple(sources))
         source_node, output = deepest[-1]
         series = OutputInLoops(source_node, output, deepest[:-1])
         return InputCollectsLoopResults(field, (series, *sources))
@@ -540,8 +538,7 @@ class _Compiler:
             fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=expected or None))
             return None
-        source_kind = ItemOfSeries if field.many else WholeOutput
-        return source_kind(source_id, output, source.loops_around(output), expected or None, sources)
+        return EdgeSource(source_id, output, source.loops_around(output), expected or None, sources, field.many)
 
     def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
@@ -659,7 +656,7 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
     Split first, and a table input fed records without a column it names wants that column.
     """
     address, expected = source.address, field.whole.id
-    got = f"Series[{source.type.text}]" if isinstance(source, ItemOfSeries) else source.type.text
+    got = f"Series[{source.type.text}]" if source.item else source.type.text
     split = _split_gives(source.type)
     if field.whole.record is not None:
         has = (source.type.record or source.type).fields

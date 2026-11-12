@@ -16,15 +16,14 @@ from conductor._internal.compiled.flat_nodes import (
     outcome_loc,
 )
 from conductor._internal.compiled.input_plans import (
+    EdgeSource,
     InputCollectsLoopResults,
     InputConstant,
     InputFromGraphInput,
     InputReadsOneValue,
     InputWrapsOneValue,
-    ItemOfSeries,
     OutputInLoops,
     SeriesAsList,
-    WholeOutput,
 )
 from conductor._internal.compiled.nodes import CompiledFunctionNode
 from conductor._internal.compiled.type import CompiledGraph

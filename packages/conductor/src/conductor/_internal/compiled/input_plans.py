@@ -1,9 +1,8 @@
 """How each input of a node gets its value: the plan kinds, and the outputs a plan reads.
 
-An ``OutputInLoops`` is one output of one node, in the scope its node runs in: what one
-unit of the node holds for it. An edge brings the output's value (``WholeOutput``), one
-item of a ``Series`` it holds (``ItemOfSeries``), or a ``Series`` it holds as the one
-list it is (``SeriesAsList``).
+An ``OutputInLoops`` is one output of one node with the loops that node is inside. An ``EdgeSource`` is what
+one edge reads from such an output: its value, or one item of it when the output is a ``Series``. A
+``SeriesAsList`` is how ``run.results`` reads a ``Series`` output: as one plain list.
 
 A plan is one of six kinds. ``InputConstant`` holds a value, ``InputFromGraphInput`` is the
 caller's, ``InputMissing`` has none. The three that edges feed (``InputReadsOneValue``, ``InputCollectsLoopResults``,
@@ -51,18 +50,23 @@ class OutputAddress(NamedTuple):
 
 
 
-# -- what an edge brings ------------------------------------------------------------------------
+# -- what an edge reads ------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class OutputInLoops:
-    """An output of a node, in the scope its node runs in: what one unit of the node holds for it.
+    """One output of one node, with the loops that node is inside.
+
+    Example, in ``lines -> shout -> join``: ``shout`` is called once per item of ``lines.result``, so its output is
+    ``OutputInLoops("shout", "result", loops=(OutputAddress("lines", "result"),))``, with ``depth`` 1. The output
+    has one value per call of ``shout``, and a call is found by ``depth`` item indexes.
 
     Attributes:
-        node_id: The node: its id in a compiled graph's plan; where a node stands, the function's name.
+        node_id: The node. In a compiled graph's own plan it is the node's id. In the flat graph it is the
+            name of the function node (``"loud/shout"`` inside a subgraph).
         output: The output's name.
-        loops: The scope the node runs in.
-        depth: How many maps the node runs in, so how many places of a set of item indexes name one unit of it.
+        loops: The loops the node is inside, outermost first, each as the output that is the list looped over.
+        depth: How many loops the node is inside: the number of item indexes that say which call of it.
     """
 
     node_id: str
@@ -80,16 +84,25 @@ class OutputInLoops:
 
 
 @dataclass(frozen=True, slots=True)
-class _EdgeSourceBase(OutputInLoops):
-    """What an edge brings from an output. Never made on its own: it is one of the three kinds of ``EdgeSource``.
+class EdgeSource(OutputInLoops):
+    """What one edge reads from an output.
+
+    Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
+    ``shout``, so it is ``EdgeSource("lines", "result", (), None, Type(str), item=True)``. The edge from
+    ``shout.result`` reads the value one call of ``shout`` returned, so it has ``item=False``.
 
     Attributes:
-        record_field: The field an edge names after the output (``split.result.email``); ``None`` for all of it.
-        type: The type of what it brings.
+        record_field: The field of a record that the edge reads (``email`` in ``split.result.email``); ``None``
+            when it reads the whole value.
+        type: The type of the value the edge reads.
+        item: Whether the output is a ``Series`` and the edge reads one item of it. The node the edge leads to
+            is then inside the loop over this output, and an item is found by one more item index than
+            ``depth``.
     """
 
     record_field: str | None
     type: Type
+    item: bool
 
     @property
     def address(self) -> str:
@@ -98,40 +111,20 @@ class _EdgeSourceBase(OutputInLoops):
 
     @property
     def loops_of_value(self) -> tuple[OutputAddress, ...]:
-        """The scope its values sit in: the one its node runs in."""
-        return self.loops
+        """The loops a node must be inside to read one value from this source, outermost first: the loops of
+        the source's node, and for an item of a ``Series`` also the loop over that ``Series``."""
+        return (*self.loops, OutputAddress(self.node_id, self.output)) if self.item else self.loops
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class WholeOutput(_EdgeSourceBase):
-    """An output read as the one value it is, where its node runs or in a scope under it."""
+class SeriesAsList(EdgeSource):
+    """A ``Series`` output read as the plain list of its items. No edge reads an output this way: only
+    ``run.results`` and ``run.outputs`` do, through the plans of ``display_plans_of``.
 
-
-@final
-@dataclass(frozen=True, slots=True)
-class ItemOfSeries(_EdgeSourceBase):
-    """One item of a ``Series`` output, read inside the map that Series opens."""
-
-    @property
-    def loops_of_value(self) -> tuple[OutputAddress, ...]:
-        """The scope its values sit in: the map of the Series, under the scope its node runs in."""
-        return (*self.loops, OutputAddress(self.node_id, self.output))
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class SeriesAsList(_EdgeSourceBase):
-    """A ``Series`` output read as the one list it is.
-
-    Only the plans ``run.results`` reads an output with hold one (``display_plans_of``). Example: ``lines`` is called
-    once per document and returns that document's lines as a ``Series``. ``results`` shows a list per
-    document, each the whole list one call returned.
+    Example: ``lines`` is called once per document and returns that document's lines. ``run.results`` shows
+    ``lines.result`` as one list per document, each the list one call returned.
     """
-
-
-#: What an edge brings its input.
-EdgeSource = WholeOutput | ItemOfSeries | SeriesAsList
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -258,10 +251,10 @@ class InputWrapsOneValue:
     """
 
     field: Field
-    reads: tuple[WholeOutput, ...]
+    reads: tuple[EdgeSource, ...]
 
     @property
-    def sources(self) -> tuple[WholeOutput, ...]:
+    def sources(self) -> tuple[EdgeSource, ...]:
         """What each edge brings."""
         return self.reads
 
