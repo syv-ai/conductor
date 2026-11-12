@@ -259,12 +259,12 @@ print(run.outputs)                   # {'count.result': 2}
 
 A table never makes items by itself. Return `Series[R]`, with `R` a `TypedDict`, to give records one at a time; then an edge may name one field of each, `read.result.email`. You may return the records as a list or as the table they are in, which is cheaper for a large one: the nodes after it receive the same plain records either way. A host with `syv-conductor-nodes` has a Split node that does this for any table or list.
 
-A `Series` input gets what its source made for that call. When the node itself runs per item, because another input reads one item, a source that runs per that same item made one value for the call, and the input receives that one, as a list of one. To hand every item's value to each call, gather them once outside the items with the Gather node of `syv-conductor-nodes` (`series-gather`) and wire the list in:
+A `Series` input gets what its source made for that call. When the node itself runs per item, because another input reads one item, a source that runs per that same item made one value for the call, and the input receives that one, as a list of one. To hand every item's value to each call, collect them once outside the loop with the Collect node of `syv-conductor-nodes` (`series-collect`) and wire the list in:
 
 ```python
-from conductor_nodes.series import gather
+from conductor_nodes.series import collect
 
-registry.add(gather)
+registry.add(collect)
 
 
 @registry.node("shout", title="Shout", description="A line in capitals.")
@@ -281,14 +281,14 @@ own = make_graph(open_letter, shout, compare, edges=[("open.lines", "shout.line"
 print(Graph.compile(own, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 1', 'see you against 1']
 
 every = make_graph(
-    open_letter, shout, gather, compare,
-    edges=[("open.lines", "shout.line"), ("shout.result", "series-gather.values"), ("open.lines", "compare.line"), ("series-gather.result", "compare.others")],
+    open_letter, shout, collect, compare,
+    edges=[("open.lines", "shout.line"), ("shout.result", "series-collect.values"), ("open.lines", "compare.line"), ("series-collect.result", "compare.others")],
 )
 print(Graph.compile(every, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 2', 'see you against 2']
 ```
 
 - In `own`, `compare` runs once per line for its `line`, and `shout` made one text for that line: `others` is that one text.
-- In `every`, `series-gather` runs once, outside the lines, and gathers every shouted line; its list is then there on each call of `compare`. With `syv-conductor-nodes`, Join gathers texts into one text and Collect gathers records into a table the same way.
+- In `every`, `series-collect` runs once, outside the loop over the lines, and collects every shouted line; its list is then there on each call of `compare`. With `syv-conductor-nodes`, Join gathers texts into one text and Collect gathers records into a table the same way.
 
 So a graph that works for one letter means the same when a node in front of it makes it run per letter, and when it is stored and used as a node per letter.
 

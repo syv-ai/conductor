@@ -1,4 +1,4 @@
-"""``series-split``, ``series-stack``, ``series-gather``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
+"""``series-split``, ``series-stack``, ``series-collect``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
 what it refuses."""
 
 from typing import Any, TypedDict
@@ -160,16 +160,16 @@ def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
     assert stacked.to_dicts() == graph.run().results["contacts"]["result"].to_dicts()
 
 
-def test_gather_gives_the_values_made_per_item_as_one_list():
-    graph = load(series.split, text.uppercase, series.gather, edges=[
-        ("series-split.result", "text-uppercase.text"), ("text-uppercase.result", "series-gather.values"),
+def test_collect_gives_the_values_made_per_item_as_one_list():
+    graph = load(series.split, text.uppercase, series.collect, edges=[
+        ("series-split.result", "text-uppercase.text"), ("text-uppercase.result", "series-collect.values"),
     ], constants={"series-split.value": ["a", "b"]})
-    assert graph.problems == [] and graph.run().results["series-gather"]["result"] == ["A", "B"]
+    assert graph.problems == [] and graph.run().results["series-collect"]["result"] == ["A", "B"]
 
 
-def test_gather_takes_the_type_of_the_values_it_gathers():
-    graph = load(counts, series.gather, edges=[("counts.result", "series-gather.values")])
-    assert graph.problems == [] and output(graph, "series-gather").type == "int"
+def test_collect_takes_the_type_of_the_values_it_collects():
+    graph = load(counts, series.collect, edges=[("counts.result", "series-collect.values")])
+    assert graph.problems == [] and output(graph, "series-collect").type == "int"
 
 
 # -- table-collect ---------------------------------------------------------------------------------------

@@ -26,7 +26,7 @@ print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
 | `logic` | `logic` | `logic-not` |
 | `json_ops` | `json` | `json-parse`, `json-stringify`, `json-get` |
 | `regex_ops` | `regex` | `regex-match`, `regex-replace`, `regex-extract` |
-| `series` | `series` | `series-split`, `series-gather`, `series-stack` |
+| `series` | `series` | `series-split`, `series-collect`, `series-stack` |
 | `tables` | `table` | `table-collect` |
 | `control` | `control` | `control-decide`, `control-if-empty`, `control-if-equals` |
 
@@ -72,7 +72,7 @@ print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dic
 
 `series-split` takes the type that arrives: a table of contacts gives contacts, a list of numbers gives numbers, and anything else is a `type_mismatch` on the edge. `series-stack` goes the other way for tables: where a node makes a table per item, say the lines of each invoice, it puts them into one table, one under the other.
 
-`series-gather` is the way back to one list: it runs once and gives the value made for every item, in order.
+`series-collect` is the way back to one list: it is called once and returns the value of every item, in order.
 
 `text-split` splits a text into its lines, or at another separator. `text-list` gives the texts typed into it; wire a Series to `for_each` and it gives them once for each item of it, so each document gets every question.
 

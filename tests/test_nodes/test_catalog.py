@@ -37,7 +37,7 @@ EXAMPLES = {
     "regex-extract": [{"text": "a1b22", "pattern": r"\d+"}],
     "control-decide": [{"value": "x", "when": False}],
     "series-split": [{"value": ["a", "b"]}],
-    "series-gather": [{"values": ["a", "b"]}],
+    "series-collect": [{"values": ["a", "b"]}],
     "series-stack": [{"tables": [[{"name": "Ann"}], [{"name": "Bo"}]]}],
     "table-collect": [{"records": [{"name": "Ann"}], "constant_columns": ["team"], "team": "red"}],
 }

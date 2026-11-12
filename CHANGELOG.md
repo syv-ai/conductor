@@ -147,7 +147,7 @@ What changes in how you work, before the name-by-name tables:
   schema can write completes over HTTP as it does in the engine, a table reads as its columns and a float that isn't finite as `"Infinity"` or `"NaN"`;
   `syv-conductor-providers` no longer depends on polars.
   There is no canvas package.
-- **`syv-conductor-nodes` has a `series` category.** It holds `series-gather` ("Gather"), which runs once
+- **`syv-conductor-nodes` has a `series` category.** It holds `series-collect` ("Collect"), which runs once
   and gives the value made for every item as one list. `split` and `stack` are `series-split` and
   `series-stack` and live in `conductor_nodes.series`. `decision`, `logic-if-empty` and `logic-if-equals`
   are `control-decide`, `control-if-empty` and `control-if-equals`. A graph record that names an old id
