@@ -91,12 +91,12 @@ def _written_metadata(mark: Any) -> str:
     Two lambdas written in one function have one name, so they are written the same.
     """
     if isinstance(mark, (FunctionType, MethodType)):
-        return f"{mark.__module__}.{mark.__qualname__}"
+        return qualified_name(mark)
     if dataclasses.is_dataclass(mark):
         written = ", ".join(f"{f.name}={_written_metadata(getattr(mark, f.name))}" for f in dataclasses.fields(mark) if f.repr)
         return f"{type(mark).__qualname__}({written})"
     if type(mark).__repr__ is object.__repr__:
-        return f"{type(mark).__module__}.{type(mark).__qualname__}"
+        return qualified_name(type(mark))
     return repr(mark)
 
 
