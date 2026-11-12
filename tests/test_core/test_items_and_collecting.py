@@ -1,10 +1,10 @@
-"""Items and gathers through the public door: blanks, outer values, gathers, branches, tables and subgraphs.
+"""Loops, ``None``, outer values, collecting, branches, tables and subgraphs, through the public API.
 
-A node at the graph's own scope runs once. A ``Series`` output read by an input of one value runs the reader once
-per item, and everything that reads the reader with it; a value from_a_node outside those items is there on each call. A
-``Series`` or ``Table`` input gathers what its source from_a_node, one level up. A table is one value: a node that splits
-it returns a ``Series`` of its records. A blank keeps a node from being called for an item unless the input says
-``| None``; a branch not taken skips it.
+With ``split -> upper -> join``: ``split`` returns ``["a", "b"]``; ``upper``, whose input takes one ``str``, is inside
+the loop over ``split.result`` and is called once per item; ``join``, whose input takes a ``Series[str]``, collects the
+loop and is called once with ``["A", "B"]``. A node outside the loop is called once, and its output (an outer value) is
+the same on every call inside the loop. A table is one value; a node that splits it returns a ``Series`` of its
+records. A node given ``None`` where its input does not take ``None`` is not called; a branch not chosen skips it.
 """
 import asyncio
 import datetime
@@ -55,7 +55,7 @@ class Invoice(TypedDict):
 
 @node("contacts", title="Contacts", description="``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, a blank email where nothing follows the comma.")
 def contacts(text: str) -> Table[Contact]:
-    """``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, a blank email where nothing follows the comma."""
+    """``Ida,ida@x;Bo,;Nina,nina@x``: a contact per ``;``, the email ``None`` where nothing follows the comma."""
     rows = [part.split(",") for part in text.split(";") if part]
     return pl.DataFrame({"name": [r[0] for r in rows], "email": [r[1] or None for r in rows]}, schema={"name": pl.String, "email": pl.String})
 
@@ -129,7 +129,7 @@ def docs(text: str) -> Series[str]:
 
 @node("invoices", title="Invoices", description="``acme:10,beta:5``: an invoice per ``,``; ``skip`` is a branch not taken.")
 def invoices(text: str) -> Table[Invoice]:
-    """``acme:10,beta:5``: an invoice per ``,``; ``skip`` is a branch not taken."""
+    """``acme:10,beta:5``: an invoice per ``,``; ``skip`` returns ``SKIPPED``."""
     if text == "skip":
         return SKIPPED
     rows = [part.split(":") for part in text.split(",") if part]
@@ -159,12 +159,12 @@ SPLIT_CONTACTS = ("c.result", "r.table")
 
 
 def graph(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY) -> Any:
-    """``nodes`` as ``{"id", "node", ...}`` and edges as ``(from, to)``, compiled; a graph with problems too."""
+    """The compiled graph of ``nodes`` (``{"id", "node", ...}``) and ``edges`` (``(source, target)``), problems or not."""
     return Graph.compile(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}), registry)
 
 
 def ran(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY, **inputs: Any) -> Any:
-    """The run of a graph that must load clean and complete."""
+    """The run of the graph, which must compile with no problems and complete."""
     compiled = graph(*nodes, edges=edges, registry=registry)
     assert compiled.problems == [], compiled.problems
     run = compiled.run(**inputs)
@@ -187,7 +187,7 @@ def streamed(run: Any) -> list[Any]:
     return asyncio.run(collect())
 
 
-# -- blanks ------------------------------------------------------------------------------------
+# -- None --------------------------------------------------------------------------------------
 
 
 def test_a_node_with_no_outputs_that_returns_skipped_is_complete_not_skipped():
@@ -263,7 +263,7 @@ def test_an_optional_series_input_gets_none_from_a_return_and_from_a_node_not_ca
 @pytest.mark.parametrize(("annotation", "takes_none"), [
     (str, False),
     (str | None, True),
-    (Optional[str], True),  # noqa: UP045  the old spelling says the same
+    (Optional[str], True),  # noqa: UP045  Optional[str] is str | None
     (Annotated[str | None, Param(title="X")], True),
     (Annotated[str, Param(title="X")] | None, True),
     (Any, True),
@@ -282,7 +282,7 @@ def test_an_input_takes_none_when_its_type_hint_allows_none(annotation, takes_no
     got = run.results["s"]["result"]
     if isinstance(got, list):  # one value per contact
         assert got[1] == ("None" if takes_none else None), got
-    else:  # a gather over every contact
+    else:  # one value collecting every contact
         assert got == ("['ida@x', None, 'nina@x']" if takes_none else "['ida@x', 'nina@x']"), got
 
 
@@ -319,7 +319,7 @@ def test_a_node_not_called_for_none_is_complete_and_never_skipped():
 
 @pytest.mark.parametrize("none_into", ["a", "b"])
 def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(none_into):
-    """Whether a node is skipped or uncalled for a blank doesn't hang on the order of its parameters: a skip wins."""
+    """One input skipped and the other ``None``: the node is skipped, not "not called", whichever parameter is first."""
     @node("nothing", title="Nothing", description="For a test.")
     def nothing(text: str) -> str | None:
         return None
@@ -334,8 +334,8 @@ def test_a_skipped_input_wins_over_a_none_input_whichever_parameter_comes_first(
 
 @pytest.mark.parametrize("waiting_into", ["a", "b"])
 def test_a_skipped_input_skips_the_node_at_once_while_its_other_input_waits_for_a_person(waiting_into):
-    """A skip wins over an input that isn't there yet too, whatever the order of the parameters: what reads the
-    node goes on while the question waits."""
+    """One input skipped and the other waiting for a person: the node is skipped in the same ``resume()`` call,
+    whichever parameter is first, so the nodes downstream are called while the question waits."""
     @node("asking", title="Asking", description="For a test.")
     def asking(text: str) -> str:
         raise Ask(f"What about {text}?")
@@ -346,7 +346,7 @@ def test_a_skipped_input_skips_the_node_at_once_while_its_other_input_waits_for_
                    registry=registry_of(decide, asking, pair, upper))
     run = compiled.run({"d.text": "ok", "q.text": "z"})
     assert run.status == "waiting" and run.results["u"]["result"] == "OK"
-    assert json.loads(run.to_json())["outcomes"]["p"]["states"] == ["skipped"]  # settled on this leg, before the answer
+    assert json.loads(run.to_json())["outcomes"]["p"]["states"] == ["skipped"]  # an outcome in this resume() call, before the answer
     done = run.answer(run.waiting[0], "yes").resume()
     assert done.status == "complete" and done.results["p"]["result"] is None and done.results["u"]["result"] == "OK"
 
@@ -360,11 +360,12 @@ def test_both_branches_of_a_node_not_called_are_skipped():
               edges=(SPLIT_CONTACTS, ("r.result.email", "b.email"), ("b.yes", "u.text")), registry=registry_of(contacts, records, branched, upper), text=CSV)
     assert run.results["b"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
     assert run.results["u"]["result"] == ["IDA@X", None, "NINA@X"]
-    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("b", (1,))]  # no branch was chosen there, so its reader is skipped
+    assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [("b", (1,))]  # b was not called there, so no branch was chosen and u is skipped
 
 
 def test_a_branching_node_not_called_for_an_item_skips_both_branches_even_an_input_taking_none():
-    """No branch was chosen for the item, so a reader on each branch is skipped there, whatever its input takes."""
+    """``d`` is not called for Bo's ``None`` email, so no branch is chosen for Bo: ``y`` and ``n`` are skipped there,
+    although their input takes ``None``."""
     run = ran(*CONTACTS, {"id": "d", "node": "decide"}, {"id": "y", "node": "send-or-say"}, {"id": "n", "node": "send-or-say"}, {"id": "j", "node": "join"},
               edges=(SPLIT_CONTACTS, ("r.result.email", "d.text"), ("d.yes", "y.email"), ("d.no", "n.email"), ("y.result", "j.texts"), ("n.result", "j.texts")), text=CSV)
     assert run.results["d"] == {"yes": ["ida@x", None, "nina@x"], "no": [None, None, None]}
@@ -388,7 +389,8 @@ def test_a_branching_node_outside_loops_not_called_skips_the_nodes_on_its_branch
 
 
 def test_a_node_collecting_calls_that_read_a_table_from_outside_the_loop_is_called():
-    """Whether a gathering edge is skipped is asked of what holds the outer value, never by comparing the value: a table has no plain ``==``."""
+    """Whether collecting is skipped is decided by the outcome of the node that returned the outer value, never by
+    comparing values: a table has no plain ``==``."""
     @node("with-height", title="With height", description="For a test.")
     def with_height(text: str, table: Table) -> str:
         return f"{text}{table.height}"
@@ -420,14 +422,15 @@ def pair_or_alone(a: str, b: str | None) -> str:
 
 
 def _pairs_with_an_outer_value(kind: str, reader: str = "pair", counter: str = "count-texts") -> Any:
-    """Items each paired with one value from_a_node outside them (``kind`` says what it is), and a count of the pairs."""
+    """The run of ``split -> pair -> count``, where ``pair.b`` is an outer value from ``maybe-template`` (``kind``:
+    ``"nothing"`` returns ``None``, ``"skip"`` returns ``SKIPPED``, any other text is the value)."""
     return ran({"id": "s", "node": "split"}, {"id": "t", "node": "maybe-template"}, {"id": "p", "node": reader}, {"id": "n", "node": counter},
                edges=(("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")),
                registry=registry_of(split, maybe_template, pair, pair_or_alone, count_texts, count_or_none), **{"s.text": "a,b", "t.kind": kind})
 
 
 def test_a_none_from_outside_the_loop_leaves_the_collecting_node_not_called_as_a_skip_skips_it():
-    """Nothing was tried for any item, so "0" would be a wrong answer: the nothing was decided outside the items."""
+    """No call of ``pair`` was tried, so a count of 0 would be wrong: the ``None`` came from outside the loop."""
     nothing = _pairs_with_an_outer_value("nothing")
     assert nothing.status == "complete" and nothing.results["n"]["result"] is None
     assert nothing.not_called == [NotCalled(loc=("p", 0), input="b"), NotCalled(loc=("p", 1), input="b"), NotCalled(loc=("n",), input="values")]
@@ -442,7 +445,7 @@ def test_a_collecting_input_that_takes_none_gets_the_none_from_outside_the_loop(
 
 
 def test_a_none_from_outside_that_an_input_takes_gives_the_collecting_node_every_item():
-    """The node between is called with the nothing for every item, so there are items to gather."""
+    """``pair-or-alone`` takes ``None``, so it is called for every item and ``count`` collects both."""
     run = _pairs_with_an_outer_value("nothing", reader="pair-or-alone")
     assert run.results["n"]["result"] == 2 and run.not_called == []
 
@@ -464,7 +467,7 @@ def test_a_table_not_returned_for_an_item_given_none_is_not_split_so_its_count_i
     run = ran(*CONTACTS, {"id": "i", "node": "invoices"}, {"id": "l", "node": "invoice-lines"}, {"id": "n", "node": "count"},
               edges=(SPLIT_CONTACTS, ("r.result.email", "i.text"), ("i.result", "l.table"), ("l.result.vendor", "n.values")), text="Ida,a:1;Bo,")
     assert run.results["n"]["result"] == [1, None]
-    assert run.results["i"]["result"][1] is None  # nothing was from_a_node for Bo
+    assert run.results["i"]["result"][1] is None  # invoices was not called for Bo
 
 
 def test_collecting_leaves_none_out():
@@ -521,7 +524,8 @@ def test_a_none_item_is_left_out_of_every_collecting_input_so_they_stay_paired()
 
 
 def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_empty_series():
-    """A document that couldn't be read is not an empty document: its count is not from_a_node, and ``not_called`` says which input."""
+    """A document that is ``None`` is not an empty document: its count is not called, and ``not_called`` says which
+    input."""
 
     @node("docs", title="Docs", description="For a test.")
     def docs(text: str) -> Series[str | None]:
@@ -553,13 +557,13 @@ def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_e
     ), registry_of(docs, lines, count, width, as_table, total))
     run = graph.run(text="a,b;-;c;")
 
-    assert run.results["c"]["result"] == [2, None, 1, 0]  # the last document is empty: 0 lines, from_a_node
+    assert run.results["c"]["result"] == [2, None, 1, 0]  # the last document is empty: 0 lines, called
     assert run.results["w"]["result"] == [1, None, 1, 1]
     assert run.results["t"]["result"] == 3
     assert {(n.loc[0], n.loc[1:], n.input) for n in run.not_called} >= {("c", (1,), "items"), ("w", (1,), "table")}
 
 
-# -- items, outer values and gathers -----------------------------------------------------------
+# -- loops, outer values and collecting --------------------------------------------------------
 
 THREE_LEVELS = (
     {"id": "docs", "node": "split", "constants": {"sep": "|"}},
@@ -696,7 +700,7 @@ def test_a_node_per_paragraph_collects_only_that_paragraphs_lines():
 
 
 def test_two_inputs_collecting_at_different_depths_run_the_node_in_the_deeper_loop():
-    """``a`` gathers a document's paragraphs, ``b`` a paragraph's lines: the node runs per paragraph."""
+    """``a`` collects a document's paragraphs, ``b`` a paragraph's lines: the node is called per paragraph."""
     run = ran(*THREE_LEVELS, {"id": "n", "node": "two-series"}, edges=(*THREE_EDGES, ("paras.result", "n.a"), ("lines.result", "n.b")),
               registry=DEEP, text="a,b;c|d")
     assert run.graph.runs_on["n"].msg == "per item of paras.result"
@@ -723,7 +727,7 @@ def test_collecting_another_series_gives_an_outer_value_beside_the_loop_the_node
 
 
 def test_a_documents_keywords_collected_are_beside_each_of_its_invoices_also_after_json():
-    """Every keyword of a document beside each of its invoices: the keywords are gathered where the document is."""
+    """Every keyword of a document beside each of its invoices: the keywords are collected per document."""
 
     @dataclass(frozen=True)
     class Parts:
@@ -784,7 +788,7 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     assert source_of("s") == {"text": "the graph input", "sep": "the graph input"}
 
 
-# -- no items, and skips above them ------------------------------------------------------------
+# -- no items, and skips upstream of a loop ----------------------------------------------------
 
 
 def test_a_node_in_a_loop_over_an_empty_series_never_starts_and_collecting_gets_an_empty_series():
@@ -1179,7 +1183,7 @@ def test_two_branches_wired_into_one_input_merge_back_per_item_and_the_chain_sta
 
 
 def test_nodes_downstream_of_two_branches_merge_back_too():
-    """What hangs off opposite branches is as exclusive as the branches themselves."""
+    """Nodes downstream of opposite branches never both have a value, as the branches never do."""
     run = ran({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "y", "node": "upper"}, {"id": "n", "node": "upper"}, {"id": "u", "node": "upper"},
               edges=(("s.result", "d.text"), ("d.yes", "y.text"), ("d.no", "n.text"), ("y.result", "u.text"), ("n.result", "u.text")), text="ok,no")
 
@@ -1327,7 +1331,7 @@ QUESTIONS = {"id": "l", "node": "questions", "constants": {"items": ["a", "b", "
 
 
 def test_questions_listed_per_document_are_asked_of_each_document_and_each_answer_goes_to_its_question():
-    """Three questions, two documents, six questions asked, each answered at its own place."""
+    """Three questions, two documents: six questions asked, and each answer goes to the call that asked it."""
     compiled = graph({"id": "d", "node": "split"}, QUESTIONS, {"id": "q", "node": "answer"},
                    edges=(("d.result", "l.for_each"), ("d.result", "q.doc"), ("l.result", "q.question")), registry=ASKING)
     assert compiled.problems == []
@@ -1403,7 +1407,7 @@ def test_an_output_inside_two_loops_is_a_list_per_outer_item_and_none_where_no_i
     assert Graph.compile(per_word, registry).run(text="a b,c||d").results["shout"] == {"result": [[["A", "B"], ["C"]], None, [["D"]]]}
 
 
-# -- the ceiling on a Series' items ------------------------------------------------------------
+# -- the item limit ----------------------------------------------------------------------------
 
 
 def test_a_series_longer_than_the_item_limit_stops_the_run_before_any_call_in_its_loop():
@@ -1431,7 +1435,7 @@ def test_with_max_items_is_the_same_run_with_a_higher_item_limit_and_calls_nothi
     with pytest.raises(InvalidCallError) as refused:
         stopped.with_max_items(0)
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_max_items", ("max_items",))]
-    for method in (stopped.resume, stopped.stream):  # a ceiling is the run's, never a method's
+    for method in (stopped.resume, stopped.stream):  # the item limit is the run's, never one resume() call's
         with pytest.raises(TypeError):
             method(max_items=3)
 
@@ -1483,7 +1487,8 @@ def test_the_item_limit_stops_a_run_whose_calls_wait_for_threads_and_resume_call
 # -- a subgraph is one node -------------------------------------------------------------
 
 def as_subgraph(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> Any:
-    """A graph of ``nodes`` as one node ``node_id``: its inputs are the open inputs of its first nodes."""
+    """A subgraph definition ``node_id`` of ``nodes`` and ``edges``: its inputs are its nodes' inputs that no edge
+    reaches."""
     return subgraph(node_id, title=node_id.replace("-", " ").replace("_", " ").strip().capitalize(), description="For a test.")(GraphRecord.model_validate({"nodes": [{"node": n["id"], **n} for n in nodes], "edges": [list(e) for e in edges]}))
 
 
@@ -1590,7 +1595,7 @@ def test_a_series_returned_inside_a_subgraph_in_a_loop_is_returned_per_item_wire
 
 
 def test_an_inner_output_in_a_loop_inside_is_a_series_for_each_item_of_the_outer_loop():
-    """Inside, ``p`` reads the entering value and each item of ``lines``: the embedding gives a Series per outer item."""
+    """Inside, ``p`` reads the subgraph's input and each item of ``lines``: the subgraph gives a list per outer item."""
     inner = as_subgraph("letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
                      {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")))
     run = ran({"id": "docs", "node": "split"}, {"id": "sub", "node": "letters"}, edges=(("docs.result", "sub.text"),),
@@ -1635,7 +1640,7 @@ def test_a_subgraph_in_a_loop_gives_what_its_nodes_give_in_the_outer_graph_itsel
     subgraph_run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "deep"}, edges=(("s.result", "e.text"),), registry=reg, text="a/b;c,d")
     flat_run = ran({"id": "s", "node": "split"}, *nodes, edges=(("s.result", "i.text"), *edges), registry=reg, text="a/b;c,d")
     assert subgraph_run.results["e"]["p.result"] == flat_run.results["p"]["result"]
-    assert subgraph_run.graph.runs_on["e"].msg == "per item of s.result"  # the items it is fed; its own Series are inside it
+    assert subgraph_run.graph.runs_on["e"].msg == "per item of s.result"  # the loop it is wired into; its own loops are inside it
 
 
 def test_an_inner_node_collecting_the_subgraphs_input_gets_a_series_of_one_per_outer_item():
@@ -1643,7 +1648,7 @@ def test_an_inner_node_collecting_the_subgraphs_input_gets_a_series_of_one_per_o
     run = ran({"id": "docs", "node": "split"}, {"id": "sub", "node": "inner"}, {"id": "after", "node": "join"},
               edges=(("docs.result", "sub.text"), ("sub.collect.result", "after.texts")), registry=registry_of(split, upper, join, inner), text="a,b,c")
     assert run.graph.runs_on["sub"].msg == "per item of docs.result"
-    assert run.results["sub"]["collect.result"] == ["A", "B", "C"]  # a collect of one per item, never all three once
+    assert run.results["sub"]["collect.result"] == ["A", "B", "C"]  # one item collected per call, never all three in one call
     assert run.results["after"]["result"] == "A+B+C"
 
 
@@ -1692,8 +1697,8 @@ def each(texts: Series[str]) -> Series[str]:
 
 
 def test_an_inner_node_collecting_an_inner_series_and_the_subgraph_input_gets_the_same_in_either_node_order():
-    """``c`` gathers the lines from_a_node inside and the texts the embedding is fed; which of them the record lists first
-    changes nothing about what each gather receives."""
+    """``c`` collects the lines split inside and the texts wired into the subgraph; the order the graph record lists
+    the inner nodes in changes nothing about what each input gets."""
     inner_nodes = {
         "lines": {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
         "ent": {"id": "ent", "node": "each"},
@@ -1711,7 +1716,7 @@ def test_an_inner_node_collecting_an_inner_series_and_the_subgraph_input_gets_th
 
 
 def test_a_subgraph_node_listed_before_its_upstream_node_compiles_and_runs_the_same():
-    """The node feeding an embedding may come after it in the record."""
+    """The node upstream of a subgraph node may come after it in the graph record."""
     inner = as_subgraph(
         "letters", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
         {"id": "p", "node": "pair"}, edges=(("entered.result", "p.a"), ("lines.result", "p.b")),
@@ -1725,7 +1730,7 @@ def test_a_subgraph_node_listed_before_its_upstream_node_compiles_and_runs_the_s
     assert found[0] == found[1]
 
 
-# -- three graphs an author draws ---------------------------------------------------------------
+# -- three graphs an author writes --------------------------------------------------------------
 
 
 class Named(TypedDict):
@@ -1832,11 +1837,11 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
     assert finished.outputs == {"n.result": [1, 2, 1]}
 
 
-# -- what a collecting input is before its items are read ----------------------------------------
+# -- a collecting node while an outer value is not known ----------------------------------------
 
 
 def test_a_collecting_node_over_no_items_waits_for_a_value_its_loop_reads_from_outside():
-    """``p`` is called once per item of ``s`` and also reads ``m``, from_a_node outside the loop. Until ``m`` has a value
+    """``p`` is called once per item of ``s`` and also reads ``m``, outside the loop. Until ``m`` has a value
     nobody knows whether any call of ``p`` could be from_a_node, so ``n``, which collects ``p``, is not called, even when
     ``s`` has no items: ``m`` may still turn out a branch not chosen, which skips ``n``."""
 
