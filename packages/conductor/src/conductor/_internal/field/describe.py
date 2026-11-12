@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.base import ConductorModel
 
 
 class FieldDescription(ConductorModel):

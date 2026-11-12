@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, final
 
 from conductor._internal.field import Field
-from conductor._internal.value_type import Type
+from conductor._internal.types import Type
 
 if TYPE_CHECKING:
     from conductor._internal.compiled.flat_nodes import FlatFunctionNode

@@ -26,9 +26,9 @@ from pydantic.dataclasses import dataclass
 from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import core_schema
 
+from conductor._internal.base import qualified_name
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.text import qualified_name
 
 #: The id and title of each class conductor itself names. ``Series`` and ``Table`` name themselves in their own
 #: packages, and every other class a field has is declared with ``@host_type``.

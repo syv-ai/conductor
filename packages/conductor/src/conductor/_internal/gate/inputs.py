@@ -19,10 +19,10 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails, SchemaValidator, core_schema
 from pydantic_core.core_schema import TypedDictField
 
+from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.rules import schema_of
-from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import Problem
 from conductor._internal.problem import catalogue as problem
 

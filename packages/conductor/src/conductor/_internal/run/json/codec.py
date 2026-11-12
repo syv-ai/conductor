@@ -28,7 +28,7 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
-from conductor._internal.value_type import Type
+from conductor._internal.types import Type
 
 #: Pydantic's schema of each class of a saved run, which ``run_codec`` starts from.
 _OUTCOMES, _REUSABLE, _RUN = (TypeAdapter(saved_class).core_schema for saved_class in (SavedOutcomes, SavedReusable, SavedRun))

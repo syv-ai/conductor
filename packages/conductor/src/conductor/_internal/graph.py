@@ -15,8 +15,8 @@ from conductor._internal.gate import (
     check_limits,
     read_record,
 )
-from conductor._internal.graph_record import GraphRecord
 from conductor._internal.problem import InvalidCallError
+from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import Run, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec

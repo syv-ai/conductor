@@ -27,8 +27,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
+from conductor._internal.base import ConductorModel
 from conductor._internal.compiled import FlatFunctionNode, FlatSubgraph
-from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.run.outcome import ItemIndexes, Outcome, Unanswered, calls_expected
 
 if TYPE_CHECKING:

@@ -14,11 +14,10 @@ from typing import Annotated, Any
 
 from pydantic import StringConstraints, TypeAdapter, ValidationError
 
-from conductor._internal.address import NAME_PATTERN
+from conductor._internal.base import NAME_PATTERN, REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.gate.declared import declared_field
 from conductor._internal.gate.refused import RefusedError
-from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
 

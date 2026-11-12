@@ -11,7 +11,7 @@ from typing import Any
 import polars as pl
 from pydantic_core import CoreSchema, core_schema, to_json
 
-from conductor._internal.hashing import short_hash
+from conductor._internal.base import short_hash
 
 #: The classes a table's column may be declared or written as, each with the polars dtype that holds it and how
 #: its cells are read back from JSON. A column of any other kind (a list, a struct) is written under the word

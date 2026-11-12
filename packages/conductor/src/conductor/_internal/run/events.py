@@ -40,8 +40,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import ConfigDict, Field, InstanceOf
 from pydantic.json_schema import SkipJsonSchema
 
-from conductor._internal.address import Loc
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.base import ConductorModel, Loc
 from conductor._internal.problem import Problem
 from conductor._internal.run.state import EndedEarly, Going, RunStatus
 from conductor._internal.run.waiting import Waiting

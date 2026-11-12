@@ -44,9 +44,8 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 
-from conductor._internal.address import ItemIndexes, NodePath
+from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
-from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import Problem
 from conductor._internal.run.events import (
     EventBase,

@@ -9,13 +9,12 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from conductor._internal.address import split_address
+from conductor._internal.base import REQUIRED, split_address
 from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.graph_record import GraphRecord, NodeRecord
-from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.record import GraphRecord, NodeRecord
 
 
 def make_graph(

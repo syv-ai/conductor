@@ -33,7 +33,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, assert_never
 
-from conductor._internal.address import ItemIndexes, Loc, NodePath, node_path_text, split_address
+from conductor._internal.base import (
+    REQUIRED,
+    ItemIndexes,
+    Loc,
+    NodePath,
+    node_path_text,
+    split_address,
+)
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
@@ -53,7 +60,6 @@ from conductor._internal.compiled.nodes import (
 )
 from conductor._internal.field import Field
 from conductor._internal.gate import EdgeDoor, demands_more
-from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import Policy
 from conductor._internal.series import Series
 

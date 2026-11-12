@@ -36,7 +36,7 @@ from weakref import WeakKeyDictionary
 
 from pydantic_core import CoreSchema, PydanticCustomError, SchemaValidator, core_schema
 
-from conductor._internal.value_type import NAMES, Type, a_number, union_members
+from conductor._internal.types import NAMES, Type, a_number, union_members
 
 
 def _once_per_type[R](build: Callable[[Type], R]) -> Callable[[Type], R]:

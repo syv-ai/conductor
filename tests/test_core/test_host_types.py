@@ -95,7 +95,7 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
 
 
 def test_a_type_that_accepts_another_takes_its_values_on_an_edge() -> None:
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
 
     assert Type(Temperature).fits(Type(Celsius)) is not None and Type(Celsius).fits(Type(Temperature)) is None
 

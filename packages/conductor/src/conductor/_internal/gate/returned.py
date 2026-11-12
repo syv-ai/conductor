@@ -33,12 +33,11 @@ from pydantic_core import (
     core_schema,
 )
 
+from conductor._internal.base import SKIPPED, comma_separated
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.rules import exact_classes, output_schema_of, output_validator_of
-from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.text import comma_separated
 
 
 @dataclass(frozen=True, slots=True)

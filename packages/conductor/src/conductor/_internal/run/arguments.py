@@ -35,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final, Literal, cast
 
+from conductor._internal.base import SKIPPED
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
@@ -43,11 +44,10 @@ from conductor._internal.compiled.input_plans import (
     InputReadsOneValue,
 )
 from conductor._internal.gate import RefusedError
-from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.record_field import NoSuchFieldError, field_of
 from conductor._internal.run.outcome import ItemIndexes, NotCalled, NotReady, Outcome, Skipped
 from conductor._internal.series import StoredSeries, places_of_none, without_places
+from conductor._internal.types.record import NoSuchFieldError, field_of
 
 
 class _MayHaveValue:

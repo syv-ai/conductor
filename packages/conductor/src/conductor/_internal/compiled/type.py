@@ -23,7 +23,7 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.address import NodePath, split_address
+from conductor._internal.base import NodePath, canonical_json, plural, short_hash, split_address
 from conductor._internal.compiled.describe import (
     GraphDescription,
     GraphInput,
@@ -42,11 +42,9 @@ from conductor._internal.compiled.nodes import (
     RequiredBranch,
 )
 from conductor._internal.field import Field
-from conductor._internal.graph_record import GraphRecord
-from conductor._internal.hashing import canonical_json, short_hash
 from conductor._internal.problem import Problem
-from conductor._internal.text import plural
-from conductor._internal.value_type import Param
+from conductor._internal.record import GraphRecord
+from conductor._internal.types import Param
 
 
 @dataclass(frozen=True, slots=True)

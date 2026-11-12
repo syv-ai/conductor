@@ -66,9 +66,8 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
-from conductor._internal.address import is_name
 from conductor._internal.ask import Ask, Asked
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.base import REQUIRED, ConductorModel, is_name, qualified_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AskedValueDoor, RefusedError, declared_field, read_record
@@ -79,13 +78,11 @@ from conductor._internal.gate.returned import (
     OutputsClass,
     ReturnShape,
 )
-from conductor._internal.graph_record import GraphRecord
-from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.text import qualified_name
-from conductor._internal.value_type import Type, split_hint
+from conductor._internal.record import GraphRecord
+from conductor._internal.types import Type, split_hint
 
 
 class NodeFunction[**P, R](Protocol):

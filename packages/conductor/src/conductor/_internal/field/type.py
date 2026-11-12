@@ -10,11 +10,11 @@ from typing import Annotated, Any, get_args, get_origin
 from pydantic import JsonValue
 from pydantic_core import PydanticSerializationError
 
+from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.field.describe import FieldDescription
-from conductor._internal.markers import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.value_type import (
+from conductor._internal.types import (
     Param,
     Type,
     list_of,

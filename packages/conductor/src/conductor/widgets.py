@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.base import ConductorModel
 
 
 class Widget(ConductorModel):

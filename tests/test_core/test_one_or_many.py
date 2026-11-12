@@ -314,7 +314,7 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
 
     from conductor import Table
     from conductor._internal.gate import validator_of
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
 
     class Row(TypedDict):
         n: int
@@ -335,7 +335,7 @@ def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
     from enum import Enum, IntEnum
 
     from conductor._internal.gate import validator_of
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
 
     class Level(IntEnum):
         LOW = 1

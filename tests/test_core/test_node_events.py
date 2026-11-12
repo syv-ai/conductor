@@ -22,7 +22,7 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.address import ItemIndexes
+from conductor._internal.base import ItemIndexes
 from conductor._internal.compiled import FlatFunctionNode, outcome_loc
 from conductor._internal.problem import Problem
 from conductor._internal.problem import catalogue as problem

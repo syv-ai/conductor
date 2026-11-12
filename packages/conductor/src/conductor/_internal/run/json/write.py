@@ -11,11 +11,10 @@ from typing import TYPE_CHECKING, Any, cast
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.address import node_path_text
 from conductor._internal.ask import Answer, Question
+from conductor._internal.base import SKIPPED, node_path_text
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
-from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.json.type import (
@@ -38,7 +37,7 @@ from conductor._internal.run.outcome import (
     has_every_outcome,
 )
 from conductor._internal.run.reuse import ReusableOutcomes
-from conductor._internal.value_type import Type
+from conductor._internal.types import Type
 
 if TYPE_CHECKING:
     from conductor._internal.run.type import Run

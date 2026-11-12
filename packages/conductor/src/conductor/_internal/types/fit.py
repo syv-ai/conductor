@@ -7,9 +7,9 @@ from __future__ import annotations
 import typing
 from typing import Any, Literal, TypeVar, get_args, get_origin
 
-from conductor._internal.value_type.hint import a_number, aliased, is_alias, union_members
-from conductor._internal.value_type.host_type import accepted_classes
-from conductor._internal.value_type.param import split_hint
+from conductor._internal.types.hint import a_number, aliased, is_alias, union_members
+from conductor._internal.types.host_type import accepted_classes
+from conductor._internal.types.param import split_hint
 
 
 def fit(target: Any, source: Any, bound: dict[TypeVar, Any], exact: bool) -> bool:

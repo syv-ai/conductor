@@ -24,15 +24,13 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError, to_json
 
-from conductor._internal.address import Loc
 from conductor._internal.ask import QuestionOverrides, answer_required
+from conductor._internal.base import SKIPPED, Loc, comma_separated
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.rules import output_validator_of
-from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.text import comma_separated
-from conductor._internal.value_type import Type, untyped_as_json
+from conductor._internal.types import Type, untyped_as_json
 
 
 class AnswerDoor:

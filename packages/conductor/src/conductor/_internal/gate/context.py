@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from conductor._internal.address import NodePath
+from conductor._internal.base import NodePath
 from conductor._internal.context import ContextParameter
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.problem import catalogue as problem

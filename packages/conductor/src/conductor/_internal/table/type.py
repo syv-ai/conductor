@@ -17,7 +17,7 @@ from conductor._internal.table.write import (
     table_digest,
     written_table,
 )
-from conductor._internal.value_type import Type
+from conductor._internal.types import Type
 
 
 class _Table[T]:

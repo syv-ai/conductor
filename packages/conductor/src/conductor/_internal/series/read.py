@@ -10,7 +10,7 @@ from typing import Any, get_args
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
-from conductor._internal.markers import SKIPPED
+from conductor._internal.base import SKIPPED
 
 
 def set_has_no_order() -> PydanticCustomError:

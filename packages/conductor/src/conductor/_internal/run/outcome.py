@@ -55,10 +55,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, ClassVar, Literal, final
 
-from conductor._internal.address import ItemIndexes
 from conductor._internal.ask import Question
+from conductor._internal.base import SKIPPED, ItemIndexes
 from conductor._internal.compiled import FlatFunctionNode
-from conductor._internal.markers import SKIPPED
 
 
 class NotReady(Enum):

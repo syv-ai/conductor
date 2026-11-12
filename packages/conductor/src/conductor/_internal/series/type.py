@@ -10,7 +10,7 @@ from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.series.read import series_schema
 from conductor._internal.series.stored import SeriesItems, StoredSeries
-from conductor._internal.value_type import Type, union_of
+from conductor._internal.types import Type, union_of
 
 
 class _Series[T]:

@@ -18,9 +18,9 @@ from typing import Any, ClassVar, get_args
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.markers import SKIPPED
-from conductor._internal.record_field import NoSuchFieldError, field_of
-from conductor._internal.value_type import Type
+from conductor._internal.base import SKIPPED
+from conductor._internal.types import Type
+from conductor._internal.types.record import NoSuchFieldError, field_of
 
 
 class ColumnsOnDemand(dict[str, list[Any]]):

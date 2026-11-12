@@ -253,7 +253,7 @@ def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_validated_as_the_b
         pass
 
     from conductor._internal.gate import validator_of
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
 
     assert type(validator_of(Type(Bare)).validate_python("x")) is Bare and validator_of(Type(list[Bare])).validate_python(["x"]) == ["x"]
 
@@ -401,7 +401,7 @@ def test_a_host_type_names_the_other_classes_it_takes() -> None:
 
 
 def test_one_hint_is_read_once() -> None:
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
 
     hint = Annotated[int, Param(ge=0)]
     assert Type(hint) is Type(Annotated[int, Param(ge=0)]) and Type(hint).schema is Type(hint).schema
@@ -449,7 +449,7 @@ class _Marked:
 def test_the_code_fingerprint_of_a_hint_has_no_memory_address() -> None:
     """A function or an object in ``Annotated`` is written by its name, never by ``repr``, which gives its address in
     this process. The fingerprint is saved with a run, so it has to come out the same in the process that reads the run back."""
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
     from pydantic import AfterValidator
 
     def local(text: str) -> str:
@@ -518,7 +518,7 @@ def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_has_a_funct
 def test_what_a_code_fingerprint_says_of_a_series_and_a_table_names_no_internal_module() -> None:
     """A node's code fingerprint is made of each input's and output's ``reads_as``, and a saved waiting call's id of
     that fingerprint. So the text must not change when the class behind ``Series`` or ``Table`` moves to another file."""
-    from conductor._internal.value_type import Type
+    from conductor._internal.types import Type
 
     assert Type(Series[int]).reads_as == "conductor.Series[builtins.int]"
     assert Type(Table).reads_as == "conductor.Table"

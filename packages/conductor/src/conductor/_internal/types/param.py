@@ -25,8 +25,8 @@ from pydantic_core import (
 
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.value_type.choice import Choice
-from conductor._internal.value_type.hint import READ_AS, union_members, union_of
+from conductor._internal.types.choice import Choice
+from conductor._internal.types.hint import READ_AS, union_members, union_of
 from conductor.widgets import Widget
 
 #: The limits ``Param`` takes, by the words pydantic's ``Field`` uses.

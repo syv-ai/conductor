@@ -16,11 +16,11 @@ from typing import Any
 
 from pydantic_core import PydanticSerializationError
 
+from conductor._internal.base import plain_json
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.gate import RefusedError
-from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.value_type import untyped_as_json
+from conductor._internal.types import untyped_as_json
 
 
 def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | None]:

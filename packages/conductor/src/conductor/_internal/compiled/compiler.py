@@ -40,7 +40,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
-from conductor._internal.address import is_name, split_address
+from conductor._internal.base import REQUIRED, is_name, split_address
 from conductor._internal.compiled.describe import GraphInput
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
@@ -65,8 +65,6 @@ from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
-from conductor._internal.graph_record import GraphRecord, NodeRecord
-from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
     FunctionDefinition,
     HookName,
@@ -76,7 +74,8 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.value_type import Type
+from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.types import Type
 
 _logger = logging.getLogger("conductor")
 

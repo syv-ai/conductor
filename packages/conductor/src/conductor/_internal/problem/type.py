@@ -29,7 +29,7 @@ from typing import Any, Literal, NotRequired, TypedDict, Union, final
 
 from pydantic import Field, JsonValue
 
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.base import ConductorModel
 
 
 @final

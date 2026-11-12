@@ -43,7 +43,7 @@ The doors, with the module each is in:
                                                             saved_run_unreadable, saved_run_of_another_graph
 
 A type's own declarations are read where the type is declared: ``Param`` reads its choices by the type it limits
-(``value_type/param.py``), and ``@host_type`` its arguments.
+(``types/param.py``), and ``@host_type`` its arguments.
 """
 
 from conductor._internal.gate.answer import AnswerDoor

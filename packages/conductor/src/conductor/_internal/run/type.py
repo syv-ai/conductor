@@ -33,7 +33,9 @@ from threading import Thread
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, overload
 
-from conductor._internal.address import (
+from conductor._internal.ask import Answer
+from conductor._internal.base import (
+    ConductorModel,
     ItemIndexes,
     Loc,
     NodePath,
@@ -41,13 +43,11 @@ from conductor._internal.address import (
     parse_loc_text,
     split_address,
 )
-from conductor._internal.ask import Answer
 from conductor._internal.compiled import (
     FlatFunctionNode,
     display_plans_of,
     outcome_loc,
 )
-from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem

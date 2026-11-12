@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor._internal.conductor_model import ConductorModel
+from conductor._internal.base import ConductorModel
 
 
 class Choice(ConductorModel):

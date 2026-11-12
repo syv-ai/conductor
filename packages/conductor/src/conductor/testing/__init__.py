@@ -50,12 +50,11 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from conductor._internal.base import REQUIRED
 from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, record_values, validator_of
 from conductor._internal.graph import Graph
-from conductor._internal.graph_record import GraphRecord, NodeRecord
-from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,
@@ -64,9 +63,10 @@ from conductor._internal.node_definition import (
     read_by_hooks,
 )
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
+from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run.state import EndedEarly
-from conductor._internal.value_type import Param, kind_of_value
+from conductor._internal.types import Param, kind_of_value
 from conductor.testing import problems
 
 #: One call's inputs, by name.

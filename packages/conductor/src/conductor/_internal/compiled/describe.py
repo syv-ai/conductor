@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, assert_never
 
+from conductor._internal.base import ConductorModel
 from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,
     InputConstant,
@@ -20,7 +21,6 @@ from conductor._internal.compiled.input_plans import (
     InputWrapsOneValue,
     OutputAddress,
 )
-from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import FieldDescription
 from conductor._internal.problem import Problem
 

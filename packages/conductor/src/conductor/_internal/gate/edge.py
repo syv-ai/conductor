@@ -16,12 +16,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.rules import exact_classes, validator_of
-from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.value_type import Type
+from conductor._internal.types import Type
 
 
 def demands_more(field: Field, sources: Iterable[Type], *, per_item: bool) -> bool:

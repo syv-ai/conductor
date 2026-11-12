@@ -53,11 +53,15 @@ from typing import Any, Concatenate, overload
 
 from pydantic import JsonValue
 
-from conductor._internal.address import split_address
+from conductor._internal.base import (
+    ConductorModel,
+    comma_separated,
+    plural,
+    qualified_name,
+    split_address,
+)
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.node_definition import (
     FunctionDefinition,
     NodeDefinition,
@@ -71,8 +75,8 @@ from conductor._internal.node_definition import (
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.problem import declarations as declaration
-from conductor._internal.text import comma_separated, plural, qualified_name
-from conductor._internal.value_type import Type
+from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.types import Type
 
 
 def _takes_the_arguments_of[**P, R](
