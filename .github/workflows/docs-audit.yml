@@ -61,22 +61,20 @@ jobs:
           `git show --stat <sha>` and `git show <sha> -- <paths>`.
 
           Then read and compare against these docs:
-              AGENTS.md
+              AGENTS.md, CHANGELOG.md ([Unreleased] only)
               README.md
               packages/conductor/src/conductor/about/llms.txt
-              docs/OVERVIEW.md, docs/writing-nodes.md, docs/serving-runs.md
-              skills/add-node/SKILL.md, skills/create-graph/SKILL.md
+              docs/OVERVIEW.md, docs/writing-nodes.md, docs/subgraphs.md,
+              docs/serving-runs.md, docs/design.md
+              skills/*/SKILL.md, skills/*/REFERENCE.md
 
           Look for drift:
             - New public APIs (module, class, function, field) not documented.
-            - New GraphNode fields, compiled-graph questions, problem or
-              cause codes, events or exception types missing from the docs.
+            - New NodeRecord fields, Graph or Run methods, problem codes,
+              events or exception types missing from the docs.
             - Changed default behavior not reflected.
-            - Test counts or example counts that are out of date — run
-              `uv run pytest tests/ --collect-only -q 2>&1 | tail -1` for
-              the authoritative number, `ls examples/*.ipynb | wc -l` for
-              the notebook count. Use these actual values, not estimates.
-            - Feature Map entries that should exist but don't.
+            - Counts the docs cite (nodes, notebooks) that are out of date:
+              count them from the code, never estimate.
 
           Apply edits directly to those doc files. Keep changes minimal:
           describe what exists now; don't editorialize or add marketing
