@@ -1,5 +1,5 @@
 """The nodes of a compiled graph: a ``CompiledFunctionNode`` for a node whose definition is a function, and a
-``CompiledSubgraphNode`` for a node whose definition is a subgraph. ``compiler.py`` makes them.
+``CompiledSubgraphNode`` for a node whose definition is a subgraph. ``compile.py`` makes them.
 
 The example graph used in this file::
 
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import Ask, Question, field_questions
 from conductor._internal.base import SKIPPED, short_hash
-from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
+from conductor._internal.compiled.input import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition

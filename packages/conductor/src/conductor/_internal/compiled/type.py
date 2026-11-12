@@ -13,8 +13,8 @@ its ``outputs`` are ``["join.result"]``, and ``runs_on["shout"]`` says ``shout``
 A subgraph used as a node is one node of the graph. Its inputs and outputs are those of the subgraph's own
 compiled graph, which is compiled once, on its own, and none of its nodes is copied into this graph's nodes. An
 edge names one of its outputs (``loud.shout.result``), never a node inside it. The nodes of a compiled graph are
-in ``nodes.py``. The flat graph, which a run works on and which has the function nodes inside subgraphs too, is
-in ``flat_nodes.py``.
+in ``node.py``. The flat graph, which a run works on and which has the function nodes inside subgraphs too, is
+in ``flat.py``.
 """
 
 from __future__ import annotations
@@ -33,9 +33,9 @@ from conductor._internal.compiled.describe import (
     input_source_of,
     runs_on,
 )
-from conductor._internal.compiled.flat_nodes import FlatFunctionNode, FlatNode, flat_nodes
-from conductor._internal.compiled.input_plans import OutputAddress
-from conductor._internal.compiled.nodes import (
+from conductor._internal.compiled.flat import FlatFunctionNode, FlatNode, flat_nodes
+from conductor._internal.compiled.input import OutputAddress
+from conductor._internal.compiled.node import (
     CompiledFunctionNode,
     CompiledNode,
     CompiledSubgraphNode,

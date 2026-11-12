@@ -41,7 +41,7 @@ from conductor._internal.base import (
     node_path_text,
     split_address,
 )
-from conductor._internal.compiled.input_plans import (
+from conductor._internal.compiled.input import (
     EdgeSource,
     InputCollectsLoopResults,
     InputConstant,
@@ -54,7 +54,7 @@ from conductor._internal.compiled.input_plans import (
     OutputAddress,
     OutputInLoops,
 )
-from conductor._internal.compiled.nodes import (
+from conductor._internal.compiled.node import (
     CompiledFunctionNode,
     CompiledSubgraphNode,
 )

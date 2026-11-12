@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Literal, assert_never
 
 from conductor._internal.base import ConductorModel
-from conductor._internal.compiled.input_plans import (
+from conductor._internal.compiled.input import (
     InputCollectsLoopResults,
     InputConstant,
     InputFromGraphInput,

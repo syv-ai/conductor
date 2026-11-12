@@ -8,7 +8,7 @@ The example graph used in this file::
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
 ``compile_graph`` puts the nodes in the order ``lines``, ``shout``, ``join`` and gives every input an input plan
-(``input_plans.py``): ``lines.text`` is a graph input, ``shout.mark`` is the constant ``"!"``, ``shout.line`` reads
+(``input.py``): ``lines.text`` is a graph input, ``shout.mark`` is the constant ``"!"``, ``shout.line`` reads
 one item of ``lines.result``, and ``join.texts`` collects what ``shout`` returned for every line. ``shout`` is
 inside the loop over ``lines.result``; ``lines`` and ``join`` are inside no loop.
 
@@ -42,7 +42,7 @@ from typing import Any, Literal, TypeVar
 
 from conductor._internal.base import REQUIRED, is_name, split_address
 from conductor._internal.compiled.describe import GraphInput
-from conductor._internal.compiled.input_plans import (
+from conductor._internal.compiled.input import (
     EdgeSource,
     InputCollectsLoopResults,
     InputConstant,
@@ -55,7 +55,7 @@ from conductor._internal.compiled.input_plans import (
     OutputAddress,
     OutputInLoops,
 )
-from conductor._internal.compiled.nodes import (
+from conductor._internal.compiled.node import (
     CompiledFunctionNode,
     CompiledNode,
     CompiledSubgraphNode,

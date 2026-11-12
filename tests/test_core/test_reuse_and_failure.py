@@ -68,7 +68,7 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 def test_a_code_fingerprint_names_a_loop_by_its_address_not_by_how_the_address_class_prints(monkeypatch: MonkeyPatch):
     """A waiting call's id and a saved run contain the code fingerprint, so it names a node's loops by their
     addresses as an author writes them (``words.result``), whatever the engine's address class prints."""
-    from conductor._internal.compiled.input_plans import OutputAddress
+    from conductor._internal.compiled.input import OutputAddress
 
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str]:

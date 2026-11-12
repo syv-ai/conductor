@@ -25,7 +25,7 @@ and whether the edge reads the whole output or one item of it. A plan no edge le
 loops. A run reads the value of an input an edge leads to with ``ResultReader.read_input`` (``run/arguments.py``).
 
 The same classes are used twice. The compiler makes the plans of a compiled graph, and there a source names a
-node of that graph by its id. ``flat_nodes.py`` makes the plans a run reads from those: there a source names the
+node of that graph by its id. ``flat.py`` makes the plans a run reads from those: there a source names the
 function node that returns the output, by its name (``"loud/shout"`` for ``shout`` inside the subgraph
 ``loud``).
 """
@@ -40,7 +40,7 @@ from conductor._internal.field import Field
 from conductor._internal.types import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
+    from conductor._internal.compiled.flat import FlatFunctionNode
 
 
 class OutputAddress(NamedTuple):

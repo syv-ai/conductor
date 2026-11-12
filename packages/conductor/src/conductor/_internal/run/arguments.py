@@ -37,7 +37,7 @@ from typing import Any, Final, Literal, cast
 
 from conductor._internal.base import SKIPPED
 from conductor._internal.compiled import FlatFunctionNode
-from conductor._internal.compiled.input_plans import (
+from conductor._internal.compiled.input import (
     EdgeSource,
     InputCollectsLoopResults,
     InputFromEdges,

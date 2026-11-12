@@ -994,7 +994,7 @@ def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector(monkeypa
     import gc
     import weakref
 
-    from conductor._internal.compiled.compiler import _Compiler
+    from conductor._internal.compiled.compile import _Compiler
 
     @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
