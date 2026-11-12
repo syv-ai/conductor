@@ -106,8 +106,8 @@ class NodeStart(_NodeEvent):
 
 
 class NodeProgress(_NodeEvent):
-    """How many calls of a node inside a loop are done, at most four times a second; ``total`` is ``None`` until
-    the number of calls is known.
+    """How many calls of a node inside a loop have an outcome that is not waiting, at most four times a second;
+    ``total`` is ``None`` until the number of calls is known.
 
     It comes after a call's outcome is written, and once more with the final count before the node's
     ``NodeComplete`` or at the end of the stream, unless the count has not changed. A node inside no loop has no
@@ -124,11 +124,11 @@ class NodeProgress(_NodeEvent):
 
 
 class NodeComplete(_NodeEvent):
-    """Every call of a node is done.
+    """Every call of a node has an outcome.
 
-    More exactly: every call of the node has an outcome, none of them is waiting, and no call of the node or of a
-    node upstream of it is running. The outcomes may be done, answered or not called, and some may be skipped; a
-    node whose every call is skipped has ``NodeSkipped`` instead. A node has at most one ``NodeComplete`` in a run.
+    None of the outcomes is waiting, and no call of the node or of a node upstream of it is running. The outcomes
+    may be done, answered or not called, and some may be skipped; a node whose every call is skipped has
+    ``NodeSkipped`` instead. A node has at most one ``NodeComplete`` in a run.
 
     The values are not in the event: they are in the run (``run.results``, ``run.not_called``), so the event is
     small however large the values are. With ``text="a\\n \\nb"`` and a node ``strip`` before ``shout`` that

@@ -18,7 +18,7 @@ The example graph::
     NodeComplete(join, outcomes=1)
 
 The scheduler tells a ``NodeEvents`` what happens, one method for each thing: a call is about to be made, the next
-outcome is reused from an earlier run, an outcome was recorded, a call will be retried, a call failed, no call is
+outcome is reused from the previous run, an outcome was recorded, a call will be retried, a call failed, no call is
 ready, and the scheduler has ended. ``NodeEvents`` decides which events follow:
 
 - ``NodeStart``, once per node: before its first call, or with its first outcome that is not ``Skipped``. A node
@@ -89,7 +89,7 @@ class NodeEvents:
         complete: The nodes that have had ``NodeComplete`` or ``NodeSkipped``, in this call or an earlier one.
         skipped: The nodes that had ``NodeSkipped`` in this call.
         changed: The nodes with an outcome recorded since they were last looked at for ``NodeComplete``.
-        reused: How many outcomes each node took from an earlier run, for ``NodeComplete.reused``.
+        reused: How many outcomes each node took from the previous run, for ``NodeComplete.reused``.
         progress_at: When each node last had ``NodeProgress``, as ``time.monotonic()``.
         progress_done: The ``done`` of each node's last ``NodeProgress``.
     """
@@ -135,7 +135,7 @@ class NodeEvents:
             self.emit(NodeStart(loc=node.node_path))
 
     def outcome_reused(self, node: FlatFunctionNode) -> None:
-        """The outcome recorded next for ``node`` is taken from an earlier run."""
+        """The outcome recorded next for ``node`` is taken from the previous run."""
         self.reused[node] += 1
 
     def outcome_recorded(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome) -> None:

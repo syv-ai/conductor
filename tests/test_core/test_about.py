@@ -120,9 +120,9 @@ def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_ex
 def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_docstring():
     events = about.get_section("conductor-events")
     assert events is not None
-    assert "- `NodeComplete`: Every call of a node is done.\n" in events
+    assert "- `NodeComplete`: Every call of a node has an outcome.\n" in events
     assert (  # a paragraph over several lines is one line, and its code is in Markdown's single backticks
-        "- `NodeProgress`: How many calls of a node inside a loop are done, at most four times a second; "
+        "- `NodeProgress`: How many calls of a node inside a loop have an outcome that is not waiting, at most four times a second; "
         "`total` is `None` until the number of calls is known.\n"
     ) in events
 
