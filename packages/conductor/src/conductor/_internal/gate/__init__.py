@@ -13,7 +13,9 @@ The doors, with the module each is in:
 
     door                                                    module, then its problem codes
     a graph record, from JSON or a mapping, and the         record
-        values make_graph writes into one                   invalid_record, invalid_value
+        values make_graph writes into one                   invalid_record, invalid_value; and, in graph.problems,
+                                                            invalid_node_id, duplicate_node_id, repeated_edge,
+                                                            edge_names_missing_node
     a default a node declares                               declared
                                                             NodeDeclarationError default_invalid
     a constant or default written in a record, and a        constants
@@ -54,7 +56,14 @@ from .edge import EdgeDoor, demands_more
 from .hook import read_hook_fields
 from .inputs import InputsDoor, check_limits
 from .raised import AskDoor, undeclared_ask
-from .record import read_record, record_from_parts, record_values, values_by_input
+from .record import (
+    KeyedGraphRecord,
+    keyed_graph_record,
+    read_record,
+    record_from_parts,
+    record_values,
+    values_by_input,
+)
 from .refused import RefusedError
 from .returned import (
     AskedValueDoor,
@@ -68,8 +77,8 @@ from .returned import (
 from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
-    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
+    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "KeyedGraphRecord", "NoOutputs", "OneResult", "OutputsClass",
     "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
-    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_from_parts", "record_values", "values_by_input",
+    "demands_more", "keyed_graph_record", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_from_parts", "record_values", "values_by_input",
     "undeclared_ask", "validator_of",
 ]

@@ -42,10 +42,16 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from typing_extensions import is_protocol
 
-from conductor._internal.base import REQUIRED, Address, is_name
+from conductor._internal.base import REQUIRED, Address
 from conductor._internal.context import ContextParameter, what_the_context_lacks
 from conductor._internal.field import Field
-from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
+from conductor._internal.gate import (
+    RefusedError,
+    bound_field,
+    keyed_graph_record,
+    read_constant,
+    read_hook_fields,
+)
 from conductor._internal.node import (
     FunctionDefinition,
     HookName,
@@ -166,37 +172,16 @@ class _Compiler:
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
         could be worked out. A node whose definition is not found, or whose hook failed, is left out.
         """
-        invalid_ids = {n.id for n in record.nodes if not is_name(n.id)}
-        self.problems += [problem.invalid_node_id(node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in invalid_ids]
-        known: dict[str, NodeRecord] = {}
-        twice: set[str] = set()
-        for node_record in record.nodes:
-            if node_record.id in known:
-                twice.add(node_record.id)
-            elif node_record.id not in invalid_ids:
-                known[node_record.id] = node_record
-        self.problems += [problem.duplicate_node_id(node_id) for node_id in sorted(twice)]
-        self.position = {node_id: i for i, node_id in enumerate(known)}
-        edges_into: dict[str, dict[str, list[Address]]] = {node_id: {} for node_id in known}
-        seen: set[tuple[str, str]] = set()
-        for source_text, target_text in record.edges:
-            source, target = Address.parse(source_text), Address.parse_input(target_text)
-            if (source_text, target_text) in seen:
-                self.problems.append(problem.repeated_edge(target.node, target.name, source=source_text))
-                continue
-            seen.add((source_text, target_text))
-            missing = [n for n in (source.node, target.node) if n not in known]
-            if missing:
-                self.problems.append(problem.edge_names_missing_node(target.node, target.name, missing=missing[0], source=source_text, target=target_text))
-            if target.node in known:  # wired even when the source does not exist, so the input is no graph input
-                edges_into[target.node].setdefault(target.name, []).append(source)
-        ordered = self._order(list(known), edges_into)
-        for node_id in ordered:
-            match self._resolve(known[node_id]):
+        keyed = keyed_graph_record(record)
+        self.problems += keyed.problems
+        self.position = {node_id: i for i, node_id in enumerate(keyed.nodes)}
+        for node_id in self._order(list(keyed.nodes), keyed.edges_into):
+            node_record = keyed.nodes[node_id]
+            match self._resolve(node_record):
                 case FunctionDefinition() as function:
-                    self._compile_function_node(known[node_id], function, edges_into[node_id])
+                    self._compile_function_node(node_record, function, keyed.edges_into[node_id])
                 case SubgraphDefinition() as graph:
-                    self._compile_subgraph_node(known[node_id], graph, edges_into[node_id])
+                    self._compile_subgraph_node(node_record, graph, keyed.edges_into[node_id])
                 case None:
                     pass
         names = [field.name for _, field in self.graph_inputs]
