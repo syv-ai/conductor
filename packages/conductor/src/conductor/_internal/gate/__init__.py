@@ -54,7 +54,7 @@ from .edge import EdgeDoor, demands_more
 from .hook import read_hook_fields
 from .inputs import InputsDoor, check_limits
 from .raised import AskDoor, undeclared_ask
-from .record import read_record, record_values
+from .record import read_record, record_from_parts, record_values
 from .refused import RefusedError
 from .returned import (
     AskedValueDoor,
@@ -70,6 +70,6 @@ from .rules import numbers_refuse_bools, output_validator_of, validator_of
 __all__ = [
     "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
     "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
-    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_values",
+    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_from_parts", "record_values",
     "undeclared_ask", "validator_of",
 ]

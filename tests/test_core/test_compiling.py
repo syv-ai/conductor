@@ -218,6 +218,16 @@ def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_er
     assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith("The record is not a graph record at")
 
 
+def test_a_dict_is_not_a_graph_record_the_door_takes_a_graph_record_or_its_json():
+    as_a_dict = {"nodes": [{"id": "u", "node": "upper"}]}
+    with pytest.raises(InvalidCallError) as refused:
+        Graph.compile(as_a_dict, REGISTRY)  # type: ignore[arg-type]
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record",))]
+    with pytest.raises(InvalidCallError):
+        REGISTRY.upgrade(as_a_dict, "u")  # type: ignore[arg-type]
+    assert Graph.compile(json.dumps(as_a_dict), REGISTRY).problems == []
+
+
 def test_a_half_finished_graph_record_compiles_with_its_problems():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "u", "node": "upper"}, {"id": "x", "node": "nothing"}], "edges": [["u.result", "y.text"]]}), REGISTRY)
     assert {p.type for p in graph.problems} == {"unknown_node", "edge_names_missing_node"}

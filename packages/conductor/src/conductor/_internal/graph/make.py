@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED, split_address
-from conductor._internal.gate import RefusedError, read_record, record_values
+from conductor._internal.gate import RefusedError, record_from_parts, record_values
 from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -69,13 +69,13 @@ def make_graph(
         edges, faults = _chain_edges(ids, nodes, typed_constants, typed_defaults)
         problems += faults
     try:
-        record = read_record({
-            "nodes": [
+        record = record_from_parts(
+            [
                 NodeRecord(id=node_id, node=definition.id, version=definition.version, constants=typed_constants[node_id], defaults=typed_defaults[node_id])
                 for node_id, definition in zip(ids, nodes, strict=True)
             ],
-            "edges": edges,
-        })
+            edges,
+        )
     except RefusedError as refused:  # an edge that is no address
         problems += refused.problems
     if problems:

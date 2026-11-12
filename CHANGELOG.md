@@ -132,9 +132,10 @@ What changes in how you work, before the name-by-name tables:
   of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
   `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a call's is a
   problem's (`("e", 0, "ask")`), a node's its id behind the subgraph node's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
-- **`Graph.compile` and `registry.upgrade` take a `GraphRecord` or its JSON text** (`str` or `bytes`). A
+- **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
+  as their type says. A `dict` is refused with `InvalidCallError` and one `invalid_record` problem at `("record",)`; a
   host with a dict writes `GraphRecord.model_validate(data)`. `InvalidCallError` with `invalid_record`
-  problems is what JSON text of the wrong shape raises.
+  problems is also what JSON text of the wrong shape raises.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
   complete, waiting or ended early, and whose `state` is `Going` or, for a run that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
