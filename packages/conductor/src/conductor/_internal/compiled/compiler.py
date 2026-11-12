@@ -386,9 +386,13 @@ class _Compiler:
                 if name in record.constants or name in record.defaults:
                     self.problems.append(problem.constant_and_edge(record.id, name))
                 edge_sources = sources[name]
-                if edge_sources is not None and self._edges_fit(record.id, field, edge_sources):
+                if edge_sources is None:
+                    inputs[name] = InputMissing(field)
+                    continue
+                collects, expected = _collects_and_expected_type(field, edge_sources)
+                if self._edges_fit(record.id, field, expected, edge_sources):
                     readable[name] = edge_sources
-                    if _collects_and_expected_type(field, edge_sources)[0]:
+                    if collects:
                         collecting.add(name)
                 else:
                     inputs[name] = InputMissing(field)
@@ -416,11 +420,15 @@ class _Compiler:
             del readable[name]
             inputs[name] = InputMissing(fields[name])
         # Only an edge puts a node inside a loop. A collecting input needs the loops around the one it collects.
-        deepest = {name: max((s.loops_of_value for s in edge_sources), key=len) for name, edge_sources in readable.items()}
-        loops = max((deepest[name][:-1] if name in collecting else deepest[name] for name in fields if name in readable), key=len, default=())
-        for name, edge_sources in readable.items():
-            inputs[name] = _edge_plan(fields[name], edge_sources, deepest[name], loops, collects=name in collecting)
-        inputs = {name: inputs[name] for name in fields}
+        deepest = {  # most inputs have one edge
+            name: edge_sources[0].loops_of_value if len(edge_sources) == 1 else max((s.loops_of_value for s in edge_sources), key=len)
+            for name, edge_sources in readable.items()
+        }
+        loops = max((loops[:-1] if name in collecting else loops for name, loops in deepest.items()), key=len, default=())
+        inputs = {
+            name: _edge_plan(fields[name], readable[name], deepest[name], loops, collects=name in collecting) if name in readable else inputs[name]
+            for name in fields
+        }
         for name, plan in inputs.items():
             if loops[: len(plan.loops)] != plan.loops:  # not the node's outermost loops: items of two different lists are never paired
                 series = [loops[-1], plan.loops[-1]]
@@ -526,14 +534,13 @@ class _Compiler:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _edges_fit(self, node_id: str, field: Field, sources: list[EdgeSource]) -> bool:
-        """Whether every edge into the input ``field`` reads a type the input accepts; for the first that does not,
-        the graph gets the problem.
+    def _edges_fit(self, node_id: str, field: Field, expected: Type, sources: list[EdgeSource]) -> bool:
+        """Whether every edge into the input ``field`` reads a value of the type ``expected``; for the first that does
+        not, the graph gets the problem.
 
-        An input that takes one value must accept each source's type. A ``Series`` input that collects must accept
-        one item of each, and a ``Table`` input that collects records must accept each record.
+        ``expected`` is the input's type when it takes one value, the type of one item when it is a ``Series`` that
+        collects, and the record type when it is a ``Table`` that collects records (``_collects_and_expected_type``).
         """
-        expected = _collects_and_expected_type(field, sources)[1]
         for source in sources:
             if expected is not source.type and expected.fits(source.type) is None:  # the identity test first: most edges read exactly the input's type
                 self.problems.append(_mismatch(node_id, field, source))
