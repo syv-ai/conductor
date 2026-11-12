@@ -313,7 +313,7 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
     from typing import TypedDict
 
     from conductor import Table
-    from conductor._internal.value_type import FieldValueError, Type
+    from conductor._internal.value_type import Type
 
     class Row(TypedDict):
         n: int
@@ -321,19 +321,19 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
 
     wrong, right = {"n": True, "share": 0.5}, {"n": 1, "share": 0.5}
     for hint, value in ((Row, wrong), (list[Row], [right, wrong]), (dict[str, Row], {"a": wrong}), (Table[Row], [right, wrong]), (Row, {"n": 1, "share": False})):
-        with pytest.raises(FieldValueError) as refused:
+        with pytest.raises(ValidationError) as refused:
             Type(hint).read(value)
-        assert refused.value.errors[0]["type"] == "bool_is_not_a_number", hint
+        assert refused.value.errors()[0]["type"] == "bool_is_not_a_number", hint
     assert Type(Row).read(right) == right and Type(list[Row]).read([right]) == [right]
     assert Type(Row).read_json(right) == right
-    with pytest.raises(FieldValueError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
+    with pytest.raises(ValidationError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
         Type(Row).read_json(wrong)
 
 
 def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
     from enum import Enum, IntEnum
 
-    from conductor._internal.value_type import FieldValueError, Type
+    from conductor._internal.value_type import Type
 
     class Level(IntEnum):
         LOW = 1
@@ -343,6 +343,6 @@ def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
 
     assert Type(Level).read(1) is Level.LOW and Type(list[Level]).read([1]) == [Level.LOW] and Type(Share).read(0.5) is Share.HALF
     for hint, value in ((Level, True), (list[Level], [True])):
-        with pytest.raises(FieldValueError) as refused:
+        with pytest.raises(ValidationError) as refused:
             Type(hint).read(value)
-        assert refused.value.errors[0]["type"] == "bool_is_not_a_number"
+        assert refused.value.errors()[0]["type"] == "bool_is_not_a_number"

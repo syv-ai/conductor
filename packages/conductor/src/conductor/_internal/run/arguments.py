@@ -40,9 +40,9 @@ from conductor._internal.compiled.input_plans import (
     InputCollectsLoopResults,
     InputReadsOneValue,
 )
+from conductor._internal.gate import RefusedError
 from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import ItemIndexes, NotCalled, NotReady, Outcome, Skipped
-from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record_field import NoSuchFieldError, field_of
 from conductor._internal.series import StoredSeries, places_of_none, without_places
@@ -97,7 +97,7 @@ class ResultReader:
             input reads ``None`` and its parameter does not accept ``None``.
 
         Raises:
-            CallRejectedError: An edge reads one field of a record (``lines.result.name``) and the record has no
+            RefusedError: An edge reads one field of a record (``lines.result.name``) and the record has no
                 such field (``invalid_edge_value``).
         """
         arguments = node.constants.copy()
@@ -111,7 +111,7 @@ class ResultReader:
                 value = plan.value(self, item_indexes)
             except NoSuchFieldError as missing:
                 reason = f"it has no field '{missing.field}'"
-                raise CallRejectedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
+                raise RefusedError([problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)]) from None
             if value is SKIPPED:
                 return node.compiled_node.skipped
             if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node

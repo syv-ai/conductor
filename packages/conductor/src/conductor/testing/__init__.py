@@ -48,6 +48,8 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal
 
+from pydantic import ValidationError
+
 from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
 from conductor._internal.graph import Graph
@@ -63,7 +65,7 @@ from conductor._internal.node_definition import (
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run.state import EndedEarly
-from conductor._internal.value_type import FieldValueError, Param, kind_of_value
+from conductor._internal.value_type import Param, kind_of_value
 from conductor.testing import problems
 
 #: One call's inputs, by name.
@@ -254,7 +256,7 @@ def _made_up(field: Field) -> Any:
     for item in _candidates(field.type.options[0] if len(field.type.options) == 1 else None, field.param):
         try:
             return field.whole.read([item, item] if field.is_series else item)
-        except FieldValueError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
+        except ValidationError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
             continue
     return _CANNOT
 

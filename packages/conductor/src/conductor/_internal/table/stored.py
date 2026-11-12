@@ -57,10 +57,10 @@ class Records[T](StoredSeries, returned_as=pl.DataFrame):
         return records[item.bare]
 
     @classmethod
-    def store(cls, returned: Any, item: Type) -> Records[Any]:
-        """Validates the frame a node ``returned`` as a table of ``item`` records and returns it as ``Records``."""
+    def returned_type(cls, item: Type) -> Type:
+        """Returns ``Type(Table[R])`` for ``item`` records ``R``: the type that reads a frame a node returned."""
         table: Any = _Table
-        return cls(Type(table[item.bare]).read(returned, strict=True))
+        return Type(table[item.bare])
 
     def __len__(self) -> int:
         return self.frame.height

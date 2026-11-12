@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Self
 
+from pydantic import ValidationError
+
 from conductor._internal.compiled import CompiledGraph, compile_graph
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
@@ -14,7 +16,6 @@ from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import Run, check_run_limits, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec
-from conductor._internal.value_type import FieldValueError
 
 if TYPE_CHECKING:
     from conductor._internal.registry import NodeRegistry
@@ -117,8 +118,9 @@ class Graph(CompiledGraph):
             value, field = given[address], graph_input.field
             try:
                 values[address] = field.whole.read(value)
-            except FieldValueError as refused:
-                whole = all(not error["loc"] for error in refused.errors or ())  # the list itself was refused, not an item of it
+            except ValidationError as error:
+                refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
+                whole = all(not error["loc"] for error in refused.errors)  # the list itself was refused, not an item of it
                 if not field.is_series and type(value) is list and whole:  # the one mistake whose fix is in the graph
                     problems.append(problem.invalid_input_make_a_series("inputs", graph_input.name, name=graph_input.name, expected=field.whole.id, length=len(value)))
                 else:

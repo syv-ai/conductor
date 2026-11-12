@@ -68,9 +68,10 @@ from pydantic import Field as PydanticField
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.context import _Context
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.gate import RefusedError
 from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
-from conductor._internal.problem import CallRejectedError, InvalidCallError, NodeDeclarationError
+from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.text import comma_separated, qualified_name
 from conductor._internal.value_type import Type
@@ -644,7 +645,7 @@ class OutputsClass:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each field of the dataclass returned as its output, to be checked."""
         if not isinstance(returned, self.cls):
-            raise CallRejectedError(problem.invalid_output(reason=f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}"))
+            raise RefusedError([problem.invalid_output(reason=f"the node returns a {self.cls.__name__}, not a {type(returned).__name__}")])
         return {name: getattr(returned, name) for name in outputs}, False
 
 
@@ -655,12 +656,12 @@ class HookOutputs:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each output of the mapping returned, to be checked; one missing or not an output is refused."""
         if not isinstance(returned, Mapping):
-            raise CallRejectedError(problem.invalid_output(reason=f"the node returns its outputs as a mapping of {comma_separated(outputs, empty='nothing')}, not a {type(returned).__name__}"))
+            raise RefusedError([problem.invalid_output(reason=f"the node returns its outputs as a mapping of {comma_separated(outputs, empty='nothing')}, not a {type(returned).__name__}")])
         unknown = sorted(set(returned) - outputs.keys())
         missing = [name for name in outputs if name not in returned]
         if unknown or missing:
             name = (missing or unknown)[0]
-            raise CallRejectedError(problem.invalid_output(reason=f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", name=str(name)))
+            raise RefusedError([problem.invalid_output(reason=f"'{name}' is {'missing from' if missing else 'not one of'} the outputs it returns", name=str(name))])
         return {name: returned[name] for name in outputs}, False
 
 
@@ -671,7 +672,7 @@ class NoOutputs:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """No outputs; anything but ``None`` returned is refused."""
         if returned is not None:
-            raise CallRejectedError(problem.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}"))
+            raise RefusedError([problem.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
         return {}, True
 
 

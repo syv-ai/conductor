@@ -126,7 +126,7 @@ class Param:
             raise NodeDeclarationError("a choice has no JSON form; give each choice once, as a value of the field's type", code="choices_invalid") from None
         except ValidationError as refused:
             raise NodeDeclarationError(
-                f"a choice is not a value of the field's type: {value_free_errors(refused)[0]['msg']}; give each choice once, as a value of the field's type",
+                f"a choice is not a value of the field's type: {value_free_errors(refused.errors(include_url=False, include_input=False))[0]['msg']}; give each choice once, as a value of the field's type",
                 code="choices_invalid",
             ) from None
         literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]

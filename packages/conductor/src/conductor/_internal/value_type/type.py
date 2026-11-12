@@ -1,7 +1,8 @@
 """``Type``: one type hint as conductor reads it. ``Type(int)`` returns the same object every time.
 
 It gives the hint's id and title, validates a value, writes it as JSON, and says which other types fit it.
-Validation is pydantic's. ``Series`` and ``Table`` each have a subclass of ``Type``, declared in their own
+Validation is pydantic's: a value the type refuses raises pydantic's ``ValidationError``, and ``refusal`` says why
+in words that quote nothing of the value. ``Series`` and ``Table`` each have a subclass of ``Type``, declared in their own
 packages.
 """
 
@@ -21,6 +22,8 @@ from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerati
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
+    ErrorDetails,
+    PydanticCustomError,
     PydanticSerializationError,
     SchemaError,
     core_schema,
@@ -44,7 +47,6 @@ from conductor._internal.value_type.hint import (
 from conductor._internal.value_type.host_type import NAMES, OWN_IDS, declaration_of
 from conductor._internal.value_type.not_a_bool import NUMBERS_REFUSE_BOOLS
 from conductor._internal.value_type.param import Param, split_hint
-from conductor._internal.value_type.refused import FieldValueError
 
 #: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
 _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
@@ -98,6 +100,24 @@ def _written_metadata(mark: Any) -> str:
     if type(mark).__repr__ is object.__repr__:
         return qualified_name(type(mark))
     return repr(mark)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class TypeRefusal:
+    """Why a type refused a value, in words that quote nothing of the value, as ``Type.refusal`` gives it.
+
+    A door makes its problem from it: ``invalid_input``, ``invalid_output`` and the others take these three as
+    ``reason``, ``errors`` and ``column``.
+
+    Attributes:
+        reason: The first error's message.
+        errors: pydantic's errors without the value, each with the ``loc`` steps the type declares.
+        column: The table column the first fault is in, else ``None``.
+    """
+
+    reason: str
+    errors: list[dict[str, Any]]
+    column: str | None
 
 
 class Type:
@@ -396,20 +416,17 @@ class Type:
             strict: Pydantic's strict mode: a value already of its type, never ``"12"`` for an ``int``.
 
         Raises:
-            FieldValueError: The type refuses the value.
+            ValidationError: The type refuses the value.
         """
         if type(value) in self.exact_classes:
             return value
-        try:
-            return self._validate(value, strict=strict)
-        except ValidationError as error:
-            raise self._refused(error) from None
+        return self._validate(value, strict=strict)
 
     def read_returned(self, value: Any) -> Any:
         """Reads what a node returned for the type, strictly, as a unit holds it.
 
         Raises:
-            FieldValueError: The type refuses the value.
+            ValidationError: The type refuses the value.
         """
         return self.read(value, strict=True)
 
@@ -424,7 +441,7 @@ class Type:
         ``Type(int).read_answer(3)`` is ``3``; for a ``Series`` the list is returned as a ``SeriesItems``.
 
         Raises:
-            FieldValueError: ``value`` has no JSON form, or is not valid for the type.
+            ValidationError: ``value`` has no JSON form, or is not valid for the type.
         """
         return self.read_json(value)
 
@@ -435,14 +452,14 @@ class Type:
         still its ISO text, as JSON writes it.
 
         Raises:
-            FieldValueError: The value has no JSON form, or the type refuses it.
+            ValidationError: The value has no JSON form (the error ``no_json_form``), or the type refuses it.
         """
         try:
-            return self.adapter.validator.validate_json(to_json(value, inf_nan_mode="constants", fallback=untyped_as_json), strict=True)
+            written = to_json(value, inf_nan_mode="constants", fallback=untyped_as_json)
         except PydanticSerializationError:
-            raise FieldValueError("the value has no JSON form") from None
-        except ValidationError as error:
-            raise self._refused(error) from None
+            no_json_form = PydanticCustomError("no_json_form", "the value has no JSON form")
+            raise ValidationError.from_exception_data(self.id, [{"type": no_json_form, "loc": (), "input": None}]) from None
+        return self.adapter.validator.validate_json(written, strict=True)
 
     def to_json(self, value: Any) -> JsonValue:
         """Writes ``value``, one the type holds, in its JSON form; a float that isn't finite as its text.
@@ -494,15 +511,23 @@ class Type:
         """Gives this type with its variables replaced by what ``bound`` binds them to."""
         return Type(substituted(self.hint, bound))
 
-    def _refused(self, error: ValidationError) -> FieldValueError:
-        """Makes pydantic's ``error`` one that quotes nothing of the value.
+    def refusal(self, errors: list[ErrorDetails]) -> TypeRefusal:
+        """Says why the type refused a value, quoting nothing of the value.
+
+        Example: ``Type(list[int])`` refuses ``[1, "x"]``, and pydantic's errors give a ``TypeRefusal`` whose
+        ``reason`` is ``"Input should be a valid integer, unable to parse string as an integer"`` and whose one
+        error has the ``loc`` ``[1]``.
 
         A ``loc`` keeps list indexes, record fields and table columns, and is cut at the first other step, such
         as a dict key, which is part of the value. An error in a table's column names the column.
+
+        Args:
+            errors: What ``ValidationError.errors(include_url=False, include_input=False)`` returned for a value
+                of this type.
         """
-        errors = value_free_errors(error)
+        value_free = value_free_errors(errors)
         columns: list[str] = []
-        for error_record, raw in zip(errors, error.errors(include_url=False, include_input=False), strict=True):
+        for error_record, raw in zip(value_free, errors, strict=True):
             at, kept, column, owner = self, list[int | str](), None, self
             for step in raw["loc"]:
                 walked = at._walked(step)
@@ -521,7 +546,7 @@ class Type:
             elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
                 columns.append(whole)
                 error_record["loc"] = [whole]
-        return FieldValueError(errors[0]["msg"], errors=errors, column=columns[0] if columns else None)
+        return TypeRefusal(value_free[0]["msg"], value_free, columns[0] if columns else None)
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Takes one step of a pydantic error's ``loc`` (a list index or a field name) and returns where it leads.

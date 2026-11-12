@@ -23,15 +23,18 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import pydantic_core
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
+from pydantic_core import PydanticCustomError
 
 from conductor._internal.address import Loc, loc_text
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.gate import RefusedError
 from conductor._internal.hashing import canonical_json, short_hash
 from conductor._internal.markers import REQUIRED, SKIPPED
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.text import comma_separated
-from conductor._internal.value_type import Choice, FieldValueError
+from conductor._internal.value_type import Choice
 
 if TYPE_CHECKING:
     from conductor._internal import outcomes
@@ -82,13 +85,6 @@ class Ask(BaseException):
         self.prompt = prompt
         self.choices = choices
         self.default = default
-
-
-class InvalidAskError(Exception):
-    """An ``Ask`` that the node's outputs can't be asked with; the message says why and quotes no value.
-
-    The leg turns it into the node's ``invalid_ask`` problem, the message as ``ctx.reason``.
-    """
 
 
 class QuestionOverrides(TypedDict, total=False):
@@ -171,7 +167,8 @@ def question_asked(ask: Ask, outputs: Mapping[str, Field], inputs: dict[str, Any
         The question the unit holds until it is answered.
 
     Raises:
-        InvalidAskError: The ``Ask``'s choices or default don't fit the outputs.
+        RefusedError: The ``Ask``'s choices or default don't fit the outputs (``invalid_ask``, whose ``reason`` says
+            which part, quoting no value).
     """
     if ask.choices is None and ask.default is REQUIRED:
         return Question(ask.prompt, inputs, _NOTHING_SET)
@@ -189,17 +186,20 @@ def _by_output(given: Any, outputs: Mapping[str, Field], argument: str) -> dict[
     """One ``Ask`` argument by output name: a lone output's as itself, several outputs' from the mapping given.
 
     Raises:
-        InvalidAskError: The argument doesn't have the answer's shape, or names an output the node doesn't have.
+        RefusedError: The argument doesn't have the answer's shape, or names an output the node doesn't have
+            (``invalid_ask``).
     """
     if len(outputs) == 1:
         if argument == "choices" and isinstance(given, Mapping):
-            raise InvalidAskError("the node has one output, so it is answered with a value, and choices= is a list")
+            raise RefusedError([problem.invalid_ask(reason="the node has one output, so it is answered with a value, and choices= is a list")])
         return {next(iter(outputs)): given}
     if not isinstance(given, Mapping):
-        raise InvalidAskError(f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too")
+        reason = f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too"
+        raise RefusedError([problem.invalid_ask(reason=reason)])
     for name in given:
         if name not in outputs:
-            raise InvalidAskError(f"the {argument} names '{name}', which is not an output; the outputs are {comma_separated(outputs)}")
+            reason = f"the {argument} names '{name}', which is not an output; the outputs are {comma_separated(outputs)}"
+            raise RefusedError([problem.invalid_ask(reason=reason)])
     return dict(given)
 
 
@@ -209,21 +209,22 @@ def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
     A choice is what an answer picks, so its id is read as an answer is; a ``Series``' ids as one pick of them all.
 
     Raises:
-        InvalidAskError: The output is a table, no choice is offered, a choice is offered twice, or one is not a
-            value of the output's type.
+        RefusedError: No choice is offered, a choice is offered twice, or one is not a value of the output's type
+            (``invalid_ask``).
     """
     if not choices:
-        raise InvalidAskError(f"'{field.name}' is offered no choices")
+        raise RefusedError([problem.invalid_ask(reason=f"'{field.name}' is offered no choices")])
     try:
         shown = [
             (choice if isinstance(choice, Choice) else Choice(choice, str(choice))).model_dump(mode="json")
             | {"id": field.type.to_json(field.type.read_json(choice.id if isinstance(choice, Choice) else choice))}
             for choice in choices
         ]
-    except FieldValueError as refused:
-        raise InvalidAskError(f"a choice for '{field.name}' is not what it returns: {refused.reason}") from None
+    except ValidationError as error:
+        refused = field.type.refusal(error.errors(include_url=False, include_input=False))
+        raise RefusedError([problem.invalid_ask(reason=f"a choice for '{field.name}' is not what it returns: {refused.reason}")]) from None
     if len({repr(choice["id"]) for choice in shown}) != len(shown):
-        raise InvalidAskError(f"a choice for '{field.name}' is offered twice")
+        raise RefusedError([problem.invalid_ask(reason=f"a choice for '{field.name}' is offered twice")])
     return shown
 
 
@@ -236,12 +237,12 @@ def _proposed(field: Field, default: Any, choices: list[dict[str, Any]] | None) 
         choices: The choices the same ``Ask`` offers for the output, if any.
 
     Raises:
-        InvalidAskError: An answer could not be the default.
+        RefusedError: An answer could not be the default (``invalid_ask``).
     """
     try:
         proposed: JsonValue = field.whole.to_json(_checked_answer(field, default, choices))
-    except FieldValueError as refused:
-        raise InvalidAskError(f"the default for '{field.name}' is not an answer it takes: {refused.reason}") from None
+    except PydanticCustomError as refused:
+        raise RefusedError([problem.invalid_ask(reason=f"the default for '{field.name}' is not an answer it takes: {refused.message()}")]) from None
     return proposed
 
 
@@ -315,8 +316,8 @@ def answer_outputs(compiled_node: CompiledFunctionNode, value: Any, overrides: M
         ((name, field),) = outputs.items()
         try:
             return {name: _checked_answer(field, value, overrides.get(name, {}).get("choices", compiled_node.questions[name].choices))}, []
-        except FieldValueError as refused:
-            return {}, [(None, refused.reason)]
+        except PydanticCustomError as refused:
+            return {}, [(None, refused.message())]
     if value is None and not outputs:
         return {}, []  # a node that returns nothing is answered with nothing: the person only says to go on
     if not isinstance(value, Mapping):
@@ -335,11 +336,11 @@ def answer_outputs(compiled_node: CompiledFunctionNode, value: Any, overrides: M
             elif field.default is SKIPPED and "default" not in override:
                 read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
             elif not _required(field, override, limited=choices is not None):
-                read[name] = field.whole.read_answer(override.get("default", question.default))  # a default, or a blank where the type takes one
+                read[name] = _answer_read(field, override.get("default", question.default))  # a default, or a blank where the type takes one
             else:
                 faults.append((name, f"'{name}' was not answered"))
-        except FieldValueError as refused:
-            faults.append((name, f"'{name}': {refused.reason}"))
+        except PydanticCustomError as refused:
+            faults.append((name, f"'{name}': {refused.message()}"))
         if group is not None:
             groups.setdefault(group, []).append(name)
     for members in groups.values():
@@ -352,19 +353,32 @@ def _checked_answer(field: Field, value: Any, choices: list[dict[str, Any]] | No
     """Reads one question's answer into the node's own form, held to ``choices``.
 
     Raises:
-        FieldValueError: The answer is not a value of the output's type, not one of the choices, or, for a pick of several,
-            picks a choice twice.
+        PydanticCustomError: The answer is not a value of the output's type, not one of the choices, or, for a
+            pick of several, picks a choice twice. Its message says which, quoting nothing of the answer.
     """
-    read = field.whole.read_answer(value)
+    read = _answer_read(field, value)
     if choices is not None:
         picked: Any = field.whole.to_json(read)
         picks = picked if field.is_series else [picked]
         ids = [choice["id"] for choice in choices]
         if any(item not in ids for item in picks):
-            raise FieldValueError("the answer is not one of the choices")
+            raise PydanticCustomError("not_a_choice", "the answer is not one of the choices")
         if len({repr(item) for item in picks}) != len(picks):
-            raise FieldValueError("a choice is picked twice")
+            raise PydanticCustomError("picked_twice", "a choice is picked twice")
     return read
+
+
+def _answer_read(field: Field, value: Any) -> Any:
+    """Reads one question's answer, or its default, by the output's type, into the form a run keeps.
+
+    Raises:
+        PydanticCustomError: The type refuses it (``not_its_type``); the message is the type's reason, quoting
+            nothing of the answer.
+    """
+    try:
+        return field.whole.read_answer(value)
+    except ValidationError as error:
+        raise PydanticCustomError("not_its_type", field.whole.refusal(error.errors(include_url=False, include_input=False)).reason) from None
 
 
 def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: outcomes.Waiting) -> Waiting:

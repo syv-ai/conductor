@@ -8,14 +8,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Annotated, Any, TypeVar, get_args, get_origin
 
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.field.describe import FieldDescription
 from conductor._internal.markers import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.value_type import (
-    FieldValueError,
     Param,
     Type,
     list_of,
@@ -79,9 +78,10 @@ class Field:
                 try:
                     keep("default", whole.read(self.default))
                     keep("default_json", whole.to_json(self.default))
-                except (FieldValueError, PydanticSerializationError, UnicodeDecodeError) as error:
+                except (ValidationError, PydanticSerializationError, UnicodeDecodeError) as error:
+                    why = whole.refusal(error.errors(include_url=False, include_input=False)).reason if isinstance(error, ValidationError) else error
                     raise NodeDeclarationError(
-                        f"the default {self.default!r} is not a value of {whole.id} that it writes as JSON, so give one that is: {error}", code="default_invalid",
+                        f"the default {self.default!r} is not a value of {whole.id} that it writes as JSON, so give one that is: {why}", code="default_invalid",
                     ) from None
         except NodeDeclarationError as error:
             raise NodeDeclarationError(f"{self.name}: {error.message}", code=error.code) from None

@@ -45,7 +45,8 @@ class StoredSeries:
 
     Every subclass has ``len(stored)``, ``stored[place]`` (the item at that index) and the members below.
     A subclass declared with ``returned_as=SomeClass`` is used when a node returns a ``SomeClass`` for a
-    ``Series`` output, and it then defines ``stored_hint`` and ``store`` as well.
+    ``Series`` output, and it then defines ``stored_hint`` and ``returned_type`` as well, and is made from the value
+    that type reads.
 
     Attributes:
         columns: ``columns[name]`` is a list with the field ``name`` of every item, in order. The list is made the
@@ -71,13 +72,11 @@ class StoredSeries:
         raise NotImplementedError
 
     @classmethod
-    def store(cls, returned: Any, item: Type) -> StoredSeries:
-        """Validates what a node ``returned`` for a Series whose items have the type ``item``, and returns it
-        stored as this class. ``Records.store(frame, Type(Row))`` checks the frame's columns against ``Row``.
-
-        Raises:
-            FieldValueError: ``returned`` is not valid for the items' type.
-        """
+    def returned_type(cls, item: Type) -> Type:
+        """Returns the type that reads a value of the ``returned_as`` class, returned by a node for a Series whose
+        items have the type ``item``; the class is then made from what it read. ``Records.returned_type(Type(Row))``
+        is ``Type(Table[Row])``, which checks a frame's columns against ``Row``, and ``Records(frame)`` stores it.
+        Called only for an ``item`` that ``stored_hint`` takes."""
         raise NotImplementedError
 
     def as_list(self) -> list[Any]:

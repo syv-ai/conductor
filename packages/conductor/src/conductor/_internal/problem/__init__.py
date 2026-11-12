@@ -9,7 +9,6 @@ reports one imports it as ``from conductor._internal.problem import catalogue as
 from conductor._internal.problem import catalogue
 from conductor._internal.problem.catalogue import PROBLEMS
 from conductor._internal.problem.errors import (
-    CallRejectedError,
     DeclarationCode,
     ExternalError,
     InvalidCallError,
@@ -29,7 +28,6 @@ __all__ = [
     "Problem",
     "ProblemCatalogue",
     "ProblemKind",
-    "CallRejectedError",
     "catalogue",
     "value_free_errors",
 ]

@@ -34,7 +34,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.value_type import FieldValueError
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ValidationError
 
@@ -1003,7 +1002,7 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
 
     field = declared(f).inputs["separator"]
     assert (field.description.title, field.param.widget, field.param.limits) == ("Separator", TextInput(), {"min_length": 1})
-    with pytest.raises(FieldValueError):
+    with pytest.raises(ValidationError):
         field.whole.read("")
 
 
@@ -1027,7 +1026,7 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
         field = total.inputs[name]
         assert (field.type.bare, field.description.title, field.param.limits) == (int | None if blank else int, "Count", {"ge": 0})
         for wrong in ([-1], [True]):
-            with pytest.raises(FieldValueError):
+            with pytest.raises(ValidationError):
                 field.whole.read(wrong)
     graph = Graph.compile(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]), registry)
     assert graph.problems == []
@@ -1383,9 +1382,9 @@ def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in
         return 0
 
     spec = declared(held).inputs
-    with pytest.raises(FieldValueError, match="greater than or equal"):
+    with pytest.raises(ValidationError, match="greater than or equal"):
         spec["price"].whole.read(Decimal("-1"))
-    with pytest.raises(FieldValueError, match="at least 1"):
+    with pytest.raises(ValidationError, match="at least 1"):
         spec["tags"].whole.read([])
 
     with pytest.raises(NodeDeclarationError) as raised:

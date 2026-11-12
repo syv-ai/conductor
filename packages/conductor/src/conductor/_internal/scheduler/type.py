@@ -65,8 +65,9 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.address import ItemIndexes, NodePath
-from conductor._internal.ask import Ask, InvalidAskError, question_asked
+from conductor._internal.ask import Ask, question_asked
 from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
+from conductor._internal.gate import RefusedError
 from conductor._internal.outcomes import (
     Answered,
     Done,
@@ -79,7 +80,7 @@ from conductor._internal.outcomes import (
     has_every_outcome,
     length,
 )
-from conductor._internal.problem import CallRejectedError, ExternalError, NodeError, Problem
+from conductor._internal.problem import ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
 from conductor._internal.run.state import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
@@ -89,7 +90,7 @@ from conductor._internal.scheduler.node_events import NodeEvents
 
 #: The exceptions of a call that is never retried, whatever the ``retry_on`` of its ``Policy`` names: the node's
 #: own failure, an output its type refuses, a question for a person. Calling again would raise the same.
-_NEVER_RETRIED = (NodeError, CallRejectedError, Ask)
+_NEVER_RETRIED = (NodeError, RefusedError, Ask)
 
 #: How long the scheduler waits for a thread before it asks ``stop`` again, in seconds.
 _SECONDS_BETWEEN_STOP_CHECKS = 0.05
@@ -380,7 +381,7 @@ class Scheduler:
             return
         try:
             arguments = self.arguments_for(node, item_indexes)
-        except CallRejectedError as missing:  # an edge reads a field that the record it reads from does not have
+        except RefusedError as missing:  # an edge reads a field that the record it reads from does not have
             self._record(node, item_indexes, self._failure(node, item_indexes, missing), trying_every_call)
             return
         if arguments is NotReady.NOT_READY:
@@ -730,27 +731,24 @@ class Scheduler:
             return Done(outputs)
         if isinstance(error, Ask):
             try:
-                inputs = jsonable(arguments)
-            except CallRejectedError as unwritable:
-                return self._failure(node, item_indexes, unwritable)
-            try:
-                return Waiting(question_asked(error, node.compiled_node.outputs, inputs))
-            except InvalidAskError as invalid:
-                return problem.invalid_ask(*outcome_loc(node, item_indexes), reason=str(invalid))
+                return Waiting(question_asked(error, node.compiled_node.outputs, jsonable(arguments)))
+            except RefusedError as refused:
+                return self._failure(node, item_indexes, refused)
         return self._failure(node, item_indexes, error)
 
     def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException) -> Problem:
         """The problem for an exception a call raised, with the call's loc.
 
-        A ``NodeError`` gives its own problem, and a ``CallRejectedError`` the problem it has. Any other
+        A ``NodeError`` gives its own problem, and ``RefusedError`` the one problem the door that refused found. Any other
         exception is written to the log with its traceback; the problem has only its class name, as its text
         may quote values: ``external_failed`` for a class in the node's ``retry_on``, else ``execution_failed``.
         """
         loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
             return error._as_problem_at(*loc)
-        if isinstance(error, CallRejectedError):
-            return error.problem.model_copy(update={"loc": loc})
+        if isinstance(error, RefusedError):
+            (refused,) = error.problems
+            return refused.model_copy(update={"loc": loc})
         _logger.error("node %r failed for item %r", node.name, item_indexes, exc_info=error)
         if isinstance(error, node.policy.retry_on):
             return problem.external_failed(*loc, error=type(error).__name__)

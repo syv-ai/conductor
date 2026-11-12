@@ -77,7 +77,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import NodeDeclarationError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.value_type import FieldValueError, Param, Type
+from conductor._internal.value_type import Param, Type
 
 _logger = logging.getLogger("conductor")
 
@@ -429,7 +429,8 @@ class _Compiler:
                 continue
             try:
                 constants[name] = field.whole.read(record.constants[name] if name in record.constants else record.defaults[name])
-            except FieldValueError as refused:
+            except ValidationError as error:
+                refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
                 self.problems.append(problem.invalid_value(record.id, name, reason=refused.reason, errors=refused.errors, column=refused.column))
                 constants[name] = _INVALID
         return constants

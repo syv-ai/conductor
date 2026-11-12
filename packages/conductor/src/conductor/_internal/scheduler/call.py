@@ -10,16 +10,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
+from conductor._internal.gate import RefusedError
 from conductor._internal.markers import SKIPPED
 from conductor._internal.node_definition import ReturnShape
 from conductor._internal.plain_json import plain_json
-from conductor._internal.problem import CallRejectedError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.value_type import FieldValueError, untyped_as_json
+from conductor._internal.value_type import untyped_as_json
 
 
 def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[type, Any]) -> tuple[Any, BaseException | None]:
@@ -37,8 +38,8 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[typ
 
     Returns:
         ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, error)``: what the
-        function raised (an ``Ask`` included), or a ``CallRejectedError`` for an argument or an output that its
-        type refuses. ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
+        function raised (an ``Ask`` included), or ``RefusedError`` for an argument or an output that its type
+        refuses. ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
     """
     compiled_node = node.compiled_node
     definition = compiled_node.definition
@@ -54,8 +55,8 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Mapping[typ
         return None, error
     try:
         return checked_outputs(definition.returns, compiled_node.outputs, returned), None
-    except CallRejectedError as wrong:
-        return None, wrong
+    except RefusedError as refused:
+        return None, refused
 
 
 def checked_outputs(returns: ReturnShape, outputs: Mapping[str, Field], returned: Any) -> dict[str, Any]:
@@ -74,7 +75,7 @@ def checked_outputs(returns: ReturnShape, outputs: Mapping[str, Field], returned
         returned: What the function returned.
 
     Raises:
-        CallRejectedError: An output is not of its type, or two outputs of one exclusive group have a value
+        RefusedError: An output is not of its type, or two outputs of one exclusive group have a value
             (problem ``invalid_output``).
     """
     if returned is SKIPPED:
@@ -89,7 +90,7 @@ def checked_outputs(returns: ReturnShape, outputs: Mapping[str, Field], returned
         if group is not None and spread[name] is not SKIPPED:
             if group in groups:
                 reason = f"'{groups[group]}' and '{name}' are alternatives of '{group}', and both hold a value"
-                raise CallRejectedError(problem.invalid_output(reason=reason, name=name))
+                raise RefusedError([problem.invalid_output(reason=reason, name=name)])
             groups[group] = name
     return spread
 
@@ -104,23 +105,24 @@ def _checked(field: Field, name: str, value: Any, *, returned: bool) -> Any:
         returned: True for a value the function returned, which is validated strictly.
 
     Raises:
-        CallRejectedError: The type refuses the value: problem ``invalid_output`` for a returned value, else
+        RefusedError: The type refuses the value: problem ``invalid_output`` for a returned value, else
             ``invalid_edge_value``. The problem does not quote the value.
     """
     if value is SKIPPED:
         return value
     try:
         read = field.whole.read_returned(value) if returned else field.whole.read(value)
-    except FieldValueError as refused:
+    except ValidationError as error:
+        refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
         if returned:
             wrong = problem.invalid_output(reason=refused.reason, name=name, errors=refused.errors, column=refused.column)
         else:
             wrong = problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)
-        raise CallRejectedError(wrong) from None
+        raise RefusedError([wrong]) from None
     exact = field.whole.exact_classes
     if returned and exact and not isinstance(read, exact):
         reason = f"its type's own check gave a {type(read).__name__}, not a {field.whole.id}"
-        raise CallRejectedError(problem.invalid_output(reason=reason, name=name))
+        raise RefusedError([problem.invalid_output(reason=reason, name=name)])
     return read
 
 
@@ -131,7 +133,7 @@ def jsonable(arguments: dict[str, Any]) -> Any:
     strings ``"Infinity"`` and ``"NaN"``.
 
     Raises:
-        CallRejectedError: An argument has no JSON form (problem ``question_unwritable``, which names the first
+        RefusedError: An argument has no JSON form (problem ``question_unwritable``, which names the first
             such input).
     """
     try:
@@ -141,5 +143,5 @@ def jsonable(arguments: dict[str, Any]) -> Any:
             try:
                 plain_json(value, fallback=untyped_as_json)
             except (TypeError, ValueError, PydanticSerializationError) as unwritable:
-                raise CallRejectedError(problem.question_unwritable(reason=str(unwritable), input=name)) from None
+                raise RefusedError([problem.question_unwritable(reason=str(unwritable), input=name)]) from None
         raise error

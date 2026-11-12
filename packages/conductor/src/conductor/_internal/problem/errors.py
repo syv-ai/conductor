@@ -38,7 +38,8 @@ from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Any, Literal
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue, TypeAdapter
+from pydantic_core import ErrorDetails
 
 from conductor._internal.problem.catalogue import external_failed, failed
 from conductor._internal.problem.type import Problem
@@ -46,18 +47,19 @@ from conductor._internal.problem.type import Problem
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
 
 
-def value_free_errors(invalid: ValidationError) -> list[dict[str, Any]]:
+def value_free_errors(errors: list[ErrorDetails]) -> list[dict[str, Any]]:
     """pydantic's errors with nothing of the refused value in them, for a problem's ``ctx.errors``.
 
-    ``ValidationError`` for ``int`` on ``"many"`` gives ``[{"type": "int_parsing", "loc": [], "msg": "Input should be a
-    valid integer, unable to parse string as an integer"}]``. Each error keeps its ``type``. Its ``loc`` is emptied,
+    ``errors`` is what ``ValidationError.errors(include_url=False, include_input=False)`` returns. For ``int`` on
+    ``"many"`` the result is ``[{"type": "int_parsing", "loc": [], "msg": "Input should be a valid integer, unable to
+    parse string as an integer"}]``. Each error keeps its ``type``. Its ``loc`` is emptied,
     since pydantic's may contain a key of the value; a caller that knows the type puts back the steps the type
     declares. Its ``msg`` is kept when it speaks only of the type, as a limit does, and replaced when it was made
     from what a validator raised or from a tag of the value, since those may quote the value.
     """
     return [
         {"type": error["type"], "loc": [], "msg": _VALIDATOR_PREFIX if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
-        for error in invalid.errors(include_url=False, include_input=False)
+        for error in errors
     ]
 
 
@@ -146,22 +148,6 @@ class InvalidCallError(ConductorError, ValueError):
     def errors(self) -> list[Problem]:
         """Every problem, in the order the call found them."""
         return list(self._problems)
-
-
-class CallRejectedError(Exception):
-    """A call fails on a problem of conductor's own: an argument's type refused it, or the node's return value was refused.
-
-    Raised where the value is checked, which knows what is wrong but not which call it is. The scheduler catches it,
-    puts the node and the item indexes in the problem's ``loc``, and records the call as failed. A caller never sees
-    this exception: ``run.results`` has ``None`` for that call, and the run's ``state`` has the problem.
-
-    Attributes:
-        problem: The problem, with no ``loc`` yet.
-    """
-
-    def __init__(self, problem: Problem) -> None:
-        super().__init__(problem.msg)
-        self.problem = problem
 
 
 class NodeError(ConductorError):
