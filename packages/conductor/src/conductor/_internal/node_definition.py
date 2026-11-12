@@ -120,6 +120,11 @@ class Policy(ConductorModel):
     thread can't be stopped, and a second call beside it would repeat its
     effect. ``reuse_when_inputs_match=False`` is for a node that reads the
     world, not only its inputs: ``run.again`` calls it for every item.
+    ``costs_nothing=True`` is for a node whose call costs nothing and touches
+    nothing outside the run (one that hands on an upload's files, splits a
+    table, or returns a list given to it): ``run.resume(only_costs_nothing=True)``
+    calls only such nodes, so a host learns how many calls the costly nodes
+    will have (``run.progress``) before any of them is made.
 
     It is also what an editor reads of a node's policy: as JSON it leaves ``retry_on`` out, since a class has no
     JSON form. Its values are read strictly: a whole number is no yes or no and no text that spells one.
@@ -131,6 +136,8 @@ class Policy(ConductorModel):
         attempt_timeout: The seconds one attempt may take; finite and above 0, or ``None`` for no clock.
         retry_on: The exception classes of the node's own client that are tried again like an ``ExternalError``.
         reuse_when_inputs_match: Whether ``run.again`` reuses a result when a call receives what it received before.
+        costs_nothing: Whether a call costs nothing, so ``run.resume(only_costs_nothing=True)`` makes it. A node
+            that takes the run's context is refused it.
     """
 
     model_config = ConfigDict(strict=True)
@@ -141,6 +148,7 @@ class Policy(ConductorModel):
     attempt_timeout: float | None = PydanticField(default=None, gt=0, allow_inf_nan=False)
     retry_on: tuple[type[BaseException], ...] = PydanticField(default=(), exclude=True)
     reuse_when_inputs_match: bool = True
+    costs_nothing: bool = False
 
     @functools.cached_property
     def threaded(self) -> bool:
@@ -491,6 +499,8 @@ def node(
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
                 raise NodeDeclarationError(declaration.compute_added_inputs_without_var_keyword())
+            if context is not None and policy is not None and policy.costs_nothing:
+                raise NodeDeclarationError(declaration.costs_nothing_takes_context(), context.name)
             if compute_added_inputs is None and takes_kwargs:
                 raise NodeDeclarationError(declaration.var_keyword_without_hook())
             hooks: dict[HookName, Callable[..., Any] | None] = {"compute_added_inputs": compute_added_inputs, "compute_outputs": compute_outputs}

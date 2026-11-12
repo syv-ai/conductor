@@ -49,6 +49,11 @@ after. The scheduler then calls ``shout`` with those arguments and writes what i
 5. **Telling a listener.** For ``run.stream()`` the scheduler tells a ``NodeEvents`` when a call starts, when
    an outcome is recorded, when a call is retried or fails, and when nothing is ready. ``NodeEvents`` makes the
    events (``node_events.py``).
+
+6. **Only the nodes that cost nothing.** ``run.resume(only_costs_nothing=True)`` calls only the nodes whose
+   ``Policy`` says ``costs_nothing``: say ``lines``, so that ``run.progress`` knows ``shout`` has three calls
+   before ``shout`` is called. Every other node is not ready (``_only_costs_nothing``). A call that raises is
+   left without an outcome, and the run ends ``ready``.
 """
 
 from __future__ import annotations
@@ -83,7 +88,7 @@ from conductor._internal.outcomes import (
 from conductor._internal.problem import ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
-from conductor._internal.run.state import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
+from conductor._internal.run.state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
 from conductor._internal.scheduler.call import call, jsonable
 from conductor._internal.scheduler.events import EventBase
 from conductor._internal.scheduler.node_events import NodeEvents
@@ -205,6 +210,7 @@ class Scheduler:
         context: Any,
         checkpoint: Callable[[RunState], None] | None = None,
         checkpoint_every: float | None = None,
+        only_costs_nothing: bool = False,
     ) -> None:
         """
         Args:
@@ -224,9 +230,12 @@ class Scheduler:
             context: The run's context, passed to each node that takes it; ``None`` when the host passed none.
             checkpoint: Called with the run's state to hand the host a copy of the run.
             checkpoint_every: The least number of seconds between two checkpoints. None for no checkpoints.
+            only_costs_nothing: Call only the nodes whose ``Policy`` says ``costs_nothing`` (job 6).
         """
+        if only_costs_nothing:
+            arguments_for = _only_costs_nothing(arguments_for)
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
-        self.stop, self.context = stop, context
+        self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
 
         # 1. Choosing the next call.
         #: The state ``run`` returns: ``RUNNING`` until ``end`` or ``_close`` sets another.
@@ -415,7 +424,7 @@ class Scheduler:
                 self._record(node, item_indexes, outcome, trying_every_call)
 
     def _record(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem | None, trying_every_call: bool = False
     ) -> None:
         """One call is over: write its outcome into the run, and do what follows from it.
 
@@ -424,17 +433,20 @@ class Scheduler:
 
         What follows, in this order: a checkpoint if one is due, the item limit, the listener, and the downstream
         calls. A ``Problem`` in place of an outcome means the call failed: nothing is written, and the run ends
-        as ``failed``.
+        as ``failed``. ``None`` means the call raised while only the nodes that cost nothing are called (job 6):
+        nothing is written, and the run goes on.
 
         Args:
             node: The node of the call.
             item_indexes: Which call of the node.
-            outcome: The call's outcome, or the problem it failed with.
+            outcome: The call's outcome, the problem it failed with, or ``None``.
             trying_every_call: True from ``_try_every_call``, which reaches the downstream calls itself.
         """
         # speed only: isinstance of a pydantic model costs four times as much, and no class derives from Problem
         if type(outcome) is Problem:
             self._fail(node, outcome)
+            return
+        if outcome is None:
             return
         outcomes = self.outcomes[node]
         if outcomes and item_indexes not in outcomes and item_indexes < next(reversed(outcomes)):
@@ -530,13 +542,14 @@ class Scheduler:
     def _close(self) -> None:
         """Set the state and the complete nodes that ``run`` returns, once no call is running.
 
-        A node is complete when it has an outcome for every call and none of them is waiting for a person. The run
-        is ``COMPLETE`` when ``end`` was not called and no node is waiting; it is ``WAITING`` when ``end`` was not
-        called and a node is waiting; otherwise it has the state ``end`` was given.
+        A node is complete when it has an outcome for every call and none of them is waiting for a person. When
+        ``end`` was not called, the run is ``COMPLETE`` when every node is complete, ``WAITING`` when a node is
+        waiting, and ``READY`` when only the nodes that cost nothing were called and a node lacks an outcome.
+        Otherwise it has the state ``end`` was given.
 
         Raises:
-            RuntimeError: ``end`` was not called, no call is waiting for a person, and a node lacks an outcome.
-                The scheduler failed to try a call that was ready.
+            RuntimeError: ``end`` was not called, every node was called, no call is waiting for a person, and a
+                node lacks an outcome. The scheduler failed to try a call that was ready.
         """
         self._put_in_order()
         waiting: set[FlatFunctionNode] = set()
@@ -549,18 +562,18 @@ class Scheduler:
             # speed only: has_every_outcome says the same of a node inside no loop. Not calling it is worth 2% of a run of 500 chained nodes.
             elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):
                 unfinished.add(node)
-        if self.going and not waiting:
-            if unfinished:
-                lacking = sorted(node.node_path for node in unfinished)
-                raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
+        if self.going and not waiting and not unfinished:
             self.state, self.finished = COMPLETE, frozenset(node.node_path for node in self.nodes)
             self.reusable.clear()
+        elif self.going and not waiting and not self.only_costs_nothing:
+            lacking = sorted(node.node_path for node in unfinished)
+            raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
         else:
             self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
             for path in [path for path in self.reusable if path in self.finished]:  # a complete node has no call left to take them
                 del self.reusable[path]
             if self.going:
-                self.state = WAITING
+                self.state = WAITING if waiting else READY
         if self.node_events is not None:
             self.node_events.scheduler_ended()
 
@@ -720,15 +733,19 @@ class Scheduler:
 
     def _outcome(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
-    ) -> Outcome | Problem:
+    ) -> Outcome | Problem | None:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Waiting`` with the
         question when the function raised ``Ask``, or the problem the call failed with.
 
         A ``Waiting`` outcome has the call's arguments as JSON, to show the person. Arguments with no JSON form,
-        and an ``Ask`` that does not fit the node's outputs, are problems.
+        and an ``Ask`` that does not fit the node's outputs, are problems. While only the nodes that cost nothing
+        are called, a call that raised has no outcome (``None``): the next ``resume()`` that calls every node
+        calls it again, and it fails or asks then.
         """
         if error is None:
             return Done(outputs)
+        if self.only_costs_nothing:
+            return None
         if isinstance(error, Ask):
             try:
                 return Waiting(node.compiled_node.ask_door(error, jsonable(arguments)))
@@ -847,3 +864,18 @@ class Scheduler:
         checkpoints.next_at = time.monotonic() + checkpoints.every
         self._put_in_order()
         checkpoints.save(self.state)
+
+
+def _only_costs_nothing(
+    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]]:
+    """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready.
+
+    So a ``resume()`` restricted to the nodes that cost nothing goes as any other, and never calls ``shout`` when
+    only ``lines`` costs nothing.
+    """
+
+    def restricted(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+        return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
+
+    return restricted

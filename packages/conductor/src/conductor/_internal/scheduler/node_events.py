@@ -55,11 +55,11 @@ from conductor._internal.outcomes import (
     Outcome,
     Skipped,
     Waiting,
-    all_item_indexes,
     calls_expected,
     has_every_outcome,
 )
 from conductor._internal.problem import Problem
+from conductor._internal.run.progress import call_count
 from conductor._internal.scheduler.events import (
     EventBase,
     NodeComplete,
@@ -197,15 +197,14 @@ class NodeEvents:
 
     def _progress(self, node: FlatFunctionNode, last: bool = False) -> None:
         """Say ``NodeProgress`` for a node inside a loop, unless the last one is under a quarter of a second old or
-        had the same count. ``last`` leaves out the clock: it is the node's final count."""
+        had the same count. ``last`` leaves out the clock: it is the node's final count. The count is the node's in ``run.progress``."""
         now = time.monotonic()
         if not (last or now - self.progress_at.get(node, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
             return
-        done = sum(1 for outcome in self.outcomes[node.name].values() if outcome.has_outputs)
-        if self.progress_done.get(node) != done:
-            self.progress_at[node], self.progress_done[node] = now, done
-            every_item_indexes, known = all_item_indexes(self.outcomes, node.loops, ())
-            self.emit(NodeProgress(loc=node.node_path, done=done, total=len(every_item_indexes) if known else None))
+        count = call_count(self.outcomes, node)
+        if self.progress_done.get(node) != count.done:
+            self.progress_at[node], self.progress_done[node] = now, count.done
+            self.emit(NodeProgress(loc=node.node_path, done=count.done, total=count.total))
 
     def _complete_subgraphs_around(self, node: FlatNode, announce: bool) -> None:
         """Mark the subgraph node ``node`` is inside as complete when every node inside it is, then the subgraph

@@ -311,6 +311,29 @@ def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
+def costs_nothing_takes_context() -> str:
+    """A node whose ``Policy`` says ``costs_nothing`` takes the run's context.
+
+    ``Policy(costs_nothing=True)`` is for a node whose call costs nothing and touches nothing outside the run, which
+    ``run.resume(only_costs_nothing=True)`` calls before any call that costs something. A node that needs the host's
+    objects is not that: drop ``costs_nothing``, or give the node what it needs as an input.
+
+    Example:
+        def stamp(ctx: Context[HostContext], text: str) -> str:
+            return text
+
+
+        declaration_refused(
+            lambda: node("stamp", title="Stamp", description="Passes the text on as it is.", policy=Policy(costs_nothing=True))(stamp)
+        )
+    """
+    return (
+        "a node that takes the run's context uses the host's objects, so its call is not free; "
+        "take what it needs as an input, or drop costs_nothing from its Policy"
+    )
+
+
+@DECLARATION_PROBLEMS.problem()
 def default_invalid(*, default: str, type: str, reason: str) -> str:
     """An input's default is not a value of its type, or has no JSON form.
 

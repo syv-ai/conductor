@@ -66,6 +66,7 @@ from conductor._internal.run.arguments import (
     ResultReader,
 )
 from conductor._internal.run.json import outputs_to_json, run_from_json, run_to_json
+from conductor._internal.run.progress import Progress, progress_of
 from conductor._internal.run.reuse import (
     ReusableOutcomes,
     arguments_fingerprint,
@@ -163,7 +164,7 @@ class Run[C]:
         _check_limits(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
-    def resume(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
+    def resume(self, *, context: C | None = None, timeout: float | None = None, only_costs_nothing: bool = False) -> Run[C]:
         """Go on: call every node that is ready, until the run is complete, waits for a person, fails, reaches its
         item limit or its ``timeout``, and return the run as it then is.
 
@@ -172,21 +173,27 @@ class Run[C]:
         on threads are waited for, as long as their ``attempt_timeout``, and kept: so ``resume`` can return later
         than ``timeout``, and a call that returned is never made again.
 
+        ``only_costs_nothing=True`` calls only the nodes whose ``Policy`` says ``costs_nothing``, as far as they
+        are ready, and the run is ``ready`` again afterwards: ``graph.with_inputs(csv=csv).resume(only_costs_nothing=True)``,
+        then ``run.progress``, says how many calls each costly node will have before any is made. A call that
+        raises then has no outcome, and fails or asks at the next ``resume()``. That ``resume()`` makes none of
+        the calls again, and a stream of it does not say again the nodes that were complete.
+
         Raises:
             InvalidCallError: ``timeout`` is not a number of seconds above 0 (``invalid_timeout``); ``context`` is not an instance of
                 the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
                 (``context_missing``).
         """
         _check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._checked_context(context), None, _deadline(timeout))
+        return self._run_scheduler(self.graph._checked_context(context), None, _deadline(timeout), only_costs_nothing=only_costs_nothing)
 
     def stream(
         self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
-        hand_back: AsyncioEvent | None = None, checkpoint_every: float | None = None,
+        hand_back: AsyncioEvent | None = None, checkpoint_every: float | None = None, only_costs_nothing: bool = False,
     ) -> AsyncGenerator[Event]:
         """``resume``, with an event for each thing that happens: ``async for event in run.stream(context=...): ...``.
 
-        It takes ``context`` and ``timeout`` as ``resume`` does. The nodes are called on a thread of their own, so a
+        It takes ``context``, ``timeout`` and ``only_costs_nothing`` as ``resume`` does. The nodes are called on a thread of their own, so a
         slow node never blocks the event loop. The last event is ``RunEnd``, whose ``run`` is the run as it then is.
 
         - Setting ``cancel`` stops before the next call, as does leaving the loop early once the stream is closed.
@@ -204,11 +211,11 @@ class Run[C]:
                 above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
         _check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every)
+        return self._stream(self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
 
     async def _stream(
         self, context: C | None, timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
-        checkpoint_every: float | None,
+        checkpoint_every: float | None, only_costs_nothing: bool,
     ) -> AsyncGenerator[Event]:
         loop, events = asyncio.get_running_loop(), Queue["Event | None"]()
         cancelled = ThreadEvent()
@@ -225,7 +232,7 @@ class Run[C]:
 
         def leg() -> None:
             try:
-                self._run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+                self._run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every, only_costs_nothing)
             except BaseException as error:  # the engine's own defect reaches the caller
                 failed.append(error)
             finally:
@@ -243,7 +250,7 @@ class Run[C]:
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
-        checkpoint_every: float | None = None,
+        checkpoint_every: float | None = None, only_costs_nothing: bool = False,
     ) -> Run[C]:
         """One leg over a copy of this run, which is handed back as the leg left it.
 
@@ -265,7 +272,7 @@ class Run[C]:
         run.state, run._finished_nodes = Scheduler(
             nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable=run._reusable, finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
-            checkpoint=checkpoint, checkpoint_every=checkpoint_every,
+            checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
         ).run()
         if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
             emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
@@ -439,6 +446,19 @@ class Run[C]:
             for item_indexes, outcome in self._outcomes[node.name].items():
                 if type(outcome) is outcomes.Waiting:
                     yield node, item_indexes, outcome
+
+    @property
+    def progress(self) -> Progress:
+        """How far the run is: for the run and for each node, how many calls have an outcome, how many wait for a
+        person, how many are known so far, and how many there will be (``None`` while a series that decides it
+        does not exist yet).
+
+        It is read from the run's outcomes each time, so a run read back with ``Run.from_json`` has the same.
+        For the README graph before any call, ``run.progress.nodes["approve"].total`` is ``None``: how many
+        invoices there are is known once ``read`` has returned. ``run.resume(only_costs_nothing=True)`` calls
+        ``read`` first when its ``Policy`` says ``costs_nothing``.
+        """
+        return progress_of(self.graph, self._outcomes)
 
     @property
     def not_called(self) -> list[NotCalled]:

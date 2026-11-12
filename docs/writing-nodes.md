@@ -513,6 +513,33 @@ print(run.status, len(attempts))  # complete 3
 
 `Policy` also sets `attempt_timeout`, `retry_on` (exception classes of your client to treat as external) and `concurrency`, how many calls of the node run at once, on threads. By default a node is called for one item at a time. A call given up at its `attempt_timeout` isn't stopped: it keeps running on its thread, the run goes on without it, and the process waits for it when it exits, so give a slow client its own timeout as well.
 
+## A node that costs nothing
+
+A host wants to tell a person how long a run will take before it starts: "this will make 33 calls to a language model". How many calls a node has depends on how many items the node before it returns, so the host can know it only once that node is called. Mark a node whose call costs nothing, and touches nothing outside the run, with `Policy(costs_nothing=True)`: one that hands on an upload's files, splits a table, or returns a list given to it. The host can then call those nodes first:
+
+```python
+@registry.node("files", title="Files", description="The files a person uploaded, one item each.", policy=Policy(costs_nothing=True))
+def files(names: list[str]) -> Series[str]:
+    return names
+
+
+@registry.node("summarize", title="Summarize", description="Summarizes a file.")
+def summarize(name: str) -> str:
+    return f"A summary of {name}"  # yours: the call that costs something
+
+
+ready = Graph.compile(make_graph(files, summarize), registry).with_inputs(names=["a.pdf", "b.pdf", "c.pdf"])
+estimated = ready.resume(only_costs_nothing=True)
+
+print(estimated.status)                       # ready
+print(estimated.progress.nodes["summarize"])  # done=0 waiting=0 known=3 total=3
+print(estimated.resume().progress.done)       # 4
+```
+
+`resume(only_costs_nothing=True)` is one call of `resume()` that calls only the marked nodes, with its `timeout`, its events when streamed, and its checkpoints; the run is `ready` afterwards. The next `resume()` calls the rest and makes none of those calls again. A marked node that raises `Ask` or fails then is left without an outcome, and asks or fails at the next `resume()`. A node that takes the run's context is refused the mark ([`costs_nothing_takes_context`](problems.md#costs_nothing_takes_context)): it uses the host's objects, so its call is not free.
+
+`run.progress` is read from the run's outcomes each time, for the run and for each node: how many calls are `done` (their outcome is not waiting), how many are `waiting` for a person, how many are `known` so far, and the `total`. The `total` is `None` while it depends on a node that has not been called yet, such as a language model that finds the invoices in a document; `known` is then the least the total can be, and it only grows.
+
 ## What the host gives the run
 
 Some things come from the host, not from the graph: who runs it, a database, a client. They are the run's context: one object of a class of yours, which the host passes for each run and which is never saved with it. Name the class on the registry, and a node that needs it takes it as its first parameter, typed `Context[...]`:

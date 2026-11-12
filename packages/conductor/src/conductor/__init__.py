@@ -48,7 +48,7 @@ from conductor._internal.problem import (
     ProblemKind,
 )
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
-from conductor._internal.run import NotCalled, Run
+from conductor._internal.run import CallCount, NotCalled, Progress, Run
 from conductor._internal.run.state import EndedEarly, Going, RunState, RunStatus
 from conductor._internal.series import Series
 from conductor._internal.table import Table
@@ -87,6 +87,8 @@ __all__ = [
     "Run",
     "Waiting",
     "NotCalled",
+    "Progress",
+    "CallCount",
     "RunState",
     "Going",
     "EndedEarly",
