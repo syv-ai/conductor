@@ -180,19 +180,16 @@ class _Compiler:
         edges_into: dict[str, dict[str, list[Address]]] = {node_id: {} for node_id in known}
         seen: set[tuple[str, str]] = set()
         for source_text, target_text in record.edges:
-            source, target = Address.parse(source_text), Address.parse(target_text)
-            node_id, name = target.node, target.name
-            if source.node in invalid_ids or node_id in invalid_ids:
-                continue  # the problem invalid_node_id covers this edge
+            source, target = Address.parse(source_text), Address.parse_input(target_text)
             if (source_text, target_text) in seen:
-                self.problems.append(problem.repeated_edge(node_id, name, source=source_text))
+                self.problems.append(problem.repeated_edge(target.node, target.name, source=source_text))
                 continue
             seen.add((source_text, target_text))
-            missing = [n for n in (source.node, node_id) if n not in known]
+            missing = [n for n in (source.node, target.node) if n not in known]
             if missing:
-                self.problems.append(problem.edge_names_missing_node(node_id, name, missing=missing[0], source=source_text, target=target_text))
-            if node_id in known:  # wired even when the source does not exist, so the input is no graph input
-                edges_into[node_id].setdefault(name, []).append(source)
+                self.problems.append(problem.edge_names_missing_node(target.node, target.name, missing=missing[0], source=source_text, target=target_text))
+            if target.node in known:  # wired even when the source does not exist, so the input is no graph input
+                edges_into[target.node].setdefault(target.name, []).append(source)
         ordered = self._order(list(known), edges_into)
         for node_id in ordered:
             match self._resolve(known[node_id]):

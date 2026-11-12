@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED, Address
-from conductor._internal.gate import RefusedError, record_from_parts, record_values
+from conductor._internal.gate import RefusedError, record_from_parts, record_values, values_by_input
 from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -53,13 +53,13 @@ def make_graph(
     typed_constants: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
     typed_defaults: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
     for kind, given, typed in (("constants", constants, typed_constants), ("defaults", defaults, typed_defaults)):
+        try:
+            by_address = values_by_input(kind, given)
+        except RefusedError as refused:
+            problems += refused.problems
+            continue
         by_node: dict[str, dict[str, Any]] = {}
-        for text, value in given.items():
-            try:
-                address = Address.parse(text)
-            except ValueError as wrong:
-                problems.append(problem.invalid_record("record", kind, text, where=f"{kind}.{text}", reason=str(wrong), error="value_error"))
-                continue
+        for address, value in by_address.items():
             if address.node not in typed:
                 problems.append(problem.node_not_in_graph(address.node, nodes=ids))
             else:

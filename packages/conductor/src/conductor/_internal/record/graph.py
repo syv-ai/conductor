@@ -15,8 +15,13 @@ from conductor._internal.base import Address, ConductorModel
 
 from .node import JSON_ONLY, NodeRecord
 
-#: An address as a graph record writes it, ``"shout.line"``: text that ``Address.parse`` reads, kept as the text.
-AddressText = Annotated[str, AfterValidator(lambda text: str(Address.parse(text)))]
+#: Where an edge comes from, as a graph record writes it: an output, ``"lines.result"``, or one field of the record an
+#: output returns, ``"read.result.email"``; text that ``Address.parse`` reads, kept as the text.
+SourceText = Annotated[str, AfterValidator(lambda text: str(Address.parse(text)))]
+
+#: Where an edge leads, as a graph record writes it: an input, ``"shout.line"``; text that ``Address.parse_input``
+#: reads, kept as the text.
+TargetText = Annotated[str, AfterValidator(lambda text: str(Address.parse_input(text)))]
 
 
 class GraphRecord(ConductorModel):
@@ -32,7 +37,7 @@ class GraphRecord(ConductorModel):
     #: Any sequence going in; a tuple once built.
     nodes: Sequence[NodeRecord] = ()
     #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
-    edges: Sequence[tuple[AddressText, AddressText]] = ()
+    edges: Sequence[tuple[SourceText, TargetText]] = ()
 
     @field_validator("nodes")
     @classmethod

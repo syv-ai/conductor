@@ -74,8 +74,8 @@ class Address:
     The text alone does not say which of the last two it is; ``output_and_field`` tells them apart, given the node's
     outputs.
 
-    A graph record keeps its edges as text, which its door checks by ``parse``; the compiler reads each edge into
-    an ``Address`` once.
+    ``parse`` and ``parse_input`` are the grammar: the record door checks each edge by ``parse``, and ``make_graph``
+    reads each key of ``constants`` and ``defaults`` by ``parse_input``.
 
     Attributes:
         node: The node's id.
@@ -90,15 +90,33 @@ class Address:
 
     @classmethod
     def parse(cls, text: str) -> Address:
-        """Reads ``text`` as an address: ``Address.parse("shout.line")`` returns ``Address("shout", "line")``.
+        """Reads ``text`` as the address of an output, or of one field of the record an output returns:
+        ``Address.parse("read.result.email")`` returns ``Address("read", "result.email")``.
+
+        The node id and the first name after it are names (``is_name``). A field's name may have dots of its own
+        (``"split.result.Amount in USD."``), but is not empty and does not start with one.
 
         Raises:
-            ValueError: ``text`` has no node id, no name after the node id, or a dot with nothing after it.
+            ValueError: A part is not a name, or the field is empty or starts with a dot (``"a.b..c"``).
         """
         node, _, name = text.partition(".")
-        field, dot, of_record = name.partition(".")
-        if not node or not field or (dot and not of_record):
+        first, dot, rest = name.partition(".")
+        if not is_name(node) or not is_name(first) or (dot and (not rest or rest.startswith("."))):
             raise ValueError(f"{text!r} is not an address; write 'node.field', or 'node.output.field' for one field of a record")
+        return cls(node, name)
+
+    @classmethod
+    def parse_input(cls, text: str) -> Address:
+        """Reads ``text`` as the address of an input: ``Address.parse_input("shout.mark")`` returns
+        ``Address("shout", "mark")``. An input has no field; a subgraph node's input may be an address inside it
+        (``"loud.strip.line"``), so each part between dots is a name (``is_name``).
+
+        Raises:
+            ValueError: A part is not a name.
+        """
+        node, _, name = text.partition(".")
+        if not is_name(node) or not all(map(is_name, name.split("."))):
+            raise ValueError(f"{text!r} is not the address of an input; write 'node.input'")
         return cls(node, name)
 
     @classmethod

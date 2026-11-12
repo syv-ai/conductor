@@ -438,13 +438,16 @@ def test_a_broken_edge_is_one_problem_not_repeated_on_the_nodes_downstream():
 def test_an_edge_from_a_node_that_did_not_compile_is_not_reported_again():
     unknown = {"nodes": [{"id": "x", "node": "gone"}, {"id": "u", "node": "upper"}], "edges": [["x.result", "u.text"]]}
     assert _problems(unknown) == [("unknown_node", ("x",))]
-    refused_id = {"nodes": [{"id": "a@b", "node": "upper"}, {"id": "u", "node": "tail"}], "edges": [["a@b.result", "u.text"]]}
+    refused_id = {"nodes": [{"id": "a@b", "node": "upper"}, {"id": "u", "node": "tail"}]}
     assert _problems(refused_id) == [("invalid_node_id", ("a@b",))]
 
 
-def test_an_edge_from_a_node_path_under_a_function_node_names_a_missing_node():
-    problems = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper"}, {"id": "u", "node": "tail"}], "edges": [["a/b.result", "u.text"]]}), REGISTRY).problems
-    assert [(p.type, p.loc, p.ctx["missing"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "a/b")]
+def test_an_edge_naming_a_node_id_that_is_no_name_is_refused_at_the_record_door():
+    """``a@b`` and ``a/b`` can be no node's id, so an edge from either is not an address."""
+    for source in ("a@b.result", "a/b.result"):
+        with pytest.raises(InvalidCallError) as refused:
+            Graph.compile(json.dumps({"nodes": [{"id": "u", "node": "tail"}], "edges": [[source, "u.text"]]}), REGISTRY)
+        assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "edges", 0, 0))]
 
 
 # -- what a caller gives ---------------------------------------------------------------------------
@@ -756,8 +759,9 @@ def test_an_inner_nodes_error_is_reported_at_its_node_path_with_the_ctx_its_auth
 
 
 def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
-    problems = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e/upper.result", "u.text"]]}), OUTSIDE).problems
-    assert [(p.type, p.loc, p.ctx["missing"]) for p in problems] == [("edge_names_missing_node", ("u", "text"), "e/upper")]
+    with pytest.raises(InvalidCallError) as refused:
+        Graph.compile(json.dumps({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}], "edges": [["e/upper.result", "u.text"]]}), OUTSIDE)
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "edges", 0, 0))]
 
 
 def test_an_edge_from_a_missing_node_into_a_subgraph_node_is_a_problem_at_the_input_it_offers():

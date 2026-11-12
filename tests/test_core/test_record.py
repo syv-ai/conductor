@@ -118,6 +118,9 @@ def test_an_edge_is_two_addresses():
         GraphRecord(edges=[("a", "b.x")])
     with pytest.raises(ValidationError):
         GraphRecord(edges=[("a.b.", "b.x")])
+    for not_an_address in ("a.b..c", "a/x.b", "a@1.b", "a.b~c"):  # every part is read: the node id and the output are names
+        with pytest.raises(ValidationError):
+            GraphRecord(edges=[(not_an_address, "b.x")])
     assert GraphRecord(edges=[("a.result.Amount in USD.", "b.x")]).edges == (("a.result.Amount in USD.", "b.x"),)
     with pytest.raises(ValidationError):
         GraphRecord.model_validate({"nodes": [{"id": "a", "node": "t", "bindings": {}}]})
@@ -505,10 +508,10 @@ def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id():
 
 def test_a_wrong_address_on_a_subgraph_node_is_a_problem_on_it_and_never_names_an_inner_node():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "enrich"}, {"id": "u", "node": "upper"}, {"id": "v", "node": "upper"}],
-                           "edges": [["e.nope", "u.text"], ["v.result", "e.tail"], ["e/upper.result", "v.text"]]}), SUBGRAPHS)
+                           "edges": [["e.nope", "u.text"], ["v.result", "e.tail"]]}), SUBGRAPHS)
 
     found = sorted((p.type, p.loc) for p in graph.problems)
-    assert found == [("edge_names_missing_node", ("v", "text")), ("unknown_input", ("e", "tail")), ("unknown_output", ("u", "text"))]
+    assert found == [("unknown_input", ("e", "tail")), ("unknown_output", ("u", "text"))]
     assert not any("/" in str(p.loc) for p in graph.problems)
 
 
@@ -828,10 +831,11 @@ def test_make_graph_refuses_an_edge_that_is_not_an_address_as_compile_refuses_it
 
 def test_make_graph_refuses_a_constant_or_default_key_that_is_not_an_address_as_it_refuses_such_an_edge():
     with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, constants={"hello": "Ida"}, defaults={".name": "Bo"})
+        make_graph(_hello, constants={"hello": "Ida", "hello.name..x": "Ida"}, defaults={".name": "Bo"})
 
-    assert [(p.type, p.loc, p.ctx["where"]) for p in refused.value.errors()] == [
-        ("invalid_record", ("record", "constants", "hello"), "constants.hello"),
-        ("invalid_record", ("record", "defaults", ".name"), "defaults..name"),
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [
+        ("invalid_record", ("record", "constants", "hello", "[key]")),
+        ("invalid_record", ("record", "constants", "hello.name..x", "[key]")),
+        ("invalid_record", ("record", "defaults", ".name", "[key]")),
     ]
-    assert all("'node.field'" in p.msg for p in refused.value.errors())
+    assert all("'node.input'" in p.msg for p in refused.value.errors())

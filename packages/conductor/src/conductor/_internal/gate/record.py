@@ -14,12 +14,12 @@ so in ``graph.problems``, so an editor can show the graph while it is being draw
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import JsonValue, ValidationError
+from pydantic import JsonValue, PlainValidator, TypeAdapter, ValidationError
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.base import plain_json
+from conductor._internal.base import Address, plain_json
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.series import set_has_no_order
@@ -59,12 +59,34 @@ def record_from_parts(nodes: Sequence[NodeRecord], edges: Sequence[tuple[str, st
         raise _refusal(invalid) from None
 
 
-def _refusal(invalid: ValidationError) -> RefusedError:
-    """One ``invalid_record`` problem for each fault pydantic found in a graph record."""
+def _refusal(invalid: ValidationError, *under: str) -> RefusedError:
+    """One ``invalid_record`` problem for each fault pydantic found in a graph record, or in its part ``under``
+    (``"constants"``) that ``make_graph`` writes."""
     return RefusedError(
-        problem.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
-        for error in invalid.errors()  # a validator's own sentence, without pydantic's prefix
+        problem.invalid_record(
+            "record", *under, *error["loc"], where=".".join(map(str, (*under, *error["loc"]))) or "the record",
+            reason=error["msg"].removeprefix("Value error, "), error=error["type"],  # a validator's own sentence, without pydantic's prefix
+        )
+        for error in invalid.errors()
     )
+
+
+#: The constants or defaults ``make_graph`` is given, keyed by the addresses of inputs (``"shout.mark"``).
+_VALUES_BY_INPUT: TypeAdapter[dict[Address, Any]] = TypeAdapter(dict[Annotated[Address, PlainValidator(Address.parse_input)], Any])
+
+
+def values_by_input(kind: str, given: Mapping[str, Any]) -> dict[Address, Any]:
+    """Returns ``given``, the ``constants`` or ``defaults`` (``kind``) of ``make_graph``, keyed by ``Address``:
+    ``{"shout.mark": "?"}`` gives ``{Address("shout", "mark"): "?"}``. The values are not read here.
+
+    Raises:
+        RefusedError: One ``invalid_record`` problem for each key that is not the address of an input, at
+            ``("record", kind, key, "[key]")``, pydantic's place for a key.
+    """
+    try:
+        return _VALUES_BY_INPUT.validate_python(given)
+    except ValidationError as invalid:
+        raise _refusal(invalid, kind) from None
 
 
 def record_values(node_id: str, values: Mapping[str, Any]) -> dict[str, JsonValue]:
