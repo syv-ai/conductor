@@ -75,13 +75,14 @@ class SavedReusable[OutcomesT]:
     outcomes of ``shout``. Before it has called anything it saves them as::
 
         "shout": {"outcomes": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
-                  "fingerprints": ["e360f9745eb81eae40ab99d8", "190831fe7288be89bdb0cbd5", "831029ff10fb2182c5e370a2"],
+                  "fingerprints": ["<24 hex characters>", "<24 hex characters>", "<24 hex characters>"],
                   "item_indexes": {"0": [0], "1": [1], "2": [2]}}
 
     ``outcomes`` has the shape of ``SavedOutcomes``: a list per output. Each outcome is written once, and its
     place in the lists is only a place: these are calls of the previous run, not of this one. So what
     identifies an outcome is written beside it, by that place: the fingerprint of the arguments its call got,
-    and the item indexes the call had.
+    and the item indexes the call had. An argument fingerprint is a hash of the node's code fingerprint and the
+    arguments as JSON.
 
     Attributes:
         outcomes: The outcomes: a ``SavedOutcomes`` in a saved run that is written, and the list of outcomes it
@@ -128,14 +129,18 @@ class SavedRun[OutcomesT, ReusableT]:
 
     The finished run of the README graph ``lines -> shout -> join`` on ``"a\nb\nc"`` is saved as::
 
-        {"graph": "4c169cfec3ad80cb", "state": {"status": "complete"}, "max_items": null,
+        {"graph": "<16 hex characters>", "state": {"status": "complete"}, "max_items": null,
          "inputs": {"lines.text": "a\nb\nc"},
          "outcomes": {"lines": {"states": ["done"], "outputs": {"result": [["a", "b", "c"]]}},
                       "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
                       "join": {"states": ["done"], "outputs": {"result": ["A!+B!+C!"]}}},
          "reusable": {},
-         "code": {"lines": "351606d7bb07c2ef", "shout": "8a4f4574bb596ba6", "join": "16256b91d80c6610"},
+         "code": {"lines": "<16 hex characters>", "shout": "<16 hex characters>", "join": "<16 hex characters>"},
          "complete": ["lines", "shout", "join"]}
+
+    ``graph`` is the graph's fingerprint: a hash of the graph record and of the subgraphs it uses. Each value
+    under ``code`` is a code fingerprint: a hash of the node's version, its function's code, its inputs and
+    outputs, and the loops it is inside.
 
     A node is named by its node path joined by ``/``: ``shout`` in the graph itself, ``loud/shout`` inside the
     subgraph node ``loud``. A subgraph node is never called, so it has no key of its own.

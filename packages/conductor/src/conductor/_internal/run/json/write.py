@@ -55,7 +55,7 @@ def run_to_json(run: Run) -> str:
     r"""Returns the whole run as JSON text.
 
     For the finished run of the README graph on ``"a\nb\nc"`` the text starts
-    ``{"graph":"4c169cfec3ad80cb","state":{"status":"complete"},"max_items":null,"inputs":{"lines.text":"a\nb\nc"},``
+    ``{"graph":"<16 hex characters>","state":{"status":"complete"},"max_items":null,"inputs":{"lines.text":"a\nb\nc"},``
     and goes on with every node's outcomes. ``SavedRun`` shows all of it.
 
     Raises:
