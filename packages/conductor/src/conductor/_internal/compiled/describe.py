@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, assert_never
 
-from conductor._internal.base import ConductorModel
+from conductor._internal.base import Address, ConductorModel
 from conductor._internal.field import FieldDescription
 from conductor._internal.problem import Problem
 
@@ -21,7 +21,6 @@ from .input import (
     GraphInput,
     Input,
     MissingInput,
-    OutputAddress,
 )
 
 
@@ -142,13 +141,13 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-def runs_on(loops: tuple[OutputAddress, ...]) -> RunsOn:
+def runs_on(loops: tuple[Address, ...]) -> RunsOn:
     """Returns whether a node inside ``loops`` is called once or once per item: ``per_item`` of the list of the
     innermost loop, or ``once`` when ``loops`` is empty."""
     return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
 
 
-def input_source_of(loops: tuple[OutputAddress, ...], node_input: Input) -> InputSource:
+def input_source_of(loops: tuple[Address, ...], node_input: Input) -> InputSource:
     """Returns how an input with ``node_input`` gets its value on each call, for a node inside ``loops``.
 
     In ``lines -> shout -> join``: ``shout.line`` is an ``item`` of ``lines.result``, ``shout.mark`` is a

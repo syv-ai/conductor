@@ -7,7 +7,7 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=(OutputAddress("lines", "result"),)``,
+``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=(Address("lines", "result"),)``,
 a compiled input for each of ``line`` (one item of ``lines.result``) and ``mark`` (the constant ``"!"``), and the
 output ``result: str``. A compiled node has nothing from a run in it: it is made once and used by every run.
 """
@@ -23,14 +23,14 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import Ask, Question, field_questions
-from conductor._internal.base import SKIPPED, short_hash
+from conductor._internal.base import SKIPPED, Address, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
 from conductor._internal.series import Series
 from conductor._internal.types import Type
 
-from .input import Input, OutputAddress
+from .input import Input
 
 if TYPE_CHECKING:
     from .type import CompiledGraph
@@ -74,7 +74,7 @@ class _CompiledNodeBase:
     """
 
     id: str
-    loops: tuple[OutputAddress, ...]
+    loops: tuple[Address, ...]
     inputs: dict[str, Input]
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
@@ -90,7 +90,7 @@ class _CompiledNodeBase:
         keys first."""
         return all(node_input.field.type.hashes_plainly for node_input in self.inputs.values())
 
-    def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
+    def loops_around(self, output: str) -> tuple[Address, ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: for a function node, the
         loops the node is inside. In the example, ``shout.loops_around("result")`` is the loop over
         ``lines.result``."""
@@ -215,7 +215,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     definition: SubgraphDefinition
     inner: CompiledGraph
 
-    def loops_around(self, output: str) -> tuple[OutputAddress, ...]:
+    def loops_around(self, output: str) -> tuple[Address, ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: the loops this node is
         inside, then the loops inside the subgraph.
 
@@ -225,7 +225,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         that reads both is called once per item with the two values of that item.
         """
         inside = self.inner._loops_around(output)
-        return (*self.loops, *[OutputAddress(self.id, str(loop)) for loop in inside])
+        return (*self.loops, *[Address(self.id, str(loop)) for loop in inside])
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value: those this node needs to be
@@ -240,7 +240,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside = self.inner._branches_required_for(output)
         depth = len(self.loops)
         return self.required_branches | {
-            RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", f"{branch.node_id}.{branch.output}", depth + branch.depth)
+            RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", str(Address(branch.node_id, branch.output)), depth + branch.depth)
             for branch in inside
         }
 
@@ -255,7 +255,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         described = []
         series_of: Any = Series  # typed Any: the type checker cannot follow ``Series[...]`` built at run time
         for name, field in self.outputs.items():
-            loops = [str(loop).removeprefix(f"{self.id}.") for loop in self.loops_around(name)[len(self.loops) :]]
+            loops = [loop.name for loop in self.loops_around(name)[len(self.loops) :]]
             if not loops:
                 described.append(field.description)
                 continue

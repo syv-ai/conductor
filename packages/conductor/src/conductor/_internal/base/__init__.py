@@ -9,6 +9,7 @@ is ``REQUIRED`` and ``SKIPPED``.
 
 from .address import (
     NAME_PATTERN,
+    Address,
     ItemIndexes,
     Loc,
     NodePath,
@@ -17,7 +18,6 @@ from .address import (
     node_path_text,
     parse_loc_text,
     parse_node_path,
-    split_address,
 )
 from .hashing import json_hash, short_hash
 from .json import NON_FINITE_FLOATS, plain_json, validate_as_json

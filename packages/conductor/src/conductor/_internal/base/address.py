@@ -19,7 +19,7 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   ``loud``, so the index follows ``"loud"``. A host is given a loc when it
   is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
 - An **address** names one input or output of a node: ``"lines.result"``, ``"shout.line"``. A graph record
-  writes its edges and its constants with addresses.
+  writes its edges with addresses, read into ``Address`` values.
 
 Because these are written with ``.``, ``/``, ``@`` and ``~`` (``~`` comes before the fingerprint of a waiting
 call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output contains one of them (``is_name``).
@@ -28,6 +28,8 @@ call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or outpu
 from __future__ import annotations
 
 import re
+from collections.abc import Container
+from dataclasses import dataclass
 
 #: The ids that name one node: the id of each subgraph node it is inside, outermost first, and its own id last.
 #: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``; ``("lines",)`` is a node of the
@@ -57,18 +59,73 @@ def is_name(text: str) -> bool:
     return _NAME.match(text) is not None
 
 
-def split_address(address: str) -> tuple[str, str]:
-    """Split an address at its first dot into the node id and the name after it.
+@dataclass(frozen=True, slots=True)
+class Address:
+    """One input or output of a node, as an edge names it: ``Address("shout", "line")``, written ``"shout.line"``.
 
-    ``split_address("shout.line")`` returns ``("shout", "line")``. A node id has no dot in it, so everything after
-    the first dot is the name, which may have dots of its own: ``split_address("read.result.name")`` returns
-    ``("read", "result.name")``, the field ``name`` of the record the output ``result`` gives, and
-    ``split_address("loud.shout.result")`` returns ``("loud", "shout.result")``, the output of the inner node
-    ``shout`` of the subgraph node ``loud``. Text with no dot is a node id alone:
-    ``split_address("shout")`` returns ``("shout", "")``.
+    The node id has no dot in it, so the text is read at its first dot, and everything after it is ``name``:
+
+    - ``"lines.result"`` is the output ``result`` of ``lines``;
+    - ``"read.result.email"`` is the field ``email`` of the record that the output ``result`` of ``read`` returns
+      (``name`` is ``"result.email"``);
+    - ``"loud.shout.result"`` is the output ``shout.result`` of the subgraph node ``loud``: a subgraph node's outputs
+      are named by their addresses inside it (``name`` is ``"shout.result"``).
+
+    The text alone does not say which of the last two it is; ``output_and_field`` tells them apart, given the node's
+    outputs.
+
+    A graph record keeps its edges as text, which its door checks by ``parse``; the compiler reads each edge into
+    an ``Address`` once.
+
+    Attributes:
+        node: The node's id.
+        name: The input or output, and for one field of a record, a dot and the field after it.
     """
-    node_id, _, name = address.partition(".")
-    return node_id, name
+
+    node: str
+    name: str
+
+    def __str__(self) -> str:
+        return f"{self.node}.{self.name}"
+
+    @classmethod
+    def parse(cls, text: str) -> Address:
+        """Reads ``text`` as an address: ``Address.parse("shout.line")`` returns ``Address("shout", "line")``.
+
+        Raises:
+            ValueError: ``text`` has no node id, no name after the node id, or a dot with nothing after it.
+        """
+        node, _, name = text.partition(".")
+        field, dot, of_record = name.partition(".")
+        if not node or not field or (dot and not of_record):
+            raise ValueError(f"{text!r} is not an address; write 'node.field', or 'node.output.field' for one field of a record")
+        return cls(node, name)
+
+    @classmethod
+    def of_field(cls, node: str, output: str, field: str | None) -> Address:
+        """The address of one field of the record an output returns, or of the whole output when ``field`` is
+        ``None``: ``Address.of_field("read", "result", "email")`` is ``read.result.email``, and
+        ``Address.of_field("read", "result", None)`` is ``read.result``. ``output_and_field`` reads it back."""
+        return cls(node, output if field is None else f"{output}.{field}")
+
+    def output_and_field(self, outputs: Container[str]) -> tuple[str, str | None] | None:
+        """Returns which of ``outputs`` the address names, and the field of a record after it, or ``None``; ``None``
+        when it names none of them.
+
+        For ``read.result.email`` and the outputs ``{"result"}``, ``("result", "email")``; for
+        ``loud.shout.result`` and the outputs ``{"shout.result"}``, ``("shout.result", None)``. Of one node's
+        outputs at most one is the start of a name: a function's have no dot, and a subgraph's are each
+        ``node.output`` inside it, so no two are the start of one another.
+        """
+        name = self.name
+        if name in outputs:
+            return name, None
+        end = name.find(".")
+        while end != -1:
+            if name[:end] in outputs:
+                return name[:end], name[end + 1 :]
+            end = name.find(".", end + 1)
+        return None
 
 
 def loc_text(loc: Loc) -> str:

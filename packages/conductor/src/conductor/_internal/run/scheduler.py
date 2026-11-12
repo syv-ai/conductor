@@ -70,7 +70,7 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.ask import Answer, Ask
-from conductor._internal.base import ItemIndexes, NodePath
+from conductor._internal.base import Address, ItemIndexes, NodePath
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -865,7 +865,7 @@ class Scheduler:
         if self.going:
             named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
-            series = f"{named.compiled_node.id}.{series_output}"
+            series = str(Address(named.compiled_node.id, series_output))
             self.end(EndedEarly("stopped", problem.item_limit(*loc, series=series, items=items, max_items=item_limit)))
 
     def _checkpoint(self, checkpoints: _Checkpoints) -> None:

@@ -266,8 +266,8 @@ class ResultReader:
             value = any_item._edges_for_any_item(argument, item_indexes)
             if value is not MAY_HAVE_VALUE:
                 return value
-        outcome = self.outcomes[argument.series.node_id].get(item_indexes)
-        return outcome.outputs[argument.series.output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
+        outcome = self.outcomes[argument.series.node].get(item_indexes)
+        return outcome.outputs[argument.series.name] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
     def _edges_for_any_item(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or

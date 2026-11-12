@@ -824,3 +824,14 @@ def test_make_graph_refuses_an_edge_that_is_not_an_address_as_compile_refuses_it
 
     assert written.value.errors() == compiled.value.errors()
     assert [(p.loc, p.ctx["where"]) for p in written.value.errors()] == [(("record", "edges", 1, 0), "edges.1.0")]
+
+
+def test_make_graph_refuses_a_constant_or_default_key_that_is_not_an_address_as_it_refuses_such_an_edge():
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, constants={"hello": "Ida"}, defaults={".name": "Bo"})
+
+    assert [(p.type, p.loc, p.ctx["where"]) for p in refused.value.errors()] == [
+        ("invalid_record", ("record", "constants", "hello"), "constants.hello"),
+        ("invalid_record", ("record", "defaults", ".name"), "defaults..name"),
+    ]
+    assert all("'node.field'" in p.msg for p in refused.value.errors())

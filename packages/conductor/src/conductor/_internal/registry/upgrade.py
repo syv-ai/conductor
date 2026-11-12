@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from conductor._internal.base import split_address
+from conductor._internal.base import Address
 from conductor._internal.gate import RefusedError, read_record, record_values
 from conductor._internal.node import NodeDefinition, declared_inputs
 from conductor._internal.problem import InvalidCallError
@@ -22,19 +22,17 @@ def _with_keys_renamed[V](by_name: Mapping[str, V], renames: Mapping[str, str]) 
     return {renames.get(name, name): value for name, value in by_name.items()}
 
 
-def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
-    """``address`` with its field renamed when it is on ``node_id`` and the step renames it.
+def _renamed_on(address: Address, node_id: str, renames: Mapping[str, str]) -> Address:
+    """``address`` with its input or output renamed when it is on ``node_id`` and the step renames it.
 
-    A field of a record named after it (``result.email``) moves with it. A subgraph's output is named by an
-    inner address (``tail.result``), so the longest renamed name the address goes on with is the one it names.
+    A field of a record after the output (``result.email``) moves with it; a subgraph's output is named by an inner
+    address (``tail.result``), which ``Address.output_and_field`` reads.
     """
-    owner, rest = split_address(address)
-    if owner != node_id:
+    named = address.output_and_field(renames) if address.node == node_id else None
+    if named is None:
         return address
-    for name in sorted(renames, key=len, reverse=True):
-        if rest == name or rest.startswith(name + "."):
-            return f"{owner}.{renames[name]}{rest[len(name):]}"
-    return address
+    name, record_field = named
+    return Address.of_field(node_id, renames[name], record_field)
 
 
 def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | bytes, node_id: str, *, to: int | None) -> GraphRecord:
@@ -60,7 +58,8 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
         )])
     version_chain = newest.version_of(target).version_chain
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
-    constants, defaults, edges = dict(node_record.constants), dict(node_record.defaults), list(graph.edges)
+    constants, defaults = dict(node_record.constants), dict(node_record.defaults)
+    edges = [(Address.parse(source), Address.parse(target_)) for source, target_ in graph.edges]
     for step, older in reversed(steps):
         upgrade = step.upgrade
         constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
@@ -71,11 +70,11 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
                 raise InvalidCallError(refused.problems) from None
             defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in constants}
             constants = {name: value for name, value in rewritten.items() if name not in defaults}
-        gone = {f"{node_id}.{name}" for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
+        gone = {Address(node_id, name) for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
         edges = [
             (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
             for source, target_ in edges
             if target_ not in gone
         ]
     moved = node_record.model_copy(update={"version": target, "constants": constants, "defaults": defaults})
-    return GraphRecord(nodes=[moved if n is node_record else n for n in graph.nodes], edges=edges)
+    return GraphRecord(nodes=[moved if n is node_record else n for n in graph.nodes], edges=[(str(source), str(target_)) for source, target_ in edges])

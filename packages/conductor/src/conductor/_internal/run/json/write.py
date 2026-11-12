@@ -12,7 +12,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Answer, Question
-from conductor._internal.base import SKIPPED, node_path_text
+from conductor._internal.base import SKIPPED, Address, node_path_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
@@ -78,15 +78,15 @@ def outputs_to_json(run: Run) -> str:
             (``run_unwritable``, naming the output).
     """
     written = {}
-    for address, value in run.outputs.items():
-        function, output = function_of(run._flat, address)
+    for text, value in run.outputs.items():
+        function, output = function_of(run._flat, Address.parse(text))
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
         try:
-            written[address] = Type(hint).to_json(value)
+            written[text] = Type(hint).to_json(value)
         except PydanticSerializationError:
-            raise InvalidCallError([problem.run_unwritable("outputs", address, where=address, reason="a value has no JSON form")]) from None
+            raise InvalidCallError([problem.run_unwritable("outputs", text, where=text, reason="a value has no JSON form")]) from None
     return pydantic_core.to_json(written).decode()
 
 

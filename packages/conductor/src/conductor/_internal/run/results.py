@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from conductor._internal.base import SKIPPED, ItemIndexes, split_address
+from conductor._internal.base import SKIPPED, Address, ItemIndexes
 from conductor._internal.compiled import CompiledGraph, Edge
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
@@ -32,7 +32,7 @@ def results_of(
 ) -> dict[str, dict[str, Any]]:
     """``run.results``: every node's outputs so far, by node id and output name. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {n: {o: reader.display_value(display_inputs_of(*function_of(flat, f"{n}.{o}"))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
+    return {n: {o: reader.display_value(display_inputs_of(*function_of(flat, Address(n, o)))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
 
 
 def outputs_of(
@@ -40,15 +40,14 @@ def outputs_of(
 ) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by address. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {address: reader.display_value(display_inputs_of(*function_of(flat, address))) for address in graph.outputs}
+    return {text: reader.display_value(display_inputs_of(*function_of(flat, Address.parse(text)))) for text in graph.outputs}
 
 
-def function_of(flat: FlatGraph, address: str) -> tuple[FlatFunctionNode, str]:
+def function_of(flat: FlatGraph, address: Address) -> tuple[FlatFunctionNode, str]:
     """The function node that returns the output at ``address`` (``node.output``), and the output's name on
     that function. For a subgraph (``e.upper.result``) it is the function inside the
     subgraph, since the subgraph's node is never called itself."""
-    node_id, output = split_address(address)
-    return flat.nodes[node_id].source_of(output)
+    return flat.nodes[address.node].source_of(address.name)
 
 
 class DisplayReader(ResultReader):

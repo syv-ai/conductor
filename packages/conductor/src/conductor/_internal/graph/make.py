@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import JsonValue
 
-from conductor._internal.base import REQUIRED, split_address
+from conductor._internal.base import REQUIRED, Address
 from conductor._internal.gate import RefusedError, record_from_parts, record_values
 from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
@@ -45,21 +45,25 @@ def make_graph(
     Raises:
         InvalidCallError: Listing every fault in writing the record itself: a value or default addressed to
             a node not given (``node_not_in_graph``), a value with no JSON form or holding a set
-            (``invalid_value``), an edge that is no address (``invalid_record``) and a chain that can't
-            be drawn (``not_a_chain``).
+            (``invalid_value``), an edge or a key of ``constants`` or ``defaults`` that is no address
+            (``invalid_record``) and a chain that can't be drawn (``not_a_chain``).
     """
     ids = _ids_of(nodes)
     problems: list[Problem] = []
     typed_constants: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
     typed_defaults: dict[str, dict[str, JsonValue]] = {node_id: {} for node_id in ids}
-    for given, typed in ((constants, typed_constants), (defaults, typed_defaults)):
+    for kind, given, typed in (("constants", constants, typed_constants), ("defaults", defaults, typed_defaults)):
         by_node: dict[str, dict[str, Any]] = {}
-        for address, value in given.items():
-            node_id, name = split_address(address)
-            if node_id not in typed:
-                problems.append(problem.node_not_in_graph(node_id, nodes=ids))
+        for text, value in given.items():
+            try:
+                address = Address.parse(text)
+            except ValueError as wrong:
+                problems.append(problem.invalid_record("record", kind, text, where=f"{kind}.{text}", reason=str(wrong), error="value_error"))
+                continue
+            if address.node not in typed:
+                problems.append(problem.node_not_in_graph(address.node, nodes=ids))
             else:
-                by_node.setdefault(node_id, {})[name] = value
+                by_node.setdefault(address.node, {})[address.name] = value
         for node_id, named in by_node.items():
             try:
                 typed[node_id] = record_values(node_id, named)
@@ -117,5 +121,5 @@ def _chain_edges(
         if len(outputs) != 1 or len(open_inputs) != 1:
             problems.append(problem.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
         else:
-            edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
+            edges.append((str(Address(before_id, outputs[0])), str(Address(after_id, open_inputs[0]))))
     return edges, problems

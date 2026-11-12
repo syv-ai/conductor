@@ -26,7 +26,7 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import NodePath, json_hash, plural, split_address
+from conductor._internal.base import Address, NodePath, json_hash, plural
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
 from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
@@ -43,7 +43,6 @@ from .describe import (
     input_source_of,
     runs_on,
 )
-from .input import OutputAddress
 from .node import (
     CompiledNode,
     CompiledSubgraphNode,
@@ -107,7 +106,7 @@ class CompiledGraph:
     def outputs(self) -> list[str]:
         """The graph outputs, as addresses: every output of every node that no edge leaves. In the example,
         ``["join.result"]``."""
-        return [f"{p.id}.{o}" for p in self._nodes.values() if not self._downstream[p.id] for o in p.outputs]
+        return [str(Address(p.id, o)) for p in self._nodes.values() if not self._downstream[p.id] for o in p.outputs]
 
     @property
     def runs_on(self) -> dict[str, RunsOn]:
@@ -175,25 +174,25 @@ class CompiledGraph:
         An exclusive group is named by the node here (``route.length``), so the groups of two nodes stay apart.
         """
         outputs: dict[str, Field] = {}
-        for address in self.outputs:
-            node_id, output = split_address(address)
-            field = self._nodes[node_id].outputs[output]
+        for text in self.outputs:
+            address = Address.parse(text)
+            field = self._nodes[address.node].outputs[address.name]
             group = field.param.exclusive_group
-            hint = Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")] if group else field.hint
-            outputs[address] = Field(address, hint, field.default)
+            hint = Annotated[field.hint, Param(exclusive_group=f"{address.node}.{group}")] if group else field.hint
+            outputs[text] = Field(text, hint, field.default)
         return outputs
 
-    def _loops_around(self, address: str) -> tuple[OutputAddress, ...]:
-        """Returns the loops inside this graph that the output at ``address`` (``shout.result``) has one value per
+    def _loops_around(self, output: str) -> tuple[Address, ...]:
+        """Returns the loops inside this graph that the graph output ``output`` (``"shout.result"``) has one value per
         item of, outermost first."""
-        node_id, output = split_address(address)
-        return self._nodes[node_id].loops_around(output)
+        address = Address.parse(output)
+        return self._nodes[address.node].loops_around(address.name)
 
-    def _branches_required_for(self, address: str) -> frozenset[RequiredBranch]:
-        """Returns the branches inside this graph that must be chosen for the output at ``address`` to have a
+    def _branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
+        """Returns the branches inside this graph that must be chosen for the graph output ``output`` to have a
         value."""
-        node_id, output = split_address(address)
-        return self._nodes[node_id].branches_required_for(output)
+        address = Address.parse(output)
+        return self._nodes[address.node].branches_required_for(address.name)
 
     # -- what a run uses --------------------------------------------------------
 

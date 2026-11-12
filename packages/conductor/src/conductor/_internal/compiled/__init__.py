@@ -20,7 +20,6 @@ from .input import (
     GraphInput,
     Input,
     MissingInput,
-    OutputAddress,
 )
 from .node import (
     CompiledFunctionNode,

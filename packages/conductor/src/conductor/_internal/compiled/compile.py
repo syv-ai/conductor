@@ -42,7 +42,7 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from typing_extensions import is_protocol
 
-from conductor._internal.base import REQUIRED, is_name, split_address
+from conductor._internal.base import REQUIRED, Address, is_name
 from conductor._internal.context import ContextParameter, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
@@ -67,7 +67,6 @@ from .input import (
     GraphInput,
     Input,
     MissingInput,
-    OutputAddress,
 )
 from .node import (
     CompiledFunctionNode,
@@ -126,7 +125,7 @@ class _InputPlans:
     """
 
     inputs: dict[str, Input]
-    loops: tuple[OutputAddress, ...]
+    loops: tuple[Address, ...]
     required_branches: frozenset[RequiredBranch]
     bound: Mapping[TypeVar, Any] | None
 
@@ -178,20 +177,20 @@ class _Compiler:
                 known[node_record.id] = node_record
         self.problems += [problem.duplicate_node_id(node_id) for node_id in sorted(twice)]
         self.position = {node_id: i for i, node_id in enumerate(known)}
-        edges_into: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in known}
+        edges_into: dict[str, dict[str, list[Address]]] = {node_id: {} for node_id in known}
         seen: set[tuple[str, str]] = set()
-        for source, target in record.edges:
-            node_id, name = split_address(target)
-            source_id = split_address(source)[0]
-            if source_id in invalid_ids or node_id in invalid_ids:
+        for source_text, target_text in record.edges:
+            source, target = Address.parse(source_text), Address.parse(target_text)
+            node_id, name = target.node, target.name
+            if source.node in invalid_ids or node_id in invalid_ids:
                 continue  # the problem invalid_node_id covers this edge
-            if (source, target) in seen:
-                self.problems.append(problem.repeated_edge(node_id, name, source=source))
+            if (source_text, target_text) in seen:
+                self.problems.append(problem.repeated_edge(node_id, name, source=source_text))
                 continue
-            seen.add((source, target))
-            missing = [n for n in (source_id, node_id) if n not in known]
+            seen.add((source_text, target_text))
+            missing = [n for n in (source.node, node_id) if n not in known]
             if missing:
-                self.problems.append(problem.edge_names_missing_node(node_id, name, missing=missing[0], source=source, target=target))
+                self.problems.append(problem.edge_names_missing_node(node_id, name, missing=missing[0], source=source_text, target=target_text))
             if node_id in known:  # wired even when the source does not exist, so the input is no graph input
                 edges_into[node_id].setdefault(name, []).append(source)
         ordered = self._order(list(known), edges_into)
@@ -229,7 +228,7 @@ class _Compiler:
             return None
         return newest.version_of(record.version)
 
-    def _order(self, order: list[str], edges_into: dict[str, dict[str, list[str]]]) -> list[str]:
+    def _order(self, order: list[str], edges_into: dict[str, dict[str, list[Address]]]) -> list[str]:
         """Returns the node ids in the order they are compiled: each after the nodes its edges come from, and
         in the record's order where that leaves a choice.
 
@@ -238,7 +237,7 @@ class _Compiler:
         input it leads to gets no value. The rest of the cycle follows in order.
         """
         position = self.position
-        reads = {n: frozenset({split_address(s)[0] for sources in edges_into[n].values() for s in sources} & position.keys()) for n in order}
+        reads = {n: frozenset({source.node for sources in edges_into[n].values() for source in sources} & position.keys()) for n in order}
         downstream: dict[str, list[str]] = {n: [] for n in order}
         for n, sources in reads.items():
             for source in sources:
@@ -267,7 +266,7 @@ class _Compiler:
 
     # -- compiling a node -------------------------------------------------------
 
-    def _compile_function_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[str]]) -> None:
+    def _compile_function_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[Address]]) -> None:
         """Compiles a node whose definition is a function, and adds it to ``nodes``.
 
         Its inputs are those its definition declares and those its ``compute_added_inputs`` hook adds; each gets
@@ -324,7 +323,7 @@ class _Compiler:
         elif lacks := what_the_context_lacks(self.context_type, context.cls):
             self.problems.append(problem.context_does_not_fit_lacks(node_id, context.name, needs=needs, context_type=context_type, lacks=lacks))
 
-    def _compile_subgraph_node(self, record: NodeRecord, definition: SubgraphDefinition, edges: dict[str, list[str]]) -> None:
+    def _compile_subgraph_node(self, record: NodeRecord, definition: SubgraphDefinition, edges: dict[str, list[Address]]) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
 
         Example: the subgraph ``strip -> shout`` used as the node ``loud``. The subgraph's graph record is
@@ -358,7 +357,7 @@ class _Compiler:
 
     def _plan_inputs(
         self, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
-        edges: dict[str, list[str]], *, generic: bool = False,
+        edges: dict[str, list[Address]], *, generic: bool = False,
     ) -> _InputPlans:
         """Makes the compiled input of every input of a node, and works out which loops the node is inside.
 
@@ -423,7 +422,7 @@ class _Compiler:
                 if default is _INVALID:
                     inputs[name] = MissingInput(field)
                     continue
-                address = f"{record.id}.{name}"
+                address = str(Address(record.id, name))
                 # a default in the record replaces the node's own
                 caller_field = field if default is field.default else Field(name, field.hint, default)
                 self.graph_inputs.append((GraphInputDescription(address=address, node_id=record.id, field=caller_field.description), caller_field))
@@ -453,9 +452,9 @@ class _Compiler:
             if loops[: len(node_input.loops)] != node_input.loops:  # not the node's outermost loops: items of two different lists are never paired
                 series = [loops[-1], node_input.loops[-1]]
                 # the fix suggested: wire the list compiled first into the other node, which makes no cycle
-                outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node_id))
+                outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node))
                 reading = next(n for n, p in inputs.items() if p.loops == loops)
-                subgraphs = list(dict.fromkeys(port.node_id for port in series if isinstance(self.nodes[port.node_id], CompiledSubgraphNode)))
+                subgraphs = list(dict.fromkeys(port.node for port in series if isinstance(self.nodes[port.node], CompiledSubgraphNode)))
                 if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph: no wire to suggest
                     self.problems.append(problem.loops_not_nested_inside_subgraph(
                         record.id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
@@ -463,7 +462,7 @@ class _Compiler:
                 else:
                     self.problems.append(problem.series_not_nested(
                         record.id, series=[str(s) for s in series], inputs=[reading, name],
-                        wire_from=str(outer), wire_into=inner.node_id,
+                        wire_from=str(outer), wire_into=inner.node,
                     ))
                 inputs[name] = MissingInput(node_input.field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
@@ -535,7 +534,7 @@ class _Compiler:
 
     # -- edges ------------------------------------------------------------------
 
-    def _sources(self, node_id: str, name: str, addresses: list[str]) -> list[Edge] | None:
+    def _sources(self, node_id: str, name: str, addresses: list[Address]) -> list[Edge] | None:
         """Returns what the edges from ``addresses`` into one input read, in the record's order of their nodes
         and then of the outputs of each node.
 
@@ -567,7 +566,7 @@ class _Compiler:
                 return False
         return True
 
-    def _source(self, address: str, node_id: str, name: str) -> Edge | None:
+    def _source(self, address: Address, node_id: str, name: str) -> Edge | None:
         """Returns what an edge from ``address`` reads: ``node.output``, or ``node.output.field`` for one field
         of a record.
 
@@ -578,30 +577,27 @@ class _Compiler:
             The edge's source, which reads one item per call when the output is a ``Series``. ``None``, with a
             problem, when the address names no output of its node; ``None`` when its node was not compiled.
         """
-        source_id, rest = split_address(address)
-        source = self.nodes.get(source_id)
+        source = self.nodes.get(address.node)
         if source is None:  # not compiled, on a cycle and later, or no such node: a problem of its own says why
             return None
-        output, _, record_field = rest.partition(".")
-        if output not in source.outputs:  # a subgraph node's output: the output name the address goes on with
-            output = next((declared for declared in source.outputs if rest == declared or rest.startswith(f"{declared}.")), "")
-            record_field = rest[len(output) + 1 :]
-        field = source.outputs.get(output)
-        if field is None:
-            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
+        outputs = [str(Address(address.node, output)) for output in source.outputs]
+        named = address.output_and_field(source.outputs)
+        if named is None:
+            self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=outputs))
             return None
-        if record_field and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
+        output, record_field = named
+        field = source.outputs[output]
+        if record_field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
             self.problems.append(problem.unknown_output_make_a_series(
-                node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=record_field,
-                whole=parts[0], fields=parts[1],
+                node_id, name, source=str(address), outputs=outputs, record_field=record_field, whole=parts[0], fields=parts[1],
             ))
             return None
-        read_type = _field_type(field.type, record_field) if record_field else field.type
+        read_type = field.type if record_field is None else _field_type(field.type, record_field)
         if read_type is None:
-            fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
-            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=record_field or None))
+            fields = [str(Address.of_field(address.node, output, f)) for f in field.type.fields]
+            self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=record_field))
             return None
-        return Edge(source_id, output, source.loops_around(output), record_field or None, read_type, item=field.is_series)
+        return Edge(address.node, output, source.loops_around(output), record_field, read_type, item=field.is_series)
 
     def _edge_order(self, source: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index in the record, then by
@@ -694,7 +690,7 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     return collects, field.whole if not collects else field.type if record is None else record
 
 
-def _edge_input(field: Field, sources: list[Edge], deepest: tuple[OutputAddress, ...], loops: tuple[OutputAddress, ...], *, collects: bool) -> EdgeInput | CollectingInput:
+def _edge_input(field: Field, sources: list[Edge], deepest: tuple[Address, ...], loops: tuple[Address, ...], *, collects: bool) -> EdgeInput | CollectingInput:
     """Returns the compiled input of an input whose edges read ``sources``, for a node inside ``loops``.
 
     In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what
@@ -715,8 +711,7 @@ def _edge_input(field: Field, sources: list[Edge], deepest: tuple[OutputAddress,
         return EdgeInput(field, tuple(sources), deepest)
     if deepest == loops[: len(deepest)] and not any(s.item for s in sources):
         return EdgeInput(field, tuple(sources), deepest, as_list=True)
-    source_node, output = deepest[-1]
-    return CollectingInput(field, OutputAddress(source_node, output), deepest[:-1], tuple(sources))
+    return CollectingInput(field, deepest[-1], deepest[:-1], tuple(sources))
 
 
 def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Edge] | None]) -> dict[TypeVar, Any]:

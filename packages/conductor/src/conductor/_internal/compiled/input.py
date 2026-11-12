@@ -29,25 +29,11 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, ClassVar, NamedTuple, final
+from typing import Any, ClassVar, final
 
+from conductor._internal.base import Address
 from conductor._internal.field import Field
 from conductor._internal.types import Type
-
-
-class OutputAddress(NamedTuple):
-    """One output of one node, named in an address as ``node.output``.
-
-    Attributes:
-        node_id: The node.
-        output: The output's name.
-    """
-
-    node_id: str
-    output: str
-
-    def __str__(self) -> str:
-        return f"{self.node_id}.{self.output}"
 
 
 @final
@@ -57,7 +43,7 @@ class Edge:
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
     ``shout``, so it is ``Edge("lines", "result", (), None, Type(str), item=True)``. The edge from ``shout.result``
-    reads the value one call of ``shout`` returned, ``Edge("shout", "result", (OutputAddress("lines", "result"),),
+    reads the value one call of ``shout`` returned, ``Edge("shout", "result", (Address("lines", "result"),),
     None, Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index.
 
     Attributes:
@@ -76,7 +62,7 @@ class Edge:
 
     node_id: str
     output: str
-    loops: tuple[OutputAddress, ...]
+    loops: tuple[Address, ...]
     record_field: str | None
     type: Type
     item: bool
@@ -88,13 +74,13 @@ class Edge:
     @property
     def address(self) -> str:
         """The address an edge names it by, ``node.output`` or ``node.output.field``."""
-        return f"{self.node_id}.{self.output}.{self.record_field}" if self.record_field else f"{self.node_id}.{self.output}"
+        return str(Address.of_field(self.node_id, self.output, self.record_field))
 
     @property
-    def loops_of_value(self) -> tuple[OutputAddress, ...]:
+    def loops_of_value(self) -> tuple[Address, ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
         node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return (*self.loops, OutputAddress(self.node_id, self.output)) if self.item else self.loops
+        return (*self.loops, Address(self.node_id, self.output)) if self.item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -116,7 +102,7 @@ class ConstantInput:
     field: Field
     value: Any
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[OutputAddress, ...]] = ()
+    loops: ClassVar[tuple[Address, ...]] = ()
 
 
 @final
@@ -134,7 +120,7 @@ class MissingInput:
 
     field: Field
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[OutputAddress, ...]] = ()
+    loops: ClassVar[tuple[Address, ...]] = ()
 
 
 @final
@@ -153,7 +139,7 @@ class GraphInput:
     field: Field
     address: str
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[OutputAddress, ...]] = ()
+    loops: ClassVar[tuple[Address, ...]] = ()
 
 
 @final
@@ -178,7 +164,7 @@ class EdgeInput:
 
     field: Field
     sources: tuple[Edge, ...]
-    loops: tuple[OutputAddress, ...]
+    loops: tuple[Address, ...]
     as_list: bool = False
 
 
@@ -199,8 +185,8 @@ class CollectingInput:
     """
 
     field: Field
-    series: OutputAddress
-    loops: tuple[OutputAddress, ...]
+    series: Address
+    loops: tuple[Address, ...]
     sources: tuple[Edge, ...]
 
 

@@ -115,7 +115,8 @@ What changes in how you work, before the name-by-name tables:
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, constants=, defaults=)`
   writes a record from Python and compiles nothing: it raises one error listing what it can't write
   (a value for a node it wasn't given, a value with no JSON form, an edge that is no address
-  (`invalid_record` at `("record", "edges", index, end)`, as compiling the same record says it), a
+  (`invalid_record` at `("record", "edges", index, end)`, as compiling the same record says it), a key of
+  `constants` or `defaults` that is no address (`invalid_record` at `("record", "constants", key)`), a
   chain it can't draw), and an input a node doesn't have, a value its field refuses, a default no
   caller reaches or an edge whose types don't meet (`type_mismatch`) is in
   `Graph.compile(record, registry).problems`. A record's `constants`, `defaults` and

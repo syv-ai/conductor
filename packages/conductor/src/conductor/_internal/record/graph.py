@@ -11,24 +11,12 @@ from typing import Annotated
 
 from pydantic import AfterValidator, field_validator
 
-from conductor._internal.base import ConductorModel, split_address
+from conductor._internal.base import Address, ConductorModel
 
 from .node import JSON_ONLY, NodeRecord
 
-
-def _checked_address(address: str) -> str:
-    """``address`` once it reads ``node.field``, or ``node.output.field`` for one field of a record an output
-    holds; that field's own name may hold dots."""
-    node_id, rest = split_address(address)
-    field, dot, of_record = rest.partition(".")
-    if not node_id or not field or (dot and not of_record):
-        raise ValueError(f"{address!r} is not an address; write 'node.field', or 'node.output.field' for one field of a record")
-    return address
-
-
-#: An address, ``"node.field"`` or ``"node.output.field"`` for one field of a record an output holds: node ids and
-#: a node's field names hold no dot, so everything after the second is the record's field (``"split.result.Amount in USD."``).
-Address = Annotated[str, AfterValidator(_checked_address)]
+#: An address as a graph record writes it, ``"shout.line"``: text that ``Address.parse`` reads, kept as the text.
+AddressText = Annotated[str, AfterValidator(lambda text: str(Address.parse(text)))]
 
 
 class GraphRecord(ConductorModel):
@@ -44,7 +32,7 @@ class GraphRecord(ConductorModel):
     #: Any sequence going in; a tuple once built.
     nodes: Sequence[NodeRecord] = ()
     #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
-    edges: Sequence[tuple[Address, Address]] = ()
+    edges: Sequence[tuple[AddressText, AddressText]] = ()
 
     @field_validator("nodes")
     @classmethod
