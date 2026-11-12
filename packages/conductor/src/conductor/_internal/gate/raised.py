@@ -87,6 +87,16 @@ class AskDoor:
         return dict(given)
 
 
+def undeclared_ask(ask: Ask, inputs: dict[str, Any]) -> Question:
+    """The ``Ask`` door of a node that does not say it asks (no ``asks=True``, no ``Asked`` parameter): it refuses
+    every ``Ask``.
+
+    Raises:
+        RefusedError: Always, with ``ask_not_declared``.
+    """
+    raise RefusedError([problem.ask_not_declared()])
+
+
 def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
     """The choices an ``Ask`` offers for one output, as records with their ids in JSON form.
 

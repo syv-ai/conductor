@@ -237,6 +237,8 @@ class Scheduler:
         """
         if only_costs_nothing:
             arguments_for = _only_costs_nothing(arguments_for)
+        if answers:
+            arguments_for = _with_answers(arguments_for, answers)
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
         self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
         #: A person's answers to an ``Asked`` parameter, by node name and item indexes.
@@ -417,8 +419,6 @@ class Scheduler:
                 self.node_events.outcome_reused(node)
             self._record(node, item_indexes, previous, trying_every_call)
         else:
-            if self.answers and (answer := self._answer(node, item_indexes)) is not None:
-                arguments = {**arguments, answer.parameter: answer.value}
             if self.node_events is not None:
                 self.node_events.call_starts(node)
             if policy.threaded or policy.retries:
@@ -751,7 +751,7 @@ class Scheduler:
         calls it again, and it fails or asks then.
         """
         if error is None:
-            if self.answers and (answer := self._answer(node, item_indexes)) is not None:
+            if self.answers and (of_node := self.answers.get(node.name)) is not None and (answer := of_node.get(item_indexes)) is not None:
                 return Answered(outputs, answer.question)
             return Done(outputs)
         if self.only_costs_nothing:
@@ -762,11 +762,6 @@ class Scheduler:
             except RefusedError as refused:
                 return self._failure(node, item_indexes, refused)
         return self._failure(node, item_indexes, error)
-
-    def _answer(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> Answer | None:
-        """A person's answer to the ``Asked`` parameter of the call ``node`` ``item_indexes``, or ``None``."""
-        of_node = self.answers.get(node.name)
-        return None if of_node is None else of_node.get(item_indexes)
 
     def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException) -> Problem:
         """The problem for an exception a call raised, with the call's loc.
@@ -879,6 +874,26 @@ class Scheduler:
         checkpoints.next_at = time.monotonic() + checkpoints.every
         self._put_in_order()
         checkpoints.save(self.state)
+
+
+def _with_answers(
+    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
+    answers: dict[str, dict[ItemIndexes, Answer]],
+) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]]:
+    """``arguments_for``, with a person's answer to a call's ``Asked`` parameter among its arguments.
+
+    ``approve (1,)`` answered ``True`` gets ``{"invoice": ..., "ok": True}``, so ``call`` calls ``approve`` with it and
+    not ``approval``. Such a call waited for its answer, so no earlier run has an outcome it could reuse.
+    """
+
+    def with_answer(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
+        arguments = arguments_for(node, item_indexes)
+        of_node = answers.get(node.name)
+        if of_node is not None and type(arguments) is dict and (answer := of_node.get(item_indexes)) is not None:
+            return {**arguments, answer.parameter: answer.value}
+        return arguments
+
+    return with_answer
 
 
 def _only_costs_nothing(

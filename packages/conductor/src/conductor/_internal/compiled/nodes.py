@@ -22,10 +22,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from conductor._internal.ask import field_questions
+from conductor._internal.ask import Ask, Question, field_questions
 from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor
+from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.hashing import short_hash
 from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
 from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
@@ -178,10 +178,12 @@ class CompiledFunctionNode(_CompiledNodeBase):
         return field_questions(self.answer_fields)
 
     @functools.cached_property
-    def ask_door(self) -> AskDoor:
+    def ask_door(self) -> Callable[[Ask, dict[str, Any]], Question]:
         """Checks an ``Ask`` raised for the node against the fields its answer fills, and keeps it as the call's
-        question. Built when the node first asks."""
-        return AskDoor(self.answer_fields)
+        question; for a node that says neither ``asks=True`` nor has an ``Asked`` parameter, refuses it
+        (``ask_not_declared``). Built when the node first asks."""
+        definition = self.definition
+        return AskDoor(self.answer_fields) if definition.asks or definition.asked is not None else undeclared_ask
 
     @functools.cached_property
     def answer_door(self) -> AnswerDoor:

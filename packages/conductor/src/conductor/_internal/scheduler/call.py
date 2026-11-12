@@ -18,6 +18,7 @@ from pydantic_core import PydanticSerializationError
 from conductor._internal.ask import Ask
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.gate import RefusedError
+from conductor._internal.node_definition import AskedParameter
 from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import untyped_as_json
@@ -39,17 +40,40 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
 
     Returns:
         ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, error)``: what the
-        function raised; an ``Ask`` from a node that declares it may ask (``asks=True``, or from the function of
-        its ``Asked`` parameter); ``RefusedError`` for an argument or an output that its type refuses, or for an
-        ``Ask`` from a node that does not declare it (``ask_not_declared``). ``KeyboardInterrupt`` and
-        ``SystemExit`` are raised, not returned.
+        function raised, an ``Ask`` included (the node's ``Ask`` door, in the scheduler, refuses one the node did
+        not declare: ``ask_not_declared``); ``RefusedError`` for an argument or an output that its type refuses.
+        ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
     """
     compiled_node = node.compiled_node
     definition = compiled_node.definition
     try:
         if (edge_door := node.edge_door) is not None:
             arguments = edge_door(arguments)
-        if (asked := definition.asked) is not None and asked.field.name not in arguments:
+        if (asked := definition.asked) is not None:
+            return _call_with_asked(node, asked, arguments, context)
+        returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
+    except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
+        if isinstance(error, (KeyboardInterrupt, SystemExit)):
+            raise
+        return None, error
+    try:
+        return compiled_node.return_door(returned), None
+    except RefusedError as refused:
+        return None, refused
+
+
+def _call_with_asked(node: FlatFunctionNode, asked: AskedParameter, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | None]:
+    """``call`` for a node with an ``Asked`` parameter: the parameter's function first, unless a person's answer is
+    already among ``arguments``, then the node's function with the value.
+
+    Returns:
+        As ``call`` does. An ``Ask`` from the parameter's function is returned as it is; one from the node's own
+        function is ``RefusedError`` with ``ask_not_declared``, since a node with an ``Asked`` parameter asks through it.
+    """
+    compiled_node = node.compiled_node
+    definition = compiled_node.definition
+    try:
+        if asked.field.name not in arguments:
             given = {name: arguments[name] for name in asked.inputs}
             if asked.context is not None:
                 given[asked.context] = context
@@ -59,10 +83,10 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
                 return None, ask
             arguments = {**arguments, asked.field.name: value}
         returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
-    except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
+    except BaseException as error:  # noqa: BLE001  as in call
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise
-        if not definition.asks and isinstance(error, Ask):
+        if isinstance(error, Ask):
             return None, RefusedError([problem.ask_not_declared()])
         return None, error
     try:

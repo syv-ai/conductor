@@ -53,7 +53,7 @@ from conductor._internal.gate.declared import declared_field
 from conductor._internal.gate.edge import EdgeDoor, demands_more
 from conductor._internal.gate.hook import read_hook_fields
 from conductor._internal.gate.inputs import InputsDoor, check_limits
-from conductor._internal.gate.raised import AskDoor
+from conductor._internal.gate.raised import AskDoor, undeclared_ask
 from conductor._internal.gate.record import read_record, record_values
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.gate.returned import AskedValueDoor, ReturnDoor
@@ -62,5 +62,5 @@ from conductor._internal.gate.rules import numbers_refuse_bools, output_validato
 __all__ = [
     "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "RefusedError", "ReturnDoor", "bound_field", "check_limits", "declared_field",
     "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_values",
-    "validator_of",
+    "undeclared_ask", "validator_of",
 ]
