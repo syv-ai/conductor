@@ -32,6 +32,7 @@ from conductor._internal.base import (
     parse_loc_text,
 )
 from conductor._internal.compiled import (
+    CompiledGraph,
     FlatFunctionNode,
     outcome_loc,
 )
@@ -363,7 +364,7 @@ class Run[C]:
             del fresh._reusable[path]
         return fresh
 
-    def _reusable_outcomes(self, into: Graph | None = None) -> dict[NodePath, ReusableOutcomes]:
+    def _reusable_outcomes(self, into: CompiledGraph | None = None) -> dict[NodePath, ReusableOutcomes]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
         instance order, then the earlier work this run held and didn't take.
 
@@ -541,7 +542,7 @@ RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
-def no_outcomes(graph: Graph) -> dict[str, dict[ItemIndexes, Outcome]]:
+def no_outcomes(graph: CompiledGraph) -> dict[str, dict[ItemIndexes, Outcome]]:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
     return {node.name: {} for node in graph._flat_function_nodes}
