@@ -469,12 +469,14 @@ class Run:
         return {address: reader.display_value(display_plans_of(*self._function_of(address))) for address in self.graph.outputs}
 
     def outputs_json(self) -> str:
-        """The graph's outputs (``run.outputs``) as JSON, by address, each written by its output's type as a save
-        writes it: a table as its columns, a float that isn't finite as its text, a host's type by its own schema.
+        """Returns ``run.outputs`` as JSON text, by address: ``{"join.result":"A!+B!+C!"}`` for the README graph.
+
+        Each value is written by its output's type, as in a saved run: a table as its columns, ``inf`` and
+        ``nan`` as text, a host type by its own schema.
 
         Raises:
-            InvalidCallError: The run is not complete (``run_not_complete``), or an output holds a value with no
-                JSON form (``run_unwritable``, naming the output).
+            InvalidCallError: The run is not complete (``run_not_complete``), or a value cannot be written as
+                JSON (``run_unwritable``, naming the output).
         """
         return outputs_to_json(self)
 
@@ -502,20 +504,27 @@ class Run:
 
     @classmethod
     def from_json(cls, saved: str | bytes, graph: Graph) -> Run:
-        """The run of ``graph`` that ``run.to_json()`` wrote as ``saved``: ``Run.from_json(run.to_json(), graph)`` is ``run`` again.
+        """Returns the run that ``run.to_json()`` wrote as ``saved``, on the same ``graph``.
 
-        A graph with problems takes no run, so they are what is refused, before anything of the save is read. The
-        save is read once, by the graph's ``RunCodec``, from its JSON text, so each value is read as its type reads
-        JSON: a date, and a float that isn't finite, from their text.
+        ``Run.from_json(run.to_json(), graph)`` has the inputs, the outcomes and the state of ``run``, also in
+        another process. Each value is read the way its type reads JSON: a date from its text, for example.
 
         Raises:
-            InvalidCallError: The graph's problems; ``saved_run_of_another_graph``; or ``saved_run_unreadable`` at the place
-                pydantic names (the section, the node, the output, the slot), quoting nothing of a value.
+            InvalidCallError: ``graph`` has problems (they are raised, and nothing of ``saved`` is read);
+                ``saved`` was written for another graph (``saved_run_of_another_graph``); or ``saved`` is not a
+                saved run of this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the
+                output and the call number, and which quotes no value).
         """
         return run_from_json(cls, saved, graph)
 
     def to_json(self) -> str:
-        """The run as JSON: its inputs, each node's units as a column per output, and what it went on from."""
+        """Returns the whole run as JSON text: its inputs, its state, every node's outcomes, and the outcomes
+        it may still reuse from the previous run.
+
+        Raises:
+            InvalidCallError: A value cannot be written as JSON (``run_unwritable``, naming the input or the
+                output).
+        """
         return run_to_json(self)
 
     def _copy(self, *, share_outcomes: bool = False) -> Run:

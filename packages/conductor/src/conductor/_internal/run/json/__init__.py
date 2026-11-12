@@ -1,8 +1,9 @@
-"""A run as JSON: what a save holds, and how the runs of one graph are read from it and written as it.
+"""Reads a run from JSON and writes a run as JSON.
 
-Code outside this package imports from here only. ``type.py`` has ``SavedRun`` and the records inside it;
-``codec.py`` ``RunCodec`` and how one is composed for a graph; ``read.py`` units from their columns, ``write.py``
-units as columns.
+Code outside this package imports from here only, and ``Run`` is its one caller: ``run.to_json()`` is
+``run_to_json``, ``run.outputs_json()`` is ``outputs_to_json`` and ``Run.from_json(saved, graph)`` is
+``run_from_json``. ``type.py`` has the shape of a saved run, with the JSON shown in each docstring. ``codec.py``
+builds one graph's validator and serializer for that shape. ``read.py`` and ``write.py`` do the two directions.
 """
 
 from conductor._internal.run.json.codec import RunCodec, run_codec

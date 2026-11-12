@@ -115,8 +115,8 @@ What changes in how you work, before the name-by-name tables:
   ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `Run.from_json(saved, graph)`, which reads a save from its JSON text; a save that
-  doesn't fit is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save holds each node's
-  units as a column per output with a slot per instance, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the run stands under `state`;
+  doesn't fit is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save has each node's
+  outcomes as a list per output with one entry per call, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the run stands under `state`;
   a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
   calling the nodes only for the items that changed (`run.again(...)`). A leg's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
