@@ -15,7 +15,7 @@ catalogue = ProblemCatalogue()
 
 
 @catalogue.problem()
-def unknown_shelf(room: str, shelf: str, *, shelves: list[str], nearest: str | None = None) -> str:
+def unknown_shelf(room: str, shelf: str, /, *, shelves: list[str], nearest: str | None = None) -> str:
     """A book is put on a shelf the room doesn't have.
 
     Args:
@@ -28,7 +28,7 @@ def unknown_shelf(room: str, shelf: str, *, shelves: list[str], nearest: str | N
 
 
 @catalogue.problem("unknown_shelf", variant="another_room")
-def unknown_shelf_in_another_room(room: str, shelf: str, *, other: str) -> str:
+def unknown_shelf_in_another_room(room: str, shelf: str, /, *, other: str) -> str:
     """A book is put on a shelf that is in another room.
 
     Args:
@@ -68,6 +68,12 @@ def test_a_variant_is_a_second_sentence_under_the_code_and_says_so_in_ctx() -> N
     assert (made.type, made.msg, made.ctx) == ("unknown_shelf", "'top' is a shelf of 'hall', not of 'study'.", {"room": "study", "shelf": "top", "other": "hall", "variant": "another_room"})
 
 
+def test_a_part_of_loc_is_given_by_position_only_so_loc_and_ctx_always_agree() -> None:
+    """A part of ``loc`` given by name would be in ``ctx`` and missing from ``loc``; the signature refuses it."""
+    with pytest.raises(TypeError, match="positional-only"):
+        unknown_shelf(room="study", shelf="top", shelves=[])  # type: ignore[call-arg]
+
+
 def test_a_place_the_sentence_does_not_read_is_in_loc_alone() -> None:
     made = room_closed("study", 2, until="noon")
 
@@ -86,7 +92,7 @@ def test_a_kind_says_its_sentence_with_a_slot_for_each_key_and_types_its_ctx() -
     assert typing.get_type_hints(unknown_shelf_in_another_room.ctx_type)["variant"] == Literal["another_room"]
 
 
-def _positional_only(room: str, /, *, shelf: str) -> str:
+def _place_by_name(room: str, *, shelf: str) -> str:
     return ""
 
 
@@ -102,15 +108,15 @@ def _key_without_a_type(*loc: str | int, shelf) -> str:  # type: ignore[no-untyp
     return ""
 
 
-def _place_without_a_type(room, *, shelf: str) -> str:  # type: ignore[no-untyped-def]
+def _place_without_a_type(room, /, *, shelf: str) -> str:  # type: ignore[no-untyped-def]
     return ""
 
 
-def _place_with_a_default(room: str = "study", *, shelf: str) -> str:
+def _place_with_a_default(room: str = "study", /, *, shelf: str) -> str:
     return ""
 
 
-def _place_that_is_no_place(room: list[str], *, shelf: str) -> str:
+def _place_that_is_no_place(room: list[str], /, *, shelf: str) -> str:
     return ""
 
 
@@ -125,7 +131,7 @@ def _no_sentence(*loc: str | int, shelf: str) -> int:
 @pytest.mark.parametrize(
     ("say", "parameter"),
     [
-        (_positional_only, "room"),
+        (_place_by_name, "room"),
         (_var_keyword, "shelves"),
         (_default_other_than_none, "shelf"),
         (_key_without_a_type, "shelf"),

@@ -1,7 +1,8 @@
 """Every kind of problem conductor's core reports, one function each, in ``PROBLEMS``.
 
-A kind is a function under ``@PROBLEMS.problem()``. Its name is the problem's code. Its positional parameters are the
-parts of ``loc``, and a named one is a key of ``ctx`` too; its keyword-only parameters are the other keys of ``ctx``.
+A kind is a function under ``@PROBLEMS.problem()``. Its name is the problem's code. Its positional-only parameters
+(before the ``/``) and its ``*loc`` are the parts of ``loc``, and a named one is a key of ``ctx`` too; its keyword-only
+parameters are the other keys of ``ctx``.
 It returns the message. Calling it makes the problem::
 
     unknown_input("upper", "txet", inputs=["text"])
@@ -43,7 +44,7 @@ PROBLEMS.section(
 
 
 @PROBLEMS.problem()
-def alternatives_from_different_loops(node_id: str, field: str, *, series: list[str | None]) -> str:
+def alternatives_from_different_loops(node_id: str, field: str, /, *, series: list[str | None]) -> str:
     """Two edges into one input come from branches whose values are inside different loops.
 
     In the example, ``u.text`` has an edge from each branch of ``r``. The long branch gives one value per item of
@@ -117,7 +118,7 @@ def cycle(*loc: str | int) -> str:
 
 
 @PROBLEMS.problem()
-def default_on_later_node(node_id: str, field: str) -> str:
+def default_on_later_node(node_id: str, field: str, /) -> str:
     """The graph record gives a default to an input that is not a graph input.
 
     Only a graph input gets its value from the caller, so only there can a default be replaced. Write the value as a
@@ -138,7 +139,7 @@ def default_on_later_node(node_id: str, field: str) -> str:
 
 
 @PROBLEMS.problem()
-def duplicate_node_id(node_id: str) -> str:
+def duplicate_node_id(node_id: str, /) -> str:
     """Two nodes of the graph record have the same id.
 
     Give one of them another id. ``make_graph`` picks free ids itself: ``upper-1``, ``upper-2``.
@@ -193,7 +194,7 @@ def subgraph_contains_itself(*loc: str | int, node: str) -> str:
 
 
 @PROBLEMS.problem()
-def hook_needs_value(node_id: str, field: str) -> str:
+def hook_needs_value(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook reads an input that has no constant in the graph record.
 
     The node's inputs or outputs depend on that value, so it must be known when the graph is compiled. Give the input
@@ -210,7 +211,7 @@ def hook_needs_value(node_id: str, field: str) -> str:
 
 
 @PROBLEMS.problem()
-def invalid_node_id(node_id: str) -> str:
+def invalid_node_id(node_id: str, /) -> str:
     """A node's id contains ``.``, ``/``, ``@`` or ``~``.
 
     Those characters build addresses (``a.result``), node paths (``loud/shout``) and waiting ids (``a@1~3fa2``). Pick
@@ -226,7 +227,7 @@ def invalid_node_id(node_id: str) -> str:
 
 
 @PROBLEMS.problem()
-def invalid_value(node_id: str, field: str, *, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
+def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
     """A constant in the graph record is not a value of its input's type.
 
     ``reason`` says what the type refused, without quoting the value: a problem may be shown to anyone. ``errors`` is
@@ -248,7 +249,7 @@ def invalid_value(node_id: str, field: str, *, reason: str, errors: list[dict[st
 
 
 @PROBLEMS.problem(of_a_hook=True)
-def parameter_name_invalid(node_id: str, field: str) -> str:
+def parameter_name_invalid(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook returns an input or output name that cannot be one.
 
     A name may not be empty or contain ``.``, ``/`` or ``@``, since those build addresses. Change the hook.
@@ -273,7 +274,7 @@ def parameter_name_invalid(node_id: str, field: str) -> str:
 
 
 @PROBLEMS.problem()
-def repeated_edge(node_id: str, field: str, *, source: str) -> str:
+def repeated_edge(node_id: str, field: str, /, *, source: str) -> str:
     """The same edge is in the graph record twice.
 
     Remove one.
@@ -322,7 +323,7 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
 
 
 @PROBLEMS.problem()
-def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wire_from: str, wire_into: str) -> str:
+def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str], wire_from: str, wire_into: str) -> str:
     """A node reads one item of each of two series, and neither series is returned inside the loop over the other.
 
     In the example ``g`` would be called once per name and once per greeting, and nothing says which name goes with
@@ -351,7 +352,7 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
 
 
 @PROBLEMS.problem("series_not_nested", variant="inside_subgraph")
-def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs: list[str], subgraphs: list[str]) -> str:
+def loops_not_nested_inside_subgraph(node_id: str, /, *, series: list[str], inputs: list[str], subgraphs: list[str]) -> str:
     """As ``series_not_nested``, where the node that returns one of the two series is inside a subgraph.
 
     No edge of the outer graph can change how a subgraph loops. Give one of the series whole to a ``Series`` input,
@@ -380,7 +381,7 @@ def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs:
 
 
 @PROBLEMS.problem()
-def several_edges_into_one_input(node_id: str, field: str, *, sources: list[str]) -> str:
+def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[str]) -> str:
     """More than one edge into an input can give it a value for the same call.
 
     An input of one value takes several edges only when at most one of them has a value on each call: when they come
@@ -405,7 +406,7 @@ def several_edges_into_one_input(node_id: str, field: str, *, sources: list[str]
 
 
 @PROBLEMS.problem()
-def type_mismatch(node_id: str, field: str, *, source: str, got: str, expected: str) -> str:
+def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expected: str) -> str:
     """An edge's source gives a type its target does not take.
 
     Wire an output of the type the input takes, or put a node between that converts one into the other. Two
@@ -431,7 +432,7 @@ def type_mismatch(node_id: str, field: str, *, source: str, got: str, expected: 
 
 
 @PROBLEMS.problem("type_mismatch", variant="split_first")
-def type_mismatch_split_first(node_id: str, field: str, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
+def type_mismatch_split_first(node_id: str, field: str, /, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """A whole table or list is wired into an input that takes one value.
 
     A table or a list is one value. To call the node once per row or item, put a node between that returns them as a
@@ -460,7 +461,7 @@ def type_mismatch_split_first(node_id: str, field: str, *, source: str, got: str
 
 
 @PROBLEMS.problem("type_mismatch", variant="add_column")
-def type_mismatch_add_column(node_id: str, field: str, *, source: str, got: str, expected: str, column: str, column_type: str, has: list[str]) -> str:
+def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: str, expected: str, column: str, column_type: str, has: list[str]) -> str:
     """A table is wired into a ``Table[R]`` input that needs a column the table does not have.
 
     Wire a table that has every column the input needs, add the column in a node between, or type the input as a bare
@@ -499,7 +500,7 @@ def type_mismatch_add_column(node_id: str, field: str, *, source: str, got: str,
 
 
 @PROBLEMS.problem()
-def unbound_on_later_node(node_id: str, field: str) -> str:
+def unbound_on_later_node(node_id: str, field: str, /) -> str:
     """An input with no edge and no constant, on a node that is not one of the graph's first nodes.
 
     Only the inputs of a graph's first nodes (the nodes with no edge into them) are graph inputs, which the caller
@@ -519,7 +520,7 @@ def unbound_on_later_node(node_id: str, field: str) -> str:
 
 
 @PROBLEMS.problem()
-def unknown_input(node_id: str, field: str, *, inputs: list[str]) -> str:
+def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
     """A constant or an edge is for an input the node does not have.
 
     Use one of the inputs ``ctx.inputs`` lists. When a newer version of the node renamed the input,
@@ -622,7 +623,7 @@ def unknown_version(*loc: str | int, node: str, version: int, newest: int) -> st
 
 
 @PROBLEMS.problem()
-def constant_and_default(node_id: str, field: str) -> str:
+def constant_and_default(node_id: str, field: str, /) -> str:
     """An input has both a constant and a default in the graph record.
 
     Keep one: a constant fixes the input's value, a default makes it a graph input the caller may give.
@@ -638,7 +639,7 @@ def constant_and_default(node_id: str, field: str) -> str:
 
 
 @PROBLEMS.problem()
-def constant_and_edge(node_id: str, field: str) -> str:
+def constant_and_edge(node_id: str, field: str, /) -> str:
     """An input has both an edge into it and a constant in the graph record.
 
     Keep one: remove the edge or the constant.
@@ -706,7 +707,7 @@ def cannot_move_to_version(*loc: str | int, node: str, version: int, target: int
 
 
 @PROBLEMS.problem()
-def context_missing(node_id: str, parameter: str, *, needs: str, given: list[str]) -> str:
+def context_missing(node_id: str, parameter: str, /, *, needs: str, given: list[str]) -> str:
     """A node takes a ``Context[X]`` value, and the call's ``context`` has no value for ``X``.
 
     Pass the value by its class: ``graph.run(context={Caller: Caller("Ida")})``. A context value is never saved with
@@ -888,7 +889,7 @@ def missing_input(*loc: str | int, name: str) -> str:
 
 
 @PROBLEMS.problem()
-def node_not_in_graph(node_id: str, *, nodes: list[str]) -> str:
+def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
     """A call names a node the graph does not have.
 
     Name one of the nodes ``ctx.nodes`` lists.
@@ -905,7 +906,7 @@ def node_not_in_graph(node_id: str, *, nodes: list[str]) -> str:
 
 
 @PROBLEMS.problem()
-def not_a_chain(node_id: str, *, before: str, inputs: list[str], outputs: list[str]) -> str:
+def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: list[str]) -> str:
     """``make_graph`` is given no edges, and cannot wire one of its nodes to the node before it.
 
     Without ``edges=``, ``make_graph`` wires each node's one required input that has no constant to the one output of

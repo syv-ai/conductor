@@ -7,7 +7,7 @@ function, and keeps them in a ``ProblemCatalogue``::
     PROBLEMS = ProblemCatalogue()
 
     @PROBLEMS.problem()
-    def unknown_input(node_id: str, field: str, *, inputs: list[str]) -> str:
+    def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
         return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
 
     unknown_input("upper", "txet", inputs=["text"])
@@ -101,14 +101,15 @@ class ProblemKind[**Params]:
             _check_parameter(write_message.__name__, parameter)
         if signature.return_annotation is not str:
             raise TypeError(f"{write_message.__name__}: 'return' is the message a person reads; annotate it -> str")
-        self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_OR_KEYWORD)
+        self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_ONLY)
         self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
         # The message with "{key}" for each ctx value. A key that may be left out is not passed, so the function writes
         # the message it writes when the key is absent.
         placeholders = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
-        self.sentence = typing.cast("Callable[..., str]", write_message)(**placeholders)
+        loc_placeholders = [placeholders.pop(name) for name in self._loc_parameters]
+        self.sentence = typing.cast("Callable[..., str]", write_message)(*loc_placeholders, **placeholders)
         self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # fields built from the signature, which a type checker cannot follow
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
             **({"variant": Literal[variant]} if variant else {}),
@@ -132,14 +133,14 @@ def _check_parameter(function: str, parameter: Parameter) -> None:
     """
     prefix = f"{function}: parameter '{parameter.name}'"
     match parameter.kind:
-        case parameter.POSITIONAL_ONLY:
-            raise TypeError(f"{prefix} is positional-only; a part of loc is a named positional parameter, so remove the /")
+        case parameter.POSITIONAL_OR_KEYWORD:
+            raise TypeError(f"{prefix} can be given by name; a part of loc is positional-only, so put a / after it")
         case parameter.VAR_KEYWORD:
             raise TypeError(f"{prefix} is **{parameter.name}; a ctx key is a keyword-only parameter of its own, with its type")
         case parameter.VAR_POSITIONAL:
             if parameter.annotation != str | int:
                 raise TypeError(f"{prefix} is the parts of loc; annotate it *{parameter.name}: str | int")
-        case parameter.POSITIONAL_OR_KEYWORD:
+        case parameter.POSITIONAL_ONLY:
             if parameter.annotation not in (str, int):
                 raise TypeError(f"{prefix} is a part of loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key")
             if parameter.default is not parameter.empty:
@@ -190,10 +191,10 @@ class ProblemCatalogue:
               def timeout(*loc: str | int, seconds: float) -> str: ...
               timeout("fetch", 2, seconds=30.0)                    # ctx == {"seconds": 30.0}
 
-        - **A named positional parameter is a part of** ``loc`` **and a key of** ``ctx``, a ``str`` or an ``int``,
-          so the two always agree::
+        - **A positional-only parameter is a part of** ``loc`` **and a key of** ``ctx``, a ``str`` or an ``int``.
+          It cannot be given by name, so the two always agree::
 
-              def unknown_input(node_id: str, field: str, *, inputs: list[str]) -> str: ...
+              def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str: ...
               unknown_input("upper", "txet", inputs=["text"])      # loc == ("upper", "txet"), ctx has node_id and field
 
         - ``*loc: str | int`` **is the parts of** ``loc`` **the message does not use**; they are in ``loc`` only::
