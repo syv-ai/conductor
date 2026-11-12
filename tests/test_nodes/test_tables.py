@@ -230,7 +230,7 @@ def test_collect_refuses_a_column_named_twice():
 
 @pytest.mark.parametrize(("people", "expected"), [(3, {"column": "word", "records": 3, "values": 2}), (1, {"column": "word", "records": 1, "values": 2})])
 def test_collect_refuses_a_column_wired_from_another_series_than_its_records_naming_it(people: int, expected: dict[str, Any]):
-    """A column holds one value per record only when it is made per record: one from an unrelated Series is refused, longer or shorter."""
+    """A column has one value per record only when a node called once for each record returns it: one from another Series fails, longer or shorter."""
     @_node("people")
     def people_table() -> Table[Contact]:
         return pl.DataFrame({"name": [f"p{i}" for i in range(people)], "email": [None] * people}, schema={"name": pl.String, "email": pl.String})
@@ -244,7 +244,7 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     assert graph.problems == []
     cause = graph.run().state.cause
     assert (cause.type, cause.loc, cause.ctx) == ("columns_not_aligned", ("table-collect",), expected)
-    assert "'word' holds 2 values" in cause.msg and f"{people} record" in cause.msg and "once per record" in cause.msg
+    assert "'word' has 2 values" in cause.msg and f"{people} record" in cause.msg and "once for each of the same records" in cause.msg
 
 
 def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_per_record():
@@ -261,7 +261,7 @@ def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_
     assert graph.problems == []
     cause = graph.run().state.cause
     assert (cause.type, cause.ctx["values"]) == ("columns_not_aligned", 1)
-    assert "holds 1 value for" in cause.msg and "if it is one value for every record, name it in 'constant_columns'" in cause.msg
+    assert "has 1 value for" in cause.msg and "If it is one value for every record, name it in 'constant_columns'" in cause.msg
 
 
 def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():

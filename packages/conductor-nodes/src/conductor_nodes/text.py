@@ -65,7 +65,7 @@ def split(text: LongText, separator: Annotated[Line, Param(min_length=1)] = "\n"
     return text.split(separator) if text else []
 
 
-@registry.node("text-list", title="Text list", description="A list of texts you type in. Wire something to 'for each' to get the whole list once for each of those.")
+@registry.node("text-list", title="Text list", description="A list of texts that you enter. Wire a list of items to 'for each' to get the whole list once for each item.")
 def text_list(items: Annotated[list[str], Param(widget=ListInput())], for_each: Any = None) -> Annotated[Series[str], Param(title="Texts")]:
     """Returns ``items`` as a ``Series``.
 

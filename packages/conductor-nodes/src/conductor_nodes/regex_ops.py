@@ -37,7 +37,7 @@ def _as_node_error(invalid: str = "invalid_pattern", what: str = "pattern") -> I
     try:
         yield
     except TimeoutError:
-        raise NodeError("The pattern took too long.", code="pattern_timeout") from None
+        raise NodeError("The pattern took too long on this text. Try a simpler pattern.", code="pattern_timeout") from None
     except RegexError as error:
         raise NodeError(f"The {what} is not valid: {error}.", code=invalid) from None
 
@@ -69,7 +69,7 @@ def replace_all(
         return compiled.sub(replacement, text, timeout=TIMEOUT)
 
 
-@registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, one item for each.")
+@registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, so what follows runs once for each match.")
 def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
     """Returns every match as a ``Series``, or the first group of each match when the pattern has groups.
 

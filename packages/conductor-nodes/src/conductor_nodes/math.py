@@ -36,7 +36,7 @@ def multiply(a: Number, b: Number) -> Annotated[float, Param(title="Product")]:
 def divide(a: Number, b: Number) -> Annotated[float, Param(title="Quotient")]:
     """a / b; fails when b is 0."""
     if b == 0:
-        raise NodeError("Division by zero.", code="division_by_zero")
+        raise NodeError("Cannot divide by 0. Give a second number other than 0.", code="division_by_zero")
     return a / b
 
 
@@ -44,7 +44,7 @@ def divide(a: Number, b: Number) -> Annotated[float, Param(title="Quotient")]:
 def modulo(a: Number, b: Number) -> Annotated[float, Param(title="Remainder")]:
     """a % b; fails when b is 0."""
     if b == 0:
-        raise NodeError("Modulo by zero.", code="division_by_zero")
+        raise NodeError("Cannot divide by 0. Give a second number other than 0.", code="division_by_zero")
     return a % b
 
 
@@ -66,7 +66,7 @@ def round_to(
 def smallest(values: Numbers) -> Annotated[float, Param(title="Min")]:
     """The smallest of the numbers; fails when there are none."""
     if not values:
-        raise NodeError("There are no numbers.", code="no_numbers")
+        raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
     return min(values)
 
 
@@ -74,7 +74,7 @@ def smallest(values: Numbers) -> Annotated[float, Param(title="Min")]:
 def largest(values: Numbers) -> Annotated[float, Param(title="Max")]:
     """The largest of the numbers; fails when there are none."""
     if not values:
-        raise NodeError("There are no numbers.", code="no_numbers")
+        raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
     return max(values)
 
 
