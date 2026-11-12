@@ -12,7 +12,7 @@ import functools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, Self
+from typing import Any, Literal, Protocol
 
 from pydantic import JsonValue
 
@@ -172,21 +172,6 @@ class _Version:
         """Every version number, newest first."""
         return (self.version, *(step.version for step in self._replaced))
 
-    def with_defaults(self, *, tags: tuple[str, ...], category: str, extra: Mapping[str, JsonValue]) -> Self:
-        """Returns this version, and each version it replaces, with a registry's defaults under its own.
-
-        ``shout`` declared with ``tags=("text",)`` and no category, added to a registry with ``tags=("demo",)`` and
-        ``category="Text"``, becomes ``tags=("demo", "text")`` and ``category="Text"``. The registry's tags come
-        first; the node's own category, and its own ``extra`` keys, win. When nothing changes, it is this version.
-        """
-        merged_tags = tuple(dict.fromkeys((*tags, *self.tags)))
-        merged_category = self.category or category
-        merged_extra = {**extra, **self.extra}
-        replaces = None if self.replaces is None else self.replaces.with_defaults(tags=tags, category=category, extra=extra)
-        if (merged_tags, merged_category, merged_extra, replaces) == (self.tags, self.category, dict(self.extra), self.replaces):
-            return self
-        return dataclasses.replace(self, tags=merged_tags, category=merged_category, extra=MappingProxyType(merged_extra), replaces=replaces)
-
     def described_as[D: FunctionNodeDescription | SubgraphDescription](self, record: type[D], **more: Any) -> D:
         """Describes this version as an editor's palette shows it.
 
@@ -258,13 +243,6 @@ class FunctionDefinition[**P, R](_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
 
-    def where_declared(self) -> str:
-        """Returns where this node was written, for a message that names it: its function's module and name.
-
-        For ``def shout(...)`` in the module ``readme``, it is ``readme.shout``.
-        """
-        return qualified_name(self.function)
-
     def describe(self) -> FunctionNodeDescription:
         """The node as an editor's palette shows it."""
         return self.described_as(
@@ -298,18 +276,39 @@ class SubgraphDefinition(_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
 
-    def where_declared(self) -> str:
-        """Returns where this node was written, for a message that names it: a subgraph has no module, so its title
-        and versions.
-
-        For ``subgraph("loud", title="Loud lines")`` at its second version, it is ``the subgraph titled 'Loud lines'
-        (versions 2, 1)``.
-        """
-        return f"the subgraph titled {self.title!r} (versions {', '.join(map(str, self.versions))})"
 
 
 #: One version of a node: a function, or a subgraph.
 type NodeDefinition = FunctionDefinition[..., Any] | SubgraphDefinition
+
+
+def with_defaults(definition: NodeDefinition, *, tags: tuple[str, ...], category: str, extra: Mapping[str, JsonValue]) -> NodeDefinition:
+    """Returns ``definition``, and each version it replaces, with a registry's defaults under its own.
+
+    ``shout`` declared with ``tags=("text",)`` and no category, added to a registry with ``tags=("demo",)`` and
+    ``category="Text"``, becomes ``tags=("demo", "text")`` and ``category="Text"``. The registry's tags come first;
+    the node's own category, and its own ``extra`` keys, win. When nothing changes, it is ``definition`` itself.
+    """
+    merged_tags = tuple(dict.fromkeys((*tags, *definition.tags)))
+    merged_category = definition.category or category
+    merged_extra = {**extra, **definition.extra}
+    replaces = None if definition.replaces is None else with_defaults(definition.replaces, tags=tags, category=category, extra=extra)
+    if (merged_tags, merged_category, merged_extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
+        return definition
+    return dataclasses.replace(definition, tags=merged_tags, category=merged_category, extra=MappingProxyType(merged_extra), replaces=replaces)
+
+
+def where_declared(definition: NodeDefinition) -> str:
+    """Returns where a node was written, for a message that names it.
+
+    For ``def shout(...)`` in the module ``readme`` it is ``readme.shout``. A subgraph has no module, so it is its
+    title and versions: ``the subgraph titled 'Loud lines' (versions 2, 1)``.
+    """
+    match definition:
+        case FunctionDefinition():
+            return qualified_name(definition.function)
+        case SubgraphDefinition():
+            return f"the subgraph titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
 
 
 def _version_of(version_chain: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:

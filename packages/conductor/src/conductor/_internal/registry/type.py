@@ -62,6 +62,8 @@ from conductor._internal.node import (
     SubgraphDescription,
     node,
     subgraph,
+    where_declared,
+    with_defaults,
 )
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
@@ -206,7 +208,7 @@ class NodeRegistry[C]:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
-        nodes = {**self._nodes, definition.id: definition.with_defaults(tags=self._tags, category=self._category, extra=self._extra)}
+        nodes = {**self._nodes, definition.id: with_defaults(definition, tags=self._tags, category=self._category, extra=self._extra)}
         self._set_contents(nodes, self._named_types)
 
     def remove(self, node_id: str) -> None:
@@ -250,8 +252,8 @@ class NodeRegistry[C]:
         for definition in definitions:
             held = nodes.get(definition.id)
             if held is not None:
-                raise NodeDeclarationError(declaration.duplicate_node_id(id=definition.id, first=held.where_declared(), second=definition.where_declared()))
-            nodes[definition.id] = definition.with_defaults(tags=self._tags, category=self._category, extra=self._extra)
+                raise NodeDeclarationError(declaration.duplicate_node_id(id=definition.id, first=where_declared(held), second=where_declared(definition)))
+            nodes[definition.id] = with_defaults(definition, tags=self._tags, category=self._category, extra=self._extra)
         return nodes
 
     def _set_contents(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...]) -> None:

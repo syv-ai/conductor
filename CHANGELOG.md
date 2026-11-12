@@ -67,9 +67,7 @@ What changes in how you work, before the name-by-name tables:
   generic's class (`list[str]` names `list`); `Any`, `None`, a type alias and a table name none.
 - **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
   `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (`subgraph(...)(record)` returns a `SubgraphDefinition`,
-  with no function to call; `NodeDefinition` is either). `definition.with_defaults(tags=, category=, extra=)`
-  is the definition with a registry's defaults under its own, as `registry.add` stores it, and
-  `definition.where_declared()` the text an error names it by (`readme.shout`). Its title and description are
+  with no function to call; `NodeDefinition` is either). Its title and description are
   required, and the docstring never reaches a person. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
   keeps (pydantic metadata, so its limits and choices apply inside your own `BaseModel` or dataclass
