@@ -1,4 +1,4 @@
-"""``Graph``: the compiled graph a host holds, with the calls that make a run of it and how its runs are saved."""
+"""``Graph``: the compiled graph a host uses, with the calls that make a run of it and how its runs are saved."""
 
 from __future__ import annotations
 

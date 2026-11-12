@@ -1,22 +1,16 @@
-"""``Run``: a graph's inputs and every unit's result, as one value that writes itself as JSON.
+"""``Run``: a graph's inputs and the outcome of every call so far, as one value that writes itself as JSON.
 
-A unit is one node in one instance of its scope: the node's one call, or its
-call for one item. A unit is ``Done`` (its outputs kept), ``Answered`` (done
-by a person), ``Skipped`` (a branch not taken), ``NotCalled`` (an input got
-nothing, so the node wasn't called) or ``Unanswered`` (it waits for a person). A
-unit with no entry hasn't run yet. Going on is one leg: start every unit
-whose inputs exist, until nothing more can start. So a run can stop anywhere
-(a person to ask, a failure, the item ceiling, a timeout) and carry on from
-its JSON in another process.
+For the README graph, ``graph.run(text="a\\nb")`` calls ``lines`` once, ``shout`` once per line and ``join`` once, and
+the run keeps one outcome per call: ``Done`` (it returned), ``Answered`` (a person answered for it), ``Skipped`` (it
+is on a branch that was not chosen), ``NotCalled`` (an argument was ``None`` and its input does not accept ``None``)
+or ``Unanswered`` (it asked a person and waits for an answer). A call with no outcome has not been made yet.
+``resume()`` calls every node that is ready, until the run is complete, waiting, failed or stopped, so a run can
+stop anywhere (a person to ask, a failure, the item limit, a timeout) and go on from its JSON in another process.
 
-A node inside a subgraph has units as any node has: one for each item
-its subgraph node runs for, and under it for each item of its own scope. Its
-open inputs read what the subgraph node is given, and what reads the
-subgraph node reads the unit inside that holds the output. The subgraph
-node itself holds no unit: what a run says of it is read from the units
-inside. Where something is, at any depth of subgraphs, is one path of
-node ids and item positions: ``("e", 0, "ask", 2)`` is ``ask``'s third item
-inside ``e``'s first.
+A node inside a subgraph has calls as any node has: one per item its subgraph node is called for, and in each of
+those one per item of its own loops. The subgraph node is never called itself: what a run says of it is read from
+the calls of the nodes inside. A place at any depth of subgraphs is one path of node ids and item indexes:
+``("e", 0, "ask", 2)`` is the call of ``ask`` for its third item inside the first call of ``e``.
 """
 
 from __future__ import annotations

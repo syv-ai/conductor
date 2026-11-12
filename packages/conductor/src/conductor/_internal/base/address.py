@@ -22,7 +22,7 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   writes its edges and its constants with addresses.
 
 Because these are written with ``.``, ``/``, ``@`` and ``~`` (``~`` comes before the fingerprint of a waiting
-call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output holds one of them (``is_name``).
+call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output contains one of them (``is_name``).
 """
 
 from __future__ import annotations

@@ -19,11 +19,11 @@ follow the registry's, its ``category`` is its own when it sets one, and
 each ``extra`` key is its own when it sets that key. A subregistry is
 copied in when it is added, so changing it afterwards changes nothing here.
 
-The registry also holds which value types exist: the ones its nodes
+A registry also knows which value types exist: the ones its nodes
 declare on their inputs and outputs, plus the ``types`` a host names, each
 under its id: conductor's own types from a fixed table, a host's class by
 the id its ``@host_type`` declares. Nothing about a type is process-wide, so two
-registries in one process may each hold a ``text`` of their own; one id
+registries in one process may each have a ``text`` of their own; one id
 claimed by two classes in one registry raises where the second arrives,
 naming both. ``describe()`` is what an editor reads: every node and every
 type, once, as a ``RegistryDescription``, each type with the ids of every

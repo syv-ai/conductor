@@ -32,8 +32,8 @@ here. A definition is one version, and each version names the one before it in
     def split(text: str, separator: str = "\\n") -> Series[str]: ...
 
 Two hooks shape a node from what it is given in one graph, each a plain
-function run when a graph is loaded, never per call. A parameter of a hook
-names an input of the node and receives the value typed into it (or its
+function called when a graph is compiled, never per call. A parameter of a hook
+names an input of the node and receives the input's constant in the graph record (or its
 default); a parameter annotated ``type`` receives the type arriving on the
 input of that name by its edge (``Any`` until one does), and ``**added: type``
 on ``compute_outputs`` receives the type arriving on each input
@@ -46,8 +46,8 @@ inputs, which the function takes as ``**kwargs``; ``compute_outputs`` gives
 every output, and the function returns them as a mapping. A hook that raises
 is a problem of the graph, not an exception.
 
-A graph record can be a node too, a subgraph: ``subgraph("enrich", title="Enrich", description="...")(record)``. Loading a
-graph that uses it puts the subgraph's nodes in its place.
+A graph record can be a node too, a subgraph: ``subgraph("enrich", title="Enrich", description="...")(record)``. A run of a
+graph that uses it calls the subgraph's nodes where the node is.
 """
 
 from __future__ import annotations
