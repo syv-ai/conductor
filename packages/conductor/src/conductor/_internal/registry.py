@@ -46,6 +46,7 @@ from typing import Any, Concatenate
 
 from pydantic import JsonValue
 
+from conductor._internal.address import split_address
 from conductor._internal.compiled import CompiledGraph, compile_graph
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.graph_record import GraphRecord, NodeRecord, as_record, values_as_json
@@ -61,6 +62,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.text import comma_separated, plural, qualified_name
 from conductor._internal.value_type import Type
 
 
@@ -110,7 +112,7 @@ class NodeRegistry:
         if not self._nodes:
             return "<NodeRegistry of 0 nodes>"
         lines = "".join(f"    {definition!r}\n" for definition in self._nodes.values())
-        return f"<NodeRegistry of {len(self._nodes)} node{'s' if len(self._nodes) > 1 else ''}:\n{lines}>"
+        return f"<NodeRegistry of {plural(len(self._nodes), 'node')}:\n{lines}>"
 
     def __contains__(self, node_id: object) -> bool:
         return node_id in self._nodes
@@ -235,7 +237,7 @@ class NodeRegistry:
         self._graph_descriptions = {}
 
     def _not_here(self, node_id: str) -> KeyError:
-        return KeyError(f"{node_id!r} is not registered here; the ids are {', '.join(self._nodes) or 'none'}")
+        return KeyError(f"{node_id!r} is not registered here; the ids are {comma_separated(self._nodes)}")
 
     # -- the types ---------------------------------------------------------------
 
@@ -359,7 +361,7 @@ def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
     A field of a record named after it (``result.email``) moves with it. A subgraph's output is named by an
     inner address (``tail.result``), so the longest renamed name the address goes on with is the one it names.
     """
-    owner, _, rest = address.partition(".")
+    owner, rest = split_address(address)
     if owner != node_id:
         return address
     for name in sorted(renames, key=len, reverse=True):
@@ -375,7 +377,7 @@ def _by_id(types: Iterable[type]) -> dict[str, type]:
         existing = by_id.setdefault(Type(held).id, held)
         if existing is not held:
             raise NodeDeclarationError(
-                f"type id {Type(held).id!r} is declared by both {_qualified_name(existing)} and {_qualified_name(held)}; "
+                f"type id {Type(held).id!r} is declared by both {qualified_name(existing)} and {qualified_name(held)}; "
                 "one registry holds one type per id",
                 code="duplicate_type_id",
             )
@@ -386,7 +388,7 @@ def _where_declared(definition: NodeDefinition) -> str:
     """Where a node was written: its function's module and name, or the graph it is."""
     match definition:
         case FunctionDefinition(function=function):
-            return f"{function.__module__}.{function.__qualname__}"
+            return qualified_name(function)
         case SubgraphDefinition():
             return f"a node that is a graph, titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
 
@@ -404,6 +406,3 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
             found.extend(cls for field in fields for cls in field.whole.classes)
     return list(dict.fromkeys(found))
 
-
-def _qualified_name(held: type) -> str:
-    return f"{held.__module__}.{held.__qualname__}"

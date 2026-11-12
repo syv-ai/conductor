@@ -3,14 +3,13 @@ fingerprint of what a unit received, and which earlier unit a unit takes."""
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.canonical_json import canonical_json
+from conductor._internal.hashing import canonical_json, short_hash
 from conductor._internal.outcomes import NotReady
 from conductor._internal.value_type import untyped_to_hash
 
@@ -100,4 +99,4 @@ def arguments_fingerprint(code_fingerprint: str, arguments: dict[str, Any], *, p
         written = pydantic_core.to_json([code_fingerprint, arguments], fallback=untyped_to_hash) if plain else canonical_json([code_fingerprint, arguments], fallback=untyped_to_hash)
     except (TypeError, ValueError, PydanticSerializationError):
         return None
-    return hashlib.blake2b(written, digest_size=12).hexdigest()
+    return short_hash(written, 12)

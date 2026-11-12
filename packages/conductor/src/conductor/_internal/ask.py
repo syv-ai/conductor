@@ -17,7 +17,6 @@ against that record and the node's types before anything runs.
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -27,10 +26,11 @@ import pydantic_core
 from pydantic import JsonValue
 
 from conductor._internal.address import Loc, loc_text
-from conductor._internal.canonical_json import canonical_json
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.hashing import canonical_json, short_hash
 from conductor._internal.markers import REQUIRED, SKIPPED
+from conductor._internal.text import comma_separated
 from conductor._internal.value_type import Choice, FieldValueError
 
 if TYPE_CHECKING:
@@ -199,7 +199,7 @@ def _by_output(given: Any, outputs: Mapping[str, Field], argument: str) -> dict[
         raise InvalidAskError(f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too")
     for name in given:
         if name not in outputs:
-            raise InvalidAskError(f"the {argument} names '{name}', which is not an output; the outputs are {', '.join(outputs) or 'none'}")
+            raise InvalidAskError(f"the {argument} names '{name}', which is not an output; the outputs are {comma_separated(outputs)}")
     return dict(given)
 
 
@@ -320,7 +320,7 @@ def answer_outputs(compiled_node: CompiledFunctionNode, value: Any, overrides: M
     if value is None and not outputs:
         return {}, []  # a node that returns nothing is answered with nothing: the person only says to go on
     if not isinstance(value, Mapping):
-        return {}, [(None, f"answer each question by name: a mapping of {', '.join(outputs) or 'nothing'}")]
+        return {}, [(None, f"answer each question by name: a mapping of {comma_separated(outputs, empty='nothing')}")]
     faults: list[tuple[str | None, str]] = [(str(name), f"there is no question '{name}'") for name in value if name not in outputs]
     read: dict[str, Any] = {}
     groups: dict[str, list[str]] = {}
@@ -389,4 +389,4 @@ def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: outcomes.
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
     hashed = [compiled_node.id, compiled_node.code_fingerprint, values]
     written = canonical_json(hashed) if {type(v) for v in values} & {dict, list} else pydantic_core.to_json(hashed)  # plain values have no keys to sort
-    return hashlib.blake2b(written, digest_size=4).hexdigest()
+    return short_hash(written, 4)

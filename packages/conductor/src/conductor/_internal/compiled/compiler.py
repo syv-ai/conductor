@@ -29,6 +29,7 @@ from typing import Annotated, Any, Literal, TypeVar
 
 from pydantic import StringConstraints, TypeAdapter, ValidationError
 
+from conductor._internal.address import split_address
 from conductor._internal.compiled.describe import GraphInput
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
@@ -140,14 +141,15 @@ class _Compiler:
         into: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in known}
         seen: set[tuple[str, str]] = set()
         for source, target in record.edges:
-            node_id, _, name = target.partition(".")
-            if source.partition(".")[0] in refused or node_id in refused:
+            node_id, name = split_address(target)
+            source_id = split_address(source)[0]
+            if source_id in refused or node_id in refused:
                 continue  # its own invalid_node_id says why
             if (source, target) in seen:
                 self.problems.append(problem.repeated_edge(node_id, name, source=source))
                 continue
             seen.add((source, target))
-            missing = [n for n in (source.partition(".")[0], node_id) if n not in known]
+            missing = [n for n in (source_id, node_id) if n not in known]
             if missing:
                 self.problems.append(problem.edge_names_missing_node(node_id, name, missing=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
@@ -194,7 +196,7 @@ class _Compiler:
         whose edge closes the cycle, so that edge brings it nothing, and the rest follow in order.
         """
         position = self.position
-        reads = {n: frozenset({s.partition(".")[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
+        reads = {n: frozenset({split_address(s)[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
         downstream: dict[str, list[str]] = {n: [] for n in order}
         for n, sources in reads.items():
             for source in sources:
@@ -285,7 +287,7 @@ class _Compiler:
         fields = {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in inner._input_fields.values()}
         outputs: dict[str, Field] = {}
         for address in inner.outputs:
-            node_id, _, output = address.partition(".")
+            node_id, output = split_address(address)
             at = inner._nodes[node_id]
             field = at.outputs[output]
             group = field.param.exclusive_group
@@ -505,7 +507,7 @@ class _Compiler:
             An item of a ``Series`` output, or an output's one value; ``None`` with the problem when the address
             names nothing its node gives, and ``None`` when its node isn't placed.
         """
-        source_id, _, rest = address.partition(".")
+        source_id, rest = split_address(address)
         source = self.nodes.get(source_id)
         if source is None:  # a node whose fields aren't known, one placed later on a cycle, or none: its own problem says why
             return None

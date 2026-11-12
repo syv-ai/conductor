@@ -38,6 +38,7 @@ from typing import Annotated, Any
 from pydantic import AfterValidator, ConfigDict, Field, JsonValue, ValidationError, field_validator
 from pydantic_core import PydanticSerializationError, from_json, to_json
 
+from conductor._internal.address import split_address
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -48,7 +49,7 @@ from conductor._internal.value_type import kind_of_value
 def _checked_address(address: str) -> str:
     """``address`` once it reads ``node.field``, or ``node.output.field`` for one field of a record an output
     holds; that field's own name may hold dots."""
-    node_id, _, rest = address.partition(".")
+    node_id, rest = split_address(address)
     field, dot, of_record = rest.partition(".")
     if not node_id or not field or (dot and not of_record):
         raise ValueError(f"{address!r} is not an address; write 'node.field', or 'node.output.field' for one field of a record")

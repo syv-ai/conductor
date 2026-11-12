@@ -1,4 +1,4 @@
-"""Three ways to say where something is in a run, and the text form of each.
+"""Four ways to say where something is in a graph or a run, and the text form of each.
 
 The example used in this file: a graph has a node ``e``, which is a subgraph (a graph record used as
 one node). ``e`` is called once per document. Inside it, a node ``ask`` is called once per line of the document.
@@ -9,6 +9,8 @@ one node). ``e`` is called once per document. Inside it, a node ``ask`` is calle
   node adds to the item indexes: ``e`` is called per document, so one position follows it, and ``ask`` adds one
   more for the line. As text it is ``"e@0/ask@2"``. A loc is what the application that uses the library is
   given when it is told about one call, for example a call that waits for a person's answer.
+- An **address** is the text that names one input or output of a node: ``"ask.result"``. A graph record writes
+  its edges and constants with addresses.
 """
 
 from __future__ import annotations
@@ -26,6 +28,18 @@ ItemIndexes = tuple[int, ...]
 #: item indexes. ``("e", 0, "ask", 2)`` is the node path ``("e", "ask")`` with the item indexes ``(0, 2)``. A node
 #: inside two loops of its own graph has two positions after its id: ``("clean", 0, 1)``.
 Loc = tuple[str | int, ...]
+
+
+def split_address(address: str) -> tuple[str, str]:
+    """Split an address at its first dot into the node id and the name after it.
+
+    ``split_address("shout.line")`` returns ``("shout", "line")``. A node id has no dot in it, so everything after
+    the first dot is the name: ``split_address("split.result.amount")`` returns ``("split", "result.amount")``,
+    the output ``result`` and one field of the record it returns. Text with no dot is all node id:
+    ``split_address("shout")`` returns ``("shout", "")``.
+    """
+    node_id, _, name = address.partition(".")
+    return node_id, name
 
 
 def loc_text(loc: Loc) -> str:

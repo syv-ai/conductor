@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import JsonValue, ValidationError
 
+from conductor._internal.address import split_address
 from conductor._internal.graph_record import GraphRecord, NodeRecord, not_a_record, values_as_json
 from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
@@ -58,7 +59,7 @@ def make_graph(
     for given, typed in ((constants, typed_constants), (defaults, typed_defaults)):
         by_node: dict[str, dict[str, Any]] = {}
         for address, value in given.items():
-            node_id, _, name = address.partition(".")
+            node_id, name = split_address(address)
             if node_id not in typed:
                 problems.append(problem.node_not_in_graph(node_id, nodes=ids))
             else:

@@ -11,12 +11,10 @@ output, never a node inside it. Its nodes as the compiler places them are in
 from __future__ import annotations
 
 import functools
-import hashlib
 from dataclasses import dataclass
 from typing import Any
 
 from conductor._internal.address import NodePath
-from conductor._internal.canonical_json import canonical_json
 from conductor._internal.compiled.describe import (
     GraphDescription,
     GraphInput,
@@ -34,8 +32,10 @@ from conductor._internal.compiled.nodes import (
 )
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord
+from conductor._internal.hashing import canonical_json, short_hash
 from conductor._internal.node_definition import FunctionDefinition
 from conductor._internal.problem import Problem
+from conductor._internal.text import plural
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,8 +77,8 @@ class CompiledGraph:
     _needs_context: list[tuple[str, FunctionDefinition[..., Any]]]
 
     def __repr__(self) -> str:
-        state = "runnable" if self.is_runnable else f"{len(self.problems)} problem{'s' if len(self.problems) != 1 else ''}"
-        return f"<{type(self).__name__} of {len(self.record.nodes)} node{'s' if len(self.record.nodes) != 1 else ''}, {state}>"
+        state = "runnable" if self.is_runnable else plural(len(self.problems), "problem")
+        return f"<{type(self).__name__} of {plural(len(self.record.nodes), 'node')}, {state}>"
 
     # -- what a host reads ------------------------------------------------------
 
@@ -179,4 +179,4 @@ class CompiledGraph:
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
-        return hashlib.blake2b(canonical_json([own, subgraph_fingerprints]), digest_size=8).hexdigest()
+        return short_hash(canonical_json([own, subgraph_fingerprints]), 8)

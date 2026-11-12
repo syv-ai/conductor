@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import inspect
 import typing
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping
 from inspect import Parameter
 from typing import Any, Literal, NotRequired, TypedDict, Union, final
 
@@ -194,7 +194,3 @@ class ProblemCatalogue:
         """Every code the catalogue's kinds write."""
         return frozenset(kind.code for kind in self._kinds)
 
-
-def comma_separated(items: Sequence[object]) -> str:
-    """Items as a sentence writes them: joined by commas, ``none`` when there are none."""
-    return ", ".join(str(item) for item in items) or "none"

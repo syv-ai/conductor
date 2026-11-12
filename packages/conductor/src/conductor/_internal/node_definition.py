@@ -72,6 +72,7 @@ from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import CallRejectedError, InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.text import comma_separated
 from conductor._internal.value_type import Type
 
 
@@ -636,7 +637,7 @@ class HookOutputs:
     def spread(self, returned: Any, outputs: Mapping[str, Field]) -> tuple[dict[str, Any], bool]:
         """Each output of the mapping returned, to be checked; one missing or not an output is refused."""
         if not isinstance(returned, Mapping):
-            raise CallRejectedError(problem.invalid_output(reason=f"the node returns its outputs as a mapping of {', '.join(outputs) or 'nothing'}, not a {type(returned).__name__}"))
+            raise CallRejectedError(problem.invalid_output(reason=f"the node returns its outputs as a mapping of {comma_separated(outputs, empty='nothing')}, not a {type(returned).__name__}"))
         unknown = sorted(set(returned) - outputs.keys())
         missing = [name for name in outputs if name not in returned]
         if unknown or missing:

@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from conductor._internal.problem.type import ProblemCatalogue, comma_separated
+from conductor._internal.problem.type import ProblemCatalogue
+from conductor._internal.text import comma_separated
 
 #: The kinds of problem conductor's core writes.
 PROBLEMS = ProblemCatalogue()

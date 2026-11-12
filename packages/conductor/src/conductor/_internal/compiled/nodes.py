@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import functools
-import hashlib
 import inspect
 import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from conductor._internal.address import split_address
 from conductor._internal.ask import output_questions
 from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.hashing import short_hash
 from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
 from conductor._internal.outcomes import Skipped, outputs_when_not_called, outputs_when_skipped
 from conductor._internal.series import Series
@@ -109,7 +110,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         definition = self.definition
         loops = tuple([str(series) for series in self.loops])  # as addresses: a waiting id and a save hold the digest, so no class's repr is in it
         written = repr((definition.id, definition.version, _code_text(inspect.unwrap(definition.function).__code__), fields, loops))
-        return hashlib.blake2b(written.encode(), digest_size=8).hexdigest()
+        return short_hash(written.encode(), 8)
 
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:
@@ -172,7 +173,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         the list inside, so two outputs returned in the same loop inside name the same loop, and a node outside
         that reads both is called once per item with the two values of that item.
         """
-        node_id, _, inner_output = output.partition(".")
+        node_id, inner_output = split_address(output)
         inside = self.inner._nodes[node_id].loops_around(inner_output)
         return (*self.loops, *[OutputAddress(self.id, str(loop)) for loop in inside])
 
