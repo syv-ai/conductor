@@ -57,17 +57,8 @@ from conductor._internal.run.events import (
     NodeStart,
     NodeWaiting,
 )
-from conductor._internal.run.outcome import (
-    Answered,
-    Done,
-    NotCalled,
-    Outcome,
-    Skipped,
-    Unanswered,
-    calls_expected,
-    has_every_outcome,
-)
-from conductor._internal.run.progress import call_count
+from conductor._internal.run.outcome import Answered, Done, NotCalled, Outcome, Skipped, Unanswered
+from conductor._internal.run.progress import call_count, calls_expected, has_every_outcome
 from conductor._internal.run.waiting import waiting_record
 
 #: The least time between two ``NodeProgress`` of one node.

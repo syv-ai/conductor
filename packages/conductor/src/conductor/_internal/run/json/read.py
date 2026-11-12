@@ -26,15 +26,8 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
-from conductor._internal.run.outcome import (
-    Answered,
-    Done,
-    NotCalled,
-    Outcome,
-    Skipped,
-    Unanswered,
-    all_item_indexes,
-)
+from conductor._internal.run.outcome import Answered, Done, NotCalled, Outcome, Skipped, Unanswered
+from conductor._internal.run.progress import all_item_indexes
 from conductor._internal.run.reuse import ReusableOutcomes
 
 if TYPE_CHECKING:

@@ -26,16 +26,9 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
-from conductor._internal.run.outcome import (
-    Answered,
-    Done,
-    NotCalled,
-    Outcome,
-    Skipped,
-    Unanswered,
-    all_item_indexes,
-    has_every_outcome,
-)
+from conductor._internal.run.outcome import Answered, Done, NotCalled, Outcome, Skipped, Unanswered
+from conductor._internal.run.progress import all_item_indexes, has_every_outcome
+from conductor._internal.run.results import function_of
 from conductor._internal.run.reuse import ReusableOutcomes
 from conductor._internal.types import Type
 
@@ -83,7 +76,7 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for address, value in run.outputs.items():
-        function, output = run._function_of(address)
+        function, output = function_of(run.graph, address)
         hint: Any = function.compiled_node.outputs[output].saved_type.hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None

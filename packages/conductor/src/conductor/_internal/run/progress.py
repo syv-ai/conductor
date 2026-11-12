@@ -1,4 +1,5 @@
-"""How far a run is: how many calls each node has an outcome for, and how many it will have.
+"""How far a run is: how many calls each node has an outcome for, and how many it will have; and the item indexes
+of every call a node will have (``all_item_indexes``), which the scheduler and a saved run read too.
 
 The example graph::
 
@@ -25,14 +26,11 @@ Nothing here is saved or counted as the run goes: every count is read from the r
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import Any
 
-from conductor._internal.base import ConductorModel
-from conductor._internal.compiled import FlatFunctionNode, FlatSubgraph
-from conductor._internal.run.outcome import ItemIndexes, Outcome, Unanswered, calls_expected
-
-if TYPE_CHECKING:
-    from conductor._internal.graph import Graph
+from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes
+from conductor._internal.compiled import CompiledGraph, FlatFunctionNode, FlatSubgraph
+from conductor._internal.run.outcome import Outcome, Unanswered
 
 
 class CallCount(ConductorModel):
@@ -89,7 +87,7 @@ def call_count(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFuncti
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
-def progress_of(graph: Graph, outcomes: dict[str, dict[ItemIndexes, Outcome]]) -> Progress:
+def progress_of(graph: CompiledGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]]) -> Progress:
     """The progress of a run of ``graph`` with these outcomes: what ``run.progress`` returns.
 
     Args:
@@ -118,3 +116,85 @@ def _sum(counts: Iterable[CallCount]) -> CallCount:
         finished, waiting, known = finished + count.finished, waiting + count.waiting, known + count.known
         total = None if total is None or count.total is None else total + count.total
     return CallCount.model_construct(finished=finished, waiting=waiting, known=known, total=total)
+
+
+def all_item_indexes(
+    outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes,
+) -> tuple[list[ItemIndexes], bool]:
+    """The item indexes of every call a node will have, and whether that list is complete yet.
+
+    ``shout`` is inside one loop, over ``lines.result``. Once ``lines`` has returned three lines,
+    ``all_item_indexes(outcomes, shout.loops, ())`` returns ``([(0,), (1,), (2,)], True)``. Before ``lines`` has
+    returned it returns ``([], False)``: no call is known yet, and more will come. ``lines`` is inside no loop,
+    so for it the result is always ``([()], True)``: one call.
+
+    Args:
+        outcomes: The run's outcomes, by node name and then by item indexes. Every node has an entry, empty
+            until its first outcome.
+        loops: The loops the node is inside, outermost first. Each is the node that returns the series and the
+            name of that output.
+        prefix: Return only the item indexes that start with these. ``()`` returns all of them. With two nested
+            loops, ``(1,)`` returns the calls for item 1 of the outer loop: ``(1, 0)``, ``(1, 1)``, ...
+
+    Returns:
+        The item indexes of each call known so far, and ``True`` when every series the node loops over exists.
+    """
+    start, deepest = len(prefix), len(loops)
+    if start == deepest:  # A shortcut: the loop below returns the same. It saves about 1% of a run of a chain of 500 nodes.
+        return [prefix], True
+    every_item_indexes, complete = [prefix], True
+    for depth in range(start, deepest):
+        series_node, output = loops[depth]
+        of_series_node = outcomes[series_node.name]
+        one_loop_deeper: list[ItemIndexes] = []
+        for item_indexes in every_item_indexes:
+            outcome = of_series_node.get(item_indexes)
+            if outcome is None or not outcome.has_outputs:
+                complete = False
+                continue
+            one_loop_deeper.extend((*item_indexes, index) for index in range(length(outcome.outputs[output])))
+        every_item_indexes = one_loop_deeper
+    return every_item_indexes, complete
+
+
+def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[int, bool]:
+    """How many calls a node inside ``loops`` will have in this run, and whether that number is final yet.
+
+    A node inside no loop has one call: for ``lines`` and ``join`` the result is ``(1, True)``. ``shout`` is
+    inside the loop over ``lines.result``: ``(3, True)`` once ``lines`` has returned three lines, ``(0, False)``
+    before. With two nested loops the inner series may differ in length; the number is the sum of their lengths.
+
+    Args:
+        outcomes: The run's outcomes, by node name and then by item indexes.
+        loops: The loops the node is inside, outermost first, as ``all_item_indexes`` takes them.
+    """
+    if not loops:
+        return 1, True
+    calls_of_series_node, complete = all_item_indexes(outcomes, loops[:-1], ())
+    series_node, output = loops[-1]
+    of_series_node = outcomes[series_node.name]
+    expected = 0
+    for item_indexes in calls_of_series_node:
+        outcome = of_series_node.get(item_indexes)
+        if outcome is None or not outcome.has_outputs:
+            complete = False
+        else:
+            expected += length(outcome.outputs[output])
+    return expected, complete
+
+
+def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+    """Whether ``node`` is complete: it has an outcome for every call it will have.
+
+    ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. A ``Unanswered`` outcome
+    counts: the call was made, though no answer has come.
+    """
+    if not node.loops:  # A shortcut: calls_expected says one call, so any outcome is every outcome. It saves 2% of to_json on a chain of 500 nodes.
+        return bool(outcomes[node.name])
+    expected, complete = calls_expected(outcomes, node.loops)
+    return complete and len(outcomes[node.name]) == expected
+
+
+def length(value: Any) -> int:
+    """How many items the value of a ``Series`` output has: 0 when the value is ``None`` or ``SKIPPED``."""
+    return 0 if value is SKIPPED or value is None else len(value)

@@ -21,15 +21,10 @@ inside ``e``'s first.
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
-import time
-from asyncio import AbstractEventLoop, Queue
 from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
-from threading import Event as ThreadEvent
-from threading import Thread
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, overload
 
@@ -41,21 +36,16 @@ from conductor._internal.base import (
     NodePath,
     node_path_text,
     parse_loc_text,
-    split_address,
 )
 from conductor._internal.compiled import (
     FlatFunctionNode,
-    display_plans_of,
     outcome_loc,
 )
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import outcome as outcomes
-from conductor._internal.run.arguments import (
-    DisplayReader,
-    ResultReader,
-)
+from conductor._internal.run.arguments import ResultReader
 from conductor._internal.run.events import (
     Event,
     EventBase,
@@ -71,13 +61,23 @@ from conductor._internal.run.outcome import (
     Unanswered,
 )
 from conductor._internal.run.progress import Progress, progress_of
+from conductor._internal.run.results import outputs_of, results_of
 from conductor._internal.run.reuse import (
     ReusableOutcomes,
     arguments_fingerprint,
     outer_items_fingerprint,
 )
 from conductor._internal.run.scheduler import Scheduler
-from conductor._internal.run.state import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
+from conductor._internal.run.state import (
+    READY,
+    RUNNING,
+    EndedEarly,
+    Going,
+    RunState,
+    RunStatus,
+    deadline,
+)
+from conductor._internal.run.stream import stream
 from conductor._internal.run.waiting import Waiting, question_fingerprint, waiting_record
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ class Run[C]:
                 (``context_missing``).
         """
         _check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._checked_context(context), None, _deadline(timeout), only_costs_nothing=only_costs_nothing)
+        return self._run_scheduler(self.graph._checked_context(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
 
     def stream(
         self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
@@ -212,42 +212,7 @@ class Run[C]:
                 above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
         _check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return self._stream(self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
-
-    async def _stream(
-        self, context: C | None, timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
-        checkpoint_every: float | None, only_costs_nothing: bool,
-    ) -> AsyncGenerator[Event]:
-        loop, events = asyncio.get_running_loop(), Queue["Event | None"]()
-        cancelled = ThreadEvent()
-        deadline = _deadline(timeout)
-
-        def stop() -> RunState | None:
-            if cancelled.is_set() or (cancel is not None and cancel.is_set()):
-                return EndedEarly("cancelled", problem.run_cancelled())
-            if hand_back is not None and hand_back.is_set():
-                return RUNNING  # the leg stops and the run goes on elsewhere
-            return deadline() if deadline is not None else None
-
-        failed: list[BaseException] = []
-
-        def leg() -> None:
-            try:
-                self._run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every, only_costs_nothing)
-            except BaseException as error:  # the engine's own defect reaches the caller
-                failed.append(error)
-            finally:
-                _hand_over(loop, events, None)
-
-        thread = Thread(target=leg, name="conductor-scheduler", daemon=True)
-        thread.start()
-        try:
-            while (event := await events.get()) is not None:
-                yield event
-            if failed:
-                raise failed[0]
-        finally:
-            cancelled.set()
+        return stream(self._run_scheduler, self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
@@ -498,8 +463,7 @@ class Run[C]:
         ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
         made, or no item of it could have a value.
         """
-        reader = self._display_reader
-        return {n: {o: reader.display_value(display_plans_of(*self._function_of(f"{n}.{o}"))) for o in compiled_node.outputs} for n, compiled_node in self.graph._nodes.items()}
+        return results_of(self.graph, self._outcomes, self.inputs)
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -511,8 +475,7 @@ class Run[C]:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        reader = self._display_reader
-        return {address: reader.display_value(display_plans_of(*self._function_of(address))) for address in self.graph.outputs}
+        return outputs_of(self.graph, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by address: ``{"join.result":"A!+B!+C!"}`` for the README graph.
@@ -526,24 +489,12 @@ class Run[C]:
         """
         return outputs_to_json(self)
 
-    def _function_of(self, address: str) -> tuple[FlatFunctionNode, str]:
-        """The function node that returns the output at ``address`` (``node.output``), and the output's name on
-        that function. For a subgraph (``e.upper.result``) it is the function inside the
-        subgraph, since the subgraph's node is never called itself."""
-        node_id, output = split_address(address)
-        return self.graph._nodes_by_name[node_id].source_of(output)
-
     # -- what a leg reads -------------------------------------------------------
 
     @property
     def _reader(self) -> ResultReader:
         """Reads what this run's units hold for one item: what a call of a node receives there."""
         return ResultReader(self._outcomes, self.inputs)
-
-    @property
-    def _display_reader(self) -> DisplayReader:
-        """Reads what this run's units hold as they stand, waiting for nothing: what a host is shown."""
-        return DisplayReader(self._outcomes, self.inputs)
 
     # -- JSON -------------------------------------------------------------------
 
@@ -608,21 +559,3 @@ def _check_limits(*, max_items: int | None = None, timeout: float | None = None,
         check_limits(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
     except RefusedError as refused:
         raise InvalidCallError(refused.problems) from None
-
-
-# -- values -------------------------------------------------------------------------------------
-
-
-def _hand_over(loop: AbstractEventLoop, events: Queue[Any], event: Any) -> None:
-    """Put an event on the listener's queue from the leg's thread; a listener whose loop has closed is gone, and hears nothing."""
-    try:
-        loop.call_soon_threadsafe(events.put_nowait, event)
-    except RuntimeError:
-        pass
-
-
-def _deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
-    if timeout is None:
-        return None
-    end = time.monotonic() + timeout
-    return lambda: EndedEarly("timed_out", problem.run_timed_out(timeout=timeout)) if time.monotonic() > end else None

@@ -6,7 +6,7 @@ from typing import Annotated, Literal, TypedDict
 
 import polars as pl
 from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
-from conductor._internal.run.outcome import all_item_indexes
+from conductor._internal.run.progress import all_item_indexes
 
 
 class Invoice(TypedDict):

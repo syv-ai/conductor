@@ -86,10 +86,8 @@ from conductor._internal.run.outcome import (
     Outcome,
     Skipped,
     Unanswered,
-    all_item_indexes,
-    has_every_outcome,
-    length,
 )
+from conductor._internal.run.progress import all_item_indexes, has_every_outcome, length
 from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
 from conductor._internal.run.state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
 

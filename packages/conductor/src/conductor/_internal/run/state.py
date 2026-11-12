@@ -8,12 +8,15 @@ starts the state is ``Going("ready")``; after ``graph.run(text="a\\nb\\nc")`` on
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 from pydantic import ConfigDict
 
 from conductor._internal.problem import Problem
+from conductor._internal.problem import catalogue as problem
 
 #: The status of a run nothing has ended early: not started, being run by ``resume()``, waiting for a person, or complete.
 GoingStatus = Literal["ready", "running", "complete", "waiting"]
@@ -56,3 +59,12 @@ class EndedEarly:
 RunState = Going | EndedEarly
 
 READY, RUNNING, WAITING, COMPLETE = Going("ready"), Going("running"), Going("waiting"), Going("complete")
+
+
+def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
+    """A check a run makes before each call: ``EndedEarly("timed_out", ...)`` once ``timeout`` seconds have passed
+    since this was called, else ``None``. ``None`` in place of the check when there is no timeout."""
+    if timeout is None:
+        return None
+    end = time.monotonic() + timeout
+    return lambda: EndedEarly("timed_out", problem.run_timed_out(timeout=timeout)) if time.monotonic() > end else None
