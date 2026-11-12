@@ -16,14 +16,19 @@ from conductor import (
     GraphRecord,
     NodeRegistry,
     Param,
+    Policy,
     Series,
     make_graph,
     node,
+    subgraph,
 )
 from conductor._internal.address import ItemIndexes
-from conductor._internal.compiled import FlatFunctionNode
+from conductor._internal.compiled import FlatFunctionNode, outcome_loc
 from conductor._internal.outcomes import Outcome
+from conductor._internal.problem import Problem
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.scheduler import node_events as node_events_module
+from conductor._internal.scheduler.events import EventBase, NodeWaiting
 from conductor._internal.scheduler.node_events import NodeEvents
 from pytest import MonkeyPatch
 
@@ -50,6 +55,11 @@ def approve(line: str) -> bool:
     raise Ask(f"Approve {line}?")
 
 
+@node("fetch", title="Fetch", description="For a test.", policy=Policy(retries=2))
+def fetch(line: str) -> str:
+    return line
+
+
 @dataclass(frozen=True)
 class Way:
     yes: Annotated[str, Param(exclusive_group="way")] = SKIPPED
@@ -71,46 +81,85 @@ def both(first: str, second: str) -> str:
     return first + second
 
 
-LINES_SHOUT_JOIN = make_graph(lines, shout, join)
+loud = subgraph("loud", title="Loud", description="For a test.")(make_graph(shout))
 
 
 class Told:
-    """A ``NodeEvents`` over an empty copy of a finished run's outcomes, and the events it has said so far."""
+    """A ``NodeEvents`` for one graph, told by node name what the scheduler would tell it, and the events it said.
 
-    def __init__(self, record: GraphRecord, registry: NodeRegistry, **inputs: Any) -> None:
+    The outcomes it is told about are those of a run of the graph made to its end first. ``finished`` names the
+    nodes that were complete when the run was last resumed: their outcomes are in the run before the
+    ``NodeEvents`` is made.
+    """
+
+    def __init__(self, record: GraphRecord, registry: NodeRegistry, finished: tuple[str, ...] = (), **inputs: Any) -> None:
         graph = Graph.compile(record, registry)
         self.finished_run: dict[str, dict[ItemIndexes, Outcome]] = graph.run(inputs)._outcomes
-        self.outcomes: dict[str, dict[ItemIndexes, Outcome]] = {name: {} for name in self.finished_run}
+        self.outcomes = {name: dict(outcomes) if name in finished else {} for name, outcomes in self.finished_run.items()}
         self.nodes: dict[str, FlatFunctionNode] = {flat.name: flat for flat in graph._flat_function_nodes}
-        self.said: list[Any] = []
-        self.node_events = NodeEvents(self.said.append, graph._flat_function_nodes, self.outcomes, frozenset())
+        self.said: list[EventBase] = []
+        finished_paths = frozenset(self.nodes[name].node_path for name in finished)
+        self.node_events = NodeEvents(self.said.append, graph._flat_function_nodes, self.outcomes, finished_paths)
 
-    def call(self, name: str, *item_indexes: int) -> None:
-        """Tell it that the call is about to be made, and then that its outcome was recorded."""
+    def start(self, name: str) -> None:
+        """A call of the node is about to be made."""
         self.node_events.call_starts(self.nodes[name])
-        self.record(name, *item_indexes)
 
     def record(self, name: str, *item_indexes: int) -> None:
-        """Tell it that the call's outcome was recorded, with no call made."""
+        """The call's outcome was recorded, with no call made."""
         self.outcomes[name][item_indexes] = self.finished_run[name][item_indexes]
         self.node_events.outcome_recorded(self.nodes[name], item_indexes, self.outcomes[name][item_indexes])
 
+    def call(self, name: str, *item_indexes: int) -> None:
+        """The call is about to be made, and then its outcome was recorded."""
+        self.start(name)
+        self.record(name, *item_indexes)
+
+    def reuse(self, name: str, *item_indexes: int) -> None:
+        """The call's outcome was taken from an earlier run, and recorded."""
+        self.node_events.outcome_reused(self.nodes[name])
+        self.record(name, *item_indexes)
+
+    def retry(self, name: str, *item_indexes: int, attempt: int, delay: float) -> None:
+        """The call failed with a ``TimeoutError`` and is made again after ``delay`` seconds."""
+        self.node_events.call_retries(self.nodes[name], item_indexes, attempt, delay, self._timed_out(name, item_indexes))
+
+    def fail(self, name: str, *item_indexes: int) -> None:
+        """The call failed with a ``TimeoutError`` and is not retried."""
+        self.node_events.call_failed(self.nodes[name], self._timed_out(name, item_indexes))
+
     def nothing_is_ready(self, *running: tuple[str, ItemIndexes]) -> None:
+        """No call is ready to be made, and these calls are running."""
         self.node_events.nothing_is_ready([(self.nodes[name], item_indexes) for name, item_indexes in running])
 
-    def take(self) -> list[tuple[Any, ...]]:
-        """The events said since the last ``take``, each as its type, node id and the counts it has."""
-        taken = [
-            (event.type, event.waiting.loc[0] if event.type == "node_waiting" else event.loc[0])
-            + tuple(getattr(event, count) for count in ("done", "total", "outcomes") if hasattr(event, count))
-            for event in self.said
-        ]
+    def end(self) -> None:
+        """The scheduler has ended."""
+        self.node_events.scheduler_ended()
+
+    def take(self) -> list[str]:
+        """The events said since the last ``take``, one line each (``_one_line``)."""
+        taken = [_one_line(event) for event in self.said]
         self.said.clear()
         return taken
 
+    def _timed_out(self, name: str, item_indexes: ItemIndexes) -> Problem:
+        return problem.external_failed(*outcome_loc(self.nodes[name], item_indexes), error="TimeoutError")
 
-def _lines_shout_join(text: str = "a\nb\nc") -> Told:
-    return Told(LINES_SHOUT_JOIN, registry_of(lines, shout, join), text=text)
+
+def _one_line(event: EventBase) -> str:
+    """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc.
+
+    Example: ``NodeProgress(loc=("shout",), done=1, total=3)`` is ``"node_progress shout done=1 total=3"``.
+    """
+    loc = event.waiting.loc if isinstance(event, NodeWaiting) else event.loc
+    fields = event.model_dump(exclude={"type", "loc", "waiting"}, exclude_defaults=True)
+    if "cause" in fields:
+        fields["cause"] = f"{fields['cause']['type']}@{'/'.join(map(str, fields['cause']['loc']))}"
+    return " ".join([event.type, "/".join(map(str, loc)), *(f"{name}={value}" for name, value in fields.items())])
+
+
+def _lines_shout_join(text: str = "a\nb\nc", finished: tuple[str, ...] = ()) -> Told:
+    return Told(make_graph(lines, shout, join), registry_of(lines, shout, join), finished, text=text)
 
 
 def test_the_three_node_graph_says_the_events_the_module_describes():
@@ -121,16 +170,16 @@ def test_the_three_node_graph_says_the_events_the_module_describes():
     told.call("shout", 2)
     told.call("join")
     told.nothing_is_ready()
-    told.node_events.scheduler_ended()
+    told.end()
     assert told.take() == [
-        ("node_start", "lines"),
-        ("node_start", "shout"),
-        ("node_progress", "shout", 1, 3),
-        ("node_start", "join"),
-        ("node_complete", "lines", 1),
-        ("node_progress", "shout", 3, 3),
-        ("node_complete", "shout", 3),
-        ("node_complete", "join", 1),
+        "node_start lines",
+        "node_start shout",
+        "node_progress shout done=1 total=3",
+        "node_start join",
+        "node_complete lines outcomes=1",
+        "node_progress shout done=3 total=3",
+        "node_complete shout outcomes=3",
+        "node_complete join outcomes=1",
     ]
 
 
@@ -141,13 +190,13 @@ def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
     told.call("shout", 2)
     told.take()
     told.nothing_is_ready(("shout", (1,)))
-    assert told.take() == [("node_complete", "lines", 1)]
+    assert told.take() == ["node_complete lines outcomes=1"]
     told.call("shout", 1)
     told.nothing_is_ready()
-    assert told.take() == [("node_progress", "shout", 3, 3), ("node_complete", "shout", 3)]
+    assert told.take() == ["node_progress shout done=3 total=3", "node_complete shout outcomes=3"]
     told.call("join")
     told.nothing_is_ready()
-    assert told.take() == [("node_start", "join"), ("node_complete", "join", 1)]
+    assert told.take() == ["node_start join", "node_complete join outcomes=1"]
 
 
 def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_it_is_running():
@@ -156,10 +205,10 @@ def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_i
     told.call("decide")
     told.record("both")  # skipped as soon as decide has not chosen yes, while other is still running
     told.nothing_is_ready(("other", ()))
-    assert told.take() == [("node_start", "decide"), ("node_complete", "decide", 1)]
+    assert told.take() == ["node_start decide", "node_complete decide outcomes=1"]
     told.call("other")
     told.nothing_is_ready()
-    assert told.take() == [("node_start", "other"), ("node_complete", "other", 1), ("node_skipped", "both")]
+    assert told.take() == ["node_start other", "node_complete other outcomes=1", "node_skipped both"]
 
 
 def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
@@ -168,14 +217,14 @@ def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
     told.call("approve", 0)
     told.call("approve", 1)
     told.nothing_is_ready()
-    told.node_events.scheduler_ended()
+    told.end()
     assert told.take() == [
-        ("node_start", "lines"),
-        ("node_start", "approve"),
-        ("node_waiting", "approve"),
-        ("node_progress", "approve", 0, 2),
-        ("node_waiting", "approve"),
-        ("node_complete", "lines", 1),
+        "node_start lines",
+        "node_start approve",
+        "node_waiting approve/0",
+        "node_progress approve done=0 total=2",
+        "node_waiting approve/1",
+        "node_complete lines outcomes=1",
     ]
 
 
@@ -185,8 +234,8 @@ def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_scheduler_end
     told.call("shout", 0)
     told.call("shout", 1)
     told.take()
-    told.node_events.scheduler_ended()
-    assert told.take() == [("node_complete", "lines", 1), ("node_progress", "shout", 2, 3)]
+    told.end()
+    assert told.take() == ["node_complete lines outcomes=1", "node_progress shout done=2 total=3"]
 
 
 def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one_has_the_final_count(monkeypatch: MonkeyPatch):
@@ -199,26 +248,69 @@ def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one
         clock[0] += 0.1
     told.call("join")
     told.nothing_is_ready()
-    progress = [event for event in told.take() if event[0] == "node_progress"]
-    assert progress == [("node_progress", "shout", 1, 8), ("node_progress", "shout", 4, 8), ("node_progress", "shout", 7, 8), ("node_progress", "shout", 8, 8)]
+    progress = [event for event in told.take() if event.startswith("node_progress")]
+    assert progress == [
+        "node_progress shout done=1 total=8",
+        "node_progress shout done=4 total=8",
+        "node_progress shout done=7 total=8",
+        "node_progress shout done=8 total=8",
+    ]
 
 
 def test_an_outcome_taken_from_an_earlier_run_starts_its_node_and_is_counted_as_reused():
     told = _lines_shout_join()
     told.call("lines")
     for index in range(3):
-        told.node_events.outcome_reused(told.nodes["shout"])
-        told.record("shout", index)
+        told.reuse("shout", index)
     told.nothing_is_ready()
-    assert [(event.type, event.loc) for event in told.said[:2]] == [("node_start", ("lines",)), ("node_start", ("shout",))]
-    complete = next(event for event in told.said if event.type == "node_complete" and event.loc == ("shout",))
-    assert (complete.outcomes, complete.reused) == (3, 3)
+    assert told.take() == [
+        "node_start lines",
+        "node_start shout",
+        "node_progress shout done=1 total=3",
+        "node_complete lines outcomes=1",
+        "node_progress shout done=3 total=3",
+        "node_complete shout outcomes=3 reused=3",
+    ]
 
 
 def test_a_node_complete_when_the_run_was_last_resumed_is_not_said_again():
-    told = _lines_shout_join()
-    for name, outcomes in told.finished_run.items():
-        told.outcomes[name].update(outcomes)
-    resumed = NodeEvents(told.said.append, list(told.nodes.values()), told.outcomes, frozenset({("lines",), ("shout",)}))
-    resumed.scheduler_ended()
-    assert told.take() == [("node_complete", "join", 1)]
+    told = _lines_shout_join(finished=("lines", "shout"))
+    told.call("join")
+    told.end()
+    assert told.take() == ["node_start join", "node_complete join outcomes=1"]
+
+
+def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgraph_node_is_complete_after_it():
+    record = make_graph(lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.shout.result", "join.texts")])
+    told = Told(record, registry_of(lines, shout, loud, join), text="a\nb")
+    told.call("lines")
+    told.call("loud/shout", 0)
+    told.call("loud/shout", 1)
+    told.call("join")
+    told.nothing_is_ready()
+    assert told.take() == [
+        "node_start lines",
+        "node_start loud",
+        "node_start loud/shout",
+        "node_progress loud/shout done=1 total=2",
+        "node_start join",
+        "node_complete lines outcomes=1",
+        "node_progress loud/shout done=2 total=2",
+        "node_complete loud/shout outcomes=2",
+        "node_complete loud outcomes=2",
+        "node_complete join outcomes=1",
+    ]
+
+
+def test_a_retry_names_the_call_and_a_failure_names_the_node():
+    told = Told(make_graph(lines, fetch), registry_of(lines, fetch), text="a\nb")
+    told.call("lines")
+    told.start("fetch")
+    told.retry("fetch", 1, attempt=1, delay=0.5)
+    told.fail("fetch", 1)
+    assert told.take() == [
+        "node_start lines",
+        "node_start fetch",
+        "node_retry fetch/1 attempt=1 retries=2 delay=0.5 cause=external_failed@fetch/1",
+        "node_failed fetch cause=external_failed@fetch/1",
+    ]
