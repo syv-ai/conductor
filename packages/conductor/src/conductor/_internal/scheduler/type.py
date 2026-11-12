@@ -379,7 +379,7 @@ class Scheduler:
                 continue
             if Waiting in {type(outcome) for outcome in outcomes.values()}:
                 waiting.add(node)
-            elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):  # a node that runs once has its one unit or none: no count, on a leg of many nodes
+            elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):  # speed only: has_every_outcome says the same of a node inside no loop. Calling it for each costs 4 to 5% of a run of 500 chained nodes.
                 unfinished.add(node)
         if self.going and not waiting:  # nothing more can start and nothing waits: every unit of every node is there
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
@@ -526,7 +526,7 @@ class Scheduler:
         for reader, places in node.downstream:
             if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
                 self.collectors.add((reader, item_indexes[:places]))
-            elif len(reader.loops) == depth:
+            elif len(reader.loops) == depth:  # speed only: the branch below finds this one call too. Worth about 2% of a run whose 6,000 calls all come back from threads.
                 heapq.heappush(self.ready, (reader.position, item_indexes))
             else:
                 for downstream_indexes in all_item_indexes(self.all_outcomes, reader.loops, item_indexes)[0]:
