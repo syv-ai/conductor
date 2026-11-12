@@ -4,9 +4,10 @@ doubt, the function called, and what it returns read into the node's outputs by 
 Example: ``call(shout, {"line": "b", "mark": "!"}, None)`` returns ``({"result": "B!"}, None)``. When ``shout`` raises,
 or returns something that is not a ``str``, it returns ``(None, the exception)``.
 
-A node with an ``Asked`` parameter, ``approve(invoice, ok: Annotated[bool, Asked(approval)])``, is called with ``ok``
-from the arguments when a person's answer is there, and else from ``approval(invoice=...)``, read by its door. When
-``approval`` raises ``Ask``, ``approve`` is not called and the ``Ask`` is returned.
+A node with an ``Asked`` parameter, ``approve(invoice, ok: Annotated[bool, Asked(approval)])``, runs the function the
+flat graph chose for it (``AskedParameter.filling``): ``ok`` from the arguments when a person's answer is there, and
+else from ``approval(invoice=...)``. When ``approval`` raises ``Ask``, ``approve`` is not called and the ``Ask`` is
+returned.
 """
 
 from __future__ import annotations
@@ -15,10 +16,8 @@ from typing import Any
 
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.ask import Ask
 from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.gate import RefusedError
-from conductor._internal.node_definition import AskedParameter
 from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import untyped_as_json
@@ -49,45 +48,10 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
     try:
         if (edge_door := node.edge_door) is not None:
             arguments = edge_door(arguments)
-        if (asked := definition.asked) is not None:
-            return _call_with_asked(node, asked, arguments, context)
-        returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
+        returned = node.function(**arguments) if definition.context is None else node.function(context, **arguments)
     except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise
-        return None, error
-    try:
-        return compiled_node.return_door(returned), None
-    except RefusedError as refused:
-        return None, refused
-
-
-def _call_with_asked(node: FlatFunctionNode, asked: AskedParameter, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | None]:
-    """``call`` for a node with an ``Asked`` parameter: the parameter's function first, unless a person's answer is
-    already among ``arguments``, then the node's function with the value.
-
-    Returns:
-        As ``call`` does. An ``Ask`` from the parameter's function is returned as it is; one from the node's own
-        function is ``RefusedError`` with ``ask_not_declared``, since a node with an ``Asked`` parameter asks through it.
-    """
-    compiled_node = node.compiled_node
-    definition = compiled_node.definition
-    try:
-        if asked.field.name not in arguments:
-            given = {name: arguments[name] for name in asked.inputs}
-            if asked.context is not None:
-                given[asked.context] = context
-            try:
-                value = asked.door(asked.function(**given))
-            except Ask as ask:
-                return None, ask
-            arguments = {**arguments, asked.field.name: value}
-        returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
-    except BaseException as error:  # noqa: BLE001  as in call
-        if isinstance(error, (KeyboardInterrupt, SystemExit)):
-            raise
-        if isinstance(error, Ask):
-            return None, RefusedError([problem.ask_not_declared()])
         return None, error
     try:
         return compiled_node.return_door(returned), None

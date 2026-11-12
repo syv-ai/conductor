@@ -67,7 +67,7 @@ from pydantic import ConfigDict, JsonValue
 from pydantic import Field as PydanticField
 
 from conductor._internal.address import is_name
-from conductor._internal.ask import Asked
+from conductor._internal.ask import Ask, Asked
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field, FieldDescription
@@ -82,6 +82,7 @@ from conductor._internal.gate.returned import (
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
+from conductor._internal.problem import catalogue as problem
 from conductor._internal.problem import declarations as declaration
 from conductor._internal.text import qualified_name
 from conductor._internal.value_type import Type, split_hint
@@ -219,6 +220,30 @@ class AskedParameter:
     inputs: tuple[str, ...]
     context: str | None
     door: AskedValueDoor
+
+    def filling(self, node_function: Callable[..., Any]) -> Callable[..., Any]:
+        """``node_function`` with this parameter filled: what a run calls for the node, once, when the graph is compiled.
+
+        Called as the node's function is (its context first, when it takes one, then its arguments by name), it
+        calls ``approval`` with the inputs it names unless a person's answer for ``ok`` is already among the
+        arguments, reads what it returns by the door, then calls ``approve`` with ``ok``. An ``Ask`` from
+        ``approval`` goes through; one from ``approve`` itself raises ``RefusedError`` with ``ask_not_declared``,
+        since a node with an ``Asked`` parameter asks through it.
+        """
+        name, asking, inputs, context_name, door = self.field.name, self.function, self.inputs, self.context, self.door
+
+        def filled(*context: Any, **arguments: Any) -> Any:
+            if name not in arguments:
+                given = {input_name: arguments[input_name] for input_name in inputs}
+                if context_name is not None:
+                    given[context_name] = context[0]
+                arguments = {**arguments, name: door(asking(**given))}
+            try:
+                return node_function(*context, **arguments)
+            except Ask:
+                raise RefusedError([problem.ask_not_declared()]) from None
+
+        return filled
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
