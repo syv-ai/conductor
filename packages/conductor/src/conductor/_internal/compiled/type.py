@@ -13,10 +13,9 @@ its ``outputs`` are ``["join.result"]``, and ``runs_on["shout"]`` says ``shout``
 A subgraph used as a node is one node of the graph. Its inputs and outputs are those of the subgraph's own
 compiled graph, which is compiled once, on its own, and none of its nodes is copied into this graph's nodes. An
 edge names one of its outputs (``loud.shout.result``), never a node inside it. The nodes of a compiled graph are
-in ``node.py``. The flat graph, which a run works on and which has the function nodes inside subgraphs too, is
-in ``flat.py``.
+in ``node.py``.
 
-The names with an underscore (``_nodes``, ``_flat_function_nodes``, ``_inputs_door``, ...) are what the engine reads:
+The names with an underscore (``_nodes``, ``_input_fields``, ``_inputs_door``, ...) are what the engine reads:
 the compiler, a subgraph node and a run. They keep the underscore because ``Graph`` is a ``CompiledGraph``, and a
 host that holds a ``Graph`` must not see them.
 """
@@ -27,10 +26,10 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import NodePath, json_hash, plural, split_address
+from conductor._internal.base import json_hash, plural, split_address
 from conductor._internal.field import Field
-from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
-from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.gate import InputsDoor
+from conductor._internal.problem import Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
 
@@ -43,10 +42,8 @@ from .describe import (
     input_source_of,
     runs_on,
 )
-from .flat import FlatFunctionNode, FlatNode, flat_nodes
 from .input import OutputAddress
 from .node import (
-    CompiledFunctionNode,
     CompiledNode,
     CompiledSubgraphNode,
     RequiredBranch,
@@ -200,40 +197,6 @@ class CompiledGraph:
     # -- what a run uses --------------------------------------------------------
 
     @functools.cached_property
-    def _flat_nodes(self) -> tuple[dict[str, FlatFunctionNode], dict[str, FlatNode]]:
-        """The flat graph (``flat_nodes``), made the first time it is read."""
-        return flat_nodes(self)
-
-    @functools.cached_property
-    def _flat_function_nodes(self) -> list[FlatFunctionNode]:
-        """Every function node of the graph and of its subgraphs, at any depth, in the order a run tries to call
-        them: each after the nodes upstream of it."""
-        return list(self._flat_nodes[0].values())
-
-    @property
-    def _function_nodes_by_name(self) -> dict[str, FlatFunctionNode]:
-        """Every function node of ``_flat_function_nodes``, by its name (``"loud/shout"``)."""
-        return self._flat_nodes[0]
-
-    @property
-    def _nodes_by_name(self) -> dict[str, FlatNode]:
-        """Every node of the graph and of its subgraphs, a function or a subgraph, by its name
-        (``"loud"``, ``"loud/shout"``)."""
-        return self._flat_nodes[1]
-
-    @functools.cached_property
-    def _functions(self) -> dict[NodePath, CompiledFunctionNode]:
-        """Every function node of ``_flat_function_nodes`` as its own graph compiled it, by its node path
-        (``("loud", "shout")``)."""
-        return {node.node_path: node.compiled_node for node in self._flat_function_nodes}
-
-    @functools.cached_property
-    def _threads(self) -> int:
-        """How many calls can run on threads at once during one call of ``resume()``: the sum of the
-        ``concurrency`` of every function node called on a thread, those inside subgraphs too."""
-        return sum(policy.concurrency for compiled_node in self._functions.values() if (policy := compiled_node.definition.policy).threaded)
-
-    @functools.cached_property
     def fingerprint(self) -> str:
         """A short hash of what a run of this graph depends on: the graph record without each node's
         ``display`` (which conductor never reads), and the fingerprint of every subgraph used in it.
@@ -245,26 +208,6 @@ class CompiledGraph:
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
         return json_hash([own, subgraph_fingerprints], 8, keys_sorted=True)
-
-    @functools.cached_property
-    def _context_door(self) -> ContextDoor:
-        """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
-        ``context_type`` and every node that takes the context."""
-        takers = [(node.node_path, context) for node in self._flat_function_nodes if (context := node.compiled_node.definition.context) is not None]
-        return ContextDoor(self._context_type, takers)
-
-    def _checked_context[C](self, context: C | None) -> C | None:
-        """``context`` as the host passed it, once the context door let it in.
-
-        Raises:
-            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
-                node that takes it (``context_missing``).
-        """
-        try:
-            checked: C | None = self._context_door(context)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
-        return checked
 
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:

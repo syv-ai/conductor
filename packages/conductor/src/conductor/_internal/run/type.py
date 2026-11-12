@@ -31,11 +31,7 @@ from conductor._internal.base import (
     node_path_text,
     parse_loc_text,
 )
-from conductor._internal.compiled import (
-    CompiledGraph,
-    FlatFunctionNode,
-    outcome_loc,
-)
+from conductor._internal.compiled import CompiledGraph
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -48,6 +44,7 @@ from .events import (
     RunEnd,
     RunStart,
 )
+from .flat import FlatFunctionNode, FlatGraph, flat_graph_of, outcome_loc
 from .json import codec_of, outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
@@ -185,7 +182,7 @@ class Run[C]:
                 (``context_missing``).
         """
         _check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._checked_context(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
+        return self._run_scheduler(self._flat.checked_context(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
 
     def stream(
         self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
@@ -211,7 +208,7 @@ class Run[C]:
                 above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
         _check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return stream(self._run_scheduler, self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
+        return stream(self._run_scheduler, self._flat.checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
@@ -233,9 +230,9 @@ class Run[C]:
                 def checkpoint(state: RunState) -> None:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
 
-        graph = self.graph
+        flat = self._flat
         run.state, run._finished_nodes = Scheduler(
-            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable=run._reusable, answers=run._answers,
+            nodes=list(flat.function_nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable, answers=run._answers,
             finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
@@ -288,7 +285,7 @@ class Run[C]:
             except ValueError:  # a place in it isn't a number
                 problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
-            node = self.graph._function_nodes_by_name.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
+            node = self._flat.function_nodes.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
             found = self._outcomes[node.name].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
@@ -375,7 +372,7 @@ class Run[C]:
         """
         work: dict[NodePath, ReusableOutcomes] = {}
         reader = self._reader
-        for node in self.graph._flat_function_nodes:
+        for node in self._flat.function_nodes.values():
             if not node.policy.reuse_when_inputs_match or node.node_path in self._code_changed:
                 continue
             compiled_node = node.compiled_node
@@ -398,7 +395,7 @@ class Run[C]:
                 of_node.by_fingerprint.setdefault(fingerprint, done)
             for asked, answers in unused.answers.items():
                 of_node.answers.setdefault(asked, []).extend(answers)
-        ours, theirs = self.graph._functions, (into or self.graph)._functions
+        ours, theirs = self._flat.functions, flat_graph_of(into or self.graph).functions
         return {
             path: of_node for path, of_node in work.items()
             if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(path)) is not None and there.code_fingerprint == ours[path].code_fingerprint
@@ -425,7 +422,7 @@ class Run[C]:
 
     def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
-        for node in self.graph._flat_function_nodes:
+        for node in self._flat.function_nodes.values():
             for item_indexes, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Unanswered:
                     yield node, item_indexes, outcome
@@ -449,7 +446,7 @@ class Run[C]:
         inside a subgraph where its node stands."""
         return [
             NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
-            for node in self.graph._flat_function_nodes for item_indexes, outcome in self._outcomes[node.name].items() if type(outcome) is NoneInput
+            for node in self._flat.function_nodes.values() for item_indexes, outcome in self._outcomes[node.name].items() if type(outcome) is NoneInput
         ]
 
     @property
@@ -489,6 +486,11 @@ class Run[C]:
         return outputs_to_json(self)
 
     # -- what a leg reads -------------------------------------------------------
+
+    @property
+    def _flat(self) -> FlatGraph:
+        """The flat graph of the run's graph."""
+        return flat_graph_of(self.graph)
 
     @property
     def _reader(self) -> ResultReader:
@@ -546,7 +548,7 @@ RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 def no_outcomes(graph: CompiledGraph) -> dict[str, dict[ItemIndexes, Outcome]]:
     """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
     graph embedded in it."""
-    return {node.name: {} for node in graph._flat_function_nodes}
+    return {name: {} for name in flat_graph_of(graph).function_nodes}
 
 
 def _check_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:

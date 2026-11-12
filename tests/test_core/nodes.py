@@ -6,6 +6,7 @@ from typing import Annotated, Literal, TypedDict
 
 import polars as pl
 from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
+from conductor._internal.run.flat import flat_graph_of
 from conductor._internal.run.progress import all_item_indexes
 
 
@@ -117,7 +118,7 @@ def calls_without_outcome(run):
     A node whose calls are not all known yet is listed by its node path alone. A complete run has none.
     """
     missing = []
-    for node in run.graph._flat_function_nodes:
+    for node in flat_graph_of(run.graph).function_nodes.values():
         item_indexes, known = all_item_indexes(run._outcomes, node.loops, ())
         outcomes = run._outcomes[node.name]
         missing += [(node.node_path, key) for key in item_indexes if key not in outcomes] + ([] if known else [node.node_path])

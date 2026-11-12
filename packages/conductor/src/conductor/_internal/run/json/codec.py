@@ -28,6 +28,7 @@ from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.types import Type, list_of, union_of
 
+from ..flat import flat_graph_of
 from .read import (
     outcomes_from_saved,
     reusable_from_saved,
@@ -264,11 +265,12 @@ def codec_of(graph: CompiledGraph) -> RunCodec:
     """How the runs of ``graph`` are read from JSON and written as it, built once per graph."""
     codec = _CODECS.get(graph)
     if codec is None:
+        flat = flat_graph_of(graph)
         codec = _CODECS[graph] = run_codec(
             graph.fingerprint,
             inputs={address: graph_input.field.whole for address, graph_input in graph._input_fields.items()},
-            outputs={node.name: node.compiled_node.outputs for node in graph._flat_function_nodes},
-            asked={node.name: asked.field for node in graph._flat_function_nodes if (asked := node.compiled_node.definition.asked) is not None},
-            nodes=[node.name for node in graph._flat_function_nodes],
+            outputs={node.name: node.compiled_node.outputs for node in flat.function_nodes.values()},
+            asked={node.name: asked.field for node in flat.function_nodes.values() if (asked := node.compiled_node.definition.asked) is not None},
+            nodes=list(flat.function_nodes),
         )
     return codec

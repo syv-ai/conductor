@@ -23,9 +23,9 @@ from typing import Any, Literal
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import ItemIndexes, json_hash
-from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.types import untyped_to_hash
 
+from .flat import FlatFunctionNode
 from .outcome import Answered, Done, NotReady, Outcome, Unanswered
 
 

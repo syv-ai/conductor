@@ -2,7 +2,7 @@
 
 Code outside this package imports from here only. ``compile.py`` has ``compile_graph``; ``type.py`` has
 ``CompiledGraph``; ``node.py`` its nodes; ``input.py`` how each input of a node gets its value;
-``flat.py`` the flat graph, which a run works on; ``describe.py`` what a host is shown of a compiled graph.
+``describe.py`` what a host is shown of a compiled graph.
 """
 
 from .compile import compile_graph
@@ -12,23 +12,19 @@ from .describe import (
     InputSource,
     RunsOn,
 )
-from .flat import (
-    FlatFunctionNode,
-    FlatNode,
-    FlatSubgraph,
-    all_upstream,
-    display_inputs_of,
-    outcome_loc,
-)
 from .input import (
     CollectingInput,
     ConstantInput,
     Edge,
     EdgeInput,
     GraphInput,
+    Input,
+    MissingInput,
+    OutputAddress,
 )
 from .node import (
     CompiledFunctionNode,
+    CompiledSubgraphNode,
     outputs_when_not_called,
     outputs_when_skipped,
 )

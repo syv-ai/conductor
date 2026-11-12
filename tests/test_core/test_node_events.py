@@ -23,11 +23,11 @@ from conductor import (
     subgraph,
 )
 from conductor._internal.base import ItemIndexes
-from conductor._internal.compiled import FlatFunctionNode, outcome_loc
 from conductor._internal.problem import Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import node_events as node_events_module
 from conductor._internal.run.events import EventBase, NodeWaiting
+from conductor._internal.run.flat import FlatFunctionNode, flat_graph_of, outcome_loc
 from conductor._internal.run.node_events import NodeEvents
 from conductor._internal.run.outcome import Outcome
 from pytest import MonkeyPatch
@@ -96,10 +96,10 @@ class Told:
         graph = Graph.compile(record, registry)
         self.finished_run: dict[str, dict[ItemIndexes, Outcome]] = graph.run(inputs)._outcomes
         self.outcomes = {name: dict(outcomes) if name in finished else {} for name, outcomes in self.finished_run.items()}
-        self.nodes: dict[str, FlatFunctionNode] = {flat.name: flat for flat in graph._flat_function_nodes}
+        self.nodes: dict[str, FlatFunctionNode] = flat_graph_of(graph).function_nodes
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
-        self.node_events = NodeEvents(self.said.append, graph._flat_function_nodes, self.outcomes, finished_paths)
+        self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths)
 
     def start(self, name: str) -> None:
         """A call of the node is about to be made."""

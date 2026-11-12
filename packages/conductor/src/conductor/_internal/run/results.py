@@ -2,7 +2,7 @@
 
 For the README graph after ``graph.run(text="a\\nb")``, ``run.results["shout"]["result"]`` is ``["A!", "B!"]`` and
 ``run.outputs`` is ``{"join.result": "A!+B!"}``. A host reads an output the way a node wired to it would, with the
-inputs ``display_inputs_of`` gives (``compiled/flat.py``), by a ``DisplayReader``, which reads a value that is not
+inputs ``display_inputs_of`` gives (``flat.py``), by a ``DisplayReader``, which reads a value that is not
 there yet as ``None``.
 """
 
@@ -12,18 +12,18 @@ from collections.abc import Mapping
 from typing import Any, cast
 
 from conductor._internal.base import SKIPPED, ItemIndexes, split_address
-from conductor._internal.compiled import (
-    CollectingInput,
-    CompiledGraph,
-    Edge,
-    EdgeInput,
-    FlatFunctionNode,
-    display_inputs_of,
-)
+from conductor._internal.compiled import CompiledGraph, Edge
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
 from .arguments import ResultReader
+from .flat import (
+    CollectingArgument,
+    EdgeArgument,
+    FlatFunctionNode,
+    display_inputs_of,
+    flat_graph_of,
+)
 from .outcome import NotReady, Outcome
 
 
@@ -44,7 +44,7 @@ def function_of(graph: CompiledGraph, address: str) -> tuple[FlatFunctionNode, s
     that function. For a subgraph (``e.upper.result``) it is the function inside the
     subgraph, since the subgraph's node is never called itself."""
     node_id, output = split_address(address)
-    return graph._nodes_by_name[node_id].source_of(output)
+    return flat_graph_of(graph).nodes[node_id].source_of(output)
 
 
 class DisplayReader(ResultReader):
@@ -73,12 +73,12 @@ class DisplayReader(ResultReader):
             return None
         return value.as_list() if isinstance(value, StoredSeries) else value
 
-    def _list_looped_over(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def _list_looped_over(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
         looped_over = ResultReader._list_looped_over(self, node_input, item_indexes)
         return None if looped_over is NotReady.NOT_READY else looped_over
 
-    def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def collect(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """The list a ``Series`` input with ``node_input`` would be called with for the item at ``item_indexes``;
         ``None`` when the edge names a field that a record in the list doesn't have."""
         try:
@@ -86,7 +86,7 @@ class DisplayReader(ResultReader):
         except NoSuchFieldError:
             return None
 
-    def display_value(self, node_inputs: tuple[EdgeInput | CollectingInput, ...], item_indexes: ItemIndexes = ()) -> Any:
+    def display_value(self, node_inputs: tuple[EdgeArgument | CollectingArgument, ...], item_indexes: ItemIndexes = ()) -> Any:
         """One output of a node as ``run.results`` shows it.
 
         Example: ``documents -> lines -> shout`` with three documents, the second empty, so ``lines`` was
@@ -108,7 +108,7 @@ class DisplayReader(ResultReader):
         if len(item_indexes) == len(node_inputs) - 1:
             value = node_input.value(self, item_indexes)
             return None if value is SKIPPED else value
-        looped_over = self._list_looped_over(cast("CollectingInput", node_input), item_indexes)  # every input before the last lists one loop
+        looped_over = self._list_looped_over(cast("CollectingArgument", node_input), item_indexes)  # every input before the last lists one loop
         if looped_over is None or looped_over is SKIPPED:
             return None
         return [self.display_value(node_inputs, (*item_indexes, index)) for index in range(len(looped_over))]

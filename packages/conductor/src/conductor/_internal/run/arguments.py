@@ -36,17 +36,13 @@ from collections.abc import Mapping
 from typing import Any, Final, Literal
 
 from conductor._internal.base import SKIPPED, ItemIndexes
-from conductor._internal.compiled import (
-    CollectingInput,
-    Edge,
-    EdgeInput,
-    FlatFunctionNode,
-)
+from conductor._internal.compiled import Edge
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.series import places_of_none, without_places
 from conductor._internal.types import NoSuchFieldError, field_of
 
+from .flat import CollectingArgument, EdgeArgument, FlatFunctionNode
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
 
@@ -108,7 +104,8 @@ class ResultReader:
         none_input: str | None = None
         fault: RefusedError | None = None
         ready = True
-        for name, node_input in node.edge_arguments:
+        for node_input in node.edge_arguments:
+            name = node_input.name
             try:
                 value = node_input.value(self, item_indexes)
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
@@ -131,7 +128,7 @@ class ResultReader:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_as_list(self, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any:
+    def read_as_list(self, node_input: EdgeArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
         ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
         sources = node_input.sources
@@ -204,7 +201,7 @@ class ResultReader:
             raise NoSuchFieldError(record_field)
         return cell
 
-    def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def collect(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
 
         In the example, ``collect`` for ``join.texts`` at ``()`` returns ``["A!", "B!"]``: what the edge from
@@ -217,7 +214,7 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        depth = len(node_input.loops)
+        depth = node_input.depth
         if len(item_indexes) < depth:
             return self._edges_for_any_item(node_input, item_indexes)
         item_indexes = item_indexes[:depth]
@@ -240,7 +237,7 @@ class ResultReader:
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _list_looped_over(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def _list_looped_over(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns the list whose items the input of ``node_input`` collects, when an item of it may have a value for
         the input. When no item can, returns what the input is instead, however many items the list has.
 
@@ -268,7 +265,7 @@ class ResultReader:
         outcome = self.outcomes[node_input.series.node_id].get(item_indexes)
         return outcome.outputs[node_input.series.output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
-    def _edges_for_any_item(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def _edges_for_any_item(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
         the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
         keeps as an item (``Series[str | None]``) counts as a value."""

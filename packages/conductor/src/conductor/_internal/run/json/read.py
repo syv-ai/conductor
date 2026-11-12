@@ -21,6 +21,7 @@ from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, value_free_errors
 from conductor._internal.problem import catalogue as problem
 
+from ..flat import flat_graph_of
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
@@ -68,7 +69,8 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
         where = ".".join(str(step) for step in steps_to_value(first["loc"][1:])) or "the run"  # pydantic's loc starts with the graph's fingerprint
         raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=where, reason=value_free_errors(error)[0]["msg"])]) from None
     outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
-    for node in graph._flat_function_nodes:
+    flat = flat_graph_of(graph)
+    for node in flat.function_nodes.values():
         outcomes[node.name] = {}
         if (in_call_order := read.outcomes.get(node.name)) is not None:
             every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
@@ -79,7 +81,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
                 item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, in_call_order, strict=True) if outcome is not None
             }
     answers = _answers_from_saved(graph, read.answers or {}, outcomes)
-    functions = graph._functions
+    functions = flat.functions
     code_changed = {
         path: fingerprint for name, fingerprint in read.code.items() if fingerprint != functions[path := parse_node_path(name)].code_fingerprint
     }
@@ -110,7 +112,7 @@ def _answers_from_saved(
     """
     answers: dict[str, dict[ItemIndexes, Answer]] = {}
     for name, by_call_number in saved.items():
-        node = graph._function_nodes_by_name[name]
+        node = flat_graph_of(graph).function_nodes[name]
         (parameter,) = node.compiled_node.answer_fields
         every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
         for call_number, value in by_call_number.items():

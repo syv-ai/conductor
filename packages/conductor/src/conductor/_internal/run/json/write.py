@@ -13,12 +13,12 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Answer, Question
 from conductor._internal.base import SKIPPED, node_path_text
-from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.types import Type
 
+from ..flat import FlatFunctionNode, flat_graph_of
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..results import function_of
@@ -100,10 +100,11 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
     key at all.
     """
     graph = run.graph
-    functions, codec = graph._functions, codec_of(graph)
+    flat, codec = flat_graph_of(graph), codec_of(graph)
+    functions = flat.functions
     outcomes = {
         node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))
-        for node in graph._flat_function_nodes if run._outcomes[node.name] or node.name in run._answers
+        for node in flat.function_nodes.values() if run._outcomes[node.name] or node.name in run._answers
     }
     reusable = {
         node_path_text(path): saved_reusable(functions[path].outputs, of_node)
@@ -115,11 +116,11 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
     }
     answers = {
         node.name: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
-        for node in graph._flat_function_nodes if node.name in run._answers
+        for node in flat.function_nodes.values() if node.name in run._answers
     }
     return SavedRun(
         graph=graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
-        complete=[node.name for node in graph._flat_function_nodes if node.node_path in run._finished_nodes],
+        complete=[node.name for node in flat.function_nodes.values() if node.node_path in run._finished_nodes],
         tables_written_once=tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None,
         answers=answers or None,
     )

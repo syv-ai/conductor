@@ -22,6 +22,7 @@ from conductor import (
     node,
     subgraph,
 )
+from conductor._internal.run.flat import flat_graph_of
 
 from tests.test_core.nodes import calls_without_outcome
 
@@ -183,6 +184,6 @@ def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skippe
 def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run() -> None:
     nodes, edges, _ = GRAPHS["collecting an empty series"]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), _registry(frozenset({"words"})))
-    graph._nodes_by_name["w"].downstream.clear()  # a bug in the engine, made by hand: the series makes no downstream node ready
+    flat_graph_of(graph).nodes["w"].downstream.clear()  # a bug in the engine, made by hand: the series makes no downstream node ready
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
         graph.run(dict.fromkeys(graph.inputs, ""))

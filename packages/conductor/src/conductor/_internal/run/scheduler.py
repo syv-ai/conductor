@@ -71,13 +71,13 @@ from typing import Any, Literal
 
 from conductor._internal.ask import Answer, Ask
 from conductor._internal.base import ItemIndexes, NodePath
-from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import ExternalError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
 
 from .call import call, jsonable
 from .events import EventBase
+from .flat import FlatFunctionNode, all_upstream, outcome_loc
 from .node_events import NodeEvents
 from .outcome import (
     Answered,

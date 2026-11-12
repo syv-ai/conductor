@@ -29,8 +29,9 @@ from collections.abc import Iterable
 from typing import Any
 
 from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes
-from conductor._internal.compiled import CompiledGraph, FlatFunctionNode, FlatSubgraph
+from conductor._internal.compiled import CompiledGraph
 
+from .flat import FlatFunctionNode, FlatSubgraph, flat_graph_of
 from .outcome import Outcome, Unanswered
 
 
@@ -100,12 +101,13 @@ def progress_of(graph: CompiledGraph, outcomes: dict[str, dict[ItemIndexes, Outc
         and their sums.
     """
     nodes: dict[str, CallCount] = {}
-    for name, flat in graph._nodes_by_name.items():
+    flat_graph = flat_graph_of(graph)
+    for name, flat in flat_graph.nodes.items():
         if isinstance(flat, FlatSubgraph):  # the nodes inside it come before it, so their counts are made
             nodes[name] = _sum(nodes[inner.name] for inner in flat.inner_nodes.values())
         else:
             nodes[name] = call_count(outcomes, flat)
-    run = _sum(nodes[node.name] for node in graph._flat_function_nodes)
+    run = _sum(nodes[name] for name in flat_graph.function_nodes)
     return Progress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
 
 
