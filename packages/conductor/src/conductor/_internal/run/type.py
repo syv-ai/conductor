@@ -158,7 +158,7 @@ class Run:
         Raises:
             InvalidCallError: ``max_items`` is below 1 (``invalid_max_items``).
         """
-        checked_max_items(max_items=max_items)
+        check_run_limits(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
     def resume(self, *, context: Mapping[type, Any] = MappingProxyType({}), timeout: float | None = None) -> Run:
@@ -170,7 +170,7 @@ class Run:
         can end later than ``timeout``, and a call that came back is never made
         again.
         """
-        checked_max_items(timeout=timeout)
+        check_run_limits(timeout=timeout)
         return self._run_scheduler(context_values(self.graph._needs_context, context), None, _deadline(timeout))
 
     def stream(
@@ -196,7 +196,7 @@ class Run:
         its ``run`` loses only the calls in flight if the process dies. A call
         that can't start raises here, before anything is iterated.
         """
-        checked_max_items(timeout=timeout, checkpoint_every=checkpoint_every)
+        check_run_limits(timeout=timeout, checkpoint_every=checkpoint_every)
         return self._stream(context_values(self.graph._needs_context, context), timeout, cancel, hand_back, checkpoint_every)
 
     async def _stream(
@@ -550,20 +550,25 @@ def no_outcomes(graph: Graph) -> dict[str, dict[ItemIndexes, Outcome]]:
     return {node.name: {} for node in graph._flat_function_nodes}
 
 
-def checked_max_items(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """A run's ceiling (at least 1 item) and a leg's seconds (a finite number above 0) are refused at the call."""
+def check_run_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
+    """Raise ``InvalidCallError`` for a limit a caller gave that no run can have.
+
+    ``check_run_limits(max_items=0)`` raises with the problem ``invalid_max_items``. ``max_items`` must be at least
+    1. ``timeout`` and ``checkpoint_every`` are seconds and must be finite and above 0. ``None`` is a limit the
+    caller did not give, and is not checked.
+    """
     problems = []
     if max_items is not None and max_items < 1:
         problems.append(problem.invalid_max_items("max_items", max_items=max_items))
-    if timeout is not None and not _seconds(timeout):
+    if timeout is not None and not _is_positive_and_finite(timeout):
         problems.append(problem.invalid_timeout("timeout", timeout=timeout))
-    if checkpoint_every is not None and not _seconds(checkpoint_every):
+    if checkpoint_every is not None and not _is_positive_and_finite(checkpoint_every):
         problems.append(problem.invalid_checkpoint_every("checkpoint_every", checkpoint_every=checkpoint_every))
     if problems:
         raise InvalidCallError(problems)
 
 
-def _seconds(value: float) -> bool:
+def _is_positive_and_finite(value: float) -> bool:
     return math.isfinite(value) and value > 0
 
 

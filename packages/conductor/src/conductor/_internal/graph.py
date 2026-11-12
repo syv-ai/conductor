@@ -12,7 +12,7 @@ from conductor._internal.graph_record import GraphRecord, as_record
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.run import Run, checked_max_items, no_outcomes
+from conductor._internal.run import Run, check_run_limits, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec
 from conductor._internal.value_type import FieldValueError
 
@@ -64,7 +64,7 @@ class Graph(CompiledGraph):
         """
         if self.problems:
             raise InvalidCallError(self.problems)
-        checked_max_items(max_items=max_items)
+        check_run_limits(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
         return Run(self, checked, max_items, no_outcomes(self), previous._reusable_outcomes(into=self) if previous is not None else {})
 

@@ -7,6 +7,6 @@ receives: the node rule, read for one item or for an item nobody knows.
 from conductor._internal.run.type import (
     NotCalled,
     Run,
-    checked_max_items,
+    check_run_limits,
     no_outcomes,
 )
