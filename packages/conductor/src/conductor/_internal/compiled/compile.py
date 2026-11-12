@@ -36,9 +36,9 @@ from __future__ import annotations
 import heapq
 import logging
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
 
 from typing_extensions import is_protocol
 
@@ -80,8 +80,17 @@ from .type import CompiledGraph, InputField
 _logger = logging.getLogger("conductor")
 
 
+class Definitions(Protocol):
+    """The node definitions a graph is compiled against: a ``NodeRegistry``. ``definitions["shout"]`` is the newest
+    version of ``shout``, and a ``KeyError`` for an id it does not have; iterating gives every definition."""
+
+    def __getitem__(self, node_id: str, /) -> NodeDefinition: ...
+
+    def __iter__(self) -> Iterator[NodeDefinition]: ...
+
+
 def compile_graph[GraphT: CompiledGraph](
-    record: GraphRecord, definitions: Mapping[str, NodeDefinition], context_type: type | None, graph_type: type[GraphT],
+    record: GraphRecord, definitions: Definitions, context_type: type | None, graph_type: type[GraphT],
 ) -> GraphT:
     """Compiles ``record`` and returns it as a ``graph_type``. Every compiled graph a host gets is made here.
 
@@ -142,7 +151,7 @@ class _Compiler:
     """
 
     def __init__(
-        self, definitions: Mapping[str, NodeDefinition], context_type: type | None, inside_subgraphs: tuple[str, ...],
+        self, definitions: Definitions, context_type: type | None, inside_subgraphs: tuple[str, ...],
         compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], CompiledGraph],
     ) -> None:
         self.definitions, self.context_type = definitions, context_type
@@ -210,9 +219,10 @@ class _Compiler:
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition a node of the record names, at the record's version; ``None``, with a
         problem, when there is none."""
-        newest = self.definitions.get(record.node)
-        if newest is None:
-            self.problems.append(problem.unknown_node(record.id, node=record.node, choices=sorted(self.definitions)))
+        try:
+            newest = self.definitions[record.node]
+        except KeyError:
+            self.problems.append(problem.unknown_node(record.id, node=record.node, choices=sorted(definition.id for definition in self.definitions)))
             return None
         if record.version not in newest.versions:
             self.problems.append(problem.unknown_version(record.id, node=record.node, version=record.version, newest=newest.version))

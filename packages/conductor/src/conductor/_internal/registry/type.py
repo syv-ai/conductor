@@ -273,12 +273,6 @@ class NodeRegistry[C]:
         return self._context_type
 
     @property
-    def definitions(self) -> Mapping[str, NodeDefinition]:
-        """Every node definition by its id, in the order they arrived: what a graph compiled here looks its nodes up in.
-        Read-only."""
-        return MappingProxyType(self._nodes)
-
-    @property
     def types(self) -> Mapping[str, type]:
         """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
         return MappingProxyType(self._types)
@@ -307,7 +301,7 @@ class NodeRegistry[C]:
                 pass
         if definition.id not in self._graph_descriptions:
             record = GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])
-            described = compile_graph(record, self._nodes, self._context_type, CompiledGraph).describe().nodes["node"]
+            described = compile_graph(record, self, self._context_type, CompiledGraph).describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
                 SubgraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
             )

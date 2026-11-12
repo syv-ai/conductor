@@ -180,14 +180,14 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given:
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example: _Example, context: Any) -> list[Problem]:
     """Run one example through the engine: what went wrong."""
-    definitions: dict[str, NodeDefinition]
     match version:
         case SubgraphDefinition():  # a subgraph runs on the nodes of the registry
-            definitions, changed = {d.id: d for d in registry}, list[str]()
-            definitions[version.id] = version
+            definitions, changed = registry.filter(lambda held: held.id != version.id), list[str]()
+            definitions.add(version)
         case FunctionDefinition():
             watched, changed = _watched(version)
-            definitions = {version.id: watched}
+            definitions = registry.filter(lambda _: False)
+            definitions.add(watched)
     try:
         record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
