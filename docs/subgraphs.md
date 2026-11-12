@@ -37,7 +37,7 @@ shout = subgraph("shout", title="Shout", description="Turns a text into capital 
 registry.add(shout)
 ```
 
-`shout` is a `SubgraphDefinition`, the stored-graph kind of `NodeDefinition` (a function makes a `FunctionDefinition`), and it has no function to call. It takes `replaces=`, `version=`, `title=` and the rest, and a newer
+`shout` is a `SubgraphDefinition`, the subgraph kind of `NodeDefinition` (a function makes a `FunctionDefinition`), and it has no function to call. It takes `replaces=`, `version=`, `title=` and the rest, and a newer
 version of the subgraph is a newer version of the node. Each version is its own record, so a graph saved against
 version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-second-version) moves it on.
 

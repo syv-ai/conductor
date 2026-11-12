@@ -116,20 +116,20 @@ def saved_reusable(outputs: Mapping[str, Field], earlier: ReusableOutcomes) -> S
     """
     outcomes: list[Outcome | None] = [done for _, done in earlier.by_item_indexes.values()]
     fingerprints = [fingerprint for fingerprint, _ in earlier.by_item_indexes.values()]
-    places = dict(enumerate(earlier.by_item_indexes))
-    item_indexes = set(fingerprints)  # each of these is one of the units above: the first that received it
+    item_indexes = dict(enumerate(earlier.by_item_indexes))
+    saved_fingerprints = set(fingerprints)  # each of these is one of the units above: the first that received it
     for fingerprint, done in earlier.by_fingerprint.items():
-        if fingerprint not in item_indexes:
+        if fingerprint not in saved_fingerprints:
             outcomes.append(done)
             fingerprints.append(fingerprint)
-    lineages: dict[int, str] = {}
+    outer_item_fingerprints: dict[int, str] = {}
     for (fingerprint, outer_items_fingerprint), answers in earlier.answers.items():
         for outcome in answers:
             if outer_items_fingerprint:
-                lineages[len(outcomes)] = outer_items_fingerprint
+                outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint
             outcomes.append(outcome)
             fingerprints.append(fingerprint)
-    return SavedReusable(outcomes=saved_outcomes(outputs, outcomes), fingerprints=fingerprints, places=places or None, lineages=lineages or None)
+    return SavedReusable(outcomes=saved_outcomes(outputs, outcomes), fingerprints=fingerprints, item_indexes=item_indexes or None, outer_item_fingerprints=outer_item_fingerprints or None)
 
 
 def first_unwritable_value(inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]) -> str:
@@ -145,7 +145,7 @@ def first_unwritable_value(inputs: Mapping[str, Type], outputs: Mapping[str, Map
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
     columns = {address: (inputs[address], value) for address, value in saved.inputs.items()}
-    by_node = [*saved.outcomes.items(), *((name, earlier.outcomes) for name, earlier in saved.reusable_results.items())]
+    by_node = [*saved.outcomes.items(), *((name, earlier.outcomes) for name, earlier in saved.reusable.items())]
     for name, outcomes in by_node:
         columns.update({f"{name}.{output}": (outputs[name][output].saved_list_type, column) for output, column in outcomes.outputs.items()})
     for at, (written_by, value) in columns.items():

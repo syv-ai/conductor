@@ -231,7 +231,7 @@ def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()  # it waits on "ab", holding the work of "bb" and "b" it didn't take
     saved = json.loads(waiting.to_json())
-    assert waiting.status == "waiting" and saved["reusable_results"] and saved["outcomes"]
+    assert waiting.status == "waiting" and saved["reusable"] and saved["outcomes"]
     random.seed(7)
 
     def places(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
@@ -416,8 +416,8 @@ def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back(
     assert set(written) == set_fields(saved)
     for name, units in saved.outcomes.items():
         assert set(written["outcomes"][name]) == set_fields(units), name
-    for name, carried in saved.reusable_results.items():
-        assert set(written["reusable_results"][name]) == set_fields(carried) and set(written["reusable_results"][name]["outcomes"]) == set_fields(carried.outcomes), name
+    for name, carried in saved.reusable.items():
+        assert set(written["reusable"][name]) == set_fields(carried) and set(written["reusable"][name]["outcomes"]) == set_fields(carried.outcomes), name
     assert Run.from_json(waiting.to_json(), graph).to_json() == waiting.to_json()
 
 

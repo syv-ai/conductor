@@ -269,7 +269,7 @@ class Run:
 
         graph = self.graph
         run.state, run._finished_nodes = Scheduler(
-            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable_results=run._reusable, finished=run._finished_nodes,
+            nodes=graph._flat_function_nodes, threads=graph._threads, outcomes=run._outcomes, reusable=run._reusable, finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, from_run=from_run,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).run()
@@ -568,7 +568,7 @@ class Run:
         complete = [node.name for node in self.graph._flat_function_nodes if node.node_path in self._finished_nodes]
         codec = self.graph._run_codec
         written_once = tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, reusable_results=earlier, code=code, complete=complete, tables_written_once=written_once)
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, reusable=earlier, code=code, complete=complete, tables_written_once=written_once)
 
     def _outcomes_by_call_number(self, node: FlatFunctionNode) -> list[Outcome | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
@@ -621,7 +621,7 @@ def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableOutc
             run._outcomes[node.name] = {item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, node_outcomes, strict=True) if outcome is not None}
     functions = graph._functions
     run._code_changed = {path: digest for name, digest in saved.code.items() if digest != functions[path := parse_node_path(name)].code_fingerprint}
-    run._reusable = {path: of_node for name, of_node in saved.reusable_results.items() if (path := parse_node_path(name)) not in run._code_changed}  # work of other code is never taken
+    run._reusable = {path: of_node for name, of_node in saved.reusable.items() if (path := parse_node_path(name)) not in run._code_changed}  # work of other code is never taken
     run._finished_nodes = frozenset(parse_node_path(name) for name in saved.complete)
     return run
 

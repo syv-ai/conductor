@@ -127,7 +127,7 @@ class Scheduler:
     """
 
     def __init__(
-        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemIndexes, Outcome]], reusable_results: dict[NodePath, ReusableOutcomes], finished: frozenset[NodePath],
+        self, *, nodes: list[FlatFunctionNode], threads: int, outcomes: dict[str, dict[ItemIndexes, Outcome]], reusable: dict[NodePath, ReusableOutcomes], finished: frozenset[NodePath],
         max_items: int | None, arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None, from_run: dict[type, Any],
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
@@ -143,7 +143,7 @@ class Scheduler:
         #: The nodes whose units were recorded out of instance order, as calls on threads finish when they finish.
         self.out_of_order: set[FlatFunctionNode] = set()
         #: What each node may take from the run this one went on from, by its path.
-        self.reusable_results = reusable_results
+        self.reusable = reusable
         #: Whether nothing has ended the leg early; ``end`` is the one place that does.
         self.going = True
         self.checkpoint_every = checkpoint_every if checkpoint is not None else None
@@ -350,7 +350,7 @@ class Scheduler:
         if not isinstance(arguments, dict):  # skipped or blank: it comes to that uncalled
             self._record(node, item_indexes, arguments, trying_every_call)
         elif (
-            (reusable_results := self.reusable_results) and policy.reuse_when_inputs_match and (of_node := reusable_results.get(node.node_path)) is not None
+            (reusable := self.reusable) and policy.reuse_when_inputs_match and (of_node := reusable.get(node.node_path)) is not None
             and (earlier := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None
         ):
             if earlier is NotReady.NOT_ITS_TURN:
@@ -383,11 +383,11 @@ class Scheduler:
             if unfinished:  # a unit nothing made ready: the engine's own fault, never a run to hand on as complete
                 raise RuntimeError(f"the leg ended with nothing to try and no unit for every instance of {sorted(node.node_path for node in unfinished)}")
             self.state, self.finished = COMPLETE, frozenset(node.node_path for node in self.nodes)
-            self.reusable_results.clear()
+            self.reusable.clear()
         else:
             self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
-            for path in [path for path in self.reusable_results if path in self.finished]:  # the earlier work a finished node didn't take, no unit of this run will
-                del self.reusable_results[path]
+            for path in [path for path in self.reusable if path in self.finished]:  # the earlier work a finished node didn't take, no unit of this run will
+                del self.reusable[path]
             if self.going:
                 self.state = WAITING
         if self.emit:

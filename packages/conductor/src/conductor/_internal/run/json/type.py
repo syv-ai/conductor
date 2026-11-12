@@ -60,16 +60,16 @@ class SavedReusable[OutcomesT]:
     Attributes:
         units: Its units, a slot for each: a ``SavedOutcomes`` when written, the units it holds when read.
         fingerprints: For each slot, the fingerprint of what the unit received.
-        places: By slot, the instance a computed unit stood in in the earlier run; ``None``, as for ``lineages``,
+        item_indexes: By slot, the instance a computed unit stood in in the earlier run; ``None``, as for ``outer_item_fingerprints``,
             when there is none, which leaves the key out of the save.
-        lineages: By slot, for an answer or a question still waiting, the fingerprint of the items above it.
+        outer_item_fingerprints: By slot, for an answer or a question still waiting, the fingerprint of the items above it.
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = _SAVED
     outcomes: OutcomesT
     fingerprints: list[str]
-    places: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] | None = None
-    lineages: dict[NonNegativeInt, str] | None = None
+    item_indexes: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] | None = None
+    outer_item_fingerprints: dict[NonNegativeInt, str] | None = None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -104,7 +104,7 @@ class SavedRun[OutcomesT, ReusableT]:
         inputs: The caller's inputs by address, each read and written by its field's type.
         units: By node, the units of each function node that has any: a ``SavedOutcomes`` when written, the units
             it holds when read. A subgraph's node has none of its own.
-        reusable_results: By node, the work carried from an earlier run and not yet taken: a ``SavedReusable`` when
+        reusable: By node, the work carried from an earlier run and not yet taken: a ``SavedReusable`` when
             written, an ``ReusableOutcomes`` when read.
         code: By node, the ``code_fingerprint`` of the code that made its units and its earlier work, so work made
             by other code is never taken.
@@ -119,7 +119,7 @@ class SavedRun[OutcomesT, ReusableT]:
     max_items: PositiveInt | None
     inputs: dict[str, Any]
     outcomes: dict[str, OutcomesT]
-    reusable_results: dict[str, ReusableT]
+    reusable: dict[str, ReusableT]
     code: dict[str, str]
     complete: list[str]
     tables_written_once: list[SameAs] | None = None

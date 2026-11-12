@@ -811,7 +811,7 @@ def ok_word(word: str) -> bool:
     ("where", "damaged"),
     [
         ("units", lambda s: s.__setitem__("units", [])),
-        ("reusable_results", lambda s: s.__setitem__("reusable_results", [])),
+        ("reusable", lambda s: s.__setitem__("reusable", [])),
         ("inputs", lambda s: s.__setitem__("inputs", [])),
         ("code", lambda s: s.__setitem__("code", [])),
         ("complete", lambda s: s.__setitem__("complete", 3)),
@@ -834,8 +834,8 @@ def ok_word(word: str) -> bool:
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
         ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),
         ("complete.0", lambda s: s.__setitem__("complete", ["nowhere"])),
-        ("reusable_results.ok", lambda s: s["reusable_results"].__setitem__("ok", {"outcomes": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a unit never called
-        ("reusable_results.ok", lambda s: s["reusable_results"].__setitem__("ok", {"outcomes": {"states": ["done"], "outputs": {"result": [True]}}, "fingerprints": []})),
+        ("reusable.ok", lambda s: s["reusable"].__setitem__("ok", {"outcomes": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a unit never called
+        ("reusable.ok", lambda s: s["reusable"].__setitem__("ok", {"outcomes": {"states": ["done"], "outputs": {"result": [True]}}, "fingerprints": []})),
     ],
 )
 def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:

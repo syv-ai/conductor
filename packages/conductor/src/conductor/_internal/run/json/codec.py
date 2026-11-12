@@ -89,15 +89,15 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 functools.partial(outcomes_from_saved, not_taken, not_called), of_block, ref=f"outcomes:{block}",
             )
             reusable_schema = _with_field_schemas(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
-            shared[f"reusable_results:{block}"] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_schema, ref=f"reusable_results:{block}")
-            blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"reusable_results:{block}")
+            shared[f"reusable:{block}"] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_schema, ref=f"reusable:{block}")
+            blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"reusable:{block}")
         outcomes[node], earlier[node] = blocks[columns]
     run = _with_field_schemas(
         _inline_definitions(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
         inputs=_exact_keys_schema({address: _inline_definitions(whole.saved_schema, shared) for address, whole in inputs.items()}),
         outcomes=_exact_keys_schema({}, outcomes),
-        reusable_results=_exact_keys_schema({}, earlier),
+        reusable=_exact_keys_schema({}, earlier),
         code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )
