@@ -9,11 +9,12 @@ from pydantic import ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
 
 from conductor._internal.ask import Question
+from conductor._internal.base import NON_FINITE_FLOATS
 
 from ..state import EndedEarly, Going
 
 #: Every class here refuses a key it does not declare, and writes ``inf`` and ``nan`` as text.
-_SAVED = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
+_SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
 #: What a saved run writes for one call: ``"done"`` when the call has outputs, ``"skipped"`` when it was skipped.
 #: Any other call is written as ``null``.

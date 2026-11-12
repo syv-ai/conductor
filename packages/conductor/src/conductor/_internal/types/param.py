@@ -20,9 +20,9 @@ from pydantic_core import (
     PydanticCustomError,
     PydanticSerializationError,
     core_schema,
-    to_json,
 )
 
+from conductor._internal.base import validate_as_json
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor._internal.problem import declarations as declaration
 from conductor.widgets import Widget
@@ -155,7 +155,7 @@ _NO_PARAM = Param()
 
 
 def read_choice_ids(choices: Iterable[Choice], hint: Any) -> list[Any]:
-    """Reads the id of each of ``choices`` by ``hint`` strictly from the id's JSON form, as an answer picking it is read.
+    """Reads the id of each of ``choices`` by ``hint`` as its JSON text would be read (``validate_as_json``), as an answer picking it is read.
 
     ``read_choice_ids((Choice("2026-01-02", "New year"),), date)`` is ``[date(2026, 1, 2)]``. Choices are the
     type's own rule, so they are read here, where the type is declared, and nowhere else: by ``Param``'s schema,
@@ -166,7 +166,7 @@ def read_choice_ids(choices: Iterable[Choice], hint: Any) -> list[Any]:
         ValidationError: An id is not a value of ``hint``.
     """
     reader = TypeAdapter(hint)
-    return [reader.validate_json(to_json(choice.id, inf_nan_mode="constants"), strict=True) for choice in choices]
+    return [validate_as_json(reader, choice.id) for choice in choices]
 
 
 def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:

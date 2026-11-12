@@ -35,9 +35,7 @@ class FieldDescription(ConductorModel):
             called once per item with the values of that item. Empty for every other field.
     """
 
-    model_config = ConfigDict(
-        frozen=True, extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True, ser_json_inf_nan="strings",
-    )
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
 
     name: str
     title: str

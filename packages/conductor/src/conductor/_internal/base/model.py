@@ -13,12 +13,15 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from .json import NON_FINITE_FLOATS
+
 
 class ConductorModel(BaseModel):
     """A frozen pydantic model that a host writes as JSON and reads back. A field it does not declare is refused."""
 
-    #: A float that is not finite is written as ``"NaN"``, ``"Infinity"`` or ``"-Infinity"``, as a saved run writes one.
-    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_inf_nan="strings")
+    #: A float that is not finite is written as its text (``NON_FINITE_FLOATS``). A subclass that sets its own
+    #: ``model_config`` keeps these three: pydantic merges a subclass's config into its base's.
+    model_config = ConfigDict(frozen=True, extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
         """The fields pydantic's repr shows, without those that have their default, as scikit-learn prints an estimator.

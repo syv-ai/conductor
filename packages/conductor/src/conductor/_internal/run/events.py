@@ -55,10 +55,9 @@ class EventBase(ConductorModel):
 
     In its JSON schema every field is required, ``type`` and the fields with a default included, because
     ``model_dump`` always writes them: a client generated from the schema can rely on every field being there.
-    A float that is infinite or not a number is written as a string (``"inf"``, ``"NaN"``).
     """
 
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True, arbitrary_types_allowed=True, ser_json_inf_nan="strings")
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True, arbitrary_types_allowed=True)
 
 
 class _NodeEvent(EventBase):

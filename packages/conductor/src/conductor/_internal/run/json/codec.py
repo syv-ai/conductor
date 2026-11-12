@@ -16,6 +16,7 @@ from weakref import WeakKeyDictionary
 from pydantic import NonNegativeInt, TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
+from conductor._internal.base import NON_FINITE_FLOATS
 from conductor._internal.compiled import (
     CompiledGraph,
     outputs_when_not_called,
@@ -137,7 +138,7 @@ def run_codec(
         run = core_schema.no_info_after_validator_function(functools.partial(with_shared_tables, outputs), run)
     # a tagged union of one, so that a saved run of another graph is refused by its "graph" key before anything else is read
     schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator="graph"), list(shared.values()))
-    config = CoreConfig(ser_json_inf_nan="strings")
+    config = CoreConfig(ser_json_inf_nan=NON_FINITE_FLOATS)
     return RunCodec(inputs, outputs, asked, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 

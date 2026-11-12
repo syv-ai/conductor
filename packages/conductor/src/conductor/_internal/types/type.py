@@ -28,7 +28,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import plain_json, qualified_name
+from conductor._internal.base import NON_FINITE_FLOATS, plain_json, qualified_name
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
 from conductor._internal.problem import declarations as declaration
 
@@ -307,7 +307,7 @@ class Type:
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
-            adapter = TypeAdapter(read) if len(options) == 1 and is_record(options[0]) else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan="strings"))
+            adapter = TypeAdapter(read) if len(options) == 1 and is_record(options[0]) else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan=NON_FINITE_FLOATS))
         except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
             raise NodeDeclarationError(declaration.bound_invalid_value(limits=repr(param.limits), type=self.id, error=str(error))) from None
         except PydanticSchemaGenerationError:
