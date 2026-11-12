@@ -1,42 +1,37 @@
-"""What a call receives: the rule that says what a node comes to for one item, stated once.
+"""Works out the arguments of one call of a node from the outcomes a run has so far.
 
-**The node rule.** A node needs every one of its inputs. If one comes only from
-branches not taken, the node is skipped, whatever the others hold. Else, while
-one isn't settled, nothing is known yet. Else, if one that takes no blank got a
-blank, the node isn't called. Else it is called with what its inputs hold
-(``Reader.arguments_for``).
+The example graph used in this file::
 
-**One input.** Several edges into one input are alternatives, on opposite
-branches of one decision: the input holds the best of what they bring, a value
-before what isn't settled, before a blank, before a branch not taken
-(``Reader.read_alternatives``). A gathering input (a ``Series``, or a ``Table`` fed
-records) receives the items of one Series, and first asks what was settled
-outside the items one thing: could any item bring a value here? When none
-could, for a branch not taken or for a blank, that is what the input holds,
-with two items as with none. When one could, each item answers for itself.
-Its node needs the Series itself as well, and reads it as one more input, so
-the node rule is what weighs a blank Series against a branch not taken.
+    lines(text: str) -> Series[str]          # called once; returns ["a", "b"]
+    shout(line: str, mark: str) -> str       # wired to lines.result: called once per line
+    join(texts: Series[str]) -> str          # wired to shout.result: called once, with ["A!", "B!"]
 
-**The readers.** The rule reads outputs, and there are two ways to read one:
+``ResultReader.arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``: the arguments of the call
+of ``shout`` for the second line. ``(1,)`` is the call's item indexes: one index per loop the node is inside.
 
-- ``ResultReader`` reads what the units of a run hold for one item: the reader a
-  leg calls a node with. ``DisplayReader`` is the same for a host, whose
-  ``results`` are read in any state: what isn't settled reads as a blank.
-- ``LoopDryRun`` reads for an item of one Series that nobody knows, which is
-  how "could any item bring a value" is answered. An output made outside the items
-  is read as it stands. An output made per item is what its node comes to for any
-  item, by the node rule again: a node that comes to skipped or blank for any
-  item holds what such a unit holds, and one that could be called could hold a
-  value, ``MAY_HAVE_VALUE``.
+When a node cannot be called, ``arguments_for`` returns why instead. The checks are made in this order:
 
-So the answers are an order, skipped before blank before could bring a value,
-and no rule is written for "any item" that isn't the rule for one.
+1. An input has only ``SKIPPED`` to read, because every edge into it comes from a branch that was not chosen.
+   The node is skipped, whatever its other inputs are: the result is a ``Skipped`` outcome.
+2. A value an input reads does not exist yet. The result is ``NOT_READY``, and the node is tried again later.
+3. An input reads ``None`` and its parameter does not accept ``None``. The node is not called: the result is a
+   ``NotCalled`` outcome.
+
+``join.texts`` is a collecting input: it gets one value per item of a loop, as a list. Before it reads the
+items it asks one question: can any item have a value here? Suppose ``mark`` comes from a branch that was not
+chosen. Then every call of ``shout`` is skipped. With two lines ``join`` could be called with ``[None, None]``
+and with no lines with ``[]``. The engine gives one answer for any number of lines instead: ``join`` is
+skipped.
+
+That question is ``arguments_for`` again, asked for ``shout`` with item indexes one index short: ``()``, where
+a call of ``shout`` has ``(0,)`` or ``(1,)``. ``mark`` is read as for any call, since its node is inside no
+loop. ``line`` is an item of a list, and no index says which: when the list exists it is read as
+``MAY_HAVE_VALUE``. So ``arguments_for(shout, ())`` returns ``Skipped`` when ``mark`` is ``SKIPPED``, and
+arguments when some call of ``shout`` may be made.
 """
 
 from __future__ import annotations
 
-import abc
-from abc import ABC
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
@@ -63,50 +58,49 @@ class _MayHaveValue:
         return "MAY_HAVE_VALUE"
 
 
-#: What an output holds for an item nobody knows, when it could hold a value. Beside it an output holds ``SKIPPED`` (no
-#: item could bring a value, for a branch not taken) or ``None`` (none could, for a blank).
+#: What a read returns in place of a value when it is asked for any item of a loop and some item may have a
+#: value. When no item can have one, the read returns what every item would read: ``SKIPPED`` or ``None``.
 MAY_HAVE_VALUE: Final = _MayHaveValue()
 
 
-class Reader(ABC):
-    """Reads what a node's inputs hold, and says what the node comes to: the node rule, over a way to read a
-    output.
+class ResultReader:
+    """Reads what a call needs from the outcomes of a run, and returns the call's arguments.
 
     Attributes:
-        graph_inputs: The caller's inputs, by address.
+        outcomes: The run's outcomes, by node name and then by item indexes.
+        graph_inputs: The values the caller gave for the graph inputs, by address (``"lines.text"``).
+        for_any_item: Empty in the reader a run calls its nodes with. A reader made to answer "can any item of
+            this loop have a value?" (``_list_looped_over``) keeps here what ``arguments_for`` returned for each
+            node inside the loop, by node name.
     """
 
-    __slots__ = ("graph_inputs",)
+    __slots__ = ("for_any_item", "graph_inputs", "outcomes")
 
-    graph_inputs: Mapping[str, Any]
-
-    @abc.abstractmethod
-    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """What the output ``source`` holds for ``item_indexes`` as an edge brings it: a value, ``None`` for a blank, ``SKIPPED``
-        for a branch not taken, or ``NOT_READY``."""
-
-    @abc.abstractmethod
-    def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
-        """What the gathering input of ``plan`` holds for ``item_indexes``: its items, ``None`` for a blank,
-        ``SKIPPED`` for a branch not taken, or ``NOT_READY``."""
-
-    @abc.abstractmethod
-    def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
-        """``arguments`` with the gathering inputs of ``node`` that gather one Series holding the same items."""
+    def __init__(self, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
+        self.outcomes, self.graph_inputs = outcomes, graph_inputs
+        self.for_any_item: dict[str, dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]] = {}
 
     def arguments_for(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]:
-        """What ``node`` comes to for ``item_indexes``: the node rule.
+        """Returns the arguments of the call of ``node`` for ``item_indexes``, or why the node is not called.
 
-        Every input is read before not settled or a blank is the answer, so the order of a node's parameters
-        decides nothing.
+        In the example, ``arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``.
+
+        Every input is read before ``NOT_READY`` or ``NotCalled`` is returned, because a later input may read
+        ``SKIPPED``, and that skips the node whatever the earlier inputs are. So the order of a node's
+        parameters never changes the result.
+
+        ``_list_looped_over`` calls this with item indexes one index shorter than the node's own. The result
+        then says what a call of the node would be for any item: ``Skipped`` or ``NotCalled`` when every item
+        would be, and arguments (some of them ``MAY_HAVE_VALUE``) when an item may be called.
 
         Returns:
-            The arguments of its call; or the unit it comes to uncalled: ``Skipped`` when an input comes only
-            from branches not taken, whatever the others hold, else ``NotCalled`` when an input that takes no blank
-            got one; or ``NOT_READY`` while something it reads is.
+            The arguments by parameter name. Or the node's ``Skipped`` outcome, when an input reads ``SKIPPED``.
+            Or ``NOT_READY``, when a value an input reads does not exist yet. Or a ``NotCalled`` outcome, when an
+            input reads ``None`` and its parameter does not accept ``None``.
 
         Raises:
-            CallRejectedError: An edge names a field the record it brings doesn't have (``invalid_edge_value``).
+            CallRejectedError: An edge reads one field of a record (``lines.result.name``) and the record has no
+                such field (``invalid_edge_value``).
         """
         arguments = node.constants.copy()
         graph_inputs = self.graph_inputs
@@ -122,7 +116,7 @@ class Reader(ABC):
                 raise CallRejectedError(problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)) from None
             if value is SKIPPED:
                 return node.compiled_node.skipped
-            if value is NotReady.NOT_READY:  # a later input may be skipped, which settles the node whatever this one comes to
+            if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node
                 ready = False
             elif value is None and none_input is None and not accepts_none:
                 none_input = name
@@ -133,15 +127,18 @@ class Reader(ABC):
             return NotCalled(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_alternatives(self, reads: tuple[OutputInLoops, ...], item_indexes: ItemIndexes) -> Any:
-        """What alternative edges bring one input: a value when one of them holds one, else ``NOT_READY``
-        while one isn't settled, else a blank, and ``SKIPPED`` when every branch wasn't taken.
+    def read_alternatives(self, sources: tuple[OutputInLoops, ...], item_indexes: ItemIndexes) -> Any:
+        """Returns what an input with several edges into it reads for ``item_indexes``.
 
-        For one item at most one alternative holds a value, as they sit on opposite branches of one decision.
-        For an item nobody knows several could, which is why this is the best of them and not the first.
+        The edges come from different branches of one decision, so for one call at most one of them has a
+        value. Asked for any item, several may have one.
+
+        Returns:
+            The first value an edge reads; else ``NOT_READY`` if an edge read that; else ``None`` if an edge read
+            ``None``; else ``SKIPPED``, when every edge comes from a branch that was not chosen.
         """
         best: Any = SKIPPED
-        for source in reads:
+        for source in sources:
             value = self.read_output(source, item_indexes)
             if value is NotReady.NOT_READY:
                 best = NotReady.NOT_READY
@@ -152,66 +149,72 @@ class Reader(ABC):
                 return value
         return best
 
-
-class ResultReader(Reader):
-    """Reads what the units of a run hold for one item: what a call of a node receives.
-
-    Attributes:
-        units: Each function's units.
-    """
-
-    __slots__ = ("outcomes",)
-
-    def __init__(self, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
-        self.outcomes, self.graph_inputs = outcomes, graph_inputs
-
     def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """What the output ``source`` holds for ``item_indexes``: an ``ItemOfSeries``'s is the item of ``item_indexes``, and a field named
-        on the edge is read from it.
+        """Returns what one edge reads from the output ``source`` for the call at ``item_indexes``.
+
+        In the example, the edge into ``shout.line`` reads one item of ``lines.result``: for ``(1,)`` it reads
+        ``"b"``. The edge into ``join.texts`` reads ``shout.result``: for ``(1,)`` it reads ``"B!"``.
+
+        Returns:
+            The value. ``None`` or ``SKIPPED`` when the output is that. ``NOT_READY`` when the node that returns
+            the output has no outcome yet for these item indexes, or is waiting for a person. Asked for any
+            item (``item_indexes`` has no index for a loop the read needs one for): ``MAY_HAVE_VALUE`` when an
+            item may have a value, else the ``None`` or ``SKIPPED`` every item would read.
 
         Raises:
-            NoSuchFieldError: The edge names a field the record doesn't have.
+            NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
         """
         depth = source.depth
         outcome = self.outcomes[source.node_id].get(item_indexes[:depth])
         if outcome is None or type(outcome) is Waiting:
+            if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
+                would_be = self.for_any_item[source.node_id]
+                if isinstance(would_be, dict):
+                    return MAY_HAVE_VALUE
+                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[source.output]
             return NotReady.NOT_READY
         value = outcome.outputs[source.output]
         if value is None or value is SKIPPED or type(source) is OutputInLoops:
             return value
         if type(source) is ItemOfSeries:  # ``value`` is a stored Series: one item of it, or one field of that item
+            try:
+                index = item_indexes[depth]
+            except IndexError:  # asked for any item of this list, which exists
+                return MAY_HAVE_VALUE
             record_field = source.record_field
             if record_field is None:
-                return value[item_indexes[depth]]
-            cell = value.columns[record_field][item_indexes[depth]]
+                return value[index]
+            cell = value.columns[record_field][index]
             if type(cell) is NoSuchFieldError:
                 raise NoSuchFieldError(record_field)
             return cell
         if type(source) is SeriesAsList:
             return value.as_list()
-        field = source.record_field  # type: ignore[attr-defined]  # an edge brings a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
+        field = source.record_field  # type: ignore[attr-defined]  # an edge source is a WholeOutput, an ItemOfSeries or a SeriesAsList, each with its record_field
         return value if field is None else field_of(value, field)
 
     def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
-        """The items the gathering input of ``plan`` gets for ``item_indexes``, with ``None`` for an item that has
-        no value, for a blank or a branch not taken.
+        """Returns the list a collecting input gets for the call at ``item_indexes``.
 
-        What is outside the items is asked first whether any item could bring a value. When none could, that
-        is the answer for any number of items, none included. When one could, each item answers for itself.
-        The input's node needs the Series too, and reads it as an input of its own (``FlatFunctionNode.fed``),
-        so the node rule weighs the two; here a Series that holds no list is only handed back.
+        In the example, ``collect`` for ``join.texts`` at ``()`` returns ``["A!", "B!"]``: what the edge from
+        ``shout.result`` reads for ``(0,)`` and for ``(1,)``.
 
         Returns:
-            The list, one place per item of the Series; ``NOT_READY`` until what is outside and every item
-            is settled; ``SKIPPED`` when no item could bring a value for a branch not taken outside the items;
-            ``None`` when none could for a blank there.
+            The list, with one entry per item of the loop and ``None`` for an item with no value (its call was
+            skipped or not called). ``SKIPPED`` or ``None`` instead of a list when no item can have a value,
+            however many items there are (``_list_looped_over``). ``NOT_READY`` until every item has been
+            read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
+            returns.
         """
-        item_indexes = item_indexes[: plan.reads[0].depth]
+        looped_over = plan.reads[0]
+        if len(item_indexes) < looped_over.depth:
+            return self._edges_for_any_item(plan, item_indexes)
+        item_indexes = item_indexes[: looped_over.depth]
         series = self._list_looped_over(plan, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = plan.sources
-        if len(edges) == 1 and type(edges[0]) is ItemOfSeries:  # the Series itself: its items, or one field of each
+        if len(edges) == 1 and type(edges[0]) is ItemOfSeries:  # the input collects the list itself: its items, or one field of each
             record_field = edges[0].record_field
             if record_field is not None:
                 return series.field_as_list(record_field)
@@ -219,27 +222,56 @@ class ResultReader(Reader):
         items = []
         one_edge = edges[0] if len(edges) == 1 else None
         for index in range(len(series)):
-            prefix = (*item_indexes, index)
-            value = self.read_output(one_edge, prefix) if one_edge is not None else self.read_alternatives(edges, prefix)
+            indexes_of_item = (*item_indexes, index)
+            value = self.read_output(one_edge, indexes_of_item) if one_edge is not None else self.read_alternatives(edges, indexes_of_item)
             if value is NotReady.NOT_READY:
                 return NotReady.NOT_READY
             items.append(None if value is SKIPPED else value)
         return items
 
     def _list_looped_over(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
-        """The Series the input of ``plan`` gathers, where an item of it could bring a value; else what the
-        input holds whatever its items: ``SKIPPED``, ``None`` for a blank, or ``NOT_READY``. A Series that
-        was never made, or isn't settled, is handed back as that too."""
-        series = plan.reads[0]
-        brought = LoopDryRun(self, series, item_indexes).result_for_every_item(plan)
-        return brought if brought is not MAY_HAVE_VALUE else self.read_output(series, item_indexes)
+        """Returns the list whose items the input of ``plan`` collects, when an item of it may have a value for
+        the input. When no item can, returns what the input is instead, however many items the list has.
+
+        In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node
+        inside that loop. ``arguments_for(shout, ())`` is asked first: ``()`` is the item indexes of the list,
+        one index short of a call of ``shout``. If ``shout.mark`` reads ``SKIPPED``, the answer is ``Skipped``:
+        every call of ``shout`` would be skipped, so ``join.texts`` is ``SKIPPED``, with two lines as with none.
+
+        Args:
+            plan: The collecting input's plan.
+            item_indexes: The item indexes of the list.
+
+        Returns:
+            The stored list (it has ``len()``); or ``None`` or ``SKIPPED`` when the list itself is that, or when
+            no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
+            ``NOT_READY``.
+        """
+        any_item = type(self)(self.outcomes, self.graph_inputs)
+        for node in plan.loop_body:  # each after the nodes it reads
+            any_item.for_any_item[node.name] = any_item.arguments_for(node, item_indexes)
+        value = any_item._edges_for_any_item(plan, item_indexes)
+        return value if value is not MAY_HAVE_VALUE else self.read_output(plan.reads[0], item_indexes)
+
+    def _edges_for_any_item(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
+        """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
+        the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
+        keeps as an item (``Series[str | None]``) counts as a value."""
+        edges = plan.sources
+        value = self.read_output(edges[0], item_indexes) if len(edges) == 1 else self.read_alternatives(edges, item_indexes)
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not plan.field.accepts_none_items):
+            return value
+        return MAY_HAVE_VALUE
 
     def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
-        """``arguments`` with each gathering input holding the items that have a value in every input of the
-        node that gathers the same Series, so those inputs stay in step; an input whose items may be blank
-        keeps a blank in its place."""
+        """Returns ``arguments`` with the lists collected from one loop cut to the same items.
+
+        Example: ``pair(names: Series[str], ages: Series[int])`` collects two outputs of one loop, and item 1
+        has no age. Item 1 is dropped from both lists, so ``names[i]`` and ``ages[i]`` are still the same item.
+        An input that accepts ``None`` items (``Series[int | None]``) drops nothing: it keeps the ``None``.
+        """
         for inputs in node.lists_from_same_loop:
-            dropped: set[int] = set()  # the indexes at which an input that takes no None has one
+            dropped: set[int] = set()  # the indexes at which an input that accepts no None item has one
             for name, accepts_none_items in inputs:
                 if not accepts_none_items and arguments[name] is not None:
                     dropped.update(places_of_none(arguments[name]))
@@ -305,68 +337,3 @@ class DisplayReader(ResultReader):
         if looped_over is None or looped_over is SKIPPED:
             return None
         return [self.display_value(plans, (*item_indexes, index)) for index in range(len(looped_over))]
-
-
-class LoopDryRun(Reader):
-    """Reads for an item nobody knows of one Series, under the item indexes its gathering input gathers at.
-
-    Attributes:
-        items: Reads what is made outside the items, as it stands.
-        series: The Series whose items nobody knows, where it was made.
-        item_indexes: The item indexes the Series is gathered at.
-        dry_outcomes: What each function made per item of the Series comes to for any item, by its name, as far as
-            asked: a function not in it is made outside the items.
-    """
-
-    __slots__ = ("dry_outcomes", "item_indexes", "items", "series")
-
-    def __init__(self, items: ResultReader, series: OutputInLoops, item_indexes: ItemIndexes) -> None:
-        self.items, self.series, self.item_indexes, self.graph_inputs = items, series, item_indexes, items.graph_inputs
-        self.dry_outcomes: dict[str, dict[str, Any] | Skipped | NotCalled | Literal[NotReady.NOT_READY]] = {}
-
-    def result_for_every_item(self, plan: InputCollectsLoopResults) -> Any:
-        """Whether any item of the Series could bring the gathering input of ``plan`` a value, going by what
-        is outside the items. Each function the input gathers through is asked what it comes to for any item,
-        in order, and then what the input's edges bring.
-
-        Returns:
-            ``MAY_HAVE_VALUE``; ``SKIPPED`` when none could for a branch not taken; ``None`` when none could for a
-            blank; ``NOT_READY`` while something outside the items isn't settled.
-        """
-        for node in plan.loop_body:
-            self.dry_outcomes[node.name] = self.arguments_for(node, self.item_indexes)
-        return self._read_edges(plan)
-
-    def read_output(self, source: OutputInLoops, item_indexes: ItemIndexes) -> Any:
-        """What the output ``source`` holds for an item nobody knows: what its node comes to for any item when it is made
-        per item, and as it stands when it is made outside the items, ``MAY_HAVE_VALUE`` for a value."""
-        dry_outcomes = self.dry_outcomes.get(source.node_id)
-        if dry_outcomes is None:  # made outside the items
-            series = self.series
-            if type(source) is ItemOfSeries and source.node_id == series.node_id and source.output == series.output:
-                source = series  # an item of the Series itself is what the Series is: one never made has none
-            value = self.items.read_output(source, self.item_indexes)
-            return value if value is NotReady.NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
-        if dry_outcomes is NotReady.NOT_READY:
-            return NotReady.NOT_READY
-        return MAY_HAVE_VALUE if type(dry_outcomes) is dict else dry_outcomes.outputs[source.output]  # type: ignore[union-attr]  # mypy doesn't narrow a union by ``type(x) is dict``
-
-    def collect(self, plan: InputCollectsLoopResults, item_indexes: ItemIndexes) -> Any:
-        """What a gathering input met on the way holds for an item nobody knows. One whose Series is made per
-        item is asked what its edges bring for the same items; one whose Series is made outside them is an output
-        outside like any other: its own, whole answer, read as it stands."""
-        if plan.reads[0].node_id in self.dry_outcomes:
-            return self._read_edges(plan)
-        value = self.items.collect(plan, self.item_indexes)
-        return value if value is NotReady.NOT_READY or value is SKIPPED or value is None else MAY_HAVE_VALUE
-
-    def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
-        """``arguments`` as it is: nothing is known of the items to keep in step."""
-        return arguments
-
-    def _read_edges(self, plan: InputCollectsLoopResults) -> Any:
-        """What the edges of a gathering input bring for an item nobody knows; an input whose items take a
-        blank receives the blank an edge brings, so it could hold one."""
-        edges = plan.sources
-        brought = self.read_output(edges[0], self.item_indexes) if len(edges) == 1 else self.read_alternatives(edges, self.item_indexes)
-        return MAY_HAVE_VALUE if brought is None and plan.field.accepts_none_items else brought

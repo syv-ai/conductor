@@ -31,7 +31,7 @@ from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.compiled.flat_nodes import FlatFunctionNode
-    from conductor._internal.run.arguments import Reader
+    from conductor._internal.run.arguments import ResultReader
 
 
 class OutputAddress(NamedTuple):
@@ -200,7 +200,7 @@ class InputReadsOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
         """What the input holds for ``item_indexes``: what its edge brings, or the best of alternative edges."""
         reads = self.reads
         return reader.read_output(reads[0], item_indexes) if len(reads) == 1 else reader.read_alternatives(reads, item_indexes)
@@ -234,7 +234,7 @@ class InputCollectsLoopResults:
         """What each edge brings for an item."""
         return self.reads[1:]  # type: ignore[return-value]  # every output after the Series is what an edge brings
 
-    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
         """What the input holds for ``item_indexes``: the items of its Series, or what is outside them when that
         decides."""
         return reader.collect(self, item_indexes)
@@ -265,7 +265,7 @@ class InputWrapsOneValue:
         """What each edge brings."""
         return self.reads
 
-    def value(self, reader: Reader, item_indexes: ItemIndexes) -> Any:
+    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
         """What the input holds for ``item_indexes``: the one value its edge brings, as a list of one; where the
         items take a blank, a blank is its one item."""
         reads = self.reads

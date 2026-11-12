@@ -1813,3 +1813,25 @@ def test_an_approval_per_line_of_each_document_pauses_saves_resumes_and_a_new_do
     finished = again.answer({w.id: "yes" for w in again.waiting}).resume()
     assert finished.results["a"]["result"] == [["yes", "no"], ["yes", "yes"], ["yes"]]
     assert finished.outputs == {"n.result": [1, 2, 1]}
+
+
+# -- what a collecting input is before its items are read ----------------------------------------
+
+
+def test_a_collecting_node_over_no_items_waits_for_a_value_its_loop_reads_from_outside():
+    """``p`` is called once per item of ``s`` and also reads ``m``, made outside the loop. Until ``m`` has a value
+    nobody knows whether any call of ``p`` could be made, so ``n``, which collects ``p``, is not called, even when
+    ``s`` has no items: ``m`` may still turn out a branch not chosen, which skips ``n``."""
+
+    @node("mark", title="Mark", description="Asks a person for the mark.")
+    def mark() -> str:
+        raise Ask("which mark?")
+
+    CALLED.clear()
+    loaded = graph({"id": "s", "node": "split"}, {"id": "m", "node": "mark"}, {"id": "p", "node": "pair"}, {"id": "n", "node": "count"},
+                   edges=(("s.result", "p.a"), ("m.result", "p.b"), ("p.result", "n.values")), registry=registry_of(split, mark, pair, count))
+    assert loaded.problems == []
+    paused = loaded.run(text="")
+    assert paused.status == "waiting" and CALLED == []
+    done = paused.answer(paused.waiting[0], "!").resume()
+    assert done.status == "complete" and done.results["n"]["result"] == 0 and CALLED == ["count 0"]
