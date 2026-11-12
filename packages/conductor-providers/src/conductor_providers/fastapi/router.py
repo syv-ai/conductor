@@ -22,7 +22,7 @@ from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, PositiveInt, TypeAdapter
 
-from conductor_providers.fastapi.router_problem import NoSuchRunError, RefusedError
+from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import Outcome, RunAsRead
 from conductor_providers.fastapi.worker import Worker

@@ -31,7 +31,7 @@ from conductor import (
 )
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.router import RunView
-from conductor_providers.fastapi.router_problem import RefusedError
+from conductor_providers.fastapi.router_problems import RefusedError
 from conductor_providers.fastapi.stored_run import RunAsRead, StoredState
 from conductor_providers.fastapi.worker import Worker
 from pydantic import GetCoreSchemaHandler, TypeAdapter

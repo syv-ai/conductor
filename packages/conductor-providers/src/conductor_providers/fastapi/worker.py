@@ -27,9 +27,9 @@ from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
 
-from conductor_providers.fastapi import router_problem
+from conductor_providers.fastapi import router_problems
 from conductor_providers.fastapi.leg_end import HandedBack, LegEnd, Raised, end_of
-from conductor_providers.fastapi.router_problem import NoSuchRunError, RefusedError
+from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import (
     RUNNING,
@@ -210,19 +210,19 @@ class Worker(Generic[C]):
         """
         def queued_with_these(state: StoredState) -> StoredState:
             if twice := state.queued_answers.keys() & answers.keys():
-                raise RefusedError(*(router_problem.already_answered(waiting_id=waiting_id) for waiting_id in sorted(twice)))
+                raise RefusedError(*(router_problems.already_answered(waiting_id=waiting_id) for waiting_id in sorted(twice)))
             return state.model_copy(update={"queued_answers": {**state.queued_answers, **answers}})
 
         run = await self._ask_of_a_running_leg(run, queued_with_these)
         if run.state.leg_wanted:
             return "queued"
         if run.state.run_state.status == "complete":
-            raise RefusedError(router_problem.run_complete())
+            raise RefusedError(router_problems.run_complete())
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
         state = run.state.answered(answers.keys()).model_copy(update={"run_state": RUNNING})
         if not await self._claim(run, state, changed=answered):
-            raise RefusedError(router_problem.run_changed())
+            raise RefusedError(router_problems.run_changed())
         return "started"
 
     async def resume(self, run: RunAsRead, max_items: int | None = None) -> None:
@@ -239,14 +239,14 @@ class Worker(Generic[C]):
             InvalidCallError: With ``max_items``, the stored run can't be loaded to raise its ceiling.
         """
         if run.state.cause is None:
-            raise RefusedError(router_problem.run_not_resumable(status=run.state.run_state.status))
+            raise RefusedError(router_problems.run_not_resumable(status=run.state.run_state.status))
         state = run.state.model_copy(update={"run_state": RUNNING})
         raised = None
         if max_items is not None:
             row, nodes = run.row, self._nodes_for(self.started_by(run.row))
             raised = await asyncio.to_thread(lambda: _loaded(row, nodes).with_max_items(max_items).to_json())
         if not await self._claim(run, state, changed=raised):
-            raise RefusedError(router_problem.run_changed())
+            raise RefusedError(router_problems.run_changed())
 
     async def cancel(self, run: RunAsRead) -> bool:
         """Ask the running leg of a run to stop before its next unit: at once when this worker runs it, at its next
@@ -513,7 +513,7 @@ class Worker(Generic[C]):
             yield Raised.refused(refusal, waiting)
         except Exception:
             log.exception("the leg of run %s failed", row.id)
-            yield Raised.because(router_problem.leg_failed(), waiting)
+            yield Raised.because(router_problems.leg_failed(), waiting)
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: LegEnd) -> StoredRun:
         """Write how a leg ended, decided from the row's state as read for each try of the write, so a cancel or an

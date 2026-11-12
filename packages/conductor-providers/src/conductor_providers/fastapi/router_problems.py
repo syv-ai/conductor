@@ -1,13 +1,19 @@
-"""The problems the runs router writes itself, beside those of the runs it serves, one function each.
+"""The seven kinds of problem the runs router writes itself, one function each, and the two exceptions that carry them.
 
-``ROUTER_PROBLEMS.problem`` says how a function's signature is read. Each is about a run as a whole, so its ``loc``
+A kind is called to make its ``Problem``::
+
+    router_problems.already_answered(waiting_id="approve")
+    # Problem(type="already_answered", loc=(), msg="An answer to 'approve' already waits ...", ctx={"waiting_id": "approve"})
+
+``ProblemCatalogue.problem`` says how a function's signature is read. Each is about a run as a whole, so its ``loc``
 is ``()``. Five are the ``detail`` of a 404 or a 409, ``answer_check_failed`` is in a run's ``refused``, and
-``leg_failed`` is the ``cause`` of a run.
+``leg_failed`` is the ``cause`` of a run. The problems of the runs the router serves are the engine's, in
+``conductor.PROBLEMS``.
 """
 
 from __future__ import annotations
 
-from conductor import ProblemCatalogue, RunStatus
+from conductor import Problem, ProblemCatalogue, RunStatus
 
 #: The kinds of problem the runs router writes itself.
 ROUTER_PROBLEMS = ProblemCatalogue()
@@ -67,3 +73,28 @@ def run_changed() -> str:
 def leg_failed() -> str:
     """The run's worker raised outside any node, so the leg ended with no run."""
     return "The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on."
+
+
+class RefusedError(Exception):
+    """A call the worker refused because of how the run stands.
+
+    Attributes:
+        problems: Why, each with one of the router's own codes.
+    """
+
+    def __init__(self, *problems: Problem) -> None:
+        super().__init__(" ".join(problem.msg for problem in problems))
+        self.problems = list(problems)
+
+
+class NoSuchRunError(Exception):
+    """No run has the id, or the caller may not see the one that has.
+
+    Attributes:
+        problems: The one problem, ``no_such_run``.
+    """
+
+    def __init__(self) -> None:
+        problem = no_such_run()
+        super().__init__(problem.msg)
+        self.problems = [problem]

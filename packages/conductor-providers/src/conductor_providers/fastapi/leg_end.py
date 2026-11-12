@@ -14,7 +14,7 @@ from conductor import EndedEarly, InvalidCallError, Problem, Run, Waiting
 from conductor.events import RunEnd
 from pydantic_core import from_json
 
-from conductor_providers.fastapi import router_problem
+from conductor_providers.fastapi import router_problems
 from conductor_providers.fastapi.stored_run import RUNNING, Outcome, RunChanges, StoredState
 
 log = logging.getLogger("conductor_providers.fastapi")
@@ -89,7 +89,7 @@ class Ended(LegEnd):
                 refused[waiting_id] = error.errors()
             except Exception as error:
                 log.exception("the answer queued for %s could not be checked", waiting_id)
-                refused[waiting_id] = [router_problem.answer_check_failed(waiting_id=waiting_id, error=type(error).__name__)]
+                refused[waiting_id] = [router_problems.answer_check_failed(waiting_id=waiting_id, error=type(error).__name__)]
         settled = state.answered(taken)
         unheard = state.cancel_asked and bool(taken) and self.run.status != "cancelled"
         after = settled.model_copy(update={
