@@ -827,7 +827,7 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(who), registry).run())
     """
-    return f"The node takes the run's context, a {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
+    return f"The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
 
 
 @PROBLEMS.problem()

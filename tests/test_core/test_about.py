@@ -194,7 +194,7 @@ def test_the_problems_page_has_every_kind_of_problem_with_its_sentence_its_ctx_k
         assert f"\n## {section}\n" in page
     entry = about.get_section("context-missing")
     assert entry is not None
-    assert "> The node takes the run's context, a {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run." in entry
+    assert "> The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run." in entry
     assert "`loc`: The node's path, then its `Context` parameter." in entry
     assert "| `needs` | `str` | always | The name of the class inside `Context[...]`. |" in entry
     assert "```python\nrefused(lambda: Graph.compile(make_graph(who), registry).run())\n```" in entry
