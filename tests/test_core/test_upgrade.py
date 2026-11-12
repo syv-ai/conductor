@@ -139,13 +139,16 @@ def test_upgrade_with_to_stops_at_that_version():
     assert upgraded.edges == (("r.result", "e.text"),)
 
 
-def test_upgrade_reads_the_nodes_as_compiling_does_the_first_of_two_with_one_id_and_none_whose_id_is_no_name():
+def test_upgrade_reads_the_nodes_as_compiling_does_the_first_of_two_with_one_id_and_refuses_one_whose_id_is_no_name():
     graph = GraphRecord(nodes=[*_graph().nodes, NodeRecord(id="r", node="rename", version=2), NodeRecord(id="a.b", node="rename")])
 
     upgraded = _registry().upgrade(graph, "r")
     assert [(n.id, n.version) for n in upgraded.nodes] == [("r", 3), ("e", 1), ("r", 2), ("a.b", 1)]
     with pytest.raises(InvalidCallError) as refused:
         _registry().upgrade(graph, "a.b")
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_node_id", ("a.b",))]
+    with pytest.raises(InvalidCallError) as refused:
+        _registry().upgrade(graph, "nope")
     assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["r", "e"])]
 
 

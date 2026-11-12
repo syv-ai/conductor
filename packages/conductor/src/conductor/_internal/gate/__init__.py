@@ -57,8 +57,7 @@ from .hook import read_hook_fields
 from .inputs import InputsDoor, check_limits
 from .raised import AskDoor, undeclared_ask
 from .record import (
-    KeyedGraphRecord,
-    keyed_graph_record,
+    read_keyed_record,
     read_record,
     record_from_parts,
     record_values,
@@ -77,8 +76,8 @@ from .returned import (
 from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
-    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "KeyedGraphRecord", "NoOutputs", "OneResult", "OutputsClass",
+    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
     "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
-    "demands_more", "keyed_graph_record", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_from_parts", "record_values", "values_by_input",
+    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_keyed_record", "read_record", "record_from_parts", "record_values", "values_by_input",
     "undeclared_ask", "validator_of",
 ]

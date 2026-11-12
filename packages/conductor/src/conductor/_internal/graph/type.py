@@ -7,7 +7,7 @@ from types import MappingProxyType
 from typing import Any
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import RefusedError, check_limits, read_record
+from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
@@ -37,10 +37,9 @@ class Graph[C](CompiledGraph):
         definitions as they are when it is compiled, and the registry's ``context_type``.
         """
         try:
-            read = read_record(record)
+            return compile_graph(record, registry, registry.context_type, Graph)
         except RefusedError as refused:
             raise InvalidCallError(refused.problems) from None
-        return compile_graph(read, registry, registry.context_type, Graph)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,

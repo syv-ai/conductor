@@ -49,9 +49,9 @@ from conductor._internal.field import Field
 from conductor._internal.gate import (
     RefusedError,
     bound_field,
-    keyed_graph_record,
     read_constant,
     read_hook_fields,
+    read_keyed_record,
 )
 from conductor._internal.node import (
     FunctionDefinition,
@@ -96,18 +96,21 @@ class Definitions(Protocol):
 
 
 def compile_graph[GraphT: CompiledGraph](
-    record: GraphRecord, definitions: Definitions, context_type: type | None, graph_type: type[GraphT],
+    record: GraphRecord | str | bytes, definitions: Definitions, context_type: type | None, graph_type: type[GraphT],
 ) -> GraphT:
     """Compiles ``record`` and returns it as a ``graph_type``. Every compiled graph a host gets is made here.
 
     Args:
-        record: The graph record.
+        record: The graph record, or its JSON text.
         definitions: The registry: the newest version of each node definition, looked up by id. An older version a
             node asks for is found through it.
         context_type: The class of the run's context, as the registry names it; ``None`` when it names none.
         graph_type: The class of the graph to return: ``Graph``, the class a host uses.
 
     Never raises for a wrong graph: the returned graph's ``problems`` say what is wrong.
+
+    Raises:
+        RefusedError: ``record`` is not a graph record's shape, as ``read_keyed_record`` raises.
     """
     return _Compiler(definitions, context_type, (), {}).compile(record, graph_type)
 
@@ -167,13 +170,13 @@ class _Compiler:
         self.graph_inputs: list[tuple[GraphInputDescription, Field]] = []
         self.position: dict[str, int] = {}
 
-    def compile[GraphT: CompiledGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
+    def compile[GraphT: CompiledGraph](self, record: GraphRecord | str | bytes, graph_type: type[GraphT]) -> GraphT:
         """Returns ``record`` compiled, as a ``graph_type``.
 
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
         could be worked out. A node whose definition is not found, or whose hook failed, is left out.
         """
-        keyed = keyed_graph_record(record)
+        keyed = read_keyed_record(record)
         self.problems += keyed.problems
         self.position = {node_id: i for i, node_id in enumerate(keyed.nodes)}
         for node_id in self._order(list(keyed.nodes), keyed.edges_into):
@@ -196,7 +199,7 @@ class _Compiler:
         for compiled_node in self.nodes.values():
             for source_id in compiled_node.upstream_ids:
                 downstream[source_id].append(compiled_node)
-        return graph_type(record, self.problems, inputs, self.nodes, input_fields, downstream, self.context_type)
+        return graph_type(keyed.record, self.problems, inputs, self.nodes, input_fields, downstream, self.context_type)
 
     def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition a node of the record names, at the record's version; ``None``, with a

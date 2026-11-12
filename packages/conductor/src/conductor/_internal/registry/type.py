@@ -325,9 +325,9 @@ class NodeRegistry[C]:
         load it to show the author what the newer version makes of it.
 
         What a rewrite returns is written as JSON, as ``make_graph`` writes a
-        value typed in. A node the record does not have (as compiling reads it:
-        an id that is a name, and of two nodes with one id the first), a node
-        this registry does not, a version it can't move to and a rewrite returning a value
+        value typed in. Of two nodes with one id, the first is moved. A node
+        the record does not have, a node whose id is not a name
+        (``invalid_node_id``), a node this registry does not, a version it can't move to and a rewrite returning a value
         with no JSON form (``invalid_value``) are each an ``InvalidCallError``.
         """
         return upgraded(self._nodes, record, node_id, to=to)

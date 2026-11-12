@@ -142,8 +142,8 @@ class CompiledGraph:
         with the subgraph node's id and goes on with the place inside the subgraph.
         """
         problems_of: dict[Loc, list[Problem]] = {}  # by the start of each problem's loc: its node's id
-        for found in self.problems:
-            problems_of.setdefault(found.loc[:1], []).append(found)
+        for graph_problem in self.problems:
+            problems_of.setdefault(graph_problem.loc[:1], []).append(graph_problem)
         nodes: dict[str, GraphNodeDescription] = {}
         for record in self.record.nodes:
             own = problems_of.get((record.id,), [])

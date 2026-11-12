@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from conductor._internal.base import Address
-from conductor._internal.gate import RefusedError, keyed_graph_record, read_record, record_values
+from conductor._internal.gate import RefusedError, read_keyed_record, record_values
 from conductor._internal.node import NodeDefinition, declared_inputs
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
@@ -45,13 +45,13 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     """``record`` with the node ``node_id`` moved to version ``to`` of its definition in ``nodes``, the newest when
     ``to`` is ``None``: what ``registry.upgrade`` returns, and its docstring says how."""
     try:
-        graph = read_record(record)
+        keyed = read_keyed_record(record)
     except RefusedError as refused:
         raise InvalidCallError(refused.problems) from None
-    keyed = keyed_graph_record(graph)
+    graph = keyed.record
     node_record = keyed.nodes.get(node_id)
-    if node_record is None:
-        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=list(keyed.nodes))])
+    if node_record is None:  # a node the record has under an id that is no name has the problem invalid_node_id
+        raise InvalidCallError([id_problem for id_problem in keyed.problems if id_problem.loc == (node_id,)] or [problem.node_not_in_graph(node_id, nodes=list(keyed.nodes))])
     if node_record.node not in nodes:
         raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(nodes))])
     newest = nodes[node_record.node]
@@ -66,7 +66,7 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     version_chain = newest.version_of(target).version_chain
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
     constants, defaults = dict(node_record.constants), dict(node_record.defaults)
-    edges = keyed.edges
+    edges = [(Address.parse(source_text), Address.parse_input(target_text)) for source_text, target_text in graph.edges]
     for step, older in reversed(steps):
         upgrade = step.upgrade
         constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
