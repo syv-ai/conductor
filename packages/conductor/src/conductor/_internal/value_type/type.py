@@ -33,6 +33,7 @@ from pydantic_core import (
 
 from conductor._internal.plain_json import plain_json
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.text import qualified_name
 from conductor._internal.value_type.choice import Choice
 from conductor._internal.value_type.fit import fit
@@ -300,17 +301,9 @@ class Type:
         bare, param, others = self._parts
         pydantic_fields = [other for other in others if isinstance(other, FieldInfo)]  # Annotated[int, Field(ge=0)], here or on an item of a list
         if any(field.discriminator is not None for field in pydantic_fields):
-            raise NodeDeclarationError(
-                "pydantic's Field(discriminator=...) in the hint; pydantic's Discriminator says which member of a union a value is, "
-                'so write Annotated[Cat | Dog, Discriminator("kind")] where you had Annotated[Cat | Dog, Field(discriminator="kind")]',
-                code="pydantic_field_in_hint",
-            )
+            raise NodeDeclarationError(declaration.pydantic_discriminator_in_hint())
         if pydantic_fields:
-            raise NodeDeclarationError(
-                "pydantic's Field(...) in the hint; an input or output takes its title, description and limits from Param, "
-                "so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]",
-                code="pydantic_field_in_hint",
-            )
+            raise NodeDeclarationError(declaration.pydantic_field_in_hint())
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
@@ -323,13 +316,9 @@ class Type:
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
             adapter = TypeAdapter(marked) if len(options) == 1 and is_record(options[0]) else TypeAdapter(marked, config=ConfigDict(ser_json_inf_nan="strings"))
         except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
-            raise NodeDeclarationError(f"the limits {param.limits!r} don't fit {self.id}, so change one: {error}", code="bound_invalid") from None
+            raise NodeDeclarationError(declaration.bound_invalid_value(limits=repr(param.limits), type=self.id, error=str(error))) from None
         except PydanticSchemaGenerationError:
-            raise NodeDeclarationError(
-                f"conductor can't check or write {self.id} as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, "
-                "or give the class its own __get_pydantic_core_schema__",
-                code="type_not_carried",
-            ) from None
+            raise NodeDeclarationError(declaration.type_not_carried(type=self.id)) from None
         return read, adapter
 
     @property

@@ -27,6 +27,7 @@ from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import core_schema
 
 from conductor._internal.problem import NodeDeclarationError
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.text import qualified_name
 
 #: The id and title of each class conductor itself names. ``Series`` and ``Table`` name themselves in their own
@@ -94,39 +95,26 @@ def host_type[C: type](id: str, *, title: str, accepts: list[type] | tuple[type,
             (``type_declaration_invalid``); or pydantic can't validate the class (``type_not_carried``).
     """
     try:
-        declaration = TypeDeclaration(id=id, title=title, accepts=tuple(accepts) if isinstance(accepts, list) else accepts)
+        stored = TypeDeclaration(id=id, title=title, accepts=tuple(accepts) if isinstance(accepts, list) else accepts)
     except ValidationError as error:
         faults = "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in error.errors())
-        raise NodeDeclarationError(
-            f"@host_type({id!r}): {faults}; give an id that is one word and not one of conductor's own, a title, and classes in accepts",
-            code="type_declaration_invalid",
-        ) from None
+        raise NodeDeclarationError(declaration.type_declaration_invalid(id=id, faults=faults)) from None
 
     def declare(cls: C) -> C:
         if not isinstance(cls, type) or typing.is_typeddict(cls):
-            raise NodeDeclarationError(
-                f"@host_type({id!r}) goes above a class, and {cls!r} is not one it can name; a TypedDict is a record and needs no declaration",
-                code="type_declaration_invalid",
-            )
+            raise NodeDeclarationError(declaration.type_declaration_not_on_a_class(id=id, given=repr(cls)))
         try:
             TypeAdapter(cls)
         except PydanticSchemaGenerationError:
             parent = next((base for base in cls.__mro__[1:-1] if base in NAMES), None)
             if parent is None:
-                raise NodeDeclarationError(
-                    f"@host_type({id!r}) on {cls.__qualname__}: pydantic can't validate it or write it as JSON; make it a pydantic model or a "
-                    "dataclass (with @host_type above @dataclass), or give it its own __get_pydantic_core_schema__",
-                    code="type_not_carried",
-                ) from None
+                raise NodeDeclarationError(declaration.type_not_carried_declared(id=id, cls=cls.__qualname__)) from None
             validated_as_parent = classmethod(lambda made, source, handler: core_schema.no_info_after_validator_function(made, handler(parent)))
             cls.__get_pydantic_core_schema__ = validated_as_parent  # type: ignore[attr-defined]  # the hook pydantic looks for on a class
         try:
-            cls.__conductor_type__ = declaration  # type: ignore[attr-defined]  # read back by declaration_of
+            cls.__conductor_type__ = stored  # type: ignore[attr-defined]  # read back by declaration_of
         except TypeError:  # a class written in C, such as int
-            raise NodeDeclarationError(
-                f"@host_type({id!r}) on {cls.__qualname__}: Python lets nobody write on this class; put its value in a class of your own and declare that",
-                code="type_declaration_invalid",
-            ) from None
+            raise NodeDeclarationError(declaration.type_declaration_not_writable(id=id, cls=cls.__qualname__)) from None
         return cls
 
     return declare
@@ -143,11 +131,7 @@ def declaration_of(cls: type) -> TypeDeclaration:
     declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
     if declared is None:
         parent = next((base for base in cls.__mro__[1:] if "__conductor_type__" in vars(base)), None)
-        why = f"; {parent.__qualname__}'s declaration is its own and is not inherited" if parent else ""
-        raise NodeDeclarationError(
-            f'{qualified_name(cls)} is the type of a field and is not declared; write @host_type("...", title="...") above the class{why}',
-            code="type_not_named",
-        )
+        raise NodeDeclarationError(declaration.type_not_named(cls=qualified_name(cls), parent=parent.__qualname__ if parent else None))
     return declared
 
 

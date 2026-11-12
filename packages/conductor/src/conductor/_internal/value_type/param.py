@@ -23,6 +23,7 @@ from pydantic_core import (
 )
 
 from conductor._internal.problem import NodeDeclarationError, value_free_errors
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.value_type.choice import Choice
 from conductor._internal.value_type.hint import READ_AS, union_members, union_of
 from conductor.widgets import Widget
@@ -113,30 +114,23 @@ class Param:
         unheld = sorted(self.limits.keys() - held)
         if unheld and functions <= len(unheld):
             written = source.__name__ if isinstance(source, type) else str(source)  # as its developer wrote it
-            raise NodeDeclarationError(
-                f"{unheld} can't apply to {written}, as pydantic holds no such limit on it; take them off, or check the value in the node",
-                code="bound_invalid",
-            )
+            raise NodeDeclarationError(declaration.bound_invalid(unheld=unheld, type=written))
         if self.choices is None:
             return limited
         reader = TypeAdapter(limited_hint)
         try:
             ids = [reader.validate_json(to_json(choice.id, inf_nan_mode="constants"), strict=True) for choice in self.choices]
         except PydanticSerializationError:
-            raise NodeDeclarationError("a choice has no JSON form; give each choice once, as a value of the field's type", code="choices_invalid") from None
+            raise NodeDeclarationError(declaration.choices_invalid_no_json_form()) from None
         except ValidationError as refused:
-            raise NodeDeclarationError(
-                f"a choice is not a value of the field's type: {value_free_errors(refused.errors(include_url=False, include_input=False))[0]['msg']}; give each choice once, as a value of the field's type",
-                code="choices_invalid",
-            ) from None
+            reason = value_free_errors(refused.errors(include_url=False, include_input=False))[0]["msg"]
+            raise NodeDeclarationError(declaration.choices_invalid_not_a_value(reason=reason)) from None
         literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]
         distinct = {repr(i) for i in ids}
         if not ids or len(distinct) != len(ids):
-            raise NodeDeclarationError("the choices hold an id twice, or none; give each choice once, as a value of the field's type", code="choices_invalid")
+            raise NodeDeclarationError(declaration.choices_invalid())
         if literal and distinct != {repr(value) for value in literal}:
-            raise NodeDeclarationError(
-                f"on a Literal the choices title its values, one each: {literal}; give each choice once, as a value of the field's type", code="choices_invalid",
-            )
+            raise NodeDeclarationError(declaration.choices_invalid_on_a_literal(values=literal))
         if literal:  # a Literal's choices title its values
             return limited
 

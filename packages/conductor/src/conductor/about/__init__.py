@@ -107,7 +107,7 @@ def _problems(catalogue: ProblemCatalogue) -> str:
     the catalogue.
 
     A kind's section has its docstring's text, its example, its sentence with a slot for each ``ctx`` value, what
-    its ``*loc`` is when it has one, and a table of its ``ctx`` keys: the type, whether the key is always given,
+    its ``*loc`` is when it has one, and, when it has any, a table of its ``ctx`` keys: the type, whether the key is always given,
     and the key's line under ``Args:``.
 
     Args:
@@ -141,7 +141,7 @@ def _problems(catalogue: ProblemCatalogue) -> str:
             *([f"```python\n{docs.example}\n```"] if docs.example else []),
             f"> {kind.sentence}",
             *([f"`loc`: {docs.arguments['loc']}"] if "loc" in docs.arguments else []),
-            "\n".join(["| `ctx` | type | given | meaning |", "|---|---|---|---|", *rows]),
+            *(["\n".join(["| `ctx` | type | given | meaning |", "|---|---|---|---|", *rows])] if rows else []),
         ]))
     return "\n\n".join(out)
 
@@ -156,7 +156,8 @@ def _parse_sections(text: str) -> dict[str, str]:
     """Each section by its slug: every heading of two or more ``#``, with the text under it.
 
     A section runs from its heading to the next heading with as many ``#`` or fewer. So a ``###`` section inside a
-    ``##`` section ends at the next ``###`` heading or where the ``##`` section ends.
+    ``##`` section ends at the next ``###`` heading or where the ``##`` section ends. Of two headings with one slug
+    (``duplicate_node_id`` is a problem of a graph and of a declaration), the first is kept.
     """
     matches = list(_HEADING.finditer(text))
     out: dict[str, str] = {}
@@ -169,7 +170,7 @@ def _parse_sections(text: str) -> dict[str, str]:
                 end = nxt.start()
                 break
         slug = re.sub(r"[^a-z0-9]+", "-", m.group(2).lower()).strip("-")
-        out[slug] = text[start:end].rstrip() + "\n"
+        out.setdefault(slug, text[start:end].rstrip() + "\n")  # a code with several kinds, or in two catalogues, is found by its first
     return out
 
 
@@ -179,7 +180,8 @@ def get_content() -> str:
 
 
 def problems_page() -> str:
-    """The problems page, ``problems.md``, with every kind of problem of the core and of ``check_registry`` written in."""
+    """The problems page, ``problems.md``, with every kind of problem of the core, of a declaration and of ``check_registry``
+    written in."""
     return write_markers(files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8"))
 
 

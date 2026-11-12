@@ -211,18 +211,3 @@ def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_choices_s
     program.write_text(_WRONG_KEYWORDS)
     done = subprocess.run([sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path)
     assert [line.split(": error: ")[0].rsplit(":", 1)[1] for line in done.stdout.splitlines() if ": error: " in line] == ["5", "6", "7", "8"], done.stdout
-
-
-_A_MISSPELLED_CODE = """
-from conductor import NodeDeclarationError
-
-known = NodeDeclarationError("a widget is given in a Param; write Param(widget=...)", code="widget_outside_param")
-misspelled = NodeDeclarationError("a widget is given in a Param; write Param(widget=...)", code="widget_outside_parm")
-"""
-
-
-def test_a_checker_refuses_a_declaration_code_conductor_does_not_have(tmp_path: Path) -> None:
-    program = tmp_path / "a_misspelled_code.py"
-    program.write_text(_A_MISSPELLED_CODE)
-    done = subprocess.run([sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path)
-    assert [line.split(": error: ")[0].rsplit(":", 1)[1] for line in done.stdout.splitlines() if ": error: " in line] == ["5"], done.stdout

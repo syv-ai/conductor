@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 import ast
-import contextlib
 import re
 import sys
-from ast import Call, Constant, Expr, Expression, JoinedStr, Module, Name
+from ast import Expr, Expression, Module
 from collections.abc import Callable
-from io import StringIO
 from pathlib import Path
 from types import ModuleType
 
 import pytest
-from conductor import PROBLEMS, Problem, ProblemKind
+from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemKind
 from conductor.about import _kind_docs
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 from conductor_providers.fastapi.testing.problems import RUN_STORE_CHECK_PROBLEMS
@@ -30,39 +28,10 @@ _NO_FIX = {"failed", "external_failed", "invalid_answer"}
 _MESSAGE_IS_THE_NODES = {"failed"}
 
 
-def _template(message: ast.expr) -> str:
-    """An f-string as its text with ``{slot}`` for each value, the ``{where}`` prefix naming the node left out."""
-    if isinstance(message, JoinedStr):
-        text = "".join(str(p.value) if isinstance(p, Constant) else "{" + ast.unparse(p.value) + "}" for p in message.values)  # type: ignore[attr-defined]
-        return re.sub(r"^\{where\}", "", text)
-    return str(ast.literal_eval(message))
-
-
-def _declaration_messages() -> dict[str, list[str]]:
-    """The messages the package raises each declaration code with; an error raised again under the code it had adds none."""
-    found: dict[str, list[str]] = {}
-    for path in sorted(_PACKAGE.rglob("*.py")):
-        for call in ast.walk(ast.parse(path.read_text())):
-            if isinstance(call, Call) and isinstance(call.func, Name) and call.func.id == "NodeDeclarationError":
-                code = next(k.value for k in call.keywords if k.arg == "code")
-                if isinstance(code, Constant):
-                    found.setdefault(code.value, []).append(_template(call.args[0]))
-    return found
-
-
 def test_every_message_says_what_to_do() -> None:
     """A message carries its fix: a clause after what is wrong, which may be the alternatives to pick from."""
-    sentences = [(kind.code, kind.sentence) for kind in PROBLEMS]
+    sentences = [(kind.code, kind.sentence) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS]]
     without = [code for code, text in sentences if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
-    assert without == []
-
-
-def test_every_declaration_message_says_what_to_do() -> None:
-    """A declaration's message carries its fix too: a clause after what is wrong, past the name of the field it is about."""
-    without = [
-        (code, text) for code, texts in _declaration_messages().items() for text in texts
-        if not re.search(r"[;,] \S", re.sub(r"^\{[^}]+\}: ", "", text))
-    ]
     assert without == []
 
 
@@ -91,7 +60,7 @@ def _made_by(kind: ProblemKind[...], problem: Problem) -> bool:
 
 
 #: Each kind with an example, and the setup its example runs after: that of the page its catalogue is written on.
-_KINDS = [*((kind, _setup) for kind in [*PROBLEMS, *REGISTRY_CHECK_PROBLEMS]), *((kind, _store_setup) for kind in RUN_STORE_CHECK_PROBLEMS)]
+_KINDS = [*((kind, _setup) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]), *((kind, _store_setup) for kind in RUN_STORE_CHECK_PROBLEMS)]
 
 
 @pytest.mark.parametrize(("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind, _ in _KINDS])
@@ -109,26 +78,6 @@ def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], 
     made = eval(compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__)  # noqa: S307
     made = made if isinstance(made, list) else [made]
     assert made and [problem for problem in made if not _made_by(kind, problem)] == []
-
-
-def test_each_declaration_example_prints_its_code(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    """The page's section on declaring a node is written by hand: each example there prints the code it is under."""
-    monkeypatch.chdir(tmp_path)
-    page = ModuleType("problems_page")
-    monkeypatch.setitem(sys.modules, page.__name__, page)
-    declaring = _TEMPLATE[_TEMPLATE.index("## Declaring a node"):_TEMPLATE.index("## `check_registry`")]
-    blocks = [(match.start(), match.group(1)) for match in re.finditer(r"```python\n(.*?)```", declaring, re.S)]
-    starts = [(match.start(), match.group(1)) for match in re.finditer(r"^### `([a-z_]+)`", declaring, re.M)]
-    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102
-    wrong = []
-    for at, block in blocks:
-        code = [name for start, name in starts if start < at][-1]
-        printed = StringIO()
-        with contextlib.redirect_stdout(printed):
-            exec(compile(block, f"problems page: {code}", "exec"), page.__dict__)  # noqa: S102
-        if code not in printed.getvalue():
-            wrong.append((code, printed.getvalue()))
-    assert wrong == []
 
 
 def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:

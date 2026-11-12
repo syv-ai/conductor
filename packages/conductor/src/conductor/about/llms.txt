@@ -230,7 +230,7 @@ Retries live on the node's `Policy`, and count per call.
 The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and an ended run's `run.state`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *item_indexes)`, a graph problem's `(node_id, input)`.
 
 ```
-NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code
+NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code and problem (DECLARATION_PROBLEMS)
 InvalidCallError        a call was given what it cannot act on, every fault listed
 NodeError               a node's own failure: message, code, ctx (JSON values only; anything else is pydantic's ValidationError where it is raised)
 └── ExternalError         retried
@@ -291,7 +291,7 @@ Five public modules: `conductor`, `conductor.widgets`, `conductor.events`, `cond
 
 ### Problem and error codes
 
-A `Problem`'s `type` is a stable code, and a host translates by it, filling its sentence from `ctx`. `PROBLEMS.codes` is every code conductor itself writes, for a test that pins your translations to it. A code that isn't in it is a node's own, from a `NodeError`. `python -m conductor.about problems` prints every code, the declaration codes and `check_registry`'s among them, each with its message, an example, what its `ctx` keys mean and how to fix it.
+A `Problem`'s `type` is a stable code, and a host translates by it, filling its sentence from `ctx`. `PROBLEMS.codes` is every code conductor itself writes, for a test that pins your translations to it; `DECLARATION_PROBLEMS` holds the codes of a `NodeDeclarationError`, which only a node's developer meets. A code that isn't in it is a node's own, from a `NodeError`. `python -m conductor.about problems` prints every code, the declaration codes and `check_registry`'s among them, each with its message, an example, what its `ctx` keys mean and how to fix it.
 
 A kind of problem is declared once, by a function of a `ProblemCatalogue`, and `PROBLEMS` is the catalogue of conductor's core. Each kind has its `code`, its `variant` (what `ctx.variant` says when a code has a second message for one mistake), its `sentence` (the message with a placeholder for each `ctx` value), its `section` (where a host meets it) and `ctx_type`, a `TypedDict` of the keys its `ctx` has. A key that may be left out is absent when it does not apply, never `null`. A problem whose sentence names its node or field has them in `ctx` as `node_id` and `field`, so a sentence is filled from `ctx` alone. A `Problem` read from JSON is read as it is, whatever its code: a host that wants `ctx` typed validates it itself with pydantic, against the kind's `ctx_type`. A node may raise `NodeError(code=...)` under a code that is also in the catalogue; conductor leaves it, so that problem carries the node's `ctx` under the catalogue's code. `python -m conductor.about <code>` prints one, as `python -m conductor.about context-missing`.
 

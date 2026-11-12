@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import JsonValue, TypeAdapter
 from pydantic_core import ErrorDetails
@@ -79,57 +79,33 @@ class ConductorError(Exception):
         super().__init__(message)
 
 
-#: Every code a ``NodeDeclarationError`` can have, so a type checker refuses a misspelled one where it is raised.
-DeclarationCode = Literal[
-    "arriving_on_compute_added_inputs",
-    "async_run",
-    "bound_invalid",
-    "choices_invalid",
-    "compute_added_inputs_without_var_keyword",
-    "default_invalid",
-    "duplicate_node_id",
-    "duplicate_type_id",
-    "empty_title_or_description",
-    "exclusive_group_on_input",
-    "context_misplaced",
-    "context_not_a_class",
-    "context_type_differs",
-    "hook_parameter_unknown",
-    "input_without_type",
-    "invalid_node_id",
-    "nested_series",
-    "output_without_type",
-    "outputs_not_frozen",
-    "parameter_not_by_name",
-    "pydantic_field_in_hint",
-    "replaces_another_node",
-    "type_declaration_invalid",
-    "type_not_carried",
-    "type_not_named",
-    "type_variable_constrained",
-    "type_variable_only_in_return",
-    "upgrade_missing",
-    "upgrade_without_replaces",
-    "var_keyword_without_hook",
-    "version_not_after",
-    "widget_outside_param",
-]
-
-
 class NodeDeclarationError(ConductorError, TypeError):
-    """A node or a type was declared wrong; raised when the module that declares it is imported.
+    """A node or a type was declared wrong; raised when the module that declares it is imported::
 
-    Raised by ``@node`` for the node's signature, by ``Param`` and ``Policy``, and by ``NodeRegistry``. Only the
-    node's developer can fix it, in code, so it is an exception and not a ``Problem``. Like pydantic's
-    ``PydanticUserError``, it has a code that does not change between versions.
+        @node("fetch", title="Fetch", description="Fetches a page.")
+        async def fetch(url: str) -> str: ...
+        # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def; the engine gives a slow one threads ...
+
+    Raised by ``@node`` and ``subgraph`` for the node's signature and arguments, by ``Param`` and ``@host_type``, and by
+    ``NodeRegistry``. Only the node's developer can fix it, in code, so it is an exception and not a ``Problem`` of a
+    graph. Like pydantic's ``PydanticUserError``, it has a code that does not change between versions.
 
     Attributes:
-        code: What was declared wrong, one of ``DeclarationCode``; ``python -m conductor.about problems`` has each.
+        problem: What was declared wrong, a kind of ``DECLARATION_PROBLEMS``; ``python -m conductor.about problems``
+            has each, with an example.
+        code: The problem's code, ``async_run`` above.
+        where: Where the fault is, outermost first: ``("@node('fetch') on fetch",)``, then the input's name for a
+            fault in one input. The error's text is these and the problem's message, joined by ``": "``.
     """
 
-    def __init__(self, message: str, *, code: DeclarationCode) -> None:
-        super().__init__(message)
-        self.code = code
+    def __init__(self, problem: Problem, *where: str) -> None:
+        self.problem, self.code, self.where = problem, problem.type, where
+        super().__init__(": ".join([*where, problem.msg]))
+
+    def within(self, place: str) -> NodeDeclarationError:
+        """Returns this error with ``place`` in front of where it is: ``@node('fetch') on fetch`` around an input's
+        fault."""
+        return NodeDeclarationError(self.problem, place, *self.where)
 
 
 class InvalidCallError(ConductorError, ValueError):

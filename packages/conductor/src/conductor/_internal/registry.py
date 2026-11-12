@@ -70,6 +70,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.text import comma_separated, plural, qualified_name
 from conductor._internal.value_type import Type
 
@@ -232,12 +233,9 @@ class NodeRegistry[C]:
         here too.
         """
         if subregistry._context_type not in (None, self._context_type):
-            here = "no context_type" if self._context_type is None else f"context_type={self._context_type.__name__}"
-            raise NodeDeclarationError(
-                f"the subregistry names context_type={subregistry._context_type.__name__}, and this registry names {here}; "
-                "a registry and its subregistries name one class, or the subregistry names none",
-                code="context_type_differs",
-            )
+            if self._context_type is None:
+                raise NodeDeclarationError(declaration.context_type_on_subregistry_only(subregistry_type=subregistry._context_type.__name__))
+            raise NodeDeclarationError(declaration.context_type_differs(subregistry_type=subregistry._context_type.__name__, registry_type=self._context_type.__name__))
         named = (*self._named_types, *(dtype for dtype in subregistry._named_types if dtype not in self._named_types))
         added = tuple(subregistry)
         self._set_contents(self._nodes_with(added), named)
@@ -255,11 +253,7 @@ class NodeRegistry[C]:
         for definition in definitions:
             held = nodes.get(definition.id)
             if held is not None:
-                raise NodeDeclarationError(
-                    f"two nodes have the id {definition.id!r}: {held._where_declared()} and {definition._where_declared()}; "
-                    "ids are unique, so swap one for the other with registry.replace(...)",
-                    code="duplicate_node_id",
-                )
+                raise NodeDeclarationError(declaration.duplicate_node_id(id=definition.id, first=held._where_declared(), second=definition._where_declared()))
             nodes[definition.id] = self._with_defaults(definition)
         return nodes
 
@@ -428,11 +422,7 @@ def _by_id(types: Iterable[type]) -> dict[str, type]:
     for held in types:
         existing = by_id.setdefault(Type(held).id, held)
         if existing is not held:
-            raise NodeDeclarationError(
-                f"type id {Type(held).id!r} is declared by both {qualified_name(existing)} and {qualified_name(held)}; "
-                "one registry holds one type per id",
-                code="duplicate_type_id",
-            )
+            raise NodeDeclarationError(declaration.duplicate_type_id(id=Type(held).id, first=qualified_name(existing), second=qualified_name(held)))
     return by_id
 
 

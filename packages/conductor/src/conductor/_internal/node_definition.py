@@ -80,6 +80,7 @@ from conductor._internal.gate.returned import (
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.text import qualified_name
 from conductor._internal.value_type import Type
 
@@ -485,13 +486,13 @@ def node(
     def make[**P, R](target: NodeFunction[P, R], /) -> FunctionDefinition[P, R]:
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
-                raise NodeDeclarationError("a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)", code="async_run")
+                raise NodeDeclarationError(declaration.async_run())
             inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
-                raise NodeDeclarationError("a node with compute_added_inputs takes them as **kwargs; add **values to its signature", code="compute_added_inputs_without_var_keyword")
+                raise NodeDeclarationError(declaration.compute_added_inputs_without_var_keyword())
             if compute_added_inputs is None and takes_kwargs:
-                raise NodeDeclarationError("**kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs=", code="var_keyword_without_hook")
+                raise NodeDeclarationError(declaration.var_keyword_without_hook())
             hooks: dict[HookName, Callable[..., Any] | None] = {"compute_added_inputs": compute_added_inputs, "compute_outputs": compute_outputs}
             hook_parameters = {
                 kind: _check_hook(hook, kind, inputs, adds_inputs=compute_added_inputs is not None)
@@ -509,7 +510,7 @@ def node(
                 _raise_if_upgrade_is_missing(replaces, definition)
             return definition
         except NodeDeclarationError as error:  # every fault of a declaration says which node and function it is on
-            raise NodeDeclarationError(f"@node({id!r}) on {target.__name__}: {error.message}", code=error.code) from None
+            raise error.within(f"@node({id!r}) on {target.__name__}") from None
 
     return make
 
@@ -579,24 +580,16 @@ def _version_number(
             ``upgrade`` and ``version`` don't fit together.
     """
     if not is_name(id):
-        raise NodeDeclarationError(
-            f"{declared_with} takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address "
-            f"or a waiting id: {declared_with}('upper'); got {id!r}",
-            code="invalid_node_id",
-        )
-    for name, text in (("title", title), ("description", description)):
-        if not text.strip():
-            raise NodeDeclarationError(
-                f"{declared_with}({id!r}) has an empty {name}; write the words a person reads for the node in a palette",
-                code="empty_title_or_description",
-            )
+        raise NodeDeclarationError(declaration.invalid_node_id(declared_with=declared_with, id=id))
+    if not title.strip() or not description.strip():
+        raise NodeDeclarationError(declaration.empty_title_or_description(declared_with=declared_with, id=id, empty="title" if not title.strip() else "description"))
     if upgrade is not None and replaces is None:
-        raise NodeDeclarationError(f"{declared_with}({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces=", code="upgrade_without_replaces")
+        raise NodeDeclarationError(declaration.upgrade_without_replaces(declared_with=declared_with, id=id))
     if replaces is not None and replaces.id != id:
-        raise NodeDeclarationError(f"{declared_with}({id!r}) replaces {replaces!r}; a node replaces an earlier node of its own id", code="replaces_another_node")
+        raise NodeDeclarationError(declaration.replaces_another_node(declared_with=declared_with, id=id, replaces=repr(replaces)))
     number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
     if replaces is not None and number <= replaces.version:
-        raise NodeDeclarationError(f"{declared_with}({id!r}) is version {number}, not after the version {replaces.version} it replaces; leave version= out, or give one above {replaces.version}", code="version_not_after")
+        raise NodeDeclarationError(declaration.version_not_after(declared_with=declared_with, id=id, version=number, replaced=replaces.version))
     return number
 
 
@@ -621,21 +614,21 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         if position == 0 and name in hints and is_context(hints[name]) and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
             needs = typing.get_args(hints[name])[0]
             if not isinstance(needs, type):
-                raise NodeDeclarationError(f"{name}: Context names the class of the object the host passes, Context[HostContext]", code="context_not_a_class")
+                raise NodeDeclarationError(declaration.context_not_a_class(), name)
             context = ContextParameter(name, needs)
             continue
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):
-            raise NodeDeclarationError(f"{name}: a node's inputs are passed by name; drop the / and *args", code="parameter_not_by_name")
+            raise NodeDeclarationError(declaration.parameter_not_by_name(), name)
         if name not in hints:
-            raise NodeDeclarationError(f"{name}: an input needs a type hint; write one, as it is the input's interface", code="input_without_type")
+            raise NodeDeclarationError(declaration.input_without_type(), name)
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
         inputs[name] = Field(name, hints[name], default)
         if inputs[name].param.exclusive_group is not None:
-            raise NodeDeclarationError(f"{name}: exclusive_group is for outputs; put it on an output's Param", code="exclusive_group_on_input")
+            raise NodeDeclarationError(declaration.exclusive_group_on_input(), name)
     if "return" not in hints:
-        raise NodeDeclarationError("a node needs a return type; write one, or -> None for no outputs", code="output_without_type")
+        raise NodeDeclarationError(declaration.output_without_type())
     returns = hints["return"]
     outputs: dict[str, Field] = {}
     kind: ReturnShape
@@ -646,7 +639,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         kind = NoOutputs()
     elif isinstance(outputs_class, type) and dataclasses.is_dataclass(outputs_class):
         if not outputs_class.__dataclass_params__.frozen:  # type: ignore[attr-defined]
-            raise NodeDeclarationError("a dataclass of outputs is frozen; write @dataclass(frozen=True)", code="outputs_not_frozen")
+            raise NodeDeclarationError(declaration.outputs_not_frozen())
         given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(outputs_class, include_extras=True)
         outputs = {f.name: Field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
@@ -657,15 +650,9 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
     for field in (*inputs.values(), *outputs.values()):
         for variable in field.whole.variables:
             if variable.__constraints__:
-                raise NodeDeclarationError(
-                    f"{field.name}: the type variable {variable.__name__} is constrained to a few types; give it a bound, or write the union",
-                    code="type_variable_constrained",
-                )
+                raise NodeDeclarationError(declaration.type_variable_constrained(variable=variable.__name__), field.name)
             if variable not in on_inputs:
-                raise NodeDeclarationError(
-                    f"{field.name}: the type variable {variable.__name__} is on no input, so no edge can say what it is; put it on an input",
-                    code="type_variable_only_in_return",
-                )
+                raise NodeDeclarationError(declaration.type_variable_only_in_return(variable=variable.__name__), field.name)
     return inputs, context, outputs, kind
 
 
@@ -713,21 +700,17 @@ def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, F
     for name, parameter in inspect.signature(hook).parameters.items():
         arriving = parameter.annotation in (type, "type")
         if arriving and kind == "compute_added_inputs":
-            raise NodeDeclarationError(f"compute_added_inputs parameter {name!r} reads an arriving type, but inputs are decided before anything arrives; read it in compute_outputs", code="arriving_on_compute_added_inputs")
+            raise NodeDeclarationError(declaration.arriving_on_compute_added_inputs(parameter=name))
         if parameter.kind is parameter.VAR_KEYWORD:
             if not (arriving and adds_inputs):
-                raise NodeDeclarationError(
-                    f"{kind} parameter **{name}: a hook takes ** only as **{name}: type on compute_outputs, for the types arriving on "
-                    "the inputs compute_added_inputs added; annotate it type and give the node that hook, or name each parameter after an input",
-                    code="hook_parameter_unknown",
-                )
+                raise NodeDeclarationError(declaration.hook_parameter_var_keyword(hook=kind, parameter=name))
             parameters[name] = "added_arriving_types"
         elif parameter.kind is not parameter.POSITIONAL_OR_KEYWORD and parameter.kind is not parameter.KEYWORD_ONLY:
-            raise NodeDeclarationError(f"{kind} parameter {name!r}: a hook's parameters are passed by name; name each after an input of the node", code="hook_parameter_unknown")
+            raise NodeDeclarationError(declaration.hook_parameter_not_by_name(hook=kind, parameter=name))
         elif arriving:
             parameters[name] = "arriving_type"
         elif name not in inputs:
-            raise NodeDeclarationError(f"{kind} parameter {name!r} names no input of the node; it has {sorted(inputs)}", code="hook_parameter_unknown")
+            raise NodeDeclarationError(declaration.hook_parameter_unknown(hook=kind, parameter=name, inputs=sorted(inputs)))
         else:
             parameters[name] = "value"
     return parameters
@@ -750,4 +733,4 @@ def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: FunctionDefinitio
     if upgrade.rewrite is None:
         unexplained |= gone_inputs - set(upgrade.renamed_inputs)
     if unexplained:
-        raise NodeDeclarationError(f"the version it replaces has {sorted(unexplained)}, gone from this one; its Upgrade says where they went", code="upgrade_missing")
+        raise NodeDeclarationError(declaration.upgrade_missing(gone=sorted(unexplained)))

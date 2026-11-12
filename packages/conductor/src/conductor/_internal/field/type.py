@@ -14,6 +14,7 @@ from pydantic_core import PydanticSerializationError
 from conductor._internal.field.describe import FieldDescription
 from conductor._internal.markers import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.value_type import (
     Param,
     Type,
@@ -73,18 +74,16 @@ class Field:
             whole.adapter  # noqa: B018  a type pydantic can't carry fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
             if self.default is None and not whole.optional:
-                raise NodeDeclarationError("the default None is a blank; write its type with | None", code="default_invalid")
+                raise NodeDeclarationError(declaration.default_none_not_taken())
             if self.default is not REQUIRED and self.default is not SKIPPED and self.default is not None:
                 try:
                     keep("default", whole.read(self.default))
                     keep("default_json", whole.to_json(self.default))
                 except (ValidationError, PydanticSerializationError, UnicodeDecodeError) as error:
                     why = whole.refusal(error.errors(include_url=False, include_input=False)).reason if isinstance(error, ValidationError) else error
-                    raise NodeDeclarationError(
-                        f"the default {self.default!r} is not a value of {whole.id} that it writes as JSON, so give one that is: {why}", code="default_invalid",
-                    ) from None
+                    raise NodeDeclarationError(declaration.default_invalid(default=repr(self.default), type=whole.id, reason=str(why))) from None
         except NodeDeclarationError as error:
-            raise NodeDeclarationError(f"{self.name}: {error.message}", code=error.code) from None
+            raise error.within(self.name) from None
         if self.param.widget is not None:
             self.description  # noqa: B018  a widget with no JSON form fails here
 
@@ -143,10 +142,10 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         bare, of_item, others = split_hint((get_args(items) or (Any,))[0])
         beside_param = (*beside_param, *others)
         if Type(bare).item is not None:
-            raise NodeDeclarationError("a Series of Series; a field holds one level of items, so return one Series", code="nested_series")
+            raise NodeDeclarationError(declaration.nested_series())
         param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
     if any(isinstance(mark, Widget) for mark in beside_param):  # pydantic would pass it by, and the field would show no control
-        raise NodeDeclarationError("a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]", code="widget_outside_param")
+        raise NodeDeclarationError(declaration.widget_outside_param())
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)
