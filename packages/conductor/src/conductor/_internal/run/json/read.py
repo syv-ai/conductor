@@ -30,6 +30,7 @@ from .type import (
     SavedOutcomes,
     SavedReusable,
     SavedRun,
+    steps_to_value,
 )
 
 if TYPE_CHECKING:
@@ -64,7 +65,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
         first = error.errors()[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # the fingerprint under "graph" is not this graph's
             raise InvalidCallError([problem.saved_run_of_another_graph("saved_run", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
-        where = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # pydantic's loc starts with the graph's fingerprint
+        where = ".".join(str(step) for step in steps_to_value(first["loc"][1:])) or "the run"  # pydantic's loc starts with the graph's fingerprint
         raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=where, reason=value_free_errors(error)[0]["msg"])]) from None
     outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
     for node in graph._flat_function_nodes:

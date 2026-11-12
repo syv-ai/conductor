@@ -160,13 +160,24 @@ def _answer(hint: Any, good: Any, bad: Any) -> list[Problem]:
     return _refused(lambda: run.answer(run.waiting[0], bad))
 
 
-def _saved_run(hint: Any, good: Any, bad: Any) -> list[Problem]:
+def _saved_output(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def give() -> hint:  # type: ignore[valid-type]
         return good
 
     definition = node("give", title="Give", description="For a test.")(give)
     graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="give")]), registry_of(definition))
     saved = graph.run().to_json().replace(f'"result":[{_json(good)}]', f'"result":[{_json(bad)}]')
+    assert _json(bad) in saved
+    return _refused(lambda: Run.from_json(saved, graph))
+
+
+def _saved_input(hint: Any, good: Any, bad: Any) -> list[Problem]:
+    @node("take", title="Take", description="For a test.")
+    def take(x: hint) -> str:  # type: ignore[valid-type]
+        return "ok"
+
+    graph = Graph.compile(make_graph(take), registry_of(take))
+    saved = graph.run(x=good).to_json().replace(f'"take.x":{_json(good)}', f'"take.x":{_json(bad)}')
     assert _json(bad) in saved
     return _refused(lambda: Run.from_json(saved, graph))
 
@@ -185,17 +196,12 @@ DOORS = {
     "one-of-several-outputs": (_several_outputs, "invalid_output"),
     "an-asked-value": (_asked_value, "invalid_asked_value"),
     "an-answer": (_answer, "invalid_answer"),
-    "a-saved-run": (_saved_run, "saved_run_unreadable"),
+    "a-saved-output": (_saved_output, "saved_run_unreadable"),
+    "a-saved-input": (_saved_input, "saved_run_unreadable"),
 }
 
-#: A saved run's ``where`` is pydantic's ``loc`` as it is, so it names a key of a dict inside a saved output.
-_WHERE_NAMES_A_KEY = pytest.mark.xfail(strict=True, reason="saved_run_unreadable's where quotes a dict key of the value")
-
-
-@pytest.mark.parametrize(("door", "way"), [
-    pytest.param(door, way, marks=[_WHERE_NAMES_A_KEY] if (door, way) == ("a-saved-run", "a-dict-key") else [], id=f"{door}-{way}")
-    for door in DOORS for way in TYPES
-])
+@pytest.mark.parametrize("way", sorted(TYPES))
+@pytest.mark.parametrize("door", sorted(DOORS))
 def test_a_refused_value_is_in_no_problem(door: str, way: str) -> None:
     feed, code = DOORS[door]
     problems = feed(*TYPES[way])
@@ -203,3 +209,16 @@ def test_a_refused_value_is_in_no_problem(door: str, way: str) -> None:
     assert [problem.type for problem in problems] == [code]
     for problem in problems:
         assert SECRET not in problem.msg and SECRET not in problem.model_dump_json() and SECRET not in str(problem), (door, way, problem)
+
+
+def test_a_value_in_a_graph_record_is_in_no_problem() -> None:
+    @node("take", title="Take", description="For a test.")
+    def take(x: dict[str, Any]) -> str:
+        return "ok"
+
+    for constant in ({SECRET: {1, 2}}, {"a": {SECRET: object()}}):
+        for problem in _refused(lambda: make_graph(take, constants={"take.x": constant})):
+            assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)
+    record = f'{{"nodes": [{{"id": "t", "node": "take", "extra": {{"{SECRET}": 1}}}}], "edges": []}}'
+    for problem in _refused(lambda: Graph.compile(record, registry_of(take))):
+        assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)

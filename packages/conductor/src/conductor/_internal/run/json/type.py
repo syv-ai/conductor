@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Annotated, Any, ClassVar, Literal, get_args
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, is_dataclass
+from types import NoneType, UnionType
+from typing import Annotated, Any, ClassVar, Literal, Union, get_args, get_origin, get_type_hints
 
 from pydantic import ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
@@ -182,3 +184,50 @@ class SavedRun[OutcomesT, ReusableT]:
     complete: list[str]
     tables_written_once: list[SameAs] | None = None
     answers: dict[str, dict[NonNegativeInt, Any]] | None = None
+
+
+#: A saved run as the codec reads it, with each node's outcomes and reusable outcomes in their saved form.
+_AS_READ = SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
+
+
+def steps_to_value(loc: Sequence[str | int]) -> list[str | int]:
+    """Returns the steps of ``loc``, a place pydantic names in a saved run, up to the value found there, and none
+    inside the value, since a step inside it may be a key of the value's own dict.
+
+    ``("outcomes", "g", "outputs", "result", 0, "counts", "ida")`` gives ``["outcomes", "g", "outputs", "result",
+    0]``: the value of ``g.result`` on call 0 is ``{"counts": {"ida": ...}}``. ``("inputs", "lines.text")`` and
+    ``("outcomes", "g", "states", 0)`` are kept whole. The steps are walked through the classes above: a value is
+    wherever they declare a type other than one of them, a dict or a list, such as ``Any``.
+    """
+    kept: list[str | int] = []
+    hint: Any = _AS_READ
+    bound: dict[Any, Any] = {}
+    for step in loc:
+        hint = _inside(hint, step, bound)
+        if hint is None:
+            break
+        kept.append(step)
+    return kept
+
+
+def _inside(hint: Any, step: str | int, bound: dict[Any, Any]) -> Any:
+    """Returns the hint that ``step`` leads to inside ``hint``, one of the hints of a saved run's classes; ``None``
+    when ``hint`` is a value's. A step the class does not declare leads to ``Any``. ``bound`` gathers what each
+    class's type parameters are, as ``SavedRun[SavedOutcomes, ...]`` says them."""
+    hint = bound.get(hint, hint)
+    members = [member for member in get_args(hint) if member is not NoneType] if get_origin(hint) in (Union, UnionType) else [hint]
+    if len(members) > 1:  # one of several classes, as ``state`` is: pydantic's step is the tag of the class it read
+        fields = [get_type_hints(member) for member in members if is_dataclass(member)]
+        if len(fields) < len(members):
+            return None  # a union with a type that is not a saved run's class: a value's
+        return next((declared[str(step)] for declared in fields if str(step) in declared), hint)
+    hint = members[0]  # an optional key: what it is when it is there
+    origin, args = get_origin(hint) or hint, get_args(hint)
+    if isinstance(origin, type) and is_dataclass(origin):
+        bound.update(zip(origin.__type_params__, args, strict=False))
+        return get_type_hints(origin).get(str(step), Any)
+    if origin in (dict, Mapping):
+        return args[1]
+    if origin is list:
+        return args[0]
+    return None
