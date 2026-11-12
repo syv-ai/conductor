@@ -75,7 +75,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
     outcomes, previous = {}, {}
     for node, of_node in outputs.items():
-        not_taken, not_called = outputs_when_skipped(of_node), outputs_when_not_called(of_node)
+        skipped_outputs, not_called = outputs_when_skipped(of_node), outputs_when_not_called(of_node)
         columns = tuple((name, output.saved_list_type, output.many, not_called[name]) for name, output in of_node.items())
         if columns not in blocks:  # nodes of the same outputs, which hold the same when they aren't called, share one schema
             block = len(blocks)
@@ -86,7 +86,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                 skipped_items=_exact_keys_schema({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
             shared[f"outcomes:{block}"] = core_schema.no_info_after_validator_function(
-                functools.partial(outcomes_from_saved, not_taken, not_called), of_block, ref=f"outcomes:{block}",
+                functools.partial(outcomes_from_saved, skipped_outputs, not_called), of_block, ref=f"outcomes:{block}",
             )
             reusable_schema = _with_field_schemas(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
             shared[f"reusable:{block}"] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_schema, ref=f"reusable:{block}")
