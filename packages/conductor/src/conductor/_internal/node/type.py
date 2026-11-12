@@ -234,6 +234,12 @@ class FunctionDefinition[**P, R](_Version):
         return self.function(*args, **kwargs)
 
     @property
+    def may_ask(self) -> bool:
+        """Whether a call of the node may wait for a person's answer: ``approve`` declared with ``asks=True``, or
+        with an ``Asked`` parameter. An ``Ask`` raised from any other node fails its call (``ask_not_declared``)."""
+        return self.asks or self.asked is not None
+
+    @property
     def version_chain(self) -> tuple[NodeDefinition, ...]:
         """This version, then each version it replaces, newest first."""
         return (self, *self._replaced)
@@ -249,7 +255,7 @@ class FunctionDefinition[**P, R](_Version):
             FunctionNodeDescription, policy=self.policy,
             inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
-            asks=self.asks or self.asked is not None, asked=None if self.asked is None else self.asked.field.description,
+            asks=self.may_ask, asked=None if self.asked is None else self.asked.field.description,
         )
 
 

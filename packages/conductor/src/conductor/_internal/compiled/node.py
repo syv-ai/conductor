@@ -174,10 +174,13 @@ class CompiledFunctionNode(_CompiledNodeBase):
     @functools.cached_property
     def ask_door(self) -> Callable[[Ask, dict[str, Any]], Question]:
         """Checks an ``Ask`` raised for the node against the fields its answer fills, and keeps it as the call's
-        question; for a node that says neither ``asks=True`` nor has an ``Asked`` parameter, refuses it
-        (``ask_not_declared``). Built when the node first asks."""
-        definition = self.definition
-        return AskDoor(self.answer_fields) if definition.asks or definition.asked is not None else undeclared_ask
+        question; for a node that may not ask (``definition.may_ask``), refuses it (``ask_not_declared``). Built when
+        the node first asks.
+
+        Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For
+        ``pick[T](value: T) -> T``, ``choices=[1, 2]`` fits when ``value`` comes from an ``int`` output and is refused
+        when it comes from a ``str`` one."""
+        return AskDoor(self.answer_fields) if self.definition.may_ask else undeclared_ask
 
     @functools.cached_property
     def answer_door(self) -> AnswerDoor:
