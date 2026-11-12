@@ -27,18 +27,21 @@ the host's class, such as a pre-built one, names a ``Protocol`` with the members
 
 Write a member as a read-only property: a frozen dataclass's fields can't be set, so a type checker says it does
 not satisfy a Protocol whose member is a plain attribute. Compiling a graph checks each node's ``Context[X]``
-against the registry's class: ``issubclass`` for a class, ``what_the_context_lacks`` for a Protocol.
+against the registry's class: for a class, that the registry's class is it or a subclass of it (``issubclass``); for a
+Protocol, that the class has every member the Protocol declares, by name (``what_the_context_lacks``). It does not
+check the members' types: an ``http_client: str`` has the name ``HasHttpClient`` asks for. Whether the types fit is
+the host's type checker's job.
 """
 
 from __future__ import annotations
 
-import inspect
 import typing
 from dataclasses import dataclass
-from typing import Annotated, Any, Protocol, TypeVar
+from typing import Annotated, Any, TypeVar
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
+from typing_extensions import get_protocol_members
 
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
@@ -83,36 +86,14 @@ class ContextParameter:
     cls: type
 
 
-def is_protocol(cls: type) -> bool:
-    """Whether ``cls`` is a ``Protocol``: a class that lists ``Protocol`` among its own bases, as every Protocol must."""
-    return Protocol in cls.__bases__
-
-
 def what_the_context_lacks(context_type: type, protocol: type) -> list[str]:
-    """The members of ``protocol`` that a context of class ``context_type`` lacks; ``[]`` when it has them all.
+    """The names of the members of ``protocol`` that the class ``context_type`` does not have; ``[]`` when it has them all.
 
-    Example, with ``HostContext`` above: ``HasHttpClient`` gives ``[]``. A Protocol with a member ``database`` gives
-    ``["database"]``, and one whose ``http_client`` is a ``str`` gives ``["http_client as a str"]``.
-
-    A member is compared by its name, and by its class where both sides declare a plain class (an attribute's
-    annotation, a property's return type). A method is compared by its name only.
+    Example, with ``HostContext`` above: ``HasHttpClient`` gives ``[]``, and a Protocol with a member ``database``
+    gives ``["database"]``. The class has a member when it has an attribute, method or property of that name, or
+    annotates a field of that name (a dataclass field with no default). The member's type is not compared: a class
+    with ``http_client: str`` has every member ``HasHttpClient`` declares. Whether the types fit is the host's type
+    checker's job.
     """
-    members: set[str] = getattr(protocol, "__protocol_attrs__")  # typing sets it on every Protocol; get_protocol_members reads it from 3.13
-    lacks: list[str] = []
-    for member in sorted(members):
-        if not hasattr(context_type, member) and member not in typing.get_type_hints(context_type):
-            lacks.append(member)
-            continue
-        wanted, declared = _declared_class(protocol, member), _declared_class(context_type, member)
-        if wanted is not None and declared is not None and not issubclass(declared, wanted):
-            lacks.append(f"{member} as a {wanted.__name__}")
-    return lacks
-
-
-def _declared_class(cls: type, member: str) -> type | None:
-    """The plain class ``cls`` declares ``member`` as: its annotation, or the return type of a property; ``None`` for
-    anything else (a method, a union, a generic)."""
-    declared = typing.get_type_hints(cls).get(member)
-    if declared is None and isinstance(found := inspect.getattr_static(cls, member, None), property) and found.fget is not None:
-        declared = typing.get_type_hints(found.fget).get("return")
-    return declared if isinstance(declared, type) else None
+    annotated = typing.get_type_hints(context_type)
+    return [member for member in sorted(get_protocol_members(protocol)) if not hasattr(context_type, member) and member not in annotated]

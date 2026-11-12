@@ -45,7 +45,7 @@ What changes in how you work, before the name-by-name tables:
   `graph.run(context=AppContext(...))`. A node that needs it takes it as its first parameter,
   `def sign(ctx: Context[AppContext], text: str)`, and a test calls `sign(app_context, "Done")`. A node may
   name the class, a base of it, or a `Protocol` the class satisfies. Compiling checks each node against the
-  class (`context_does_not_fit`, at the node and parameter); starting a run checks the object
+  class, a `Protocol`'s members by name only (`context_does_not_fit`, at the node and parameter); starting a run checks the object
   (`invalid_context`, `context_missing`). `NodeRegistry`, `Graph` and `Run` are generic in the class, so a
   type checker refuses a `context=` of another class. The context is never saved with a run.
 

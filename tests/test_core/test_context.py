@@ -218,15 +218,15 @@ def test_a_node_asking_for_what_the_class_lacks_is_a_problem_at_the_node_and_par
     assert problem.ctx == {"node_id": "count", "parameter": "ctx", "needs": "HasDatabase", "context_type": "AppContext", "lacks": ["database"], "variant": "lacks"}
 
 
-def test_a_protocol_member_the_class_declares_as_another_class_does_not_fit():
+def test_a_protocol_is_checked_by_its_members_names_only_so_a_member_of_another_type_fits():
+    """Whether the member's type fits is the host's type checker's job, not compiling's."""
     @dataclass(frozen=True)
     class TextContext:
         http_client: str
 
     registry = NodeRegistry(context_type=TextContext)
     registry.add(fetch)
-    graph = Graph.compile(make_graph(fetch), registry)
-    assert [(p.type, p.ctx["lacks"]) for p in graph.problems] == [("context_does_not_fit", ["http_client as a HttpClient"])]
+    assert Graph.compile(make_graph(fetch), registry).problems == []
 
 
 def test_a_class_that_is_not_the_registrys_nor_a_base_of_it_does_not_fit():

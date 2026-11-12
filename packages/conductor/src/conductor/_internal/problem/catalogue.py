@@ -127,16 +127,16 @@ def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context
 def context_does_not_fit_lacks(node_id: str, parameter: str, /, *, needs: str, context_type: str, lacks: list[str]) -> str:
     """A node takes the run's context as a ``Protocol`` whose members the registry's ``context_type`` does not all have.
 
-    Give the registry's class what the node reads, with the classes the Protocol declares, or change what the node asks
-    for. In the example, ``HostContext`` has no ``database``.
+    Compiling compares the members by name only: whether their types fit is the host's type checker's job. Give the
+    registry's class a member of each name the node reads, or change what the node asks for. In the example,
+    ``HostContext`` has no ``database``.
 
     Args:
         node_id: The node.
         parameter: The node's ``Context`` parameter, its first.
         needs: The name of the ``Protocol`` inside ``Context[...]``.
         context_type: The name of the registry's class.
-        lacks: Each member the class does not have, as its name, or as ``"name as a X"`` when the class declares it
-            as another class.
+        lacks: The name of each member the class does not have.
 
     Example:
         class HasDatabase(Protocol):

@@ -627,7 +627,7 @@ def greet_caller(ctx: Context[HasCaller]) -> str:
     return f"Hello {ctx.caller.name}"
 ```
 
-Declare a member as a read-only property, as here: a frozen dataclass can't satisfy a Protocol whose member is a plain attribute. Compiling checks every node's `Context[...]` against the registry's class: a node asking for something the class lacks, or for a context on a registry that names no class, has the problem `context_does_not_fit` at that node and parameter. A registry added with `add_subregistry` names the same class or none.
+Declare a member as a read-only property, as here: a frozen dataclass can't satisfy a Protocol whose member is a plain attribute. Compiling checks every node's `Context[...]` against the registry's class, a Protocol's members by name (whether their types fit is your type checker's job): a node asking for something the class lacks, or for a context on a registry that names no class, has the problem `context_does_not_fit` at that node and parameter. A registry added with `add_subregistry` names the same class or none.
 
 ## A second version
 

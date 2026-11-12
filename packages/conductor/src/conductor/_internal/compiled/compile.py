@@ -40,8 +40,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
+from typing_extensions import is_protocol
+
 from conductor._internal.base import REQUIRED, is_name, split_address
-from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
+from conductor._internal.context import ContextParameter, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
 from conductor._internal.node import (
@@ -299,7 +301,7 @@ class _Compiler:
 
         Example: ``sign(ctx: Context[HostContext], text: str)`` fits a registry that names ``HostContext`` or a
         subclass of it. ``fetch(ctx: Context[HasHttpClient], url: str)`` fits one whose class has an
-        ``http_client``. On a registry that names no class, neither fits.
+        ``http_client``, of any type. On a registry that names no class, neither fits.
         """
         needs = context.cls.__name__
         if self.context_type is None:
