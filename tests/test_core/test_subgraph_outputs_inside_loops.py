@@ -1,9 +1,10 @@
-"""A subgraph offers an output made inside loops as one ``Series`` per loop, and a node outside the stored
-graph that reads it is called as it would be with the same nodes drawn in its own graph.
+"""A subgraph offers an output returned inside loops as one ``Series`` per loop, and a node of the outer graph that
+reads it is called as it would be with the same nodes in one graph.
 
-The subgraph of most tests is ``documents -> lines -> shout``: ``documents`` returns a list of documents
-(``None`` for an empty one), ``lines`` is called once per document and returns its lines, ``shout`` is called once
-per line. So ``shout`` is called inside two loops, and its return values are a list per document.
+The subgraph of most tests is ``documents -> lines -> shout``: ``documents`` returns a list of documents (``None``
+for an empty one), ``lines`` is called once per document and returns its lines, ``shout`` is called once per line.
+So ``shout`` is inside two loops, and its outputs are a list per document. Each test runs the same nodes in one graph
+(``in_one_graph``) and through the subgraph (``through_subgraph``) and asserts that both give the same result.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ def side_by_side(loud: Series[str], quiet: Series[str]) -> str:
     return f"{'+'.join(loud)}={'+'.join(quiet)}"
 
 
-#: The edges of ``documents -> lines -> shout``, drawn in a graph or stored as one.
+#: The edges of ``documents -> lines -> shout``, in one graph or as the subgraph.
 SHOUT_EDGES = [("documents.result", "lines.document"), ("lines.result", "shout.line")]
 WHISPER_EDGES = [*SHOUT_EDGES, ("lines.result", "whisper.line")]
 
@@ -86,10 +87,10 @@ def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: 
     return run.results[node_id]["result"]
 
 
-def test_a_series_input_outside_gets_one_documents_lines_per_call_as_it_does_with_the_nodes_drawn_in_its_graph() -> None:
-    drawn = results([documents, lines, shout, show], [*SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c")
-    stored = results([REGISTRY["shout-lines"], show], [("shout-lines.shout.result", "show.values")], "show", "a,b;;c")
-    assert drawn == stored == ["A+B", None, "C"]  # the second document is None, so show is not called for it
+def test_a_series_input_outside_gets_one_documents_lines_per_call_as_in_one_graph() -> None:
+    in_one_graph = results([documents, lines, shout, show], [*SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c")
+    through_subgraph = results([REGISTRY["shout-lines"], show], [("shout-lines.shout.result", "show.values")], "show", "a,b;;c")
+    assert in_one_graph == through_subgraph == ["A+B", None, "C"]  # the second document is None, so show is not called for it
 
 
 def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
@@ -112,41 +113,41 @@ def test_the_output_is_described_as_a_series_of_series() -> None:
 
 
 def test_an_input_of_one_value_outside_is_called_once_per_line_of_each_document() -> None:
-    drawn = results([documents, lines, shout, mark], [*SHOUT_EDGES, ("shout.result", "mark.value")], "mark", "a,b;;c")
-    stored = results([REGISTRY["shout-lines"], mark], [("shout-lines.shout.result", "mark.value")], "mark", "a,b;;c")
-    assert drawn == stored == [["A!", "B!"], None, ["C!"]]
+    in_one_graph = results([documents, lines, shout, mark], [*SHOUT_EDGES, ("shout.result", "mark.value")], "mark", "a,b;;c")
+    through_subgraph = results([REGISTRY["shout-lines"], mark], [("shout-lines.shout.result", "mark.value")], "mark", "a,b;;c")
+    assert in_one_graph == through_subgraph == [["A!", "B!"], None, ["C!"]]
 
 
-def test_a_stored_graph_used_once_per_item_of_an_outer_list_gives_a_node_outside_one_documents_lines_per_call() -> None:
+def test_a_subgraph_inside_an_outer_loop_gives_a_node_outside_one_documents_lines_per_call() -> None:
     per_text = [("texts.result", "documents.text")]
-    drawn = results([texts, documents, lines, shout, show], [*per_text, *SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c|d;e,f")
-    stored_edges = [("texts.result", "shout-lines.text"), ("shout-lines.shout.result", "show.values")]
-    stored = results([texts, REGISTRY["shout-lines"], show], stored_edges, "show", "a,b;;c|d;e,f")
-    assert drawn == stored == [["A+B", None, "C"], ["D", "E+F"]]
+    in_one_graph = results([texts, documents, lines, shout, show], [*per_text, *SHOUT_EDGES, ("shout.result", "show.values")], "show", "a,b;;c|d;e,f")
+    subgraph_edges = [("texts.result", "shout-lines.text"), ("shout-lines.shout.result", "show.values")]
+    through_subgraph = results([texts, REGISTRY["shout-lines"], show], subgraph_edges, "show", "a,b;;c|d;e,f")
+    assert in_one_graph == through_subgraph == [["A+B", None, "C"], ["D", "E+F"]]
 
 
 def test_a_series_returned_once_per_document_is_offered_as_a_series_of_series_too() -> None:
-    drawn_edges = SHOUT_EDGES[:1]
-    for reader, port, expected in ((show, "values", ["a+b", None, "c"]), (mark, "value", [["a!", "b!"], None, ["c!"]])):
+    one_graph_edges = SHOUT_EDGES[:1]
+    for reader, input_name, expected in ((show, "values", ["a+b", None, "c"]), (mark, "value", [["a!", "b!"], None, ["c!"]])):
         reader_id = reader.id
-        drawn = results([documents, lines, reader], [*drawn_edges, ("lines.result", f"{reader_id}.{port}")], reader_id, "a,b;;c")
-        stored = results([REGISTRY["split-lines"], reader], [("split-lines.lines.result", f"{reader_id}.{port}")], reader_id, "a,b;;c")
-        assert drawn == stored == expected
+        in_one_graph = results([documents, lines, reader], [*one_graph_edges, ("lines.result", f"{reader_id}.{input_name}")], reader_id, "a,b;;c")
+        through_subgraph = results([REGISTRY["split-lines"], reader], [("split-lines.lines.result", f"{reader_id}.{input_name}")], reader_id, "a,b;;c")
+        assert in_one_graph == through_subgraph == expected
     described = Graph.compile(make_graph(REGISTRY["split-lines"]), REGISTRY).describe().nodes["split-lines"].outputs[0]
     assert (described.is_series, described.type) == (True, "Series[str]")
 
 
-def test_two_outputs_made_per_line_are_collected_per_document_by_one_node() -> None:
+def test_two_outputs_returned_per_line_are_collected_per_document_by_one_node() -> None:
     reads = [("shout.result", "side-by-side.loud"), ("whisper.result", "side-by-side.quiet")]
-    drawn = results([documents, lines, shout, whisper, side_by_side], [*WHISPER_EDGES, *reads], "side-by-side", "A,b;;c")
-    stored_reads = [(f"shout-and-whisper.{source}", target) for source, target in reads]
-    stored = results([REGISTRY["shout-and-whisper"], side_by_side], stored_reads, "side-by-side", "A,b;;c")
-    assert drawn == stored == ["A+B=a+b", None, "C=c"]
+    in_one_graph = results([documents, lines, shout, whisper, side_by_side], [*WHISPER_EDGES, *reads], "side-by-side", "A,b;;c")
+    subgraph_reads = [(f"shout-and-whisper.{source}", target) for source, target in reads]
+    through_subgraph = results([REGISTRY["shout-and-whisper"], side_by_side], subgraph_reads, "side-by-side", "A,b;;c")
+    assert in_one_graph == through_subgraph == ["A+B=a+b", None, "C=c"]
 
 
-def test_a_stored_graph_inside_a_stored_graph_offers_the_same_series_of_series() -> None:
-    stored = results([REGISTRY["wrapped"], show], [("wrapped.shout-lines.shout.result", "show.values")], "show", "a,b;;c")
-    assert stored == ["A+B", None, "C"]
+def test_a_subgraph_inside_a_subgraph_offers_the_same_series_of_series() -> None:
+    through_subgraph = results([REGISTRY["wrapped"], show], [("wrapped.shout-lines.shout.result", "show.values")], "show", "a,b;;c")
+    assert through_subgraph == ["A+B", None, "C"]
 
 
 @_node("title")
@@ -172,21 +173,21 @@ REGISTRY.subgraph("titled", title="Titled", description="Each document's title, 
 
 def test_one_item_of_each_of_two_outputs_returned_in_the_same_loop_inside_reach_one_call_together() -> None:
     reads = [("shout.result", "pair.a"), ("whisper.result", "pair.b")]
-    drawn = results([documents, lines, shout, whisper, title, pair], [*TITLE_EDGES, *reads], "pair", "A,b;;c")
-    stored = results([REGISTRY["titled"], pair], [(f"titled.{source}", target) for source, target in reads], "pair", "A,b;;c")
-    assert drawn == stored == [["Aa", "Bb"], None, ["Cc"]]
+    in_one_graph = results([documents, lines, shout, whisper, title, pair], [*TITLE_EDGES, *reads], "pair", "A,b;;c")
+    through_subgraph = results([REGISTRY["titled"], pair], [(f"titled.{source}", target) for source, target in reads], "pair", "A,b;;c")
+    assert in_one_graph == through_subgraph == [["Aa", "Bb"], None, ["Cc"]]
 
 
 def test_one_value_per_document_beside_the_list_of_that_documents_lines_reach_one_call_together() -> None:
     reads = [("title.result", "label.heading"), ("shout.result", "label.values")]
-    drawn = results([documents, lines, shout, whisper, title, label], [*TITLE_EDGES, *reads], "label", "a,b;;c")
-    stored = results([REGISTRY["titled"], label], [(f"titled.{source}", target) for source, target in reads], "label", "a,b;;c")
-    assert drawn == stored == ["T:a,b=A+B", None, "T:c=C"]
+    in_one_graph = results([documents, lines, shout, whisper, title, label], [*TITLE_EDGES, *reads], "label", "a,b;;c")
+    through_subgraph = results([REGISTRY["titled"], label], [(f"titled.{source}", target) for source, target in reads], "label", "a,b;;c")
+    assert in_one_graph == through_subgraph == ["T:a,b=A+B", None, "T:c=C"]
 
 
-def test_one_item_of_a_list_inside_a_stored_graph_and_of_a_list_outside_it_is_refused_with_what_the_author_can_do() -> None:
-    """``whisper`` runs once per line inside the subgraph; outside, each title is split into a list of its
-    own. A node that takes one item of each has two lists side by side, and no edge outside can nest them."""
+def test_a_node_taking_items_of_a_list_inside_a_subgraph_and_of_one_outside_is_refused_saying_what_to_do() -> None:
+    """``whisper`` is called once per line inside the subgraph; outside, each title is split into a list of its
+    own. A node that takes one item of each is inside two loops side by side, and no edge outside can nest them."""
     edges = [("titled.title.result", "lines.document"), ("lines.result", "pair.b"), ("titled.whisper.result", "pair.a")]
     refused = Graph.compile(make_graph(REGISTRY["titled"], lines, pair, edges=edges), REGISTRY).problems[0]
     assert (refused.type, refused.ctx["variant"], refused.ctx["subgraphs"]) == ("series_not_nested", "inside_subgraph", ["titled"])
