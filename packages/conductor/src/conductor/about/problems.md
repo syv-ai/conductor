@@ -15,7 +15,7 @@ from typing import Annotated, TypedDict
 import polars as pl
 from conductor import (
     Ask, Context, EndedEarly, Graph, GraphRecord, InvalidCallError, NodeDeclarationError, NodeError, NodeRegistry,
-    Param, Policy, Problem, Run, Series, Table, Upgrade, host_type, make_graph, node, subgraph,
+    Param, Policy, Problem, Run, SKIPPED, Series, Table, Upgrade, host_type, make_graph, node, subgraph,
 )
 from conductor.testing import check_registry
 
@@ -49,13 +49,13 @@ def join(texts: Series[str]) -> str:
 
 @dataclass(frozen=True)
 class Route:
-    short: Annotated[str | None, Param(exclusive_group="length")] = None
-    long: Annotated[str | None, Param(exclusive_group="length")] = None
+    short: Annotated[str, Param(exclusive_group="length")]
+    long: Annotated[str, Param(exclusive_group="length")]
 
 
 @registry.node("route", title="Route", description="Sends a text down the short or the long branch.")
 def route(text: str) -> Route:
-    return Route(short=text) if len(text) < 4 else Route(long=text)
+    return Route(short=text, long=SKIPPED) if len(text) < 4 else Route(short=SKIPPED, long=text)
 
 
 @registry.node("approve", title="Approve", description="Asks a person to approve an amount in kroner.")

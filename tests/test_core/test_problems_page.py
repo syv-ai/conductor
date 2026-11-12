@@ -118,3 +118,18 @@ def test_each_declaration_example_prints_its_code(monkeypatch: MonkeyPatch, tmp_
         if code not in printed.getvalue():
             wrong.append((code, printed.getvalue()))
     assert wrong == []
+
+
+def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:
+    """The examples compile graphs of the setup's nodes, and most never call them; ``check_registry`` calls each."""
+    page = ModuleType("problems_page")
+    monkeypatch.setitem(sys.modules, page.__name__, page)
+    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102
+    examples = {
+        "upper": [{"text": "a"}], "greet": [{"name": "Ida", "greeting": "Hi"}], "count": [{"n": 2}], "words": [{"text": "a b"}],
+        "join": [{"texts": ["a", "b"]}], "route": [{"text": "ab"}, {"text": "abcdef"}], "approve": [{"amount": 5}], "who": [{}],
+        "pick": [{"names": "a,b"}], "contacts": [{"text": "Ida ida@example.com"}],
+    }
+    caller = page.Caller("Ida")
+    assert set(examples) == {definition.id for definition in page.registry}
+    assert page.check_registry(page.registry, examples=examples, context={type(caller): caller}) == []
