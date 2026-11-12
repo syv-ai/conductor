@@ -12,7 +12,7 @@ A node's signature is read once, when `@node` decorates the function: each param
 
 `Graph.compile(record, registry)` finds each node's function at the version the graph record names, compiles each [subgraph](subgraphs.md) once on its own, checks every edge and constant, gives a node written for any type (a type variable) the type that arrives on its edge, and calls the hooks that compute inputs and outputs. Compiling never raises for a wrong graph: everything wrong goes in `graph.problems` ([problem codes](problems.md)), and a graph with problems does not run. `graph.runs_on` says how often each node runs.
 
-`graph.run(**inputs)` starts a run and calls every node that is ready, until the run is complete, waits for a person, fails or is stopped. It returns a `Run`. `run.resume()` goes on in the same way, and `run.stream()` does the same while it yields an event for each node that starts, finishes or fails. `run.to_json()` is the whole run, so the next `resume()` can happen in another process.
+`graph.run(**inputs)` starts a run and calls every node that is ready, until the run is complete, waits for a person, fails or is stopped. It returns a `Run`, whose `status` says how it stopped: `complete`, `waiting` (for a person), `failed` (a node raised), `stopped` (a series was longer than the item limit, `max_items=`), `cancelled` or `timed_out` (`timeout=` seconds ran out); a checkpoint saved while nodes are still being called says `running`. `run.resume()` goes on in the same way, and `run.stream()` does the same while it yields an event for each node that starts, finishes or fails. `run.to_json()` is the whole run, so the next `resume()` can happen in another process.
 
 ## One or many
 
