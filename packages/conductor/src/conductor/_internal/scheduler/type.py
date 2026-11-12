@@ -351,13 +351,13 @@ class Scheduler:
             self._record(node, item_indexes, arguments, trying_every_call)
         elif (
             (reusable := self.reusable) and policy.reuse_when_inputs_match and (of_node := reusable.get(node.node_path)) is not None
-            and (earlier := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None
+            and (previous := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None
         ):
-            if earlier is NotReady.NOT_ITS_TURN:
+            if previous is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
                 return
             self.reused[node] += 1
-            self._record(node, item_indexes, earlier, trying_every_call)
+            self._record(node, item_indexes, previous, trying_every_call)
         else:
             if self.emit:
                 self._announce(node)

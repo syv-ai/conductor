@@ -126,7 +126,7 @@ print(told(drawing)[0])  # 'text' takes alternatives that run per item of differ
 
 **Fix.** Bring both branches to items of one Series first: gather the inner one in a node with a `Series` input, or feed the node from one of them.
 
-Its `ctx` keys are in the reference: `python -m conductor.about alternatives-in-different-series`.
+Its `ctx` keys are in the reference: `python -m conductor.about alternatives-from-different-loops`.
 
 ### `compute_hook_failed`
 
@@ -221,7 +221,7 @@ print(broken.msg)  # The node 'itself' is a graph that contains itself; embed a 
 sits on the node that closes the circle: a problem of a graph used as a node is that graph's own, with the id of the
 node that uses it in front of its `loc`.
 
-Its `ctx` keys are in the reference: `python -m conductor.about embeds-itself`.
+Its `ctx` keys are in the reference: `python -m conductor.about subgraph-contains-itself`.
 
 ### `hook_needs_value`
 
@@ -315,7 +315,7 @@ A node's `Series` inputs leave out an item together when one of them has no valu
 
 **Fix.** Write `Series[X | None]` on both inputs to keep every item, blanks included, or take the branches through one input.
 
-Its `ctx` keys are in the reference: `python -m conductor.about series-inputs-never-share-an-item`.
+Its `ctx` keys are in the reference: `python -m conductor.about lists-from-different-loops`.
 
 ### `series_not_nested`
 
@@ -509,7 +509,7 @@ print(told(drawing)[0])  # Field 'text' has both a value and a default; keep one
 
 **Fix.** Keep one: a value fixes the input, a default leaves it open for a caller.
 
-Its `ctx` keys are in the reference: `python -m conductor.about value-and-default`.
+Its `ctx` keys are in the reference: `python -m conductor.about constant-and-default`.
 
 ### `constant_and_edge`
 
@@ -528,7 +528,7 @@ print(told(drawing)[0])  # Field 'text' has an edge and a typed-in value; keep o
 
 Raised as `InvalidCallError` by the call that caused it; `error.errors()` lists every one, and nothing changed.
 
-Its `ctx` keys are in the reference: `python -m conductor.about value-and-edge`.
+Its `ctx` keys are in the reference: `python -m conductor.about constant-and-edge`.
 
 ### `answer_stale`
 
@@ -565,7 +565,7 @@ print(said(lambda: asking_who.run())[0])  # 'who' needs a Caller for 'caller', a
 
 **Fix.** Pass the value by its type: `graph.run(context={Caller: Caller("Ida")})`. It is never saved with the run, so pass it again on each `resume`.
 
-Its `ctx` keys are in the reference: `python -m conductor.about from-run-missing`.
+Its `ctx` keys are in the reference: `python -m conductor.about context-missing`.
 
 ### `input_given_twice`
 
@@ -724,7 +724,7 @@ print(said(lambda: Run.from_json(uppering.run(text="a").to_json(), counting))[0]
 
 **Fix.** Load the save into the graph it was saved from. An edited graph starts a new run.
 
-Its `ctx` keys are in the reference: `python -m conductor.about state-of-another-graph`.
+Its `ctx` keys are in the reference: `python -m conductor.about saved-run-of-another-graph`.
 
 ### `saved_run_unreadable`
 
@@ -739,7 +739,7 @@ print(said(lambda: Run.from_json(json.dumps(tampered), uppering))[0])  # The sav
 
 **Fix.** Load what `run.to_json()` wrote, unchanged. `ctx.where` says where it stopped fitting.
 
-Its `ctx` keys are in the reference: `python -m conductor.about state-unreadable`.
+Its `ctx` keys are in the reference: `python -m conductor.about saved-run-unreadable`.
 
 ### `run_unwritable`
 
@@ -760,7 +760,7 @@ print(said(lambda: unwritable.to_json())[0])  # The run can't be written as JSON
 
 In `run.state` (an `EndedEarly`'s `cause`) and on `node_failed`. `loc` starts with the node's id, and is `()` for the run as a whole.
 
-Its `ctx` keys are in the reference: `python -m conductor.about state-unwritable`.
+Its `ctx` keys are in the reference: `python -m conductor.about run-unwritable`.
 
 ### `execution_failed`
 
@@ -897,7 +897,7 @@ match capped.state:
 
 **Fix.** `capped.with_max_items(...).resume()` with a higher ceiling carries on, calling nothing again.
 
-Its `ctx` keys are in the reference: `python -m conductor.about item-ceiling`.
+Its `ctx` keys are in the reference: `python -m conductor.about item-limit`.
 
 ### `question_unwritable`
 

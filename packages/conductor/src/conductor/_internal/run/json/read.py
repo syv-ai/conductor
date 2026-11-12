@@ -116,14 +116,14 @@ def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableO
     if len(saved.fingerprints) != len(saved.outcomes):
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     item_indexes, outer_item_fingerprints = saved.item_indexes or {}, saved.outer_item_fingerprints or {}
-    earlier = ReusableOutcomes()
+    previous = ReusableOutcomes()
     for call_number, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.outcomes, strict=True)):
         if type(outcome) is Done:
-            earlier.by_fingerprint.setdefault(fingerprint, outcome)
+            previous.by_fingerprint.setdefault(fingerprint, outcome)
             if call_number in item_indexes:
-                earlier.by_item_indexes[item_indexes[call_number]] = (fingerprint, outcome)
+                previous.by_item_indexes[item_indexes[call_number]] = (fingerprint, outcome)
         elif type(outcome) is Answered or type(outcome) is Waiting:
-            earlier.answers.setdefault((fingerprint, outer_item_fingerprints.get(call_number, "")), []).append(outcome)
+            previous.answers.setdefault((fingerprint, outer_item_fingerprints.get(call_number, "")), []).append(outcome)
         else:
             raise PydanticCustomError("not_carried", "it carries a unit that was never called")
-    return earlier
+    return previous

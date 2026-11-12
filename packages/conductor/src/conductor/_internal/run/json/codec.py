@@ -73,7 +73,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     shared: dict[str, CoreSchema] = {}
     outcomes_record, reusable_record = _inline_definitions(_OUTCOMES, shared), _inline_definitions(_REUSABLE, shared)
     blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
-    outcomes, earlier = {}, {}
+    outcomes, previous = {}, {}
     for node, of_node in outputs.items():
         not_taken, not_called = outputs_when_skipped(of_node), outputs_when_not_called(of_node)
         columns = tuple((name, output.saved_list_type, output.many, not_called[name]) for name, output in of_node.items())
@@ -91,13 +91,13 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
             reusable_schema = _with_field_schemas(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
             shared[f"reusable:{block}"] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_schema, ref=f"reusable:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"reusable:{block}")
-        outcomes[node], earlier[node] = blocks[columns]
+        outcomes[node], previous[node] = blocks[columns]
     run = _with_field_schemas(
         _inline_definitions(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
         inputs=_exact_keys_schema({address: _inline_definitions(whole.saved_schema, shared) for address, whole in inputs.items()}),
         outcomes=_exact_keys_schema({}, outcomes),
-        reusable=_exact_keys_schema({}, earlier),
+        reusable=_exact_keys_schema({}, previous),
         code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )

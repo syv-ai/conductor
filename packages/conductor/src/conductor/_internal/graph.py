@@ -43,7 +43,7 @@ class Graph(CompiledGraph):
         return compile_graph(as_record(record), registry._nodes, cls)
 
     def with_inputs(
-        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, earlier: Run | None = None, **by_name: Any,
+        self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None, previous: Run | None = None, **by_name: Any,
     ) -> Run:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
@@ -51,7 +51,7 @@ class Graph(CompiledGraph):
             inputs: The inputs by name (``graph.inputs``) or by address (``node.input``), for names Python can't
                 take as keywords (``{"a.text": ...}``).
             max_items: The most items any one Series a node works through may hold before the run stops.
-            earlier: A run of this graph, or of an earlier version of it, that lends its work as ``run.again``
+            previous: A run of this graph, or of an earlier version of it, that lends its work as ``run.again``
                 does: a node with the same id, version, code, fields and scope is not called where it receives
                 what it received there, so after an edit only the nodes it changes, and what they feed, run again.
             **by_name: The inputs, as keywords.
@@ -66,7 +66,7 @@ class Graph(CompiledGraph):
             raise InvalidCallError(self.problems)
         checked_max_items(max_items=max_items)
         checked = self._checked_inputs(*self._given_by_address({**inputs, **by_name}))
-        return Run(self, checked, max_items, no_outcomes(self), earlier._reusable_outcomes(into=self) if earlier is not None else {})
+        return Run(self, checked, max_items, no_outcomes(self), previous._reusable_outcomes(into=self) if previous is not None else {})
 
     def run(
         self, inputs: Mapping[str, Any] = types.MappingProxyType({}), /, *, max_items: int | None = None,

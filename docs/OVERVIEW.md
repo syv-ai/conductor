@@ -40,7 +40,7 @@ A node raises `Ask` when a person must answer. That call waits, and so does what
 
 ## Running again
 
-`run.again(**changed)` runs with changed inputs. A call that would receive exactly what a call of its node received before takes that earlier result, or that earlier answer, and the node isn't called. So when one line is added to a CSV of 5,000, a node that runs per item is called for that one. A node that reads the world rather than its inputs opts out with `Policy(reuse_when_inputs_match=False)`. After an edit to the graph itself, `edited_graph.with_inputs(..., earlier=old_run).resume()` lends the old run's work the same way: a node the edit left as it was (same id, version, code and fields, per item of the same Series) isn't called for an item that receives what it received, so changing the last node's prompt calls only that node.
+`run.again(**changed)` runs with changed inputs. A call that would receive exactly what a call of its node received before takes that earlier result, or that earlier answer, and the node isn't called. So when one line is added to a CSV of 5,000, a node that runs per item is called for that one. A node that reads the world rather than its inputs opts out with `Policy(reuse_when_inputs_match=False)`. After an edit to the graph itself, `edited_graph.with_inputs(..., previous=old_run).resume()` lends the old run's work the same way: a node the edit left as it was (same id, version, code and fields, per item of the same Series) isn't called for an item that receives what it received, so changing the last node's prompt calls only that node.
 
 ## Failures
 

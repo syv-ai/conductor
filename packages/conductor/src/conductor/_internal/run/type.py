@@ -363,7 +363,7 @@ class Run:
         changed = {**inputs, **by_name}
         named = self.graph._given_by_address(changed)[0]
         given = {graph_input.name: self.inputs[address] for address, graph_input in self.graph._input_fields.items() if address not in named}
-        return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, earlier=self)
+        return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, previous=self)
 
     def forget(self, *node_ids: str) -> Run:
         """A run of the same inputs that has forgotten these nodes' work, ready to ``resume`` or ``stream``.
@@ -563,12 +563,12 @@ class Run:
             node.name: saved_outcomes(node.compiled_node.outputs, self._outcomes_by_call_number(node))
             for node in self.graph._flat_function_nodes if self._outcomes[node.name]
         }
-        earlier = {node_path_text(path): saved_reusable(functions[path].outputs, of_node) for path, of_node in self._reusable.items() if of_node.by_fingerprint or of_node.answers}
-        code = {name: self._code_changed.get(path) or compiled_node.code_fingerprint for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in earlier}
+        previous = {node_path_text(path): saved_reusable(functions[path].outputs, of_node) for path, of_node in self._reusable.items() if of_node.by_fingerprint or of_node.answers}
+        code = {name: self._code_changed.get(path) or compiled_node.code_fingerprint for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in previous}
         complete = [node.name for node in self.graph._flat_function_nodes if node.node_path in self._finished_nodes]
         codec = self.graph._run_codec
         written_once = tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None
-        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, reusable=earlier, code=code, complete=complete, tables_written_once=written_once)
+        return SavedRun(graph=self.graph.fingerprint, state=self.state, max_items=self.max_items, inputs=self.inputs, outcomes=outcomes, reusable=previous, code=code, complete=complete, tables_written_once=written_once)
 
     def _outcomes_by_call_number(self, node: FlatFunctionNode) -> list[Outcome | None]:
         """A node's units with a slot for each instance of the node, in instance order; ``None`` where the
@@ -586,11 +586,11 @@ class Run:
             share_outcomes: Whether the copy holds this run's own dict of units for each node.
         """
         if share_outcomes:
-            outcomes, earlier = dict(self._outcomes), dict(self._reusable)
+            outcomes, previous = dict(self._outcomes), dict(self._reusable)
         else:  # its own answers to take, as this run holds them too
             outcomes = {name: dict(held) for name, held in self._outcomes.items()}
-            earlier = {path: ReusableOutcomes(of_node.by_item_indexes, of_node.by_fingerprint, {asked: list(left) for asked, left in of_node.answers.items()}) for path, of_node in self._reusable.items()}
-        return dataclasses.replace(self, _outcomes=outcomes, _reusable=earlier)
+            previous = {path: ReusableOutcomes(of_node.by_item_indexes, of_node.by_fingerprint, {asked: list(left) for asked, left in of_node.answers.items()}) for path, of_node in self._reusable.items()}
+        return dataclasses.replace(self, _outcomes=outcomes, _reusable=previous)
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})

@@ -712,7 +712,7 @@ def test_work_carried_from_a_run_of_an_earlier_graph_is_taken_inside_where_the_n
     run = mapped("shout-inner").run(text="ab cd")
     edited = load({"w": "words", "e": "shout-inner", "n": "count"}, [("w.result", "e.text"), ("e.ex.result", "n.items")])
     CALLS.clear()
-    assert edited.with_inputs(text="ab cd", earlier=run).resume().results["n"]["result"] == 2
+    assert edited.with_inputs(text="ab cd", previous=run).resume().results["n"]["result"] == 2
     assert CALLS == {}
 
 

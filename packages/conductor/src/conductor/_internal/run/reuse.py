@@ -43,9 +43,9 @@ class ReusableOutcomes:
 
 
 def reused_outcome(
-    earlier: ReusableOutcomes, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
+    previous: ReusableOutcomes, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Waiting | Literal[NotReady.NOT_ITS_TURN] | None:
-    """The unit of ``earlier`` that ``node`` takes in ``item_indexes`` in place of a call on ``arguments``; ``None`` when
+    """The unit of ``previous`` that ``node`` takes in ``item_indexes`` in place of a call on ``arguments``; ``None`` when
     there is none.
 
     A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
@@ -55,7 +55,7 @@ def reused_outcome(
     received the same, and else one any earlier unit computed from the same.
 
     Args:
-        earlier: What the node may take: this run's own to take from.
+        previous: What the node may take: this run's own to take from.
         node: The node.
         item_indexes: The instance.
         arguments: What the unit received.
@@ -66,16 +66,16 @@ def reused_outcome(
     fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
     if fingerprint is None:
         return None
-    if earlier.answers:
-        answers = earlier.answers.get((fingerprint, outer_items_fingerprint(outcomes, node, item_indexes)))
+    if previous.answers:
+        answers = previous.answers.get((fingerprint, outer_items_fingerprint(outcomes, node, item_indexes)))
         if answers:
             if not in_turn():
                 return NotReady.NOT_ITS_TURN
             return answers.pop(0)
-    previous_for_call = earlier.by_item_indexes.get(item_indexes)
+    previous_for_call = previous.by_item_indexes.get(item_indexes)
     if previous_for_call is not None and previous_for_call[0] == fingerprint:
         return previous_for_call[1]
-    return earlier.by_fingerprint.get(fingerprint)
+    return previous.by_fingerprint.get(fingerprint)
 
 
 def outer_items_fingerprint(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode, item_indexes: ItemIndexes) -> str:

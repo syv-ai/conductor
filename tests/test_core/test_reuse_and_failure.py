@@ -1603,11 +1603,11 @@ def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_
     edited = drawn("Long")
     assert edited.fingerprint != first.graph.fingerprint
 
-    second = edited.with_inputs(items=texts, earlier=Run.from_json(first.to_json(), first.graph)).resume()
+    second = edited.with_inputs(items=texts, previous=Run.from_json(first.to_json(), first.graph)).resume()
 
     assert second.results["s"]["result"][0] == "Long: T0" and calls == [f"summarize T{i}" for i in range(300)]
     calls.clear()
-    assert edited.with_inputs(items=texts, earlier=second).resume().results == second.results and calls == []
+    assert edited.with_inputs(items=texts, previous=second).resume().results == second.results and calls == []
 
 
 def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
@@ -1654,11 +1654,11 @@ def test_a_unit_made_under_another_limit_or_other_choices_is_never_taken():
     first = loose.run(n=3)
     assert first.status == "complete" and made == [3]
 
-    same = graph_taking(Annotated[int, Param(ge=0, title="N")]).with_inputs(n=3, earlier=first).resume()
+    same = graph_taking(Annotated[int, Param(ge=0, title="N")]).with_inputs(n=3, previous=first).resume()
     assert same.status == "complete" and made == [3]  # a title changes nothing that is read
 
-    tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, earlier=first).resume()
+    tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, previous=first).resume()
     assert tight.status == "failed" and tight.state.cause.type == "invalid_edge_value"
 
-    chosen = graph_taking(Annotated[int, Param(choices=[1, 2])]).with_inputs(n=3, earlier=first).resume()
+    chosen = graph_taking(Annotated[int, Param(choices=[1, 2])]).with_inputs(n=3, previous=first).resume()
     assert chosen.status == "failed" and chosen.state.cause.type == "invalid_edge_value"

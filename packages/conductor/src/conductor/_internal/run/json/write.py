@@ -105,25 +105,25 @@ def tables_written_once(outputs: Mapping[str, Mapping[str, Field]], shareable: I
     return same or None
 
 
-def saved_reusable(outputs: Mapping[str, Field], earlier: ReusableOutcomes) -> SavedReusable[SavedOutcomes]:
+def saved_reusable(outputs: Mapping[str, Field], previous: ReusableOutcomes) -> SavedReusable[SavedOutcomes]:
     """Gives what a node may take from an earlier run as a save holds it, each unit once: the computed units by
     the instance they stood in, then the ones only known by what they received, then the answers and the
     questions still waiting.
 
     Args:
         outputs: The node's outputs, by name.
-        earlier: The earlier work.
+        previous: The earlier work.
     """
-    outcomes: list[Outcome | None] = [done for _, done in earlier.by_item_indexes.values()]
-    fingerprints = [fingerprint for fingerprint, _ in earlier.by_item_indexes.values()]
-    item_indexes = dict(enumerate(earlier.by_item_indexes))
+    outcomes: list[Outcome | None] = [done for _, done in previous.by_item_indexes.values()]
+    fingerprints = [fingerprint for fingerprint, _ in previous.by_item_indexes.values()]
+    item_indexes = dict(enumerate(previous.by_item_indexes))
     saved_fingerprints = set(fingerprints)  # each of these is one of the units above: the first that received it
-    for fingerprint, done in earlier.by_fingerprint.items():
+    for fingerprint, done in previous.by_fingerprint.items():
         if fingerprint not in saved_fingerprints:
             outcomes.append(done)
             fingerprints.append(fingerprint)
     outer_item_fingerprints: dict[int, str] = {}
-    for (fingerprint, outer_items_fingerprint), answers in earlier.answers.items():
+    for (fingerprint, outer_items_fingerprint), answers in previous.answers.items():
         for outcome in answers:
             if outer_items_fingerprint:
                 outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint
@@ -145,7 +145,7 @@ def first_unwritable_value(inputs: Mapping[str, Type], outputs: Mapping[str, Map
         The input's address, or the node as a save names it and the output (``e/ask.result``).
     """
     columns = {address: (inputs[address], value) for address, value in saved.inputs.items()}
-    by_node = [*saved.outcomes.items(), *((name, earlier.outcomes) for name, earlier in saved.reusable.items())]
+    by_node = [*saved.outcomes.items(), *((name, previous.outcomes) for name, previous in saved.reusable.items())]
     for name, outcomes in by_node:
         columns.update({f"{name}.{output}": (outputs[name][output].saved_list_type, column) for output, column in outcomes.outputs.items()})
     for at, (written_by, value) in columns.items():
