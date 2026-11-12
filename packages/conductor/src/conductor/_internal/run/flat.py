@@ -204,10 +204,14 @@ class FlatSubgraph(_FlatNodeBase):
         compiled_node: The node as the outer graph compiled it.
         inner_nodes: The nodes of the subgraph as flat nodes, by their id in the subgraph. Empty until they are
             made, which is right after this node is.
+        sources: Every output of every node inside, by its address in the subgraph, as the function node that
+            returns it and the output's name there: ``"shout.result"`` is ``(loud/shout, "result")``. Made with
+            ``inner_nodes``.
     """
 
     compiled_node: CompiledSubgraphNode
     inner_nodes: dict[str, FlatNode] = dataclasses.field(default_factory=dict[str, "FlatNode"])
+    sources: dict[str, tuple[FlatFunctionNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatFunctionNode", str]])
 
     def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
         """Returns the function node inside the subgraph that returns ``output``, and the output's name there.
@@ -216,8 +220,7 @@ class FlatSubgraph(_FlatNodeBase):
         ``(loud/shout, "result")``. When the node inside is itself a subgraph, the answer is a function node
         inside that one.
         """
-        address = Address.parse(output)
-        return self.inner_nodes[address.node].source_of(address.name)
+        return self.sources[output]
 
 
 #: A node of the flat graph: a function, or a subgraph.
@@ -364,6 +367,7 @@ def _add_flat_nodes(
         if isinstance(compiled_node, CompiledSubgraphNode):
             subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops)
             subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, inputs, functions, nodes_by_name)
+            subgraph.sources = _sources_inside(subgraph.inner_nodes)
             nodes_by_id[compiled_node.id] = nodes_by_name[subgraph.name] = subgraph
             continue
         constants: dict[str, Any] = {}
@@ -411,6 +415,23 @@ def _add_flat_nodes(
             node.upstream.setdefault(loops[-1][0], len(loops) - 1)
         nodes_by_id[compiled_node.id] = nodes_by_name[node.name] = functions[node.name] = node
     return nodes_by_id
+
+
+def _sources_inside(inner_nodes: dict[str, FlatNode]) -> dict[str, tuple[FlatFunctionNode, str]]:
+    """Every output of the nodes of a subgraph, by its address there, as the function node that returns it and the
+    output's name there.
+
+    In the example, ``loud``'s are ``{"strip.result": (loud/strip, "result"), "shout.result": (loud/shout, "result")}``.
+    A subgraph inside adds each of its own under its id: ``"inner.shout.result"``.
+    """
+    sources: dict[str, tuple[FlatFunctionNode, str]] = {}
+    for node_id, node in inner_nodes.items():
+        match node:
+            case FlatFunctionNode():
+                sources.update({str(Address(node_id, output)): (node, output) for output in node.compiled_node.outputs})
+            case FlatSubgraph():
+                sources.update({str(Address(node_id, name)): source for name, source in node.sources.items()})
+    return sources
 
 
 def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[Address, ...]:

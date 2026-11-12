@@ -12,7 +12,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Answer, Question
-from conductor._internal.base import SKIPPED, Address, node_path_text
+from conductor._internal.base import SKIPPED, node_path_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
@@ -79,7 +79,7 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for text, value in run.outputs.items():
-        function, output = function_of(run._flat, Address.parse(text))
+        function, output = function_of(run._flat, run.graph._output_addresses[text])
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None

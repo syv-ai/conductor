@@ -40,7 +40,7 @@ def outputs_of(
 ) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by address. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {text: reader.display_value(display_inputs_of(*function_of(flat, Address.parse(text)))) for text in graph.outputs}
+    return {text: reader.display_value(display_inputs_of(*function_of(flat, address))) for text, address in graph._output_addresses.items()}
 
 
 def function_of(flat: FlatGraph, address: Address) -> tuple[FlatFunctionNode, str]:

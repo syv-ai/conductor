@@ -102,11 +102,11 @@ class CompiledGraph:
         """Whether the graph has no problems, so it runs."""
         return not self.problems
 
-    @functools.cached_property
+    @property
     def outputs(self) -> list[str]:
         """The graph outputs, as addresses: every output of every node that no edge leaves. In the example,
         ``["join.result"]``."""
-        return [str(Address(p.id, o)) for p in self._nodes.values() if not self._downstream[p.id] for o in p.outputs]
+        return list(self._output_addresses)
 
     @property
     def runs_on(self) -> dict[str, RunsOn]:
@@ -167,6 +167,13 @@ class CompiledGraph:
         return {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in self._input_fields.values()}
 
     @functools.cached_property
+    def _output_addresses(self) -> dict[str, Address]:
+        """The graph outputs by the text a host reads them by: ``{"join.result": Address("join", "result")}`` in the
+        example. A subgraph node that uses this graph names its outputs by this text."""
+        addresses = [Address(p.id, o) for p in self._nodes.values() if not self._downstream[p.id] for o in p.outputs]
+        return {str(address): address for address in addresses}
+
+    @functools.cached_property
     def _outputs_as_a_node(self) -> dict[str, Field]:
         """The graph outputs as the outputs of a subgraph node that uses this graph, by their addresses here
         (``shout.result``), each as the node here declares it.
@@ -174,8 +181,7 @@ class CompiledGraph:
         An exclusive group is named by the node here (``route.length``), so the groups of two nodes stay apart.
         """
         outputs: dict[str, Field] = {}
-        for text in self.outputs:
-            address = Address.parse(text)
+        for text, address in self._output_addresses.items():
             field = self._nodes[address.node].outputs[address.name]
             group = field.param.exclusive_group
             hint = Annotated[field.hint, Param(exclusive_group=f"{address.node}.{group}")] if group else field.hint
@@ -185,13 +191,13 @@ class CompiledGraph:
     def _loops_around(self, output: str) -> tuple[Address, ...]:
         """Returns the loops inside this graph that the graph output ``output`` (``"shout.result"``) has one value per
         item of, outermost first."""
-        address = Address.parse(output)
+        address = self._output_addresses[output]
         return self._nodes[address.node].loops_around(address.name)
 
     def _branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches inside this graph that must be chosen for the graph output ``output`` to have a
         value."""
-        address = Address.parse(output)
+        address = self._output_addresses[output]
         return self._nodes[address.node].branches_required_for(address.name)
 
     # -- what a run uses --------------------------------------------------------
