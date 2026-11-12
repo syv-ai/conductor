@@ -1,11 +1,11 @@
-"""Saving a run and loading it back: ``run.to_json()`` and ``Run.from_json(..., graph)``.
+"""Saving a run and reading it back: ``saved = run.to_json()`` and ``Run.from_json(saved, graph)``.
 
-A saved run is strict JSON: each node's outputs are a column per output,
-written by the output's own type, so a value reads back as itself, a float
-that isn't finite included. A save that doesn't fit the graph, damaged or
-written for another one, is refused at ``Run.from_json`` as ``saved_run_unreadable``,
-and a value with no JSON form at ``to_json`` as ``run_unwritable``; each
-names where, and quotes no stored value.
+A saved run is strict JSON. A node's outputs are saved as one list per output, with one entry per call, each value
+written by the output's declared type, so a value reads back as itself, a float that is not finite included.
+``Run.from_json`` refuses a saved run that does not fit the graph with the problem ``saved_run_unreadable`` (damaged)
+or ``saved_run_of_another_graph``, and ``to_json`` refuses a value with no JSON form with ``run_unwritable``. Each
+problem says where, as ``ctx["where"]`` (a path into the JSON such as ``outcomes.echo.outputs.result.1``, or an
+output such as ``o.result``), and never quotes a saved value.
 """
 
 import datetime as dt
@@ -45,8 +45,9 @@ from tests.test_core.nodes import registry_of
 
 
 @pytest.fixture(autouse=True)
-def _every_save_reads_back_and_writes_the_same(monkeypatch: MonkeyPatch) -> None:
-    """What ``run.to_json()`` writes in these tests loads into its graph, and the loaded run writes the same bytes."""
+def _every_saved_run_reads_back_and_saves_the_same(monkeypatch: MonkeyPatch) -> None:
+    """Every ``run.to_json()`` in this file also reads its text back into the graph and checks that the run read back
+    saves to the same bytes."""
     write = Run.to_json
 
     def written_and_read(run: Run) -> str:
@@ -86,7 +87,7 @@ def split(text: str) -> Series[str]:
 # -- values read back as themselves -------------------------------------------------------------
 
 
-def test_a_float_comes_back_to_the_last_bit():
+def test_a_float_reads_back_bit_for_bit():
     floats = [0.1 + 0.2, 5e-324, -0.0, 1e308, 1 / 3]
 
     @node("floats", title="Make floats", description="For a test.")
@@ -95,12 +96,12 @@ def test_a_float_comes_back_to_the_last_bit():
 
     run = Graph.compile(make_graph(make_floats), registry_of(make_floats)).run(text="x")
 
-    loaded = _round_trip(run).results["floats"]["result"]
+    read_back = _round_trip(run).results["floats"]["result"]
 
-    assert [struct.pack("<d", f) for f in loaded] == [struct.pack("<d", f) for f in floats]
+    assert [struct.pack("<d", f) for f in read_back] == [struct.pack("<d", f) for f in floats]
 
 
-def test_a_text_that_spells_a_skip_marker_stays_text():
+def test_a_text_that_spells_the_skipped_marker_reads_back_as_text():
     @node("marker", title="Marker", description="For a test.")
     def marker(text: str) -> Series[str]:
         return ["__skipped__", "SKIPPED", ""]
@@ -110,8 +111,12 @@ def test_a_text_that_spells_a_skip_marker_stays_text():
     assert _round_trip(run).results["marker"]["result"] == ["__skipped__", "SKIPPED", ""]
 
 
-def _paused_after(definition: Any, *, per_item: bool = False) -> Any:
-    """``definition`` as node ``m``, its ``result`` read by a node that asks and by ``seen``, which takes the answer and what ``m`` made."""
+def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:
+    """A graph that waits for a person right after ``definition``, and the list of values its last node is called with.
+
+    ``definition`` is node ``m``. Node ``c`` asks a person about ``m.result``; node ``s`` takes ``m.result`` and the
+    answer, and appends the first to the list. With ``per_item``, ``m`` is called once per item of ``split``.
+    """
     seen: list[Any] = []
 
     @node("check", title="Check", description="For a test.")
@@ -136,20 +141,20 @@ def _is_nan_inf_minus_inf(values: list[float]) -> bool:
     return math.isnan(values[0]) and values[1:] == [math.inf, -math.inf]
 
 
-def test_a_float_that_is_not_finite_comes_back_a_float_and_its_reader_receives_it():
+def test_a_float_that_is_not_finite_reads_back_as_a_float_and_the_downstream_node_gets_it():
     @node("ratio", title="Ratio", description="For a test.")
     def ratio(text: str) -> float:
         return {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}[text]
 
     for text in ("nan", "inf", "-inf"):
-        graph, seen = _paused_after(ratio)
+        graph, seen = _waiting_after(ratio)
         paused = graph.run(text=text)
         saved = paused.to_json()
         _strict(saved)
 
-        loaded = Run.from_json(saved, graph)
-        value = loaded.results["m"]["result"]
-        done = loaded.answer("c", "yes").resume()
+        read_back = Run.from_json(saved, graph)
+        value = read_back.results["m"]["result"]
+        done = read_back.answer("c", "yes").resume()
 
         assert isinstance(value, float) and (math.isnan(value) if text == "nan" else value == float(text))
         assert done.status == "complete" and len(seen) == 1 and (math.isnan(seen[0]) if text == "nan" else seen[0] == float(text))
@@ -165,12 +170,12 @@ def test_a_series_of_floats_keeps_the_ones_that_are_not_finite():
     assert _is_nan_inf_minus_inf(_round_trip(run).results["readings"]["result"])
 
 
-def test_a_float_per_item_keeps_the_ones_that_are_not_finite():
+def test_floats_returned_per_item_keep_the_ones_that_are_not_finite():
     @node("per-item", title="Per item", description="For a test.")
     def per_item(text: str) -> float:
         return float(text)
 
-    graph, _ = _paused_after(per_item, per_item=True)
+    graph, _ = _waiting_after(per_item, per_item=True)
     paused = graph.run(text="nan,inf,-inf")
 
     assert _is_nan_inf_minus_inf(Run.from_json(paused.to_json(), graph).results["m"]["result"])
@@ -180,7 +185,7 @@ class Reading(TypedDict):
     value: float | None
 
 
-def test_a_float_column_keeps_nan_infinity_and_a_blank():
+def test_a_float_column_keeps_nan_infinity_and_null():
     @node("table", title="Table", description="For a test.")
     def table(text: str) -> Table[Reading]:
         return pl.DataFrame({"value": [math.nan, math.inf, -math.inf, None]})
@@ -202,7 +207,7 @@ def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
     assert _strict(saved)["state"] == {"status": "complete"}
 
 
-def test_a_blank_returned_for_a_blank_taking_series_is_saved_and_read_back_as_a_blank():
+def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
     @node("maybe-readings", title="Maybe readings", description="For a test.")
     def maybe_readings(text: str) -> Series[int] | None:
         return None
@@ -213,9 +218,9 @@ def test_a_blank_returned_for_a_blank_taking_series_is_saved_and_read_back_as_a_
     assert _round_trip(run).results["m"]["result"] is None
 
 
-def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_of_its_place():
-    """A ``tuple`` inside a ``dict`` output or a model's field is a list in the save; a place declared ``float``
-    reads the float back, and one declared ``Any`` its text."""
+def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_declared_at_its_position():
+    """A ``tuple`` inside a ``dict`` output or a model's field is a list in the saved run; a position declared
+    ``float`` reads back as the float, and one declared ``Any`` as its text, ``"Infinity"``."""
 
     @host_type("Point", title="Point")
     class Point(BaseModel):
@@ -238,8 +243,8 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_of_its_pla
 
 
 def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back_as_its_text():
-    """A ``dict``, ``Any`` or a model's ``Any`` field holding ``nan`` comes back from a save as the text it was
-    written as, as a date under ``Any`` does: an author who wants the float back declares it."""
+    """A ``nan`` under ``dict``, ``Any`` or a model's ``Any`` field reads back from a saved run as the text it was
+    written as, ``"NaN"``, as a date under ``Any`` reads back as text: an author who wants the float declares ``float``."""
 
     @host_type("Loose", title="Loose")
     class Loose(BaseModel):
@@ -284,10 +289,10 @@ def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text
         return type(x).__name__
 
     graph = Graph.compile(make_graph(up, down, edges=[("up.result", "down.x")]), registry_of(up, down))
-    loaded = _round_trip(graph.run(k=1))
+    read_back = _round_trip(graph.run(k=1))
 
-    assert loaded.results["up"]["result"] == ["NaN", "NaN", 1.5]
-    assert loaded.forget("down").resume().outputs["down.result"] == ["str", "str", "float"]
+    assert read_back.results["up"]["result"] == ["NaN", "NaN", 1.5]
+    assert read_back.forget("down").resume().outputs["down.result"] == ["str", "str", "float"]
 
 
 @host_type("point", title="Point")
@@ -323,7 +328,7 @@ _EVERYTHING = {
 }
 
 
-def test_every_column_type_comes_back_exactly_and_a_reader_receives_the_same():
+def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_same():
     received: list[pl.DataFrame] = []
 
     @node("everything", title="Everything", description="For a test.")
@@ -346,9 +351,9 @@ def test_every_column_type_comes_back_exactly_and_a_reader_receives_the_same():
     paused = graph.run(text="x")
     before = paused.results["e"]["result"]
 
-    loaded = Run.from_json(paused.to_json(), graph)
-    after = loaded.results["e"]["result"]
-    loaded.answer("c", "yes").resume()
+    read_back = Run.from_json(paused.to_json(), graph)
+    after = read_back.results["e"]["result"]
+    read_back.answer("c", "yes").resume()
 
     assert after.to_dict(as_series=False) == before.to_dict(as_series=False) == _EVERYTHING
     assert after.schema == before.schema
@@ -367,9 +372,9 @@ def test_a_table_with_no_row_type_keeps_its_list_struct_time_and_decimal_columns
 
     run = Graph.compile(make_graph(bare), registry_of(bare)).run(text="x")
 
-    loaded = _round_trip(run).results["bare"]["result"]
+    read_back = _round_trip(run).results["bare"]["result"]
 
-    assert loaded.to_dict(as_series=False) == columns and loaded.schema == run.results["bare"]["result"].schema
+    assert read_back.to_dict(as_series=False) == columns and read_back.schema == run.results["bare"]["result"].schema
 
 
 def test_tables_of_two_nodes_read_back_each_as_itself():
@@ -391,10 +396,10 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
         {"n.text": "x", "a.text": "y"},
     )
 
-    loaded = _round_trip(run)
+    read_back = _round_trip(run)
 
-    assert loaded.results["n"]["result"].to_dicts() == [{"name": "ida"}, {"name": "bo"}]
-    assert loaded.results["a"]["result"].to_dicts() == [{"age": 30}, {"age": 40}, {"age": 50}]
+    assert read_back.results["n"]["result"].to_dicts() == [{"name": "ida"}, {"name": "bo"}]
+    assert read_back.results["a"]["result"].to_dicts() == [{"age": 30}, {"age": 40}, {"age": 50}]
 
 
 def test_two_identical_runs_save_byte_identical_json():
@@ -407,12 +412,12 @@ def test_two_identical_runs_save_byte_identical_json():
     assert graph.run(text="x").to_json() == graph.run(text="x").to_json()
 
 
-# -- what a save can't hold ------------------------------------------------------------------
+# -- what a run cannot be saved with ----------------------------------------------------------
 
 
 @host_type("_Opaque", title="Opaque")
 class _Opaque:
-    """A value pydantic carries but has no JSON form for."""
+    """A value pydantic accepts but cannot write as JSON."""
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -421,7 +426,7 @@ class _Opaque:
         return core_schema.is_instance_schema(cls)
 
 
-def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_output():
+def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_output():
     @node("opaque", title="Opaque", description="For a test.")
     def opaque(text: str) -> _Opaque:
         return _Opaque()
@@ -449,7 +454,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
     assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "t.value")
 
 
-def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
+def test_saving_a_table_column_json_cannot_write_raises_naming_the_output():
     class Blob(TypedDict):
         data: bytes
 
@@ -467,11 +472,12 @@ def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
     assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
 
 
-# -- a save that doesn't fit is refused ------------------------------------------------------
+# -- a saved run that does not fit its graph is refused ---------------------------------------
 
 
-def _saved_mails() -> tuple[Any, dict[str, Any]]:
-    """``split`` making three items read by ``echo``, run to the end, and its save."""
+def _saved_echoes() -> tuple[Any, dict[str, Any]]:
+    """A graph in which ``split`` returns three items and ``echo`` is called once per item, and its complete saved run
+    as a dict."""
 
     @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
@@ -482,7 +488,7 @@ def _saved_mails() -> tuple[Any, dict[str, Any]]:
 
 
 def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quoting_nothing():
-    graph, saved = _saved_mails()
+    graph, saved = _saved_echoes()
     saved["outcomes"]["echo"]["outputs"]["result"][1] = {"secret": "value"}
 
     problem = _refused(graph, saved)
@@ -491,8 +497,8 @@ def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quotin
     assert "secret" not in json.dumps(problem.model_dump(mode="json"))
 
 
-def test_a_blank_saved_on_an_output_reads_back_as_none():
-    graph, saved = _saved_mails()
+def test_a_null_saved_for_an_output_reads_back_as_none():
+    graph, saved = _saved_echoes()
     saved["outcomes"]["echo"]["outputs"]["result"][1] = None
 
     assert Run.from_json(json.dumps(saved), graph).results["echo"]["result"] == ["secret-a", None, "secret-c"]
@@ -501,25 +507,25 @@ def test_a_blank_saved_on_an_output_reads_back_as_none():
 @pytest.mark.parametrize(
     ("damage", "at"),
     [
-        ("a slot more than the items made", "outcomes.echo"),
-        ("a slot fewer than the items made", "outcomes.echo"),
-        ("two slots on a node that runs once", "outcomes.split"),
+        ("one entry more than the items", "outcomes.echo"),
+        ("one entry fewer than the items", "outcomes.echo"),
+        ("two entries for a node inside no loop", "outcomes.split"),
         ("a missing value", "outcomes.echo"),
         ("a missing output", "outcomes.echo.outputs.result"),
         ("an output the node lacks", "outcomes.echo.outputs.other"),
         ("a node the graph lacks", "outcomes.nowhere"),
     ],
 )
-def test_a_damaged_save_is_refused(damage: str, at: str) -> None:
-    graph, saved = _saved_mails()
+def test_a_damaged_saved_run_is_refused_where_it_is_damaged(damage: str, at: str) -> None:
+    graph, saved = _saved_echoes()
     echo, splitting = saved["outcomes"]["echo"], saved["outcomes"]["split"]
-    if damage == "a slot more than the items made":
+    if damage == "one entry more than the items":
         echo["states"].append("done")
         echo["outputs"]["result"].append("x")
-    elif damage == "a slot fewer than the items made":
+    elif damage == "one entry fewer than the items":
         echo["states"].pop()
         echo["outputs"]["result"].pop()
-    elif damage == "two slots on a node that runs once":
+    elif damage == "two entries for a node inside no loop":
         splitting["states"].append("done")
         splitting["outputs"]["result"].append(["x"])
     elif damage == "a missing value":
@@ -534,8 +540,8 @@ def test_a_damaged_save_is_refused(damage: str, at: str) -> None:
     assert _refused(graph, saved).ctx["where"] == at
 
 
-def test_a_series_that_makes_items_saved_as_a_blank_leaves_its_readers_slots_without_an_instance_and_is_refused():
-    graph, saved = _saved_mails()
+def test_a_series_saved_as_null_is_refused_at_the_node_called_once_per_item_of_it():
+    graph, saved = _saved_echoes()
     saved["outcomes"]["split"]["outputs"]["result"][0] = None
 
     assert _refused(graph, saved).ctx["where"] == "outcomes.echo"
@@ -566,7 +572,7 @@ def test_a_malformed_table_is_refused():
     assert _refused(graph, saved).ctx["where"].startswith("outcomes.n.outputs.result.0")
 
 
-def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alone_changes_nothing():
+def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_display_only():
     from conductor import NodeRecord as _Node
 
     @node("shout", title="Shout", description="For a test.")
@@ -576,16 +582,16 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
     record = GraphRecord(nodes=[_Node(id="s", node="shout", defaults={"text": "a"})])
     saved = Graph.compile(record, registry_of(shout)).run().to_json()
     edited = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "b"}),)})
-    drawn = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "a"}, display={"x": 1}),)})
+    moved = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "a"}, display={"x": 1}),)})
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(edited, registry_of(shout)))
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc) == ("saved_run_of_another_graph", ("saved_run",)) and set(problem.ctx) == {"saved", "graph"}
-    assert Run.from_json(saved, Graph.compile(drawn, registry_of(shout))).results == {"s": {"result": "A"}}
+    assert Run.from_json(saved, Graph.compile(moved, registry_of(shout))).results == {"s": {"result": "A"}}
 
 
-def test_a_save_names_the_graphs_embedded_in_its_graph_too():
+def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
     @node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
@@ -666,7 +672,7 @@ def column_order(sheet: Table, answers: Series[str]) -> str:
 
 
 @pytest.mark.parametrize("reorder", [_jsonb, lambda text: _shuffled(text, 1), lambda text: _shuffled(text, 7)], ids=["jsonb", "shuffle-1", "shuffle-7"])
-def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_resume(reorder: Any) -> None:
+def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_back_and_resume(reorder: Any) -> None:
     registry = registry_of(sheet, sheet_rows, ok_row, column_order)
     record = {
         "nodes": [
@@ -679,27 +685,27 @@ def test_a_record_and_a_save_whose_keys_a_store_reordered_still_load_answer_and_
     }
     graph = Graph.compile(GraphRecord.model_validate(record), registry)
     first = graph.run(text="ccc,a,bb")
-    ids = [w.id for w in first.waiting]  # what a host stored when the run paused
-    answers = {unit_id: f"yes {i}" for i, unit_id in enumerate(ids)}
+    ids = [w.id for w in first.waiting]  # what a host stores when the run waits
+    answers = {call_id: f"yes {i}" for i, call_id in enumerate(ids)}
     straight = first.answer(answers).resume()
     assert straight.results["o"]["result"] == "zeta,alpha,mid|yes 0,yes 1,yes 2"
 
     stored = Graph.compile(reorder(json.dumps(record)), registry)  # the record as the store gave it back
     assert stored.fingerprint == graph.fingerprint
-    loaded = Run.from_json(reorder(first.to_json()), stored)
-    assert [w.id for w in loaded.waiting] == ids
-    resumed = loaded.answer(answers).resume()
+    read_back = Run.from_json(reorder(first.to_json()), stored)
+    assert [w.id for w in read_back.waiting] == ids
+    resumed = read_back.answer(answers).resume()
     assert resumed.results["o"] == straight.results["o"] and resumed.results["q"] == straight.results["q"]
     assert resumed.results["s"]["result"].equals(straight.results["s"]["result"])
     assert resumed.results["s"]["result"].columns == ["zeta", "alpha", "mid"]
 
     _CALLS.clear()
-    again = Run.from_json(reorder(resumed.to_json()), stored).again()  # the dict value read back in another order is the same value
+    again = Run.from_json(reorder(resumed.to_json()), stored).again()  # a dict constant read back with its keys in another order is the same value, so nothing is called
     assert again.results["o"] == straight.results["o"] and _CALLS == []
 
 
 @pytest.mark.parametrize("gone", ["first", "middle", "ask"])
-def test_a_save_loaded_into_a_graph_that_lost_a_node_is_refused_with_the_graphs_own_problems(gone: str) -> None:
+def test_a_saved_run_read_into_a_graph_missing_a_node_definition_is_refused_with_the_graphs_problems(gone: str) -> None:
     @node("first", title="First", description="For a test.")
     def first(x: int) -> int:
         return x
@@ -763,14 +769,14 @@ def test_a_float_that_is_not_finite_given_by_a_caller_reads_back_by_the_type_of_
     assert back.inputs == {"given.options": {"a": "NaN", "b": ["Infinity"]}, "given.level": "-Infinity", "given.ratio": math.inf}
 
 
-def test_a_save_missing_a_key_says_which_key_not_a_python_error():
+def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_error():
     @node("same", title="Same", description="For a test.")
     def same(text: str) -> str:
         return text
 
     graph = Graph.compile(make_graph(same), registry_of(same))
     problem = _refused(graph, {})
-    assert problem.ctx["where"] == "the run" and "'graph'" in problem.msg and "KeyError" not in problem.msg  # a save is read as one of its graph, so the fingerprint is read first
+    assert problem.ctx["where"] == "the run" and "'graph'" in problem.msg and "KeyError" not in problem.msg  # the graph's fingerprint is read first, to know the saved run is of this graph
     saved = json.loads(graph.run(text="x").to_json())
     del saved["inputs"]
     assert _refused(graph, saved).ctx["where"] == "inputs"
@@ -784,14 +790,14 @@ def test_a_save_missing_a_key_says_which_key_not_a_python_error():
         ("state", lambda s: s["state"].__setitem__("status", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
         ("outcomes.split.states", lambda s: s["outcomes"]["split"].__setitem__("states", {})),
-        ("outcomes.split.states.0", lambda s: s["outcomes"]["split"].__setitem__("states", ["waiting"])),  # a unit waits by its question, never by a word
-        ("outcomes.split.keys", lambda s: s["outcomes"]["split"].__setitem__("keys", [[]])),  # an instance is a slot, never written
+        ("outcomes.split.states.0", lambda s: s["outcomes"]["split"].__setitem__("states", ["waiting"])),  # a waiting call is saved as its question, never as a state word
+        ("outcomes.split.keys", lambda s: s["outcomes"]["split"].__setitem__("keys", [[]])),  # item indexes are never written: an entry's place in the list says them
         ("outcomes.split", lambda s: s["outcomes"]["split"].__setitem__("skipped", {"result": [7]})),
         ("outcomes.split.skipped_items.result.0.0", lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [-1]}})),
         ("outcomes.split", lambda s: s["outcomes"]["split"].__setitem__("skipped_items", {"result": {"0": [7]}})),
     ],
 )
-def test_a_save_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:
+def test_a_saved_run_damaged_in_shape_is_refused_where_it_is_damaged(where: str, damaged: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     saved = json.loads(graph.run(text="a,b").to_json())
     damaged(saved)
@@ -823,23 +829,23 @@ def ok_word(word: str) -> bool:
         ("outcomes.ok.questions", lambda s: s["outcomes"]["ok"].__setitem__("questions", [])),
         ("outcomes.ok.questions.0.prompt", lambda s: s["outcomes"]["ok"]["questions"].__setitem__("0", {"inputs": {}})),
         ("outcomes.upper.not_called_because.0", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": 1})),
-        ("outcomes.upper.undeclared", lambda s: s["outcomes"]["upper"].__setitem__("undeclared", {"0": -1})),  # a save holds only what it declares
+        ("outcomes.upper.undeclared", lambda s: s["outcomes"]["upper"].__setitem__("undeclared", {"0": -1})),  # a saved run has only the keys it declares
         ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("skipped", {"result": [7]})),
         ("outcomes.upper.skipped.other", lambda s: s["outcomes"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
         ("outcomes.upper.skipped_items.result", lambda s: s["outcomes"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
         ("outcomes.ok", lambda s: s["outcomes"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
-        ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that is done
-        ("outcomes.ok", lambda s: s["outcomes"]["ok"].__setitem__("not_called_because", {"0": "word"})),  # a blank input on a unit that asks
-        ("the run", lambda s: s.clear()),  # an empty save: the graph's fingerprint, which says whose save it is, is read first
+        ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": "word"})),  # not called for a None, on a call that is done
+        ("outcomes.ok", lambda s: s["outcomes"]["ok"].__setitem__("not_called_because", {"0": "word"})),  # not called for a None, on a call that waits
+        ("the run", lambda s: s.clear()),  # an empty saved run: the graph's fingerprint, which says which graph it is of, is read first
         ("inputs.split.text", lambda s: s["inputs"].__setitem__("split.text", ["a"])),
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
         ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),
         ("complete.0", lambda s: s.__setitem__("complete", ["nowhere"])),
-        ("reusable.ok", lambda s: s["reusable"].__setitem__("ok", {"outcomes": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a unit never called
+        ("reusable.ok", lambda s: s["reusable"].__setitem__("ok", {"outcomes": {"states": [None], "outputs": {"result": [None]}}, "fingerprints": ["f"]})),  # a reusable entry with no outcome
         ("reusable.ok", lambda s: s["reusable"].__setitem__("ok", {"outcomes": {"states": ["done"], "outputs": {"result": [True]}}, "fingerprints": []})),
     ],
 )
-def test_a_save_of_a_waiting_run_damaged_in_shape_is_refused_by_where(where: str, damaged: Any) -> None:
+def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(where: str, damaged: Any) -> None:
     graph = Graph.compile(
         GraphRecord.model_validate({
             "nodes": [{"id": "split", "node": "split"}, {"id": "upper", "node": "upper_word"}, {"id": "ok", "node": "ok_word"}],
@@ -868,7 +874,7 @@ def confirm(email: str) -> bool:
     raise Ask(f"Send to {email}?")
 
 
-def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_names_the_same_blanks():
+def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the_same_not_called():
     graph = Graph.compile(
         GraphRecord.model_validate({
             "nodes": [{"id": "a", "node": "addresses"}, {"id": "s", "node": "short_or_skipped"}, {"id": "c", "node": "confirm"}],
@@ -880,9 +886,9 @@ def test_a_blank_and_a_skipped_unit_come_back_from_a_save_and_a_resumed_run_name
     assert list(run._outcomes["s"].values()) == [Done({"result": "ab"}), outcomes.NotCalled({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
     assert [type(u) for u in run._outcomes["c"].values()] == [outcomes.Waiting, outcomes.NotCalled, Skipped, outcomes.Waiting]
     assert run._outcomes["c"][(1,)] == outcomes.NotCalled({"result": None}, "email")
-    loaded = Run.from_json(run.to_json(), graph)
-    assert loaded._outcomes == run._outcomes
-    assert loaded.resume().not_called == run.not_called == [
+    read_back = Run.from_json(run.to_json(), graph)
+    assert read_back._outcomes == run._outcomes
+    assert read_back.resume().not_called == run.not_called == [
         NotCalled(loc=("s", 1), input="email"),
         NotCalled(loc=("c", 1), input="email"),
     ]
@@ -904,7 +910,7 @@ print(Graph.compile(make_graph(check), registry).run(kind="invoice").waiting[0].
 
 
 @pytest.mark.parametrize("seeds", [("1", "2"), ("3", "4")])
-def test_a_waiting_unit_has_one_id_in_every_process_though_its_node_tests_a_set(seeds):
+def test_a_waiting_call_has_the_same_id_in_every_process_though_its_node_tests_a_set(seeds):
     ids = {
         subprocess.run([sys.executable, "-c", _SAVED_IN_ANOTHER_PROCESS], env={**os.environ, "PYTHONHASHSEED": seed}, capture_output=True, text=True, check=True).stdout
         for seed in seeds
@@ -945,8 +951,8 @@ def test_a_run_is_written_to_the_same_bytes_in_every_process():
     assert len(saved) == 1
 
 
-def test_a_save_whose_status_and_cause_disagree_is_refused_at_the_cause():
-    """A run that ended early holds its cause, and one going on holds none: a save that says otherwise is not read."""
+def test_a_saved_run_whose_status_and_cause_disagree_is_refused_at_the_cause():
+    """A failed run is saved with its cause and a complete one without; a saved run that says otherwise is refused."""
 
     @node("boom", title="Boom", description="Fails on 'x'.")
     def boom(text: str) -> str:

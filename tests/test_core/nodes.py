@@ -24,10 +24,10 @@ def note_call(name: str) -> None:
 
 
 def registry_of(*definitions):
-    """A registry holding exactly these nodes."""
-    held = NodeRegistry()
-    held.add(*definitions)
-    return held
+    """A registry of exactly these node definitions."""
+    registry = NodeRegistry()
+    registry.add(*definitions)
+    return registry
 
 
 invoices = NodeRegistry(category="invoices", tags=("finance",))
@@ -107,16 +107,18 @@ registry.add_subregistry(text)
 
 
 def place(waiting):
-    """A waiting unit's place, ``node@item``: its id without the fingerprint of its question."""
+    """Where a waiting call is, ``node@item``: its id without the fingerprint of its question."""
     return waiting.id.partition("~")[0]
 
 
-def units_missing(run):
-    """Each instance of a node of ``run`` that holds no unit, as its node's path and the instance, with a node
-    whose all_item_indexes aren't all known as its path alone. A complete run has none."""
+def calls_without_outcome(run):
+    """Every call of ``run`` that has no outcome, as its node path and item indexes, ``(("t",), (1,))``.
+
+    A node whose calls are not all known yet is listed by its node path alone. A complete run has none.
+    """
     missing = []
     for node in run.graph._flat_function_nodes:
-        made, known = all_item_indexes(run._outcomes, node.loops, ())
-        units = run._outcomes[node.name]
-        missing += [(node.node_path, key) for key in made if key not in units] + ([] if known else [node.node_path])
+        item_indexes, known = all_item_indexes(run._outcomes, node.loops, ())
+        outcomes = run._outcomes[node.name]
+        missing += [(node.node_path, key) for key in item_indexes if key not in outcomes] + ([] if known else [node.node_path])
     return missing

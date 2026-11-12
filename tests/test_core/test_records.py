@@ -1,5 +1,5 @@
-"""A ``Series`` of records returned as a table is held as that table: an edge that names a field reads the
-column, a node still receives plain records, and the table is read by its columns where it enters."""
+"""A ``Series`` of records returned as a table is kept as that table: an edge that names a field reads its column,
+a node gets plain records, and the table is checked column by column when the node returns it."""
 
 import json
 from typing import Any, NotRequired, TypedDict
@@ -91,11 +91,11 @@ def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(sou
     assert run.results["c"]["result"] == records  # a host reads plain records too
 
 
-def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_its_declared_columns() -> None:
+def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_its_declared_columns() -> None:
     graph = _graph()
     run = graph.run(text="x")
-    held = run._outcomes["c"][()].outputs["result"]
-    assert type(held) is Records and held.frame.columns == ["name", "email"] and len(held) == 2
+    kept = run._outcomes["c"][()].outputs["result"]
+    assert type(kept) is Records and kept.frame.columns == ["name", "email"] and len(kept) == 2
 
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["c"]["outputs"]["result"] == [{"columns": [
@@ -103,11 +103,11 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     ]}]
     assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
-    loaded = Run.from_json(run.to_json(), graph)
-    assert type(loaded._outcomes["c"][()].outputs["result"]) is Records
-    assert loaded.to_json() == run.to_json() and loaded.results == run.results
+    read_back = Run.from_json(run.to_json(), graph)
+    assert type(read_back._outcomes["c"][()].outputs["result"]) is Records
+    assert read_back.to_json() == run.to_json() and read_back.results == run.results
     RECEIVED.clear()
-    assert loaded.forget("one").resume().outputs == run.outputs and RECEIVED == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert read_back.forget("one").resume().outputs == run.outputs and RECEIVED == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
 
 
 @pytest.mark.parametrize(("frame", "reason"), [
@@ -115,7 +115,7 @@ def test_a_series_returned_as_a_table_is_held_and_saved_as_that_table_with_only_
     (pl.DataFrame({"email": ["a", "b"]}), "the column 'name' its row type declares is missing"),
     (pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}), "column 'name': Input should be a valid string"),
 ])
-def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_it_enters(frame: pl.DataFrame, reason: str) -> None:
+def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_and_fails_the_run(frame: pl.DataFrame, reason: str) -> None:
     @node("wrong", title="Wrong", description="For a test.")
     def wrong(text: str) -> Series[Contact]:
         return frame  # type: ignore[return-value]
@@ -125,7 +125,7 @@ def test_a_table_returned_for_a_series_of_records_is_read_by_its_columns_where_i
     assert (run.status, run.state.cause.type, run.state.cause.ctx["reason"], run.state.cause.ctx["column"]) == ("failed", "invalid_output", reason, "name")
 
 
-def test_a_table_is_no_series_of_anything_but_records() -> None:
+def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
     @node("texts", title="Texts", description="For a test.")
     def texts(text: str) -> Series[str]:
         return FRAME  # type: ignore[return-value]
@@ -151,13 +151,13 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
     assert Run.from_json(run.to_json(), graph).results == run.results
 
 
-def test_a_series_of_records_held_as_a_table_counts_its_items_against_the_ceiling() -> None:
+def test_a_series_of_records_kept_as_a_table_counts_its_rows_against_the_item_limit() -> None:
     run = _graph().run(text="x", max_items=1)
 
     assert (run.status, run.state.cause.type, run.state.cause.ctx["items"]) == ("stopped", "item_limit", 2)
 
 
-def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_series_input_outside_as_plain_records() -> None:
+def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_series_input_outside_as_plain_records() -> None:
     @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Series[str]:
         return text.split(",")
@@ -179,7 +179,7 @@ def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_s
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
-def test_split_returns_the_table_it_was_given_and_the_run_holds_it_by_column() -> None:
+def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table() -> None:
     from conductor_nodes.series import split
 
     @node("people", title="People", description="For a test.")
@@ -257,7 +257,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]
 
 
-def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_times_it_is_asked(monkeypatch: MonkeyPatch) -> None:
+def test_a_table_argument_is_written_once_however_often_its_fingerprint_is_taken(monkeypatch: MonkeyPatch) -> None:
     from conductor._internal.run.reuse import arguments_fingerprint
     from conductor._internal.table import write
 
@@ -273,7 +273,7 @@ def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_
     assert arguments_fingerprint("code", {"table": frame.rename({"age": "years"}), "n": 1}) != first
 
 
-# -- a table two outputs share is written once in a save ---------------------------------------------------
+# -- a table two outputs share is written once in a saved run------------------------------------------------
 
 
 @node("people", title="People", description="For a test.")
@@ -292,7 +292,7 @@ def _read_then_split() -> Any:
     return Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet, copied))
 
 
-def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_again_when_loaded() -> None:
+def test_a_table_split_into_records_is_written_once_in_the_saved_run_and_is_one_table_when_read_back() -> None:
     graph = _read_then_split()
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
@@ -301,14 +301,14 @@ def test_a_table_read_and_then_split_is_written_once_in_a_save_and_is_one_table_
     assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
     assert run.to_json().count('"ida@x.dk"') == 1
 
-    loaded = Run.from_json(run.to_json(), graph)
-    table, records = loaded._outcomes["people"][()].outputs["result"], loaded._outcomes["series-split"][()].outputs["result"]
+    read_back = Run.from_json(run.to_json(), graph)
+    table, records = read_back._outcomes["people"][()].outputs["result"], read_back._outcomes["series-split"][()].outputs["result"]
     assert type(records) is Records and records.frame is table
-    assert loaded.to_json() == run.to_json() and loaded.outputs == run.outputs
-    assert loaded.forget("greet").resume().outputs == {"greet.result": ["hi ida", "hi bo"]}
+    assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
+    assert read_back.forget("greet").resume().outputs == {"greet.result": ["hi ida", "hi bo"]}
 
 
-def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_loads() -> None:
+def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_reads_back() -> None:
     graph = Graph.compile(make_graph(people, copied, edges=[("people.result", "copied.table")]), registry_of(people, copied))
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
@@ -317,12 +317,12 @@ def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_
     assert Run.from_json(run.to_json(), graph).results["copied"]["result"].equals(run.results["copied"]["result"])
 
 
-def test_a_save_of_a_graph_with_no_table_has_no_tables_written_once_key() -> None:
+def test_the_saved_run_of_a_graph_with_no_table_has_no_tables_written_once_key() -> None:
     graph = Graph.compile(make_graph(listed, greet, edges=[("listed.result.name", "greet.name")]), registry_of(listed, greet))
     assert "tables_written_once" not in json.loads(graph.run(text="x").to_json())
 
 
-def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_first_run_did() -> None:
+def test_outcomes_reused_from_a_previous_run_share_their_table_in_the_saved_run_as_the_first_run_did() -> None:
     graph = _read_then_split()
     again = graph.run(text="x").again(text="x")
     saved = json.loads(again.to_json())
@@ -331,7 +331,7 @@ def test_work_carried_from_an_earlier_run_shares_its_table_in_a_save_as_the_firs
     assert Run.from_json(again.to_json(), graph).to_json() == again.to_json()
 
 
-def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes_names_in_the_save() -> None:
+def test_a_table_shared_inside_a_subgraph_is_written_once_under_the_inner_node_paths_in_the_saved_run() -> None:
     from conductor_nodes.series import split
 
     registry = registry_of(people, split, greet)
@@ -341,18 +341,18 @@ def test_a_table_shared_inside_an_embedded_graph_is_written_once_under_the_nodes
     run = graph.run(text="x")
 
     assert json.loads(run.to_json())["tables_written_once"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
-    loaded = Run.from_json(run.to_json(), graph)
-    assert loaded.to_json() == run.to_json() and loaded.outputs == {"greet.result": ["hi ida", "hi bo"]}
+    read_back = Run.from_json(run.to_json(), graph)
+    assert read_back.to_json() == run.to_json() and read_back.outputs == {"greet.result": ["hi ida", "hi bo"]}
 
 
 @pytest.mark.parametrize("same_as", [
     ["nobody", "result", 0],  # no such node
-    ["people", "result", 3],  # no such slot
+    ["people", "result", 3],  # no such call number
     ["people", "other", 0],  # no such output
     ["series-split", "result", 0],  # itself, which is written as null
     ["greet", "result", 0],  # an output that is no table
-], ids=["no such node", "no such slot", "no such output", "itself", "not a table"])
-def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_written_in_full_is_refused(same_as: list[Any]) -> None:
+], ids=["no such node", "no such call number", "no such output", "itself", "not a table"])
+def test_a_saved_run_whose_tables_written_once_names_an_output_not_written_in_full_as_a_table_is_refused(same_as: list[Any]) -> None:
     graph = _read_then_split()
     saved = json.loads(graph.run(text="x").to_json())
     saved["tables_written_once"][0]["same_as"] = same_as
@@ -363,7 +363,7 @@ def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_writt
     assert found.type == "saved_run_unreadable" and "tables_written_once: 'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
 
 
-def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
+def test_a_saved_run_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_type() -> None:
     @node("any-table", title="Any table", description="For a test.")
     def any_table(text: str) -> Table:
         return FRAME.select("name", "email")
@@ -394,7 +394,7 @@ def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_on
 
     assert in_polars.to_dicts() == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
     assert list(in_pandas.columns) == ["name", "email"] and in_pandas["name"].tolist() == ["ida", "bo"]
-    assert in_pandas["email"][0] == "ida@x.dk" and pd.isna(in_pandas["email"][1])  # pandas shows a blank cell as its own missing value
+    assert in_pandas["email"][0] == "ida@x.dk" and pd.isna(in_pandas["email"][1])  # pandas shows a null cell as its own missing value
 
 
 class _MaybeNamed(TypedDict):
@@ -409,7 +409,6 @@ class _Partial(TypedDict, total=False):
 @pytest.mark.parametrize("row", [_MaybeNamed, _Partial])
 @pytest.mark.parametrize("hint", ["input table", "output table", "input series", "output series"])
 def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_declared(row: Any, hint: str) -> None:
-    """A node returning ``Series[R]`` with a ``NotRequired`` field of ``R`` failed its run with pydantic's own schema error."""
     kind = Table if "table" in hint else Series
 
     if hint.startswith("input"):

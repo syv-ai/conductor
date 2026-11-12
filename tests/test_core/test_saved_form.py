@@ -1,5 +1,5 @@
-"""The saved form: a run reads back as itself and goes on to the same result, a float that isn't finite follows
-its declared type, and a damaged save is refused at the place pydantic names."""
+"""A saved run: it reads back as the same run and resumes to the same result, a float that is not finite is read by
+its declared type, and a damaged saved run is refused at the place pydantic names."""
 
 import dataclasses
 import datetime
@@ -117,8 +117,8 @@ def _registry() -> NodeRegistry:
 
 
 def _everything() -> Any:
-    """A graph with a skipped output, a blank output, a skipped item, an empty Series, a waiting unit, an embedded
-    graph and tables."""
+    """A graph with a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph
+    and tables."""
     return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id=n, node=kind) for n, kind in (
             ("lines", "lines"), ("gate", "gate"), ("maybe", "maybe"), ("letters", "letters"), ("ask", "ask"), ("frame", "frame"),
@@ -163,29 +163,29 @@ def _jsonb(text: str) -> str:
 
 def _finished(run: Any) -> Any:
     while run.status == "waiting":
-        for unit in run.waiting:
-            run = run.answer(unit, "bee")
+        for call in run.waiting:
+            run = run.answer(call, "bee")
         run = run.resume()
     return run
 
 
 @pytest.mark.parametrize("text", ["a,bb,ccc,xax,b", "", "abc", "x,xx,,b,aaaa", "zzz,yy"])
-def test_a_run_reads_back_as_itself_and_goes_on_to_the_same_result(text: str) -> None:
+def test_a_run_reads_back_as_itself_and_resumes_to_the_same_result(text: str) -> None:
     graph = _everything()
     run = graph.run(_inputs(text))
     saved = run.to_json()
 
     for written in (saved, saved.encode(), _jsonb(saved)):
-        loaded = Run.from_json(written, graph)
-        assert loaded.status == run.status and [w.id for w in loaded.waiting] == [w.id for w in run.waiting]
+        read_back = Run.from_json(written, graph)
+        assert read_back.status == run.status and [w.id for w in read_back.waiting] == [w.id for w in run.waiting]
         for node_id, results in run.results.items():
-            assert _same(loaded.results[node_id], results), node_id
-        assert loaded.to_json() == saved
-        assert _same(_finished(loaded).outputs, _finished(run).outputs)
-        assert _same(_finished(loaded).results, _finished(run).results)
+            assert _same(read_back.results[node_id], results), node_id
+        assert read_back.to_json() == saved
+        assert _same(_finished(read_back).outputs, _finished(run).outputs)
+        assert _same(_finished(read_back).results, _finished(run).results)
 
 
-def test_a_save_holds_a_slot_for_each_instance_and_no_instance_is_written() -> None:
+def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() -> None:
     saved = json.loads(_everything().run(_inputs("a,bb,ccc,xax,b")).to_json())
 
     assert saved["state"] == {"status": "waiting"}
@@ -200,37 +200,38 @@ def test_a_save_holds_a_slot_for_each_instance_and_no_instance_is_written() -> N
         "questions": {"0": {"prompt": "What of a?", "inputs": {"text": "a"}}},
     }
     assert saved["outcomes"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside a subgraph, as any node
-    assert saved["outcomes"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # the one that reads the waiting unit hasn't run
+    assert saved["outcomes"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # m takes the waiting call's output, so it has no outcome either
     assert "e" not in saved["outcomes"] and "keys" not in json.dumps(saved)
 
 
-def test_a_run_stopped_part_way_holds_a_slot_for_each_instance_and_goes_on() -> None:
+def test_a_run_stopped_at_the_item_limit_reads_back_and_resumes_to_the_full_result() -> None:
     graph = _everything()
     stopped = graph.run(_inputs("bb,ccc,dd,e"), max_items=2)
     assert stopped.status == "stopped"
 
-    loaded = Run.from_json(stopped.to_json(), graph)
+    read_back = Run.from_json(stopped.to_json(), graph)
 
-    assert _same(loaded.results, stopped.results)
-    assert _same(loaded.with_max_items(100).resume().outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs)
+    assert _same(read_back.results, stopped.results)
+    assert _same(read_back.with_max_items(100).resume().outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs)
 
 
-def test_a_run_again_after_a_save_takes_the_work_it_carried() -> None:
+def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_outcomes() -> None:
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc")))
     again = Run.from_json(first.to_json(), graph).with_inputs({"lines.text": "a,ccc,dd"})
-    carried = Run.from_json(again.to_json(), graph)  # saved before a leg: its earlier work is in the save
+    restored = Run.from_json(again.to_json(), graph)  # saved before resume(): the previous run's outcomes are in it
 
-    assert carried.to_json() == again.to_json()
-    assert _same(_finished(carried.resume()).outputs, _finished(again.resume()).outputs)
-    assert [w.id for w in carried.resume().waiting] == []  # the answer to "a" came with the carried work
+    assert restored.to_json() == again.to_json()
+    assert _same(_finished(restored.resume()).outputs, _finished(again.resume()).outputs)
+    assert [w.id for w in restored.resume().waiting] == []  # the answer to "a" is reused with the other outcomes
 
 
-def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
-    """Whatever a save is damaged into, loading it gives a run or ``saved_run_unreadable``: never another error."""
+def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() -> None:
+    """Whatever a saved run is damaged into, ``Run.from_json`` returns a run or refuses it with a problem; it never raises
+    another error."""
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
-    waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()  # it waits on "ab", holding the work of "bb" and "b" it didn't take
+    waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()  # it waits on "ab"; its outcomes for "bb" and "b" are kept as reusable
     saved = json.loads(waiting.to_json())
     assert waiting.status == "waiting" and saved["reusable"] and saved["outcomes"]
     random.seed(7)
@@ -245,16 +246,16 @@ def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
     for _ in range(3000):
         damaged = json.loads(json.dumps(saved))
         *above, last = random.choice(every)
-        holder = damaged
+        parent = damaged
         for step in above:
-            holder = holder[step]
+            parent = parent[step]
         change = random.choice(["drop", "null", "text", "number", "list", "object", "twice"])
         if change == "drop":
-            del holder[last]
-        elif change == "twice" and isinstance(holder, list):
-            holder.insert(last, holder[last])
+            del parent[last]
+        elif change == "twice" and isinstance(parent, list):
+            parent.insert(last, parent[last])
         else:
-            holder[last] = {"null": None, "text": "x", "number": 99, "list": [1, [2]], "object": {"a": 1}, "twice": 7}[change]
+            parent[last] = {"null": None, "text": "x", "number": 99, "list": [1, [2]], "object": {"a": 1}, "twice": 7}[change]
         try:
             Run.from_json(json.dumps(damaged), graph).to_json()
         except InvalidCallError as refused:
@@ -278,7 +279,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
 
 @pytest.mark.parametrize(("damage", "at"), [
     (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].__setitem__(1, {"secret": 1}), "outcomes.maybe.outputs.result.1"),
-    (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"), "outcomes.maybe"),  # a column longer than its states
+    (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"), "outcomes.maybe"),  # an output's list longer than its states
     (lambda s: s["outcomes"]["maybe"]["states"].append("done"), "outcomes.maybe"),
     (lambda s: s["outcomes"]["maybe"]["states"].__setitem__(0, "gone"), "outcomes.maybe.states.0"),
     (lambda s: s["outcomes"]["maybe"].pop("outputs"), "outcomes.maybe.outputs"),
@@ -298,7 +299,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
     (lambda s: s.pop("state"), "state"),
     (lambda s: s.__setitem__("keys", []), "keys"),
 ])
-def test_a_damaged_save_is_refused_at_the_place_pydantic_names(damage: Any, at: str) -> None:
+def test_a_damaged_saved_run_is_refused_at_the_place_pydantic_names(damage: Any, at: str) -> None:
     graph = _everything()
     saved = json.loads(graph.run(_inputs("a,bb,ccc,xax,b")).to_json())
     damage(saved)
@@ -311,7 +312,7 @@ def test_a_damaged_save_is_refused_at_the_place_pydantic_names(damage: Any, at: 
     assert "secret" not in problem.msg
 
 
-def test_a_value_with_no_json_form_is_refused_at_the_save_naming_its_output() -> None:
+def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_output() -> None:
     @node("odd", title="Odd", description="For a test.")
     def odd(text: str) -> Any:
         return object()
@@ -342,11 +343,11 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
     written = run.outputs_to_json()
 
     assert json.loads(written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")) == {
-        "letters.result": [["a", "b"], [None, "a"]],  # a branch not taken for an item is a blank
+        "letters.result": [["a", "b"], [None, "a"]],  # an item on a branch not chosen is None
         "reading.result": {"value": "NaN", "note": "Infinity"},  # a model writes a float that isn't finite as the run does
         "loose.result": {"nan": "NaN", "when": "2026-01-01", "text": "x"},
         "typed-frame.result": {"columns": [{"name": "text", "type": "str", "values": ["a", "b"]}, {"name": "size", "type": "float", "values": [1.5, "Infinity"]}]},
-        "rows.result": [{"text": "a", "size": "Infinity"}],  # a Series of records is its records, however the run holds it
+        "rows.result": [{"text": "a", "size": "Infinity"}],  # a series of records is its records, however the run keeps it
     }
 
 
@@ -369,7 +370,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
 
 
 def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit() -> None:
-    """A save's keys are the fields of its records: one more field on a record is one more key, written and read."""
+    """A saved run's keys are the fields of its dataclasses: one more field is one more key, written and read."""
     from conductor._internal.run.json.codec import _inline_definitions, _with_field_schemas
     from conductor._internal.run.json.type import SavedOutcomes
     from pydantic import TypeAdapter
@@ -395,7 +396,7 @@ def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit(
 
 
 def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
-    """Nothing reaches a save beside its records' fields, so a key can't be written that the reader doesn't know."""
+    """A saved run is written only from its dataclasses' fields, so no key can be written that the reader does not know."""
     saved = saved_run(_everything().run(_inputs("a,bb")))
     for record in (saved, saved.outcomes["ask"]):
         with pytest.raises(AttributeError):
@@ -404,7 +405,7 @@ def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
             type(record)(**{declared.name: getattr(record, declared.name) for declared in dataclasses.fields(record)}, undeclared={0: "x"})
 
 
-def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back() -> None:
+def test_every_field_a_run_sets_in_its_saved_run_is_a_key_of_the_json_and_reads_back() -> None:
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()
@@ -415,15 +416,15 @@ def test_every_field_a_run_sets_in_its_save_is_a_key_of_the_json_and_reads_back(
         return {declared.name for declared in dataclasses.fields(record) if declared.default is dataclasses.MISSING or getattr(record, declared.name) is not None}
 
     assert set(written) == set_fields(saved)
-    for name, units in saved.outcomes.items():
-        assert set(written["outcomes"][name]) == set_fields(units), name
-    for name, carried in saved.reusable.items():
-        assert set(written["reusable"][name]) == set_fields(carried) and set(written["reusable"][name]["outcomes"]) == set_fields(carried.outcomes), name
+    for name, node_outcomes in saved.outcomes.items():
+        assert set(written["outcomes"][name]) == set_fields(node_outcomes), name
+    for name, kept in saved.reusable.items():
+        assert set(written["reusable"][name]) == set_fields(kept) and set(written["reusable"][name]["outcomes"]) == set_fields(kept.outcomes), name
     assert Run.from_json(waiting.to_json(), graph).to_json() == waiting.to_json()
 
 
-def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() -> None:
-    """A one-value output's saved form has no ``skipped_items``, even when its value is a list; a Series' has."""
+def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -> None:
+    """An output that is not a series is saved with no ``skipped_items``, even when its value is a list; a series can have them."""
 
     @node("listed", title="Listed", description="For a test.")
     def listed(text: str) -> list[str]:

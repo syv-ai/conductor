@@ -1,5 +1,5 @@
-"""A complete run holds a unit for every instance of every node, whichever nodes ran on threads, and going on
-from it calls nothing and changes nothing."""
+"""A complete run has an outcome for every call of every node, whichever nodes ran on threads, and resuming it
+calls nothing and changes nothing."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from conductor import (
     subgraph,
 )
 
-from tests.test_core.nodes import units_missing
+from tests.test_core.nodes import calls_without_outcome
 
 CALLS: Counter[str] = Counter()
 _LOCK = threading.Lock()
@@ -62,7 +62,7 @@ class Way:
 
 def decide(text: str) -> Way:
     _called("decide")
-    time.sleep(0.02)  # on a thread it comes back after the Series beside it are made
+    time.sleep(0.02)  # on a thread it returns after the other nodes' series
     return Way(no=text) if text.startswith("no") else Way(yes=text)
 
 
@@ -78,7 +78,7 @@ def beside(text: str, items: Series[str]) -> str:
 
 def pieces(text: str) -> Series[str]:
     _called("pieces")
-    time.sleep(0.05)  # on a thread it comes back after the decision beside it
+    time.sleep(0.05)  # on a thread it returns after decide
     return text.split()
 
 
@@ -92,30 +92,30 @@ FUNCTIONS = (lines, words, upper, join, decide, tag, beside, pieces, ask)
 #: Each graph by what it is: its nodes by id, its edges, and the text every first node of it is given.
 GRAPHS: dict[str, tuple[dict[str, str], list[tuple[str, str]], str]] = {
     "a chain": ({"a": "upper", "b": "upper"}, [("a.result", "b.text")], "x"),
-    "a gather of a Series with no items": ({"w": "words", "u": "upper", "j": "join"}, [("w.result", "u.text"), ("u.result", "j.items")], ""),
-    "a gather per line, one line with no words": (
+    "collecting an empty series": ({"w": "words", "u": "upper", "j": "join"}, [("w.result", "u.text"), ("u.result", "j.items")], ""),
+    "collecting per line, one line with no words": (
         {"l": "lines", "w": "words", "u": "upper", "j": "join"}, [("l.result", "w.text"), ("w.result", "u.text"), ("u.result", "j.items")], "a b;;c",
     ),
-    "a gather per line of one line with no words": (
+    "collecting per line, the only line with no words": (
         {"l": "lines", "w": "words", "u": "upper", "j": "join"}, [("l.result", "w.text"), ("w.result", "u.text"), ("u.result", "j.items")], "",
     ),
-    "a decision above a gather per line, one line with no words": (
+    "a branch upstream of collecting per line, one line with no words": (
         {"d": "decide", "l": "lines", "w": "words", "t": "tag", "j": "join"},
         [("l.result", "w.text"), ("w.result", "t.text"), ("d.yes", "t.mark"), ("t.result", "j.items")], "a b;;c",
     ),
-    "a branch not taken above a gather per line, one line with no words": (
+    "a branch not chosen upstream of collecting per line, one line with no words": (
         {"d": "decide", "l": "lines", "w": "words", "t": "tag", "j": "join"},
         [("l.result", "w.text"), ("w.result", "t.text"), ("d.yes", "t.mark"), ("t.result", "j.items")], "no;;no",
     ),
-    "every item's value gathered beside each item": (
+    "every item's value collected and given to each item": (
         {"w": "words", "u": "upper", "b": "beside"}, [("w.result", "u.text"), ("w.result", "b.text"), ("u.result", "b.items")], "a b c",
     ),
     "a subgraph whose inner Series has no items, per line": ({"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"),
     "a subgraph per line, a node inside it reading nothing": ({"l": "lines", "e": "shout-and-stamp"}, [("l.result", "e.text")], "a;b"),
-    "a subgraph that gathers a Series with no items": ({"e": "join-words", "u": "upper"}, [("e.j.result", "u.text")], ""),
+    "a subgraph that collects an empty series": ({"e": "join-words", "u": "upper"}, [("e.j.result", "u.text")], ""),
 }
 
-#: The nodes called on threads; every other is called on the leg's own thread.
+#: The nodes called on threads; every other is called on the thread that called the run.
 THREADED: list[frozenset[str]] = [
     frozenset(), frozenset({"lines"}), frozenset({"words"}), frozenset({"lines", "words"}), frozenset({"decide"}), frozenset({"upper", "tag"}), frozenset({"words", "upper"}),
     frozenset({"decide", "lines"}), frozenset(function.__name__ for function in FUNCTIONS),
@@ -152,14 +152,14 @@ CASES = [pytest.param(name, threaded, id=f"{name}, on threads: {', '.join(sorted
 
 
 @pytest.mark.parametrize(("name", "threaded"), CASES)
-def test_a_complete_run_holds_a_unit_for_every_instance_and_the_results_of_the_same_run_with_no_threads(name: str, threaded: frozenset[str]) -> None:
+def test_a_complete_run_has_an_outcome_for_every_call_and_the_results_of_a_run_with_no_threads(name: str, threaded: frozenset[str]) -> None:
     run = _run(name, threaded)
-    assert run.status == "complete" and units_missing(run) == []
+    assert run.status == "complete" and calls_without_outcome(run) == []
     assert run.results == _run(name, frozenset()).results
 
 
 @pytest.mark.parametrize(("name", "threaded"), CASES)
-def test_going_on_from_a_complete_run_calls_nothing_and_changes_nothing(name: str, threaded: frozenset[str]) -> None:
+def test_resuming_a_complete_run_calls_nothing_and_changes_nothing(name: str, threaded: frozenset[str]) -> None:
     run = _run(name, threaded)
     CALLS.clear()
     further = run.resume()
@@ -167,22 +167,22 @@ def test_going_on_from_a_complete_run_calls_nothing_and_changes_nothing(name: st
     assert (further.to_json(), further.results) == (run.to_json(), run.results)
 
 
-def test_a_gather_over_an_items_empty_series_is_called_with_no_items_when_the_series_maker_above_ran_on_a_thread() -> None:
-    run = _run("a gather per line of one line with no words", frozenset({"lines"}))
+def test_a_node_collecting_an_empty_series_gets_an_empty_list_when_the_node_returning_it_ran_on_a_thread() -> None:
+    run = _run("collecting per line, the only line with no words", frozenset({"lines"}))
     assert (run.status, run.results["j"]["result"]) == ("complete", [""])
 
 
 @pytest.mark.parametrize("threaded", [frozenset(), frozenset({"decide", "pieces"})], ids=["no threads", "the decision and the Series on threads"])
-def test_a_unit_skipped_by_a_branch_decided_outside_its_items_is_skipped_once_the_items_are_made_while_a_question_beside_it_waits(threaded: frozenset[str]) -> None:
+def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skipped_per_item_while_other_calls_wait(threaded: frozenset[str]) -> None:
     nodes = {"d": "decide", "w": "pieces", "q": "ask", "t": "tag"}
     run = _ran(nodes, [("w.result", "q.text"), ("d.yes", "t.text"), ("q.result", "t.mark")], "no a b", threaded)
     assert run.status == "waiting" and len(run.waiting) == 3
-    assert [missing for missing in units_missing(run) if missing[0] == ("t",)] == []  # skipped, whichever came back first
+    assert [missing for missing in calls_without_outcome(run) if missing[0] == ("t",)] == []  # skipped, whichever node returned first
 
 
-def test_a_leg_that_ends_with_a_unit_nothing_made_ready_raises_and_hands_on_no_complete_run() -> None:
-    nodes, edges, _ = GRAPHS["a gather of a Series with no items"]
+def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run() -> None:
+    nodes, edges, _ = GRAPHS["collecting an empty series"]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), _registry(frozenset({"words"})))
-    graph._nodes_by_name["w"].downstream.clear()  # the engine's own fault, made by hand: the Series readies nothing
+    graph._nodes_by_name["w"].downstream.clear()  # a bug in the engine, made by hand: the series makes no downstream node ready
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
         graph.run(dict.fromkeys(graph.inputs, ""))

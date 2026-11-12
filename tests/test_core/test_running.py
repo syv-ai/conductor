@@ -1,10 +1,11 @@
-"""How a run goes: what its events say, how a leg ends (done, failed, cancelled, timed out), and what a saved run keeps.
+"""How a run goes: what its events say, how ``resume()`` and ``stream()`` end (complete, failed, cancelled, timed
+out), and what a saved run keeps.
 
-A leg starts every unit whose inputs exist and records what comes of each.
-``run.stream()`` says so as events, the last one ``run_end``; leaving the
-loop, cancelling the task that reads it, or setting ``cancel`` ends the leg.
-A node's ``Policy`` decides how it is called: on the leg's own thread one item
-at a time, or on threads, with retries and a clock on each attempt.
+``resume()`` calls every node that is ready, until the run is complete, waits for a person, fails or stops, and keeps
+the outcome of each call. ``run.stream()`` does the same and yields events, the last one ``run_end``; breaking out of
+the loop, cancelling the task that reads it, or setting ``cancel`` stops it. A node's ``Policy`` decides how it is
+called: one item at a time on the thread that called ``resume()``, or on threads, with retries and a timeout on each
+attempt.
 """
 
 import asyncio
@@ -41,7 +42,7 @@ from pydantic import BaseModel, model_serializer
 
 from tests.test_core.nodes import place, registry_of
 
-#: The longest any test here waits for a leg, a thread or an event.
+#: The longest any test here waits for a run, a thread or an event.
 BOUND = 10.0
 
 
@@ -60,7 +61,7 @@ def _numbers(count: int) -> str:
 
 
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
-    """``split`` making ``items`` items, read by ``definition`` as node ``slow``."""
+    """A graph in which ``split`` returns ``items`` items and ``definition``, as node ``slow``, is called once per item."""
     return Graph.compile(GraphRecord(
         nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(items)}), NodeRecord(id="slow", node=definition.id)],
         edges=[("split.result", "slow.text")],
@@ -78,8 +79,8 @@ def _bounded(coroutine: Any) -> Any:
     return asyncio.run(asyncio.wait_for(coroutine, BOUND))
 
 
-def _settle(calls: list[Any]) -> tuple[int, int]:
-    """How many calls there were, and how many a moment later: equal once nothing runs any more."""
+def _count_twice(calls: list[Any]) -> tuple[int, int]:
+    """The number of calls after 0.3 seconds and after 0.6: equal when no call was still running."""
     time.sleep(0.3)
     seen = len(calls)
     time.sleep(0.3)
@@ -99,17 +100,17 @@ def send(email: str) -> str:
     return f"sent {email}"
 
 
-def test_node_complete_counts_the_items_a_blank_kept_the_node_from_and_a_saved_run_names_them():
+def test_node_complete_counts_the_items_not_called_for_a_none_and_the_saved_run_lists_them():
     graph = Graph.compile(make_graph(addresses, send), registry_of(addresses, send))
 
     events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
     assert (mail.outcomes, mail.not_called, mail.reused) == (3, 1, 0)
-    loaded = Run.from_json(events[-1].run.to_json(), graph)
-    assert loaded.not_called == [NotCalled(loc=("send", 1), input="email")]
-    assert loaded.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
-    assert loaded.status == "complete"
+    read_back = Run.from_json(events[-1].run.to_json(), graph)
+    assert read_back.not_called == [NotCalled(loc=("send", 1), input="email")]
+    assert read_back.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
+    assert read_back.status == "complete"
 
 
 def test_a_diamond_runs_each_branch_once_and_joins_them():
@@ -146,7 +147,7 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
     assert [e.loc[0] for e in events if e.type == "node_complete"][-1] == "m"
 
 
-def test_a_failed_item_fails_the_node_naming_the_item_and_the_gather_below_never_starts():
+def test_a_failed_item_fails_the_node_naming_the_item_and_the_node_collecting_it_never_starts():
     @node("picky", title="Picky", description="For a test.")
     def picky(text: str) -> str:
         if text == "1":
@@ -213,7 +214,7 @@ def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_endin
 
 
 
-def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waiting():
+def test_a_run_that_ends_waiting_reports_the_last_progress_of_the_node_that_waits():
     @node("maybe", title="Maybe", description="For a test.")
     def maybe(text: str) -> str:
         if text == "ask":
@@ -229,7 +230,7 @@ def test_a_leg_that_ends_waiting_reports_the_last_count_of_the_node_still_waitin
     assert events[-1].status == "waiting"
 
 
-def test_a_node_above_items_that_were_never_made_reports_no_progress():
+def test_a_node_in_a_loop_over_an_empty_series_reports_no_progress():
     @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text
@@ -286,8 +287,8 @@ def test_concurrency_one_calls_one_item_at_a_time():
     assert most == 1
 
 
-def test_a_leg_of_nodes_at_concurrency_one_makes_no_threads_of_its_own():
-    """Called in order on the leg's own thread: a 100-node chain over 20 items runs on one thread."""
+def test_nodes_at_concurrency_one_are_all_called_on_the_callers_thread():
+    """A chain of 100 nodes over 20 items is called on one thread, the one that called ``run``."""
     seen: set[int] = set()
 
     @node("step", title="Step", description="For a test.")
@@ -303,7 +304,7 @@ def test_a_leg_of_nodes_at_concurrency_one_makes_no_threads_of_its_own():
     assert seen == {threading.get_ident()}
 
 
-def test_the_retry_delay_doubles_each_time_and_another_item_takes_the_slot_while_a_retry_waits():
+def test_the_retry_delay_doubles_each_time_and_another_item_is_called_while_a_retry_waits():
     tries: dict[str, int] = {}
     finished: list[str] = []
 
@@ -324,7 +325,7 @@ def test_the_retry_delay_doubles_each_time_and_another_item_takes_the_slot_while
 
 
 def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
-    """An attempt's clock starts when its call does, never while it waits for a thread."""
+    """An attempt's timeout counts from when its call starts, never while it waits for a thread."""
     calls: list[str] = []
 
     @node("sleeper", title="Sleeper", description="For a test.", policy=Policy(concurrency=40))
@@ -347,8 +348,8 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
     assert run.status == "complete" and run.outputs["i.result"] == "now" and len(calls) == 40
 
 
-def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_checkpoint_and_after_a_load():
-    """Calls on threads finish when they finish; what a run says of a node's units is in item order all the same."""
+def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the_run_a_checkpoint_and_a_saved_run():
+    """Calls on threads return in any order; what a run says of a node's calls is in item order all the same."""
 
     @node("first-is-last", title="First is last", description="For a test.", policy=Policy(concurrency=4))
     def first_is_last(text: str) -> str | None:
@@ -375,13 +376,13 @@ def test_units_recorded_as_threads_return_are_read_in_item_order_live_in_a_check
 
     assert [call.loc for call in run.not_called] == in_item_order
     assert [call.loc for call in Run.from_json(run.to_json(), graph).not_called] == in_item_order
-    assert checkpoints and all([call.loc for call in held.not_called] == sorted(call.loc for call in held.not_called) for held in checkpoints)
-    assert any(len(held.not_called) > 1 for held in checkpoints)  # some checkpoint held the later items before the first
+    assert checkpoints and all([call.loc for call in checkpoint.not_called] == sorted(call.loc for call in checkpoint.not_called) for checkpoint in checkpoints)
+    assert any(len(checkpoint.not_called) > 1 for checkpoint in checkpoints)  # some checkpoint has later items before the first
 
 
 @pytest.mark.parametrize("items", [None, 3])
-def test_a_reader_made_ready_by_each_of_two_nodes_it_reads_is_called_once(items: int | None):
-    """A call that comes back from a thread makes its readers ready; a unit made ready twice is still one unit."""
+def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(items: int | None):
+    """A call that returns on a thread makes its downstream nodes ready; a call made ready twice is still one call."""
     calls: list[tuple[str, str]] = []
 
     @node("from-a-thread", title="From a thread", description="For a test.", policy=Policy(concurrency=2))
@@ -417,10 +418,10 @@ def test_a_reader_made_ready_by_each_of_two_nodes_it_reads_is_called_once(items:
 
 
 @pytest.mark.parametrize("concurrency", [1, 4])
-@pytest.mark.parametrize("shape", ["chain", "per_item_with_a_gather"])
-def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume_calls_nothing(shape: str, concurrency: int):
-    """A leg tries each node after the nodes it reads, so one leg finishes a graph with nobody to ask, whether
-    the first node is called on the leg's own thread or on others."""
+@pytest.mark.parametrize("shape", ["chain", "per_item_then_collected"])
+def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume_calls_nothing(shape: str, concurrency: int):
+    """``resume()`` tries each node after its upstream nodes, so one call of it completes a graph that asks no person,
+    whether the first node is called on the caller's thread or on others."""
     calls: list[str] = []
 
     @node("first", title="First", description="For a test.", policy=Policy(concurrency=concurrency))
@@ -456,7 +457,7 @@ def test_one_leg_starts_everything_its_own_units_make_ready_and_a_further_resume
 
 
 def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight():
-    """A timed-out attempt is final and its thread keeps the node's slot until it returns."""
+    """A timed-out attempt is not retried, and its thread counts against the node's concurrency until it returns."""
     in_flight, most = 0, 0
     lock = threading.Lock()
 
@@ -500,7 +501,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
     [CancelledError(), GeneratorExit(), BaseException("b"), StopIteration()],
     ids=lambda raised: type(raised).__name__,
 )
-def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
+def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
     @node("raises", title="Raises", description="For a test.")
     def raises(text: str) -> str:
         raise raised
@@ -532,11 +533,12 @@ def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_strea
         _events(prepared)
 
 
-# -- a failed leg keeps the calls it already made ----------------------------------------------
+# -- a failed run keeps the calls it already made ----------------------------------------------
 
 
 def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list[str], ThreadEvent]:
-    """``mail`` as a node: item 0 fails at once, every other item waits for ``release``."""
+    """The node ``mail``, the list of texts it was called with, and the event that releases it: item 0 fails at
+    once, every other item waits for ``release``."""
     calls: list[str] = []
     release = ThreadEvent()
 
@@ -571,11 +573,11 @@ def test_an_item_failing_at_concurrency_one_starts_no_later_item():
 
     events = _releasing_on_failure(_per_item(mail, 5).with_inputs(), release)
 
-    assert _settle(calls) == (1, 1) and calls == ["0"]
+    assert _count_twice(calls) == (1, 1) and calls == ["0"]
     assert events[-1].run.status == "failed" and events[-1].run.results["slow"]["result"] == [None] * 5
 
 
-def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
+def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release = ThreadEvent()
 
     @node("hangs-or-fails", title="Hangs or fails", description="For a test.", policy=Policy(concurrency=2, attempt_timeout=0.2))
@@ -596,7 +598,7 @@ def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_
     assert 0.15 < took < 1.0, took
 
 
-def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged():
+def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failure_is_kept_or_logged():
     """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
     release = ThreadEvent()
 
@@ -620,7 +622,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged(
     assert run.results["slow"]["result"] == [None, None, None, "3"]
 
 
-def test_no_retry_starts_once_the_leg_has_failed():
+def test_no_retry_starts_once_the_run_has_failed():
     release = ThreadEvent()
     calls: list[str] = []
 
@@ -634,7 +636,7 @@ def test_no_retry_starts_once_the_leg_has_failed():
 
     events = _releasing_on_failure(_per_item(flaky, 2).with_inputs(), release)
 
-    assert _settle(calls)[0] == 2 and sorted(calls) == ["0", "1"]
+    assert _count_twice(calls)[0] == 2 and sorted(calls) == ["0", "1"]
     assert events[-1].run.state.cause.type == "execution_failed" and not [e for e in events if e.type == "node_retry"]
 
 
@@ -663,7 +665,7 @@ def test_closing_the_stream_after_one_event_stops_the_rest():
         await events.aclose()  # type: ignore[attr-defined]
 
     _bounded(go())
-    seen, later = _settle(calls)
+    seen, later = _count_twice(calls)
 
     assert later == seen and seen <= 2, seen
 
@@ -686,12 +688,12 @@ def test_cancelling_the_task_that_reads_the_stream_stops_the_rest():
         await asyncio.gather(consumer, return_exceptions=True)
 
     _bounded(go())
-    seen, later = _settle(calls)
+    seen, later = _count_twice(calls)
 
     assert later == seen and seen <= 2, seen
 
 
-def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
+def test_a_cancel_set_mid_run_ends_the_run_cancelled_at_once():
     calls: list[str] = []
     prepared = _per_item(_sleeper(0.05, calls), 20).with_inputs()
 
@@ -711,11 +713,11 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
     assert after < 0.3 and len(calls) < 20, (after, len(calls))
 
 
-def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the_remaining_items():
-    """The second run calls ``echo`` for no item: each one's earlier result is reused, which reads the item to
-    compare it with the earlier one. The test sets the cancel from inside the tenth such read, and holds the
-    leg there until the event loop has set it, so the cancel is set while 90 items are still to go."""
-    reads: list[Callable[[], None]] = []
+def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run_before_the_remaining_items():
+    """The second run calls ``echo`` for no item: each item's outcome from the previous run is reused, and deciding
+    that writes the item to compare it with the previous one. The test sets the cancel from inside the tenth such
+    write and blocks there until the event loop has set it, so the cancel is set while 90 items are still to go."""
+    writes: list[Callable[[], None]] = []
 
     @host_type("Line", title="Line")
     class Line(BaseModel):
@@ -723,8 +725,8 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
 
         @model_serializer
         def written(self) -> dict[str, str]:
-            for read in reads:
-                read()
+            for write in writes:
+                write()
             return {"text": self.text}
 
     @node("echo", title="Echo", description="For a test.")
@@ -740,20 +742,20 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
 
     async def go() -> Any:
         loop, cancel, cancel_is_set = asyncio.get_running_loop(), AsyncioEvent(), ThreadEvent()
-        read_so_far = 0
+        written_so_far = 0
 
         def set_the_cancel() -> None:
             cancel.set()
             cancel_is_set.set()
 
-        def cancel_at_the_tenth_read() -> None:
-            nonlocal read_so_far
-            read_so_far += 1
-            if read_so_far == 10:
+        def cancel_at_the_tenth_write() -> None:
+            nonlocal written_so_far
+            written_so_far += 1
+            if written_so_far == 10:
                 loop.call_soon_threadsafe(set_the_cancel)
                 assert cancel_is_set.wait(5)
 
-        reads.append(cancel_at_the_tenth_read)
+        writes.append(cancel_at_the_tenth_write)
         last = None
         async for event in prepared.stream(cancel=cancel):
             last = event
@@ -762,7 +764,7 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
     ended = _bounded(go())
 
     assert ended.status == "cancelled"
-    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) == 10  # the item being read, and none after it
+    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) == 10  # the item being written, and none after it
 
 
 def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
@@ -794,7 +796,7 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
     assert seen[-1].status == "cancelled"
 
 
-def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run():
+def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run():
     calls: list[int] = []
 
     @node("flaky", title="Flaky", description="For a test.", policy=Policy(retries=5, retry_delay=0.2))
@@ -833,7 +835,7 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
 # -- what a saved run keeps --------------------------------------------------------------------
 
 
-def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_run_goes_on():
+def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_that_then_resumes():
     @host_type("Reading", title="Reading")
     class Reading(BaseModel):
         value: float
@@ -858,11 +860,11 @@ def test_a_float_that_is_not_finite_inside_a_model_survives_a_saved_run_and_the_
     ), registry_of(measure, check, width))
     paused = graph.run(text="x")
 
-    loaded = Run.from_json(paused.to_json(), graph)
+    read_back = Run.from_json(paused.to_json(), graph)
 
-    reading = loaded.results["m"]["result"]
+    reading = read_back.results["m"]["result"]
     assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)
-    assert loaded.answer("c", "yes").resume().outputs == {"w.result": "-inf..inf yes"}
+    assert read_back.answer("c", "yes").resume().outputs == {"w.result": "-inf..inf yes"}
 
 
 class Contact(TypedDict):
@@ -895,7 +897,7 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
     assert (run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("result", "email")
 
 
-def test_a_table_with_a_blank_cell_survives_a_saved_run():
+def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
     class Reachable(TypedDict):
         name: str
         email: str | None
@@ -914,14 +916,15 @@ def test_a_table_with_a_blank_cell_survives_a_saved_run():
     ), registry_of(contacts, records, send))
     run = graph.run(text="x")
 
-    loaded = Run.from_json(run.to_json(), graph)
+    read_back = Run.from_json(run.to_json(), graph)
 
-    assert loaded.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
-    assert loaded.not_called == [NotCalled(loc=("m", 1), input="email")]
+    assert read_back.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
+    assert read_back.not_called == [NotCalled(loc=("m", 1), input="email")]
 
 
-def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_from_earlier_work():
-    """A leg going on from an answered run takes the earlier items before calling the new one; ``node_start`` comes first."""
+def test_node_start_comes_first_for_a_node_whose_items_are_reused_from_the_previous_run():
+    """A run given new inputs after an answered run reuses the previous items before calling the new one;
+    ``node_start`` is still the first event about the node."""
 
     @node("read", title="Read", description="For a test.")
     def read(text: str) -> Series[str]:
@@ -943,7 +946,7 @@ def test_a_node_starts_before_any_other_event_about_it_when_its_items_are_taken_
     assert about_approve.count("node_start") == 1
 
 
-def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_failure_the_cause():
+def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failure_the_cause():
     @node("boom", title="Boom", description="For a test.", policy=Policy(concurrency=2))
     def boom(text: str) -> str:
         raise ValueError("no")
@@ -959,7 +962,7 @@ def test_a_series_over_the_item_ceiling_coming_back_after_a_failure_leaves_the_f
     assert (run.status, run.state.cause.type) == ("failed", "execution_failed")
 
 
-def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_and_never_called_again():
+def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_never_called_again():
     effects: list[str] = []
 
     @node("late", title="Late", description="For a test.", policy=Policy(attempt_timeout=0.2, concurrency=2))
@@ -984,7 +987,7 @@ def test_a_call_past_its_timeout_that_comes_back_while_the_leg_drains_is_kept_an
 
 @node("numbers", title="Numbers", description="For a test.")
 def numbers(n: list[int]) -> Series[int]:
-    """The caller's list as a Series, so what reads it runs once per item."""
+    """The graph input as a series, so a node wired to it is called once per item."""
     return n
 
 
@@ -1014,17 +1017,17 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
         return saved, len(calls)
 
     saved, before = _bounded(until_killed())
-    time.sleep(0.1)  # the abandoned leg's threads come back
+    time.sleep(0.1)  # the calls on the abandoned stream's threads return
     calls.clear()
-    held = sum(r is not None for r in Run.from_json(saved, graph).results["llm"]["result"])
+    kept = sum(r is not None for r in Run.from_json(saved, graph).results["llm"]["result"])
     resumed = Run.from_json(saved, graph).resume()
 
-    assert 0 < held <= before < 400
+    assert 0 < kept <= before < 400
     assert resumed.status == "complete" and resumed.results["llm"]["result"] == [n * 2 for n in range(400)]
-    assert len(calls) == 400 - held  # only what the checkpoint holds no record of
+    assert len(calls) == 400 - kept  # only the calls the checkpoint has no outcome for
 
 
-def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drains():
+def test_a_cancelled_stream_with_calls_on_threads_yields_a_checkpoint_before_waiting_for_them():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.3)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
@@ -1041,11 +1044,11 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
     kinds = [e.type for e in seen]
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
     assert kinds[-1] == "run_end" and seen[-1].run.status == "cancelled"
-    assert checkpoint.run.status == "cancelled" and checkpoint.run.results["llm"]["result"] == [None] * 6  # taken as the cancel came, before the calls in flight came back
+    assert checkpoint.run.status == "cancelled" and checkpoint.run.results["llm"]["result"] == [None] * 6  # taken when the cancel was set, before the calls in flight returned
     assert 0 < sum(v is not None for v in seen[-1].run.results["llm"]["result"]) == len(calls) < 6
 
 
-def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_of_a_running_run_and_no_run_end():
+def test_a_stream_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_of_a_running_run_and_no_run_end():
     calls: list[int] = []
     llm = _counting_llm(calls, 0.3)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
@@ -1061,10 +1064,10 @@ def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_
     seen = _bounded(handed_back())
     assert "run_end" not in [e.type for e in seen] and seen[-1].type == "run_checkpoint"
     left = seen[-1].run
-    assert left.status == "running" and 0 < sum(v is not None for v in left.results["llm"]["result"]) == len(calls) < 6  # the calls in flight came back and are kept
+    assert left.status == "running" and 0 < sum(v is not None for v in left.results["llm"]["result"]) == len(calls) < 6  # the calls in flight returned and are kept
 
     calls.clear()
-    resumed = Run.from_json(left.to_json(), graph).resume()  # another process goes on, repeating no call
+    resumed = Run.from_json(left.to_json(), graph).resume()  # another process resumes it, repeating no call
     assert resumed.status == "complete" and resumed.results["llm"]["result"] == [2, 4, 6, 8, 10, 12]
     assert len(calls) == 6 - sum(v is not None for v in left.results["llm"]["result"])
 
@@ -1091,7 +1094,7 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
 
 
 @pytest.mark.parametrize("timeout", [0, -1, math.nan, True, "5"])
-def test_a_legs_timeout_is_a_number_of_seconds_above_zero_refused_at_the_call(timeout: Any) -> None:
+def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zero_is_refused(timeout: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
@@ -1099,8 +1102,8 @@ def test_a_legs_timeout_is_a_number_of_seconds_above_zero_refused_at_the_call(ti
         assert [p.type for p in refused.value.errors()] == ["invalid_timeout"]
 
 
-def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_call():
-    """A checkpoint keeps the earlier work not yet taken as it stood, written after the stream ended or at once."""
+def test_each_checkpoint_of_a_run_reusing_the_previous_runs_outcomes_resumes_without_a_call():
+    """A checkpoint keeps the reusable outcomes not yet reused, whether it is saved after the stream ended or at once."""
     calls: list[int] = []
     llm = _counting_llm(calls, 0.0005)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
@@ -1117,7 +1120,7 @@ def test_each_checkpoint_of_a_leg_that_reuses_earlier_work_resumes_without_a_cal
     assert calls == []
 
 
-def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed():
+def test_a_failed_stream_with_calls_on_threads_yields_a_checkpoint_saying_it_failed():
     @node("flaky", title="Flaky", description="For a test.", policy=Policy(concurrency=4))
     def flaky(n: int) -> int:
         if n == 0:
@@ -1127,16 +1130,16 @@ def test_a_failed_leg_with_calls_on_threads_offers_a_checkpoint_saying_it_failed
 
     graph = Graph.compile(make_graph(numbers, flaky), registry_of(numbers, flaky))
 
-    async def leg() -> list[Any]:
+    async def streamed() -> list[Any]:
         return [e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)]
 
-    seen = _bounded(leg())
+    seen = _bounded(streamed())
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
     assert (checkpoint.run.status, checkpoint.run.state.cause.type) == ("failed", "execution_failed")
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 
-def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_drawn_flat():
+def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_a_flat_graph():
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str | None]:
         return [None if w == "_" else w for w in text.split()]
@@ -1147,14 +1150,14 @@ def test_a_blank_into_an_embedding_leaves_the_nodes_inside_uncalled_as_it_would_
 
     inner = subgraph("twice", title="Twice", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
     graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="emb", node="twice")], edges=[("w.result", "emb.text")],
+        nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="sub", node="twice")], edges=[("w.result", "sub.text")],
     ), registry_of(words, upper, inner))
     events = _events(graph.with_inputs(text="a _ b _"))
 
     complete = {e.loc: (e.outcomes, e.not_called) for e in events if e.type == "node_complete"}
-    assert complete == {("w",): (1, 0), ("emb", "u"): (4, 2), ("emb", "v"): (4, 2), ("emb",): (4, 0)}  # the embedding is never called: the nodes inside are
+    assert complete == {("w",): (1, 0), ("sub", "u"): (4, 2), ("sub", "v"): (4, 2), ("sub",): (4, 0)}  # the subgraph node is never called: its inner nodes are
     assert events[-1].run.not_called == [
-        NotCalled(loc=("emb", 1, "u"), input="text"), NotCalled(loc=("emb", 3, "u"), input="text"),
-        NotCalled(loc=("emb", 1, "v"), input="text"), NotCalled(loc=("emb", 3, "v"), input="text"),
+        NotCalled(loc=("sub", 1, "u"), input="text"), NotCalled(loc=("sub", 3, "u"), input="text"),
+        NotCalled(loc=("sub", 1, "v"), input="text"), NotCalled(loc=("sub", 3, "v"), input="text"),
     ]
-    assert events[-1].run.results["emb"] == {"v.result": ["A", None, "B", None]}
+    assert events[-1].run.results["sub"] == {"v.result": ["A", None, "B", None]}

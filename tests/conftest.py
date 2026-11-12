@@ -5,7 +5,7 @@ import pytest
 
 @pytest.fixture
 def registry():
-    """Fresh NodeRegistry instance."""
+    """An empty NodeRegistry, new for each test."""
     from conductor import NodeRegistry
 
     return NodeRegistry()
