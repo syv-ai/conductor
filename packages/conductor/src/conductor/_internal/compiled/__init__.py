@@ -24,5 +24,9 @@ from conductor._internal.compiled.input_plans import (
     InputWrapsOneValue,
     OutputInLoops,
 )
-from conductor._internal.compiled.nodes import CompiledFunctionNode
+from conductor._internal.compiled.nodes import (
+    CompiledFunctionNode,
+    outputs_when_not_called,
+    outputs_when_skipped,
+)
 from conductor._internal.compiled.type import CompiledGraph

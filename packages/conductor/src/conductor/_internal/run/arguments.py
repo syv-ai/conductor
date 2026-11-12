@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, cast
 from conductor._internal.compiled.input_plans import (
     EdgeSource,
     InputCollectsLoopResults,
+    InputFromEdges,
     InputReadsOneValue,
 )
 from conductor._internal.gate import RefusedError
@@ -108,12 +109,12 @@ class ResultReader:
         ready = True
         for name, plan, accepts_none in node.edge_inputs:
             try:
-                value = plan.value(self, item_indexes)
+                value = self.read_input(plan, item_indexes)
             except NoSuchFieldError as missing:
                 reason = f"it has no field '{missing.field}'"
                 raise RefusedError([problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)]) from None
             if value is SKIPPED:
-                return node.compiled_node.skipped
+                return Skipped(node.compiled_node.outputs_when_skipped)
             if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node
                 ready = False
             elif value is None and none_input is None and not accepts_none:
@@ -124,6 +125,21 @@ class ResultReader:
         if none_input is not None:
             return NotCalled(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
+
+    def read_input(self, plan: InputFromEdges, item_indexes: ItemIndexes) -> Any:
+        """Returns the value an input that edges lead to reads for the call at ``item_indexes``.
+
+        In the example, ``shout.line`` reads ``"b"`` for ``(1,)``, and ``join.texts`` reads ``["A!", "B!"]`` for
+        ``()``. A ``Series`` input wired to a value made once per call gets that value as a list of one;
+        ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are.
+        """
+        if type(plan) is InputCollectsLoopResults:
+            return self.collect(plan, item_indexes)
+        sources = plan.sources
+        value = self.read_output(sources[0], item_indexes) if len(sources) == 1 else self.read_alternatives(sources, item_indexes)
+        if type(plan) is InputReadsOneValue or value is SKIPPED or value is NotReady.NOT_READY or (value is None and not plan.field.accepts_none_items):
+            return value
+        return [value]
 
     def read_alternatives(self, sources: tuple[EdgeSource, ...], item_indexes: ItemIndexes) -> Any:
         """Returns what an input with several edges into it reads for ``item_indexes``.
@@ -340,7 +356,7 @@ class DisplayReader(ResultReader):
         """
         plan = plans[len(item_indexes)]
         if len(item_indexes) == len(plans) - 1:
-            value = plan.value(self, item_indexes)
+            value = self.read_input(plan, item_indexes)
             return None if value is SKIPPED else value
         looped_over = self._list_looped_over(cast("InputCollectsLoopResults", plan), item_indexes)  # every plan before the last lists one loop
         if looped_over is None or looped_over is SKIPPED:

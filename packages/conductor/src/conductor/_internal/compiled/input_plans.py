@@ -22,8 +22,7 @@ graph has a problem at this input; such a graph is never run.
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
 plan it has. ``sources`` has one ``EdgeSource`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. A plan no edge leads to has no sources and no
-loops. The three kinds an edge leads to also have ``value(reader, item_indexes)``, which reads the input's
-value for one call from the outcomes of a run.
+loops. A run reads the value of an input an edge leads to with ``ResultReader.read_input`` (``run/arguments.py``).
 
 The same classes are used twice. The compiler makes the plans of a compiled graph, and there a source names a
 node of that graph by its id. ``flat_nodes.py`` makes the plans a run reads from those: there a source names the
@@ -38,13 +37,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple, final
 
 from conductor._internal.field import Field
-from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import ItemIndexes, NotReady
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
     from conductor._internal.compiled.flat_nodes import FlatFunctionNode
-    from conductor._internal.run.arguments import ResultReader
 
 
 class OutputAddress(NamedTuple):
@@ -206,11 +202,6 @@ class InputReadsOneValue:
     sources: tuple[EdgeSource, ...]
     loops: tuple[OutputAddress, ...]
 
-    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
-        """Returns the input's value for the call at ``item_indexes``, as ``reader.read_output`` returns one."""
-        sources = self.sources
-        return reader.read_output(sources[0], item_indexes) if len(sources) == 1 else reader.read_alternatives(sources, item_indexes)
-
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -240,10 +231,6 @@ class InputCollectsLoopResults:
         that returns ``series`` is inside. The loop over ``series`` itself is not one of them."""
         return self.series.loops
 
-    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
-        """Returns the input's value for the call at ``item_indexes``, as ``reader.collect`` returns one."""
-        return reader.collect(self, item_indexes)
-
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -266,18 +253,8 @@ class InputWrapsOneValue:
         """The loops the input's node must be inside to read the value, outermost first: those of its source."""
         return self.sources[0].loops
 
-    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
-        """Returns the input's value for the call at ``item_indexes``: what its edge reads, in a list of one.
-        ``SKIPPED`` and ``NOT_READY`` are returned as they are, and so is a ``None`` unless the input accepts
-        ``None`` items (``Series[str | None]``), which gets ``[None]``."""
-        sources = self.sources
-        value = reader.read_output(sources[0], item_indexes) if len(sources) == 1 else reader.read_alternatives(sources, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not self.field.accepts_none_items):
-            return value
-        return [value]
 
-
-#: An input that reads its value through edges: the kinds that have ``value``.
+#: An input that reads its value through edges.
 InputFromEdges = InputReadsOneValue | InputCollectsLoopResults | InputWrapsOneValue
 
 #: How one input of a node gets its value.

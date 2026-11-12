@@ -51,14 +51,12 @@ class says which with ``has_outputs``, so code that needs an output asks ``outco
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 from conductor._internal.address import ItemIndexes
 from conductor._internal.ask import Question
-from conductor._internal.field import Field
 from conductor._internal.markers import SKIPPED
 
 if TYPE_CHECKING:
@@ -177,24 +175,6 @@ class Waiting:
 
 #: What happened to one call: one of the five kinds of outcome.
 Outcome = Done | Answered | Skipped | NotCalled | Waiting
-
-def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The ``outputs`` of a ``Skipped`` outcome of a node with these outputs: ``SKIPPED`` for each.
-
-    For ``shout``: ``{"result": SKIPPED}``.
-    """
-    return dict.fromkeys(outputs, SKIPPED)
-
-
-def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The ``outputs`` of a ``NotCalled`` outcome of a node with these outputs.
-
-    For ``shout``: ``{"result": None}``. For ``route``, whose two outputs are branches, and a node with one more
-    output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. An output is a branch
-    when its ``Param`` gives it an ``exclusive_group``.
-    """
-    return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
-
 
 def all_item_indexes(
     outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes,

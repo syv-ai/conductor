@@ -15,9 +15,9 @@ from typing import Any, NamedTuple
 from pydantic import NonNegativeInt, TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
+from conductor._internal.compiled import outputs_when_not_called, outputs_when_skipped
 from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
-from conductor._internal.outcomes import outputs_when_not_called, outputs_when_skipped
 from conductor._internal.run.json.read import (
     outcomes_from_saved,
     reusable_from_saved,
