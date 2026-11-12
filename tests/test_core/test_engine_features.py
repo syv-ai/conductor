@@ -600,7 +600,7 @@ def test_two_series_on_opposite_branches_refused():
     record = {"nodes": [{"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "u", "node": "upper"}, {"id": "p", "node": "pair-lists"}],
               "edges": [["s.result", "d.text"], ["d.yes", "u.text"], ["u.result", "p.a"], ["d.no", "p.b"]]}
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
-    assert [p.type for p in graph.problems] == ["series_inputs_never_share_an_item"], graph.problems
+    assert [p.type for p in graph.problems] == ["lists_from_different_loops"], graph.problems
     record["nodes"][3]["node"] = "pair-optional"
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
     assert not graph.problems and graph.exclusive_groups == {"d": {"answer": ["yes", "no"]}}

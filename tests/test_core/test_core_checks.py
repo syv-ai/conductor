@@ -237,7 +237,7 @@ def test_one_value_gathers_as_a_series_of_one_and_a_list_given_for_one_value_is_
 def test_max_items():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "split"}, {"id": "m", "node": "mail"}], "edges": [["s.result", "m.email"]]}), registry)
     (run, called) = calls(lambda: graph.run(text=",".join(f"x{i}" for i in range(50)), max_items=10))
-    assert run.status == "stopped" and run.state.cause.type == "item_ceiling" and called == []
+    assert run.status == "stopped" and run.state.cause.type == "item_limit" and called == []
     assert run.state.cause.ctx == {"series": "s.result", "items": 50, "max_items": 10}
     saved = Run.from_json(run.to_json(), graph)
     (done, called) = calls(lambda: saved.with_max_items(100).resume())

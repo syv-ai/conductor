@@ -594,7 +594,7 @@ class Scheduler:
         if self.going:
             named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
-            self.end(EndedEarly("stopped", problem.item_ceiling(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=item_limit)))
+            self.end(EndedEarly("stopped", problem.item_limit(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=item_limit)))
 
     # -- what the leg says --------------------------------------------------------------------
 

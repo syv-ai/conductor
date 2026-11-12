@@ -1142,7 +1142,7 @@ def test_series_inputs_reading_what_hangs_off_opposite_branches_per_item_are_ref
     assert problems({"id": "n", "node": "split"}, {"id": "r", "node": "parity"}, {"id": "x", "node": "upper"}, {"id": "y", "node": "upper"},
                     {"id": "c", "node": "two-series"},
                     edges=(("n.result", "r.n"), ("r.yes", "x.text"), ("r.no", "y.text"), ("x.result", "c.a"), ("y.result", "c.b")),
-                    registry=registry_of(split, parity, upper, two_series)) == ["series_inputs_never_share_an_item"]
+                    registry=registry_of(split, parity, upper, two_series)) == ["lists_from_different_loops"]
 
 
 def test_a_decision_per_document_read_by_nodes_per_line_still_keeps_two_branches_apart():
@@ -1150,7 +1150,7 @@ def test_a_decision_per_document_read_by_nodes_per_line_still_keeps_two_branches
                     {"id": "ua", "node": "pair"}, {"id": "ub", "node": "pair"}, {"id": "z", "node": "two-series"},
                     edges=(("s.result", "d.n"), ("s.result", "sp.text"), ("sp.result", "ua.a"), ("d.yes", "ua.b"), ("sp.result", "ub.a"), ("d.no", "ub.b"),
                            ("ua.result", "z.a"), ("ub.result", "z.b")),
-                    registry=registry_of(split, parity, pair, two_series)) == ["series_inputs_never_share_an_item"]
+                    registry=registry_of(split, parity, pair, two_series)) == ["lists_from_different_loops"]
 
 
 def test_an_item_skipped_on_one_series_input_is_left_out_of_every_series_input_of_the_node():
@@ -1215,7 +1215,7 @@ def test_alternatives_per_item_of_different_series_into_one_input_are_a_problem_
 
     assert problems({"id": "s", "node": "split"}, {"id": "d", "node": "decide"}, {"id": "w", "node": "words-of"}, {"id": "m", "node": "upper"},
                     edges=(("s.result", "d.text"), ("d.yes", "w.text"), ("w.result", "m.text"), ("d.no", "m.text")),
-                    registry=registry_of(split, decide, words_of, upper)) == ["alternatives_in_different_series"]
+                    registry=registry_of(split, decide, words_of, upper)) == ["alternatives_from_different_loops"]
 
 
 def test_a_node_filling_two_outputs_of_one_exclusive_group_fails_as_invalid_output():
@@ -1412,7 +1412,7 @@ def test_a_series_longer_than_the_ceiling_stops_the_run_before_any_call_per_item
 
     stopped = loaded.run(text="a,b,c", max_items=2)
 
-    assert (stopped.status, stopped.state.cause.type, stopped.state.cause.loc) == ("stopped", "item_ceiling", ("s",))
+    assert (stopped.status, stopped.state.cause.type, stopped.state.cause.loc) == ("stopped", "item_limit", ("s",))
     assert stopped.state.cause.ctx == {"series": "s.result", "items": 3, "max_items": 2} and CALLED == []
     assert stopped.with_max_items(3).resume().results["u"]["result"] == ["A", "B", "C"]
 
@@ -1459,7 +1459,7 @@ def test_the_ceiling_stops_a_leg_whose_items_wait_for_a_thread_and_resuming_call
 
     stopped = loaded.run(text=",".join("abcdefghij"), max_items=10)
 
-    assert (stopped.status, stopped.state.cause.type) == ("stopped", "item_ceiling") and len(calls) < 10
+    assert (stopped.status, stopped.state.cause.type) == ("stopped", "item_limit") and len(calls) < 10
     assert stopped.with_max_items(100).resume().status == "complete" and sorted(calls) == list("abcdefghij")
 
 

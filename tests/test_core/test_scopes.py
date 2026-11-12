@@ -358,7 +358,7 @@ def test_alternatives_per_item_of_one_decision_are_gathered_as_one_map():
 def test_alternatives_that_run_per_item_of_different_series_are_refused():
     edges = [("w.yes", "a.folder"), ("w.no", "b.folder"), ("a.result", "u.text"), ("b.result", "u.text")]
     graph = load({"w": "decide", "a": "documents", "b": "documents", "u": "upper"}, edges)
-    assert problems(graph) == [("alternatives_in_different_series", ("u", "text"))]
+    assert problems(graph) == [("alternatives_from_different_loops", ("u", "text"))]
     assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
 
 

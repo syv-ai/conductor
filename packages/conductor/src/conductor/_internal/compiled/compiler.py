@@ -576,7 +576,7 @@ class _Compiler:
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [str(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
-                self.problems.append(problem.alternatives_in_different_series(node_id, name, series=series))
+                self.problems.append(problem.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
         aligned = [
             (name, [self._branch(s) for s in plan.sources]) for name, plan in inputs.items()
@@ -585,7 +585,7 @@ class _Compiler:
         for i, (a, behind_a) in enumerate(aligned):
             for b, behind_b in aligned[i + 1:]:
                 if all(_opposed(x, y) for x in behind_a for y in behind_b):
-                    self.problems.append(problem.series_inputs_never_share_an_item(node_id, inputs=[a, b]))
+                    self.problems.append(problem.lists_from_different_loops(node_id, inputs=[a, b]))
                     refused.update((a, b))
         return refused
 

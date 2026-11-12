@@ -105,7 +105,7 @@ def said(call) -> list[str]:
 
 In `graph.problems`, never raised. `loc` is `(node_id,)` or `(node_id, field)`.
 
-### `alternatives_in_different_series`
+### `alternatives_from_different_loops`
 
 ```python
 drawing = {
@@ -118,7 +118,7 @@ drawing = {
         ["letters.result", "u.text"], ["r.long", "u.text"],
     ],
 }
-print(problems(drawing))  # ['alternatives_in_different_series']
+print(problems(drawing))  # ['alternatives_from_different_loops']
 print(told(drawing)[0])  # 'text' takes alternatives that run per item of different Series, w.result, letters.result, so a call for an item of one has no place for the other's value. Bring them to items of one Series first.
 ```
 
@@ -295,7 +295,7 @@ print(told(drawing)[0])  # The edge from 'a.result' into 'text' is drawn twice; 
 
 Its `ctx` keys are in the reference: `python -m conductor.about repeated-edge`.
 
-### `series_inputs_never_share_an_item`
+### `lists_from_different_loops`
 
 ```python
 @registry.node("pair", title="Pair", description="Puts two lists of words side by side.")
@@ -307,7 +307,7 @@ drawing = {
     "nodes": [{"id": "w", "node": "words"}, {"id": "r", "node": "route"}, {"id": "p", "node": "pair"}],
     "edges": [["w.result", "r.text"], ["r.short", "p.a"], ["r.long", "p.b"]],
 }
-print(problems(drawing))  # ['series_inputs_never_share_an_item']
+print(problems(drawing))  # ['lists_from_different_loops']
 print(told(drawing)[0])  # a, b read branches that never both have a value for an item, so no item would reach the node. Write Series[X | None] on them to keep every item, or take the branches through one input.
 ```
 
@@ -715,10 +715,10 @@ print(said(lambda: waiting.outputs)[0])  # The run is waiting, so it has no outp
 
 Its `ctx` keys are in the reference: `python -m conductor.about run-not-complete`.
 
-### `state_of_another_graph`
+### `saved_run_of_another_graph`
 
 ```python
-print(refused(lambda: Run.from_json(uppering.run(text="a").to_json(), counting)))  # ['state_of_another_graph']
+print(refused(lambda: Run.from_json(uppering.run(text="a").to_json(), counting)))  # ['saved_run_of_another_graph']
 print(said(lambda: Run.from_json(uppering.run(text="a").to_json(), counting))[0])  # The saved run is of another graph (2071554324bb5138) than this one (afb5e890aac04b55); an edited graph starts a new run.
 ```
 
@@ -726,14 +726,14 @@ print(said(lambda: Run.from_json(uppering.run(text="a").to_json(), counting))[0]
 
 Its `ctx` keys are in the reference: `python -m conductor.about state-of-another-graph`.
 
-### `state_unreadable`
+### `saved_run_unreadable`
 
 ```python
 import json
 
 tampered = json.loads(uppering.run(text="a").to_json())
 tampered["outcomes"] = {"upper": "not units"}
-print(refused(lambda: Run.from_json(json.dumps(tampered), uppering)))  # ['state_unreadable']
+print(refused(lambda: Run.from_json(json.dumps(tampered), uppering)))  # ['saved_run_unreadable']
 print(said(lambda: Run.from_json(json.dumps(tampered), uppering))[0])  # The saved run does not fit this graph at 'outcomes.upper': Input should be an object. Load it into the graph it was saved from.
 ```
 
@@ -741,7 +741,7 @@ print(said(lambda: Run.from_json(json.dumps(tampered), uppering))[0])  # The sav
 
 Its `ctx` keys are in the reference: `python -m conductor.about state-unreadable`.
 
-### `state_unwritable`
+### `run_unwritable`
 
 ```python
 @registry.node("raw", title="Raw", description="Turns a text into raw bytes.")
@@ -750,7 +750,7 @@ def raw(text: str) -> bytes:
 
 
 unwritable = Graph.compile(make_graph(raw), registry).run(text="a")
-print(refused(lambda: unwritable.to_json()))  # ['state_unwritable']
+print(refused(lambda: unwritable.to_json()))  # ['run_unwritable']
 print(said(lambda: unwritable.to_json())[0])  # The run can't be written as JSON at 'raw.result': a value has no JSON form. Give that field a type pydantic writes as JSON.
 ```
 
@@ -882,14 +882,14 @@ match wrong.state:
 
 Its `ctx` keys are in the reference: `python -m conductor.about invalid-output`.
 
-### `item_ceiling`
+### `item_limit`
 
 ```python
 per_word = Graph.compile(make_graph(words, upper), registry)
 capped = per_word.run(text="a b c", max_items=2)
 match capped.state:
     case EndedEarly(cause=cause):
-        print(cause.type, cause.ctx["items"])  # item_ceiling 3
+        print(cause.type, cause.ctx["items"])  # item_limit 3
         print(cause.msg)  # words.result has 3 items, more than the 2 this run may work through; raise its max_items and resume it.
 ```
 
@@ -1695,6 +1695,6 @@ A 409 from `POST /runs/{run_id}/answers` or `/resume`: between the read of the r
 print("leg_failed:", router_sentence["leg_failed"])  # leg_failed: The run's worker failed before the leg could end; its operator finds why in the server log. Resume it to carry on.
 ```
 
-The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again and that conductor has no problem of its own for: `from_run` raised, the function that gives a caller's registry raised. A leg conductor itself refused has conductor's problem as its cause (`from_run_missing`, `state_unreadable`, `state_unwritable`). A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued until a leg ends with a run. `waiting` lists what waits in that checkpoint, the run an answer is given to; nothing, when the run could not be loaded.
+The `cause` of a run that reads `failed` because its worker raised outside any node in a way that would raise again and that conductor has no problem of its own for: `from_run` raised, the function that gives a caller's registry raised. A leg conductor itself refused has conductor's problem as its cause (`from_run_missing`, `saved_run_unreadable`, `run_unwritable`). A raise from the store is not one: it fails no run, and the run is gone on with once its lease runs out. It is in `GET /runs/{run_id}` and on the leg's `run_end` event. The run is kept as its last checkpoint, and answers queued during the leg stay queued until a leg ends with a run. `waiting` lists what waits in that checkpoint, the run an answer is given to; nothing, when the run could not be loaded.
 
 **Fix.** `POST /runs/{run_id}/resume`. The exception is in the log `conductor_providers.fastapi`, with the run's id.

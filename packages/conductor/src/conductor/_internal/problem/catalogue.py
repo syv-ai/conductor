@@ -21,7 +21,7 @@ PROBLEMS = ProblemCatalogue()
 
 
 @PROBLEMS.problem()
-def alternatives_in_different_series(node_id: str, field: str, *, series: list[str | None]) -> str:
+def alternatives_from_different_loops(node_id: str, field: str, *, series: list[str | None]) -> str:
     """An input takes alternatives that run per item of different Series.
 
     Args:
@@ -163,7 +163,7 @@ def repeated_edge(node_id: str, field: str, *, source: str) -> str:
 
 
 @PROBLEMS.problem()
-def series_inputs_never_share_an_item(*loc: str | int, inputs: list[str]) -> str:
+def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
     """Two inputs of a node read branches that never both have a value for an item.
 
     Args:
@@ -598,7 +598,7 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
 
 
 @PROBLEMS.problem()
-def state_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
+def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
     """A saved run is of another graph than the one it is loaded into.
 
     Args:
@@ -610,7 +610,7 @@ def state_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
 
 
 @PROBLEMS.problem()
-def state_unreadable(*loc: str | int, where: str, reason: str) -> str:
+def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
     """A saved run doesn't fit the graph it is loaded into.
 
     Args:
@@ -622,7 +622,7 @@ def state_unreadable(*loc: str | int, where: str, reason: str) -> str:
 
 
 @PROBLEMS.problem()
-def state_unwritable(*loc: str | int, where: str, reason: str) -> str:
+def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     """A run holds a value that can't be written as JSON.
 
     Args:
@@ -715,7 +715,7 @@ def invalid_output(*loc: str | int, reason: str, name: str | None = None, errors
 
 
 @PROBLEMS.problem()
-def item_ceiling(*loc: str | int, series: str, items: int, max_items: int) -> str:
+def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     """A Series has more items than the run may work through, and the run stopped before any was started.
 
     Args:

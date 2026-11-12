@@ -152,7 +152,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
 def test_a_series_of_records_held_as_a_table_counts_its_items_against_the_ceiling() -> None:
     run = _graph().run(text="x", max_items=1)
 
-    assert (run.status, run.state.cause.type, run.state.cause.ctx["items"]) == ("stopped", "item_ceiling", 2)
+    assert (run.status, run.state.cause.type, run.state.cause.ctx["items"]) == ("stopped", "item_limit", 2)
 
 
 def test_a_series_of_records_returned_per_item_inside_a_stored_graph_reaches_a_series_input_outside_as_plain_records() -> None:
@@ -358,7 +358,7 @@ def test_a_save_whose_tables_written_once_names_an_output_that_is_no_table_writt
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
     (found,) = refused.value.errors()
-    assert found.type == "state_unreadable" and "tables_written_once: 'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
+    assert found.type == "saved_run_unreadable" and "tables_written_once: 'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
 
 
 def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_own_type() -> None:
@@ -378,7 +378,7 @@ def test_a_save_whose_tables_written_once_names_a_table_of_other_columns_is_refu
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
     (found,) = refused.value.errors()
-    assert found.type == "state_unreadable" and "the column 'name' its row type declares is missing" in found.msg
+    assert found.type == "saved_run_unreadable" and "the column 'name' its row type declares is missing" in found.msg
 
 
 def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> None:

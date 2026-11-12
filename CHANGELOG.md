@@ -115,7 +115,7 @@ What changes in how you work, before the name-by-name tables:
   ended, and whose `state` is `Going` or, for a leg that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `Run.from_json(saved, graph)`, which reads a save from its JSON text; a save that
-  doesn't fit is `state_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save holds each node's
+  doesn't fit is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save holds each node's
   units as a column per output with a slot per instance, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the run stands under `state`;
   a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
   calling the nodes only for the items that changed (`run.again(...)`). A leg's `max_items` is a whole number of
@@ -150,7 +150,7 @@ What changes in how you work, before the name-by-name tables:
   `series-stack` and live in `conductor_nodes.series`. `decision`, `logic-if-empty` and `logic-if-equals`
   are `control-decide`, `control-if-empty` and `control-if-equals`. A graph record that names an old id
   needs the new one, and a run saved from a graph that used an old id is refused by `Run.from_json`
-  (`state_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
+  (`saved_run_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **A default no caller reaches is a problem at load.** `make_graph(..., defaults={"pad.width": 8})` on a node that is not an open input of the graph writes the record, and `Graph.compile(record, registry).problems` holds `default_on_later_node`.
@@ -328,7 +328,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `FlowExecutionError` | gone: a failed leg returns its `Run`, its `state` an `EndedEarly` whose `status` is `failed` and `cause` a `Problem` |
 | `FlowPausedError` | gone: a paused leg returns its `Run`, `status` `waiting` |
 | `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
-| `LoopRunawayError` | `graph.run(max_items=)`, the problem `item_ceiling` |
+| `LoopRunawayError` | `graph.run(max_items=)`, the problem `item_limit` |
 | `NodeConnectionError` | `ExternalError`, the one failure that is retried |
 | `NodeError` | `NodeError(message, code=, ctx=)`, never retried |
 | `NodeExecutionError` | `NodeError(message, code=, ctx=)` |

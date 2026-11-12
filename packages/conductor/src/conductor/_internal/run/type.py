@@ -486,7 +486,7 @@ class Run:
 
         Raises:
             InvalidCallError: The run is not complete (``run_not_complete``), or an output holds a value with no
-                JSON form (``state_unwritable``, naming the output).
+                JSON form (``run_unwritable``, naming the output).
         """
         written = {}
         for address, value in self.outputs.items():
@@ -497,7 +497,7 @@ class Run:
             try:
                 written[address] = Type(hint).to_json(value)
             except pydantic_core.PydanticSerializationError:
-                raise InvalidCallError([problem.state_unwritable("outputs", address, where=address, reason="a value has no JSON form")]) from None
+                raise InvalidCallError([problem.run_unwritable("outputs", address, where=address, reason="a value has no JSON form")]) from None
         return pydantic_core.to_json(written).decode()
 
     def _function_of(self, address: str) -> tuple[FlatFunctionNode, str]:
@@ -531,7 +531,7 @@ class Run:
         JSON: a date, and a float that isn't finite, from their text.
 
         Raises:
-            InvalidCallError: The graph's problems; ``state_of_another_graph``; or ``state_unreadable`` at the place
+            InvalidCallError: The graph's problems; ``saved_run_of_another_graph``; or ``saved_run_unreadable`` at the place
                 pydantic names (the section, the node, the output, the slot), quoting nothing of a value.
         """
         if graph.problems:
@@ -541,9 +541,9 @@ class Run:
         except ValidationError as error:
             first = error.errors(include_url=False, include_input=False)[0]
             if first["type"] == "union_tag_invalid" and not first["loc"]:  # a save is read as one of this graph, which its fingerprint says it is
-                raise InvalidCallError([problem.state_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
+                raise InvalidCallError([problem.saved_run_of_another_graph("state", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
             at = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # a place in the save comes after the fingerprint it was read under
-            raise InvalidCallError([problem.state_unreadable("state", where=at, reason=value_free_errors(error)[0]["msg"])]) from None
+            raise InvalidCallError([problem.saved_run_unreadable("state", where=at, reason=value_free_errors(error)[0]["msg"])]) from None
         return _from_saved(graph, read)
 
     def to_json(self) -> str:
@@ -553,7 +553,7 @@ class Run:
             return codec.serializer.to_json(saved, exclude_defaults=True).decode()
         except pydantic_core.PydanticSerializationError:
             at = first_unwritable_value(codec.inputs, codec.outputs, saved)
-            raise InvalidCallError([problem.state_unwritable("state", at, where=at, reason="a value has no JSON form")]) from None
+            raise InvalidCallError([problem.run_unwritable("state", at, where=at, reason="a value has no JSON form")]) from None
 
     def _to_saved(self) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
         """The run as its graph's ``RunCodec`` writes it. A node inside a subgraph is saved as any node,
@@ -609,7 +609,7 @@ def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableOutc
 
     Raises:
         InvalidCallError: A node doesn't hold one slot for each instance the saved run made of it
-            (``state_unreadable``).
+            (``saved_run_unreadable``).
     """
     run = Run(graph, saved.inputs, saved.max_items, no_outcomes(graph), {}, state=saved.state)
     for node in graph._flat_function_nodes:  # each after the nodes it reads, so the Series its instances are of are in place
@@ -617,7 +617,7 @@ def _from_saved(graph: Graph, saved: SavedRun[list[Outcome | None], ReusableOutc
             every_item_indexes, _ = all_item_indexes(run._outcomes, node.loops, ())
             if len(node_outcomes) != len(every_item_indexes):
                 at, reason = f"outcomes.{node.name}", f"it holds {len(node_outcomes)} slots for the {len(every_item_indexes)} instances the saved run made of the node"
-                raise InvalidCallError([problem.state_unreadable("state", where=at, reason=reason)])
+                raise InvalidCallError([problem.saved_run_unreadable("state", where=at, reason=reason)])
             run._outcomes[node.name] = {item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, node_outcomes, strict=True) if outcome is not None}
     functions = graph._functions
     run._code_changed = {path: digest for name, digest in saved.code.items() if digest != functions[path := parse_node_path(name)].code_fingerprint}

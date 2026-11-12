@@ -226,7 +226,7 @@ def test_a_run_again_after_a_save_takes_the_work_it_carried() -> None:
 
 
 def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
-    """Whatever a save is damaged into, loading it gives a run or ``state_unreadable``: never another error."""
+    """Whatever a save is damaged into, loading it gives a run or ``saved_run_unreadable``: never another error."""
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()  # it waits on "ab", holding the work of "bb" and "b" it didn't take
@@ -257,7 +257,7 @@ def test_random_edits_of_a_save_load_or_are_refused_as_unreadable() -> None:
         try:
             Run.from_json(json.dumps(damaged), graph).to_json()
         except InvalidCallError as refused:
-            assert [p.type for p in refused.errors()] in (["state_unreadable"], ["state_of_another_graph"]), (above, last, change)
+            assert [p.type for p in refused.errors()] in (["saved_run_unreadable"], ["saved_run_of_another_graph"]), (above, last, change)
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
@@ -306,7 +306,7 @@ def test_a_damaged_save_is_refused_at_the_place_pydantic_names(damage: Any, at: 
         Run.from_json(json.dumps(saved), graph)
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("state_unreadable", at)
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", at)
     assert "secret" not in problem.msg
 
 
@@ -323,7 +323,7 @@ def test_a_value_with_no_json_form_is_refused_at_the_save_naming_its_output() ->
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("state_unwritable", "o.result")
+    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "o.result")
 
 
 def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
@@ -364,7 +364,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x").outputs_json()
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.loc, problem.ctx["where"]) == ("state_unwritable", ("outputs", "o.result"), "o.result")
+    assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "o.result"), "o.result")
 
 
 def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit() -> None:
@@ -441,4 +441,4 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_taken() ->
         Run.from_json(json.dumps(saved), graph)
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("state_unreadable", "outcomes.listed.skipped_items.result")
+    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.listed.skipped_items.result")

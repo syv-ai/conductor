@@ -147,7 +147,7 @@ async def test_a_run_stopped_at_its_ceiling_says_why_and_is_resumed_at_the_same_
     run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
     stopped = await store.ended(run_id)
     assert stopped.status == "stopped" and stopped.cause is not None
-    assert stopped.cause.type == (await last_end())["cause"]["type"] == "item_ceiling"
+    assert stopped.cause.type == (await last_end())["cause"]["type"] == "item_limit"
     assert stopped.cause.ctx == {"series": "split.result", "items": 2, "max_items": 1}
 
     await worker.resume(await worker.read(run_id))
@@ -201,7 +201,7 @@ async def test_a_resume_with_a_higher_ceiling_of_a_stored_run_that_cant_be_read_
     with pytest.raises(InvalidCallError) as refused:
         await worker.resume(await worker.read(run_id), max_items=5)
 
-    assert [problem.type for problem in refused.value.errors()] == ["state_unreadable"] and store.rows[run_id] == unreadable
+    assert [problem.type for problem in refused.value.errors()] == ["saved_run_unreadable"] and store.rows[run_id] == unreadable
 
 
 @pytest.mark.parametrize("status", ["running", "waiting", "complete"])
@@ -824,7 +824,7 @@ async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_tha
     gate.set()
     failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type) == ("failed", "state_unwritable")
+    assert failed.cause is not None and (failed.status, failed.cause.type) == ("failed", "run_unwritable")
     stored = Run.from_json(store.rows[run_id].run, Graph.compile(graph, registry))
     assert [unit.id for unit in failed.waiting] == [unit.id for unit in stored.waiting] and len(failed.waiting) == 1
 
@@ -867,7 +867,7 @@ async def test_a_run_that_cant_be_loaded_fails_its_leg_and_lists_nothing_as_wait
 
     await worker.sweep()
     failed = await store.ended("left")
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.waiting) == ("failed", "state_unreadable", [])
+    assert failed.cause is not None and (failed.status, failed.cause.type, failed.waiting) == ("failed", "saved_run_unreadable", [])
 
 
 async def test_a_leg_whose_end_the_store_fails_to_write_stays_running_and_is_gone_on_with_once_its_lease_runs_out() -> None:
@@ -926,7 +926,7 @@ async def test_a_leg_that_ends_with_a_run_that_cant_be_written_fails_with_that_p
 
     ends = [(event["status"], event["cause"]["type"]) for event in await store.stored_events(run_id) if event["type"] == "run_end"]
     assert ended.cause is not None
-    assert (ended.status, ended.cause.type, ended.cause.ctx["where"], ended.waiting, ends) == ("failed", "state_unwritable", at, [], [("failed", "state_unwritable")])
+    assert (ended.status, ended.cause.type, ended.cause.ctx["where"], ended.waiting, ends) == ("failed", "run_unwritable", at, [], [("failed", "run_unwritable")])
     assert await _starts(store, run_id) == 1 and (await worker.read(run_id)).state.run_state.status == "failed"
 
 

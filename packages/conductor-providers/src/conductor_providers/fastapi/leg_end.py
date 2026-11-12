@@ -168,7 +168,7 @@ class HandedBack(LegEnd):
 def end_of(run_end: RunEnd, stored: list[Waiting]) -> LegEnd:
     """The end of a leg whose stream ended with a ``run_end``.
 
-    A run that can't be written as JSON (``state_unwritable``: a value in it has no JSON form) can't be stored
+    A run that can't be written as JSON (``run_unwritable``: a value in it has no JSON form) can't be stored
     however often it is tried, so its leg ended as one that raised, with that problem as the cause.
 
     Args:

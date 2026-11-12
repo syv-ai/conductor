@@ -3,8 +3,8 @@
 A saved run is strict JSON: each node's outputs are a column per output,
 written by the output's own type, so a value reads back as itself, a float
 that isn't finite included. A save that doesn't fit the graph, damaged or
-written for another one, is refused at ``Run.from_json`` as ``state_unreadable``,
-and a value with no JSON form at ``to_json`` as ``state_unwritable``; each
+written for another one, is refused at ``Run.from_json`` as ``saved_run_unreadable``,
+and a value with no JSON form at ``to_json`` as ``run_unwritable``; each
 names where, and quotes no stored value.
 """
 
@@ -64,7 +64,7 @@ def _refused(graph: Any, saved: dict[str, Any]) -> Any:
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
     (problem,) = refused.value.errors()
-    assert problem.type == "state_unreadable"
+    assert problem.type == "saved_run_unreadable"
     return problem
 
 
@@ -431,7 +431,7 @@ def test_saving_a_run_that_holds_a_value_with_no_json_form_raises_naming_the_out
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("state_unwritable", "o.result")
+    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "o.result")
 
 
 def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
@@ -445,7 +445,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("state_unwritable", "t.value")
+    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "t.value")
 
 
 def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
@@ -462,7 +462,7 @@ def test_a_column_json_cannot_keep_makes_the_save_raise_naming_the_output():
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert problem.type == "state_unwritable" and problem.ctx["where"].startswith("b.result")
+    assert problem.type == "run_unwritable" and problem.ctx["where"].startswith("b.result")
     assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
 
 
@@ -580,7 +580,7 @@ def test_a_save_names_its_graph_and_an_edited_graph_refuses_it_while_display_alo
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(edited, registry_of(shout)))
     (problem,) = refused.value.errors()
-    assert problem.type == "state_of_another_graph" and set(problem.ctx) == {"saved", "graph"}
+    assert problem.type == "saved_run_of_another_graph" and set(problem.ctx) == {"saved", "graph"}
     assert Run.from_json(saved, Graph.compile(drawn, registry_of(shout))).results == {"s": {"result": "A"}}
 
 
@@ -601,7 +601,7 @@ def test_a_save_names_the_graphs_embedded_in_its_graph_too():
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(outer, with_inner(NodeRecord(id="x", node="quiet"))))
-    assert [p.type for p in refused.value.errors()] == ["state_of_another_graph"]
+    assert [p.type for p in refused.value.errors()] == ["saved_run_of_another_graph"]
 
 
 def _jsonb(text: str) -> str:
