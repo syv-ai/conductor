@@ -1,31 +1,26 @@
-"""Widgets — how a person edits an input.
+"""Widgets: which control a graph editor shows a person for an input.
 
-A widget is the control an input is edited with, plus what that control
-needs: a slider's step, a text area's height. It is a frozen,
-keyword-only record with a ``type``, and neither loading nor the engine
-reads it: conductor carries it from the signature to whatever draws the
-editor. An author writes one on the ``Param`` inside ``Annotated``::
+A node author gives an input a widget on its ``Param``, inside ``Annotated``::
 
-    language: Annotated[Literal["en", "da"], Param(widget=Dropdown())]
+    @registry.node("shout", title="Shout", description="Capitals, and a mark.")
+    def shout(line: str, mark: Annotated[str, Param(widget=Dropdown(), choices=["!", "?"])] = "!") -> str: ...
 
-The controls are named as an HTML form names them, and each one's ``type``
-is its name in kebab case: ``TextInput`` is ``"text-input"``.
+An editor then shows ``mark`` as a dropdown with the choices ``!`` and ``?``. The input's description, which an
+editor reads, has the widget as JSON: ``{"type": "dropdown"}``. A widget is a frozen pydantic model with a
+``type``: its class name in lower case, with a hyphen between words (``TextInput`` is ``"text-input"``).
 
-Conductor ships the common controls. A host adds its own by subclassing
-``Widget`` beside the component that renders it::
+Conductor itself never reads a widget, when it compiles a graph or runs it. A widget says only how an editor draws
+the control: the input's title, description, choices and limits (such as ``ge`` and ``le``) are on its ``Param``,
+and a value outside the limits is refused whatever the widget. An input with no widget has no control in an
+editor; its value comes from an edge or from a constant in the graph record. No type has a default widget: a text
+may be a text area, a single line or a dropdown, so an input that a person edits declares its own.
+
+Conductor has the common controls. A host adds its own by subclassing ``Widget``, and draws it with its own
+component::
 
     class EntityDropdown(Widget):
         type: Literal["entity-dropdown"] = "entity-dropdown"
         entity_kind: str = ""
-
-A widget is the control and nothing more. What a person reads about the
-input, whether an edge can reach it and the limits a value must keep to are
-the ``Param``'s, where they are enforced. An input with no widget
-gets no control in an editor: an edge fills it, or a value set in the graph. Nor does a widget change how the engine runs: a
-pause is a node that raises ``Ask``, not a widget type.
-
-Conductor picks no default widget for any type: a text may be a
-textarea, a single line or a dropdown, so every input declares its own.
 """
 
 from __future__ import annotations
@@ -36,19 +31,20 @@ from conductor._internal.conductor_model import ConductorModel
 
 
 class Widget(ConductorModel):
-    """The base of every control. Each control declares its own ``type: Literal[...]`` and what it needs; a host
-    subclasses it for a control of its own the same way. The base declares no ``type``, so a subclass's
-    ``Literal`` overrides nothing and passes a strict type checker."""
+    """The base class of every widget. A subclass declares its ``type`` as a ``Literal`` and the settings it has.
+
+    ``Widget`` itself declares no ``type``, so a subclass that declares one as a ``Literal`` overrides nothing,
+    and a strict type checker accepts it."""
 
 
 class TextInput(Widget):
-    """Single-line text."""
+    """A single line of text."""
 
     type: Literal["text-input"] = "text-input"
 
 
 class Textarea(Widget):
-    """Multi-line text, in a box ``rows`` lines high.
+    """Text over several lines, in a box ``rows`` lines high.
 
     Attributes:
         rows: How many lines of text the box shows before it scrolls.
@@ -59,16 +55,17 @@ class Textarea(Widget):
 
 
 class Dropdown(Widget):
-    """Pick one of the field's choices, which its record carries: ``Param(choices=)``, or a ``Literal``'s values."""
+    """A choice of one value from a list: the input's ``Param(choices=...)``, or the values of its ``Literal`` type."""
 
     type: Literal["dropdown"] = "dropdown"
 
 
 class Slider(Widget):
-    """A number picked on a slider, between the ``ge`` and ``le`` of its ``Param``, in steps of ``step``.
+    """A number set with a slider, between the ``ge`` and the ``le`` of the input's ``Param``.
 
     Attributes:
-        step: How far one notch moves the value, as ``1`` for whole numbers; ``None`` leaves it to the editor.
+        step: How far one step of the slider moves the value, such as ``1`` for whole numbers. ``None`` lets the
+            editor choose.
     """
 
     type: Literal["slider"] = "slider"
@@ -76,13 +73,13 @@ class Slider(Widget):
 
 
 class FileUpload(Widget):
-    """Files a person uploads, of the kinds in ``accept`` and no larger than ``max_size_mb``: one, or a series of
-    them when the field is a ``Series``.
+    """A file a person uploads, of a kind in ``accept`` and no larger than ``max_size_mb``. Several files for an input
+    whose type is a ``Series``.
 
     Attributes:
-        accept: The kinds of file offered, as an HTML file input's ``accept`` lists them: extensions (``".pdf"``)
-            or media types (``"image/*"``); an empty tuple offers every kind.
-        max_size_mb: The largest file, in megabytes, the editor takes; ``None`` sets no limit of its own.
+        accept: The kinds of file the editor offers, written as for the ``accept`` of an HTML file input: extensions
+            (``".pdf"``) or media types (``"image/*"``). An empty tuple offers every kind.
+        max_size_mb: The largest file, in megabytes, the editor takes. ``None`` sets no limit in the editor.
     """
 
     type: Literal["file-upload"] = "file-upload"
@@ -91,10 +88,10 @@ class FileUpload(Widget):
 
 
 class NumberInput(Widget):
-    """A number typed in, a whole one when the field is an ``int``; its arrows move it by ``step``.
+    """A number a person types, a whole number when the input is an ``int``. Its arrows move it by ``step``.
 
     Attributes:
-        step: How far the editor's up and down arrows move the value; ``None`` leaves it to the editor.
+        step: How far the editor's up and down arrows move the value. ``None`` lets the editor choose.
     """
 
     type: Literal["number-input"] = "number-input"
@@ -102,17 +99,18 @@ class NumberInput(Widget):
 
 
 class Switch(Widget):
-    """A boolean, on or off."""
+    """A switch for a boolean, on or off."""
 
     type: Literal["switch"] = "switch"
 
 
 class DatePicker(Widget):
-    """A date picked from a calendar; ``initial="today"`` starts the field on today's date.
+    """A date chosen from a calendar. ``initial="today"`` starts the input at the date the node is added.
 
     Attributes:
-        initial: ``"today"`` asks the editor to write today's date into the field when the node is added, a value no
-            default could hold; ``None`` leaves the field as its default has it.
+        initial: ``"today"`` asks the editor to set the input to today's date when a person adds the node to a
+            graph. A default cannot say that, since it is fixed when the node is defined. ``None`` leaves the
+            input at its default.
     """
 
     type: Literal["date-picker"] = "date-picker"
@@ -120,13 +118,13 @@ class DatePicker(Widget):
 
 
 class ListInput(Widget):
-    """A list of values typed by hand. The per-item control is derived by
-    the host from the element type, so none is declared here."""
+    """A list a person types one item at a time. The editor chooses the control for each item from the type of the
+    list's items, so this widget has no settings."""
 
     type: Literal["list-input"] = "list-input"
 
 
-# The order the reference lists them in.
+# The order in which the reference (``python -m conductor.about``) lists them.
 __all__ = [
     "Widget",
     "TextInput",

@@ -1,9 +1,11 @@
-"""What a run says as it goes.
+"""The events a run reports while ``resume()`` calls its nodes.
 
-``run.stream()`` yields these records one by one, ending with ``RunEnd``. A
-host that streams a run (a UI, an SSE endpoint) imports them from here. Each
-is a frozen pydantic model, one of the union ``Event`` told apart by
-``type``, and writes itself as JSON with ``model_dump(mode="json")``.
+``async for event in run.stream()`` gets them one at a time; the last is ``RunEnd``. For the README graph,
+``lines -> shout -> join``, the events start ``RunStart()``, ``NodeStart(loc=("lines",))`` and end
+``NodeComplete(loc=("join",), outcomes=1)``, ``RunEnd(status="complete")``. A host that shows a run as it goes,
+such as a web page fed by server-sent events, imports them from here. Each is a frozen pydantic model with a
+``type`` (``"node_complete"``), written as JSON with ``model_dump(mode="json")``; ``Event`` is their union, which
+reads any of them back.
 """
 
 from conductor._internal.scheduler import (
@@ -20,7 +22,7 @@ from conductor._internal.scheduler import (
     RunStart,
 )
 
-# The order the reference lists them in: as a leg says them.
+# The order in which the reference (``python -m conductor.about``) lists them: the order in which a run reports them.
 __all__ = [
     "Event",
     "RunStart",

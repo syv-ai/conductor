@@ -1,19 +1,23 @@
-"""Conductor's reference, shipped in the package: every rule on one page, ``conductor/about/llms.txt``.
+"""Conductor's reference: one Markdown page, shipped in the package as ``conductor/about/llms.txt``.
 
-The page holds the rules. The names of a public module are not written in it: a line
-``<!-- names: conductor.events -->`` stands where they go, and reading the reference writes
-them there from the module's ``__all__``, each with the first paragraph of its docstring. The
-kinds of problem a catalogue holds are not written in it either: a line
-``<!-- problems: conductor.PROBLEMS -->`` stands where they go, and reading the reference writes
-each kind there from the function that declares it.
+The page is written for a developer or a coding assistant that uses conductor, and says how the library behaves.
+Two kinds of list in it are not written by hand but made from the code each time the page is read, so they cannot
+go out of date:
+
+- A line ``<!-- names: conductor.events -->`` is replaced by the names the module ``conductor.events`` exports,
+  in the order of its ``__all__``, each with the first paragraph of its docstring.
+- A line ``<!-- problems: conductor.PROBLEMS -->`` is replaced by every kind of problem in the catalogue
+  ``conductor.PROBLEMS``: its code, its message and the keys of its ``ctx``, read from the function that
+  declares the kind.
 
 From a shell::
 
     python -m conductor.about                  # the whole reference
-    python -m conductor.about sections         # the section slugs
-    python -m conductor.about one-or-many      # one section, by slug or a part of one
+    python -m conductor.about sections         # the slug of every section
+    python -m conductor.about one-or-many      # one section, by its slug or a part of it
 
-The functions here are what that command calls; the module has no public names.
+A section's slug is its heading in lower case with a hyphen for each run of other characters: the heading "One or
+many" has the slug ``one-or-many``. ``__main__.py`` calls the functions here; the module exports no names.
 """
 
 from __future__ import annotations
@@ -35,10 +39,10 @@ _ARGUMENT = re.compile(r"^    (\w+): ", re.MULTILINE)
 def _names(module_name: str) -> str:
     """The names a public module exports, as a Markdown list in the order of its ``__all__``.
 
-    A class or a function is followed by the first paragraph of its docstring, on one line and in
-    Markdown's backticks; where that paragraph ends by introducing an example (``::``), it ends
-    with a full stop. A constant or a type alias has no docstring of its own, so it is listed by
-    its name alone.
+    ``_names("conductor.widgets")`` starts ``"- `Widget`: The base class of every widget. ..."``. A class or a
+    function is followed by the first paragraph of its docstring on one line, with reStructuredText's double
+    backticks made Markdown's single ones; a paragraph that ends ``::``, to introduce an example, ends with a full
+    stop instead. A constant or a type alias has no docstring of its own, so it is listed by its name alone.
 
     Args:
         module_name: The dotted name of the module, as ``"conductor.widgets"``.
@@ -60,11 +64,13 @@ def _names(module_name: str) -> str:
 
 
 def _problems(catalogue: ProblemCatalogue) -> str:
-    """The kinds of problem a catalogue holds, each as a ``####`` section under its code.
+    """The kinds of problem in a catalogue, each as a ``####`` section headed by its code.
 
-    A kind's section has the first paragraph of its docstring, its sentence with a slot for each ``ctx`` value, what
-    its ``*loc`` holds when it has one, and a table of its ``ctx`` keys: the type, whether the key is always given,
-    and the key's line under ``Args:`` in the docstring.
+    A kind is declared by a function, and its section is made from that function: the first paragraph of its
+    docstring; its message, with a ``{key}`` for each ``ctx`` value; what its ``loc`` is, when the function takes
+    a ``*loc`` argument and its docstring says what it is under ``Args:``; and a table of its ``ctx`` keys, with
+    each key's type, whether the key is always given, and the key's line under ``Args:``. The key ``variant``,
+    which says which of a code's messages this is, needs no line.
 
     Args:
         catalogue: The catalogue.
@@ -73,7 +79,7 @@ def _problems(catalogue: ProblemCatalogue) -> str:
         The sections, in the order the kinds are declared.
 
     Raises:
-        LookupError: A kind's docstring has no ``Args:`` line for one of its ``ctx`` keys.
+        LookupError: A kind's docstring has no line under ``Args:`` for one of its ``ctx`` keys.
     """
     sections = []
     for kind in catalogue:
@@ -100,16 +106,15 @@ def _problems(catalogue: ProblemCatalogue) -> str:
 
 
 def _parse_sections(text: str) -> dict[str, str]:
-    """Each ``##`` and ``###`` section by its slug.
+    """Each section by its slug: every heading of two or more ``#``, with the text under it.
 
-    A section runs from its heading to the next heading of the same level or
-    a higher one (fewer ``#``), so "Retries and Timeouts", a ``###`` inside
-    "Core Concepts", ends at the next ``###`` or where "Core Concepts" ends.
+    A section runs from its heading to the next heading with as many ``#`` or fewer. So a ``###`` section inside a
+    ``##`` section ends at the next ``###`` heading or where the ``##`` section ends.
     """
     matches = list(_HEADING.finditer(text))
     out: dict[str, str] = {}
     for i, m in enumerate(matches):
-        level = len(m.group(1))        # 2 for ##, 3 for ###
+        level = len(m.group(1))
         start = m.start()
         end = len(text)
         for nxt in matches[i + 1:]:
@@ -122,8 +127,8 @@ def _parse_sections(text: str) -> dict[str, str]:
 
 
 def get_content() -> str:
-    """The whole reference, with each public module's names written in from its ``__all__`` and each catalogue's
-    kinds of problem from the functions that declare them."""
+    """The whole reference as Markdown, with every ``<!-- names: ... -->`` and ``<!-- problems: ... -->`` line
+    replaced by the list it names."""
     page = files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8")
     page = _NAMES.sub(lambda marker: _names(marker[1]), page)
     return _PROBLEMS.sub(lambda marker: _problems(getattr(import_module(marker[1]), marker[2])), page)
@@ -135,7 +140,9 @@ def list_sections() -> list[str]:
 
 
 def get_section(name: str) -> str | None:
-    """One section by its slug, or the first whose slug contains ``name``; ``None`` when none does."""
+    """One section by its slug, or else the first section whose slug contains ``name``; ``None`` when none does.
+
+    ``get_section("one-or")`` returns the section "One or many", heading included."""
     sections = _parse_sections(get_content())
     if name in sections:
         return sections[name]

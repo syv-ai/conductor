@@ -1,32 +1,40 @@
-"""Four ways to say where something is in a graph or a run, and the text form of each.
+"""Four ways to name a place in a graph or a run, and how each is written as text.
 
-The example used in this file: a graph has a node ``e``, which is a subgraph (a graph record used as
-one node). ``e`` is called once per document. Inside it, a node ``ask`` is called once per line of the document.
+The example graph is the README's, ``lines -> shout -> join``, with ``shout`` replaced by a subgraph: a graph
+registered as a node definition. The subgraph ``loud`` is the graph ``strip -> shout``, used as one node::
 
-- A **node path** names a node: ``("e", "ask")``. As text it is ``"e/ask"``.
-- **Item indexes** say which call of that node: ``(0, 2)`` is the call for document 0, line 2.
-- A **loc** is both in one tuple: ``("e", 0, "ask", 2)``. After each node id come the positions that the
-  node adds to the item indexes: ``e`` is called per document, so one position follows it, and ``ask`` adds one
-  more for the line. As text it is ``"e@0/ask@2"``. A loc is what the application that uses the library is
-  given when it is told about one call, for example a call that waits for a person's answer.
-- An **address** is the text that names one input or output of a node: ``"ask.result"``. A graph record writes
-  its edges and constants with addresses.
+    lines(text: str) -> Series[str]   # called once; returns ["a", " ", "c"]
+    loud                              # wired to lines.result: its inner nodes are called once per line
+        strip(line: str) -> str | None
+        shout(line: str) -> str
+    join(texts: Series[str]) -> str   # wired to loud.shout.result, the output of loud's inner node shout
+
+- A **node path** names a node: its id, after the id of each subgraph node it is inside. The inner node ``shout``
+  is ``("loud", "shout")``, written ``"loud/shout"``; ``lines`` is ``("lines",)``, written ``"lines"``.
+- **Item indexes** say which call of a node: one index per loop the node is inside, outermost first. The call of
+  ``loud/shout`` for the line ``" "`` has the item indexes ``(1,)``.
+- A **loc** names one call: the node path and the item indexes in one tuple, each index after the id of the node
+  whose loop it counts. That call is ``("loud", 1, "shout")``, written ``"loud@1/shout"``: the subgraph node
+  ``loud`` is inside the loop over ``lines.result``, so the index follows ``"loud"``. A host is given a loc when it
+  is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
+- An **address** names one input or output of a node: ``"lines.result"``, ``"shout.line"``. A graph record
+  writes its edges and its constants with addresses.
 """
 
 from __future__ import annotations
 
-#: The ids that name one node: its own id last, and before it the id of each subgraph it is inside,
-#: outermost first. ``("e", "ask")`` is the node ``ask`` inside the subgraph ``e``; ``("load",)`` is a
-#: node of the graph itself.
+#: The ids that name one node: the id of each subgraph node it is inside, outermost first, and its own id last.
+#: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``; ``("lines",)`` is a node of the
+#: graph itself.
 NodePath = tuple[str, ...]
 
-#: Which call of a node: the position of its item in each loop the node is inside, outermost first.
-#: ``(0, 2)`` is item 2 of the inner list, for item 0 of the outer list. A node inside no loop has ``()``.
+#: Which call of a node: one index per loop the node is inside, outermost first. In a graph that loops over pages
+#: and then over the lines of each page, ``(0, 2)`` is line 2 of page 0. A node inside no loop has ``()``.
 ItemIndexes = tuple[int, ...]
 
-#: A node path and a set of item indexes in one tuple: each node id, followed by the positions that node adds to the
-#: item indexes. ``("e", 0, "ask", 2)`` is the node path ``("e", "ask")`` with the item indexes ``(0, 2)``. A node
-#: inside two loops of its own graph has two positions after its id: ``("clean", 0, 1)``.
+#: A node path and item indexes in one tuple, each index after the id of the node whose loop it counts.
+#: ``("loud", 1, "shout")`` is the node path ``("loud", "shout")`` with the item indexes ``(1,)``. A node inside
+#: two loops of its own graph has two indexes after its id: ``("shout", 0, 2)``.
 Loc = tuple[str | int, ...]
 
 
@@ -34,8 +42,8 @@ def split_address(address: str) -> tuple[str, str]:
     """Split an address at its first dot into the node id and the name after it.
 
     ``split_address("shout.line")`` returns ``("shout", "line")``. A node id has no dot in it, so everything after
-    the first dot is the name: ``split_address("split.result.amount")`` returns ``("split", "result.amount")``,
-    the output ``result`` and one field of the record it returns. Text with no dot is all node id:
+    the first dot is the name: ``split_address("read.result.name")`` returns ``("read", "result.name")``, the
+    field ``name`` of the record the output ``result`` gives. Text with no dot is a node id alone:
     ``split_address("shout")`` returns ``("shout", "")``.
     """
     node_id, _, name = address.partition(".")
@@ -43,10 +51,10 @@ def split_address(address: str) -> tuple[str, str]:
 
 
 def loc_text(loc: Loc) -> str:
-    """A loc as text: ``@`` before each position and ``/`` between nodes.
+    """A loc as text: ``/`` between node ids and ``@`` before each index.
 
-    ``loc_text(("e", 0, "ask", 2))`` returns ``"e@0/ask@2"``, and ``loc_text(("clean", 0, 1))`` returns
-    ``"clean@0@1"``.
+    ``loc_text(("loud", 1, "shout"))`` returns ``"loud@1/shout"``, and ``loc_text(("shout", 0, 2))`` returns
+    ``"shout@0@2"``. A loc starts with a node id.
     """
     return "".join(f"@{step}" if isinstance(step, int) else f"/{step}" for step in loc)[1:]
 
@@ -54,10 +62,10 @@ def loc_text(loc: Loc) -> str:
 def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
     """Read the text of a loc back, and also split it into its node path and its item indexes.
 
-    ``parse_loc_text("e@0/ask@2")`` returns ``(("e", 0, "ask", 2), ("e", "ask"), (0, 2))``.
+    ``parse_loc_text("loud@1/shout")`` returns ``(("loud", 1, "shout"), ("loud", "shout"), (1,))``.
 
     Raises:
-        ValueError: The text after an ``@`` is not a number.
+        ValueError: The text after an ``@`` is not a whole number.
     """
     loc: list[str | int] = []
     node_ids: list[str] = []
@@ -71,13 +79,13 @@ def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
 
 
 def node_path_text(path: NodePath) -> str:
-    """A node path as text, joined by ``/``: ``node_path_text(("e", "ask"))`` returns ``"e/ask"``.
+    """A node path as text, joined by ``/``: ``node_path_text(("loud", "shout"))`` returns ``"loud/shout"``.
 
-    Dicts that hold something per node, in a run and in a saved run, have this text as their key.
+    A run keeps its outcomes under this text, one entry per node, and a saved run writes them under it.
     """
     return "/".join(path)
 
 
 def parse_node_path(name: str) -> NodePath:
-    """The node path that ``node_path_text`` wrote as ``name``: ``parse_node_path("e/ask")`` returns ``("e", "ask")``."""
+    """The node path that ``node_path_text`` wrote as ``name``: ``parse_node_path("loud/shout")`` returns ``("loud", "shout")``."""
     return tuple(name.split("/"))

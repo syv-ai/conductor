@@ -1,4 +1,5 @@
-"""CLI entry point: ``python -m conductor.about [section]``."""
+"""The command ``python -m conductor.about [section]``: prints the reference, the slugs of its sections, or one
+section."""
 
 from __future__ import annotations
 

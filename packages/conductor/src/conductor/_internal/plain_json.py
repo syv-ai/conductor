@@ -18,10 +18,10 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
 
     Args:
         value: What to write.
-        fallback: Called for a value pydantic can't write as JSON; it returns what to write in its place.
+        fallback: Called for a value pydantic cannot write as JSON; it returns what to write in its place.
 
     Raises:
-        PydanticSerializationError: A value has no JSON form and there is no ``fallback``, or it refused the value.
+        PydanticSerializationError: A value has no JSON form and there is no ``fallback``, or ``fallback`` raised.
     """
     plain: JsonValue = from_json(to_json(value, inf_nan_mode="strings", fallback=fallback))
     return plain

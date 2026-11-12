@@ -1,31 +1,51 @@
-"""What happened to one node for one item: the five outcomes, and the two reasons a node cannot be called yet.
+"""What happened to one node for one call: the outcomes, and the words for them.
 
-The example graph used in this file::
+The example graph, the README's first::
 
-    load() -> Series[str]                 # returns the documents ["a b", "c"]
-    clean(document: str) -> str           # wired to load: called once per document
-    report(cleaned: Series[str]) -> str   # wired to clean: called once, with ["A B", "C"]
+    lines(text: str) -> Series[str]           # called once; returns ["a", "b", "c"]
+    shout(line: str, mark: str = "!") -> str  # wired to lines.result: called once per line
+    join(texts: Series[str]) -> str           # wired to shout.result: called once, with ["A!", "B!", "C!"]
 
-``clean`` is called once per document, so it has one outcome per document. Which document a call is for is
-its item indexes: ``(0,)`` for "a b" and ``(1,)`` for "c". ``load`` and ``report`` are inside no loop, so their
-item indexes are ``()``. When the run has finished, its outcomes are this dict, by node name and then by item indexes::
+``graph.run(text="a\\nb\\nc")`` calls ``lines`` once, ``shout`` three times and ``join`` once. Each call has
+item indexes: one index per loop the node is inside. The three calls of ``shout`` have ``(0,)``, ``(1,)`` and
+``(2,)``; ``lines`` and ``join`` are inside no loop, so their one call has ``()``. An **outcome** is what a run
+keeps of one call. A run keeps its outcomes in a dict by node name and then by item indexes::
 
-    {"load":   {(): Done({"result": ["a b", "c"]})},
-     "clean":  {(0,): Done({"result": "A B"}), (1,): Done({"result": "C"})},
-     "report": {(): Done({"result": "A B, C"})}}
+    {"lines": {():   Done({"result": ["a", "b", "c"]})},
+     "shout": {(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"}), (2,): Done({"result": "C!"})},
+     "join":  {():   Done({"result": "A!+B!+C!"})}}
 
-An outcome is one of five classes:
+A call has at most one outcome, and an outcome is never changed once it is written. There are five kinds, a
+class each. The examples add one small node to the graph above.
 
-- ``Done``: the function was called and returned.
-- ``Answered``: the function asked a person a question (it raised ``Ask``), and the person answered.
-- ``Skipped``: the function was not called, because the node is on a branch that was not chosen.
-- ``NotCalled``: the function was not called, because an argument was ``None`` and the parameter does not
-  accept ``None``.
-- ``Waiting``: the function asked a person a question, and the answer has not come yet.
+- **done** (``Done``): the function was called and returned. Every outcome above is done.
+- **waiting** (``Waiting``): the function asked a person a question, by raising ``Ask``, and no answer has come
+  yet. A node ``approve(line: str) -> bool``, wired to ``lines.result``, raises ``Ask("Approve longer?")`` for
+  the line ``"longer"``. Its call for that line is ``Waiting(question=...)``.
+- **answered** (``Answered``): the function asked a person, and the person answered. The answer is the call's
+  outputs: when the person answers ``False``, the call of ``approve`` is ``Answered({"result": False}, ...)``.
+- **skipped** (``Skipped``): the function was not called, because the node is downstream of a branch that was
+  not chosen. A **branch** is one of several outputs of which a node returns exactly one per call; the others
+  get the value ``SKIPPED``. A node ``route(line)`` with the outputs ``short`` and ``long`` returns ``long`` for
+  ``"longer"`` and ``short`` for ``"a"``. With ``shout`` wired to ``route.long``, the call of ``shout`` for
+  ``"a"`` is ``Skipped({"result": SKIPPED})``.
+- **not called** (``NotCalled``): the function was not called, because an argument was ``None`` and the
+  parameter does not accept ``None``. A node ``strip(line: str) -> str | None`` between ``lines`` and ``shout``
+  returns ``None`` for the line ``" "``. ``shout``'s ``line: str`` does not accept ``None``, so that call of
+  ``shout`` is ``NotCalled({"result": None}, input="line")``.
 
-The first four have ``outputs``, the node's outputs by name, and ``Waiting`` has none yet. Every class says
-which it is with ``has_outputs``. Code that needs an output asks ``outcome.has_outputs`` and then reads
-``outcome.outputs[name]``, without looking at which of the five classes it has.
+Two more words have no outcome of their own:
+
+- **not ready** (``NotReady``): a call cannot be made yet, because a value it needs does not exist yet. Before
+  ``lines`` has returned, ``shout`` is not ready. It is tried again later.
+- **failed**: the function raised an exception other than ``Ask``. The run stops and keeps no outcome for the
+  call, so ``resume()`` calls the function again.
+
+A node is **complete** when every call it will have has an outcome; a run is complete when every node is.
+
+Done, answered, skipped and not called have ``outputs``: the call's outputs by name. Waiting has none yet. Every
+class says which with ``has_outputs``, so code that needs an output asks ``outcome.has_outputs`` and then reads
+``outcome.outputs[name]``, whichever of the five classes it has.
 """
 
 from __future__ import annotations
@@ -46,19 +66,17 @@ if TYPE_CHECKING:
 
 
 class NotReady(Enum):
-    """Why a node cannot be called yet for one set of item indexes.
-
-    Nothing in this file returns these. The code that works out the arguments of a call returns one of them
-    in place of the arguments, and the caller then tries the node again later.
+    """Why a call cannot be made yet. Returned in place of a call's arguments; the call is tried again later.
 
     Attributes:
-        NOT_READY: A value the call needs does not exist yet: the node that makes it has not run, or is waiting
-            for a person. In the example, ``clean`` is not ready before ``load`` has returned.
-        NOT_ITS_TURN: An answer a person gave in an earlier run is kept for this node, and another call of the
-            node has to be tried first. Example: in an earlier run, ``clean`` asked a person about two
-            documents with the same text, and the person gave two different answers. This run uses the
-            answers again, in the same order: the first for ``(0,)``, the second for ``(1,)``. If ``(1,)``
-            has its arguments first, it is ``NOT_ITS_TURN`` until ``(0,)`` has been tried.
+        NOT_READY: A value the call needs does not exist yet: the node it comes from has not returned, or is
+            waiting for a person. Before ``lines`` has returned, every call of ``shout`` is ``NOT_READY``.
+        NOT_ITS_TURN: The call would reuse a person's answer from a previous run, and an earlier call of the same
+            node has to reuse its answer first. Answers to the same question are reused in the order of the
+            calls. Say a previous run of ``lines -> approve`` had the lines ``"longer"`` and ``"longer"``, and a
+            person answered ``True`` for the first and ``False`` for the second. Both calls ask the same question,
+            so a new run on the same text gives ``True`` to ``(0,)`` and ``False`` to ``(1,)``. If ``(1,)`` is
+            ready first, it is ``NOT_ITS_TURN`` until ``(0,)`` has taken its answer.
     """
 
     NOT_READY = "not_ready"
@@ -69,13 +87,12 @@ class NotReady(Enum):
 @final
 @dataclass(frozen=True, slots=True)
 class Done:
-    """The function was called and returned. In the example: ``Done({"result": "C"})`` for ``clean`` at ``(1,)``.
+    """The function was called and returned: ``Done({"result": "B!"})`` for the call ``(1,)`` of ``shout``.
 
     Attributes:
-        outputs: The node's outputs by name. An output is usually the value the function returned for it, which
-            may be ``None``. It is the marker ``SKIPPED`` when the function returned ``SKIPPED`` for that
-            output, to say that the branch the output leads to is not chosen. For an output declared as a
-            ``Series`` it is a ``StoredSeries``: an object that wraps the returned list and has ``len()``.
+        outputs: The call's outputs by name. An output is the value the function returned for it, which may be
+            ``None``, or ``SKIPPED`` for an output on a branch that was not chosen. The value of a ``Series``
+            output is a ``StoredSeries``: the returned list, wrapped.
         has_outputs: ``True``.
     """
 
@@ -86,10 +103,10 @@ class Done:
 @final
 @dataclass(frozen=True, slots=True)
 class Answered:
-    """The function asked a person a question, and the person answered. The answer is the node's outputs.
+    """The function asked a person a question, and the person answered: ``Answered({"result": False}, question)``.
 
     Attributes:
-        outputs: The node's outputs by name, read from the answer.
+        outputs: The call's outputs by name: the person's answer.
         question: What the person was asked.
         has_outputs: ``True``.
     """
@@ -102,17 +119,16 @@ class Answered:
 @final
 @dataclass(frozen=True, slots=True)
 class Skipped:
-    """The function was not called, because the node is on a branch that was not chosen.
+    """The function was not called, because the node is downstream of a branch that was not chosen.
 
-    Example: a node ``decide`` has the outputs ``yes`` and ``no`` and returns a value for ``yes`` only. A node
-    wired to ``decide.no`` is skipped, and so is every node that needs that node's output.
+    With ``shout`` wired to ``route.long``, the call of ``shout`` for the line ``"a"`` is
+    ``Skipped({"result": SKIPPED})``, and so is the call of any node wired to ``shout.result`` for that line.
 
-    ``Skipped`` and ``NotCalled`` are read the same way, through ``outputs``. They are two classes because the
-    caller of the graph is told about them differently: a run lists its ``NotCalled`` outcomes for the
-    caller and not its ``Skipped`` ones, and a saved run records which of the two an outcome was.
+    ``Skipped`` and ``NotCalled`` have the same ``outputs``. They are two classes because a run reports them
+    differently: ``run.not_called`` lists the calls that were not called, and no list has the skipped ones.
 
     Attributes:
-        outputs: The node's outputs by name. Each is ``SKIPPED``.
+        outputs: The call's outputs by name. Each is ``SKIPPED``.
         has_outputs: ``True``.
     """
 
@@ -125,13 +141,12 @@ class Skipped:
 class NotCalled:
     """The function was not called, because an argument was ``None`` and the parameter does not accept ``None``.
 
-    In the example: if ``load`` returns ``["a b", None]``, then ``clean`` at ``(1,)`` is
-    ``NotCalled({"result": None}, input="document")``, as ``document: str`` does not accept ``None``.
+    With ``strip`` returning ``None`` for the line ``" "``, the call of ``shout`` for that line is
+    ``NotCalled({"result": None}, input="line")``.
 
     Attributes:
-        outputs: The node's outputs by name. Each is ``None``. The exception is an output in an exclusive group
-            (outputs of which the function picks one, like ``yes`` and ``no``): it is ``SKIPPED``, since the
-            function never picked.
+        outputs: The call's outputs by name. Each is ``None``, except an output that is a branch: no branch was
+            chosen, so it is ``SKIPPED``.
         input: The name of the input that was ``None``.
         has_outputs: ``True``.
     """
@@ -144,9 +159,9 @@ class NotCalled:
 @final
 @dataclass(frozen=True, slots=True)
 class Waiting:
-    """The function asked a person a question (it raised ``Ask``), and the answer has not come yet.
+    """The function asked a person a question, by raising ``Ask``, and no answer has come yet.
 
-    There are no outputs yet, so a node that needs one of them is not ready.
+    There are no outputs yet, so a call that needs one of them is not ready.
 
     Attributes:
         question: What the person is asked.
@@ -157,46 +172,50 @@ class Waiting:
     has_outputs: ClassVar[Literal[False]] = False
 
 
-#: What happened to one node for one set of item indexes. An outcome is never changed after it is made.
+#: What happened to one call: one of the five kinds of outcome.
 Outcome = Done | Answered | Skipped | NotCalled | Waiting
 
 def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The ``outputs`` of a ``Skipped`` outcome for a node with these outputs: ``SKIPPED`` for each.
+    """The ``outputs`` of a ``Skipped`` outcome of a node with these outputs: ``SKIPPED`` for each.
 
-    For ``clean``: ``{"result": SKIPPED}``.
+    For ``shout``: ``{"result": SKIPPED}``.
     """
     return dict.fromkeys(outputs, SKIPPED)
 
 
 def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The ``outputs`` of a ``NotCalled`` outcome for a node with these outputs.
+    """The ``outputs`` of a ``NotCalled`` outcome of a node with these outputs.
 
-    For ``clean``: ``{"result": None}``. For a node with the outputs ``yes`` and ``no`` in one exclusive group
-    and an output ``note`` in none: ``{"yes": SKIPPED, "no": SKIPPED, "note": None}``.
+    For ``shout``: ``{"result": None}``. For ``route``, whose two outputs are branches, and a node with one more
+    output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. An output is a branch
+    when its ``Param`` gives it an ``exclusive_group``.
     """
     return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
-def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes) -> tuple[list[ItemIndexes], bool]:
-    """The item indexes of every call a node has, and whether that list is complete yet.
+def all_item_indexes(
+    outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes,
+) -> tuple[list[ItemIndexes], bool]:
+    """The item indexes of every call a node will have, and whether that list is complete yet.
 
-    In the example, ``clean`` is inside one loop, over ``load.result``. After ``load`` has returned two
-    documents, ``all_item_indexes(outcomes, clean.loops, ())`` returns ``([(0,), (1,)], True)``. Before ``load`` has
-    returned, or while it is waiting for a person, it returns ``([], False)``: no call is known so far,
-    and more may come. ``load`` is inside no loop, so for it the result is always ``([()], True)``: one call.
+    ``shout`` is inside one loop, over ``lines.result``. Once ``lines`` has returned three lines,
+    ``all_item_indexes(outcomes, shout.loops, ())`` returns ``([(0,), (1,), (2,)], True)``. Before ``lines`` has
+    returned it returns ``([], False)``: no call is known yet, and more will come. ``lines`` is inside no loop,
+    so for it the result is always ``([()], True)``: one call.
 
     Args:
-        outcomes: The run's outcomes, by node name and then by item indexes.
-        loops: The loops the node is inside, outermost first. Each is the node that returns the list and the
-            name of the output that is the list.
-        prefix: Return only the item indexes that start with these. ``()`` returns all of them. With two
-            nested loops, ``(1,)`` returns the calls inside item 1 of the outer list: ``(1, 0)``, ``(1, 1)``, ...
+        outcomes: The run's outcomes, by node name and then by item indexes. Every node has an entry, empty
+            until its first outcome.
+        loops: The loops the node is inside, outermost first. Each is the node that returns the series and the
+            name of that output.
+        prefix: Return only the item indexes that start with these. ``()`` returns all of them. With two nested
+            loops, ``(1,)`` returns the calls for item 1 of the outer loop: ``(1, 0)``, ``(1, 1)``, ...
 
     Returns:
-        The item indexes of each call, and ``True`` when every list the node loops over exists.
+        The item indexes of each call known so far, and ``True`` when every series the node loops over exists.
     """
     start, deepest = len(prefix), len(loops)
-    if start == deepest:  # speed only: the loop below would not run, and returns the same. Worth about 1% of a run of 500 chained nodes.
+    if start == deepest:  # A shortcut: the loop below returns the same. It saves about 1% of a run of a chain of 500 nodes.
         return [prefix], True
     every_item_indexes, complete = [prefix], True
     for depth in range(start, deepest):
@@ -214,11 +233,11 @@ def all_item_indexes(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tup
 
 
 def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[int, bool]:
-    """How many calls a node inside ``loops`` gets in this run, and whether that number is final yet.
+    """How many calls a node inside ``loops`` will have in this run, and whether that number is final yet.
 
-    A node inside no loop gets one call. In the example that is ``load`` and ``report``: ``(1, True)``. ``clean``
-    is inside the loop over ``load.result``: ``(2, True)`` once ``load`` has returned two documents, and
-    ``(0, False)`` before that. With two nested loops the number is the sum of the lengths of the inner lists.
+    A node inside no loop has one call: for ``lines`` and ``join`` the result is ``(1, True)``. ``shout`` is
+    inside the loop over ``lines.result``: ``(3, True)`` once ``lines`` has returned three lines, ``(0, False)``
+    before. With two nested loops the inner series may differ in length; the number is the sum of their lengths.
 
     Args:
         outcomes: The run's outcomes, by node name and then by item indexes.
@@ -240,12 +259,12 @@ def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple
 
 
 def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
-    """Whether ``node`` has an outcome for every call it will ever have.
+    """Whether ``node`` is complete: it has an outcome for every call it will have.
 
-    In the example, ``clean`` has every outcome when ``load`` has returned and ``clean`` has one outcome per
-    document. A ``Waiting`` outcome counts: the call was made, though its answer has not come.
+    ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. A ``Waiting`` outcome
+    counts: the call was made, though no answer has come.
     """
-    if not node.loops:  # speed only: calls_expected says one call, so any outcome is every outcome. Worth 2% of to_json on a graph of 500 chained nodes.
+    if not node.loops:  # A shortcut: calls_expected says one call, so any outcome is every outcome. It saves 2% of to_json on a chain of 500 nodes.
         return bool(outcomes[node.name])
     expected, complete = calls_expected(outcomes, node.loops)
     return complete and len(outcomes[node.name]) == expected

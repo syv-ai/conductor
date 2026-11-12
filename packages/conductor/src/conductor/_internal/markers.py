@@ -1,5 +1,8 @@
-"""``REQUIRED`` and ``SKIPPED``, the two marker values: ``REQUIRED`` is the default of an input that has no default,
-and ``SKIPPED`` is what a node returns for an output on a branch it did not take.
+"""``REQUIRED`` and ``SKIPPED``: two values that stand for "no value", each with its own meaning.
+
+``REQUIRED`` is the default of an input whose parameter has none. ``SKIPPED`` is the value of an output on a branch
+that was not chosen: a node ``route(line)`` with the branches ``short`` and ``long`` returns ``long=SKIPPED`` for
+the line ``"a"``.
 """
 
 from __future__ import annotations
@@ -8,10 +11,10 @@ from typing import Any
 
 
 class _Marker:
-    """One named value that is falsy and stays itself through a copy or a pickle: ``REQUIRED`` or ``SKIPPED``.
+    """One named value: ``REQUIRED`` or ``SKIPPED``. It is falsy, and a copy or a pickle of it is the same object.
 
     Attributes:
-        name: The module-level name the value is kept under, which is also its repr.
+        name: The name of the module-level constant, which is also its repr.
     """
 
     def __init__(self, name: str) -> None:
@@ -27,9 +30,9 @@ class _Marker:
         return False
 
 
-#: The default of an input nothing defaults.
+#: The default of an input whose parameter has no default. Its value must come from an edge, a constant or the caller.
 REQUIRED: Any = _Marker("REQUIRED")
 
-#: The value of an output on a branch its node did not take. Typed ``Any``
-#: for a checker: it goes where a value would, on any output.
+#: The value of an output on a branch that was not chosen. Typed ``Any`` so that a type checker accepts it as the
+#: value of an output of any type.
 SKIPPED: Any = _Marker("SKIPPED")

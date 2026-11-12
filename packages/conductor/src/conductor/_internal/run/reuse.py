@@ -1,5 +1,18 @@
-"""The work of an earlier run that a run may take in place of calling a node: what is kept of it, the
-fingerprint of what a unit received, and which earlier unit a unit takes."""
+"""Reuse: taking an outcome from a previous run in place of a call that would get the same arguments.
+
+The example graph is the README's, ``lines -> shout -> join``::
+
+    run = graph.run(text="a\\nb\\nc")    # shout is called for "a", "b" and "c"
+    run = run.again(text="a\\nb\\nd")    # shout is called for "d" only
+
+In the second run the calls of ``shout`` for ``"a"`` and ``"b"`` get the same arguments as before, so their
+``Done`` outcomes are reused and the function is not called. Arguments are compared by their **arguments
+fingerprint**: a short hash of the arguments and of the node's code fingerprint (a hash of its version, its code,
+the types of its inputs and outputs, and its loops), so a changed function is called again.
+
+A person's answer is reused the same way: when a call would ask the question it asked in the previous run, the
+answer given then is its outcome, and a question still waiting is still waiting.
+"""
 
 from __future__ import annotations
 
@@ -24,17 +37,19 @@ from conductor._internal.outcomes import Answered, Done, Outcome, Waiting
 
 @dataclass(slots=True)
 class ReusableOutcomes:
-    """The work of one node that a run may take from the run it went on from, in place of calling the node.
+    """The outcomes of one node in the previous run that a run may reuse.
 
-    A person's answer, or a question still waiting, is taken once, by the next unit in order that received the
-    same under the same items above it. A node's own result is taken by the unit at the same place when it
-    received the same there, and else by what was received, whichever unit made it.
+    A run gets its own copy, and takes answers out of it as it reuses them. For ``shout`` after the first run above,
+    ``by_item_indexes`` is ``{(0,): (fp_a, Done({"result": "A!"})), (1,): (fp_b, ...), (2,): (fp_c, ...)}``, where
+    ``fp_a`` is the arguments fingerprint of the call for ``"a"``.
 
     Attributes:
-        by_item_indexes: Each result by the instance its unit stood in, with the fingerprint of what it received.
-        by_fingerprint: A node's results by the fingerprint of what the unit received.
-        answers: A person's answers and the questions still waiting, by the fingerprint of what the unit received and
-            of the items above it, in the order they stood.
+        by_item_indexes: Each ``Done`` outcome by the item indexes of its call, with the call's arguments
+            fingerprint. Reused by the call with the same item indexes when its arguments are the same.
+        by_fingerprint: Each ``Done`` outcome by its call's arguments fingerprint. Reused by any call with the same
+            arguments. When several calls had the same arguments, the first in item order is kept.
+        answers: Each ``Answered`` and ``Waiting`` outcome, by its call's arguments fingerprint and its outer-items
+            fingerprint (see ``outer_items_fingerprint``), in the order of the calls. Each is reused once.
     """
 
     by_item_indexes: dict[ItemIndexes, tuple[str, Done]] = field(default_factory=dict[ItemIndexes, tuple[str, Done]])
@@ -43,24 +58,26 @@ class ReusableOutcomes:
 
 
 def reused_outcome(
-    previous: ReusableOutcomes, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
+    previous: ReusableOutcomes, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any],
+    outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Waiting | Literal[NotReady.NOT_ITS_TURN] | None:
-    """The unit of ``previous`` that ``node`` takes in ``item_indexes`` in place of a call on ``arguments``; ``None`` when
-    there is none.
+    """The outcome a call reuses from the previous run in place of calling the function, or ``None`` when there is none.
 
-    A person's answer, or a question still waiting, is taken once, in order: when one is there to take and
-    ``in_turn`` says a unit before this one hasn't been tried yet, this is ``NOT_ITS_TURN``, tried again once it
-    has. It is taken only under the same items above, so two documents' identical lines keep each document's
-    answers when the documents move. A node's own result is the one of the unit at the same place, when that
-    received the same, and else one any earlier unit computed from the same.
+    In the second run above, the call ``(1,)`` of ``shout`` gets ``{"line": "b", "mark": "!"}`` and reuses
+    ``Done({"result": "B!"})``; the call ``(2,)`` gets ``"d"``, which no call got before, so the result is ``None``
+    and ``shout`` is called.
+
+    A person's answer is looked for first, then a ``Done`` outcome of the call with the same item indexes, then one
+    of any call. Answers to the same question are reused once each, in the order of the calls: when an earlier call
+    of the node has not been tried yet, the result is ``NOT_ITS_TURN`` and the call is tried again later.
 
     Args:
-        previous: What the node may take: this run's own to take from.
+        previous: The node's reusable outcomes. An answer reused is taken out of them.
         node: The node.
-        item_indexes: The instance.
-        arguments: What the unit received.
-        units: Each function's units, for the items above this one.
-        in_turn: Whether every unit of the node before this one has been tried.
+        item_indexes: The item indexes of the call.
+        arguments: The arguments of the call.
+        outcomes: The run's outcomes, by node name and then by item indexes.
+        in_turn: Returns whether every earlier call of the node has been tried.
     """
     compiled_node = node.compiled_node
     fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
@@ -79,24 +96,38 @@ def reused_outcome(
 
 
 def outer_items_fingerprint(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode, item_indexes: ItemIndexes) -> str:
-    """A fingerprint of the item of each map above the innermost that the instance ``item_indexes`` of ``node`` sits
-    in, those of the subgraphs' nodes around it included. A unit's innermost item is in what it
-    received."""
+    """A fingerprint of the items of the outer loops of a call: every loop the node is inside but the innermost.
+
+    It keeps a person's answers with the item they were given for. In ``pages -> lines -> approve``, two pages may
+    have the same line; the outer-items fingerprint of each call of ``approve`` is a hash of its page, so a page
+    keeps its own answers when the pages are reordered. The innermost item, the line, is one of the call's
+    arguments, so it is not hashed again. A node inside fewer than two loops gets ``""``.
+    """
+    # A call inside a loop exists only once the series it loops over does, so that outcome has outputs.
     above = [
-        outcomes[series.name][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]  # a unit under an item of a Series holds that Series
+        outcomes[series.name][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
         for depth, (series, output) in enumerate(node.loops[:-1])
     ]
     return (arguments_fingerprint("", {"items": above}) or "") if above else ""
 
 
 def arguments_fingerprint(code_fingerprint: str, arguments: dict[str, Any], *, plain: bool = False) -> str | None:
-    """What a unit of a node (its ``code_fingerprint``) received, as a short hash; ``None`` for a value with no JSON form, which is never reused.
+    """A call's arguments and its node's code fingerprint as a short hash, or ``None`` when an argument has no JSON form.
 
-    ``plain`` says no input holds a mapping, so no key came from a store: the inputs' own order is the node's.
+    A call whose arguments have no fingerprint is never reused.
+
+    Args:
+        code_fingerprint: The node's code fingerprint.
+        arguments: The call's arguments, by input name.
+        plain: ``True`` when no input takes a mapping. The arguments are then hashed in their own order, which is
+            the order of the node's inputs. A mapping, such as a dict read back from a database, may have its keys
+            in another order, so otherwise the keys are sorted first.
     """
     try:
-        # No key of a plain node's inputs came from a store, so they need no canonical form: its inputs' order is the node's.
-        written = pydantic_core.to_json([code_fingerprint, arguments], fallback=untyped_to_hash) if plain else canonical_json([code_fingerprint, arguments], fallback=untyped_to_hash)
+        written = (
+            pydantic_core.to_json([code_fingerprint, arguments], fallback=untyped_to_hash) if plain
+            else canonical_json([code_fingerprint, arguments], fallback=untyped_to_hash)
+        )
     except (TypeError, ValueError, PydanticSerializationError):
         return None
     return short_hash(written, 12)

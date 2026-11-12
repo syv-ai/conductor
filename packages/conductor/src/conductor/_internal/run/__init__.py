@@ -1,7 +1,8 @@
-"""A run: a graph's inputs and what every unit came to, and what a leg asks of it.
+"""A run of a graph: its graph inputs and the outcome of every call.
 
-Code outside this package imports from here only. ``type.py`` has ``Run``; ``arguments.py`` what a call
-receives: the node rule, read for one item or for an item nobody knows.
+Code outside this package imports from here. ``type.py`` has ``Run``; ``arguments.py`` works out the arguments of
+one call; ``reuse.py`` reuses outcomes from a previous run; ``state.py`` says whether a run is going on or has ended
+early; ``json/`` writes a run as JSON and reads it back.
 """
 
 from conductor._internal.run.type import (
