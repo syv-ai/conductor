@@ -3,10 +3,10 @@
 They run on the ``regex`` package rather than ``re``: its engine doesn't
 backtrack on the patterns that freeze ``re`` (``(a+)+$`` over a long run of
 a's), and every call has a timeout as a second guard. A call that holds the GIL
-can't be stopped from outside, so the guard is inside it. A pattern that takes
-longer than ``TIMEOUT`` fails its node as ``pattern_timeout``, one that
-doesn't compile as ``invalid_pattern``, and a replacement that refers to a group
-the pattern lacks as ``invalid_replacement``.
+can't be stopped from outside, so the guard is inside it. A call fails with the
+code ``pattern_timeout`` when its pattern takes longer than ``TIMEOUT``,
+``invalid_pattern`` when the pattern doesn't compile, and ``invalid_replacement``
+when a replacement refers to a group the pattern doesn't have.
 """
 
 from collections.abc import Iterator
@@ -28,11 +28,11 @@ TIMEOUT = 2.0
 
 @contextmanager
 def _pattern_faults(invalid: str = "invalid_pattern", what: str = "pattern") -> Iterator[None]:
-    """Turns a call that ran out of ``TIMEOUT`` and a ``regex.error`` into the node's own faults.
+    """Turns a ``TimeoutError`` or a ``regex.error`` raised inside the ``with`` block into a ``NodeError``.
 
     Args:
-        invalid: The code of a ``regex.error`` raised inside the block.
-        what: What the block's ``regex.error`` is about, as its message names it.
+        invalid: The code of the ``NodeError`` for a ``regex.error``.
+        what: The word for what is not valid in its message, ``"pattern"`` or ``"replacement"``.
     """
     try:
         yield
@@ -43,6 +43,7 @@ def _pattern_faults(invalid: str = "invalid_pattern", what: str = "pattern") -> 
 
 
 def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
+    """Returns the compiled pattern; a pattern that doesn't compile raises ``NodeError`` (``invalid_pattern``)."""
     with _pattern_faults():
         return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 
@@ -70,7 +71,11 @@ def replace_all(
 
 @registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, one item for each.")
 def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
-    """Every match, an item each, or the first group of each when the pattern has groups; a group that took no part is ``""``."""
+    """Returns every match as a ``Series``, or the first group of each match when the pattern has groups.
+
+    ``"a1b22"`` with ``\\d+`` gives ``["1", "22"]``; with ``([a-z])\\d`` it gives ``["a", "b"]``. A group that did not
+    match, such as ``(x)?``, gives ``""``.
+    """
     compiled = _compiled(pattern, ignore_case)
-    with _pattern_faults():  # ``finditer`` is lazy and the timeout fires while it is walked
+    with _pattern_faults():  # ``finditer`` is lazy, so the timeout is raised while the list is built
         return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in compiled.finditer(text, timeout=TIMEOUT)]

@@ -1,14 +1,21 @@
-"""``table-collect``: gather records into one table and add columns beside them.
+"""``table-collect``: put the records of a loop back into one table, with new columns beside them.
 
-``columns`` names the columns made one value per record, each a ``Series``
-input that keeps a blank where a record got no value, and one that doesn't
-hold a value for each record is refused when the node runs
-(``columns_not_aligned``); ``constant_columns`` names the columns holding one
-value on every record, each an input of one value. Its ``compute_outputs``
-hook types the table by the records and the values arriving.
+A graph takes a table of contacts apart with ``series-split``, greets each contact, and puts the greetings back beside
+the contacts::
 
-Taking a table apart (``series-split``) and stacking tables (``series-stack``)
-are in ``series.py``.
+    read-contacts -> series-split -> greet -> table-collect
+    {"name": ["Ida", "Bo"]}  ->  {"name": ["Ida", "Bo"], "greeting": ["Hello Ida", "Hello Bo"]}
+
+``records`` is a ``Table`` input. Wired to ``series-split.result``, a ``Series`` of records, it collects them: the node
+is called once, with every record in one table. Each name in ``columns`` and ``constant_columns`` adds an input of that
+name and a column:
+
+- A name in ``columns`` is a ``Series`` input with one value per record, from a node called once for each record, such
+  as ``greet``. A record whose node was not called gets ``None``. A list with another number of values than there are
+  records fails the node with ``columns_not_aligned``.
+- A name in ``constant_columns`` is an input of one value, written on every record: the file's name on each line.
+
+Taking a table apart (``series-split``) and stacking tables (``series-stack``) are in ``series.py``.
 """
 
 import typing
@@ -22,13 +29,18 @@ registry = NodeRegistry(category="table")
 
 Names = Annotated[list[str], Param(widget=ListInput())]
 
-#: ``Table`` of a row type known only when a graph loads, which a type checker can't follow.
+#: ``Table`` typed as ``Any``, so that ``_table`` can write ``Table[...]`` of a row type it builds when the graph is
+#: compiled, which a type checker can't follow.
 _Table: Any = Table
 
 
 def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str, Any]:
-    """An input for each new column: a ``Series`` that keeps blanks for one of ``columns``, one value for one of
-    ``constant_columns``."""
+    """Returns one input per new column: ``Series[Any]`` for a name in ``columns``, ``Any`` for one in
+    ``constant_columns``.
+
+    Raises:
+        NodeError: A name is written twice, in one list or across the two (``column_named_twice``).
+    """
     names = [*columns, *constant_columns]
     twice = [name for name in names if names.count(name) > 1]
     if twice:
@@ -37,9 +49,16 @@ def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str,
 
 
 def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
-    """The table collected: the records' columns, then each new one, typed by what arrives on its input. Records of
-    unknown columns make a table of any columns. ``records`` is the type wired to the input: the record type of a
-    ``Series``, or a whole ``Table[R]``, whose records are ``R``."""
+    """Returns the type of the table ``collect`` returns: the records' columns, then each new column.
+
+    ``records`` is the type of what is wired to ``records``: a record type ``R`` (from a ``Series[R]``) or a whole
+    ``Table[R]``. ``added`` is the type of what is wired to each new column's input. With ``R`` a ``TypedDict``
+    ``Contact`` of ``name: str``, and ``greeting`` in ``columns`` wired from a ``str``, the row type has ``name: str``
+    and ``greeting: str | None``. A record type that is not a ``TypedDict`` gives a ``Table`` of any columns.
+
+    Raises:
+        NodeError: A new column has the name of a column the records already have (``column_taken``).
+    """
     if typing.get_origin(records) is Table:
         records = typing.get_args(records)[0]
     if not typing.is_typeddict(records):
@@ -49,7 +68,7 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     if taken:
         raise NodeError(f"The new column '{taken[0]}' is already a column of the records; give it another name", code="column_taken", ctx={"column": taken[0]})
     new = {name: arriving | None if name in columns else arriving for name, arriving in added.items()}
-    return {"result": _Table[TypedDict("Collected", {**known, **new})]}  # type: ignore[operator]  # columns known only at load
+    return {"result": _Table[TypedDict("Collected", {**known, **new})]}  # type: ignore[operator]  # a row type built at compile
 
 
 @registry.node(
@@ -57,10 +76,13 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     compute_added_inputs=_column_inputs, compute_outputs=_table,
 )
 def collect(records: Table, columns: Names = [], constant_columns: Names = [], **values: Any) -> dict[str, Any]:
-    """Returns the records' table with each new column added after its own columns.
+    """Returns the records' table with the new columns after its own: those of ``columns``, then of ``constant_columns``.
+
+    ``values`` has one argument per new column, under its name: a list of one value per record for a name in
+    ``columns``, one value for a name in ``constant_columns``.
 
     Raises:
-        NodeError: A column doesn't hold one value for each record (``columns_not_aligned``).
+        NodeError: A list of ``columns`` has another number of values than there are records (``columns_not_aligned``).
     """
     for name in columns:
         held = len(values[name])

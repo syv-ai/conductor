@@ -60,15 +60,19 @@ def contains(text: LongText, needle: Line, case_sensitive: Flag = True) -> Annot
 
 @registry.node("text-split", title="Split text", description="Splits the text wherever the separator appears, so what follows runs once for each part.")
 def split(text: LongText, separator: Annotated[Line, Param(min_length=1)] = "\n") -> Annotated[Series[str], Param(title="Parts")]:
-    """Splits the text on a separator, a newline unless another is given; each part is an item, and an empty text
-    has none."""
+    """Splits the text on a separator, a newline unless another is given: ``"a\\nb"`` gives ``["a", "b"]``, and an
+    empty text gives ``[]``."""
     return text.split(separator) if text else []
 
 
 @registry.node("text-list", title="Text list", description="A list of texts you type in. Wire something to 'for each' to get the whole list once for each of those.")
 def text_list(items: Annotated[list[str], Param(widget=ListInput())], for_each: Any = None) -> Annotated[Series[str], Param(title="Texts")]:
-    """Gives the texts as a Series. `for_each` is read by no one: an edge into it runs the node once per item of what
-    is wired, so the texts are made inside each of those items."""
+    """Returns ``items`` as a ``Series``.
+
+    ``for_each`` is not read. A ``Series`` wired to it puts this node inside that loop, so it returns the whole list
+    once per item: with ``items`` ``["q1", "q2"]`` and two documents wired to ``for_each``, each document gets
+    ``["q1", "q2"]``.
+    """
     return items
 
 

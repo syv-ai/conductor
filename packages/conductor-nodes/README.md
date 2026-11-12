@@ -6,7 +6,7 @@ Nodes for [Conductor](https://github.com/syv-ai/conductor) that only compute: te
 uv add syv-conductor-nodes
 ```
 
-`conductor_nodes.registry` holds all 34. Add it to yours, or add one module's:
+`conductor_nodes.registry` has all 34. Add it to yours, or add one module's:
 
 ```python
 import conductor_nodes
@@ -30,9 +30,9 @@ print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
 | `tables` | `table` | `table-collect` |
 | `control` | `control` | `control-decide`, `control-if-empty`, `control-if-equals` |
 
-A module holds one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
+Each module is one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
-`series-split` takes a table or a list apart, so you work through it one record or item at a time. Everything after it runs once for each, and `table-collect` puts the records back into one table, with a new column for what was made beside them:
+`series-split` takes a table or a list apart, so you work through it one record or item at a time. Everything after it runs once for each, and `table-collect` puts the records back into one table, with a new column beside them for what was returned for each:
 
 ```python
 import io
@@ -74,9 +74,9 @@ When a whole table or list is wired to an input that takes one value, compiling 
 
 `series-collect` is the way back to one list: it is called once and returns the value of every item, in order.
 
-`text-split` splits a text into its lines, or at another separator. `text-list` returns the texts written in its constant; wire a series to `for_each` and it returns them once for each item of it, so each document gets every question.
+`text-split` splits a text into its lines, or at another separator. `text-list` returns the texts set in its constant; wire a series to `for_each` and it returns them once for each item of it, so each document gets every question.
 
-`control-decide` gives its `value` on `if_true` or `if_false` by `when`, and what is wired to the other way doesn't run for that item. Its outputs take the type that arrives on `value`:
+`control-decide` gives its `value` on `if_true` or `if_false` by `when`, and the nodes wired to the other output are skipped for that call. Its outputs take the type that arrives on `value`:
 
 ```python
 from conductor_nodes.control import decision
