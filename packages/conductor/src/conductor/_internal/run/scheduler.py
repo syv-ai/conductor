@@ -771,7 +771,7 @@ class Scheduler:
         """
         loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
-            return error._as_problem_at(*loc)
+            return Problem.model_construct(type=error.code, loc=loc, msg=error.message, ctx=error.ctx)  # ctx was validated when the error was made
         if isinstance(error, RefusedError):
             (refused,) = error.problems
             return refused.model_copy(update={"loc": loc})

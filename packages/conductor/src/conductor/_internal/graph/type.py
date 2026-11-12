@@ -11,7 +11,7 @@ from conductor._internal.gate import RefusedError, check_limits, read_record
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import Run, no_outcomes
+from conductor._internal.run import Run, ready_run
 
 
 class Graph[C](CompiledGraph):
@@ -40,7 +40,7 @@ class Graph[C](CompiledGraph):
             read = read_record(record)
         except RefusedError as refused:
             raise InvalidCallError(refused.problems) from None
-        return compile_graph(read, registry._nodes, registry.context_type, Graph)
+        return compile_graph(read, {definition.id: definition for definition in registry}, registry.context_type, Graph)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,
@@ -71,7 +71,7 @@ class Graph[C](CompiledGraph):
             values = self._inputs_door({**inputs, **by_name})
         except RefusedError as refused:
             raise InvalidCallError(refused.problems) from None
-        return Run(self, values, max_items, no_outcomes(self), previous._reusable_outcomes(into=self) if previous is not None else {})
+        return ready_run(self, values, max_items, previous)
 
     def run(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,

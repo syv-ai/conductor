@@ -28,6 +28,6 @@ from .state import EndedEarly, Going, RunState, RunStatus
 from .type import (
     NotCalled,
     Run,
-    no_outcomes,
+    ready_run,
 )
 from .waiting import Waiting

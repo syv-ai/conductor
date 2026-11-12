@@ -545,10 +545,12 @@ RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
-def no_outcomes(graph: CompiledGraph) -> dict[str, dict[ItemIndexes, Outcome]]:
-    """The units of a run of ``graph`` that hasn't started: none, for every function of the graph and of each
-    graph embedded in it."""
-    return {name: {} for name in flat_graph_of(graph).function_nodes}
+def ready_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None) -> Run[C]:
+    """Returns a run of ``graph`` that has not started, with the inputs the inputs door let in: what
+    ``graph.with_inputs(text="a\\nb")`` returns. No node has an outcome yet; with ``previous``, the run may reuse
+    that run's outcomes (``Run.with_inputs``)."""
+    outcomes: dict[str, dict[ItemIndexes, Outcome]] = {name: {} for name in flat_graph_of(graph).function_nodes}
+    return Run(graph, inputs, max_items, outcomes, previous._reusable_outcomes(into=graph) if previous is not None else {})
 
 
 def _check_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:

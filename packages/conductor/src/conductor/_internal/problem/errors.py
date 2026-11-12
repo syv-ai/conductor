@@ -148,10 +148,6 @@ class NodeError(ConductorError):
         self.code = code
         self.ctx = _CTX.validate_python(ctx)
 
-    def _as_problem_at(self, *loc: str | int) -> Problem:
-        """This error as a ``Problem`` at ``loc``; ``ctx`` was validated when the error was made."""
-        return Problem.model_construct(type=self.code, loc=loc, msg=self.message, ctx=self.ctx)
-
 
 class ExternalError(NodeError):
     """What a node raises when the outside world failed: a network error, a rate limit, a server error.
