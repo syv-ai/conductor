@@ -339,7 +339,7 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
     ), registry)
     run = graph.run({"lines.text": "ab,xa", "reading.text": "inf", "loose.text": "x", "typed-frame.text": "x", "rows.text": "x"})
 
-    written = run.outputs_json()
+    written = run.outputs_to_json()
 
     assert json.loads(written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")) == {
         "letters.result": [["a", "b"], [None, "a"]],  # a branch not taken for an item is a blank
@@ -353,7 +353,7 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
 def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_names_its_output() -> None:
     graph = _everything()
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(_inputs("a")).outputs_json()
+        graph.run(_inputs("a")).outputs_to_json()
     assert [problem.type for problem in refused.value.errors()] == ["run_not_complete"]
 
     @node("odd", title="Odd", description="For a test.")
@@ -363,7 +363,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     registry = NodeRegistry()
     registry.add(odd)
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x").outputs_json()
+        Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x").outputs_to_json()
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "o.result"), "o.result")
 

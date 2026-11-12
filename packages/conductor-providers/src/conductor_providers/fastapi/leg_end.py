@@ -182,7 +182,7 @@ def end_of(run_end: RunEnd, stored: list[Waiting]) -> LegEnd:
     """
     run = run_end.run
     try:
-        outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_json()) if run.status == "complete" else None)
+        outcome = Outcome(waiting=run.waiting, outputs=from_json(run.outputs_to_json()) if run.status == "complete" else None)
         return Ended(run, run.to_json(), outcome.model_dump_json(), run_end.model_dump_json())
     except InvalidCallError as unwritable:
         return Raised.refused(unwritable, stored)

@@ -386,7 +386,7 @@ def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_on
     import pandas as pd
 
     graph = Graph.compile(make_graph(people), registry_of(people))
-    table = json.loads(graph.run(text="x").outputs_json())["people.result"]
+    table = json.loads(graph.run(text="x").outputs_to_json())["people.result"]
 
     in_polars = pl.DataFrame({c["name"]: c["values"] for c in table["columns"]})
     in_pandas = pd.DataFrame({c["name"]: c["values"] for c in table["columns"]})

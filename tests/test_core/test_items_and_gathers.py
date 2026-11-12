@@ -1388,7 +1388,7 @@ def test_the_output_of_a_node_called_inside_two_loops_is_a_list_per_outer_item_a
     flat = Graph.compile(_PER_LINE, registry).run(text="a,b||c")
 
     assert flat.results["shout"] == {"result": [["A", "B"], None, ["C"]]}
-    assert flat.outputs == {"shout.result": [["A", "B"], None, ["C"]]} and json.loads(flat.outputs_json()) == {"shout.result": [["A", "B"], None, ["C"]]}
+    assert flat.outputs == {"shout.result": [["A", "B"], None, ["C"]]} and json.loads(flat.outputs_to_json()) == {"shout.result": [["A", "B"], None, ["C"]]}
     assert Graph.compile(_PER_LINE, registry).run(text="a,b|-|c").results["shout"] == {"result": [["A", "B"], [], ["C"]]}
     assert Graph.compile(_PER_LINE, registry).with_inputs(text="a,b||c").results["shout"] == {"result": None}
     assert through_json(flat).results == flat.results
@@ -1397,7 +1397,7 @@ def test_the_output_of_a_node_called_inside_two_loops_is_a_list_per_outer_item_a
     embedding = Graph.compile(make_graph(_documents, per_line, edges=[("documents.result", "per-line.document")]), registry_of(_documents, _lines, _shout, per_line))
     embedded = embedding.run(text="a,b||c")
     assert embedded.results["per-line"] == {"shout.result": [["A", "B"], None, ["C"]]}
-    assert json.loads(embedded.outputs_json()) == {"per-line.shout.result": [["A", "B"], None, ["C"]]}
+    assert json.loads(embedded.outputs_to_json()) == {"per-line.shout.result": [["A", "B"], None, ["C"]]}
 
     per_word = make_graph(_documents, _lines, _words_of, _shout, edges=[("documents.result", "lines.document"), ("lines.result", "words-of.line"), ("words-of.result", "shout.line")])
     assert Graph.compile(per_word, registry).run(text="a b,c||d").results["shout"] == {"result": [[["A", "B"], ["C"]], None, [["D"]]]}

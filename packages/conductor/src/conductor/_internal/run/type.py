@@ -468,7 +468,7 @@ class Run:
         reader = self._display_reader
         return {address: reader.display_value(display_plans_of(*self._function_of(address))) for address in self.graph.outputs}
 
-    def outputs_json(self) -> str:
+    def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by address: ``{"join.result":"A!+B!+C!"}`` for the README graph.
 
         Each value is written by its output's type, as in a saved run: a table as its columns, ``inf`` and

@@ -431,7 +431,7 @@ def test_an_embedded_graph_run_per_item_shows_a_list_for_each_item_and_none_for_
     assert flat.results["u"]["result"] == [["AB"], None, ["CD"]]  # a list for each item and none for the blank, as a subgraph shows
     assert embedded.results["e"]["up.result"] == [["AB"], None, ["CD"]] == embedded.outputs["e.up.result"]
     never = ran({"t": "template", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="blank")
-    assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_json() == '{"e.up.result":null}'
+    assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_to_json() == '{"e.up.result":null}'
 
 
 REGISTRY.subgraph("words-up-and-letters", title="Words and letters", description="Each word in capitals, and each letter of each word.")(
