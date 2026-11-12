@@ -1,7 +1,8 @@
-"""What a node returns is checked against what it declares, and so is a value an edge brings that its source's type doesn't settle.
+"""What a node returns is checked against what it declares, and so is a value on an edge whose source's type does
+not say whether the target's input takes it.
 
 A value that isn't what the node declares fails the node that returned it as
-``invalid_output``, or the node it reached as ``invalid_edge_value``, on that item,
+``invalid_output``, or the edge's target node as ``invalid_edge_value``, for that item,
 quoting nothing of the value. A value already of its declared class is taken
 as it is; anything else is read strictly by the type, so a model may be
 returned as a dict, but ``"12"`` is never an ``int`` nor ``12.0`` an ``int`` column.
@@ -85,7 +86,7 @@ def test_returning_none_needs_the_hint():
 @pytest.mark.parametrize(("returned", "return_type"), [([1], list[int] | None), ("a", Literal["a", "b"] | None)],
                          ids=["a-list", "a-literal"])
 def test_an_optional_output_of_a_type_that_is_not_a_class_is_read_by_its_type(returned, return_type):
-    """``-> list[int] | None`` returning ``[1]`` is read by its type as ``-> list[int]`` is, not held to the class ``NoneType``."""
+    """``-> list[int] | None`` returning ``[1]`` is read by its type as ``-> list[int]`` is, not checked against the class ``NoneType``."""
     run = _returning(returned, return_type)
 
     assert run.status == "complete"
@@ -204,7 +205,7 @@ class Routed:
 
 
 def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values():
-    """Two alternatives both given are the fault reported, though ``count``, declared first, is refused too."""
+    """Both branches given a value is the problem reported, though ``count``, declared first, is refused too."""
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
 
     assert (run.state.cause.type, run.state.cause.ctx["name"]) == ("invalid_output", "short")
@@ -258,8 +259,8 @@ def test_a_float_column_for_an_int_one_fails_even_when_whole():
 
 
 def test_a_column_may_have_none_only_where_its_type_takes_none():
-    """A type means what it says: a blank in an ``int`` column is refused where the table arrives, naming the column;
-    a column that may be blank is declared ``int | None``."""
+    """A type means what it says: ``None`` in an ``int`` column is refused where the table is returned, naming the
+    column; a column that may have ``None`` is declared ``int | None``."""
 
     class Loose(TypedDict):
         item: str
@@ -273,7 +274,7 @@ def test_a_column_may_have_none_only_where_its_type_takes_none():
 
 
 def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_given():
-    """A yes or no never lands on a number, though Python counts ``True`` as 1: a column is held to it as a value is."""
+    """A yes or no never lands on a number, though Python counts ``True`` as 1: a column is checked as a single value is."""
     yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
     assert (_returning(yes_no, Table[Line]).state.cause.type, _returning(yes_no, Table[Line]).state.cause.ctx["column"]) == ("invalid_output", "amount")
 
@@ -295,7 +296,7 @@ class Graded(TypedDict):
 
 @pytest.mark.parametrize("column", ["level", "score"])
 def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
-    """A column of a ``Literal`` of numbers or of a union holding a number and no ``bool`` refuses ``True``, as a field
+    """A column of a ``Literal`` of numbers or of a union with a number and no ``bool`` refuses ``True``, as a field
     of that type does: Python counts ``True`` as 1, and both the field and the column read one rule."""
 
     @node("count_rows", title="Count rows", description="For a test.")
@@ -319,7 +320,7 @@ def test_a_node_may_return_a_table_as_records_and_anything_else_fails_it():
     assert _returning("item,amount", Table[Line]).state.cause.type == "invalid_output"
 
 
-# -- what an edge brings -------------------------------------------------------------------
+# -- a value on an edge ---------------------------------------------------------------------
 
 
 @host_type("PickyId", title="Picky id", accepts=[object])
@@ -396,12 +397,12 @@ def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made
 
     graph = Graph.compile(make_graph(count_contacts), registry_of(count_contacts))
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}])  # polars would make the 5 a text
+        graph.run(contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}])  # polars would read the 5 as text
     assert refused.value.errors()[0].ctx["column"] == "name"
 
 
 def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatch_at_compile():
-    """Two tables are compared by their columns where the graph loads: a text column is never an ``int`` column."""
+    """Two tables are compared by their columns when the graph is compiled: a text column is never an ``int`` column."""
     class Amounts(TypedDict):
         result: int
 
@@ -609,7 +610,7 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
 
 @pytest.mark.parametrize(("declared", "returned"), [(dict, {"other": 1}), (Any, 5), (Any, {"other": 1})])
 def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_reader_naming_the_field(declared: Any, returned: Any):
-    """A record whose type declares no fields is wired by field on trust, so a missing one is the reader's ``invalid_edge_value``."""
+    """A record whose type declares no fields is wired by field on trust, so a missing one is ``invalid_edge_value`` of the edge's target."""
     give = _giving(returned, declared)
     graph = Graph.compile(make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(give, _anything_in))
     assert graph.is_runnable
@@ -652,7 +653,7 @@ def _with_them(word: str, values: Series[Any]) -> str:
 def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_called(
     returned: Any, declared: Any, reader: Any, input_name: str,
 ):
-    """The failure is the run's cause; a host that reads the run afterwards is shown a blank where the field was read."""
+    """The failure is the run's cause; a host that reads the run afterwards sees ``None`` for each call that read the field."""
     give = _giving(returned, declared)
     edges = [("words.result", f"{reader.id}.word"), ("give.result.name", f"{reader.id}.{input_name}"), (f"{reader.id}.result", "all-of.values")]
     graph = Graph.compile(make_graph(_words, give, reader, _all_of, edges=edges), registry_of(_words, give, reader, _all_of))
@@ -682,7 +683,8 @@ def _first_of(first: T, second: T = 3) -> T:  # type: ignore[assignment]
 
 
 def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuses_is_a_problem_not_an_exception():
-    """Compiling raised ``NodeDeclarationError`` here: binding the type variable read the default again, as a node is declared."""
+    """Binding a type variable checks the default against the bound type, as a problem of the graph, not as a
+    ``NodeDeclarationError``."""
     registry = registry_of(_text_a, _same, _first_of)
     wired = Graph.compile(make_graph(_text_a, _same, edges=[("text-a.result", "same.value")]), registry)
     assert wired.problems == [] and wired.run().outputs == {"same.result": "a"}  # an edge gives the value, so the default is never used

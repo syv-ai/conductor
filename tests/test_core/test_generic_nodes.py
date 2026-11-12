@@ -1,6 +1,7 @@
-"""A node for any type: a type variable in the signature is what arrives on the edge.
+"""A generic node: a type variable in its signature is bound to the type that arrives on the edge.
 
-Only an edge binds a variable, when the graph loads; after that the placed node has ordinary fields.
+Only an edge binds a variable, when the graph is compiled; in the compiled graph the node's inputs and outputs have
+ordinary types.
 """
 
 import asyncio
@@ -86,7 +87,7 @@ def upper(text: str) -> str:
 
 
 def _compiled(*definitions: Any, edges: list[list[str]], constants: dict[str, dict[str, Any]] | None = None) -> Any:
-    """Each definition as a node named by its id, wired by ``edges``; ``constants`` are typed in by node id."""
+    """Each definition as a node named by its id, wired by ``edges``; ``constants`` are given per node id."""
     nodes = [{"id": d.id, "node": d.id, "constants": (constants or {}).get(d.id, {})} for d in definitions]
     return Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges}), registry_of(*definitions))
 
@@ -147,7 +148,7 @@ def test_a_variable_beside_none_binds_the_arriving_type_without_its_none() -> No
 
 
 def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called() -> None:
-    """An input receives a returns-none only if its hint says so: ``value: T`` fed ``str | None`` is a ``str`` input."""
+    """An input gets ``None`` only if its hint says so: ``value: T`` wired to a ``str | None`` output is a ``str`` input."""
     calls: list[Any] = []
 
     @node("seen", title="Seen", description="For a test.")
@@ -161,7 +162,7 @@ def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called
     run = graph.run()
     assert calls == [] and [(n.loc, n.input) for n in run.not_called] == [(("seen",), "value")]
     inside_a_list = _compiled(keep, seen, edges=[["keep.result", "seen.value"]], constants={"keep": {"value": 1}})
-    assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any takes a blank, and says so
+    assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any takes None, and says so
 
 
 def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -> None:
@@ -173,7 +174,7 @@ def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -
     async def said() -> list[tuple[str, tuple[str, ...]]]:
         return [(event.type, event.loc) async for event in graph.with_inputs().stream() if event.type in ("node_complete", "node_skipped")]
 
-    assert asyncio.run(said())[-2:] == [("node_complete", ("decision",)), ("node_skipped", ("maybe",))]  # skipped, where a blank would leave it not called
+    assert asyncio.run(said())[-2:] == [("node_complete", ("decision",)), ("node_skipped", ("maybe",))]  # skipped, where a None would leave it not called
 
 
 def test_one_variable_on_two_inputs_binds_the_union_of_what_arrives() -> None:

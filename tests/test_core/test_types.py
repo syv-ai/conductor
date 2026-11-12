@@ -1,6 +1,6 @@
 """A type means the same wherever it is read: on an edge, in a list, under a limit, in an answer.
 
-Each test names one place where reading an annotation a second way gave a second answer.
+Each test names one place where an annotation could be read two ways, and checks that it is read one way.
 """
 
 import datetime
@@ -46,7 +46,8 @@ class Money(BaseModel):
 
 
 def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **values: Any) -> Any:
-    """``definition`` as node ``q`` with ``values`` typed in, and each of ``more`` as a node named by its id; the run, resumed."""
+    """``definition`` as node ``q`` with ``values`` as its constants, and each of ``more`` as a node named by its id;
+    the run, resumed."""
     nodes = [{"id": "q", "node": definition.id, "constants": values}, *({"id": other.id, "node": other.id} for other in more)]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges or []}), registry_of(definition, *more))
     assert not graph.problems, graph.problems
@@ -447,7 +448,7 @@ class _Marked:
 
 def test_the_code_fingerprint_of_a_hint_has_no_memory_address() -> None:
     """A function or an object in ``Annotated`` is written by its name, never by ``repr``, which gives its address in
-    this process. The fingerprint is saved with a run, so it has to come out the same in the process that loads it."""
+    this process. The fingerprint is saved with a run, so it has to come out the same in the process that reads the run back."""
     from conductor._internal.value_type import Type
     from pydantic import AfterValidator
 
@@ -515,8 +516,8 @@ def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_has_a_funct
 
 
 def test_what_a_code_fingerprint_says_of_a_series_and_a_table_names_no_internal_module() -> None:
-    """A unit's reuse digest is made of each field's ``reads_as``, and a stored waiting id of that digest. So the
-    text must not change when the class behind ``Series`` or ``Table`` moves to another file."""
+    """A node's code fingerprint is made of each input's and output's ``reads_as``, and a saved waiting call's id of
+    that fingerprint. So the text must not change when the class behind ``Series`` or ``Table`` moves to another file."""
     from conductor._internal.value_type import Type
 
     assert Type(Series[int]).reads_as == "conductor.Series[builtins.int]"

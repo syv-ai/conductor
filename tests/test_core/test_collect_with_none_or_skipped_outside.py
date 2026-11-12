@@ -1,6 +1,17 @@
-"""What is outside the items decides a gathering node only when it is certain: when no item could bring a value
-because a branch outside wasn't taken the node is skipped, and when none could for a no-value outside it isn't
-called, with two items as with none. Otherwise each item decides, and no items is an empty Series."""
+"""A node that collects a loop, when a value from outside the loop is ``None`` or on a branch not chosen.
+
+The outside value decides the collecting node only when it decides every item alike. In the graph
+``items -> pair -> count``, ``items`` returns ``["a", "b"]``, ``pair`` is called per item with its input ``b`` wired
+to ``outside-value``, and ``count`` collects ``pair.result``. When ``outside-value`` returns ``None`` (``pair.b`` takes
+no ``None``), no call of ``pair`` can return a value, so ``count`` is not called, for two items as for none. When
+``outside-value`` is on a branch not chosen, ``count`` is skipped. Otherwise each item decides, and a loop of no items
+is collected as an empty list.
+
+``outside-value`` returns its input ``kind``: ``None`` for ``"no-value"``, ``SKIPPED`` for ``"skip"``. ``maybe`` does the
+same per item. A node named ``...-or-none`` takes ``None`` for its whole input; one named ``...-taking-none`` takes a
+list whose items may be ``None``. A series is "never returned" when the node that would return it was not called or
+was skipped.
+"""
 
 from __future__ import annotations
 
@@ -153,7 +164,8 @@ def ran(nodes: dict[str, str], edges: list[tuple[str, str]], **inputs: str) -> A
 
 
 def outcome_of(run: Any, node_id: str) -> Any:
-    """What the node that runs once came to: its result, ``"not called"`` for a no-value, or ``"skipped"``."""
+    """The outcome of a node inside no loop: its result, ``"not called"`` (an argument was ``None`` where its input
+    takes no ``None``), or ``"skipped"``."""
     result = run.results[node_id]["result"]
     if result is not None:
         return result
@@ -189,8 +201,8 @@ def _nested_loops(joiner: str, kind: str, text: str) -> Any:
 def test_a_none_or_a_branch_not_chosen_outside_nested_loops_decides_the_inner_and_the_outer_collect(text: str) -> None:
     none_outside, skipped = _nested_loops("join", "no-value", text), _nested_loops("join", "skip", text)
     assert (outcome_of(none_outside, "n"), outcome_of(skipped, "n")) == ("not called", "skipped")
-    assert none_outside.results["j"]["result"] == [None] * len(text.split())  # each item's gather is not called: a blank in its place
-    assert skipped.results["j"]["result"] is None  # no item could bring a value, for a branch not taken outside: shown as one
+    assert none_outside.results["j"]["result"] == [None] * len(text.split())  # each item's inner collect is not called: None in its place
+    assert skipped.results["j"]["result"] is None  # no item can get a value when a branch outside is not chosen: one None for all
     assert [call.loc[0] for call in skipped.not_called] == []
     assert _nested_loops("join", "x", "ab cd").results["n"]["result"] == 2
 
@@ -240,7 +252,7 @@ def test_a_branch_not_chosen_outside_skips_an_inner_collect_also_for_an_item_who
     edges = [("s.result", "m.a"), ("m.result", "c.a"), ("c.result", "p.a"), ("t.result", "p.b"), ("p.result", "j.values"), ("j.result", "n.values")]
     run = ran(nodes, edges, kind="skip", text="ab no-value")
     assert (run.results["j"]["result"], outcome_of(run, "n"), run.not_called[0].loc) == (None, "skipped", ("c", 1))
-    assert [call.loc[0] for call in run.not_called] == ["c"]  # j is skipped for both items, never left uncalled for the blank Series
+    assert [call.loc[0] for call in run.not_called] == ["c"]  # j is skipped for both items, also for the item whose list is None
 
 
 OTHER_SERIES = (
@@ -268,7 +280,7 @@ def test_a_node_in_a_loop_collecting_a_series_never_returned_is_not_called_nor_i
     ("yes", "yes", "p q", 2), ("no", "no", "p", 1), ("yes", "no", "p q", "skipped"), ("yes", "no", "", "skipped"), ("no", "yes", "", "skipped"), ("yes", "yes", "", 0),
 ])
 def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_branch_not_chosen(first: str, second: str, text: str, n: Any) -> None:
-    # a needs e.yes and f.yes, b needs e.no and f.no; either feeds p, which runs per item and is collected_text
+    # a needs e.yes and f.yes, b needs e.no and f.no; both are wired to p, which is called per item and collected
     nodes = {"s": "items", "e": "decide", "f": "decide", "a": "three", "b": "three", "p": "up", "n": "count"}
     edges = [
         ("s.result", "a.a"), ("e.yes", "a.b"), ("f.yes", "a.c"), ("s.result", "b.a"), ("e.no", "b.b"), ("f.no", "b.c"),
@@ -279,8 +291,8 @@ def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_b
 
 @pytest.mark.parametrize(("ways", "n"), [(["yes"] * 40, 2), (["yes", "no"] * 20, 2), ([*["yes"] * 20, "skip", *["no"] * 19], "skipped")])
 def test_forty_stages_of_alternatives_in_the_loop_are_decided_node_by_node_not_path_by_path(ways: list[str], n: Any) -> None:
-    """Forty stages, each two nodes on opposite branches of a decision made outside the items, both fed by both
-    nodes of the stage before: a million million ways up, eighty nodes to ask."""
+    """Forty stages, each of two nodes on opposite branches of a branch node outside the loop, each wired to both
+    nodes of the stage before: about a million million paths lead through, and eighty nodes are decided."""
     nodes: list[dict[str, Any]] = [{"id": "s", "node": "items", "constants": {"text": "p q"}}]
     edges: list[tuple[str, str]] = []
     before = ["s.result"]
@@ -318,7 +330,7 @@ def test_one_none_wired_to_a_series_input_is_a_list_of_one_none_where_its_items_
 
 def test_a_list_of_one_none_from_outside_the_loop_is_taken_only_where_its_items_take_none() -> None:
     nodes, edges = {"s": "items", "t": "outside-value", "x": "with-all", "n": "count"}, [("s.result", "x.a"), ("t.result", "x.values"), ("x.result", "n.values")]
-    assert outcome_of(ran(nodes, edges, kind="no-value", text="a b"), "n") == "not called"  # with-all takes no blank in its Series of one
+    assert outcome_of(ran(nodes, edges, kind="no-value", text="a b"), "n") == "not called"  # with-all's list of one takes no None
     assert outcome_of(ran({**nodes, "x": "with-all-taking-none"}, edges, kind="no-value", text="a b"), "n") == 2
 
 
@@ -334,8 +346,9 @@ def test_a_series_returned_or_not_inside_a_subgraph_is_collected_as_with_the_sam
 
 @pytest.mark.parametrize("text", ["a b", ""])
 def test_a_collect_reading_only_the_series_counts_its_items_and_one_reading_a_none_beside_it_is_not_called(text: str) -> None:
-    """Where all the nodes per item read outside the items is the Series, the gather comes to what the Series is.
-    A second output of the node that makes the Series is something else: no-value, it leaves the gather not called."""
+    """When the loop body reads nothing from outside the loop but the series, the collecting node's outcome is
+    decided by the series alone. A second output of the node that returns the series is another value: when it is
+    ``None``, the collecting node that reads it is not called."""
     nodes = {"x": "say", "t": "outside-value", "l": "items-and-note", "p": "pair", "u": "up", "n": "count", "m": "count"}
     edges = [("x.result", "l.text"), ("t.result", "l.note"), ("l.items", "u.a"), ("u.result", "m.values"), ("l.items", "p.a"), ("l.note", "p.b"), ("p.result", "n.values")]
     run = ran(nodes, edges, kind="no-value", text=text)
@@ -369,8 +382,8 @@ REGISTRY.subgraph("summary-and-letters", title="Summary and letters", descriptio
 
 
 def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_in_a_subgraph() -> None:
-    """A document's summary beside the document's letters: the node runs per document for the letters it gathers,
-    so the summary its other ``Series`` input is wired to is the one of its own document, never every document's."""
+    """A document's summary beside the document's letters: the node is called once per document, for the letters it
+    collects, so its other ``Series`` input, wired to the summary, gets that document's summary, never every one."""
     flat = Graph.compile(GraphRecord.model_validate({
         "nodes": [{"id": "s", "node": "items"}, {"id": "u", "node": "up"}, {"id": "c", "node": "chars"}, {"id": "x", "node": "maybe"}, {"id": "j", "node": "both"}],
         "edges": [["s.result", "u.a"], ["s.result", "c.a"], ["c.result", "x.a"], ["u.result", "j.a"], ["x.result", "j.b"]],
@@ -387,7 +400,7 @@ def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_
 
 
 def shown(nodes: dict[str, str], edges: list[tuple[str, str]], node_id: str, output: str = "result", **inputs: str) -> tuple[Any, Any, Any]:
-    """An output in ``run.results``, in ``run.outputs``, and in the results of the run saved and loaded."""
+    """An output in ``run.results``, in ``run.outputs``, and in the results of the run read back with ``Run.from_json``."""
     run = ran(nodes, edges, **inputs)
     return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "read below"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
 
@@ -428,7 +441,7 @@ def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_
 def test_a_subgraph_in_a_loop_shows_a_list_per_item_and_none_where_its_series_was_never_returned() -> None:
     flat = ran({"s": "items", "m": "maybe", "w": "items", "u": "up"}, [("s.result", "m.a"), ("m.result", "w.text"), ("w.result", "u.a")], text="ab no-value cd")
     in_subgraph = ran({"s": "items", "m": "maybe", "e": "items-then-up"}, [("s.result", "m.a"), ("m.result", "e.text")], text="ab no-value cd")
-    assert flat.results["u"]["result"] == [["AB"], None, ["CD"]]  # a list for each item and none for the blank, as a subgraph shows
+    assert flat.results["u"]["result"] == [["AB"], None, ["CD"]]  # a list for each item and None for the item whose series was never returned
     assert in_subgraph.results["e"]["up.result"] == [["AB"], None, ["CD"]] == in_subgraph.outputs["e.up.result"]
     never = ran({"t": "outside-value", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="no-value")
     assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_to_json() == '{"e.up.result":null}'
@@ -441,7 +454,7 @@ REGISTRY.subgraph("words-up-and-letters", title="Words and letters", description
 
 def test_two_series_inputs_wired_to_a_subgraphs_per_word_and_per_letter_outputs_are_called_per_word() -> None:
     """The letters are a list per word, so the node is called once per word with that word's letters, and the
-    other input receives that word's one value as a list of one."""
+    other input gets that word's one value as a list of one."""
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "words-up-and-letters"}, {"id": "n", "node": "both"}], "edges": [["e.up.result", "n.a"], ["e.maybe.result", "n.b"]]}), REGISTRY)
     assert not graph.problems
     assert graph.run(text="ab cd").results["n"]["result"] == ["AB:AB", "CD:CD"]

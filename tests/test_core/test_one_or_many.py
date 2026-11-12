@@ -88,7 +88,7 @@ def approve(text: str) -> bool:
 
 
 def record_of(*nodes: tuple[str, str] | dict[str, Any], edges: tuple[tuple[str, str], ...] = ()) -> dict[str, Any]:
-    """A record: each node ``(id, node)`` or a node record of its own, and edges ``(from, to)``."""
+    """A graph record: each node ``(id, node)`` or a node record of its own, and edges ``(source, target)``."""
     return {
         "nodes": [n if isinstance(n, dict) else {"id": n[0], "node": n[1]} for n in nodes],
         "edges": [list(e) for e in edges],
@@ -96,7 +96,7 @@ def record_of(*nodes: tuple[str, str] | dict[str, Any], edges: tuple[tuple[str, 
 
 
 def ran(record: dict[str, Any], reg: NodeRegistry = registry, max_items: int | None = None, **inputs: Any) -> Any:
-    """The run of a record that loads clean, its calls counted afresh in ``CALLS``."""
+    """The run of a graph record that compiles with no problems, its calls counted afresh in ``CALLS``."""
     CALLS.clear()
     graph = Graph.compile(GraphRecord.model_validate(record), reg)
     assert graph.problems == [], graph.problems
@@ -121,7 +121,7 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     assert run.graph.runs_on["review"].series == "upload.result"
 
     run = ran(PER, files=FILES[:1])
-    assert CALLS == {"read": 1, "review": 1} and run.outputs == {"review.result": ["rev(K0)"]}  # a Series of one
+    assert CALLS == {"read": 1, "review": 1} and run.outputs == {"review.result": ["rev(K0)"]}  # a list of one
     assert run.graph.runs_on["review"].series == "upload.result"
     assert ran(PER, files=[]).outputs == {"review.result": []} and CALLS == {}
 
@@ -156,7 +156,7 @@ COLLECTED = record_of(("c", "upload"), ("a", "upload"), ("w", "with_appendices")
 
 
 def test_two_uploads_meeting_at_a_node_are_a_problem_and_one_contract_meets_each_appendix():
-    """Which contract goes with which appendix is the author's to draw, never guessed."""
+    """Which contract goes with which appendix is for the graph's author to wire, never guessed."""
     (problem,) = Graph.compile(GraphRecord.model_validate(TWO), registry).problems
     assert (problem.type, problem.loc, problem.ctx["series"]) == ("series_not_nested", ("cmp",), ["c.result", "a.result"])
     assert ran(ONE_CONTRACT, file="c", files=["a1", "a2"]).outputs == {"cmp.result": ["C~a1", "C~a2"]}
@@ -309,7 +309,7 @@ def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
 
 
 def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_table():
-    """``True`` for an ``int`` field of a ``TypedDict`` was read as 1, where the same row in a ``Table`` was refused."""
+    """``True`` for an ``int`` field is refused alike in a ``TypedDict``, a list or dict of them, and a ``Table``."""
     from typing import TypedDict
 
     from conductor import Table
