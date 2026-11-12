@@ -50,8 +50,13 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
         raise InvalidCallError(refused.problems) from None
     graph = keyed.record
     node_record = keyed.nodes.get(node_id)
-    if node_record is None:  # a node the record has under an id that is no name has the problem invalid_node_id
-        raise InvalidCallError([id_problem for id_problem in keyed.problems if id_problem.loc == (node_id,)] or [problem.node_not_in_graph(node_id, nodes=list(keyed.nodes))])
+    if node_record is None:
+        # The record door leaves out a node whose id is not a name and gives it the problem invalid_node_id at the
+        # id. That is the only problem it gives at a bare id that is not in keyed.nodes, so upgrade reports it.
+        id_problems = [id_problem for id_problem in keyed.problems if id_problem.loc == (node_id,)]
+        if id_problems:
+            raise InvalidCallError(id_problems)
+        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=list(keyed.nodes))])
     if node_record.node not in nodes:
         raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(nodes))])
     newest = nodes[node_record.node]
