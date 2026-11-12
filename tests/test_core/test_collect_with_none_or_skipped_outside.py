@@ -402,7 +402,7 @@ def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_
 def shown(nodes: dict[str, str], edges: list[tuple[str, str]], node_id: str, output: str = "result", **inputs: str) -> tuple[Any, Any, Any]:
     """An output in ``run.results``, in ``run.outputs``, and in the results of the run read back with ``Run.from_json``."""
     run = ran(nodes, edges, **inputs)
-    return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "read below"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
+    return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "not a graph output"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
 
 
 @pytest.mark.parametrize(("kind", "result"), [("no-value", None), ("skip", None), ("", []), ("a b", ["A", "B"])])
@@ -415,7 +415,7 @@ def test_a_per_item_output_is_shown_as_a_collect_would_get_it_flat_or_in_a_subgr
 @pytest.mark.parametrize(("kind", "result"), [("no-value", [None, None]), ("skip", None), ("x", ["a+x", "b+x"])])
 def test_a_per_item_output_decided_from_outside_is_none_per_item_or_one_none_when_skipped(kind: str, result: Any) -> None:
     nodes, edges = {"s": "items", "t": "outside-value", "p": "pair", "n": "count"}, [("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
-    assert shown(nodes, edges, "p", kind=kind, text="a b") == (result, "read below", result)
+    assert shown(nodes, edges, "p", kind=kind, text="a b") == (result, "not a graph output", result)
 
 
 def test_an_output_of_nested_loops_is_a_list_per_outer_item_or_none_when_never_returned() -> None:

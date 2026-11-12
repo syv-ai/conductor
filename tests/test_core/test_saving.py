@@ -785,7 +785,7 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
 @pytest.mark.parametrize(
     ("where", "damaged"),
     [
-        ("units", lambda s: s.__setitem__("units", [])),
+        ("units", lambda s: s.__setitem__("units", [])),  # a key a saved run does not have
         ("inputs", lambda s: s.__setitem__("inputs", [])),
         ("state", lambda s: s["state"].__setitem__("status", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
@@ -817,7 +817,7 @@ def ok_word(word: str) -> bool:
 @pytest.mark.parametrize(
     ("where", "damaged"),
     [
-        ("units", lambda s: s.__setitem__("units", [])),
+        ("units", lambda s: s.__setitem__("units", [])),  # a key a saved run does not have
         ("reusable", lambda s: s.__setitem__("reusable", [])),
         ("inputs", lambda s: s.__setitem__("inputs", [])),
         ("code", lambda s: s.__setitem__("code", [])),
@@ -829,7 +829,7 @@ def ok_word(word: str) -> bool:
         ("outcomes.ok.questions", lambda s: s["outcomes"]["ok"].__setitem__("questions", [])),
         ("outcomes.ok.questions.0.prompt", lambda s: s["outcomes"]["ok"]["questions"].__setitem__("0", {"inputs": {}})),
         ("outcomes.upper.not_called_because.0", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": 1})),
-        ("outcomes.upper.undeclared", lambda s: s["outcomes"]["upper"].__setitem__("undeclared", {"0": -1})),  # a saved run has only the keys it declares
+        ("outcomes.upper.undeclared", lambda s: s["outcomes"]["upper"].__setitem__("undeclared", {"0": -1})),  # a key a node's saved outcomes do not have
         ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("skipped", {"result": [7]})),
         ("outcomes.upper.skipped.other", lambda s: s["outcomes"]["upper"].__setitem__("skipped", {"other": [0]})),  # no such output
         ("outcomes.upper.skipped_items.result", lambda s: s["outcomes"]["upper"].__setitem__("skipped_items", {"result": {"0": [0]}})),  # only a Series has items
