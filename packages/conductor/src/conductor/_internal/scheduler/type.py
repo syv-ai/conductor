@@ -49,6 +49,7 @@ from conductor._internal.address import ItemIndexes, NodePath
 from conductor._internal.ask import Ask, InvalidAskError, question_asked
 from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
 from conductor._internal.outcomes import (
+    Answered,
     Done,
     NotCalled,
     NotReady,
@@ -508,10 +509,7 @@ class Scheduler:
     def _record(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False) -> None:
         """Keep what a unit came to, and make ready what reads it."""
         if type(outcome) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
-            if self.going:  # the first failure is the cause; a later one changes nothing
-                self.end(EndedEarly("failed", outcome))
-                if self.node_events is not None:
-                    self.node_events.call_failed(node, outcome)
+            self._fail(node, outcome)
             return
         outcomes = self.outcomes[node]
         if outcomes and item_indexes not in outcomes and item_indexes < next(reversed(outcomes)):
@@ -522,16 +520,22 @@ class Scheduler:
             self.changed = True
         if self.checkpoint_every is not None and time.monotonic() >= self.next_checkpoint:
             self._checkpoint()
-        if self.max_items is not None and node.looped_outputs and outcome.has_outputs:
-            for output in node.looped_outputs:
-                items = length(outcome.outputs[output])
-                if items > self.max_items:
-                    self._stop_at_item_limit(node, item_indexes, output, items, self.max_items)
-                    return
+        if self.max_items is not None and node.looped_outputs and outcome.has_outputs and self._stop_if_over_item_limit(node, item_indexes, outcome, self.max_items):
+            return
         if self.node_events is not None:
             self.node_events.outcome_recorded(node, item_indexes, outcome)
-        if trying_every_call or not self.going or not outcome.has_outputs:  # nothing reads a unit that waits for a person
-            return
+        if not trying_every_call and self.going and outcome.has_outputs:  # nothing reads a unit that waits for a person
+            self._make_downstream_ready(node, item_indexes)
+
+    def _fail(self, node: FlatFunctionNode, cause: Problem) -> None:
+        """A call of ``node`` failed. The first failure ends the run; a later one changes nothing."""
+        if self.going:
+            self.end(EndedEarly("failed", cause))
+            if self.node_events is not None:
+                self.node_events.call_failed(node, cause)
+
+    def _make_downstream_ready(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> None:
+        """Put the calls that read the outcome of ``node`` for ``item_indexes`` among those to try."""
         depth = len(item_indexes)
         for reader, places in node.downstream:
             if places < depth:  # it is made from every unit under those places: tried once nothing it reads works under them
@@ -598,6 +602,15 @@ class Scheduler:
                     if outcome.has_outputs and length(outcome.outputs[output]) > item_limit:
                         self._stop_at_item_limit(node, item_indexes, output, length(outcome.outputs[output]), item_limit)
                         return
+
+    def _stop_if_over_item_limit(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NotCalled, item_limit: int) -> bool:
+        """Stop the run if a series in ``outcome`` that a loop runs over has more items than ``item_limit``; True when one has."""
+        for output in node.looped_outputs:
+            items = length(outcome.outputs[output])
+            if items > item_limit:
+                self._stop_at_item_limit(node, item_indexes, output, items, item_limit)
+                return True
+        return False
 
     def _stop_at_item_limit(self, node: FlatFunctionNode, item_indexes: ItemIndexes, output: str, items: int, item_limit: int) -> None:
         """Stop the leg at the item ceiling, unless it already ended for a failure, a cancel or its timeout, which
