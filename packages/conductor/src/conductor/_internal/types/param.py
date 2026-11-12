@@ -124,7 +124,7 @@ class Param:
         except PydanticSerializationError:
             raise NodeDeclarationError(declaration.choices_invalid_no_json_form()) from None
         except ValidationError as refused:
-            reason = value_free_errors(refused.errors(include_url=False, include_input=False))[0]["msg"]
+            reason = value_free_errors(refused)[0]["msg"]
             raise NodeDeclarationError(declaration.choices_invalid_not_a_value(reason=reason)) from None
         literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]
         distinct = {repr(i) for i in ids}

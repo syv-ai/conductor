@@ -69,7 +69,7 @@ class InputsDoor:
         try:
             values: dict[str, Any] = self._validator.validate_python(given)
         except ValidationError as error:
-            raise RefusedError(self._problems(given, error.errors(include_url=False, include_input=False))) from None
+            raise RefusedError(self._problems(given, error)) from None
         return values
 
     def addresses(self, given: Mapping[Any, Any]) -> set[str]:
@@ -77,18 +77,18 @@ class InputsDoor:
         offer names none. For ``make_graph(shout)``, ``{"line": ..., "shout.mark": ...}`` names ``{"shout.line", "shout.mark"}``."""
         return {self._addresses[key] for key in given if key in self._addresses}
 
-    def _problems(self, given: Mapping[Any, Any], errors: list[ErrorDetails]) -> list[Problem]:
-        """The problems of pydantic's ``errors`` for ``given``: the names the graph does not take first, in the
+    def _problems(self, given: Mapping[Any, Any], error: ValidationError) -> list[Problem]:
+        """The problems of pydantic's ``error`` for ``given``: the names the graph does not take first, in the
         order given, then the faults of each input, in the graph's order."""
         names: list[Problem] = []
-        by_input: dict[str, list[ErrorDetails]] = {}
-        for error in errors:
-            key, *inside = error["loc"]
-            if error["type"] in ("extra_forbidden", "invalid_key"):
+        first_faults: dict[str, ErrorDetails] = {}
+        for fault in error.errors():
+            key = fault["loc"][0]
+            if fault["type"] in ("extra_forbidden", "invalid_key"):
                 names.append(self._name_problem(key))
             else:  # a fault of an input, under the text it was found by: its name or its address
-                by_input.setdefault(self._addresses[str(key)], []).append({**error, "loc": tuple(inside)})
-        return names + [self._input_problem(address, given, by_input[address]) for address in self._inputs if address in by_input]
+                first_faults.setdefault(self._addresses[str(key)], fault)
+        return names + [self._input_problem(address, given, error, first_faults[address]) for address in self._inputs if address in first_faults]
 
     def _name_problem(self, key: Any) -> Problem:
         """The problem of a key the caller gave that the door does not take: a name the graph does not offer, or
@@ -99,12 +99,14 @@ class InputsDoor:
         name, _ = self._inputs[address]
         return problem.input_given_twice("inputs", name, name=name, address=address)
 
-    def _input_problem(self, address: str, given: Mapping[Any, Any], errors: list[ErrorDetails]) -> Problem:
-        """The problem of one graph input whose value is missing or refused by its type."""
+    def _input_problem(self, address: str, given: Mapping[Any, Any], error: ValidationError, first: ErrorDetails) -> Problem:
+        """The problem of one graph input whose value is missing or refused by its type; ``first`` is the first
+        fault of pydantic's ``error`` that is in this input."""
         name, field = self._inputs[address]
-        if errors[0]["type"] == "missing" and not errors[0]["loc"]:  # the input itself, not a field inside its value
+        key, *inside = first["loc"]
+        if first["type"] == "missing" and not inside:  # the input itself, not a field inside its value
             return problem.missing_input("inputs", name, name=name)
-        refused = field.whole.refusal(errors)
+        refused = field.whole.refusal(error, under=(key,))
         value = given[name] if name in given else given[address]
         if not field.is_series and type(value) is list and all(not error["loc"] for error in refused.errors):
             return problem.invalid_input_make_a_series("inputs", name, name=name, expected=field.whole.id, length=len(value))  # the one mistake whose fix is in the graph

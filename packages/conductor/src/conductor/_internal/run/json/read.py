@@ -61,11 +61,11 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
     try:
         read: SavedRun[list[Outcome | None], ReusableOutcomes] = codec.validator.validate_json(saved)
     except ValidationError as error:
-        first = error.errors(include_url=False, include_input=False)[0]
+        first = error.errors()[0]
         if first["type"] == "union_tag_invalid" and not first["loc"]:  # the fingerprint under "graph" is not this graph's
             raise InvalidCallError([problem.saved_run_of_another_graph("saved_run", saved=first["ctx"]["tag"], graph=graph.fingerprint)]) from None
         where = ".".join(str(step) for step in first["loc"][1:]) or "the run"  # pydantic's loc starts with the graph's fingerprint
-        raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=where, reason=value_free_errors(error.errors(include_url=False, include_input=False))[0]["msg"])]) from None
+        raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=where, reason=value_free_errors(error)[0]["msg"])]) from None
     outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
     for node in graph._flat_function_nodes:
         outcomes[node.name] = {}
@@ -215,7 +215,7 @@ def with_shared_tables(
             outcome.outputs[output] = output_validator_of(outputs[node][output].whole).validate_python(table, strict=True)
         except (LookupError, AttributeError, ValidationError) as wrong:
             if isinstance(wrong, ValidationError):
-                reason = outputs[node][output].whole.refusal(wrong.errors(include_url=False, include_input=False)).reason
+                reason = outputs[node][output].whole.refusal(wrong).reason
             else:
                 reason = "that is not an output written in full before it"
             raise PydanticCustomError(

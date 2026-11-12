@@ -43,6 +43,6 @@ def declared_field(name: str, hint: Any, default: Any) -> Field:
     try:
         read = validator_of(whole).validate_python(default)
     except ValidationError as error:
-        reason = whole.refusal(error.errors(include_url=False, include_input=False)).reason
+        reason = whole.refusal(error).reason
         raise NodeDeclarationError(declaration.default_invalid(default=repr(default), type=whole.id, reason=reason), name) from None
     return Field(name, hint, read)

@@ -17,12 +17,11 @@ from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
 
-from pydantic import ConfigDict, JsonValue, TypeAdapter
+from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
-    ErrorDetails,
     SchemaError,
     SchemaSerializer,
 )
@@ -417,10 +416,10 @@ class Type:
         """Gives this type with its variables replaced by what ``bound`` binds them to."""
         return Type(substituted(self.hint, bound))
 
-    def refusal(self, errors: list[ErrorDetails]) -> TypeRefusal:
+    def refusal(self, error: ValidationError, under: tuple[str | int, ...] = ()) -> TypeRefusal:
         """Says why the type refused a value, quoting nothing of the value.
 
-        Example: ``Type(list[int])`` refuses ``[1, "x"]``, and pydantic's errors give a ``TypeRefusal`` whose
+        Example: ``Type(list[int])`` refuses ``[1, "x"]``, and pydantic's error gives a ``TypeRefusal`` whose
         ``reason`` is ``"Input should be a valid integer, unable to parse string as an integer"`` and whose one
         error has the ``loc`` ``[1]``.
 
@@ -428,14 +427,19 @@ class Type:
         as a dict key, which is part of the value. An error in a table's column names the column.
 
         Args:
-            errors: What ``ValidationError.errors(include_url=False, include_input=False)`` returned for a value
-                of this type.
+            error: What pydantic raised when it read a value of this type, or a value that has one of this type
+                inside it (see ``under``).
+            under: The steps from what pydantic read to the value of this type: ``("count",)`` when pydantic read
+                a mapping of outputs and this type is the output ``count``'s. Only the errors inside that value
+                are read, from that value on.
         """
-        value_free = value_free_errors(errors)
+        start = len(under)
+        pairs = [(free, raw) for free, raw in zip(value_free_errors(error), error.errors(), strict=True) if raw["loc"][:start] == under]
+        value_free = [free for free, _ in pairs]
         columns: list[str] = []
-        for error_record, raw in zip(value_free, errors, strict=True):
+        for error_record, raw in pairs:
             at, kept, column, owner = self, list[int | str](), None, self
-            for step in raw["loc"]:
+            for step in raw["loc"][start:]:
                 walked = at._walked(step)
                 if walked is None:
                     break

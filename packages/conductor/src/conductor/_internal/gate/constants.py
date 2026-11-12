@@ -33,7 +33,7 @@ def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
     try:
         return validator_of(field.whole).validate_python(value)
     except ValidationError as error:
-        refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
+        refused = field.whole.refusal(error)
         raise RefusedError([problem.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 
 
@@ -57,5 +57,5 @@ def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Fie
     try:
         return Field(field.name, hint, validator_of(whole).validate_python(field.default))
     except ValidationError as error:
-        refused = whole.refusal(error.errors(include_url=False, include_input=False))
+        refused = whole.refusal(error)
         raise RefusedError([problem.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None

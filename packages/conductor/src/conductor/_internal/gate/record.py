@@ -63,7 +63,7 @@ def _refusal(invalid: ValidationError) -> RefusedError:
     """One ``invalid_record`` problem for each fault pydantic found in a graph record."""
     return RefusedError(
         problem.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"].removeprefix("Value error, "), error=error["type"])
-        for error in invalid.errors(include_url=False, include_input=False)  # a validator's own sentence, without pydantic's prefix
+        for error in invalid.errors()  # a validator's own sentence, without pydantic's prefix
     )
 
 

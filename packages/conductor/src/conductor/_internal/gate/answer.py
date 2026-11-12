@@ -157,5 +157,5 @@ def read_as_answer(value_type: Type, value: Any) -> Any:
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "the value has no JSON form") from None
     except ValidationError as error:
-        raise PydanticCustomError("not_its_type", value_type.refusal(error.errors(include_url=False, include_input=False)).reason) from None
+        raise PydanticCustomError("not_its_type", value_type.refusal(error).reason) from None
 

@@ -38,8 +38,7 @@ from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 from typing import Any
 
-from pydantic import JsonValue, TypeAdapter
-from pydantic_core import ErrorDetails
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from .catalogue import external_failed, failed
 from .type import Problem
@@ -47,19 +46,18 @@ from .type import Problem
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
 
 
-def value_free_errors(errors: list[ErrorDetails]) -> list[dict[str, Any]]:
-    """pydantic's errors with nothing of the refused value in them, for a problem's ``ctx.errors``.
+def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
+    """The errors of pydantic's ``error`` with nothing of the refused value in them, for a problem's ``ctx.errors``.
 
-    ``errors`` is what ``ValidationError.errors(include_url=False, include_input=False)`` returns. For ``int`` on
-    ``"many"`` the result is ``[{"type": "int_parsing", "loc": [], "msg": "Input should be a valid integer, unable to
+    For ``int`` on ``"many"`` the result is ``[{"type": "int_parsing", "loc": [], "msg": "Input should be a valid integer, unable to
     parse string as an integer"}]``. Each error keeps its ``type``. Its ``loc`` is emptied,
     since pydantic's may contain a key of the value; a caller that knows the type puts back the steps the type
     declares. Its ``msg`` is kept when it speaks only of the type, as a limit does, and replaced when it was made
     from what a validator raised or from a tag of the value, since those may quote the value.
     """
     return [
-        {"type": error["type"], "loc": [], "msg": _VALIDATOR_PREFIX if {"error", "tag"} & error.get("ctx", {}).keys() else error["msg"]}
-        for error in errors
+        {"type": fault["type"], "loc": [], "msg": _VALIDATOR_PREFIX if {"error", "tag"} & fault.get("ctx", {}).keys() else fault["msg"]}
+        for fault in error.errors()
     ]
 
 

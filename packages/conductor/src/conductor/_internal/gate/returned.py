@@ -27,7 +27,6 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import (
     CoreSchema,
-    ErrorDetails,
     PydanticCustomError,
     SchemaValidator,
     core_schema,
@@ -139,7 +138,7 @@ class AskedValueDoor:
             return self._validate(returned, strict=True)
         except ValidationError as error:
             field = self._field
-            refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
+            refused = field.whole.refusal(error)
             raise RefusedError([problem.invalid_asked_value(name=field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 
 
@@ -162,7 +161,7 @@ def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
         try:
             return {"result": validate(returned, strict=True)}
         except ValidationError as error:
-            raise _refused_output(field, error.errors(include_url=False, include_input=False)) from None
+            raise _refused_output(field, error) from None
 
     return read
 
@@ -207,20 +206,21 @@ def _several_outputs(outputs: Mapping[str, Field], by_name: Callable[[Any], dict
         try:
             outputs_read: dict[str, Any] = validate(returned, strict=True)
         except ValidationError as error:
-            raise _first_fault(outputs, error.errors(include_url=False, include_input=False)) from None
+            raise _first_fault(outputs, error) from None
         return outputs_read
 
     return read
 
 
-def _first_fault(outputs: Mapping[str, Field], errors: list[ErrorDetails]) -> RefusedError:
-    """The ``invalid_output`` of the first fault the validator of a node with several outputs found.
+def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> RefusedError:
+    """The ``invalid_output`` of the first fault pydantic's ``error`` names, raised by the validator of a node with
+    several outputs.
 
     A fault of the whole value (not the dataclass, not a mapping, an output missing or unknown) and two outputs of
     one group both given name the output their message is about; a value an output's type refuses is said as that
     type says it, with every error pydantic found in that output.
     """
-    first = errors[0]
+    first = error.errors()[0]
     ctx = first.get("ctx", {})
     if first["type"] == "alternatives_both_given":
         return RefusedError([problem.invalid_output(reason=first["msg"], name=ctx["second"])])
@@ -229,13 +229,13 @@ def _first_fault(outputs: Mapping[str, Field], errors: list[ErrorDetails]) -> Re
     if not first["loc"]:
         return RefusedError([problem.invalid_output(reason=first["msg"])])
     name = str(first["loc"][0])
-    inside: list[ErrorDetails] = [{**error, "loc": error["loc"][1:]} for error in errors if error["loc"][:1] == (name,)]
-    return _refused_output(outputs[name], inside)
+    return _refused_output(outputs[name], error, under=(name,))
 
 
-def _refused_output(field: Field, errors: list[ErrorDetails]) -> RefusedError:
-    """The ``invalid_output`` of a value the type of the output ``field`` refused, with pydantic's ``errors`` for it."""
-    refused = field.whole.refusal(errors)
+def _refused_output(field: Field, error: ValidationError, under: tuple[str, ...] = ()) -> RefusedError:
+    """The ``invalid_output`` of a value the type of the output ``field`` refused; ``error`` and ``under`` are as
+    ``Type.refusal`` takes them."""
+    refused = field.whole.refusal(error, under)
     return RefusedError([problem.invalid_output(reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column)])
 
 

@@ -75,6 +75,6 @@ class EdgeDoor:
             try:
                 read[name] = validate(value, strict=False)
             except ValidationError as error:
-                refused = whole.refusal(error.errors(include_url=False, include_input=False))
+                refused = whole.refusal(error)
                 raise RefusedError([problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
         return read
