@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import io
-import pathlib
 import re
 import sys
-import types
+from ast import Call, Constant, JoinedStr, Name
+from io import StringIO
+from pathlib import Path
+from types import ModuleType
 
-import pytest
 from conductor import PROBLEMS
+from pytest import MonkeyPatch
 
-_ROOT = pathlib.Path(__file__).parents[2]
+_ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
 _PAGE = (_ROOT / "docs" / "problems.md").read_text()
 #: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
@@ -23,8 +24,8 @@ _NO_FIX = {"failed", "external_failed", "invalid_answer"}
 
 def _template(message: ast.expr) -> str:
     """An f-string as its text with ``{slot}`` for each value, the ``{where}`` prefix naming the node left out."""
-    if isinstance(message, ast.JoinedStr):
-        text = "".join(str(p.value) if isinstance(p, ast.Constant) else "{" + ast.unparse(p.value) + "}" for p in message.values)  # type: ignore[attr-defined]
+    if isinstance(message, JoinedStr):
+        text = "".join(str(p.value) if isinstance(p, Constant) else "{" + ast.unparse(p.value) + "}" for p in message.values)  # type: ignore[attr-defined]
         return re.sub(r"^\{where\}", "", text)
     return str(ast.literal_eval(message))
 
@@ -34,9 +35,9 @@ def _declaration_messages() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
     for path in sorted(_PACKAGE.rglob("*.py")):
         for call in ast.walk(ast.parse(path.read_text())):
-            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "NodeDeclarationError":
+            if isinstance(call, Call) and isinstance(call.func, Name) and call.func.id == "NodeDeclarationError":
                 code = next(k.value for k in call.keywords if k.arg == "code")
-                if isinstance(code, ast.Constant):
+                if isinstance(code, Constant):
                     found.setdefault(code.value, []).append(_template(call.args[0]))
     return found
 
@@ -57,8 +58,8 @@ def test_every_declaration_message_says_what_to_do() -> None:
     assert without == []
 
 
-def test_each_example_prints_its_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    page = types.ModuleType("problems_page")  # a dataclass on the page looks its module up by name
+def test_each_example_prints_its_code(monkeypatch: MonkeyPatch) -> None:
+    page = ModuleType("problems_page")  # a dataclass on the page looks its module up by name
     monkeypatch.setitem(sys.modules, page.__name__, page)
     blocks = [(match.start(), match.group(1)) for match in re.finditer(r"```python\n(.*?)```", _PAGE, re.S)]
     starts = [(match.start(), match.group(1)) for match in re.finditer(r"^### `([a-z_]+)`", _PAGE, re.M)]
@@ -67,7 +68,7 @@ def test_each_example_prints_its_code(monkeypatch: pytest.MonkeyPatch) -> None:
     wrong = []
     for at, block in blocks[1:]:
         code = [name for start, name in starts if start < at][-1]
-        printed = io.StringIO()
+        printed = StringIO()
         with contextlib.redirect_stdout(printed):
             exec(compile(block, f"docs/problems.md: {code}", "exec"), namespace)  # noqa: S102
         if code not in printed.getvalue():

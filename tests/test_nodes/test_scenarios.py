@@ -1,8 +1,8 @@
 """Fourteen things an author builds with tables, lists and documents, each a graph of this package's nodes and a
 host's own: how many boxes it takes, what runs how often, and what comes out."""
 
-import io
 from dataclasses import dataclass
+from io import StringIO
 from typing import Annotated, Any, TypedDict
 
 import conductor_nodes
@@ -61,17 +61,17 @@ def upload(files: list[File]) -> Series[File]:
 
 @node("read-csv", title="Read CSV", description="Reads a CSV file into a table.")
 def read_csv(file: File) -> Table:
-    return pl.read_csv(io.StringIO(file.text))
+    return pl.read_csv(StringIO(file.text))
 
 
 @node("read-invoices", title="Read invoices", description="Reads a CSV of invoices.")
 def read_invoices(file: File) -> Table[Invoice]:
-    return pl.read_csv(io.StringIO(file.text), schema={"number": pl.String, "vendor": pl.String, "amount": pl.Float64})
+    return pl.read_csv(StringIO(file.text), schema={"number": pl.String, "vendor": pl.String, "amount": pl.Float64})
 
 
 @node("read-contacts", title="Read contacts", description="Reads a CSV of contacts.")
 def read_contacts(file: File) -> Table[Contact]:
-    return pl.read_csv(io.StringIO(file.text), schema={"name": pl.String, "email": pl.String})
+    return pl.read_csv(StringIO(file.text), schema={"name": pl.String, "email": pl.String})
 
 
 @node("read-pdf", title="Read PDF", description="Reads one PDF as text.")

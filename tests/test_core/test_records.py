@@ -19,6 +19,7 @@ from conductor import (
     subgraph,
 )
 from conductor._internal.table import Records
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
 
@@ -255,7 +256,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]
 
 
-def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_times_it_is_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_table_a_node_received_is_written_once_to_fingerprint_it_however_many_times_it_is_asked(monkeypatch: MonkeyPatch) -> None:
     from conductor._internal.run.reuse import arguments_fingerprint
     from conductor._internal.table import write
 

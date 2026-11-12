@@ -33,6 +33,7 @@ from conductor import (
 from conductor._internal import registry as registry_module
 from conductor._internal.markers import REQUIRED
 from conductor.widgets import Textarea
+from pytest import MonkeyPatch
 
 
 @host_type("registry-test-text", title="Text")
@@ -738,7 +739,7 @@ def test_a_stored_graphs_fields_are_listed_by_the_registry_that_holds_its_nodes_
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
 
 
-def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stored_graph_is_described_once_until_the_registry_changes(monkeypatch: MonkeyPatch) -> None:
     """``describe()`` is what an editor's palette asks on every open, so a subgraph's fields are worked out once."""
     registry = NodeRegistry()
 

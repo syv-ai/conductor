@@ -9,9 +9,9 @@ it returns a ``Series`` of its records. A blank keeps a node from being called f
 import asyncio
 import datetime
 import json
-import threading
 import time
 from dataclasses import dataclass
+from threading import Event, Timer
 from typing import Annotated, Any, Literal, Optional, TypedDict
 
 import polars as pl
@@ -883,7 +883,7 @@ def test_a_document_whose_branch_is_not_taken_makes_no_lines_and_the_gather_over
 
 
 def test_a_gather_waits_for_the_decision_above_its_items_before_it_runs_on_nothing():
-    release = threading.Event()
+    release = Event()
 
     @node("held", title="Held", description="For a test.", policy=Policy(concurrency=2))
     def held(text: str) -> YesNo:
@@ -894,7 +894,7 @@ def test_a_gather_waits_for_the_decision_above_its_items_before_it_runs_on_nothi
                    {"id": "j", "node": "join"}, edges=(("docs.result", "g.text"), ("g.yes", "l.text"), ("l.result", "j.texts")),
                    registry=registry_of(split, held, join))
     CALLED.clear()
-    timer = threading.Timer(0.2, release.set)
+    timer = Timer(0.2, release.set)
     timer.start()
     started = time.monotonic()
     run = loaded.run(text="a|slow-no")

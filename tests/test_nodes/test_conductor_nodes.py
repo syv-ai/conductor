@@ -6,6 +6,7 @@ import conductor_nodes
 import pytest
 from conductor import Graph, InvalidCallError, make_graph
 from conductor_nodes import control, json_ops, regex_ops, text
+from pytest import MonkeyPatch
 
 
 def _run(node_id: str, **values: Any) -> dict[str, Any]:
@@ -99,7 +100,7 @@ def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> No
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_input", ("inputs", "separator"))]
 
 
-def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_run(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(regex_ops, "TIMEOUT", 0.01)
     record = make_graph(regex_ops.match, constants={"regex-match.text": "a" * 50_000 + "b", "regex-match.pattern": r"(a|aa)+$"})
 

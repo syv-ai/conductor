@@ -15,6 +15,7 @@ import math
 import re
 import sys
 import tomllib
+from ast import Import, ImportFrom
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -448,9 +449,9 @@ def _host_words_in(line: str) -> list[str]:
 def _imports_outside(package: str, source: str) -> list[str]:
     names: list[str] = []
     for found in ast.walk(ast.parse(source)):
-        if isinstance(found, ast.Import):
+        if isinstance(found, Import):
             names += [alias.name for alias in found.names]
-        elif isinstance(found, ast.ImportFrom) and found.level == 0 and found.module is not None:
+        elif isinstance(found, ImportFrom) and found.level == 0 and found.module is not None:
             names.append(found.module)
     return [name for name in names if name.split(".")[0] not in IMPORTS[package] | sys.stdlib_module_names]
 

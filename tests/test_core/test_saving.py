@@ -39,12 +39,13 @@ from conductor._internal import outcomes
 from conductor._internal.outcomes import Done, Skipped
 from conductor._internal.run import Run
 from pydantic import BaseModel
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
 
 
 @pytest.fixture(autouse=True)
-def _every_save_reads_back_and_writes_the_same(monkeypatch: pytest.MonkeyPatch) -> None:
+def _every_save_reads_back_and_writes_the_same(monkeypatch: MonkeyPatch) -> None:
     """What ``run.to_json()`` writes in these tests loads into its graph, and the loaded run writes the same bytes."""
     write = Run.to_json
 
@@ -617,9 +618,9 @@ def _jsonb(text: str) -> str:
 
 def _shuffled(text: str, seed: int) -> str:
     """``text`` with every object's keys in a random order."""
-    import random
+    from random import Random
 
-    chance = random.Random(seed)
+    chance = Random(seed)
 
     def order(value: Any) -> Any:
         if isinstance(value, dict):

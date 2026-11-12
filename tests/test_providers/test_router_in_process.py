@@ -7,9 +7,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from threading import Event
 from typing import Annotated, Any
 
 import pytest
@@ -176,7 +176,7 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
 
 
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_its_next_leg() -> None:
-    registry, asked, gate = NodeRegistry(), threading.Event(), threading.Event()
+    registry, asked, gate = NodeRegistry(), Event(), Event()
 
     @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:

@@ -5,6 +5,7 @@ import json
 import queue
 import re
 import time as t
+from asyncio import Event
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypeAliasType
@@ -28,6 +29,7 @@ from conductor import (
 )
 from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import place, registry_of
 
@@ -183,7 +185,7 @@ def test_cancel_and_timeout():
     assert run.status == "timed_out", run.status
 
     async def go():
-        cancel = asyncio.Event()
+        cancel = Event()
         events = []
         async for e in graph.with_inputs(text=",".join("abcdefghijklmnopqrstuvwx")).stream(cancel=cancel):
             events.append(e)
@@ -217,7 +219,7 @@ class Flaky(OSError):
     pass
 
 
-def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_waits_with_a_timeout(monkeypatch: pytest.MonkeyPatch):
+def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_waits_with_a_timeout(monkeypatch: MonkeyPatch):
     """CPython 3.12's ``SimpleQueue.get(timeout=)`` can stay in the call for ever when it is the first look at an
     empty queue, so a leg that waits for a retry never makes one: every timed wait follows a look that found nothing."""
     looks: list[str] = []

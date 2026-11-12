@@ -11,8 +11,8 @@ import asyncio
 import datetime
 import json
 import math
-import threading
 from dataclasses import dataclass
+from threading import Event
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -463,8 +463,8 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
 class _SlowOutput(str):
     """An output type whose check waits until the other node's completion has been streamed."""
 
-    check_began = threading.Event()
-    other_reported = threading.Event()
+    check_began = Event()
+    other_reported = Event()
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:

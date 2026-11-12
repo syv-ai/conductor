@@ -7,15 +7,15 @@ earlier unit of that node received, so a CSV edited on one row sends one mail.
 """
 
 import asyncio
-import io
 import json
 import logging
-import random
 import time
+from asyncio import Event as AsyncioEvent
+from io import StringIO
+from random import Random
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
-import pydantic
 import pytest
 from conductor import (
     SKIPPED,
@@ -37,7 +37,8 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import place, registry_of
 
@@ -66,7 +67,7 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 # -- failures ---------------------------------------------------------------------
 
 
-def test_what_a_units_result_rests_on_names_its_scope_by_address_not_by_how_a_class_prints(monkeypatch: pytest.MonkeyPatch):
+def test_what_a_units_result_rests_on_names_its_scope_by_address_not_by_how_a_class_prints(monkeypatch: MonkeyPatch):
     """A waiting id and a saved run hold the digest, so it is made of the scope's addresses as an author writes
     them (``words.result``), whatever the engine's class for an address is called or prints as."""
     from conductor._internal.compiled.input_plans import OutputAddress
@@ -202,9 +203,9 @@ def test_a_node_error_whose_ctx_has_no_json_form_is_refused_where_the_node_raise
     def read(path: str = "") -> str:
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
 
-    with pytest.raises(pydantic.ValidationError):
+    with pytest.raises(ValidationError):
         NodeError("The document could not be read.", ctx=ctx)
-    with pytest.raises(pydantic.ValidationError):
+    with pytest.raises(ValidationError):
         ExternalError("The service did not answer.", ctx=ctx)
 
     events = _events(_alone(read).with_inputs())
@@ -238,7 +239,7 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused_and_its_dump_leave
         {"attempt_timeout": nan}, {"attempt_timeout": inf}, {"retry_delay": nan}, {"retry_delay": inf},
         {"retries": True}, {"retries": "2"}, {"concurrency": 1.0}, {"retry_delay": "1"}, {"reuse_when_inputs_match": 1},
     ):
-        with pytest.raises(pydantic.ValidationError):
+        with pytest.raises(ValidationError):
             Policy(**wrong)
     assert Policy(retry_delay=2, attempt_timeout=5).attempt_timeout == 5  # a whole number of seconds is a number
     assert "retry_on" not in Policy(retry_on=(ConnectionError,)).model_dump()
@@ -333,7 +334,7 @@ def test_a_cancelled_leg_keeps_what_it_finished_and_resuming_calls_none_of_it_ag
     graph = Graph.compile(make_graph(split, count_calls, constants={"split.text": "a,b,c,d"}), registry_of(split, count_calls))
 
     async def cancel_after_two() -> Any:
-        cancel = asyncio.Event()
+        cancel = AsyncioEvent()
         last = None
         async for event in graph.with_inputs().stream(cancel=cancel):
             if len(calls) >= 2:
@@ -609,7 +610,7 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
 
     @node("read-rows", title="Read rows", description="For a test.")
     def read_rows(text: str) -> Table[Row]:
-        return pl.read_csv(io.StringIO(text))
+        return pl.read_csv(StringIO(text))
 
     @node("threshold", title="Threshold", description="For a test.")
     def threshold(min: int = threshold_default) -> int:
@@ -732,7 +733,7 @@ def _csv_mails() -> tuple[Any, list[str]]:
 
     @node("read-people", title="Read people", description="For a test.")
     def read_people(text: str) -> Table[Person]:
-        return pl.read_csv(io.StringIO(text))
+        return pl.read_csv(StringIO(text))
 
     @node("people", title="People", description="For a test.")
     def people(table: Table[Person]) -> Series[Person]:
@@ -836,7 +837,7 @@ def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new
     graph, sent = _mails()
     first = graph.run(items=["ida", "bo"])
     sent.clear()
-    cancel = asyncio.Event()
+    cancel = AsyncioEvent()
     cancel.set()
 
     stopped = _events(first.with_inputs(items=["ida", "bo", "al"]), cancel=cancel)[-1].run
@@ -882,12 +883,12 @@ def test_a_third_run_reuses_what_the_second_had_itself_reused():
 
 
 def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
-    rng = random.Random(7)
+    rng = Random(7)
     graph, sent = _mails()
     names = ["ida", "bo", "al", "eva", "kim"]
     items = ["ida", "bo"]
     run = graph.run(items=items)
-    cancel = asyncio.Event()
+    cancel = AsyncioEvent()
     cancel.set()
     for _ in range(20):
         edited = list(items)
@@ -1215,7 +1216,7 @@ def test_a_waiting_item_carried_through_a_cancelled_again_waits_at_its_new_place
 
     graph = Graph.compile(GraphRecord(nodes=[_EACH, NodeRecord(id="a", node="approve")], edges=[("each.result", "a.name")]), registry_of(_each, approve))
     run = graph.run(items=["ida", "bo"])
-    cancel = asyncio.Event()
+    cancel = AsyncioEvent()
     cancel.set()
     stopped = _events(run.with_inputs(items=["eva", "ida", "bo"]), cancel=cancel)[-1].run
     asked.clear()
@@ -1428,7 +1429,7 @@ def test_a_table_nothing_holds_after_forget_is_not_written():
 def test_identical_answered_items_keep_their_answers_across_a_cancelled_leg_as_on_a_direct_one():
     run = _answered(["bo", "bo", "al"], [True, False, True])
     direct = run.again(items=["eva", "bo", "bo", "al"])
-    cancel = asyncio.Event()
+    cancel = AsyncioEvent()
     cancel.set()
     stopped = _events(run.with_inputs(items=["eva", "bo", "bo", "al"]), cancel=cancel)[-1].run
 
@@ -1462,9 +1463,9 @@ def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and
 
 def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_finished_first():
     """Item 1's upstream finishes before item 0's, so item 1 is tried first; it still takes the second earlier answer."""
-    import threading
+    from threading import Event as ThreadEvent
 
-    first_done = threading.Event()
+    first_done = ThreadEvent()
 
     @node("fetch", title="Fetch", description="For a test.", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
     def fetch(name: str) -> str:
@@ -1551,7 +1552,7 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
 
     @node("read_lines", title="Read lines", description="For a test.")
     def read_lines(csv: str) -> Table[Line]:
-        return pl.read_csv(io.StringIO(csv))
+        return pl.read_csv(StringIO(csv))
 
     @node("records", title="Records", description="For a test.")
     def records(table: Table[Line]) -> Series[Line]:

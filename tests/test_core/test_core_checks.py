@@ -5,9 +5,9 @@ sums the decisions; ``calls`` records which nodes were called, so a test can
 say what ran again and what was reused.
 """
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated, TypedDict
 from unittest import mock
 
@@ -86,7 +86,7 @@ def invoices_then(*nodes: dict, edges: list[list[str]]) -> dict:
 
 def calls(fn):
     """What ``fn`` returns, and the calls the nodes noted while it ran."""
-    with tempfile.TemporaryDirectory() as work, mock.patch.dict(os.environ, {"CALLS": str(Path(work) / "calls")}):
+    with TemporaryDirectory() as work, mock.patch.dict(os.environ, {"CALLS": str(Path(work) / "calls")}):
         Path(os.environ["CALLS"]).touch()
         out = fn()
         return out, Path(os.environ["CALLS"]).read_text().split("\n")[:-1]

@@ -4,14 +4,15 @@ test here holds a graph embedded against what the same nodes do drawn in the gra
 from __future__ import annotations
 
 import asyncio
-import collections
 import json
-import pathlib
 import subprocess
 import sys
 import threading
 import time
+from asyncio import Event
+from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Any
 
 import polars as pl
@@ -44,7 +45,7 @@ from conductor.events import (
     RunEnd,
 )
 
-CALLS: collections.Counter[str] = collections.Counter()
+CALLS: Counter[str] = Counter()
 AT_ONCE = {"now": 0, "peak": 0}
 _LOCK = threading.Lock()
 _FAILED_ONCE: set[str] = set()
@@ -296,7 +297,7 @@ def flat(inner: str, splitter: str = "words"):
 
 def stream(run, cancel_when=None, **options):
     async def go():
-        cancel, events = asyncio.Event(), []
+        cancel, events = Event(), []
         async for event in run.stream(cancel=cancel, **options):
             events.append(event)
             if cancel_when is not None and cancel_when(event):
@@ -493,7 +494,7 @@ print(json.dumps({{"status": half.status, "ids": ids, "left": [w.id for w in hal
 """
 
 
-def test_pausing_inside_a_mapped_embedding_half_answered_in_a_fresh_process_and_finished(tmp_path: pathlib.Path):
+def test_pausing_inside_a_mapped_embedding_half_answered_in_a_fresh_process_and_finished(tmp_path: Path):
     graph = mapped("asking-inner")
     run = graph.run(text="ab cd")
     assert run.status == "waiting"

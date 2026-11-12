@@ -781,11 +781,11 @@ def test_an_id_whose_place_is_no_place_answers_nothing_not_even_a_node_that_runs
 
 
 async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_that_ended_early_does():
-    import asyncio
+    from asyncio import Event
 
     gate, called = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
-    cancel = asyncio.Event()
+    cancel = Event()
     cancel.set()
     async for event in run.stream(cancel=cancel):
         if event.type == "run_end":

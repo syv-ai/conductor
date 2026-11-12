@@ -11,12 +11,13 @@ import ast
 import asyncio
 import contextlib
 import inspect
-import io
 import re
 import sys
+from io import StringIO
 from typing import Any
 
 import pytest
+from pytest import MonkeyPatch
 
 from tests.test_core.doc_examples import pages
 
@@ -37,13 +38,13 @@ def _checked_source(source: str) -> str:
 
 
 @pytest.mark.parametrize("name", sorted(_PAGES))
-def test_a_page_runs_and_prints_what_it_shows(name: str, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_page_runs_and_prints_what_it_shows(name: str, tmp_path: Any, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     source = _PAGES[name]
     printed: list[tuple[int, str, str]] = []
 
     def shown(number: int, claim: str, *arguments: Any, sep: str = " ") -> None:
-        out = io.StringIO()
+        out = StringIO()
         print(*arguments, sep=sep, file=out)
         printed.append((number, claim, out.getvalue().rstrip("\n")))
 
@@ -51,7 +52,7 @@ def test_a_page_runs_and_prints_what_it_shows(name: str, tmp_path: Any, monkeypa
     module.__dict__["__shown"] = shown
     monkeypatch.setitem(sys.modules, name, module)
     code = compile(_checked_source(source), name, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
-    with contextlib.redirect_stdout(io.StringIO()):
+    with contextlib.redirect_stdout(StringIO()):
         ran = eval(code, module.__dict__)  # noqa: S307  the page's own code, as a reader runs it
         if inspect.iscoroutine(ran):
             asyncio.run(ran)

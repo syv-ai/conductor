@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-import threading
+from asyncio import Event as AsyncioEvent
 from collections.abc import Callable
+from threading import Event as ThreadEvent
 from typing import Any
 
 from conductor import Ask, Graph, GraphRecord, NodeRegistry, Run, Series, make_graph
@@ -22,7 +23,7 @@ class MemoryStore:
     def __init__(self) -> None:
         self.rows: dict[str, StoredRun] = {}
         self.written: dict[str, list[str]] = {}
-        self._changed = asyncio.Event()
+        self._changed = AsyncioEvent()
 
     async def create(self, run: StoredRun) -> None:
         self.rows[run.id], self.written[run.id] = run, []
@@ -76,10 +77,10 @@ def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None
     )
 
 
-def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Event, dict[str, Any], str]:
+def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent, dict[str, Any], str]:
     """A graph whose leg waits on ``gate`` beside a question, its inputs, and the waiting id the question gets; with
     ``items``, beside a Series of three items read one at a time too, for a ceiling of 1 to stop."""
-    registry, gate = NodeRegistry(), threading.Event()
+    registry, gate = NodeRegistry(), ThreadEvent()
 
     @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
@@ -111,10 +112,10 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, threading.Ev
     return registry, graph, gate, inputs, waiting.id
 
 
-def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, threading.Event], list[str]]:
+def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str]]:
     """A graph whose first leg waits on ``first`` beside a question, and whose leg after the answer waits on ``second``
     on its first item of two; ``held`` is set once that item is called."""
-    registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "second", "held")}, []
+    registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "second", "held")}, []
 
     @registry.node("items", title="Items", description="For a test.")
     def items(text: str) -> Series[str]:

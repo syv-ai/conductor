@@ -331,14 +331,14 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
 
 
 def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
-    import enum
+    from enum import Enum, IntEnum
 
     from conductor._internal.value_type import FieldValueError, Type
 
-    class Level(enum.IntEnum):
+    class Level(IntEnum):
         LOW = 1
 
-    class Share(float, enum.Enum):
+    class Share(float, Enum):
         HALF = 0.5
 
     assert Type(Level).read(1) is Level.LOW and Type(list[Level]).read([1]) == [Level.LOW] and Type(Share).read(0.5) is Share.HALF

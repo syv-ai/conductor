@@ -3,9 +3,9 @@ from it calls nothing and changes nothing."""
 
 from __future__ import annotations
 
-import collections
 import threading
 import time
+from collections import Counter
 from dataclasses import dataclass
 from typing import Annotated, Any
 
@@ -25,7 +25,7 @@ from conductor import (
 
 from tests.test_core.nodes import units_missing
 
-CALLS: collections.Counter[str] = collections.Counter()
+CALLS: Counter[str] = Counter()
 _LOCK = threading.Lock()
 
 

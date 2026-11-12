@@ -1,7 +1,7 @@
 """Nodes the programs share: what a node author writes."""
-import io
 import os
 from dataclasses import dataclass
+from io import StringIO
 from typing import Annotated, Literal, TypedDict
 
 import polars as pl
@@ -35,7 +35,7 @@ invoices = NodeRegistry(category="invoices", tags=("finance",))
 
 @invoices.node("read-csv", title="Read csv", description="For a test.")
 def read_csv(text: str) -> Table[Invoice]:
-    return pl.read_csv(io.StringIO(text))
+    return pl.read_csv(StringIO(text))
 
 
 @invoices.node("approve", title="Approve", description="For a test.")

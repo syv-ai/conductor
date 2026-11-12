@@ -6,9 +6,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-import threading
 import time
+from asyncio import Event as AsyncioEvent
 from collections.abc import Mapping
+from threading import Event as ThreadEvent
 from typing import Any, TypedDict
 
 import polars as pl
@@ -35,6 +36,7 @@ from conductor_providers.fastapi.stored_run import RunAsRead, StoredState
 from conductor_providers.fastapi.worker import Worker
 from pydantic import GetCoreSchemaHandler, TypeAdapter
 from pydantic_core import core_schema
+from pytest import LogCaptureFixture, MonkeyPatch
 
 from tests.test_providers.in_memory import MemoryStore, asking, gated, left_running
 
@@ -421,7 +423,7 @@ async def test_an_answer_that_lands_as_a_legs_end_is_written_is_taken_and_the_ru
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["waiting", "complete"]
 
 
-async def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and_writes_its_end_once(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_a_leg_whose_run_takes_longer_than_the_lease_to_write_keeps_it_and_writes_its_end_once(monkeypatch: MonkeyPatch) -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     made = []
@@ -550,7 +552,7 @@ class Fragile:
 
 
 async def test_a_queued_answer_whose_check_raises_is_refused_as_not_checked_and_the_leg_ends_once() -> None:
-    registry, store, gate = NodeRegistry(), MemoryStore(), threading.Event()
+    registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
 
     @registry.node("ask", title="Ask", description="For a test.")
     def ask(text: str) -> Fragile:
@@ -598,11 +600,11 @@ async def test_a_cancel_made_with_a_run_read_before_its_leg_started_cancels_noth
     assert (await store.ended(run_id)).status == "complete" and calls == ["a", "b"]
 
 
-def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, threading.Event], list[str], str]:
+def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], dict[str, ThreadEvent], list[str], str]:
     """A graph with a question beside a chain of three steps, its inputs, and the waiting id the question gets: the
     first step waits on ``first`` and the second on ``second``, having set ``in_second``; ``calls`` lists the steps
     called."""
-    registry, gates, calls = NodeRegistry(), {name: threading.Event() for name in ("first", "in_second", "second")}, []
+    registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "in_second", "second")}, []
 
     @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
@@ -717,7 +719,7 @@ async def test_a_leg_the_store_raises_in_is_given_up_and_gone_on_with_once_its_l
 
         def __init__(self) -> None:
             super().__init__()
-            self.raised = asyncio.Event()
+            self.raised = AsyncioEvent()
 
         def down(self) -> bool:
             if not self.raised.is_set() and len(calls) >= 5:
@@ -784,7 +786,7 @@ class Clock:
     """Another."""
 
 
-async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_problems_and_the_log_has_them_all(caplog: pytest.LogCaptureFixture) -> None:
+async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_problems_and_the_log_has_them_all(caplog: LogCaptureFixture) -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
     @registry.node("stamp", title="Stamp", description="For a test.")
@@ -802,7 +804,7 @@ async def test_a_leg_conductor_refuses_to_start_fails_with_the_first_of_its_own_
 
 
 async def test_a_run_whose_leg_raised_after_a_checkpoint_lists_what_waits_in_that_checkpoint() -> None:
-    registry, store, gate = NodeRegistry(), MemoryStore(), threading.Event()
+    registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
 
     @registry.node("approve", title="Approve", description="For a test.")
     def approve(text: str) -> bool:
@@ -994,10 +996,10 @@ async def test_a_follower_that_got_a_run_end_while_the_row_still_reads_running_k
 # -- several workers, a shutdown ------------------------------------------------------------------
 
 
-def _slow_items() -> tuple[NodeRegistry, GraphRecord, threading.Event, list[int]]:
+def _slow_items() -> tuple[NodeRegistry, GraphRecord, ThreadEvent, list[int]]:
     """A graph that works through a Series one slow item at a time; ``called`` is set once the first item is, and
     ``calls`` lists every item called."""
-    registry, called, calls = NodeRegistry(), threading.Event(), []
+    registry, called, calls = NodeRegistry(), ThreadEvent(), []
 
     @registry.node("many", title="Many", description="Gives several items.")
     def many(n: int) -> Series[int]:
@@ -1088,7 +1090,7 @@ async def test_one_renewal_the_store_never_answers_is_followed_at_once_by_the_ne
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if changes.keys() == {"lease_until"} and not self.hung:
                 self.hung = True
-                await asyncio.Event().wait()
+                await AsyncioEvent().wait()
             return await super().update(run_id, rev, changes)
 
     store = OneRenewalHangs()
@@ -1112,7 +1114,7 @@ async def test_a_worker_whose_renewal_never_returns_stops_its_leg_once_another_t
 
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if changes.keys() == {"lease_until"} and self.rows[run_id].owner == self.of:
-                await asyncio.Event().wait()
+                await AsyncioEvent().wait()
             return await super().update(run_id, rev, changes)
 
     store = RenewalHangs()
@@ -1188,7 +1190,7 @@ async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_work
 
 
 @pytest.mark.parametrize("fails", ["the read of the expired runs", "the claim of a run", "a row that can't be read"])
-async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fails: str, caplog: pytest.LogCaptureFixture) -> None:
+async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fails: str, caplog: LogCaptureFixture) -> None:
     registry, graph = _shout()
 
     class SweepFailsOnce(MemoryStore):
@@ -1221,7 +1223,7 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fail
     assert logged and all(logged)
 
 
-async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_so_no_other_worker_takes_the_run(caplog: pytest.LogCaptureFixture) -> None:
+async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_so_no_other_worker_takes_the_run(caplog: LogCaptureFixture) -> None:
     registry, graph, called, calls = _slow_items()
 
     class RenewalFailsOnce(MemoryStore):

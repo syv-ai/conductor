@@ -13,12 +13,13 @@ import os
 import re
 import signal
 import socket
-import subprocess
 import sys
 import time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from pathlib import Path
+from signal import Signals
+from subprocess import Popen
 from typing import Any
 
 import pytest
@@ -72,7 +73,7 @@ class Worker:
     def __init__(self, directory: Path, **environment: str) -> None:
         self.port = _free_port()
         env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(directory), str(HERE)]), **environment}
-        self.process = subprocess.Popen(
+        self.process = Popen(
             [sys.executable, "-m", "uvicorn", "served_app:app", "--port", str(self.port), "--log-level", "warning"],
             cwd=directory, env=env,
         )
@@ -88,7 +89,7 @@ class Worker:
                 time.sleep(0.02)
         raise AssertionError("the worker never served")
 
-    def stop(self, how: signal.Signals) -> None:
+    def stop(self, how: Signals) -> None:
         if self.process.poll() is None:
             self.process.send_signal(how)
         self.process.wait(30)

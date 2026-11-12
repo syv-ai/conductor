@@ -9,10 +9,10 @@ coroutine. ``llms.txt`` names conductor's public names without importing them, s
 from __future__ import annotations
 
 import json
-import pathlib
 import re
+from pathlib import Path
 
-ROOT = pathlib.Path(__file__).parents[2]
+ROOT = Path(__file__).parents[2]
 _STAR_IMPORTS = "from typing import Annotated\nfrom conductor import *\nfrom conductor.widgets import *\n"
 
 
@@ -53,5 +53,5 @@ def _doctest_free(block: str) -> str:
     return "\n".join(line[4:] for line in block.splitlines() if line.startswith((">>> ", "... ")))
 
 
-def _module_name(path: pathlib.Path) -> str:
+def _module_name(path: Path) -> str:
     return "doc_" + re.sub(r"\W", "_", str(path.relative_to(ROOT)))

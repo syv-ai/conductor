@@ -11,7 +11,10 @@ import asyncio
 import math
 import threading
 import time
+from asyncio import CancelledError
+from asyncio import Event as AsyncioEvent
 from collections.abc import Callable
+from threading import Event as ThreadEvent
 from typing import Any, TypedDict
 
 import polars as pl
@@ -495,7 +498,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
 
 @pytest.mark.parametrize(
     "raised",
-    [asyncio.CancelledError(), GeneratorExit(), BaseException("b"), StopIteration()],
+    [CancelledError(), GeneratorExit(), BaseException("b"), StopIteration()],
     ids=lambda raised: type(raised).__name__,
 )
 def test_anything_a_node_raises_fails_its_unit_and_the_leg_ends(raised):
@@ -533,10 +536,10 @@ def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_strea
 # -- a failed leg keeps the calls it already made ----------------------------------------------
 
 
-def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list[str], threading.Event]:
+def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list[str], ThreadEvent]:
     """``mail`` as a node: item 0 fails at once, every other item waits for ``release``."""
     calls: list[str] = []
-    release = threading.Event()
+    release = ThreadEvent()
 
     @node("mail", title="Mail", description="For a test.", policy=Policy(concurrency=concurrency, **policy))
     def mail(text: str) -> str:
@@ -549,7 +552,7 @@ def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list
     return mail, calls, release
 
 
-def _releasing_on_failure(prepared: Any, release: threading.Event, cancel: asyncio.Event | None = None) -> list[Any]:
+def _releasing_on_failure(prepared: Any, release: ThreadEvent, cancel: AsyncioEvent | None = None) -> list[Any]:
     async def collect() -> list[Any]:
         seen = []
         async for event in prepared.stream(cancel=cancel):
@@ -574,7 +577,7 @@ def test_an_item_failing_at_concurrency_one_starts_no_later_item():
 
 
 def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
-    release = threading.Event()
+    release = ThreadEvent()
 
     @node("hangs-or-fails", title="Hangs or fails", description="For a test.", policy=Policy(concurrency=2, attempt_timeout=0.2))
     def hangs_or_fails(text: str) -> str:
@@ -596,7 +599,7 @@ def test_a_failed_leg_waits_for_a_call_still_running_no_longer_than_its_attempt_
 
 def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged():
     """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
-    release = threading.Event()
+    release = ThreadEvent()
 
     @node("mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4))
     def mixed(text: str) -> str:
@@ -619,7 +622,7 @@ def test_an_ask_or_a_second_failure_while_a_failed_leg_drains_is_kept_or_logged(
 
 
 def test_no_retry_starts_once_the_leg_has_failed():
-    release = threading.Event()
+    release = ThreadEvent()
     calls: list[str] = []
 
     @node("flaky-beside-a-failure", title="Flaky", description="For a test.", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
@@ -671,7 +674,7 @@ def test_cancelling_the_task_that_reads_the_stream_stops_the_rest():
     prepared = _per_item(_sleeper(0.05, calls), 20).with_inputs()
 
     async def go() -> None:
-        started = asyncio.Event()
+        started = AsyncioEvent()
 
         async def consume() -> None:
             async for event in prepared.stream():
@@ -694,7 +697,7 @@ def test_a_cancel_set_mid_run_ends_the_leg_cancelled_at_once():
     prepared = _per_item(_sleeper(0.05, calls), 20).with_inputs()
 
     async def go() -> tuple[list[Any], float]:
-        cancel, seen, set_at = asyncio.Event(), [], 0.0
+        cancel, seen, set_at = AsyncioEvent(), [], 0.0
         async for event in prepared.stream(cancel=cancel):
             seen.append(event)
             if event.type == "node_start" and event.loc[0] == "slow":
@@ -737,7 +740,7 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
     prepared = graph.run(tag=0).with_inputs(tag=1)
 
     async def go() -> Any:
-        loop, cancel, cancel_is_set = asyncio.get_running_loop(), asyncio.Event(), threading.Event()
+        loop, cancel, cancel_is_set = asyncio.get_running_loop(), AsyncioEvent(), ThreadEvent()
         read_so_far = 0
 
         def set_the_cancel() -> None:
@@ -764,7 +767,7 @@ def test_a_cancel_set_while_a_leg_reuses_earlier_results_ends_the_leg_before_the
 
 
 def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
-    release = threading.Event()
+    release = ThreadEvent()
 
     @node("late", title="Late", description="For a test.", policy=Policy(concurrency=2))
     def late(text: str) -> str:
@@ -774,7 +777,7 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
     prepared = _per_item(late, 2).with_inputs()
 
     async def go() -> list[Any]:
-        cancel, seen = asyncio.Event(), []
+        cancel, seen = AsyncioEvent(), []
         async for event in prepared.stream(cancel=cancel):
             seen.append(event)
             if event.type == "node_start" and event.loc[0] == "slow":
@@ -803,7 +806,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_leg_before_every_attempt_has_run
     prepared = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="flaky")]), registry_of(flaky)).with_inputs(text="x")
 
     async def go() -> Any:
-        cancel, last = asyncio.Event(), None
+        cancel, last = AsyncioEvent(), None
         async for event in prepared.stream(cancel=cancel):
             if event.type == "node_retry":
                 cancel.set()
@@ -1064,7 +1067,7 @@ def test_a_stopped_leg_with_calls_on_threads_offers_a_checkpoint_before_it_drain
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
 
     async def cancelled() -> list[Any]:
-        cancel, seen = asyncio.Event(), []
+        cancel, seen = AsyncioEvent(), []
         async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(cancel=cancel, checkpoint_every=60):
             seen.append(event)
             if event.type == "node_start" and event.loc[0] == "llm":
@@ -1085,7 +1088,7 @@ def test_a_leg_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoint_
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
 
     async def handed_back() -> list[Any]:
-        hand_back, seen = asyncio.Event(), []
+        hand_back, seen = AsyncioEvent(), []
         async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(hand_back=hand_back):
             seen.append(event)
             if event.type == "node_start" and event.loc[0] == "llm":
@@ -1107,7 +1110,7 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
     graph = Graph.compile(make_graph(numbers), registry_of(numbers))
 
     async def both() -> Any:
-        cancel, hand_back = asyncio.Event(), asyncio.Event()
+        cancel, hand_back = AsyncioEvent(), AsyncioEvent()
         cancel.set()
         hand_back.set()
         return [event async for event in graph.with_inputs(n=[1]).stream(cancel=cancel, hand_back=hand_back)][-1]

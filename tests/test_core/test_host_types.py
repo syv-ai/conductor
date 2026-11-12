@@ -1,8 +1,8 @@
 """``@host_type``: how a host declares a class of its own, and that a wrong declaration fails at the class statement."""
 
 import dataclasses
-import enum
-import ipaddress
+from enum import Enum
+from ipaddress import IPv4Address
 from typing import Any, Generic, TypeVar
 
 import pytest
@@ -34,7 +34,7 @@ class Point:
 
 
 @host_type("colour", title="Colour")
-class Colour(enum.Enum):
+class Colour(Enum):
     RED = "red"
 
 
@@ -58,7 +58,7 @@ class Temperature(BaseModel):
     degrees: float
 
 
-IP = host_type("ip", title="IP address")(ipaddress.IPv4Address)
+IP = host_type("ip", title="IP address")(IPv4Address)
 
 T = TypeVar("T")
 

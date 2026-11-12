@@ -5,7 +5,7 @@ import json
 import logging
 import typing
 import warnings
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -249,7 +249,7 @@ def test_a_definition_is_frozen():
     def upper(text: str) -> str:
         return text.upper()
 
-    with pytest.raises(dataclasses.FrozenInstanceError):
+    with pytest.raises(FrozenInstanceError):
         upper.title = "Shout"  # type: ignore[misc]
 
 
@@ -1336,10 +1336,10 @@ def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choice
 
 
 def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> None:
-    import enum
+    from enum import Enum
 
     @host_type("color", title="Color")
-    class Color(enum.Enum):
+    class Color(Enum):
         RED = "red"
         BLUE = "blue"
 
@@ -1373,10 +1373,10 @@ def test_a_stored_graph_takes_no_policy_or_hook_since_its_own_nodes_run_by_their
 def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in_a_model_a_node_takes_too():
     import dataclasses
     import datetime
-    import decimal
+    from decimal import Decimal
 
     def held(
-        price: Annotated[decimal.Decimal, Param(ge=0)],
+        price: Annotated[Decimal, Param(ge=0)],
         wait: Annotated[datetime.timedelta, Param(ge=datetime.timedelta(0))],
         tags: Annotated[list[str], Param(min_length=1)],
     ) -> int:
@@ -1384,7 +1384,7 @@ def test_a_limit_pydantic_holds_on_a_type_is_taken_and_one_it_cant_is_refused_in
 
     spec = declared(held).inputs
     with pytest.raises(FieldValueError, match="greater than or equal"):
-        spec["price"].whole.read(decimal.Decimal("-1"))
+        spec["price"].whole.read(Decimal("-1"))
     with pytest.raises(FieldValueError, match="at least 1"):
         spec["tags"].whole.read([])
 

@@ -671,10 +671,10 @@ def test_make_graph_writes_a_value_beside_a_default_and_loading_reports_it():
 
 def test_a_value_typed_in_from_python_is_its_json_so_the_record_equals_its_own_reload():
     import datetime
-    import enum
+    from enum import Enum
 
     @host_type("color", title="Color")
-    class Color(enum.Enum):
+    class Color(Enum):
         RED = "red"
 
     @node("typed", title="Typed", description="For a test.")

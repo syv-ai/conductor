@@ -6,9 +6,9 @@ refuses to run. A caller fills the open inputs of the first nodes, checked
 by ``with_inputs`` all at once.
 """
 
-import io
 import json
 from dataclasses import dataclass
+from io import StringIO
 from typing import Annotated, Any, TypedDict
 
 import polars as pl
@@ -34,6 +34,7 @@ from conductor import (
 from conductor.widgets import Dropdown, Textarea
 from pydantic import ValidationError
 from pydantic_core import core_schema
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
 
@@ -80,7 +81,7 @@ def greet(text: str = "hello") -> str:
 
 @node("people", title="People", description="For a test.")
 def people(text: str) -> Table[Person]:
-    return pl.read_csv(io.StringIO(text))
+    return pl.read_csv(StringIO(text))
 
 
 @node("styled", title="Styled", description="For a test.")
@@ -1002,24 +1003,24 @@ def test_a_yes_or_no_never_lands_on_a_hosts_number_type_whose_own_rule_lets_an_i
         waiting.answer(waiting.waiting[0], True)
 
 
-def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_loaded_graph_is_compiled_once_and_freed_without_the_cycle_collector(monkeypatch: MonkeyPatch) -> None:
     import gc
     import weakref
 
-    from conductor._internal.compiled import compiler as graph_module
+    from conductor._internal.compiled.compiler import _Compiler
 
     @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
     loads: list[object] = []
-    load = graph_module._Compiler.compile
+    load = _Compiler.compile
 
     def counted(self: Any, *args: Any, **kwargs: Any) -> Any:
         loads.append(self)
         return load(self, *args, **kwargs)
 
-    monkeypatch.setattr(graph_module._Compiler, "compile", counted)
+    monkeypatch.setattr(_Compiler, "compile", counted)
     registry = registry_of(upper)
     gc.disable()
     try:
