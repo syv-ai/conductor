@@ -23,7 +23,7 @@ from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..results import function_of
 from ..reuse import ReusableOutcomes
-from .codec import codec_of, saved_list_type, saved_type
+from .codec import RunCodec, codec_of, saved_list_type, saved_type
 from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -58,7 +58,8 @@ def run_to_json(run: Run) -> str:
     Raises:
         InvalidCallError: A value cannot be written as JSON (``run_unwritable``, naming the input or the output).
     """
-    saved, codec = saved_run(run), codec_of(run.graph)
+    codec = codec_of(run.graph)
+    saved = saved_run(run, codec)
     try:
         return codec.serializer.to_json(saved, exclude_defaults=True).decode()
     except PydanticSerializationError:
@@ -89,10 +90,10 @@ def outputs_to_json(run: Run) -> str:
     return pydantic_core.to_json(written).decode()
 
 
-def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
-    """Returns ``run`` as the ``SavedRun`` that its graph's codec writes as JSON.
+def saved_run(run: Run, codec: RunCodec) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
+    """Returns ``run`` as the ``SavedRun`` that ``codec``, its graph's codec, writes as JSON.
 
-    For the README run, ``saved_run(run).outcomes["shout"]`` is
+    For the README run, ``saved_run(run, codec_of(run.graph)).outcomes["shout"]`` is
     ``SavedOutcomes(states=["done", "done", "done"], outputs={"result": ["A!", "B!", "C!"]})``.
 
     Only function nodes are saved, since only they are called. A node inside a subgraph is saved like any
@@ -100,7 +101,7 @@ def saved_run(run: Run) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]
     key at all.
     """
     graph = run.graph
-    flat, codec = flat_graph_of(graph), codec_of(graph)
+    flat = flat_graph_of(graph)
     functions = flat.functions
     outcomes = {
         node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))

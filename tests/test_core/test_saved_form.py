@@ -26,6 +26,7 @@ from conductor import (
     node,
     subgraph,
 )
+from conductor._internal.run.json import codec_of
 from conductor._internal.run.json.write import saved_run
 from pydantic import BaseModel
 
@@ -397,7 +398,8 @@ def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit(
 
 def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
     """A saved run is written only from its dataclasses' fields, so no key can be written that the reader does not know."""
-    saved = saved_run(_everything().run(_inputs("a,bb")))
+    run = _everything().run(_inputs("a,bb"))
+    saved = saved_run(run, codec_of(run.graph))
     for record in (saved, saved.outcomes["ask"]):
         with pytest.raises(AttributeError):
             record.undeclared = {0: "x"}
@@ -409,7 +411,7 @@ def test_every_field_a_run_sets_in_its_saved_run_is_a_key_of_the_json_and_reads_
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()
-    saved = saved_run(waiting)
+    saved = saved_run(waiting, codec_of(waiting.graph))
     written = json.loads(waiting.to_json())
 
     def set_fields(record: Any) -> set[str]:
