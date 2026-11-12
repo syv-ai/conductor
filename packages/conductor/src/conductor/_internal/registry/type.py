@@ -46,7 +46,6 @@ version.
 from __future__ import annotations
 
 import copy
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, Concatenate, overload
@@ -207,7 +206,7 @@ class NodeRegistry[C]:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
-        nodes = {**self._nodes, definition.id: self._with_defaults(definition)}
+        nodes = {**self._nodes, definition.id: definition.with_defaults(tags=self._tags, category=self._category, extra=self._extra)}
         self._set_contents(nodes, self._named_types)
 
     def remove(self, node_id: str) -> None:
@@ -251,19 +250,9 @@ class NodeRegistry[C]:
         for definition in definitions:
             held = nodes.get(definition.id)
             if held is not None:
-                raise NodeDeclarationError(declaration.duplicate_node_id(id=definition.id, first=held._where_declared(), second=definition._where_declared()))
-            nodes[definition.id] = self._with_defaults(definition)
+                raise NodeDeclarationError(declaration.duplicate_node_id(id=definition.id, first=held.where_declared(), second=definition.where_declared()))
+            nodes[definition.id] = definition.with_defaults(tags=self._tags, category=self._category, extra=self._extra)
         return nodes
-
-    def _with_defaults(self, definition: NodeDefinition) -> NodeDefinition:
-        """``definition`` and each version it replaces under this registry's defaults: tags after the registry's, the node's own category and extra keys winning."""
-        tags = tuple(dict.fromkeys((*self._tags, *definition.tags)))
-        category = definition.category or self._category
-        extra = {**self._extra, **definition.extra}
-        replaces = None if definition.replaces is None else self._with_defaults(definition.replaces)
-        if (tags, category, extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
-            return definition
-        return dataclasses.replace(definition, tags=tags, category=category, extra=MappingProxyType(extra), replaces=replaces)
 
     def _set_contents(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...]) -> None:
         """Hold exactly ``nodes`` and ``named_types``, and the types they give: each node's declared ones in order, then the named ones."""

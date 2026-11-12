@@ -11,7 +11,8 @@ import dataclasses
 import functools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from types import MappingProxyType
+from typing import Any, Literal, Protocol, Self
 
 from pydantic import JsonValue
 
@@ -171,6 +172,21 @@ class _Version:
         """Every version number, newest first."""
         return (self.version, *(step.version for step in self._replaced))
 
+    def with_defaults(self, *, tags: tuple[str, ...], category: str, extra: Mapping[str, JsonValue]) -> Self:
+        """Returns this version, and each version it replaces, with a registry's defaults under its own.
+
+        ``shout`` declared with ``tags=("text",)`` and no category, added to a registry with ``tags=("demo",)`` and
+        ``category="Text"``, becomes ``tags=("demo", "text")`` and ``category="Text"``. The registry's tags come
+        first; the node's own category, and its own ``extra`` keys, win. When nothing changes, it is this version.
+        """
+        merged_tags = tuple(dict.fromkeys((*tags, *self.tags)))
+        merged_category = self.category or category
+        merged_extra = {**extra, **self.extra}
+        replaces = None if self.replaces is None else self.replaces.with_defaults(tags=tags, category=category, extra=extra)
+        if (merged_tags, merged_category, merged_extra, replaces) == (self.tags, self.category, dict(self.extra), self.replaces):
+            return self
+        return dataclasses.replace(self, tags=merged_tags, category=merged_category, extra=MappingProxyType(merged_extra), replaces=replaces)
+
     def described_as[D: FunctionNodeDescription | SubgraphDescription](self, record: type[D], **more: Any) -> D:
         """Describes this version as an editor's palette shows it.
 
@@ -242,7 +258,7 @@ class FunctionDefinition[**P, R](_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
 
-    def _where_declared(self) -> str:
+    def where_declared(self) -> str:
         """Returns where this node was written, for a message that names it: its function's module and name.
 
         For ``def shout(...)`` in the module ``readme``, it is ``readme.shout``.
@@ -282,7 +298,7 @@ class SubgraphDefinition(_Version):
         there are when it has none. ``version in definition.versions`` asks first."""
         return _version_of(self.version_chain, version)
 
-    def _where_declared(self) -> str:
+    def where_declared(self) -> str:
         """Returns where this node was written, for a message that names it: a subgraph has no module, so its title
         and versions.
 
