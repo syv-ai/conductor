@@ -27,7 +27,7 @@ TIMEOUT = 2.0
 
 
 @contextmanager
-def _pattern_faults(invalid: str = "invalid_pattern", what: str = "pattern") -> Iterator[None]:
+def _as_node_error(invalid: str = "invalid_pattern", what: str = "pattern") -> Iterator[None]:
     """Turns a ``TimeoutError`` or a ``regex.error`` raised inside the ``with`` block into a ``NodeError``.
 
     Args:
@@ -44,7 +44,7 @@ def _pattern_faults(invalid: str = "invalid_pattern", what: str = "pattern") -> 
 
 def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
     """Returns the compiled pattern; a pattern that doesn't compile raises ``NodeError`` (``invalid_pattern``)."""
-    with _pattern_faults():
+    with _as_node_error():
         return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 
 
@@ -52,7 +52,7 @@ def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
 def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
     compiled = _compiled(pattern, ignore_case)
-    with _pattern_faults():
+    with _as_node_error():
         return compiled.search(text, timeout=TIMEOUT) is not None
 
 
@@ -65,7 +65,7 @@ def replace_all(
 ) -> str:
     """Replaces every match of the pattern."""
     compiled = _compiled(pattern, ignore_case)
-    with _pattern_faults("invalid_replacement", "replacement"):
+    with _as_node_error("invalid_replacement", "replacement"):
         return compiled.sub(replacement, text, timeout=TIMEOUT)
 
 
@@ -77,5 +77,5 @@ def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotat
     match, such as ``(x)?``, gives ``""``.
     """
     compiled = _compiled(pattern, ignore_case)
-    with _pattern_faults():  # ``finditer`` is lazy, so the timeout is raised while the list is built
+    with _as_node_error():  # ``finditer`` is lazy, so the timeout is raised while the list is built
         return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in compiled.finditer(text, timeout=TIMEOUT)]

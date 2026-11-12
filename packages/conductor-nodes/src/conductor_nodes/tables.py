@@ -85,15 +85,15 @@ def collect(records: Table, columns: Names = [], constant_columns: Names = [], *
         NodeError: A list of ``columns`` has another number of values than there are records (``columns_not_aligned``).
     """
     for name in columns:
-        held = len(values[name])
-        if held != records.height:
-            made_once = "; if it is one value for every record, name it in 'constant_columns', which writes it on each" if held == 1 else ""
+        count = len(values[name])
+        if count != records.height:
+            constant_hint = "; if it is one value for every record, name it in 'constant_columns', which writes it on each" if count == 1 else ""
             raise NodeError(
-                f"The column '{name}' holds {held} value{'s' if held != 1 else ''} for {records.height} record{'s' if records.height != 1 else ''}; "
+                f"The column '{name}' holds {count} value{'s' if count != 1 else ''} for {records.height} record{'s' if records.height != 1 else ''}; "
                 "wire a column from a node that runs once per record "
-                f"of the same Series as 'records'{made_once}",
-                code="columns_not_aligned", ctx={"column": name, "records": records.height, "values": held},
+                f"of the same Series as 'records'{constant_hint}",
+                code="columns_not_aligned", ctx={"column": name, "records": records.height, "values": count},
             )
-    made = [pl.Series(name, values[name], strict=False) for name in columns]
+    per_record = [pl.Series(name, values[name], strict=False) for name in columns]
     constant = [pl.Series(name, [values[name]] * records.height, strict=False) for name in constant_columns]
-    return {"result": records.with_columns(*made, *constant)}
+    return {"result": records.with_columns(*per_record, *constant)}
