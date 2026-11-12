@@ -18,6 +18,10 @@ class RunStore(Protocol):
 
     A host never removes a run whose ``status`` is ``running``: its worker and its followers read it again and
     take it to be there. Removing runs that stopped running, such as old ones, is the host's own.
+
+    A method raises only when the database fails: the router takes an exception for an outage and waits for the
+    run's lease to run out. ``conductor_providers.fastapi.testing.check_run_store(store)`` checks a store against
+    everything written here.
     """
 
     async def create(self, run: StoredRun) -> None:
@@ -34,7 +38,7 @@ class RunStore(Protocol):
             run_id: The run's id.
 
         Returns:
-            The run, or ``None`` when there is none by that id.
+            The run as last written, also by another worker a moment before; ``None`` when there is none by that id.
         """
         ...
 
@@ -64,7 +68,10 @@ class RunStore(Protocol):
         ...
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
-        """Append an event to a run, numbered one past the run's last, only while ``owner`` holds the run.
+        """Append an event to a run, numbered one past the run's last (the first is ``0``), only while ``owner`` holds the run.
+
+        Checking the owner and appending are one statement: a worker whose lease ran out may still add events while
+        another worker takes the run over, and its events must not land among the new owner's.
 
         Args:
             run_id: The run's id.

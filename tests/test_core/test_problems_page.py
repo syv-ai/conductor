@@ -7,6 +7,7 @@ import contextlib
 import re
 import sys
 from ast import Call, Constant, Expr, Expression, JoinedStr, Module, Name
+from collections.abc import Callable
 from io import StringIO
 from pathlib import Path
 from types import ModuleType
@@ -15,11 +16,13 @@ import pytest
 from conductor import PROBLEMS, Problem, ProblemKind
 from conductor.about import _kind_docs
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
+from conductor_providers.fastapi.testing.problems import RUN_STORE_CHECK_PROBLEMS
 from pytest import MonkeyPatch
 
 _ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
 _TEMPLATE = (_PACKAGE / "about" / "problems.md").read_text()
+_SERVING_RUNS = (_ROOT / "docs" / "serving-runs.md").read_text()
 #: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
 #: person can act on, and an answer's ``reason`` is pydantic's account of what the answer lacks.
 _NO_FIX = {"failed", "external_failed", "invalid_answer"}
@@ -68,6 +71,13 @@ def _setup() -> str:
     return re.findall(r"```python\n(.*?)```", _TEMPLATE, re.S)[0]
 
 
+def _store_setup() -> str:
+    """The setup of ``check_run_store``'s examples: the Python blocks of the section on writing a store, on the page
+    on serving runs."""
+    section = _SERVING_RUNS[_SERVING_RUNS.index("## A store"):_SERVING_RUNS.index("## The app")]
+    return "\n".join(re.findall(r"```python\n(.*?)```", section, re.S))
+
+
 def _made_by(kind: ProblemKind[...], problem: Problem) -> bool:
     """Whether ``problem`` is of ``kind``: its code and variant, and a message the kind's sentence writes."""
     if (problem.type, problem.ctx.get("variant")) != (kind.code, kind.variant):
@@ -80,11 +90,12 @@ def _made_by(kind: ProblemKind[...], problem: Problem) -> bool:
     return re.fullmatch(pattern, problem.msg, re.S) is not None
 
 
-_KINDS = [*PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
+#: Each kind with an example, and the setup its example runs after: that of the page its catalogue is written on.
+_KINDS = [*((kind, _setup) for kind in [*PROBLEMS, *REGISTRY_CHECK_PROBLEMS]), *((kind, _store_setup) for kind in RUN_STORE_CHECK_PROBLEMS)]
 
 
-@pytest.mark.parametrize("kind", _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind in _KINDS])
-def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind, _ in _KINDS])
+def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], setup: Callable[[], str], monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """The example runs after the page's setup, alone, and its last line gives problems of this kind only."""
     monkeypatch.chdir(tmp_path)
     page = ModuleType("problems_page")  # a dataclass in an example looks its module up by name
@@ -93,7 +104,7 @@ def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], 
     assert example, f"{kind.code} has no example"
     *body, last = ast.parse(example).body
     assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
-    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
+    exec(compile(setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
     exec(compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"), page.__dict__)  # noqa: S102
     made = eval(compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__)  # noqa: S307
     made = made if isinstance(made, list) else [made]

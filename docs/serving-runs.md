@@ -77,6 +77,18 @@ class SqliteRunStore:
         return [(seq, body) for seq, body in found]
 ```
 
+Test your store with one call, on an empty database of the test's own. `check_run_store` writes runs and events through the six methods and reads them back: that a run is kept as written, that `get` gives `None` for an id no run has, that of two updates at one `rev` exactly one is written, also when they are made at once, that `expired` gives only the runs whose lease ran out, and that `add_event` numbers a run's events from `0` and appends only for the run's owner. It returns a list of problems, each `{type, loc, msg, ctx}` with the method at fault as `loc`; [what it reports](#what-check_run_store-reports) has an example of each.
+
+```python
+from pathlib import Path
+
+from conductor_providers.fastapi.testing import check_run_store
+
+
+async def test_run_store(tmp_path: Path) -> None:
+    assert await check_run_store(SqliteRunStore(str(tmp_path / "check.db"))) == []
+```
+
 ## The app
 
 Mount the router in one line. `caller` is a FastAPI dependency, your login: a function, whose return annotation it must have, or a class used as the dependency. The type it gives is kept on each run as JSON, so whichever worker goes on with a run knows who started it; a function with no return annotation is a `TypeError` when the router is made:
@@ -215,3 +227,9 @@ A connection or session opened on the event loop and passed in either fails or i
 What `run_router` reports itself, beside conductor's problems of the runs it serves. `loc` is `()`: each is about the run as a whole. They are not in `PROBLEMS.codes`; `ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The docs build writes each kind here from the function that declares it, in `conductor_providers/fastapi/router_problems.py`.
 
 <!-- problems: conductor_providers.fastapi.ROUTER_PROBLEMS -->
+
+## What `check_run_store` reports
+
+What `check_run_store` finds wrong with a store. `loc` is the method at fault, as `("update",)`. Each kind's example is a store from [a store](#a-store) with one method written wrong. They are not in `PROBLEMS.codes` or `ROUTER_PROBLEMS`: a developer reads them in a test run, and a host never meets them. `RUN_STORE_CHECK_PROBLEMS`, in `conductor_providers.fastapi.testing.problems`, is their catalogue.
+
+<!-- problems: conductor_providers.fastapi.testing.problems.RUN_STORE_CHECK_PROBLEMS -->
