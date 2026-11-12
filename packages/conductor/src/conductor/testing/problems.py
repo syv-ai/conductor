@@ -165,7 +165,7 @@ def upgrade_broken(*loc: str | int, newest: int, reason: str, cause: list[str], 
     Args:
         loc: The node and the older version.
         newest: The version it was moved to.
-        reason: The code and message of each problem compiling reported.
+        reason: The message of each problem compiling reported.
         cause: The code of each.
         problems: Those problems, as JSON.
 

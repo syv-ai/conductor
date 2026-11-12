@@ -150,7 +150,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry) -> list[Prob
     if missing:
         return [problems.needs_example(version.id, version.version, inputs=missing)]
     failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type in _HOOK_CODES]
-    return [problems.hook_failed(version.id, version.version, reason=p.msg, cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
+    return [problems.hook_failed(version.id, version.version, reason=_reason([p]), cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
 
 
 def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequence[_Example]) -> list[Problem]:
@@ -171,8 +171,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry, given: Sequ
     graph_problems = Graph.compile(upgraded, registry).problems
     if not graph_problems:
         return []
-    reason = "; ".join(f"{p.type}: {p.msg}" for p in graph_problems)
-    return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=reason, cause=[p.type for p in graph_problems], problems=[p.model_dump(mode="json") for p in graph_problems])]
+    return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=_reason(graph_problems), cause=[p.type for p in graph_problems], problems=[p.model_dump(mode="json") for p in graph_problems])]
 
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Example, context: Mapping[type, Any]) -> list[Problem]:
@@ -197,7 +196,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     except InvalidCallError as refused:
         call_problems = refused.errors()
         return [problems.example_refused(
-            version.id, version.version, reason="; ".join(p.msg for p in call_problems), cause=[p.type for p in call_problems], problems=[p.model_dump(mode="json") for p in call_problems],
+            version.id, version.version, reason=_reason(call_problems), cause=[p.type for p in call_problems], problems=[p.model_dump(mode="json") for p in call_problems],
         )]
     found = [
         problems.changed_its_inputs(version.id, version.version, input=name)
@@ -205,19 +204,26 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry, example: _Exa
     ]
     match run.state:
         case EndedEarly(status=status, cause=cause):
-            # a body's own exception reaches the problem as its class only; the message says which
-            reason = f"the node raised {cause.ctx['error']}" if cause.type == "execution_failed" else cause.msg
-            found.append(problems.run_failed(version.id, version.version, status=status, reason=reason, cause=[cause.type], problems=[cause.model_dump(mode="json")]))
+            found.append(problems.run_failed(version.id, version.version, status=status, reason=_reason([cause]), cause=[cause.type], problems=[cause.model_dump(mode="json")]))
     return found
 
 
 def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) -> list[Problem]:
     """The one problem for an example whose graph has problems: ``hook_failed`` when a hook caused every one, else ``run_failed``."""
-    reason = "; ".join(p.msg for p in graph_problems)
+    reason = _reason(graph_problems)
     cause, written = [p.type for p in graph_problems], [p.model_dump(mode="json") for p in graph_problems]
     if all(p.type in _HOOK_CODES for p in graph_problems):
         return [problems.hook_failed_on_an_example(version.id, version.version, reason=reason, cause=cause, problems=written)]
     return [problems.example_not_compiled(version.id, version.version, reason=reason, cause=cause, problems=written)]
+
+
+def _reason(behind: Sequence[Problem]) -> str:
+    """The ``reason`` of every kind of ``check_registry``: the message of each problem behind it, joined by "; ".
+
+    A node's own exception is ``execution_failed``, whose message does not say which exception it was, so its class
+    name is said instead: ``"the node raised ZeroDivisionError"``.
+    """
+    return "; ".join(f"the node raised {p.ctx['error']}" if p.type == "execution_failed" else p.msg for p in behind)
 
 
 def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[..., Any], list[str]]:

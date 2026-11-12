@@ -183,6 +183,22 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
     assert problem.ctx["cause"] == ["invalid_value"]
 
 
+def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
+    """The codes are in ``ctx.cause``, so ``reason`` is the messages alone, joined by "; ", for every kind alike."""
+
+    @node("size", title="Size v1", description="For a test.")
+    def size_v1(n: int) -> int:
+        return n
+
+    @node("size", title="Size", description="For a test.", replaces=size_v1, upgrade=Upgrade(rewrite=lambda typed: {**typed, "n": "many"}))
+    def size(n: int) -> int:
+        return n
+
+    [problem] = check_registry(registry_of(size))
+    [behind] = problem.ctx["problems"]
+    assert problem.ctx["reason"] == behind["msg"]
+
+
 # -- calling the body ------------------------------------------------------------------------------
 
 
