@@ -120,9 +120,7 @@ class FlatFunctionNode(_FlatNodeBase):
             ``None`` for every other input. The arguments of a call start as a copy of it.
         graph_inputs: The inputs the caller gives a value for: the input's name, and the key the run keeps the
             caller's value under (``"lines.text"``).
-        edge_arguments: The inputs that edges lead to, in the order declared, each an ``EdgeArgument``. A
-            collecting input is here twice: first with an input that reads the list it collects as one value (so a
-            list that is ``None``, skipped or not made yet is seen before any item is read), then as itself.
+        edge_arguments: The inputs that edges lead to, in the order declared, each an ``EdgeArgument``.
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
@@ -338,10 +336,6 @@ def _add_flat_nodes(
                     read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
                     collecting.setdefault(series, []).append((name, field.accepts_none_items))
-                    series_type = series_node.compiled_node.outputs[series.output].whole
-                    whole_list = Edge(series.node_id, series.output, node_input.loops, None, series_type, item=False)
-                    # the list first, then (below) its items
-                    edge_arguments.append(EdgeArgument(name, EdgeInput(field, (whole_list,), node_input.loops), field.whole.optional))
                 case _:
                     assert_never(node_input)
             edge_arguments.append(EdgeArgument(name, node_input, node_input.field.whole.optional))
