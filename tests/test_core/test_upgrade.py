@@ -370,3 +370,39 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
             upgraded = registry.upgrade(saved, "w")
             assert upgraded.nodes[0].constants == {"day": written}
             assert GraphRecord.model_validate_json(upgraded.model_dump_json()) == upgraded
+
+
+def test_a_subgraphs_input_rename_moves_only_the_edge_into_that_exact_input():
+    """The subgraph's inputs are ``a`` and, as two inner nodes take ``b``, ``a.b`` and ``c.b``: renaming ``a`` leaves
+    the edge into ``a.b`` where it is."""
+
+    @node("takes-b", title="Takes b", description="For a test.")
+    def takes_b(b: str) -> str:
+        return b
+
+    @node("takes-a", title="Takes a", description="For a test.")
+    def takes_a(a: str) -> str:
+        return a
+
+    @node("takes-z", title="Takes z", description="For a test.")
+    def takes_z(z: str) -> str:
+        return z
+
+    @node("word", title="Word", description="For a test.")
+    def word() -> str:
+        return "w"
+
+    def inner(last: str) -> GraphRecord:
+        return GraphRecord.model_validate({"nodes": [{"id": "a", "node": "takes-b"}, {"id": "c", "node": "takes-b"}, {"id": "x", "node": last}]})
+
+    v1 = subgraph("sub", title="Sub", description="For a test.")(inner("takes-a"))
+    v2 = subgraph("sub", title="Sub", description="For a test.", replaces=v1, upgrade=Upgrade(renamed_inputs={"a": "z"}))(inner("takes-z"))
+    reg = registry_of(takes_b, takes_a, takes_z, word, v2)
+    edges = [["w.result", "s.a.b"], ["w.result", "s.c.b"], ["w.result", "s.a"]]
+    stored = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "word"}, {"id": "s", "node": "sub", "version": 1}], "edges": edges})
+    assert Graph.compile(stored, reg).problems == []
+
+    moved = reg.upgrade(stored, "s")
+
+    assert moved.edges == (("w.result", "s.a.b"), ("w.result", "s.c.b"), ("w.result", "s.z"))
+    assert Graph.compile(moved, reg).problems == []

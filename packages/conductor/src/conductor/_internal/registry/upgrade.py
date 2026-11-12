@@ -22,8 +22,8 @@ def _with_keys_renamed[V](by_name: Mapping[str, V], renames: Mapping[str, str]) 
     return {renames.get(name, name): value for name, value in by_name.items()}
 
 
-def _renamed_on(address: Address, node_id: str, renames: Mapping[str, str]) -> Address:
-    """``address`` with its input or output renamed when it is on ``node_id`` and the step renames it.
+def _renamed_output(address: Address, node_id: str, renames: Mapping[str, str]) -> Address:
+    """``address``, the source of an edge, with its output renamed when it is on ``node_id`` and the step renames it.
 
     A field of a record after the output (``result.email``) moves with it; a subgraph's output is named by an inner
     address (``tail.result``), which ``Address.output_and_field`` reads.
@@ -31,8 +31,14 @@ def _renamed_on(address: Address, node_id: str, renames: Mapping[str, str]) -> A
     named = address.output_and_field(renames) if address.node == node_id else None
     if named is None:
         return address
-    name, record_field = named
-    return Address.of_field(node_id, renames[name], record_field)
+    output, record_field = named
+    return Address.of_field(node_id, renames[output], record_field)
+
+
+def _renamed_input(address: Address, node_id: str, renames: Mapping[str, str]) -> Address:
+    """``address``, the target of an edge, with its input renamed when it is on ``node_id`` and the step renames that
+    exact input: an input has no field, and a subgraph may have both the inputs ``a`` and ``a.b``."""
+    return Address(node_id, renames[address.name]) if address.node == node_id and address.name in renames else address
 
 
 def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | bytes, node_id: str, *, to: int | None) -> GraphRecord:
@@ -72,7 +78,7 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
             constants = {name: value for name, value in rewritten.items() if name not in defaults}
         gone = {Address(node_id, name) for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
         edges = [
-            (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
+            (_renamed_output(source, node_id, upgrade.renamed_outputs), _renamed_input(target_, node_id, upgrade.renamed_inputs))
             for source, target_ in edges
             if target_ not in gone
         ]
