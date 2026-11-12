@@ -21,7 +21,6 @@ from conductor._internal.types import Type
 from ..flat import FlatFunctionNode
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
-from ..results import function_of
 from ..reuse import ReusableOutcomes
 from .codec import RunCodec, codec_of, saved_list_type, saved_type
 from .type import (
@@ -79,7 +78,7 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for text, value in run.outputs.items():
-        function, output = function_of(run._flat, run.graph._output_addresses[text])
+        function, output = run._flat.outputs[text]
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None

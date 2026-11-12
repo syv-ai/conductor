@@ -304,10 +304,13 @@ class FlatGraph:
         function_nodes: Every function node of the graph and of its subgraphs, at any depth, by name
             (``"loud/shout"``), in the order a run tries them: each after the nodes upstream of it.
         nodes: Every flat node, a function or a subgraph, by name (``"loud"``, ``"loud/shout"``).
+        outputs: The graph outputs, by address, as the function node that returns each and the output's name
+            there: ``{"join.result": (join, "result")}``, and ``"loud.shout.result"`` is ``(loud/shout, "result")``.
     """
 
     function_nodes: dict[str, FlatFunctionNode]
     nodes: dict[str, FlatNode]
+    outputs: dict[str, tuple[FlatFunctionNode, str]]
 
     @functools.cached_property
     def threads(self) -> int:
@@ -325,11 +328,11 @@ def flat_graph_of(graph: CompiledGraph) -> FlatGraph:
     if flat is None:
         functions: dict[str, FlatFunctionNode] = {}
         nodes_by_name: dict[str, FlatNode] = {}
-        _add_flat_nodes(graph, None, None, functions, nodes_by_name)
+        sources = _sources_inside(_add_flat_nodes(graph, None, None, functions, nodes_by_name))
         for node in functions.values():
             for upstream_node, shared_indexes in node.upstream.items():
                 upstream_node.downstream.append((node, shared_indexes))
-        flat = _FLAT_GRAPHS[graph] = FlatGraph(functions, nodes_by_name)
+        flat = _FLAT_GRAPHS[graph] = FlatGraph(functions, nodes_by_name, {address: sources[address] for address in graph.outputs})
     return flat
 
 
@@ -418,8 +421,8 @@ def _add_flat_nodes(
 
 
 def _sources_inside(inner_nodes: dict[str, FlatNode]) -> dict[str, tuple[FlatFunctionNode, str]]:
-    """Every output of the nodes of a subgraph, by its address there, as the function node that returns it and the
-    output's name there.
+    """Every output of the nodes of a graph or a subgraph, by its address there, as the function node that returns
+    it and the output's name there.
 
     In the example, ``loud``'s are ``{"strip.result": (loud/strip, "result"), "shout.result": (loud/shout, "result")}``.
     A subgraph inside adds each of its own under its id: ``"inner.shout.result"``.

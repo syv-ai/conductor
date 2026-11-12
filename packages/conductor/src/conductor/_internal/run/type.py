@@ -473,7 +473,7 @@ class Run[C]:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
+        return outputs_of(self._flat, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by address: ``{"join.result":"A!+B!+C!"}`` for the README graph.

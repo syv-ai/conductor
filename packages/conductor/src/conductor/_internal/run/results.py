@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from conductor._internal.base import SKIPPED, Address, ItemIndexes
+from conductor._internal.base import SKIPPED, ItemIndexes
 from conductor._internal.compiled import CompiledGraph, Edge
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
@@ -20,7 +20,6 @@ from .arguments import ResultReader
 from .flat import (
     CollectingArgument,
     EdgeArgument,
-    FlatFunctionNode,
     FlatGraph,
     display_inputs_of,
 )
@@ -32,22 +31,13 @@ def results_of(
 ) -> dict[str, dict[str, Any]]:
     """``run.results``: every node's outputs so far, by node id and output name. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {n: {o: reader.display_value(display_inputs_of(*function_of(flat, Address(n, o)))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
+    return {n: {o: reader.display_value(display_inputs_of(*flat.nodes[n].source_of(o))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
 
 
-def outputs_of(
-    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
-) -> dict[str, Any]:
-    """``run.outputs`` of a complete run: the graph outputs, by address. ``flat`` is ``graph``'s flat graph."""
+def outputs_of(flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """``run.outputs`` of a complete run: the graph outputs, by address."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {text: reader.display_value(display_inputs_of(*function_of(flat, address))) for text, address in graph._output_addresses.items()}
-
-
-def function_of(flat: FlatGraph, address: Address) -> tuple[FlatFunctionNode, str]:
-    """The function node that returns the output at ``address`` (``node.output``), and the output's name on
-    that function. For a subgraph (``e.upper.result``) it is the function inside the
-    subgraph, since the subgraph's node is never called itself."""
-    return flat.nodes[address.node].source_of(address.name)
+    return {address: reader.display_value(display_inputs_of(*source)) for address, source in flat.outputs.items()}
 
 
 class DisplayReader(ResultReader):
