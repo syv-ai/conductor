@@ -774,13 +774,13 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     def fed(node_id: str) -> dict[str, str]:
         return {i.field.name: i.source.msg for i in nodes[node_id].inputs}
 
-    assert nodes["k"].inputs[0].source.model_dump() == {"mode": "outer_value", "series": None, "msg": "the value of the graph"}
+    assert nodes["k"].inputs[0].source.model_dump() == {"mode": "outer_value", "series": None, "msg": "one value, the same for every item"}
     assert nodes["j"].runs == RunsOn(mode="once", msg="once")
     assert loaded.runs_on["u"] == RunsOn(mode="per_item", series="s.result", msg="per item of s.result")
     assert fed("u") == {"text": "per item of s.result"}
     assert fed("j") == {"texts": "every item of s.result"}
     assert fed("p") == {"a": "per item of s.result", "b": "a constant"}
-    assert fed("k") == {"a": "the value of the graph", "b": "per item of s.result"}
+    assert fed("k") == {"a": "one value, the same for every item", "b": "per item of s.result"}
     assert fed("s") == {"text": "the graph input", "sep": "the graph input"}
 
 

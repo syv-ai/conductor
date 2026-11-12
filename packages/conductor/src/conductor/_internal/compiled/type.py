@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass
+from typing import Annotated
 
-from conductor._internal.address import NodePath
+from conductor._internal.address import NodePath, split_address
 from conductor._internal.compiled.describe import (
     GraphDescription,
     GraphInput,
@@ -33,16 +34,19 @@ from conductor._internal.compiled.describe import (
     runs_on,
 )
 from conductor._internal.compiled.flat_nodes import FlatFunctionNode, FlatNode, flat_nodes
+from conductor._internal.compiled.input_plans import OutputAddress
 from conductor._internal.compiled.nodes import (
     CompiledFunctionNode,
     CompiledNode,
     CompiledSubgraphNode,
+    RequiredBranch,
 )
 from conductor._internal.field import Field
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.hashing import canonical_json, short_hash
 from conductor._internal.problem import Problem
 from conductor._internal.text import plural
+from conductor._internal.value_type import Param
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +153,45 @@ class CompiledGraph:
                 outputs=compiled_node.described_outputs(),
             )
         return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))
+
+    # -- what a subgraph node that uses this graph reads ------------------------
+
+    @functools.cached_property
+    def _inputs_as_a_node(self) -> dict[str, Field]:
+        """The graph inputs as the inputs of a subgraph node that uses this graph, by their names in ``inputs``.
+
+        Example: the subgraph ``strip -> shout`` used as the node ``loud`` has the input ``line``, with the type
+        and default of ``strip.line``.
+        """
+        return {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in self._input_fields.values()}
+
+    @functools.cached_property
+    def _outputs_as_a_node(self) -> dict[str, Field]:
+        """The graph outputs as the outputs of a subgraph node that uses this graph, by their addresses here
+        (``shout.result``), each as the node here declares it.
+
+        An exclusive group is named by the node here (``route.length``), so the groups of two nodes stay apart.
+        """
+        outputs: dict[str, Field] = {}
+        for address in self.outputs:
+            node_id, output = split_address(address)
+            field = self._nodes[node_id].outputs[output]
+            group = field.param.exclusive_group
+            hint = Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")] if group else field.hint
+            outputs[address] = Field(address, hint, field.default)
+        return outputs
+
+    def _loops_around(self, address: str) -> tuple[OutputAddress, ...]:
+        """Returns the loops inside this graph that the output at ``address`` (``shout.result``) has one value per
+        item of, outermost first."""
+        node_id, output = split_address(address)
+        return self._nodes[node_id].loops_around(output)
+
+    def _branches_required_for(self, address: str) -> frozenset[RequiredBranch]:
+        """Returns the branches inside this graph that must be chosen for the output at ``address`` to have a
+        value."""
+        node_id, output = split_address(address)
+        return self._nodes[node_id].branches_required_for(output)
 
     # -- what a run uses --------------------------------------------------------
 

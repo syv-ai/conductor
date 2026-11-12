@@ -572,7 +572,7 @@ def test_an_input_a_hook_reads_is_fixed_when_the_graph_loads_and_never_a_graph_i
         graph.run(mode="b")
 
     [problem] = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "by-mode", "defaults": {"mode": "b"}}]}), registry).problems
-    assert (problem.type, problem.loc) == ("default_on_later_node", ("m", "mode"))
+    assert (problem.type, problem.loc) == ("default_not_a_graph_input", ("m", "mode"))
     assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "f", "node": "formula"}]}), BROKEN).problems[0].type == "hook_needs_value"
 
 

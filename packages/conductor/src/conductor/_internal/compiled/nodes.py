@@ -20,7 +20,6 @@ import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from conductor._internal.address import split_address
 from conductor._internal.ask import output_questions
 from conductor._internal.compiled.input_plans import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
@@ -213,8 +212,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         the list inside, so two outputs returned in the same loop inside name the same loop, and a node outside
         that reads both is called once per item with the two values of that item.
         """
-        node_id, inner_output = split_address(output)
-        inside = self.inner._nodes[node_id].loops_around(inner_output)
+        inside = self.inner._loops_around(output)
         return (*self.loops, *[OutputAddress(self.id, str(loop)) for loop in inside])
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
@@ -227,8 +225,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         wired to both, as it may with the same nodes drawn in the outer graph. A branch inside is named by this
         node's id, with the group and the output as addresses inside the subgraph.
         """
-        node_id, inner_output = split_address(output)
-        inside = self.inner._nodes[node_id].branches_required_for(inner_output)
+        inside = self.inner._branches_required_for(output)
         depth = len(self.loops)
         return self.required_branches | {
             RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", f"{branch.node_id}.{branch.output}", depth + branch.depth)

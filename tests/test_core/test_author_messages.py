@@ -75,7 +75,7 @@ def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
     return found
 
 
-# -- a Split is missing --------------------------------------------------------------------------------
+# -- a table or list not taken apart --------------------------------------------------------------------------------
 
 
 def test_a_whole_table_into_an_input_of_one_value_says_to_split_first_and_lists_the_fields():
@@ -87,7 +87,7 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_split_first_and_lists_
     }
     assert found.msg == (
         "'read.result' is a whole table, and 'send.to' takes one str. To call 'send' once per row or item, "
-        "put a Split between them and wire Split's result, or one field of it."
+        "put a node between them that returns its rows or items as a Series, and wire that node's result, or one field of it."
     )
 
 
@@ -113,8 +113,8 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_split_first():
     assert (found.type, found.loc) == ("unknown_output", ("send", "to"))
     assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "record_field": "email", "variant": "split_first", "whole": "table", "fields": ["name", "email"]}
     assert found.msg == (
-        "'read.result.email' names a field of a whole table, which has no fields to wire. Put a Split after it "
-        "and wire the field from Split's result."
+        "'read.result.email' names a field of a whole table, which has no fields to wire. Put a node after it that returns "
+        "its rows or items as a Series, and wire the field from that node's result."
     )
 
 

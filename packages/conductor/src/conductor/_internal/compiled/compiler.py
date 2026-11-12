@@ -78,7 +78,7 @@ from conductor._internal.node_definition import (
 )
 from conductor._internal.problem import NodeDeclarationError, NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.value_type import Param, Type
+from conductor._internal.value_type import Type
 
 _logger = logging.getLogger("conductor")
 
@@ -343,19 +343,10 @@ class _Compiler:
         if inner.problems:
             self.problems += [inner_problem.model_copy(update={"loc": (record.id, *inner_problem.loc)}) for inner_problem in inner.problems]
             return
-        fields = {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in inner._input_fields.values()}
-        outputs: dict[str, Field] = {}
-        for address in inner.outputs:
-            node_id, output = split_address(address)
-            inner_node = inner._nodes[node_id]
-            field = inner_node.outputs[output]
-            group = field.param.exclusive_group
-            if group:  # the group is named by the node inside (``route.length``), so groups of two nodes stay apart
-                field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
-            outputs[address] = Field(address, field.hint, field.default)
+        fields = inner._inputs_as_a_node
         planned = self._plan_inputs(record, fields, self._constants_of(record, fields), frozenset(), edges)
         self.nodes[record.id] = CompiledSubgraphNode(
-            id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
+            id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=inner._outputs_as_a_node, required_branches=planned.required_branches,
             definition=definition, inner=inner,
         )
 
@@ -392,6 +383,8 @@ class _Compiler:
             fields = {name: field.bind(bound) for name, field in fields.items()}  # the compiled node's fields have no type variables left
         first = not any(name in fields for name in edges)  # no edge leads into the node, so its open inputs are graph inputs
         inputs: dict[str, InputPlan] = {}
+        readable: dict[str, list[EdgeSource]] = {}  # the inputs whose edges can be read, planned once the node's loops are known
+        collecting: set[str] = set()
         for name, field in fields.items():
             if name in record.constants and name in record.defaults:
                 self.problems.append(problem.constant_and_default(record.id, name))
@@ -399,7 +392,12 @@ class _Compiler:
                 if name in record.constants or name in record.defaults:
                     self.problems.append(problem.constant_and_edge(record.id, name))
                 edge_sources = sources[name]
-                inputs[name] = InputMissing(field) if edge_sources is None else self._plan_from_edges(record.id, field, edge_sources)
+                if edge_sources is not None and self._edges_fit(record.id, field, edge_sources):
+                    readable[name] = edge_sources
+                    if _collects_and_expected_type(field, edge_sources)[0]:
+                        collecting.add(name)
+                else:
+                    inputs[name] = InputMissing(field)
             elif name in record.constants:
                 inputs[name] = _constant_plan(field, constants[name])
             elif first and name not in constant_at_compile:
@@ -413,21 +411,22 @@ class _Compiler:
                 self.graph_inputs.append((GraphInput(address=address, node_id=record.id, field=caller_field.description), caller_field))
                 inputs[name] = InputFromGraphInput(field, address)
             elif name in record.defaults:
-                self.problems.append(problem.default_on_later_node(record.id, name))
+                self.problems.append(problem.default_not_a_graph_input(record.id, name))
                 inputs[name] = _constant_plan(field, constants[name])
             elif field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
                 self.problems.append(problem.unbound_on_later_node(record.id, name))
                 inputs[name] = InputMissing(field)
             else:
                 inputs[name] = InputConstant(field, field.default)
-        for name in self._inputs_with_conflicting_edges(record.id, inputs):
+        for name in self._inputs_with_conflicting_edges(record.id, fields, readable, collecting):
+            del readable[name]
             inputs[name] = InputMissing(fields[name])
-        loops = max((plan.loops for plan in inputs.values()), key=len, default=())
-        for name, plan in inputs.items():
-            if isinstance(plan, InputCollectsLoopResults) and (source_loops := plan.sources[0].loops_of_value) == loops[: len(source_loops)] and not any(s.item for s in plan.sources):
-                # Another input already puts the node inside the loop this input would collect, so each call has
-                # one value here, its own item's: the input gets it as a list of one.
-                inputs[name] = InputWrapsOneValue(plan.field, plan.sources)
+        # Only an edge puts a node inside a loop. A collecting input needs the loops around the one it collects.
+        deepest = {name: max((s.loops_of_value for s in edge_sources), key=len) for name, edge_sources in readable.items()}
+        loops = max((deepest[name][:-1] if name in collecting else deepest[name] for name in fields if name in readable), key=len, default=())
+        for name, edge_sources in readable.items():
+            inputs[name] = _edge_plan(fields[name], edge_sources, deepest[name], loops, collects=name in collecting)
+        inputs = {name: inputs[name] for name in fields}
         for name, plan in inputs.items():
             if loops[: len(plan.loops)] != plan.loops:  # not the node's outermost loops: items of two different lists are never paired
                 series = [loops[-1], plan.loops[-1]]
@@ -544,29 +543,19 @@ class _Compiler:
             sources.sort(key=self._edge_order)
         return sources
 
-    def _plan_from_edges(self, node_id: str, field: Field, sources: list[EdgeSource]) -> InputFromEdges | InputMissing:
-        """Returns the plan of an input whose edges read ``sources``.
+    def _edges_fit(self, node_id: str, field: Field, sources: list[EdgeSource]) -> bool:
+        """Whether every edge into the input ``field`` reads a type the input accepts; for the first that does not,
+        the graph gets the problem.
 
-        An input that takes one value reads one value per call, whatever its type; when a source is a
-        ``Series``, that is one item of it. A ``Series`` input collects the innermost loop its sources are inside,
-        or gets the one value of a source inside no loop as a list of one. A ``Table`` input reads a whole table
-        when every edge reads one (from a ``Series`` of tables, one table per call), and else collects records.
-
-        Returns:
-            The plan. ``InputMissing``, with the problem, when an edge reads a type the input does not accept.
+        An input that takes one value must accept each source's type. A ``Series`` input that collects must accept
+        one item of each, and a ``Table`` input that collects records must accept each record.
         """
-        collects, expected = _collects_and_expected_type(field, sources)
+        expected = _collects_and_expected_type(field, sources)[1]
         for source in sources:
             if expected is not source.type and expected.fits(source.type) is None:  # the identity test first: most edges read exactly the input's type
                 self.problems.append(_mismatch(node_id, field, source))
-                return InputMissing(field)
-        deepest = max((s.loops_of_value for s in sources), key=len)
-        if not collects:
-            return InputReadsOneValue(field, tuple(sources), deepest)
-        if not deepest:
-            return InputWrapsOneValue(field, tuple(sources))
-        source_node, output = deepest[-1]
-        return InputCollectsLoopResults(field, OutputInLoops(source_node, output, deepest[:-1]), tuple(sources))
+                return False
+        return True
 
     def _source(self, address: str, node_id: str, name: str) -> EdgeSource | None:
         """Returns what an edge from ``address`` reads: ``node.output``, or ``node.output.field`` for one field
@@ -591,10 +580,10 @@ class _Compiler:
         if field is None:
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
-        if record_field and (split := _split_gives(field.type)):  # only a record has fields to wire; a whole table or list needs a Split node first
+        if record_field and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
             self.problems.append(problem.unknown_output_split_first(
                 node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=record_field,
-                whole=split[0], fields=split[1],
+                whole=parts[0], fields=parts[1],
             ))
             return None
         read_type = _field_type(field.type, record_field) if record_field else field.type
@@ -615,7 +604,9 @@ class _Compiler:
         """The branches that must be chosen for the output ``source`` reads to have a value."""
         return self.nodes[source.node_id].branches_required_for(source.output)
 
-    def _inputs_with_conflicting_edges(self, node_id: str, inputs: Mapping[str, InputPlan]) -> set[str]:
+    def _inputs_with_conflicting_edges(
+        self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[EdgeSource]], collecting: set[str],
+    ) -> set[str]:
         """Finds the inputs whose edges cannot be read together, and adds a problem for each.
 
         Several edges into one input must be alternatives: each pair must need different outputs of one exclusive
@@ -627,23 +618,29 @@ class _Compiler:
         a problem too (``lists_from_different_loops``). An item one list has no value for is left out of both
         lists, so both would always be empty.
 
+        Args:
+            node_id: The node.
+            fields: The node's inputs, by name.
+            readable: What the edges into each input read, for the inputs whose edges can be read, by name.
+            collecting: The inputs among them whose type takes a list of what their edges read.
+
         Returns:
             The names of the inputs with a problem.
         """
         refused: set[str] = set()
-        for name, plan in inputs.items():
-            branches = [self._branches_required_for(s) for s in plan.sources]
-            loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in plan.sources))
+        for name, sources in readable.items():
+            branches = [self._branches_required_for(s) for s in sources]
+            loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in plan.sources]))
+                self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [str(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
                 self.problems.append(problem.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
-        aligned = [
-            (name, [self._branches_required_for(s) for s in plan.sources]) for name, plan in inputs.items()
-            if isinstance(plan, InputCollectsLoopResults) and not plan.field.accepts_none_items and name not in refused
+        aligned = [  # the collecting inputs whose edges come from inside a loop
+            (name, [self._branches_required_for(s) for s in sources]) for name, sources in readable.items()
+            if name in collecting and any(s.loops_of_value for s in sources) and not fields[name].accepts_none_items and name not in refused
         ]
         for i, (a, branches_a) in enumerate(aligned):
             for b, branches_b in aligned[i + 1:]:
@@ -687,6 +684,31 @@ def _collects_and_expected_type(field: Field, sources: list[EdgeSource]) -> tupl
     return collects, field.whole if not collects else field.type if record is None else record
 
 
+def _edge_plan(field: Field, sources: list[EdgeSource], deepest: tuple[OutputAddress, ...], loops: tuple[OutputAddress, ...], *, collects: bool) -> InputFromEdges:
+    """Returns the plan of an input whose edges read ``sources``, for a node inside ``loops``.
+
+    In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what
+    ``shout`` returned per line, so ``join`` is outside the loop over ``lines.result``. Wired to an output of a
+    node inside no loop, ``join.texts`` gets that one value as a list of one. So does a collecting input whose node
+    another input already puts inside the loop it would collect: each call then has one value of that loop, its
+    own item's.
+
+    Args:
+        field: The input.
+        sources: What its edges read; all are inside the same loops.
+        deepest: The loops a node must be inside to read one value of a source: those of the source with the most.
+        loops: The loops the node is inside.
+        collects: Whether the input's type takes a list of what the edges read (a ``Series``, or a ``Table`` of
+            records), rather than one value of it.
+    """
+    if not collects:
+        return InputReadsOneValue(field, tuple(sources), deepest)
+    if deepest == loops[: len(deepest)] and not any(s.item for s in sources):
+        return InputWrapsOneValue(field, tuple(sources))
+    source_node, output = deepest[-1]
+    return InputCollectsLoopResults(field, OutputInLoops(source_node, output, deepest[:-1]), tuple(sources))
+
+
 def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] | None]) -> dict[TypeVar, Any]:
     """Returns the type each type variable of a node's inputs gets from the edges into them. When edges into
     two inputs that share a variable read ``int`` and ``str``, the variable gets ``int | str``.
@@ -706,8 +728,9 @@ def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] |
     return bound
 
 
-def _split_gives(whole: Type) -> tuple[Literal["table", "list"], list[str]] | None:
-    """Returns what the Split node would make of a value of the type ``whole``, for a problem to suggest it.
+def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | None:
+    """Returns what a value of the type ``whole`` gives when a node takes it apart into a ``Series`` of its rows or
+    items, for a problem to suggest that node.
 
     Returns:
         ``"table"`` or ``"list"``, and the fields of each record or item it gives: none for a table whose columns
@@ -726,20 +749,20 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
     """Returns the ``type_mismatch`` problem of an edge from ``source`` into the input ``field``.
 
     Where one mistake explains it, the problem says the fix: a whole table or list wired to an input that takes
-    one value needs a Split node first, and a table input wired to records that lack one of its columns needs
+    one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
     that column added.
     """
     address, expected = source.address, field.whole.id
     got = f"Series[{source.type.text}]" if source.item else source.type.text
-    split = _split_gives(source.type)
+    parts = _taken_apart(source.type)
     if field.whole.record is not None:
         has = (source.type.record or source.type).fields
         missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
             return problem.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
-    elif split and not field.is_series:
-        return problem.type_mismatch_split_first(node_id, field.name, source=address, got=got, expected=expected, whole=split[0], fields=split[1])
+    elif parts and not field.is_series:
+        return problem.type_mismatch_split_first(node_id, field.name, source=address, got=got, expected=expected, whole=parts[0], fields=parts[1])
     return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 

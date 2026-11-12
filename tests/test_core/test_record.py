@@ -363,7 +363,7 @@ def test_a_list_typed_in_or_left_as_a_default_for_an_input_of_one_value_is_not_a
 def test_a_default_on_a_later_node_is_a_problem_since_no_caller_reaches_it():
     record = GraphRecord(nodes=[NodeRecord(id="a", node="text"), NodeRecord(id="b", node="both", defaults={"no": "n"})], edges=[("a.result", "b.yes")])
 
-    assert _problems(record) == [("default_on_later_node", ("b", "no"))]
+    assert _problems(record) == [("default_not_a_graph_input", ("b", "no"))]
 
 
 def test_every_fault_in_a_callers_inputs_is_refused_at_once_the_names_first_in_the_order_given_then_the_inputs_in_order():

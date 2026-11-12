@@ -192,12 +192,14 @@ def cycle(*loc: str | int) -> str:
 
 
 @PROBLEMS.problem()
-def default_on_later_node(node_id: str, field: str, /) -> str:
+def default_not_a_graph_input(node_id: str, field: str, /) -> str:
     """The graph record gives a default to an input that is not a graph input.
 
     Only a graph input gets its value from the caller, so only there can a default be replaced. Write the value as a
     constant (``constants``) instead. In the example, ``g.greeting`` is not a graph input because ``g`` has an edge
-    into it, so it is not one of the graph's first nodes.
+    into it, so it is not one of the graph's first nodes. An input that a node's ``compute_added_inputs`` or
+    ``compute_outputs`` reads is never a graph input either, on any node: the hook reads it when the graph is
+    compiled, before any caller.
 
     Args:
         node_id: The node.
@@ -509,9 +511,9 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
 def type_mismatch_split_first(node_id: str, field: str, /, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """A whole table or list is wired into an input that takes one value.
 
-    A table or a list is one value. To call the node once per row or item, put a node between that returns them as a
-    series (the node ``series-split``, titled Split, in ``syv-conductor-nodes``), and wire that node's result, or one field of it
-    (``series-split.result.email``).
+    A table or a list is one value. To call the node once per row or item, put a node between them that returns the
+    rows or items as a ``Series`` (a node declared ``-> Series[R]``), and wire that node's result, or one field of
+    each record of it (``each.result.email``).
 
     Args:
         node_id: The node at the edge's target.
@@ -530,7 +532,7 @@ def type_mismatch_split_first(node_id: str, field: str, /, *, source: str, got: 
     """
     return (
         f"'{source}' is a whole {whole}, and '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
-        "put a Split between them and wire Split's result, or one field of it."
+        "put a node between them that returns its rows or items as a Series, and wire that node's result, or one field of it."
     )
 
 
@@ -655,8 +657,7 @@ def unknown_output_split_first(*loc: str | int, source: str, outputs: list[str],
     """An edge's source names a field of a whole table or list.
 
     A table or a list is one value, so it has no field to wire. Put a node after it that returns its rows or items as
-    a series (the node ``series-split``, titled Split, in ``syv-conductor-nodes``), and wire the field from that node's result:
-    ``series-split.result.email``.
+    a ``Series`` (a node declared ``-> Series[R]``), and wire the field from that node's result: ``each.result.email``.
 
     Args:
         loc: The node at the edge's target, and the input.
@@ -673,8 +674,8 @@ def unknown_output_split_first(*loc: str | int, source: str, outputs: list[str],
         })
     """
     return (
-        f"'{source}' names a field of a whole {whole}, which has no fields to wire. Put a Split after it and wire the field "
-        "from Split's result."
+        f"'{source}' names a field of a whole {whole}, which has no fields to wire. Put a node after it that returns its rows "
+        "or items as a Series, and wire the field from that node's result."
     )
 
 
