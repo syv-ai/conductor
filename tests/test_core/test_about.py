@@ -28,7 +28,7 @@ def test_list_sections_includes_core_stanzas():
     assert "api-reference" in slugs
     # H3 — nested concept sections must also be addressable directly
     assert "retries-and-timeouts" in slugs
-    assert "legs-and-asking" in slugs
+    assert "asking-a-person" in slugs
 
 
 def test_get_section_exact_slug():
@@ -41,7 +41,7 @@ def test_get_section_exact_slug():
 def test_get_section_substring_match_resolves_to_full_slug():
     body = about.get_section("asking")
     assert body is not None
-    assert "### Legs and Asking" in body
+    assert "### Asking a person" in body
 
 
 def test_get_section_unknown_returns_none():
@@ -72,7 +72,7 @@ def test_cli_sections_lists_slugs():
     )
     lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
     assert "quick-start" in lines
-    assert "legs-and-asking" in lines
+    assert "asking-a-person" in lines
 
 
 def test_cli_section_filter_emits_only_that_section():

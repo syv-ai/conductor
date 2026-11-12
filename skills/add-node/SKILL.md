@@ -45,7 +45,7 @@ assert registry["greet"] is greet
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table holds exactly those) or bare `Table`; it is a `polars.DataFrame`, one value, and may be returned as a list of records. A `Table` input fed records gathers them |
 | A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
 | A blank (an empty cell) | `email: str \| None`; otherwise the node is not called for that item and its outputs are blank there |
-| A person's answer | `raise Ask(prompt, choices=..., default=...)`; the return type says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about legs-and-asking`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
+| A person's answer | `raise Ask(prompt, choices=..., default=...)`; the return type says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about asking-a-person`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
 | A client, a clock, the caller | `Context[T]`, supplied by `run.resume(context={T: value})` |
 | Retries, a timeout, a concurrency bound | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |

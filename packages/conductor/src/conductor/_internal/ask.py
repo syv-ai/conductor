@@ -6,7 +6,7 @@ dataclass a form of one question per field. How each question looks (its
 title, its widget, choices known when the node is written) is the type's,
 through ``Param``. ``Ask`` adds only what the run knows: the prompt, choices
 known only when the node runs, and a proposed answer. Every return type's
-question is in the reference, ``python -m conductor.about legs-and-asking``.
+question is in the reference, ``python -m conductor.about asking-a-person``.
 
 A waiting unit is a ``Waiting``, and each of its ``questions`` is the field
 record ``describe()`` gives an output, with what the ``Ask`` set: so a host
