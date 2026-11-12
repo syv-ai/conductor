@@ -38,13 +38,12 @@ import heapq
 import itertools
 import logging
 import operator
-import queue
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from queue import Empty
+from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.address import ItemIndexes, NodePath
@@ -164,7 +163,7 @@ class Scheduler:
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
         self.on_threads: defaultdict[FlatFunctionNode, int] = defaultdict(int)
         #: What came back from threads: a call's (node, instance, attempt, outputs, what went wrong), or what ``call`` itself raised.
-        self.returned: queue.SimpleQueue[tuple[FlatFunctionNode, ItemIndexes, int, Any, BaseException | None] | BaseException] = queue.SimpleQueue()
+        self.returned: SimpleQueue[tuple[FlatFunctionNode, ItemIndexes, int, Any, BaseException | None] | BaseException] = SimpleQueue()
         #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
         self.timers: list[tuple[float, int, Literal["retry", "deadline"], FlatFunctionNode, ItemIndexes, int, float]] = []
         self.timer_order = itertools.count()

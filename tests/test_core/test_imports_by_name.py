@@ -23,8 +23,6 @@ CLASSES_THAT_STAY_THROUGH = {
     "polars": "*",
     "pandas": "*",
     "datetime": {"date", "time", "datetime"},
-    # a test patches `queue.SimpleQueue` and the scheduler reads it through the module at call time
-    "queue": {"SimpleQueue"},
     # the public records `Waiting` and `NotCalled` have the same names; the engine's own are written
     # `outcomes.Waiting` in the files where both appear
     "conductor._internal.outcomes": {"Waiting", "NotCalled"},

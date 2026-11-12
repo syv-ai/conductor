@@ -2,12 +2,12 @@
 import asyncio
 import base64
 import json
-import queue
 import re
 import time as t
 from asyncio import Event
 from collections.abc import Mapping
 from dataclasses import dataclass
+from queue import SimpleQueue
 from typing import Annotated, Any, Literal, TypeAliasType
 
 import pytest
@@ -27,6 +27,7 @@ from conductor import (
     node,
     subgraph,
 )
+from conductor._internal.scheduler import type as scheduler_module
 from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 from pytest import MonkeyPatch
@@ -224,13 +225,13 @@ def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_w
     empty queue, so a leg that waits for a retry never makes one: every timed wait follows a look that found nothing."""
     looks: list[str] = []
 
-    class Watched(queue.SimpleQueue[Any]):
+    class Watched(SimpleQueue[Any]):
         def get(self, block: bool = True, timeout: float | None = None) -> Any:
             looks.append("no wait" if not block else "timed" if timeout is not None else "wait")
             assert timeout is None or timeout > 0
             return super().get(block, timeout)
 
-    monkeypatch.setattr(queue, "SimpleQueue", Watched)
+    monkeypatch.setattr(scheduler_module, "SimpleQueue", Watched)
 
     @node("fetch", title="Fetch", description="For a test.", policy=Policy(retries=1, retry_delay=0.01))
     def fetch(text: str) -> str:
