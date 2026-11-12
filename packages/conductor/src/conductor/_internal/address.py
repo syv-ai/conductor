@@ -85,7 +85,7 @@ def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
 def node_path_text(path: NodePath) -> str:
     """A node path as text, joined by ``/``: ``node_path_text(("loud", "shout"))`` returns ``"loud/shout"``.
 
-    A run keeps its outcomes under this text, one entry per node, and a saved run writes them under it.
+    A run keeps each node's outcomes, one per call, under this text, and a saved run writes them under it.
     """
     return "/".join(path)
 

@@ -66,8 +66,8 @@ def _names(module_name: str) -> str:
 def _problems(catalogue: ProblemCatalogue) -> str:
     """The kinds of problem in a catalogue, each as a ``####`` section headed by its code.
 
-    A kind is made from a function and has the function's docstring, and its section is made from it: the first paragraph of its
-    docstring; its message, with a ``{key}`` for each ``ctx`` value; what its ``loc`` is, when the function takes
+    Each kind of problem is declared by a function, and the kind keeps that function's docstring. Its section has:
+    the first paragraph of the docstring; its message, with a ``{key}`` for each ``ctx`` value; what its ``loc`` is, when the function takes
     a ``*loc`` argument and its docstring says what it is under ``Args:``; and a table of its ``ctx`` keys, with
     each key's type, whether the key is always given, and the key's line under ``Args:``. The key ``variant``,
     which says which of a code's messages this is, needs no line.

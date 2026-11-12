@@ -37,7 +37,8 @@ class each. The examples add one small node to the graph above.
 Two more words have no outcome of their own:
 
 - **not ready** (``NotReady``): a call cannot be made yet, because a value it needs does not exist yet. Before
-  ``lines`` has returned, ``shout`` is not ready. It is tried again later.
+  ``lines`` has returned, ``shout`` is not ready. It is tried again later. (``NotReady`` has one more reason,
+  for reusing a person's answers in order; its docstring has it.)
 - **failed**: the function raised an exception other than ``Ask``. The run stops and keeps no outcome for the
   call, so ``resume()`` calls the function again.
 

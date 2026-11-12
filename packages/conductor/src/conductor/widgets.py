@@ -119,8 +119,8 @@ class DatePicker(Widget):
 
 
 class ListInput(Widget):
-    """A list a person types one item at a time. The host's editor decides how an item is typed, from the type of
-    the list's items, so this widget has no settings."""
+    """A list a person enters one item at a time. The host's editor decides the control for an item from the type
+    of the list's items, so this widget has no settings."""
 
     type: Literal["list-input"] = "list-input"
 
