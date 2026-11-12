@@ -4,16 +4,16 @@ Example: ``approve(line: str) -> bool`` raises ``Ask("Approve b?")``. ``run.answ
 door ``True``, and it returns ``{"result": True}``, the outputs the call then has. For a node with an ``Asked``
 parameter, ``ok: Annotated[bool, Asked(approval)]``, the field is the parameter: the door returns ``{"ok": True}``,
 and the node is then called with ``ok=True``. ``"yes"`` is refused with
-``invalid_answer``, "Input should be a valid boolean": an answer is read strictly from its JSON form, so a yes or
-no is ``true`` or ``false``, never a text that spells one.
+``invalid_answer``, "Input should be a valid boolean": an answer is read strictly, as its JSON text would be, so a
+yes or no is ``true`` or ``false``, never a text that spells one.
 
 A node with several outputs is answered with a mapping by output name, one question per output. A question may be
 left out when it has a default (its field's, or one the ``Ask`` set), is one of an exclusive group, or takes
 ``None`` and has no choices; of an exclusive group exactly one is answered. Choices, the type's or the ``Ask``'s,
 limit what an answer may be.
 
-An answer is read from JSON by the validator that reads what a node returns (``rules.output_validator_of``): the
-answer is the value of the function that asked, as a return would be.
+An answer is read as its JSON text would be (``validate_as_json``), by the validator that reads what a node returns
+(``rules.output_validator_of``): the answer is the value of the function that asked, as a return would be.
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from pydantic import ValidationError
-from pydantic_core import PydanticCustomError, PydanticSerializationError, to_json
+from pydantic_core import PydanticCustomError, PydanticSerializationError
 
 from conductor._internal.ask import QuestionOverrides, answer_required
-from conductor._internal.base import SKIPPED, Loc, comma_separated
+from conductor._internal.base import SKIPPED, Loc, comma_separated, validate_as_json
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.types import Type, untyped_as_json
@@ -100,7 +100,7 @@ class AnswerDoor:
                 elif field.default is SKIPPED and "default" not in override:
                     read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
                 elif not answer_required(field, override, limited=choices is not None):
-                    read[name] = from_json(field.whole, override.get("default", question.default))  # its default, else None for a type that takes it
+                    read[name] = read_as_answer(field.whole, override.get("default", question.default))  # its default, else None for a type that takes it
                 else:
                     faults.append((name, f"'{name}' was not answered"))
             except PydanticCustomError as refused:
@@ -128,7 +128,7 @@ def answer_value(field: Field, value: Any, choices: list[dict[str, Any]] | None)
         PydanticCustomError: The answer is not a value of the field's type, not one of the choices, or, for a
             pick of several, picks a choice twice. Its message says which, quoting nothing of the answer.
     """
-    read = from_json(field.whole, value)
+    read = read_as_answer(field.whole, value)
     if choices is not None:
         picked: Any = field.whole.to_json(read)
         picks = picked if field.is_series else [picked]
@@ -140,22 +140,22 @@ def answer_value(field: Field, value: Any, choices: list[dict[str, Any]] | None)
     return read
 
 
-def from_json(value_type: Type, value: Any) -> Any:
-    """Reads ``value`` strictly from its JSON form by ``value_type``, into the form a run keeps.
+def read_as_answer(value_type: Type, value: Any) -> Any:
+    """Reads ``value`` as a person's answer of ``value_type`` is read, into the form a run keeps.
 
-    ``from_json(Type(bool), True)`` is ``True``; ``from_json(Type(bool), "yes")`` is refused. A date is read from
-    the ISO text JSON writes it as, and a ``Series``' list is kept as a run stores a returned one.
+    ``read_as_answer(Type(bool), True)`` is ``True``; ``read_as_answer(Type(bool), "yes")`` is refused. The value
+    is read as its JSON text would be (``validate_as_json``), so an answer a host gives from Python and the same
+    answer sent over HTTP read the same: a ``date`` is read from its ISO text too, and a ``Series``' list is kept
+    as a run stores a returned one. An ``Ask``'s choices and its default are read the same way.
 
     Raises:
         PydanticCustomError: The value has no JSON form (``no_json_form``), or the type refuses it
             (``not_its_type``); the message is the type's reason, quoting nothing of the value.
     """
     try:
-        written = to_json(value, inf_nan_mode="constants", fallback=untyped_as_json)
+        return validate_as_json(output_validator_of(value_type), value, fallback=untyped_as_json)
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "the value has no JSON form") from None
-    try:
-        return output_validator_of(value_type).validate_json(written, strict=True)
     except ValidationError as error:
         raise PydanticCustomError("not_its_type", value_type.refusal(error.errors(include_url=False, include_input=False)).reason) from None
 

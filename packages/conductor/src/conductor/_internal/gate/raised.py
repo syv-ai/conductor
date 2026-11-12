@@ -25,7 +25,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.types import Choice
 
-from .answer import answer_value, from_json
+from .answer import answer_value, read_as_answer
 from .refused import RefusedError
 
 
@@ -110,7 +110,7 @@ def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
         raise RefusedError([problem.invalid_ask(reason=f"'{field.name}' is offered no choices")])
     given = [choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in choices]
     try:
-        shown = [{"id": field.type.to_json(from_json(field.type, choice.id)), **choice.model_dump(mode="json", exclude={"id"})} for choice in given]
+        shown = [{"id": field.type.to_json(read_as_answer(field.type, choice.id)), **choice.model_dump(mode="json", exclude={"id"})} for choice in given]
     except PydanticCustomError as refused:
         raise RefusedError([problem.invalid_ask(reason=f"a choice for '{field.name}' is not what it returns: {refused.message()}")]) from None
     if len({repr(choice["id"]) for choice in shown}) != len(shown):
