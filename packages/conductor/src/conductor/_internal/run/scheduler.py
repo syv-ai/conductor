@@ -73,25 +73,25 @@ from conductor._internal.address import ItemIndexes, NodePath
 from conductor._internal.ask import Answer, Ask
 from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
 from conductor._internal.gate import RefusedError
-from conductor._internal.outcomes import (
+from conductor._internal.problem import ExternalError, NodeError, Problem
+from conductor._internal.problem import catalogue as problem
+from conductor._internal.run.call import call, jsonable
+from conductor._internal.run.events import EventBase
+from conductor._internal.run.node_events import NodeEvents
+from conductor._internal.run.outcome import (
     Answered,
     Done,
     NotCalled,
     NotReady,
     Outcome,
     Skipped,
-    Waiting,
+    Unanswered,
     all_item_indexes,
     has_every_outcome,
     length,
 )
-from conductor._internal.problem import ExternalError, NodeError, Problem
-from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
 from conductor._internal.run.state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
-from conductor._internal.scheduler.call import call, jsonable
-from conductor._internal.scheduler.events import EventBase
-from conductor._internal.scheduler.node_events import NodeEvents
 
 #: The exceptions of a call that is never retried, whatever the ``retry_on`` of its ``Policy`` names: the node's
 #: own failure, an output its type refuses, a question for a person. Calling again would raise the same.
@@ -564,7 +564,7 @@ class Scheduler:
         for node, outcomes in self.outcomes.items():
             if node.node_path in self.finished:
                 continue
-            if Waiting in {type(outcome) for outcome in outcomes.values()}:
+            if Unanswered in {type(outcome) for outcome in outcomes.values()}:
                 waiting.add(node)
             # speed only: has_every_outcome says the same of a node inside no loop. Not calling it is worth 2% of a run of 500 chained nodes.
             elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):
@@ -742,10 +742,10 @@ class Scheduler:
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
     ) -> Outcome | Problem | None:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs (``Answered``, with the
-        question, for a call given a person's answer to its ``Asked`` parameter), ``Waiting`` with the question when
+        question, for a call given a person's answer to its ``Asked`` parameter), ``Unanswered`` with the question when
         the function raised ``Ask``, or the problem the call failed with.
 
-        A ``Waiting`` outcome has the call's arguments as JSON, to show the person. Arguments with no JSON form,
+        A ``Unanswered`` outcome has the call's arguments as JSON, to show the person. Arguments with no JSON form,
         and an ``Ask`` that does not fit the node's outputs, are problems. While only the nodes that cost nothing
         are called, a call that raised has no outcome (``None``): the next ``resume()`` that calls every node
         calls it again, and it fails or asks then.
@@ -758,7 +758,7 @@ class Scheduler:
             return None
         if isinstance(error, Ask):
             try:
-                return Waiting(node.compiled_node.ask_door(error, jsonable(arguments)))
+                return Unanswered(node.compiled_node.ask_door(error, jsonable(arguments)))
             except RefusedError as refused:
                 return self._failure(node, item_indexes, refused)
         return self._failure(node, item_indexes, error)

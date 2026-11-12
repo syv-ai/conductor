@@ -13,13 +13,13 @@ from typing import Any
 
 import pydantic_core
 
-from conductor._internal import outcomes
 from conductor._internal.address import Loc, loc_text
 from conductor._internal.ask import QuestionOverrides, answer_required
 from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.hashing import canonical_json, short_hash
+from conductor._internal.run.outcome import Unanswered
 
 
 class Waiting(ConductorModel):
@@ -76,7 +76,7 @@ def _overridden(field: Field, question: FieldDescription, overrides: QuestionOve
     return question.model_copy(update={**overrides, "required": answer_required(field, overrides, limited=choices is not None)})
 
 
-def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: outcomes.Waiting) -> Waiting:
+def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unanswered) -> Waiting:
     """A waiting call as a host shows it. Its id is where the call is as text, then ``~`` and the fingerprint of the
     question asked there, as ``run.answer`` reads it.
 
@@ -92,7 +92,7 @@ def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: outco
     )
 
 
-def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: outcomes.Waiting) -> str:
+def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: Unanswered) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when
     its call asks another question. What the node received is all of its inputs, also for an ``Asked`` parameter
     whose function takes fewer: a change to any of them asks again."""

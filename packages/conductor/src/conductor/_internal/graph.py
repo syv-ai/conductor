@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
 from conductor._internal.gate import (
@@ -17,11 +17,9 @@ from conductor._internal.gate import (
 )
 from conductor._internal.graph_record import GraphRecord
 from conductor._internal.problem import InvalidCallError
+from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import Run, no_outcomes
 from conductor._internal.run.json import RunCodec, run_codec
-
-if TYPE_CHECKING:
-    from conductor._internal.registry import NodeRegistry
 
 
 class Graph[C](CompiledGraph):

@@ -19,9 +19,9 @@ A call has at most one outcome, and an outcome is never changed once it is writt
 class each. The examples add one small node to the graph above.
 
 - **done** (``Done``): the function was called and returned. Every outcome above is done.
-- **waiting** (``Waiting``): the function asked a person a question, by raising ``Ask``, and no answer has come
+- **unanswered** (``Unanswered``): the function asked a person a question, by raising ``Ask``, and no answer has come
   yet. A node ``approve(line: str) -> bool``, wired to ``lines.result``, raises ``Ask("Approve longer?")`` for
-  the line ``"longer"``. Its call for that line is ``Waiting(question=...)``.
+  the line ``"longer"``. Its call for that line is ``Unanswered(question=...)``.
 - **answered** (``Answered``): the function asked a person, and the person answered. The answer is the call's
   outputs: when the person answers ``False``, the call of ``approve`` is ``Answered({"result": False}, ...)``.
 - **skipped** (``Skipped``): the function was not called, because the node is downstream of a branch that was
@@ -44,7 +44,7 @@ Two more words have no outcome of their own:
 
 A node is **complete** when every call it will have has an outcome; a run is complete when every node is.
 
-Done, answered, skipped and not called have ``outputs``: the call's outputs by name. Waiting has none yet. Every
+Done, answered, skipped and not called have ``outputs``: the call's outputs by name. Unanswered has none yet. Every
 class says which with ``has_outputs``, so code that needs an output asks ``outcome.has_outputs`` and then reads
 ``outcome.outputs[name]``, whichever of the five classes it has.
 """
@@ -53,15 +53,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
+from typing import Any, ClassVar, Literal, final
 
 from conductor._internal.address import ItemIndexes
 from conductor._internal.ask import Question
+from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.markers import SKIPPED
-
-if TYPE_CHECKING:
-    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
-
 
 
 class NotReady(Enum):
@@ -159,7 +156,7 @@ class NotCalled:
 
 @final
 @dataclass(frozen=True, slots=True)
-class Waiting:
+class Unanswered:
     """The function asked a person a question, by raising ``Ask``, and no answer has come yet.
 
     There are no outputs yet, so a call that needs one of them is not ready.
@@ -174,7 +171,7 @@ class Waiting:
 
 
 #: What happened to one call: one of the five kinds of outcome.
-Outcome = Done | Answered | Skipped | NotCalled | Waiting
+Outcome = Done | Answered | Skipped | NotCalled | Unanswered
 
 def all_item_indexes(
     outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes,
@@ -244,7 +241,7 @@ def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple
 def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
     """Whether ``node`` is complete: it has an outcome for every call it will have.
 
-    ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. A ``Waiting`` outcome
+    ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. A ``Unanswered`` outcome
     counts: the call was made, though no answer has come.
     """
     if not node.loops:  # A shortcut: calls_expected says one call, so any outcome is every outcome. It saves 2% of to_json on a chain of 500 nodes.

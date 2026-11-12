@@ -13,18 +13,9 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.address import node_path_text
 from conductor._internal.ask import Answer, Question
+from conductor._internal.compiled import FlatFunctionNode
 from conductor._internal.field import Field
 from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import (
-    Answered,
-    Done,
-    NotCalled,
-    Outcome,
-    Skipped,
-    Waiting,
-    all_item_indexes,
-    has_every_outcome,
-)
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.json.type import (
@@ -36,11 +27,20 @@ from conductor._internal.run.json.type import (
     SavedReusable,
     SavedRun,
 )
+from conductor._internal.run.outcome import (
+    Answered,
+    Done,
+    NotCalled,
+    Outcome,
+    Skipped,
+    Unanswered,
+    all_item_indexes,
+    has_every_outcome,
+)
 from conductor._internal.run.reuse import ReusableOutcomes
 from conductor._internal.value_type import Type
 
 if TYPE_CHECKING:
-    from conductor._internal.compiled import FlatFunctionNode
     from conductor._internal.run.type import Run
 
 #: What ``states`` says for an outcome of each class; an outcome of any other class, and a call with no outcome,
@@ -51,7 +51,7 @@ _STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED
 _HAS_OUTPUTS = frozenset({Done, Answered})
 
 #: The classes whose question is written: a call answered, waiting, or with an answer to its ``Asked`` parameter.
-_HAS_QUESTION = frozenset({Answered, Waiting, Answer})
+_HAS_QUESTION = frozenset({Answered, Unanswered, Answer})
 
 
 def run_to_json(run: Run) -> str:
@@ -192,7 +192,7 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer
     if classes & _HAS_QUESTION:
         questions = {
             call_number: outcome.question for call_number, outcome in enumerate(outcomes)
-            if type(outcome) is Answered or type(outcome) is Waiting or type(outcome) is Answer
+            if type(outcome) is Answered or type(outcome) is Unanswered or type(outcome) is Answer
         }
     if NotCalled in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NotCalled}

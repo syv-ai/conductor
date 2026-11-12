@@ -17,22 +17,17 @@ answer given then is its outcome, and a question still waiting is still waiting.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.hashing import canonical_json, short_hash
-from conductor._internal.outcomes import NotReady
-from conductor._internal.value_type import untyped_to_hash
-
-if TYPE_CHECKING:
-    from conductor._internal.compiled.flat_nodes import FlatFunctionNode
-
-from dataclasses import dataclass, field
-
 from conductor._internal.address import ItemIndexes
-from conductor._internal.outcomes import Answered, Done, Outcome, Waiting
+from conductor._internal.compiled import FlatFunctionNode
+from conductor._internal.hashing import canonical_json, short_hash
+from conductor._internal.run.outcome import Answered, Done, NotReady, Outcome, Unanswered
+from conductor._internal.value_type import untyped_to_hash
 
 
 @dataclass(slots=True)
@@ -48,19 +43,19 @@ class ReusableOutcomes:
             fingerprint. Reused by the call with the same item indexes when its arguments are the same.
         by_fingerprint: Each ``Done`` outcome by its call's arguments fingerprint. Reused by any call with the same
             arguments. When several calls had the same arguments, the first in item order is kept.
-        answers: Each ``Answered`` and ``Waiting`` outcome, by its call's arguments fingerprint and its outer-items
+        answers: Each ``Answered`` and ``Unanswered`` outcome, by its call's arguments fingerprint and its outer-items
             fingerprint (see ``outer_items_fingerprint``), in the order of the calls. Each is reused once.
     """
 
     by_item_indexes: dict[ItemIndexes, tuple[str, Done]] = field(default_factory=dict[ItemIndexes, tuple[str, Done]])
     by_fingerprint: dict[str, Done] = field(default_factory=dict[str, Done])
-    answers: dict[tuple[str, str], list[Answered | Waiting]] = field(default_factory=dict[tuple[str, str], list["Answered | Waiting"]])
+    answers: dict[tuple[str, str], list[Answered | Unanswered]] = field(default_factory=dict[tuple[str, str], list["Answered | Unanswered"]])
 
 
 def reused_outcome(
     previous: ReusableOutcomes, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any],
     outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
-) -> Done | Answered | Waiting | Literal[NotReady.NOT_ITS_TURN] | None:
+) -> Done | Answered | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
     """The outcome a call reuses from the previous run in place of calling the function, or ``None`` when there is none.
 
     In the second run above, the call ``(1,)`` of ``shout`` gets ``{"line": "b", "mark": "!"}`` and reuses

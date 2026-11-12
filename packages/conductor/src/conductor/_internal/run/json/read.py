@@ -18,15 +18,6 @@ from conductor._internal.ask import Answer
 from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
 from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import (
-    Answered,
-    Done,
-    NotCalled,
-    Outcome,
-    Skipped,
-    Waiting,
-    all_item_indexes,
-)
 from conductor._internal.problem import InvalidCallError, value_free_errors
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.json.type import (
@@ -35,6 +26,15 @@ from conductor._internal.run.json.type import (
     SavedOutcomes,
     SavedReusable,
     SavedRun,
+)
+from conductor._internal.run.outcome import (
+    Answered,
+    Done,
+    NotCalled,
+    Outcome,
+    Skipped,
+    Unanswered,
+    all_item_indexes,
 )
 from conductor._internal.run.reuse import ReusableOutcomes
 
@@ -104,7 +104,7 @@ def _answers_from_saved(
 ) -> dict[str, dict[ItemIndexes, Answer]]:
     """Turns each waiting call that a saved run has an answer for into that answer, kept until the node is called.
 
-    ``{"approve": {1: True}}`` with ``approve``'s second call waiting takes that ``Waiting`` out of ``outcomes`` and
+    ``{"approve": {1: True}}`` with ``approve``'s second call waiting takes that ``Unanswered`` out of ``outcomes`` and
     returns ``{"approve": {(1,): Answer(its question, "ok", True)}}``.
 
     Args:
@@ -124,7 +124,7 @@ def _answers_from_saved(
         for call_number, value in by_call_number.items():
             item_indexes = every_item_indexes[call_number] if call_number < len(every_item_indexes) else None
             waiting = outcomes[name].get(item_indexes) if item_indexes is not None else None
-            if type(waiting) is not Waiting or item_indexes is None:
+            if type(waiting) is not Unanswered or item_indexes is None:
                 reason = "it names a call that is not waiting for a person"
                 raise InvalidCallError([problem.saved_run_unreadable("saved_run", where=f"answers.{name}.{call_number}", reason=reason)])
             del outcomes[name][item_indexes]
@@ -179,7 +179,7 @@ def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called_outputs: dic
         for call_number, question in (saved.questions or {}).items():
             outcome = outcomes[call_number]
             if states[call_number] is None:
-                outcomes[call_number] = Waiting(question)
+                outcomes[call_number] = Unanswered(question)
             elif type(outcome) is Done:
                 outcomes[call_number] = Answered(outcome.outputs, question)
             else:
@@ -254,7 +254,7 @@ def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableO
             reusable.by_fingerprint.setdefault(fingerprint, outcome)
             if place in item_indexes:
                 reusable.by_item_indexes[item_indexes[place]] = (fingerprint, outcome)
-        elif type(outcome) is Answered or type(outcome) is Waiting:
+        elif type(outcome) is Answered or type(outcome) is Unanswered:
             reusable.answers.setdefault((fingerprint, outer_item_fingerprints.get(place, "")), []).append(outcome)
         else:
             raise PydanticCustomError("not_reusable", "an outcome is skipped, not called or missing, and only an outcome of a call is reused")

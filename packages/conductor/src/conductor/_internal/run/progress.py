@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 
 from conductor._internal.compiled import FlatFunctionNode, FlatSubgraph
 from conductor._internal.conductor_model import ConductorModel
-from conductor._internal.outcomes import ItemIndexes, Outcome, Waiting, calls_expected
+from conductor._internal.run.outcome import ItemIndexes, Outcome, Unanswered, calls_expected
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -84,7 +84,7 @@ def call_count(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFuncti
         returned.
     """
     of_node = outcomes[node.name]
-    waiting = sum(1 for outcome in of_node.values() if type(outcome) is Waiting)
+    waiting = sum(1 for outcome in of_node.values() if type(outcome) is Unanswered)
     known, final = calls_expected(outcomes, node.loops)
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 

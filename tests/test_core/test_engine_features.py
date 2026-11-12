@@ -26,7 +26,7 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.scheduler import type as scheduler_module
+from conductor._internal.run import scheduler as scheduler_module
 from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
 from pytest import MonkeyPatch

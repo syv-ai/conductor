@@ -8,7 +8,7 @@ such as a web page fed by server-sent events, imports them from here. Each is a 
 reads any of them back.
 """
 
-from conductor._internal.scheduler import (
+from conductor._internal.run.events import (
     Event,
     NodeComplete,
     NodeFailed,

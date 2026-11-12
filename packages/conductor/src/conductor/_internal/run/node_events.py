@@ -23,7 +23,7 @@ ready, and the scheduler has ended. ``NodeEvents`` decides which events follow:
 
 - ``NodeStart``, once per node: before its first call, or with its first outcome that is not ``Skipped``. A node
   inside a subgraph starts the subgraph node first.
-- ``NodeWaiting``, with every ``Waiting`` outcome.
+- ``NodeWaiting``, with every ``Unanswered`` outcome.
 - ``NodeProgress``, for a node inside a loop: after an outcome, at most four times a second, and a last one with
   the final count.
 - ``NodeComplete`` or ``NodeSkipped``, once per node, when the scheduler says that no call is ready or that it
@@ -47,20 +47,8 @@ from collections.abc import Callable, Iterable
 from conductor._internal.address import ItemIndexes, NodePath
 from conductor._internal.compiled import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from conductor._internal.markers import SKIPPED
-from conductor._internal.outcomes import (
-    Answered,
-    Done,
-    NotCalled,
-    Outcome,
-    Skipped,
-    Waiting,
-    calls_expected,
-    has_every_outcome,
-)
 from conductor._internal.problem import Problem
-from conductor._internal.run.progress import call_count
-from conductor._internal.run.waiting import waiting_record
-from conductor._internal.scheduler.events import (
+from conductor._internal.run.events import (
     EventBase,
     NodeComplete,
     NodeFailed,
@@ -70,6 +58,18 @@ from conductor._internal.scheduler.events import (
     NodeStart,
     NodeWaiting,
 )
+from conductor._internal.run.outcome import (
+    Answered,
+    Done,
+    NotCalled,
+    Outcome,
+    Skipped,
+    Unanswered,
+    calls_expected,
+    has_every_outcome,
+)
+from conductor._internal.run.progress import call_count
+from conductor._internal.run.waiting import waiting_record
 
 #: The least time between two ``NodeProgress`` of one node.
 _SECONDS_BETWEEN_PROGRESS = 0.25
@@ -146,7 +146,7 @@ class NodeEvents:
         self.changed.add(node)
         if type(outcome) is not Skipped:
             self.call_starts(node)
-        if type(outcome) is Waiting:
+        if type(outcome) is Unanswered:
             self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
         if node.loops:
             self._progress(node)
@@ -173,7 +173,7 @@ class NodeEvents:
                 continue
             self.changed.discard(node)
             outcomes = self.outcomes[node.name]
-            if node in self.complete or Waiting in {type(outcome) for outcome in outcomes.values()} or not has_every_outcome(self.outcomes, node):
+            if node in self.complete or Unanswered in {type(outcome) for outcome in outcomes.values()} or not has_every_outcome(self.outcomes, node):
                 continue
             self.complete.add(node)
             if node.loops and node in self.progress_finished:

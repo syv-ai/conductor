@@ -24,12 +24,12 @@ from conductor import (
 )
 from conductor._internal.address import ItemIndexes
 from conductor._internal.compiled import FlatFunctionNode, outcome_loc
-from conductor._internal.outcomes import Outcome
 from conductor._internal.problem import Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.scheduler import node_events as node_events_module
-from conductor._internal.scheduler.events import EventBase, NodeWaiting
-from conductor._internal.scheduler.node_events import NodeEvents
+from conductor._internal.run import node_events as node_events_module
+from conductor._internal.run.events import EventBase, NodeWaiting
+from conductor._internal.run.node_events import NodeEvents
+from conductor._internal.run.outcome import Outcome
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of

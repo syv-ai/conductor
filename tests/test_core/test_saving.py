@@ -35,9 +35,9 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal import outcomes
-from conductor._internal.outcomes import Done, Skipped
 from conductor._internal.run import Run
+from conductor._internal.run import outcome as outcomes
+from conductor._internal.run.outcome import Done, Skipped, Unanswered
 from pydantic import BaseModel
 from pytest import MonkeyPatch
 
@@ -884,7 +884,7 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"
     assert list(run._outcomes["s"].values()) == [Done({"result": "ab"}), outcomes.NotCalled({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
-    assert [type(u) for u in run._outcomes["c"].values()] == [outcomes.Waiting, outcomes.NotCalled, Skipped, outcomes.Waiting]
+    assert [type(u) for u in run._outcomes["c"].values()] == [Unanswered, outcomes.NotCalled, Skipped, Unanswered]
     assert run._outcomes["c"][(1,)] == outcomes.NotCalled({"result": None}, "email")
     read_back = Run.from_json(run.to_json(), graph)
     assert read_back._outcomes == run._outcomes

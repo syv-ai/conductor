@@ -3,7 +3,7 @@
 A unit is one node in one instance of its scope: the node's one call, or its
 call for one item. A unit is ``Done`` (its outputs kept), ``Answered`` (done
 by a person), ``Skipped`` (a branch not taken), ``NotCalled`` (an input got
-nothing, so the node wasn't called) or ``outcomes.Waiting`` (it waits for a person). A
+nothing, so the node wasn't called) or ``Unanswered`` (it waits for a person). A
 unit with no entry hasn't run yet. Going on is one leg: start every unit
 whose inputs exist, until nothing more can start. So a run can stop anywhere
 (a person to ask, a failure, the item ceiling, a timeout) and carry on from
@@ -33,7 +33,6 @@ from threading import Thread
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast, overload
 
-from conductor._internal import outcomes
 from conductor._internal.address import (
     ItemIndexes,
     Loc,
@@ -50,34 +49,36 @@ from conductor._internal.compiled import (
 )
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.gate import RefusedError, check_limits
-from conductor._internal.outcomes import (
-    Answered,
-    Outcome,
-    Skipped,
-)
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.run import outcome as outcomes
 from conductor._internal.run.arguments import (
     DisplayReader,
     ResultReader,
 )
+from conductor._internal.run.events import (
+    Event,
+    EventBase,
+    RunCheckpoint,
+    RunEnd,
+    RunStart,
+)
 from conductor._internal.run.json import outputs_to_json, run_from_json, run_to_json
+from conductor._internal.run.outcome import (
+    Answered,
+    Outcome,
+    Skipped,
+    Unanswered,
+)
 from conductor._internal.run.progress import Progress, progress_of
 from conductor._internal.run.reuse import (
     ReusableOutcomes,
     arguments_fingerprint,
     outer_items_fingerprint,
 )
+from conductor._internal.run.scheduler import Scheduler
 from conductor._internal.run.state import READY, RUNNING, EndedEarly, Going, RunState, RunStatus
 from conductor._internal.run.waiting import Waiting, question_fingerprint, waiting_record
-from conductor._internal.scheduler import (
-    Event,
-    EventBase,
-    RunCheckpoint,
-    RunEnd,
-    RunStart,
-    Scheduler,
-)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -325,7 +326,7 @@ class Run[C]:
                 continue
             node = self.graph._function_nodes_by_name.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
             found = self._outcomes[node.name].get(item_indexes) if node is not None else None
-            if node is None or type(found) is not outcomes.Waiting:
+            if node is None or type(found) is not Unanswered:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
                 problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
@@ -422,7 +423,7 @@ class Run[C]:
                 fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
                 if fingerprint is None:
                     continue
-                if type(outcome) is Answered or type(outcome) is outcomes.Waiting:
+                if type(outcome) is Answered or type(outcome) is Unanswered:
                     of_node.answers.setdefault((fingerprint, outer_items_fingerprint(self._outcomes, node, item_indexes)), []).append(outcome)
                 else:
                     of_node.by_item_indexes[item_indexes] = (fingerprint, outcome)
@@ -458,11 +459,11 @@ class Run[C]:
         node stands."""
         return [waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome) for node, item_indexes, outcome in self._waiting_outcomes()]
 
-    def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, outcomes.Waiting]]:
+    def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
         """Every unit waiting for a person, with its node and instance, in node then instance order."""
         for node in self.graph._flat_function_nodes:
             for item_indexes, outcome in self._outcomes[node.name].items():
-                if type(outcome) is outcomes.Waiting:
+                if type(outcome) is Unanswered:
                     yield node, item_indexes, outcome
 
     @property
