@@ -60,7 +60,7 @@ from conductor._internal.compiled.node import (
 )
 from conductor._internal.field import Field
 from conductor._internal.gate import EdgeDoor, demands_more
-from conductor._internal.node_definition import Policy
+from conductor._internal.node import Policy
 from conductor._internal.series import Series
 
 if typing.TYPE_CHECKING:

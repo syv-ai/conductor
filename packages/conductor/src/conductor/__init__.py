@@ -21,8 +21,8 @@ from conductor._internal.compiled import GraphDescription, GraphInput, InputSour
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
 from conductor._internal.graph import Graph
-from conductor._internal.make_graph import make_graph
-from conductor._internal.node_definition import (
+from conductor._internal.graph.make import make_graph
+from conductor._internal.node import (
     Deprecation,
     FunctionDefinition,
     FunctionNodeDescription,

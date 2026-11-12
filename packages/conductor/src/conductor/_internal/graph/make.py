@@ -11,7 +11,7 @@ from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED, split_address
 from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.node_definition import FunctionDefinition, NodeDefinition
+from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record import GraphRecord, NodeRecord

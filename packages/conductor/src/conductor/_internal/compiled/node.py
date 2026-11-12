@@ -27,7 +27,7 @@ from conductor._internal.base import SKIPPED, short_hash
 from conductor._internal.compiled.input import InputPlan, OutputAddress
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
-from conductor._internal.node_definition import FunctionDefinition, SubgraphDefinition
+from conductor._internal.node import FunctionDefinition, SubgraphDefinition
 from conductor._internal.series import Series
 from conductor._internal.types import Type
 

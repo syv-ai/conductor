@@ -30,8 +30,8 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal import registry as registry_module
 from conductor._internal.base import REQUIRED
+from conductor._internal.registry import type as registry_module
 from conductor.widgets import Textarea
 from pytest import MonkeyPatch
 

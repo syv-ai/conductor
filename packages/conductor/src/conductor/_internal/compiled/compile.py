@@ -65,7 +65,7 @@ from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
-from conductor._internal.node_definition import (
+from conductor._internal.node import (
     FunctionDefinition,
     HookName,
     NodeDefinition,

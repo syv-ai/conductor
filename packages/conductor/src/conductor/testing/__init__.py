@@ -55,7 +55,7 @@ from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, record_values, validator_of
 from conductor._internal.graph import Graph
-from conductor._internal.node_definition import (
+from conductor._internal.node import (
     FunctionDefinition,
     NodeDefinition,
     SubgraphDefinition,

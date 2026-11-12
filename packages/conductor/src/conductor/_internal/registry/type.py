@@ -53,29 +53,22 @@ from typing import Any, Concatenate, overload
 
 from pydantic import JsonValue
 
-from conductor._internal.base import (
-    ConductorModel,
-    comma_separated,
-    plural,
-    qualified_name,
-    split_address,
-)
+from conductor._internal.base import comma_separated, plural, qualified_name
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.node_definition import (
+from conductor._internal.node import (
     FunctionDefinition,
     NodeDefinition,
     NodeDescription,
     SubgraphDefinition,
     SubgraphDescription,
-    declared_inputs,
     node,
     subgraph,
 )
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import declarations as declaration
 from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.registry.describe import RegistryDescription, TypeDescription
+from conductor._internal.registry.upgrade import upgraded
 from conductor._internal.types import Type
 
 
@@ -344,80 +337,7 @@ class NodeRegistry[C]:
         does not, a version it can't move to and a rewrite returning a value
         with no JSON form (``invalid_value``) are each an ``InvalidCallError``.
         """
-        try:
-            graph = read_record(record)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
-        node_record = next((n for n in graph.nodes if n.id == node_id), None)
-        if node_record is None:
-            raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=[n.id for n in graph.nodes])])
-        if node_record.node not in self._nodes:
-            raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(self._nodes))])
-        newest = self._nodes[node_record.node]
-        target = newest.version if to is None else to
-        if target == node_record.version:
-            return graph
-        if target < node_record.version or target not in newest.versions or node_record.version not in newest.versions:
-            raise InvalidCallError([problem.cannot_move_to_version(
-                node_id,
-                node=node_record.node, version=node_record.version, target=target, versions=sorted(newest.versions),
-            )])
-        version_chain = newest.version_of(target).version_chain
-        steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
-        constants, defaults, edges = dict(node_record.constants), dict(node_record.defaults), list(graph.edges)
-        for step, older in reversed(steps):
-            upgrade = step.upgrade
-            constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
-            if upgrade.rewrite is not None:
-                try:
-                    rewritten = record_values(node_id, upgrade.rewrite({**defaults, **constants}))
-                except RefusedError as refused:
-                    raise InvalidCallError(refused.problems) from None
-                defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in constants}
-                constants = {name: value for name, value in rewritten.items() if name not in defaults}
-            gone = {f"{node_id}.{name}" for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
-            edges = [
-                (_renamed_on(source, node_id, upgrade.renamed_outputs), _renamed_on(target_, node_id, upgrade.renamed_inputs))
-                for source, target_ in edges
-                if target_ not in gone
-            ]
-        moved = node_record.model_copy(update={"version": target, "constants": constants, "defaults": defaults})
-        return GraphRecord(nodes=[moved if n is node_record else n for n in graph.nodes], edges=edges)
-
-
-class TypeDescription(ConductorModel):
-    """A type as an editor reads it: its ``id``, its ``title``, and the ids of every type a value of it may land on."""
-
-    id: str
-    title: str
-    accepted_as: list[str]
-
-
-class RegistryDescription(ConductorModel):
-    """A registry as an editor's palette reads it: every node, and every type."""
-
-    nodes: list[NodeDescription]
-    types: list[TypeDescription]
-
-
-def _with_keys_renamed[V](by_name: Mapping[str, V], renames: Mapping[str, str]) -> dict[str, V]:
-    """``by_name`` with each key a step renames under its new name."""
-    return {renames.get(name, name): value for name, value in by_name.items()}
-
-
-def _renamed_on(address: str, node_id: str, renames: Mapping[str, str]) -> str:
-    """``address`` with its field renamed when it is on ``node_id`` and the step renames it.
-
-    A field of a record named after it (``result.email``) moves with it. A subgraph's output is named by an
-    inner address (``tail.result``), so the longest renamed name the address goes on with is the one it names.
-    """
-    owner, rest = split_address(address)
-    if owner != node_id:
-        return address
-    for name in sorted(renames, key=len, reverse=True):
-        if rest == name or rest.startswith(name + "."):
-            return f"{owner}.{renames[name]}{rest[len(name):]}"
-    return address
+        return upgraded(self._nodes, record, node_id, to=to)
 
 
 def _by_id(types: Iterable[type]) -> dict[str, type]:
@@ -442,4 +362,3 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
                     continue
             found.extend(cls for field in fields for cls in field.whole.classes)
     return list(dict.fromkeys(found))
-
