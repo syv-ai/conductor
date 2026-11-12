@@ -10,7 +10,7 @@ from pydantic_core import PydanticCustomError
 from conductor._internal.field import Field
 from conductor._internal.outcomes import Answered, Done, NotCalled, Outcome, Skipped, Waiting
 from conductor._internal.reusable_results import ReusableResults
-from conductor._internal.saved_run.type import (
+from conductor._internal.run.json.type import (
     SAVED_DONE,
     SAVED_SKIPPED,
     SavedOutcomes,
@@ -21,7 +21,7 @@ from conductor._internal.sentinels import SKIPPED
 from conductor._internal.value_type import FieldValueError
 
 
-def outcomes_of(skipped_outputs: dict[str, Any], not_called: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
+def outcomes_from_saved(skipped_outputs: dict[str, Any], not_called: dict[str, Any], saved: SavedOutcomes) -> list[Outcome | None]:
     """Makes the units a node's saved columns hold, in the order of their slots; ``None`` for an instance that
     hasn't run.
 
@@ -38,13 +38,13 @@ def outcomes_of(skipped_outputs: dict[str, Any], not_called: dict[str, Any], sav
     if any(len(column) != len(states) for column in outputs.values()):
         raise PydanticCustomError("slots_differ", "an output doesn't hold one slot for each state")
     try:
-        for name, slots in (saved.skipped or {}).items():
-            for slot in slots:
-                outputs[name][slot] = SKIPPED
-        for name, by_slot in (saved.skipped_items or {}).items():
-            for slot, places in by_slot.items():
+        for name, call_numbers in (saved.skipped or {}).items():
+            for call_number in call_numbers:
+                outputs[name][call_number] = SKIPPED
+        for name, by_call_number in (saved.skipped_items or {}).items():
+            for call_number, places in by_call_number.items():
                 for place in places:
-                    outputs[name][slot][place] = SKIPPED
+                    outputs[name][call_number][place] = SKIPPED
         if len(outputs) == 1:  # most nodes have one output
             ((name, column),) = outputs.items()
             outs = [{name: value} for value in column]
@@ -54,18 +54,18 @@ def outcomes_of(skipped_outputs: dict[str, Any], not_called: dict[str, Any], sav
         done, skipped = SAVED_DONE, SAVED_SKIPPED
         skipped_outcome = Skipped(skipped_outputs)
         outcomes: list[Outcome | None] = [Done(out) if state == done else skipped_outcome if state == skipped else None for state, out in zip(states, outs, strict=True)]
-        for slot, question in (saved.questions or {}).items():
-            answered = outcomes[slot]
-            if states[slot] is None:
-                outcomes[slot] = Waiting(question)
+        for call_number, question in (saved.questions or {}).items():
+            answered = outcomes[call_number]
+            if states[call_number] is None:
+                outcomes[call_number] = Waiting(question)
             elif type(answered) is Done:
-                outcomes[slot] = Answered(answered.outputs, question)
+                outcomes[call_number] = Answered(answered.outputs, question)
             else:
-                raise LookupError(slot)
-        for slot, blank in (saved.not_called_because or {}).items():
-            if outcomes[slot] is not None:
-                raise LookupError(slot)
-            outcomes[slot] = NotCalled(not_called, blank)
+                raise LookupError(call_number)
+        for call_number, blank in (saved.not_called_because or {}).items():
+            if outcomes[call_number] is not None:
+                raise LookupError(call_number)
+            outcomes[call_number] = NotCalled(not_called, blank)
     except (LookupError, TypeError, AttributeError):  # a slot the columns don't have, or one that holds another kind of unit
         raise PydanticCustomError("misplaced", "a skip, a question or a blank input is placed on a slot that can't hold one") from None
     return outcomes
@@ -88,25 +88,25 @@ def with_shared_tables(outputs: Mapping[str, Mapping[str, Field]], saved: SavedR
             (``same_as_unreadable``).
     """
     for entry in saved.tables_written_once or ():
-        (node, output, slot), (from_node, from_output, from_slot) = entry.output, entry.same_as
+        (node, output, call_number), (from_node, from_output, from_call_number) = entry.output, entry.same_as
         try:
-            outcome, source = saved.outcomes[node][slot], saved.outcomes[from_node][from_slot]
+            outcome, source = saved.outcomes[node][call_number], saved.outcomes[from_node][from_call_number]
             if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.outputs[output] is not None:
-                raise LookupError(slot)
+                raise LookupError(call_number)
             table = outputs[from_node][from_output].whole.written_once(source.outputs[from_output])
             if table is None:
-                raise LookupError(from_slot)
+                raise LookupError(from_call_number)
             outcome.outputs[output] = outputs[node][output].whole.read_returned(table)
         except (LookupError, AttributeError, FieldValueError) as wrong:
             reason = wrong.reason if isinstance(wrong, FieldValueError) else "that is not an output written in full before it"
             raise PydanticCustomError(
                 "same_as_unreadable", "tables_written_once: '{output}' can't be read as the table at '{same_as}': {reason}",
-                {"output": f"{node}.{output}[{slot}]", "same_as": f"{from_node}.{from_output}[{from_slot}]", "reason": reason},
+                {"output": f"{node}.{output}[{call_number}]", "same_as": f"{from_node}.{from_output}[{from_call_number}]", "reason": reason},
             ) from None
     return saved
 
 
-def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
+def reusable_from_saved(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
     """Makes the earlier work a node's save holds.
 
     Raises:
@@ -117,13 +117,13 @@ def reusable_of(saved: SavedReusable[list[Outcome | None]]) -> ReusableResults:
         raise PydanticCustomError("slots_differ", "it doesn't hold one fingerprint for each unit")
     places, lineages = saved.places or {}, saved.lineages or {}
     earlier = ReusableResults()
-    for slot, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.outcomes, strict=True)):
+    for call_number, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, saved.outcomes, strict=True)):
         if type(outcome) is Done:
             earlier.computed.setdefault(fingerprint, outcome)
-            if slot in places:
-                earlier.at[places[slot]] = (fingerprint, outcome)
+            if call_number in places:
+                earlier.at[places[call_number]] = (fingerprint, outcome)
         elif type(outcome) is Answered or type(outcome) is Waiting:
-            earlier.asked.setdefault((fingerprint, lineages.get(slot, "")), []).append(outcome)
+            earlier.asked.setdefault((fingerprint, lineages.get(call_number, "")), []).append(outcome)
         else:
             raise PydanticCustomError("not_carried", "it carries a unit that was never called")
     return earlier

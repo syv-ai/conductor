@@ -12,8 +12,12 @@ from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValida
 
 from conductor._internal.field import Field
 from conductor._internal.outcomes import outputs_when_not_called, outputs_when_skipped
-from conductor._internal.saved_run.read import outcomes_of, reusable_of, with_shared_tables
-from conductor._internal.saved_run.type import (
+from conductor._internal.run.json.read import (
+    outcomes_from_saved,
+    reusable_from_saved,
+    with_shared_tables,
+)
+from conductor._internal.run.json.type import (
     SavedOutcomes,
     SavedReusable,
     SavedRun,
@@ -39,7 +43,7 @@ class RunCodec(NamedTuple):
             name in a save.
         shareable: The ``(node, output)`` pairs whose stored value may be a table that another output also has,
             in the order a save writes them. A save looks only at these for a table to write once.
-        validator: Reads a save into the ``SavedRun`` that ``_run_of`` makes a run of.
+        validator: Reads a save into the ``SavedRun`` that ``_from_saved`` makes a run of.
         serializer: Writes the ``SavedRun`` that ``Run._saved`` gives.
     """
 
@@ -50,7 +54,7 @@ class RunCodec(NamedTuple):
     serializer: SchemaSerializer
 
 
-def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str]) -> RunCodec:
+def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str]) -> RunCodec:
     """Composes how the runs of one graph are read from JSON and written as it.
 
     What a save holds is declared once, by ``SavedRun``, ``SavedOutcomes`` and ``SavedReusable``, and their own
@@ -67,34 +71,34 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
         nodes: Every function node of the graph and of the graphs embedded in it, by its name in a save.
     """
     shared: dict[str, CoreSchema] = {}
-    outcomes_record, reusable_record = _inlined(_OUTCOMES, shared), _inlined(_REUSABLE, shared)
+    outcomes_record, reusable_record = _inline_definitions(_OUTCOMES, shared), _inline_definitions(_REUSABLE, shared)
     blocks: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
     outcomes, earlier = {}, {}
     for node, of_node in outputs.items():
         not_taken, not_called = outputs_when_skipped(of_node), outputs_when_not_called(of_node)
-        columns = tuple((name, output.column, output.many, not_called[name]) for name, output in of_node.items())
+        columns = tuple((name, output.saved_list_type, output.many, not_called[name]) for name, output in of_node.items())
         if columns not in blocks:  # nodes of the same outputs, which hold the same when they aren't called, share one schema
             block = len(blocks)
-            of_block = _with_fields(
+            of_block = _with_field_schemas(
                 outcomes_record,
-                outputs=_closed({name: _inlined(column.saved_schema, shared) for name, column, _, _ in columns}),
-                skipped=_closed({}, {name: _SKIPPED_SLOTS for name, _, _, _ in columns}),
-                skipped_items=_closed({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
+                outputs=_exact_keys_schema({name: _inline_definitions(column.saved_schema, shared) for name, column, _, _ in columns}),
+                skipped=_exact_keys_schema({}, {name: _SKIPPED_SLOTS for name, _, _, _ in columns}),
+                skipped_items=_exact_keys_schema({}, {name: _SKIPPED_ITEMS for name, _, many, _ in columns if many}),
             )
             shared[f"outcomes:{block}"] = core_schema.no_info_after_validator_function(
-                functools.partial(outcomes_of, not_taken, not_called), of_block, ref=f"outcomes:{block}",
+                functools.partial(outcomes_from_saved, not_taken, not_called), of_block, ref=f"outcomes:{block}",
             )
-            reusable_schema = _with_fields(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
-            shared[f"reusable_results:{block}"] = core_schema.no_info_after_validator_function(reusable_of, reusable_schema, ref=f"reusable_results:{block}")
+            reusable_schema = _with_field_schemas(reusable_record, outcomes=core_schema.definition_reference_schema(f"outcomes:{block}"))
+            shared[f"reusable_results:{block}"] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_schema, ref=f"reusable_results:{block}")
             blocks[columns] = core_schema.definition_reference_schema(f"outcomes:{block}"), core_schema.definition_reference_schema(f"reusable_results:{block}")
         outcomes[node], earlier[node] = blocks[columns]
-    run = _with_fields(
-        _inlined(_RUN, shared),
+    run = _with_field_schemas(
+        _inline_definitions(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
-        inputs=_closed({address: _inlined(whole.saved_schema, shared) for address, whole in inputs.items()}),
-        outcomes=_closed({}, outcomes),
-        reusable_results=_closed({}, earlier),
-        code=_closed({}, dict.fromkeys(outcomes, core_schema.str_schema())),
+        inputs=_exact_keys_schema({address: _inline_definitions(whole.saved_schema, shared) for address, whole in inputs.items()}),
+        outcomes=_exact_keys_schema({}, outcomes),
+        reusable_results=_exact_keys_schema({}, earlier),
+        code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),
         complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
     )
     shareable = tuple((node, name) for node, of_node in outputs.items() for name, output in of_node.items() if output.whole.may_write_once)
@@ -105,7 +109,7 @@ def save_form(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     return RunCodec(inputs, outputs, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
 
 
-def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:
+def _with_field_schemas(record: Any, **schemas: CoreSchema) -> CoreSchema:
     """Gives a record's schema with the schema of each named field replaced by the one composed for a graph.
 
     Args:
@@ -124,7 +128,7 @@ def _with_fields(record: Any, **schemas: CoreSchema) -> CoreSchema:
     return composed  # type: ignore[return-value]  # a dataclass schema, as the record's was
 
 
-def _closed(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
+def _exact_keys_schema(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
     """Gives the schema of an object of exactly these keys, each of ``required`` there: the names a graph gives,
     of its inputs, its nodes and a node's outputs."""
     # each field is written out: a graph makes three for every node, and pydantic's own helper costs more than the field
@@ -133,7 +137,7 @@ def _closed(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchem
     return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
 
 
-def _inlined(schema: CoreSchema, shared: dict[str, CoreSchema]) -> CoreSchema:
+def _inline_definitions(schema: CoreSchema, shared: dict[str, CoreSchema]) -> CoreSchema:
     """Gives ``schema`` as it stands inside another: what pydantic defined beside it (a model met twice, one that
     holds itself) moves to ``shared``, since one validator takes each definition once."""
     if schema["type"] != "definitions":

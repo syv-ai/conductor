@@ -11,7 +11,7 @@ from conductor._internal.compiled import CompiledGraph
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import Run, checked_max_items, no_outcomes, run_from_json
-from conductor._internal.saved_run import RunCodec, save_form
+from conductor._internal.run.json import RunCodec, run_codec
 from conductor._internal.sentinels import REQUIRED
 from conductor._internal.value_type import FieldValueError
 
@@ -69,9 +69,9 @@ class Graph(CompiledGraph):
         return run_from_json(self, saved)
 
     @functools.cached_property
-    def _save_form(self) -> RunCodec:
+    def _run_codec(self) -> RunCodec:
         """How this graph's runs are read from JSON and written as it, made when the first one is."""
-        return save_form(
+        return run_codec(
             self.fingerprint,
             inputs={address: graph_input.field.whole for address, graph_input in self._input_fields.items()},
             outputs={node.name: node.compiled_node.outputs for node in self._flat_function_nodes},

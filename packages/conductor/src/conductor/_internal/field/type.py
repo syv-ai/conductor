@@ -99,16 +99,16 @@ class Field:
         return self.many and self.type.optional
 
     @functools.cached_property
-    def slot(self) -> Type:
+    def saved_type(self) -> Type:
         """The type of the field's value on one unit, as a saved run and a run's written outputs hold it: blank
         where the call returned none, else the form its type stores (``SeriesItems`` or ``Records`` for a ``Series``,
         the value itself for any other type)."""
         return Type(union_of((self.whole.stored_hint, type(None))))
 
     @functools.cached_property
-    def column(self) -> Type:
-        """The type of the field's values over many units: a list of what ``slot`` is the type of."""
-        return Type(list_of(self.slot.hint))
+    def saved_list_type(self) -> Type:
+        """The type of the field's values over many units: a list of what ``saved_type`` is the type of."""
+        return Type(list_of(self.saved_type.hint))
 
     @functools.cached_property
     def description(self) -> FieldDescription:
