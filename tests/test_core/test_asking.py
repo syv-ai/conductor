@@ -848,7 +848,7 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
 
     run = Graph.compile(make_graph(plain), registry_of(plain)).run(text="a")
     (problem,) = _refused(lambda: run.answer("plain", "b"))
-    assert (problem.type, problem.ctx["status"]) == ("not_waiting", "complete") and "a run that is complete" in problem.msg
+    assert (problem.type, problem.ctx["status"]) == ("not_waiting", "complete") and "(the run is complete)" in problem.msg
 
 
 @pytest.mark.parametrize("choices", [[True, 2], ["1"]], ids=["a bool", "a number as text"])

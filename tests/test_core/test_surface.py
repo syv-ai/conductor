@@ -191,7 +191,7 @@ def test_an_edge_to_a_missing_output_says_what_the_node_has():
     }), _registry())
 
     (found,) = graph.problems
-    assert found.type == "unknown_output" and found.ctx["outputs"] == ["a.result"] and "it gives a.result" in found.msg
+    assert found.type == "unknown_output" and found.ctx["outputs"] == ["a.result"] and "it has a.result" in found.msg
 
 
 def test_an_unknown_input_names_the_inputs_the_node_has():

@@ -98,7 +98,7 @@ class ProblemKind[**Params]:
         for parameter in parameters:
             _check_parameter(write_message.__name__, parameter)
         if signature.return_annotation is not str:
-            raise TypeError(f"{write_message.__name__}: 'return' is the English a person reads; annotate it -> str")
+            raise TypeError(f"{write_message.__name__}: 'return' is the message a person reads; annotate it -> str")
         self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_OR_KEYWORD)
         self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
@@ -129,17 +129,17 @@ def _check_parameter(function: str, parameter: Parameter) -> None:
     prefix = f"{function}: parameter '{parameter.name}'"
     match parameter.kind:
         case parameter.POSITIONAL_ONLY:
-            raise TypeError(f"{prefix} is positional-only; a place in loc is a named positional parameter, so drop the /")
+            raise TypeError(f"{prefix} is positional-only; a part of loc is a named positional parameter, so remove the /")
         case parameter.VAR_KEYWORD:
             raise TypeError(f"{prefix} is **{parameter.name}; a ctx key is a keyword-only parameter of its own, with its type")
         case parameter.VAR_POSITIONAL:
             if parameter.annotation != str | int:
-                raise TypeError(f"{prefix} holds places of loc; annotate it *{parameter.name}: str | int")
+                raise TypeError(f"{prefix} is the parts of loc; annotate it *{parameter.name}: str | int")
         case parameter.POSITIONAL_OR_KEYWORD:
             if parameter.annotation not in (str, int):
-                raise TypeError(f"{prefix} is a place in loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key")
+                raise TypeError(f"{prefix} is a part of loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key")
             if parameter.default is not parameter.empty:
-                raise TypeError(f"{prefix} is a place in loc and has a default; a place is always given")
+                raise TypeError(f"{prefix} is a part of loc and has a default; remove the default, since a part of loc is always given")
         case parameter.KEYWORD_ONLY:
             if parameter.annotation is parameter.empty:
                 raise TypeError(f"{prefix} is a ctx key without a type; annotate it")
@@ -209,7 +209,7 @@ class ProblemCatalogue:
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
             kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook, next(reversed(self.sections), ""))
             if variant and kind.code not in self.codes:
-                raise TypeError(f"{write_message.__name__}: a hint is a second sentence under a code, and '{kind.code}' is not declared before it")
+                raise TypeError(f"{write_message.__name__}: a variant is a second message under a code, and '{kind.code}' is not declared before it")
             self._kinds.append(kind)
             return kind
 

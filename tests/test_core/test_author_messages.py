@@ -86,7 +86,7 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_split_first_and_lists_
         "variant": "split_first", "whole": "table", "fields": ["name", "email"],
     }
     assert found.msg == (
-        "'read.result' is a whole table and 'send.to' takes one str. To run 'send' once for each record or item in it, "
+        "'read.result' is a whole table, and 'send.to' takes one str. To call 'send' once per row or item, "
         "put a Split between them and wire Split's result, or one field of it."
     )
 
@@ -99,7 +99,7 @@ def test_a_table_of_any_columns_says_to_split_first_and_knows_no_fields():
 def test_a_whole_list_into_an_input_of_one_value_says_to_split_first():
     found = problem({"tags": "tags", "send": "send"}, [("tags.result", "send.to")])
     assert (found.type, found.loc, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("type_mismatch", ("send", "to"), "split_first", "list", [])
-    assert found.msg.startswith("'tags.result' is a whole list and 'send.to' takes one str.")
+    assert found.msg.startswith("'tags.result' is a whole list, and 'send.to' takes one str.")
     assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx["fields"] == ["name", "email"]
 
 
@@ -113,7 +113,7 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_split_first():
     assert (found.type, found.loc) == ("unknown_output", ("send", "to"))
     assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "record_field": "email", "variant": "split_first", "whole": "table", "fields": ["name", "email"]}
     assert found.msg == (
-        "'read.result.email' names a field of a whole table, which has no field to wire. Split it first: put a Split after it "
+        "'read.result.email' names a field of a whole table, which has no fields to wire. Put a Split after it "
         "and wire the field from Split's result."
     )
 
@@ -171,8 +171,8 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
     assert (found.type, found.loc) == ("series_not_nested", ("ask",))
     assert found.ctx == {"node_id": "ask", "series": ["list.result", "upload.result"], "inputs": ["question", "document"], "wire_from": "upload.result", "wire_into": "list"}
     assert found.msg == (
-        "'ask' reads items of list.result, upload.result, and neither is made inside the other, so nothing says which item goes with which. "
-        "Make one inside the other (wire 'upload.result' into 'list', the node that makes the other), or give one of them whole to a Series input."
+        "'ask' reads items of list.result, upload.result, and neither is inside the loop over the other, so nothing says which items go together. "
+        "Wire 'upload.result' into 'list' to put one inside the other, or give one of them whole to a Series input."
     )
 
 

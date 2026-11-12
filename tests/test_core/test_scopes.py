@@ -384,7 +384,7 @@ def test_a_list_given_at_an_input_of_one_value_is_refused_saying_what_makes_a_gr
     assert (problem.type, problem.loc, problem.ctx) == (
         "invalid_input", ("inputs", "text"), {"name": "text", "expected": "str", "length": 3, "variant": "make_a_series"},
     )
-    assert "a node that makes a Series" in problem.msg
+    assert "only when a node returns it as a Series" in problem.msg
 
 
 # -- a subgraph is one node -----------------------------------------------------------------------

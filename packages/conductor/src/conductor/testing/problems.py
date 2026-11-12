@@ -5,7 +5,7 @@ rules)::
 
     needs_example("coded", 1, inputs=["code"])
     # Problem(type="needs_example", loc=("coded", 1),
-    #         msg="its hooks read ['code'], and no value could be made up; give an example", ctx={"inputs": ["code"]})
+    #         msg="its hooks read ['code'], and no value can be made up for them; give the node an example", ctx={"inputs": ["code"]})
 
 Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``. A developer reads them
 when a test fails; a host never gets one from a graph or a run, so they are not in ``PROBLEMS``. Each kind's
@@ -66,7 +66,7 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
         checked.add(coded)
         check_registry(checked)
     """
-    return f"its hooks read {inputs}, and no value could be made up; give an example"
+    return f"its hooks read {inputs}, and no value can be made up for them; give the node an example"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -115,7 +115,7 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, cause: list[str], pr
         checked.add(pick)
         check_registry(checked, examples={"pick": [{"names": ""}]})
     """
-    return f"the example doesn't load: {reason}"
+    return f"the example does not compile: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken")
@@ -206,7 +206,7 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
         checked.add(sort_in_place)
         check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})
     """
-    return f"the body changed {input!r}, a value it was given; several calls of a run can be given it, so copy the value before changing it"
+    return f"the node changed {input!r}, a value it was given; several calls of a run can be given the same value, so copy it before changing it"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed")
@@ -226,7 +226,7 @@ def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problem
         checked.add(upper)
         check_registry(checked, examples={"upper": [{"txt": "a"}]})
     """
-    return f"the example doesn't load: {reason}"
+    return f"the example does not compile: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed")

@@ -5,7 +5,7 @@ A kind is called to make its ``Problem``, as the kinds of ``conductor.PROBLEMS``
 the rules)::
 
     already_answered(waiting_id="approve")
-    # Problem(type="already_answered", loc=(), msg="An answer to 'approve' already waits ...", ctx={"waiting_id": "approve"})
+    # Problem(type="already_answered", loc=(), msg="An answer to 'approve' is already queued ...", ctx={"waiting_id": "approve"})
 
 Each is about a run as a whole, so its ``loc`` is ``()``. Five are the ``detail`` of a 404 or a 409,
 ``answer_check_failed`` is in a run's ``refused``, and ``resume_failed`` is a run's ``cause``. The problems of the runs
@@ -43,7 +43,10 @@ def already_answered(*, waiting_id: str) -> str:
     Args:
         waiting_id: The waiting id answered twice.
     """
-    return f"An answer to '{waiting_id}' already waits for the run to stop running; read the run once it has, and answer what still waits."
+    return (
+        f"An answer to '{waiting_id}' is already queued for when the run stops running; "
+        "read the run once it has stopped, and answer what still waits."
+    )
 
 
 @ROUTER_PROBLEMS.problem()
@@ -60,7 +63,10 @@ def answer_check_failed(*, waiting_id: str, error: str) -> str:
         waiting_id: The waiting id the answer was for.
         error: The class name of the exception the check raised.
     """
-    return f"The answer queued for '{waiting_id}' could not be checked: its type's own check raised {error}; the operator finds why in the server log. Send it again once that is fixed."
+    return (
+        f"The answer queued for '{waiting_id}' could not be checked: its type's own check raised {error}; "
+        "the operator finds why in the server log. Send it again once that is fixed."
+    )
 
 
 @ROUTER_PROBLEMS.problem()
@@ -83,7 +89,7 @@ def run_not_resumable(*, status: RunStatus) -> str:
     Args:
         status: The run's status.
     """
-    return f"The run is {status}, and only a run that ended early is resumed; read the run to see what it needs."
+    return f"The run is {status}, and only a run that ended early can be resumed; read the run to see what it needs."
 
 
 @ROUTER_PROBLEMS.problem()

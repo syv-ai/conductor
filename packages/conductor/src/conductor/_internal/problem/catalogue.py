@@ -65,10 +65,10 @@ def alternatives_from_different_loops(node_id: str, field: str, *, series: list[
             ],
         })
     """
-    series_text = comma_separated(["none (it runs once)" if one is None else one for one in series])
+    series_text = comma_separated(["none (not in a loop)" if one is None else one for one in series])
     return (
-        f"'{field}' takes alternatives that run per item of different Series, {series_text}, so a call for an item of one has no place "
-        "for the other's value. Bring them to items of one Series first."
+        f"'{field}' has edges from branches inside different loops ({series_text}), so a call never has the other branch's value. "
+        f"Collect the inner loop first, or wire '{field}' from one branch."
     )
 
 
@@ -90,7 +90,7 @@ def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dic
     Example:
         problems({"nodes": [{"id": "pick", "node": "pick", "constants": {"names": ""}}]})
     """
-    return f"The node could not work out its fields from what it was given: {reason.rstrip('.')}. Check what is typed into the node and what is wired to it."
+    return f"The node could not work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired to it."
 
 
 @PROBLEMS.problem()
@@ -130,7 +130,7 @@ def default_on_later_node(node_id: str, field: str) -> str:
             "edges": [["a.result", "g.name"]],
         })
     """
-    return f"'{field}' is not an open input of the graph, so a caller can't change its default; make it a value."
+    return f"'{field}' is not a graph input, so no caller can replace its default; make it a constant."
 
 
 @PROBLEMS.problem()
@@ -185,7 +185,7 @@ def subgraph_contains_itself(*loc: str | int, node: str) -> str:
         looping.add(itself)
         Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "itself"}]}), looping).problems
     """
-    return f"The node '{node}' is a graph that contains itself; embed a graph that does not contain this one."
+    return f"The subgraph '{node}' contains itself; remove the node that leads back to it."
 
 
 @PROBLEMS.problem()
@@ -202,7 +202,7 @@ def hook_needs_value(node_id: str, field: str) -> str:
     Example:
         problems({"nodes": [{"id": "pick", "node": "pick"}]})
     """
-    return f"'{field}' must be typed in: the node works out its fields from it when the graph loads."
+    return f"'{field}' needs a constant: the node works out its inputs and outputs from it when the graph is compiled."
 
 
 @PROBLEMS.problem()
@@ -218,7 +218,7 @@ def invalid_node_id(node_id: str) -> str:
     Example:
         problems({"nodes": [{"id": "a.b", "node": "upper"}]})
     """
-    return f"'{node_id}' cannot be a node id: '.', '/', '@' and '~' each mean something in an address or a waiting id; rename it without them."
+    return f"'{node_id}' cannot be a node id: '.', '/', '@' and '~' are used in addresses and waiting ids; choose an id without them."
 
 
 @PROBLEMS.problem()
@@ -240,7 +240,7 @@ def invalid_value(node_id: str, field: str, *, reason: str, errors: list[dict[st
     Example:
         problems({"nodes": [{"id": "c", "node": "count", "constants": {"n": "many"}}]})
     """
-    return f"The value typed into '{field}' is not valid: {reason.rstrip('.')}. Type a value of the field's type."
+    return f"The constant of '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
 @PROBLEMS.problem(of_a_hook=True)
@@ -265,7 +265,7 @@ def parameter_name_invalid(node_id: str, field: str) -> str:
 
         problems({"nodes": [{"id": "f", "node": "fields", "constants": {"names": "a.b"}}]})
     """
-    return f"'{field}' cannot be a field name: '.', '/' and '@' each mean something in an address, and a name can't be empty; rename the field."
+    return f"'{field}' cannot be an input or output name: a name is not empty and has no '.', '/' or '@'; change the node's hook."
 
 
 @PROBLEMS.problem()
@@ -285,7 +285,7 @@ def repeated_edge(node_id: str, field: str, *, source: str) -> str:
             "edges": [["a.result", "b.text"], ["a.result", "b.text"]],
         })
     """
-    return f"The edge from '{source}' into '{field}' is drawn twice; remove one."
+    return f"The edge from '{source}' to '{field}' is in the graph twice; remove one."
 
 
 @PROBLEMS.problem()
@@ -312,8 +312,8 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
         })
     """
     return (
-        f"{comma_separated(inputs)} read branches that never both have a value for an item, so no item would reach the node. "
-        "Write Series[X | None] on them to keep every item, or take the branches through one input."
+        f"{comma_separated(inputs)} read branches that never both have a value for the same item, so the node would get no items. "
+        "Write Series[X | None] on them to keep every item, or wire both branches into one input."
     )
 
 
@@ -340,8 +340,9 @@ def series_not_nested(node_id: str, *, series: list[str], inputs: list[str], wir
         })
     """
     return (
-        f"'{node_id}' reads items of {comma_separated(series)}, and neither is made inside the other, so nothing says which item goes with which. "
-        f"Make one inside the other (wire '{wire_from}' into '{wire_into}', the node that makes the other), or give one of them whole to a Series input."
+        f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
+        "so nothing says which items go together. "
+        f"Wire '{wire_from}' into '{wire_into}' to put one inside the other, or give one of them whole to a Series input."
     )
 
 
@@ -367,9 +368,10 @@ def loops_not_nested_inside_subgraph(node_id: str, *, series: list[str], inputs:
         })
     """
     return (
-        f"'{node_id}' reads items of {comma_separated(series)}, and neither is made inside the other, so nothing says which item goes with which. "
-        f"A list inside a subgraph ({comma_separated(subgraphs)}) is looped over where that graph loops over it, so no edge here can change that. "
-        "Give one of them whole to a Series input, or change the subgraph so it returns both outputs from the same loop."
+        f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
+        "so nothing says which items go together. "
+        f"One is inside a subgraph ({comma_separated(subgraphs)}), so no edge here can change that. "
+        "Give one of them whole to a Series input, or change the subgraph so it returns both from the same loop."
     )
 
 
@@ -393,8 +395,8 @@ def several_edges_into_one_input(node_id: str, field: str, *, sources: list[str]
         })
     """
     return (
-        f"More than one of the edges into '{field}', from {comma_separated(sources)}, can hold a value on the same call. "
-        "Feed it from opposite branches of one decision, or put a node between that has an input for each."
+        f"More than one edge into '{field}' (from {comma_separated(sources)}) can give it a value on the same call. "
+        "Wire it from different branches of one node, or add a node with an input for each."
     )
 
 
@@ -418,7 +420,10 @@ def type_mismatch(node_id: str, field: str, *, source: str, got: str, expected: 
             "edges": [["c.result", "u.text"]],
         })
     """
-    return f"'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; connect an output that gives {expected}, or convert it in a node between."
+    return (
+        f"'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; "
+        f"connect an output that gives {expected}, or convert it in a node between."
+    )
 
 
 @PROBLEMS.problem("type_mismatch", variant="split_first")
@@ -445,8 +450,8 @@ def type_mismatch_split_first(node_id: str, field: str, *, source: str, got: str
         })
     """
     return (
-        f"'{source}' is a whole {whole} and '{node_id}.{field}' takes one {expected}. To run '{node_id}' once for each record or item "
-        "in it, put a Split between them and wire Split's result, or one field of it."
+        f"'{source}' is a whole {whole}, and '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
+        "put a Split between them and wire Split's result, or one field of it."
     )
 
 
@@ -483,7 +488,10 @@ def type_mismatch_add_column(node_id: str, field: str, *, source: str, got: str,
             "edges": [["c.result", "t.invoices"]],
         })
     """
-    return f"'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {comma_separated(has)}. Add the column in a node between, or connect a table that has it."
+    return (
+        f"'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {comma_separated(has)}. "
+        "Add the column in a node between, or connect a table that has it."
+    )
 
 
 @PROBLEMS.problem()
@@ -503,7 +511,7 @@ def unbound_on_later_node(node_id: str, field: str) -> str:
             "edges": [["a.result", "g.name"]],
         })
     """
-    return f"Nothing feeds '{field}', and only a first node takes inputs from the caller; draw an edge into it or type a value in."
+    return f"'{field}' has no edge and no constant, and only a first node's inputs come from the caller; wire an edge into it or give it a constant."
 
 
 @PROBLEMS.problem()
@@ -560,7 +568,7 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
             "edges": [["a.text", "b.text"]],
         })
     """
-    return f"'{source}' is not something that node gives; it gives {comma_separated(outputs)}."
+    return f"'{source}' is not an output of that node; it has {comma_separated(outputs)}."
 
 
 @PROBLEMS.problem("unknown_output", variant="split_first")
@@ -586,8 +594,8 @@ def unknown_output_split_first(*loc: str | int, source: str, outputs: list[str],
         })
     """
     return (
-        f"'{source}' names a field of a whole {whole}, which has no field to wire. Split it first: put a Split after it and wire "
-        "the field from Split's result."
+        f"'{source}' names a field of a whole {whole}, which has no fields to wire. Put a Split after it and wire the field "
+        "from Split's result."
     )
 
 
@@ -622,7 +630,7 @@ def constant_and_default(node_id: str, field: str) -> str:
     Example:
         problems({"nodes": [{"id": "u", "node": "upper", "constants": {"text": "a"}, "defaults": {"text": "b"}}]})
     """
-    return f"Field '{field}' has both a value and a default; keep one."
+    return f"'{field}' has both a constant and a default; keep one."
 
 
 @PROBLEMS.problem()
@@ -641,7 +649,7 @@ def constant_and_edge(node_id: str, field: str) -> str:
             "edges": [["a.result", "b.text"]],
         })
     """
-    return f"Field '{field}' has an edge and a typed-in value; keep one."
+    return f"'{field}' has both an edge and a constant; keep one."
 
 
 PROBLEMS.section(
@@ -670,7 +678,7 @@ def answer_stale(*loc: str | int, waiting_id: str, current: str, moved_to: str |
         asked_again = asked.again(amount=5500)
         refused(lambda: asked_again.answer(asked.waiting[0].id, True))
     """
-    return f"The answer was given for {waiting_id!r}, and another question waits at that place by now, {current!r}; show that one and answer it."
+    return f"The answer is for {waiting_id!r}, and another question, {current!r}, has replaced it; answer that one."
 
 
 @PROBLEMS.problem()
@@ -708,7 +716,7 @@ def context_missing(node_id: str, parameter: str, *, needs: str, given: list[str
     Example:
         refused(lambda: Graph.compile(make_graph(who), registry).run())
     """
-    return f"'{node_id}' needs a {needs} for '{parameter}', and context gives none (it gives {comma_separated(given)}); pass context with a value for {needs}."
+    return f"'{node_id}' needs a {needs} for '{parameter}', and context has none (it has {comma_separated(given)}); give one in context."
 
 
 @PROBLEMS.problem()
@@ -760,7 +768,7 @@ def invalid_checkpoint_every(*loc: str | int, checkpoint_every: float) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").stream(checkpoint_every=0))
     """
-    return f"checkpoint_every is a number of seconds above 0; it was {checkpoint_every}."
+    return f"checkpoint_every must be a number of seconds above 0; it was {checkpoint_every}."
 
 
 @PROBLEMS.problem()
@@ -780,7 +788,7 @@ def invalid_input(*loc: str | int, name: str, reason: str, errors: list[dict[str
     Example:
         refused(lambda: Graph.compile(make_graph(count), registry).run(n="many"))
     """
-    return f"The value given for '{name}' is not valid: {reason.rstrip('.')}. Give a value of the type the input takes."
+    return f"The value given for '{name}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
 @PROBLEMS.problem("invalid_input", variant="make_a_series")
@@ -801,8 +809,8 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text=["a", "b"]))
     """
     return (
-        f"'{name}' takes one {expected} and was given a list of {length}. A graph runs once per item only after a node that makes "
-        "a Series, such as a list or an upload node: give the list to such a node, or give one value."
+        f"'{name}' takes one {expected} and was given a list of {length}. A graph loops over a list only when a node returns it "
+        "as a Series: give the list to such a node, or give one value."
     )
 
 
@@ -819,7 +827,7 @@ def invalid_max_items(*loc: str | int, max_items: int) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", max_items=0))
     """
-    return f"max_items is at least 1; it was {max_items}."
+    return f"max_items must be at least 1; it was {max_items}."
 
 
 @PROBLEMS.problem()
@@ -855,7 +863,7 @@ def invalid_timeout(*loc: str | int, timeout: float) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").resume(timeout=-1))
     """
-    return f"timeout is a number of seconds above 0; it was {timeout}."
+    return f"timeout must be a number of seconds above 0; it was {timeout}."
 
 
 @PROBLEMS.problem()
@@ -908,8 +916,8 @@ def not_a_chain(node_id: str, *, before: str, inputs: list[str], outputs: list[s
         refused(lambda: make_graph(upper, greet))
     """
     return (
-        f"'{node_id}' can't follow '{before}' in a chain: a chain takes its one required open input (it has {comma_separated(inputs)}) "
-        f"from the one output of the node before it (that has {comma_separated(outputs)}); pass edges= to make_graph."
+        f"'{node_id}' can't follow '{before}' without edges: make_graph wires a node's one required input (it has {comma_separated(inputs)}) "
+        f"to the one output of the node before it (that has {comma_separated(outputs)}); pass edges= to make_graph."
     )
 
 
@@ -946,7 +954,7 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
         refused(lambda: waiting.answer("upper", True))
     """
-    return f"Nothing is waiting on an answer as {waiting_id!r} in a run that is {status}; run.waiting lists what is."
+    return f"Nothing in the run waits for an answer under {waiting_id!r} (the run is {status}); run.waiting lists what does."
 
 
 @PROBLEMS.problem()
@@ -964,7 +972,7 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
         stopped = Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2)
         refused(lambda: stopped.outputs)
     """
-    return f"The run is {status}, so it has no outputs yet; run.results has what it did. {reason.rstrip('.')}".rstrip()
+    return f"The run is {status}, so it has no outputs yet; run.results has the outputs so far. {reason.rstrip('.')}".rstrip()
 
 
 @PROBLEMS.problem()
@@ -982,7 +990,7 @@ def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
         saved = Graph.compile(make_graph(upper), registry).run(text="a").to_json()
         refused(lambda: Run.from_json(saved, Graph.compile(make_graph(count), registry)))
     """
-    return f"The saved run is of another graph ({saved}) than this one ({graph}); an edited graph starts a new run."
+    return f"The saved run is of another graph ({saved}) than this one ({graph}); load it into the graph it was saved from."
 
 
 @PROBLEMS.problem()
@@ -1026,7 +1034,7 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
         unwritable = Graph.compile(make_graph(raw), registry).run(text="a")
         refused(lambda: unwritable.to_json())
     """
-    return f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}. Give that field a type pydantic writes as JSON."
+    return f"The run cannot be written as JSON at '{where}': {reason.rstrip('.')}. Give that output a type pydantic writes as JSON."
 
 
 PROBLEMS.section(
@@ -1056,7 +1064,7 @@ def execution_failed(*loc: str | int, error: str) -> str:
 
         why_it_stopped(Graph.compile(make_graph(divide), registry).run(n=0))
     """
-    return "The node failed; its developer finds why in the conductor log."
+    return "The node raised an exception; its developer finds it in the conductor log."
 
 
 @PROBLEMS.problem()
@@ -1123,7 +1131,7 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
 
         why_it_stopped(Graph.compile(make_graph(confirm), registry).run(text="a"))
     """
-    return f"The node asked a question its outputs can't be answered with: {reason.rstrip('.')}. Fix the node's Ask."
+    return f"The node asked a question with choices or a default its return type does not take: {reason.rstrip('.')}. Fix the node's Ask."
 
 
 @PROBLEMS.problem()
@@ -1158,7 +1166,10 @@ def invalid_edge_value(
 
         why_it_stopped(Graph.compile(make_graph(letters, small), registry).run(text="many letters"))
     """
-    return f"The value an edge brought to '{name}' is not one it takes: {reason.rstrip('.')}. Fix the node that made it, or connect an output of the type the input takes."
+    return (
+        f"The value an edge gave '{name}' is not one it takes: {reason.rstrip('.')}. "
+        "Fix the node upstream, or wire an output of the type the input takes."
+    )
 
 
 @PROBLEMS.problem()
@@ -1201,7 +1212,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     Example:
         why_it_stopped(Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2))
     """
-    return f"{series} has {items} items, more than the {max_items} this run may work through; raise its max_items and resume it."
+    return f"{series} has {items} items, more than this run's max_items of {max_items}; raise max_items and resume the run."
 
 
 @PROBLEMS.problem()
@@ -1224,7 +1235,10 @@ def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noq
 
         why_it_stopped(Graph.compile(make_graph(approve_file), registry).run(data=b"\\xff"))
     """
-    return f"The node asked a person, but what it received at '{input}' has no JSON form to show them: {reason.rstrip('.')}. Give that input a type pydantic writes as JSON."
+    return (
+        f"The node asked a person, but its argument '{input}' cannot be written as JSON to show them: {reason.rstrip('.')}. "
+        "Give that input a type pydantic writes as JSON."
+    )
 
 
 @PROBLEMS.problem()
@@ -1266,7 +1280,7 @@ def run_timed_out(*, timeout: float) -> str:
 
         why_it_stopped(Graph.compile(make_graph(slow), registry).run(text="a", timeout=0.05))
     """
-    return "The run took too long and was stopped; run.resume() carries on."
+    return "The run took too long and was stopped; run.resume() goes on from where it stopped."
 
 
 @PROBLEMS.problem()
@@ -1288,4 +1302,4 @@ def timeout(*loc: str | int, seconds: float) -> str:
 
         why_it_stopped(Graph.compile(make_graph(stuck), registry).run(text="a"))
     """
-    return "The node did not answer in time; its Policy(attempt_timeout=) sets how long it may take."
+    return "The node did not return in time; its Policy(attempt_timeout=) sets how long it may take."

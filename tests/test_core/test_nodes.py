@@ -1270,7 +1270,7 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
     assert graph.problems == [] and graph.run().outputs == {"g.result": "txx"}
     (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", constants={"text": "t", "names": "boom"})]), registry).problems
     assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"], problem.msg) == (
-        "compute_hook_failed", "no_column", {"names": "boom"}, "The node could not work out its fields from what it was given: No such column. Check what is typed into the node and what is wired to it.",
+        "compute_hook_failed", "no_column", {"names": "boom"}, "The node could not work out its inputs and outputs: No such column. Check the node's constants and what is wired to it.",
     )
 
 

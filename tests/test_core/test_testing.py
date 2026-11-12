@@ -103,7 +103,7 @@ def test_a_context_value_is_taken_by_the_class_the_node_names_and_a_subclass_key
     with pytest.raises(InvalidCallError) as refused:
         graph.run(context={int: 3})
     assert [(p.type, p.ctx["given"]) for p in refused.value.errors()] == [("context_missing", ["int"])]
-    assert "it gives int" in refused.value.errors()[0].msg
+    assert "it has int" in refused.value.errors()[0].msg
 
 
 def test_no_body_is_called_without_an_example_and_each_example_calls_it_once():
