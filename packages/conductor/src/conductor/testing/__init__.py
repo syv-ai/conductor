@@ -247,7 +247,7 @@ def _made_up(field: Field) -> Any:
     """A value of the field within its limits, checked by the field; ``_CANNOT`` when there is no way to make one."""
     for item in _candidates(field.type.options[0] if len(field.type.options) == 1 else None, field.param):
         try:
-            return field.whole.read([item, item] if field.many else item)
+            return field.whole.read([item, item] if field.is_series else item)
         except FieldValueError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
             continue
     return _CANNOT

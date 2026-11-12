@@ -530,7 +530,7 @@ class _Compiler:
             fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=expected or None))
             return None
-        return EdgeSource(source_id, output, source.loops_around(output), expected or None, sources, item=field.many)
+        return EdgeSource(source_id, output, source.loops_around(output), expected or None, sources, item=field.is_series)
 
     def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
@@ -606,7 +606,7 @@ def _collects_and_expected_type(field: Field, sources: list[EdgeSource]) -> tupl
     made once in the graph, and is taken as a record wherever it is made per item.
     """
     record = field.whole.record
-    collects = field.many or (record is not None and not all(
+    collects = field.is_series or (record is not None and not all(
         field.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.loops_of_value) for s in sources
     ))
     return collects, field.whole if not collects else field.type if record is None else record
@@ -660,7 +660,7 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
             return problem.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
-    elif split and not field.many:
+    elif split and not field.is_series:
         return problem.type_mismatch_split_first(node_id, field.name, source=address, got=got, expected=expected, whole=split[0], fields=split[1])
     return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 

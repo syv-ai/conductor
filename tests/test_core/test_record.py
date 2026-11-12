@@ -427,7 +427,7 @@ def test_a_series_of_tables_is_accepted_where_it_is_declared():
     def tables(text: str) -> Series[Table]:
         return [pl.DataFrame()]
 
-    assert tables.outputs["result"].many is True
+    assert tables.outputs["result"].is_series is True
     assert tables.outputs["result"].type.id.startswith("Table")
 
 

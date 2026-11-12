@@ -213,13 +213,13 @@ class CompiledSubgraphNode(_CompiledNodeBase):
             if not loops:
                 described.append(field.description)
                 continue
-            if field.many:  # the node's own Series is the innermost one
+            if field.is_series:  # the node's own Series is the innermost one
                 loops.append(name)
             item: Any = field.type.hint
             for _ in loops[1:]:
                 item = series_of[item]
             item_type = Type(item)
-            series_field = field if field.many else Field(name, series_of[field.hint])
+            series_field = field if field.is_series else Field(name, series_of[field.hint])
             described.append(series_field.description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema, "loops": loops}))
         return described
 

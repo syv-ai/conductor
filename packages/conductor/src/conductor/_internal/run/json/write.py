@@ -169,7 +169,7 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | None])
                 skipped[name] = skipped_calls
                 for call_number in skipped_calls:
                     values[call_number] = None
-            if output.many:
+            if output.is_series:
                 for call_number, series in enumerate(values):
                     if series is not None:
                         values[call_number], skipped_indexes = series.for_saving()

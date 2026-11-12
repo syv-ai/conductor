@@ -85,7 +85,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     outcomes, reusable = {}, {}
     for node, node_outputs in outputs.items():
         skipped_outputs, not_called_outputs = outputs_when_skipped(node_outputs), outputs_when_not_called(node_outputs)
-        same_outputs = tuple((name, output.saved_list_type, output.many, not_called_outputs[name]) for name, output in node_outputs.items())
+        same_outputs = tuple((name, output.saved_list_type, output.is_series, not_called_outputs[name]) for name, output in node_outputs.items())
         if same_outputs not in references:
             outcomes_ref, reusable_ref = f"outcomes:{len(references)}", f"reusable:{len(references)}"
             of_node = _with_field_schemas(
@@ -94,7 +94,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
                     {name: _inline_definitions(output.saved_list_type.saved_schema, shared) for name, output in node_outputs.items()},
                 ),
                 skipped=_exact_keys_schema({}, dict.fromkeys(node_outputs, _CALL_NUMBERS)),
-                skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.many}),
+                skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.is_series}),
             )
             shared[outcomes_ref] = core_schema.no_info_after_validator_function(
                 functools.partial(outcomes_from_saved, skipped_outputs, not_called_outputs), of_node, ref=outcomes_ref,

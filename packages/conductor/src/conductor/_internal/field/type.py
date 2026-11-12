@@ -42,7 +42,8 @@ class Field:
         param: The ``Param``s of the hint as one; an empty one when it has none.
         type: The type of one value: a ``Series``' item, else ``whole``.
         whole: The type of the field's whole value, which reads it and writes it: a ``Series``' list.
-        many: Whether it is a ``Series``: an output that makes items, an input that gathers them.
+        is_series: Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input
+            that takes every item of a loop as one list.
         default_json: The default as JSON; ``None`` where there is none to propose.
     """
 
@@ -52,7 +53,7 @@ class Field:
     param: Param = field(init=False, compare=False, repr=False)
     type: Type = field(init=False, compare=False)
     whole: Type = field(init=False, compare=False, repr=False)
-    many: bool = field(init=False, compare=False)
+    is_series: bool = field(init=False, compare=False)
     default_json: JsonValue = field(init=False, compare=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
@@ -69,7 +70,7 @@ class Field:
             keep("param", param)
             keep("whole", whole)
             keep("type", one)
-            keep("many", one is not whole)
+            keep("is_series", one is not whole)
             whole.adapter  # noqa: B018  a type pydantic can't carry fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
             if self.default is None and not whole.optional:
@@ -96,7 +97,7 @@ class Field:
     def accepts_none_items(self) -> bool:
         """Whether a field that gathers keeps the place of an item with no value, as a blank: a ``Series`` whose
         item type takes one. A table never does, as a record is never blank."""
-        return self.many and self.type.optional
+        return self.is_series and self.type.optional
 
     @functools.cached_property
     def saved_type(self) -> Type:
@@ -116,7 +117,7 @@ class Field:
         choices, widget = self.type.choices, self.param.widget
         return FieldDescription(
             name=self.name, title=self.param.title or self.name.replace("-", " ").replace("_", " ").strip().capitalize(),
-            description=self.param.description, is_series=self.many, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
+            description=self.param.description, is_series=self.is_series, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
             schema=self.type.json_schema, required=self.default is REQUIRED, default=self.default_json,
             choices=None if choices is None else [choice.model_dump(mode="json") for choice in choices],
             widget=None if widget is None else widget.model_dump(mode="json"), exclusive_group=self.param.exclusive_group,

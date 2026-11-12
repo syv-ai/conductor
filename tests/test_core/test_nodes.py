@@ -241,7 +241,7 @@ def test_a_series_of_tables_is_accepted_as_many_tables():
         return 1
 
     field = declared(f).inputs["x"]
-    assert field.many is True and field.type.id == "Table[name: str, amount: int]"
+    assert field.is_series is True and field.type.id == "Table[name: str, amount: int]"
 
 
 def test_a_definition_is_frozen():
@@ -1202,7 +1202,7 @@ def test_a_bare_series_is_many_values_of_any_type() -> None:
     def count(items: Series) -> int:  # type: ignore[type-arg]
         return len(items)
 
-    assert count.inputs["items"].many and count.inputs["items"].type.hint is Any
+    assert count.inputs["items"].is_series and count.inputs["items"].type.hint is Any
 
 
 def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():

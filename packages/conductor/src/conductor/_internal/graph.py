@@ -119,7 +119,7 @@ class Graph(CompiledGraph):
                 values[address] = field.whole.read(value)
             except FieldValueError as refused:
                 whole = all(not error["loc"] for error in refused.errors or ())  # the list itself was refused, not an item of it
-                if not field.many and type(value) is list and whole:  # the one mistake whose fix is in the graph
+                if not field.is_series and type(value) is list and whole:  # the one mistake whose fix is in the graph
                     problems.append(problem.invalid_input_make_a_series("inputs", graph_input.name, name=graph_input.name, expected=field.whole.id, length=len(value)))
                 else:
                     problems.append(problem.invalid_input("inputs", graph_input.name, name=graph_input.name, reason=refused.reason, errors=refused.errors, column=refused.column))

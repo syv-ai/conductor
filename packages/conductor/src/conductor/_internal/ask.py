@@ -294,7 +294,7 @@ def _required(field: Field, overrides: QuestionOverrides, *, limited: bool) -> b
     exclusive group, or its type takes a blank and no choices limit what it takes.
     """
     defaulted = "default" in overrides or field.default is not REQUIRED
-    blank = not field.many and field.whole.optional and not limited
+    blank = not field.is_series and field.whole.optional and not limited
     return not defaulted and field.param.exclusive_group is None and not blank
 
 
@@ -358,7 +358,7 @@ def _checked_answer(field: Field, value: Any, choices: list[dict[str, Any]] | No
     read = field.whole.read_answer(value)
     if choices is not None:
         picked: Any = field.whole.to_json(read)
-        picks = picked if field.many else [picked]
+        picks = picked if field.is_series else [picked]
         ids = [choice["id"] for choice in choices]
         if any(item not in ids for item in picks):
             raise FieldValueError("the answer is not one of the choices")
