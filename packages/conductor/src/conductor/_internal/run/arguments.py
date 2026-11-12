@@ -184,7 +184,7 @@ class ResultReader:
         if record_field is None:
             return value[index]
         cell = value.columns[record_field][index]
-        if type(cell) is NoSuchFieldError:
+        if type(cell) is NoSuchFieldError:  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the call for that item fails
             raise NoSuchFieldError(record_field)
         return cell
 

@@ -789,6 +789,37 @@ def type_declaration_not_writable(*, id: str, cls: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
+def row_field_optional(*, row: str, field: str) -> str:
+    """The row type of a ``Table`` or of a ``Series`` of records leaves a field out: a ``NotRequired`` field, or a
+    ``TypedDict`` declared ``total=False``.
+
+    Every row of a table has every column, so every field of its row type is required. Declare a field a row may
+    have no value for as ``X | None``: its column then holds ``None`` for that row. A table with a column some rows
+    leave out is not supported.
+
+    Args:
+        row: The row type's name.
+        field: The first field it leaves out.
+
+    Example:
+        from typing import NotRequired
+
+
+        class Signup(TypedDict):
+            email: str
+            name: NotRequired[str]
+
+
+        def signups(text: str) -> Series[Signup]:
+            return []
+
+
+        declaration_refused(lambda: node("signups", title="Signups", description="Reads the signups in a text.")(signups))
+    """
+    return f"the row type {row} leaves out the field '{field}', and every row of a table has every column; declare it '{field}: X | None' instead"
+
+
+@DECLARATION_PROBLEMS.problem()
 def type_not_carried(*, type: str) -> str:
     """An input's or output's type is one pydantic cannot validate or write as JSON, such as a record with a field of
     a plain class.

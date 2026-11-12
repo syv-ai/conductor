@@ -99,7 +99,7 @@ class StoredSeries:
         """
         column = self.columns[name]
         for cell in column:
-            if type(cell) is NoSuchFieldError:
+            if type(cell) is NoSuchFieldError:  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the read fails
                 raise NoSuchFieldError(name)
         return [None if cell is SKIPPED else cell for cell in column]
 

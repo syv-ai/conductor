@@ -72,6 +72,7 @@ class Field:
             keep("type", one)
             keep("is_series", one is not whole)
             whole.schema  # noqa: B018  a type pydantic can't carry fails here
+            whole.returned_schema  # noqa: B018  a Series of records may be kept as a table, whose row type fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
             if self.default is None and not whole.optional:
                 raise NodeDeclarationError(declaration.default_none_not_taken())

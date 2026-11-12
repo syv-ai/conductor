@@ -2,7 +2,7 @@
 column, a node still receives plain records, and the table is read by its columns where it enters."""
 
 import json
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import polars as pl
 import pytest
@@ -10,6 +10,7 @@ from conductor import (
     Graph,
     GraphRecord,
     InvalidCallError,
+    NodeDeclarationError,
     NodeRecord,
     Run,
     Series,
@@ -394,3 +395,31 @@ def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_on
     assert in_polars.to_dicts() == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
     assert list(in_pandas.columns) == ["name", "email"] and in_pandas["name"].tolist() == ["ida", "bo"]
     assert in_pandas["email"][0] == "ida@x.dk" and pd.isna(in_pandas["email"][1])  # pandas shows a blank cell as its own missing value
+
+
+class _MaybeNamed(TypedDict):
+    name: NotRequired[str]
+    email: str
+
+
+class _Partial(TypedDict, total=False):
+    name: str
+
+
+@pytest.mark.parametrize("row", [_MaybeNamed, _Partial])
+@pytest.mark.parametrize("hint", ["input table", "output table", "input series", "output series"])
+def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_declared(row: Any, hint: str) -> None:
+    """A node returning ``Series[R]`` with a ``NotRequired`` field of ``R`` failed its run with pydantic's own schema error."""
+    kind = Table if "table" in hint else Series
+
+    if hint.startswith("input"):
+        def declared(rows: kind[row]) -> int:  # type: ignore[valid-type]
+            return 0
+    else:
+        def declared() -> kind[row]:  # type: ignore[valid-type]
+            return []
+
+    with pytest.raises(NodeDeclarationError) as refused:
+        node("declared", title="Declared", description="For a test.")(declared)
+    assert refused.value.code == "row_field_optional"
+    assert "name" in refused.value.problem.msg and "| None" in refused.value.problem.msg

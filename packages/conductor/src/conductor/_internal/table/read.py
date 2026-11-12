@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import typing
 from collections.abc import Callable, Iterable, Mapping
-from typing import Any, get_args
+from typing import Any, NotRequired, get_args
 
 import polars as pl
 from polars.exceptions import PolarsError
@@ -14,6 +14,8 @@ from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema
 
+from conductor._internal.problem import NodeDeclarationError
+from conductor._internal.problem import declarations as declaration
 from conductor._internal.table.write import CELLS, DTYPES, WRITTEN_TABLE, written_table
 from conductor._internal.value_type import Type
 
@@ -47,7 +49,12 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
     """
     row = (get_args(source) or (Any,))[0]
     declared = typing.is_typeddict(row)
-    columns = {name: Type(hint) for name, hint in typing.get_type_hints(row, include_extras=True).items()} if declared else {}
+    hints = typing.get_type_hints(row, include_extras=True) if declared else {}
+    # a NotRequired field, or total=False, is a column some rows would leave out; a NotRequired written as text is seen only in the hints
+    left_out = [name for name, hint in hints.items() if name in row.__optional_keys__ or typing.get_origin(hint) is NotRequired]
+    if left_out:
+        raise NodeDeclarationError(declaration.row_field_optional(row=row.__qualname__, field=left_out[0]))
+    columns = {name: Type(hint) for name, hint in hints.items()}
     cells = {name: handler.generate_schema(column.carried) for name, column in columns.items()}
     dtypes = {name: CELLS[column.options[0]][0] if column.options[0] in CELLS and len(column.options) == 1 else None for name, column in columns.items()}
 
