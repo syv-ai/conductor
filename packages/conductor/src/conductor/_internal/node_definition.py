@@ -69,7 +69,7 @@ from conductor._internal.address import is_name
 from conductor._internal.conductor_model import ConductorModel
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import RefusedError, read_record
+from conductor._internal.gate import RefusedError, declared_field, read_record
 from conductor._internal.gate.returned import (
     HookOutputs,
     NoOutputs,
@@ -634,7 +634,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
         if name not in hints:
             raise NodeDeclarationError(declaration.input_without_type(), name)
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
-        inputs[name] = Field(name, hints[name], default)
+        inputs[name] = declared_field(name, hints[name], default)
         if inputs[name].param.exclusive_group is not None:
             raise NodeDeclarationError(declaration.exclusive_group_on_input(), name)
     if "return" not in hints:
@@ -652,7 +652,7 @@ def _read_signature(function: Callable[..., Any], computed_outputs: bool) -> tup
             raise NodeDeclarationError(declaration.outputs_not_frozen())
         given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(outputs_class, include_extras=True)
-        outputs = {f.name: Field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
+        outputs = {f.name: declared_field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
         kind = OutputsClass(outputs_class)
     else:
         outputs, kind = {"result": Field("result", returns)}, OneResult()

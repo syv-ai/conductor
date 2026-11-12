@@ -225,7 +225,7 @@ asyncio.run(follow())
 - **Every record is a frozen pydantic model:** `GraphRecord`, `Problem`, the events (one union on `type`), `Waiting`, and every `describe()` result. Each serves as a FastAPI response model as it is.
 - **`Param` is pydantic metadata.** It implements pydantic's schema hooks, so its limits and its choices apply inside a host's own `BaseModel` as on a node's input: the choice rule has one home, pydantic's schema hook on `Param`. A field's limits live in its JSON schema, not in a separate list. On a node's input or output `Param` is the only spelling: pydantic's `Field(...)` in the hint is refused (`pydantic_field_in_hint`), so a limit is never written two ways. A pydantic type that has its limits (`PositiveInt`) is a type and is read as pydantic reads it.
 - **Strict where a program produced the value, lax where a person or caller wrote it.** Answers, declared choices and node outputs are read strictly (`"12"` is never an `int`). Constants, defaults, graph inputs and edges are read laxly. A `bool` never lands on a number, nor on a union a number is in and a `bool` isn't (`int | float`), as a value or in a table's column.
-- **One reading of an annotation.** Each hint is read once into one object that names the type, reads a value, writes it as JSON and says which types may land on it. Validation is pydantic's throughout. The one question pydantic doesn't answer is whether an output of one type may feed an input of another, so that is conductor's own walk over the two types; answering it from pydantic's JSON schema was tried and accepted edges whose values were then refused.
+- **One reading of an annotation.** Each hint is read once into one object that names the type, gives its pydantic schema, writes a value as JSON and says which types may land on it. It reads no value itself: the gate does (next section). Validation is pydantic's throughout. The one question pydantic doesn't answer is whether an output of one type may feed an input of another, so that is conductor's own walk over the two types; answering it from pydantic's JSON schema was tried and accepted edges whose values were then refused.
 - **`Series[T]` and `Table[R]` are ordinary generic classes** with their own pydantic schema. So a table can be a member of a union, an item of a `Series` and a field of a host's model, and it has one JSON form wherever a host sees one, `{"columns": [{"name", "type", "values"}]}`. A value read as `Table[R]` has exactly `R`'s columns wherever it comes from: a caller, a person's answer, collected records, a node's own return; a missing column is refused and others are cut. A bare `Table` keeps every column. To a type checker a `Series[T]` is a `list[T]` and a `Table[R]` a frame.
 - **A node may be written for any type.** `def split[T](value: Table[T] | list[T]) -> Series[T]` takes the type that arrives on its edge, decided when the graph is compiled; after that the node has ordinary inputs and outputs. The nodes `series-split`, `series-stack` and `control-decide` of `syv-conductor-nodes` are written this way and have no hooks. A hook stays for what a type can't say: inputs or outputs named by a constant.
 - **One flat record per input or output.** A `FieldDescription` always has a `type` and a `schema`, `is_series` says whether it is a `Series`, and a table's columns are in its schema. Where it is used it is nested, not copied: an input of a node in `graph.describe()` is `{field, source}`, a graph input `{address, node_id, field}`.
@@ -252,6 +252,35 @@ print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 
 **Worth questioning:** `@host_type(..., accepts=[...])` takes a list of classes whose values may be wired to the type, so a rule that isn't a list of classes can't be said. A list is data an editor can show before anything runs.
 
 **Worth questioning:** a type checker accepts a `Table[Sale]` where a `Table[Order]` is expected. A distinct generic would refuse it, but it would make every plain `polars.DataFrame` return a type error.
+
+## The gate: where values are checked
+
+A value from outside is checked once, where it comes in, and never again. Each such place is a **door**: a graph record, a constant or default in it, a default a node declares, what a hook returns, a caller's graph inputs and limits, the `context=` a host passes, a person's answer, what a node returns or raises, a value an edge gives an input whose type asks more than the edge's source promises, and a saved run. A door is built once for what it reads (a graph's inputs, a node's outputs) and holds one pydantic validator for it. Called with the outside value, it returns the value as the engine keeps it, or a problem with the door's code (`invalid_input`, `invalid_output`, `invalid_answer`, ...). Inside the wall nothing is checked again: a node gets its arguments as the doors read them, and the engine trusts them.
+
+- **The doors are one package**, `_internal/gate/`, a module per door, and its `__init__.py` lists them all. No module outside it builds a validator of a type. The saved-run door stays beside the saved run's writer, since its reader and writer are one schema.
+- **A type's own rules are its schema; the rules for every type are the gate's.** What a `Series` is, a table's columns, `Param`'s limits and choices are declared with the type. That a yes or no is not a number holds for every type, so the gate puts it into each type's schema when it builds the type's validator, once per type: `True` is refused for an `int` input, an item of a `list[int]`, a field of a `TypedDict` and a cell of a table alike (`bool_is_not_a_number`).
+- **A door costs a run nothing it can avoid.** A value already exactly of a plain class (`"b"` for `str`) skips pydantic, and an edge whose source's type already fits its input has no check at all.
+
+```python
+from typing import Annotated
+
+from conductor import Param
+
+
+@registry.node("times", title="Times", description="Repeats a mark a number of times.")
+def times(n: Annotated[int, Param(ge=1)]) -> str:
+    return "x" * n  # n is an int of at least 1 here: the inputs door read it, and nothing checks it again
+
+
+counted = Graph.compile(make_graph(times), registry)
+print(counted.run(n="3").outputs)  # {'times.result': 'xxx'}
+try:
+    counted.run(n=True)
+except InvalidCallError as refused:
+    print([found.type for found in refused.errors()])  # ['invalid_input']: a yes or no is not a number
+```
+
+**Worth questioning:** a door reports the first fault of a node's return, but every fault of a caller's inputs. A return is one call's outcome, one problem; a caller fixes all their inputs at once.
 
 ## The companion packages
 

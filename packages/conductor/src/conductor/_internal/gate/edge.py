@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
+from conductor._internal.gate.rules import exact_classes, validator_of
 from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.value_type import Type
@@ -57,7 +58,7 @@ class EdgeDoor:
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
         """Builds the door for ``inputs``, the inputs to read, by name."""
-        self._inputs = tuple((name, field.whole, field.whole.exact_classes) for name, field in inputs.items())
+        self._inputs = tuple((name, field.whole, exact_classes(field.whole), validator_of(field.whole).validate_python) for name, field in inputs.items())
 
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Returns a copy of ``arguments`` with each of the door's inputs read by its type.
@@ -66,12 +67,12 @@ class EdgeDoor:
             RefusedError: An input's type refuses its value (``invalid_edge_value``).
         """
         read = dict(arguments)
-        for name, whole, exact in self._inputs:
+        for name, whole, exact, validate in self._inputs:
             value = read[name]
             if value is SKIPPED or type(value) in exact:
                 continue
             try:
-                read[name] = whole.adapter.validator.validate_python(value, strict=False)
+                read[name] = validate(value, strict=False)
             except ValidationError as error:
                 refused = whole.refusal(error.errors(include_url=False, include_input=False))
                 raise RefusedError([problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None

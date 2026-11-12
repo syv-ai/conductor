@@ -1,9 +1,9 @@
 """``Type``: one type hint as conductor reads it. ``Type(int)`` returns the same object every time.
 
-It gives the hint's id and title, validates a value, writes it as JSON, and says which other types fit it.
-Validation is pydantic's: a value the type refuses raises pydantic's ``ValidationError``, and ``refusal`` says why
-in words that quote nothing of the value. ``Series`` and ``Table`` each have a subclass of ``Type``, declared in their own
-packages.
+It gives the hint's id and title, its pydantic schema, writes a value as JSON, and says which other types fit it.
+It reads no value: the gate builds a validator from the type's schema (``gate.rules.validator_of``), and when that
+refuses a value, ``refusal`` says why in words that quote nothing of the value. ``Series`` and ``Table`` each have a
+subclass of ``Type``, declared in their own packages.
 """
 
 from __future__ import annotations
@@ -12,23 +12,20 @@ import dataclasses
 import datetime
 import functools
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
 
-from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import ConfigDict, JsonValue, TypeAdapter
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic_core import (
     CoreSchema,
     ErrorDetails,
-    PydanticCustomError,
-    PydanticSerializationError,
     SchemaError,
-    SchemaValidator,
+    SchemaSerializer,
     core_schema,
-    to_json,
 )
 
 from conductor._internal.plain_json import plain_json
@@ -47,8 +44,7 @@ from conductor._internal.value_type.hint import (
     union_of,
 )
 from conductor._internal.value_type.host_type import NAMES, OWN_IDS, declaration_of
-from conductor._internal.value_type.not_a_bool import NUMBERS_REFUSE_BOOLS
-from conductor._internal.value_type.param import Param, split_hint
+from conductor._internal.value_type.param import Param, read_choice_ids, split_hint
 
 #: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
 _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
@@ -288,10 +284,8 @@ class Type:
 
     @functools.cached_property
     def _built(self) -> tuple[Any, TypeAdapter[Any]]:
-        """The hint pydantic reads for the type, and pydantic's adapter of it.
-
-        A container's arguments are each read as a type of their own. Every ``int`` and ``float`` in the schema
-        refuses a ``bool``, which pydantic alone reads as 1 (``numbers_refuse_bools``).
+        """The hint pydantic reads for the type, and pydantic's adapter of it, whose schema and serializer the type
+        gives. A container's arguments are each read as a type of their own.
 
         Raises:
             NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, pydantic's ``Field(...)``
@@ -312,9 +306,8 @@ class Type:
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
-        marked = Annotated[read, NUMBERS_REFUSE_BOOLS]
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
-            adapter = TypeAdapter(marked) if len(options) == 1 and is_record(options[0]) else TypeAdapter(marked, config=ConfigDict(ser_json_inf_nan="strings"))
+            adapter = TypeAdapter(read) if len(options) == 1 and is_record(options[0]) else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan="strings"))
         except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
             raise NodeDeclarationError(declaration.bound_invalid_value(limits=repr(param.limits), type=self.id, error=str(error))) from None
         except PydanticSchemaGenerationError:
@@ -327,44 +320,34 @@ class Type:
         return self._built[0]
 
     @property
-    def adapter(self) -> TypeAdapter[Any]:
-        """Pydantic's reader and writer of the type."""
-        return self._built[1]
+    def schema(self) -> CoreSchema:
+        """Pydantic's core schema of the type: how pydantic reads and writes a value of it. A type that cannot be
+        read by pydantic raises ``NodeDeclarationError`` here (``type_not_carried``)."""
+        return self._built[1].core_schema
 
-    @functools.cached_property
-    def _validate(self) -> Callable[..., Any]:
-        """Pydantic-core's own validator, which costs a quarter of the adapter's method on each call."""
-        return self.adapter.validator.validate_python
+    @property
+    def serializer(self) -> SchemaSerializer:
+        """Pydantic's writer of a value of the type."""
+        return self._built[1].serializer
 
     @functools.cached_property
     def json_schema(self) -> dict[str, Any]:
         """The JSON schema of one value; ``{}`` for a type that writes none, which an editor offers no control for."""
         try:
-            return self.adapter.json_schema()
+            return self._built[1].json_schema()
         except PydanticInvalidForJsonSchema:
             return {}
 
     @functools.cached_property
     def choices(self) -> tuple[Choice, ...] | None:
         """The values the type takes when it names them: ``Param(choices=)``, else a ``Literal``'s. Each id is the
-        JSON an answer picking it reads as."""
+        JSON an answer picking it reads as: ``Param(choices=[1])`` on a ``float`` has the id ``1.0``."""
         given = self._parts[1].choices
         if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
             given = tuple(Choice(value, str(value)) for value in get_args(self.options[0]))
         if given is None:
             return None
-        return tuple(choice.model_copy(update={"id": self.to_json(self.read_json(choice.id))}) for choice in given)
-
-    @functools.cached_property
-    def exact_classes(self) -> tuple[type, ...]:
-        """The classes whose instances, of exactly that class, are taken as they are with no reading.
-
-        Empty when a value must always be read: an option is no plain class (``list[int]``, a ``Literal``, a
-        ``TypedDict``, ``Any``, a ``Series`` or a table), or the type is ``limited``.
-        """
-        options = union_members(self.bare)
-        plain = all(isinstance(option, type) and not typing.is_typeddict(option) and option is not Any and option not in _KINDS for option in options)
-        return options if plain and not self.limited else ()
+        return tuple(choice.model_copy(update={"id": self.to_json(read)}) for choice, read in zip(given, read_choice_ids(given, self.carried), strict=True))
 
     @functools.cached_property
     def hashes_plainly(self) -> bool:
@@ -398,54 +381,11 @@ class Type:
         one = self.options[0] if len(self.options) == 1 else None
         return {name: hint for name, hint in typing.get_type_hints(one).items() if get_origin(hint) is not ClassVar} if is_record(one) else {}
 
-    def read(self, value: Any, *, strict: bool = False) -> Any:
-        """Reads ``value`` as the type holds it: as it is when exactly of a plain class, else by pydantic.
-
-        Args:
-            value: What a node returned (``strict``), or what a caller gave, a person typed in or an edge brought.
-            strict: Pydantic's strict mode: a value already of its type, never ``"12"`` for an ``int``.
-
-        Raises:
-            ValidationError: The type refuses the value.
-        """
-        if type(value) in self.exact_classes:
-            return value
-        return self._validate(value, strict=strict)
-
-    @functools.cached_property
+    @property
     def returned_schema(self) -> CoreSchema:
-        """The schema that reads what a node returned for the type, strictly, into the form a run keeps.
-
-        It is pydantic's schema of the type. A host's class may give its own schema, and so another class than
-        itself: a type whose classes are a host's holds what pydantic gives to those classes too
-        (``not_its_class``). A ``Series`` stores the list in a form of its own.
-        """
-        schema = self.adapter.core_schema
-        exact = self.exact_classes
-        if not exact or set(exact) <= _SCALARS:
-            return schema
-        type_id = self.id
-
-        def of_its_class(read: Any) -> Any:
-            if not isinstance(read, exact):
-                raise PydanticCustomError("not_its_class", "its type's own check gave a {got}, not a {type}", {"got": type(read).__name__, "type": type_id})
-            return read
-
-        return core_schema.no_info_after_validator_function(of_its_class, schema)
-
-    @functools.cached_property
-    def returned_validator(self) -> SchemaValidator:
-        """Pydantic's validator of ``returned_schema``: the type's own when the schema is the type's."""
-        schema = self.returned_schema
-        return self.adapter.validator if schema is self.adapter.core_schema else SchemaValidator(schema)  # type: ignore[return-value]
-
-    def read_returned(self, value: Any) -> Any:
-        """Reads a value a node returned for the type, strictly, by ``returned_schema``, as a run keeps it.
-
-        Raises:
-            ValidationError: The type refuses the value.
-        """
-        return self.returned_validator.validate_python(value, strict=True)
+        """The schema of an output of the type in the form a run keeps it: what a node returned, or a person
+        answered. It is ``schema``; a ``Series`` keeps its list in a form of its own (``SeriesItems``, ``Records``)."""
+        return self.schema
 
     def written_once(self, stored: Any) -> Any | None:
         """Returns the object inside ``stored``, a stored value of the type, that a save should write only once
@@ -453,29 +393,13 @@ class Type:
         type it is the frame; for ``Type(int)`` and ``5`` it is ``None``."""
         return None
 
-    def read_json(self, value: Any) -> Any:
-        """Reads ``value`` strictly from its JSON form, as a declared choice is.
-
-        A yes or no is ``true`` or ``false`` and a number is a number, never a text that spells one; a date is
-        still its ISO text, as JSON writes it.
-
-        Raises:
-            ValidationError: The value has no JSON form (the error ``no_json_form``), or the type refuses it.
-        """
-        try:
-            written = to_json(value, inf_nan_mode="constants", fallback=untyped_as_json)
-        except PydanticSerializationError:
-            no_json_form = PydanticCustomError("no_json_form", "the value has no JSON form")
-            raise ValidationError.from_exception_data(self.id, [{"type": no_json_form, "loc": (), "input": None}]) from None
-        return self.adapter.validator.validate_json(written, strict=True)
-
     def to_json(self, value: Any) -> JsonValue:
         """Writes ``value``, one the type holds, in its JSON form; a float that isn't finite as its text.
 
         Raises:
             PydanticSerializationError: The value has no JSON form.
         """
-        return plain_json(self.adapter.serializer.to_python(value, mode="json"))
+        return plain_json(self.serializer.to_python(value, mode="json"))
 
     @functools.cached_property
     def saved_schema(self) -> CoreSchema:
@@ -487,10 +411,10 @@ class Type:
         back. So a type that holds one is written as ``to_json`` writes it: first as Python's JSON values, which
         keep the float.
         """
-        schema = self.adapter.core_schema
+        schema = self.schema
         if not _holds_a_model(schema):
             return schema
-        as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(self.adapter.serializer.to_python, mode="json"))
+        as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(self.serializer.to_python, mode="json"))
         if schema["type"] == "definitions":  # what pydantic defined beside the type stays beside it
             return {**schema, "schema": {**schema["schema"], "serialization": as_json}}  # type: ignore[typeddict-unknown-key]
         return {**schema, "serialization": as_json}  # type: ignore[typeddict-unknown-key]

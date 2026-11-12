@@ -52,7 +52,7 @@ from pydantic import ValidationError
 
 from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
-from conductor._internal.gate import RefusedError, record_values
+from conductor._internal.gate import RefusedError, record_values, validator_of
 from conductor._internal.graph import Graph
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.markers import REQUIRED
@@ -254,10 +254,11 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
 
 
 def _made_up(field: Field) -> Any:
-    """A value of the field within its limits, checked by the field; ``_CANNOT`` when there is no way to make one."""
+    """A value of the field within its limits, read by the field's type; ``_CANNOT`` when there is no way to make one."""
+    read = validator_of(field.whole).validate_python
     for item in _candidates(field.type.options[0] if len(field.type.options) == 1 else None, field.param):
         try:
-            return field.whole.read([item, item] if field.is_series else item)
+            return read([item, item] if field.is_series else item)
         except ValidationError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
             continue
     return _CANNOT

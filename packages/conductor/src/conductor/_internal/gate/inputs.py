@@ -21,6 +21,7 @@ from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
+from conductor._internal.gate.rules import schema_of
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import Problem
 from conductor._internal.problem import catalogue as problem
@@ -112,7 +113,7 @@ class InputsDoor:
 def _input_schema(name: str, address: str, field: Field) -> TypedDictField:
     """The schema of one graph input inside the door's: found under its name or its address, required unless it
     has a default, and read by its type."""
-    schema = field.whole.adapter.core_schema
+    schema = schema_of(field.whole)
     required = field.default is REQUIRED
     if not required:
         default = field.default

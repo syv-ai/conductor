@@ -16,6 +16,7 @@ from pydantic import NonNegativeInt, TypeAdapter
 from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
 
 from conductor._internal.field import Field
+from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.outcomes import outputs_when_not_called, outputs_when_skipped
 from conductor._internal.run.json.read import (
     outcomes_from_saved,
@@ -91,7 +92,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
             of_node = _with_field_schemas(
                 outcomes_schema,
                 outputs=_exact_keys_schema(
-                    {name: _inline_definitions(output.saved_list_type.saved_schema, shared) for name, output in node_outputs.items()},
+                    {name: _inline_definitions(numbers_refuse_bools(output.saved_list_type.saved_schema), shared) for name, output in node_outputs.items()},
                 ),
                 skipped=_exact_keys_schema({}, dict.fromkeys(node_outputs, _CALL_NUMBERS)),
                 skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.is_series}),
@@ -106,7 +107,7 @@ def run_codec(fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str
     run = _with_field_schemas(
         _inline_definitions(_RUN, shared),
         graph=core_schema.literal_schema([fingerprint]),
-        inputs=_exact_keys_schema({address: _inline_definitions(of_input.saved_schema, shared) for address, of_input in inputs.items()}),
+        inputs=_exact_keys_schema({address: _inline_definitions(numbers_refuse_bools(of_input.saved_schema), shared) for address, of_input in inputs.items()}),
         outcomes=_exact_keys_schema({}, outcomes),
         reusable=_exact_keys_schema({}, reusable),
         code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),

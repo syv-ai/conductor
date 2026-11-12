@@ -15,6 +15,7 @@ from pydantic_core import PydanticCustomError
 
 from conductor._internal.address import ItemIndexes, parse_node_path
 from conductor._internal.field import Field
+from conductor._internal.gate import output_validator_of
 from conductor._internal.markers import SKIPPED
 from conductor._internal.outcomes import (
     Answered,
@@ -185,7 +186,7 @@ def with_shared_tables(
             table = outputs[from_node][from_output].whole.written_once(source.outputs[from_output])
             if table is None:
                 raise LookupError(from_call_number)
-            outcome.outputs[output] = outputs[node][output].whole.read_returned(table)
+            outcome.outputs[output] = output_validator_of(outputs[node][output].whole).validate_python(table, strict=True)
         except (LookupError, AttributeError, ValidationError) as wrong:
             if isinstance(wrong, ValidationError):
                 reason = outputs[node][output].whole.refusal(wrong.errors(include_url=False, include_input=False)).reason

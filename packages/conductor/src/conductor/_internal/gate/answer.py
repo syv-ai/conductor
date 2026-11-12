@@ -10,7 +10,7 @@ left out when it has a default (its field's, or one the ``Ask`` set), is one of 
 ``None`` and has no choices; of an exclusive group exactly one is answered. Choices, the type's or the ``Ask``'s,
 limit what an answer may be.
 
-An answer is read by its type's ``returned_schema``, the schema that reads what a node returns, from JSON: the
+An answer is read from JSON by the validator that reads what a node returns (``rules.output_validator_of``): the
 answer becomes the call's outputs, as a return would.
 """
 
@@ -26,6 +26,7 @@ from conductor._internal.address import Loc
 from conductor._internal.ask import QuestionOverrides, answer_required
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate.refused import RefusedError
+from conductor._internal.gate.rules import output_validator_of
 from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.text import comma_separated
@@ -152,7 +153,7 @@ def from_json(value_type: Type, value: Any) -> Any:
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "the value has no JSON form") from None
     try:
-        return value_type.returned_validator.validate_json(written, strict=True)
+        return output_validator_of(value_type).validate_json(written, strict=True)
     except ValidationError as error:
         raise PydanticCustomError("not_its_type", value_type.refusal(error.errors(include_url=False, include_input=False)).reason) from None
 

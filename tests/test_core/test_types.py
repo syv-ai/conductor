@@ -251,9 +251,10 @@ def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_validated_as_the_b
     class Bare(str):
         pass
 
+    from conductor._internal.gate import validator_of
     from conductor._internal.value_type import Type
 
-    assert type(Type(Bare).read("x")) is Bare and Type(list[Bare]).read(["x"]) == ["x"]
+    assert type(validator_of(Type(Bare)).validate_python("x")) is Bare and validator_of(Type(list[Bare])).validate_python(["x"]) == ["x"]
 
 
 # -- a table is a type like any other -------------------------------------------------------------
@@ -402,7 +403,7 @@ def test_one_hint_is_read_once() -> None:
     from conductor._internal.value_type import Type
 
     hint = Annotated[int, Param(ge=0)]
-    assert Type(hint) is Type(Annotated[int, Param(ge=0)]) and Type(hint).adapter is Type(hint).adapter
+    assert Type(hint) is Type(Annotated[int, Param(ge=0)]) and Type(hint).schema is Type(hint).schema
 
 
 def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -> None:

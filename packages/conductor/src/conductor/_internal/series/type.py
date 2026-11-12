@@ -66,7 +66,7 @@ class SeriesType(Type, of=_Series):
         def as_items(items: list[Any] | None) -> SeriesItems | None:
             return items if items is None else SeriesItems(items)  # ``Series[T] | None`` may be returned as None
 
-        items = core_schema.no_info_after_validator_function(as_items, self.adapter.core_schema)
+        items = core_schema.no_info_after_validator_function(as_items, self.schema)
         forms = self._returned_forms
         if not forms:
             return items
@@ -74,7 +74,7 @@ class SeriesType(Type, of=_Series):
         def form_of(value: Any) -> str:
             return next((form.__name__ for returned_as, form in forms if isinstance(value, returned_as)), SeriesItems.__name__)
 
-        read_as = {form.__name__: core_schema.no_info_after_validator_function(form, form.returned_type(self.item).adapter.core_schema) for _, form in forms}
+        read_as = {form.__name__: core_schema.no_info_after_validator_function(form, form.returned_type(self.item).schema) for _, form in forms}
         choices: dict[Any, CoreSchema] = {SeriesItems.__name__: items, **read_as}
         return core_schema.tagged_union_schema(choices, discriminator=form_of)
 

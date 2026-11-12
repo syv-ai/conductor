@@ -1,5 +1,5 @@
 """The constants door: a constant or default written in a graph record, read by its input's type when the graph is
-compiled.
+compiled; and a default a node declares, read again by the type an edge binds its type variable to.
 
 Example: ``shout(line: str, mark: str = "!")`` with ``{"id": "shout", "node": "shout", "constants": {"mark": "?"}}``
 gets ``"?"`` on every call. ``{"constants": {"mark": 3}}`` is refused with ``invalid_value`` at ``("shout", "mark")``,
@@ -9,13 +9,17 @@ JSON reads: ``"2026-01-02"`` is a ``date`` for an input that takes one.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, TypeVar
 
 from pydantic import JsonValue, ValidationError
 
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
+from conductor._internal.gate.rules import validator_of
+from conductor._internal.markers import REQUIRED, SKIPPED
 from conductor._internal.problem import catalogue as problem
+from conductor._internal.value_type import Type
 
 
 def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
@@ -26,7 +30,31 @@ def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
         RefusedError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
     """
     try:
-        return field.whole.read(value)
+        return validator_of(field.whole).validate_python(value)
     except ValidationError as error:
         refused = field.whole.refusal(error.errors(include_url=False, include_input=False))
         raise RefusedError([problem.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+
+
+def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Field:
+    """Returns ``field`` with its type variables replaced by what the edges into the node ``node_id`` bind them to
+    (``bound``), and its default read by the type it then has; ``field`` itself when its type has no variable.
+
+    For ``same(value: T = "-")`` wired from an output of ``str``, ``T`` is bound to ``str`` and the default stays
+    ``"-"``. A variable no edge binds is read as its bound, else ``Any``.
+
+    Raises:
+        RefusedError: The bound type refuses the default the node declares: one ``invalid_value`` problem (variant
+            ``bound_default``) at ``(node_id, field)``.
+    """
+    if not field.whole.variables:
+        return field
+    hint = Type(field.hint).bind(bound).hint
+    if field.default is REQUIRED or field.default is SKIPPED or field.default is None:
+        return Field(field.name, hint, field.default)
+    whole = Field(field.name, hint).whole
+    try:
+        return Field(field.name, hint, validator_of(whole).validate_python(field.default))
+    except ValidationError as error:
+        refused = whole.refusal(error.errors(include_url=False, include_input=False))
+        raise RefusedError([problem.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None

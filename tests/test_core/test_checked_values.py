@@ -13,7 +13,7 @@ import json
 import math
 from dataclasses import dataclass
 from threading import Event
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -661,3 +661,32 @@ def test_a_run_that_failed_on_a_field_a_record_lacks_shows_its_results_with_a_bl
     for read in (run, Run.from_json(run.to_json(), graph)):
         assert read.results["words"] == {"result": ["a", "b"]}
         assert read.results[reader.id] == {"result": [None, None]} and read.results["all-of"] == {"result": None}
+
+
+T = TypeVar("T")
+
+
+@node("text-a", title="Text a", description="For a test.")
+def _text_a() -> str:
+    return "a"
+
+
+@node("same", title="Same", description="For a test.")
+def _same(value: T = 3) -> T:  # type: ignore[assignment]  # a default the type an edge binds may refuse
+    return value
+
+
+@node("first-of", title="First of", description="For a test.")
+def _first_of(first: T, second: T = 3) -> T:  # type: ignore[assignment]
+    return first
+
+
+def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuses_is_a_problem_not_an_exception():
+    """Compiling raised ``NodeDeclarationError`` here: binding the type variable read the default again, as a node is declared."""
+    registry = registry_of(_text_a, _same, _first_of)
+    wired = Graph.compile(make_graph(_text_a, _same, edges=[("text-a.result", "same.value")]), registry)
+    assert wired.problems == [] and wired.run().outputs == {"same.result": "a"}  # an edge gives the value, so the default is never used
+    unwired = Graph.compile(make_graph(_text_a, _first_of, edges=[("text-a.result", "first-of.first")]), registry)
+    assert [(found.type, found.loc, found.ctx["variant"], found.ctx["type"]) for found in unwired.problems] == [
+        ("invalid_value", ("first-of", "second"), "bound_default", "str"),
+    ]

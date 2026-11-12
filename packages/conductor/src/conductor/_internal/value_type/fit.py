@@ -7,9 +7,8 @@ from __future__ import annotations
 import typing
 from typing import Any, Literal, TypeVar, get_args, get_origin
 
-from conductor._internal.value_type.hint import aliased, is_alias, union_members
+from conductor._internal.value_type.hint import a_number, aliased, is_alias, union_members
 from conductor._internal.value_type.host_type import accepted_classes
-from conductor._internal.value_type.not_a_bool import a_number
 from conductor._internal.value_type.param import split_hint
 
 

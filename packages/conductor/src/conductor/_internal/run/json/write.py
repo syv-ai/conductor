@@ -279,7 +279,7 @@ def first_unwritable_value(
         written_alone.update({f"{name}.{output}": (outputs[name][output].saved_list_type, values) for output, values in outcomes.outputs.items()})
     for where, (written_by, value) in written_alone.items():
         try:
-            written_by.adapter.serializer.to_json(value)
+            written_by.serializer.to_json(value)
         except PydanticSerializationError:
             return where
     return "the run"

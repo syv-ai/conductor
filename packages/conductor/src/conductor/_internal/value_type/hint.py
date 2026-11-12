@@ -1,5 +1,5 @@
 """Small helpers that take a type hint apart or build one: the members of a union, what a named alias stands for,
-whether a class declares fields, a hint with its type variables replaced.
+whether a class declares fields or is a number, a hint with its type variables replaced.
 """
 
 from __future__ import annotations
@@ -41,6 +41,13 @@ def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
 def is_record(cls: Any) -> bool:
     """Says whether ``cls`` is a class that declares fields: a pydantic model, a dataclass or a ``TypedDict``."""
     return isinstance(cls, type) and (issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or typing.is_typeddict(cls))
+
+
+def a_number(cls: type) -> bool:
+    """Says whether ``cls`` is a class of number that a yes or no must not be taken as: ``int``, ``float`` or a
+    subclass of theirs, never ``bool``, though Python counts ``True`` as 1. ``fit`` reads it for types when a graph
+    is compiled, and the gate for values (``gate.rules``)."""
+    return issubclass(cls, (int, float)) and not issubclass(cls, bool)
 
 
 @functools.cache

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Annotated, Any, TypeVar, get_args, get_origin
+from typing import Annotated, Any, get_args, get_origin
 
-from pydantic import JsonValue, ValidationError
+from pydantic import JsonValue
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.field.describe import FieldDescription
@@ -37,8 +36,9 @@ class Field:
     Attributes:
         name: The parameter's name, or the output's.
         hint: The annotation as written.
-        default: The default as its type holds it; ``REQUIRED`` for none, ``SKIPPED`` for an output on a branch
-            not taken, ``None`` for a blank.
+        default: The default as its type holds it, already read by it (``gate.declared_field`` reads a default
+            a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an output on a branch not taken, ``None`` for a
+            blank.
         param: The ``Param``s of the hint as one; an empty one when it has none.
         type: The type of one value: a ``Series``' item, else ``whole``.
         whole: The type of the field's whole value, which reads it and writes it: a ``Series``' list.
@@ -57,11 +57,11 @@ class Field:
     default_json: JsonValue = field(init=False, compare=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
-        """Reads the hint and the default once, refusing what conductor can't carry.
+        """Reads the hint once, and writes the default as JSON, refusing what conductor can't carry.
 
         Raises:
             NodeDeclarationError: Naming the field: a type pydantic has no schema for, a ``Series`` of ``Series``,
-                a ``Param`` that doesn't fit, or a default its type doesn't take or can't write as JSON.
+                a ``Param`` that doesn't fit, a default ``None`` the type does not take, or a default with no JSON form.
             PydanticSerializationError: The widget has no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
@@ -71,26 +71,19 @@ class Field:
             keep("whole", whole)
             keep("type", one)
             keep("is_series", one is not whole)
-            whole.adapter  # noqa: B018  a type pydantic can't carry fails here
+            whole.schema  # noqa: B018  a type pydantic can't carry fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
             if self.default is None and not whole.optional:
                 raise NodeDeclarationError(declaration.default_none_not_taken())
             if self.default is not REQUIRED and self.default is not SKIPPED and self.default is not None:
                 try:
-                    keep("default", whole.read(self.default))
                     keep("default_json", whole.to_json(self.default))
-                except (ValidationError, PydanticSerializationError, UnicodeDecodeError) as error:
-                    why = whole.refusal(error.errors(include_url=False, include_input=False)).reason if isinstance(error, ValidationError) else error
-                    raise NodeDeclarationError(declaration.default_invalid(default=repr(self.default), type=whole.id, reason=str(why))) from None
+                except (PydanticSerializationError, UnicodeDecodeError) as error:
+                    raise NodeDeclarationError(declaration.default_invalid(default=repr(self.default), type=whole.id, reason=str(error))) from None
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
         if self.param.widget is not None:
             self.description  # noqa: B018  a widget with no JSON form fails here
-
-    def bind(self, bound: Mapping[TypeVar, Any]) -> Field:
-        """Gives this field with its type variables replaced by what ``bound`` binds them to, one nothing binds by
-        its bound, else ``Any``; the field itself when its hint holds none."""
-        return Field(self.name, Type(self.hint).bind(bound).hint, self.default) if self.whole.variables else self
 
     @functools.cached_property
     def accepts_none_items(self) -> bool:

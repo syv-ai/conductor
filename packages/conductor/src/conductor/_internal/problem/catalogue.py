@@ -324,6 +324,33 @@ def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict
     return f"The constant of '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
+@PROBLEMS.problem("invalid_value", variant="bound_default")
+def invalid_value_bound_default(node_id: str, field: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]) -> str:
+    """An input's or output's type is a type variable, the edges into the node bind it, and the default the node
+    declares is not a value of the type it is bound to.
+
+    ``first(one: T, other: T = 0)`` wired from an output of ``str`` binds ``T`` to ``str``, and ``0`` is no ``str``.
+    Give the input a default of every type its edges may bind, give it a constant or an edge in the graph, or declare
+    it with no default. An input an edge gives a value to never uses its default, so its default is not read.
+
+    Args:
+        node_id: The node.
+        field: The input or output.
+        type: The type the edges bind it to.
+        reason: Why that type refuses the default, without quoting it.
+        errors: pydantic's list of what it refused, without the value.
+
+    Example:
+        @registry.node("first", title="First", description="Returns the first of two values.")
+        def first[T](one: T, other: T = 0) -> T:  # type: ignore[assignment]
+            return one
+
+
+        problems({"nodes": [{"id": "u", "node": "upper"}, {"id": "f", "node": "first"}], "edges": [["u.result", "f.one"]]})
+    """
+    return f"The default of '{field}' is not a value of {type}, the type the edges into '{node_id}' give it: {reason.rstrip('.')}. Give a default of that type, or none."
+
+
 @PROBLEMS.problem(of_a_hook=True)
 def parameter_name_invalid(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook returns an input or output name that cannot be one.

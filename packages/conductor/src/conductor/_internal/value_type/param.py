@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import functools
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
@@ -117,9 +118,8 @@ class Param:
             raise NodeDeclarationError(declaration.bound_invalid(unheld=unheld, type=written))
         if self.choices is None:
             return limited
-        reader = TypeAdapter(limited_hint)
         try:
-            ids = [reader.validate_json(to_json(choice.id, inf_nan_mode="constants"), strict=True) for choice in self.choices]
+            ids = read_choice_ids(self.choices, limited_hint)
         except PydanticSerializationError:
             raise NodeDeclarationError(declaration.choices_invalid_no_json_form()) from None
         except ValidationError as refused:
@@ -151,6 +151,21 @@ class Param:
 
 
 _NO_PARAM = Param()
+
+
+def read_choice_ids(choices: Iterable[Choice], hint: Any) -> list[Any]:
+    """Reads the id of each of ``choices`` by ``hint`` strictly from the id's JSON form, as an answer picking it is read.
+
+    ``read_choice_ids((Choice("2026-01-02", "New year"),), date)`` is ``[date(2026, 1, 2)]``. Choices are the
+    type's own rule, so they are read here, where the type is declared, and nowhere else: by ``Param``'s schema,
+    which compares a value with them, and by ``Type.choices``, which writes them as JSON for an editor.
+
+    Raises:
+        PydanticSerializationError: An id has no JSON form.
+        ValidationError: An id is not a value of ``hint``.
+    """
+    reader = TypeAdapter(hint)
+    return [reader.validate_json(to_json(choice.id, inf_nan_mode="constants"), strict=True) for choice in choices]
 
 
 def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:

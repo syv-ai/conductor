@@ -313,6 +313,7 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
     from typing import TypedDict
 
     from conductor import Table
+    from conductor._internal.gate import validator_of
     from conductor._internal.value_type import Type
 
     class Row(TypedDict):
@@ -322,17 +323,18 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
     wrong, right = {"n": True, "share": 0.5}, {"n": 1, "share": 0.5}
     for hint, value in ((Row, wrong), (list[Row], [right, wrong]), (dict[str, Row], {"a": wrong}), (Table[Row], [right, wrong]), (Row, {"n": 1, "share": False})):
         with pytest.raises(ValidationError) as refused:
-            Type(hint).read(value)
+            validator_of(Type(hint)).validate_python(value)
         assert refused.value.errors()[0]["type"] == "bool_is_not_a_number", hint
-    assert Type(Row).read(right) == right and Type(list[Row]).read([right]) == [right]
-    assert Type(Row).read_json(right) == right
+    assert validator_of(Type(Row)).validate_python(right) == right and validator_of(Type(list[Row])).validate_python([right]) == [right]
+    assert validator_of(Type(Row)).validate_json(json.dumps(right), strict=True) == right
     with pytest.raises(ValidationError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
-        Type(Row).read_json(wrong)
+        validator_of(Type(Row)).validate_json(json.dumps(wrong), strict=True)
 
 
 def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
     from enum import Enum, IntEnum
 
+    from conductor._internal.gate import validator_of
     from conductor._internal.value_type import Type
 
     class Level(IntEnum):
@@ -341,8 +343,11 @@ def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
     class Share(float, Enum):
         HALF = 0.5
 
-    assert Type(Level).read(1) is Level.LOW and Type(list[Level]).read([1]) == [Level.LOW] and Type(Share).read(0.5) is Share.HALF
+    def read(hint: Any, value: Any) -> Any:
+        return validator_of(Type(hint)).validate_python(value)
+
+    assert read(Level, 1) is Level.LOW and read(list[Level], [1]) == [Level.LOW] and read(Share, 0.5) is Share.HALF
     for hint, value in ((Level, True), (list[Level], [True])):
         with pytest.raises(ValidationError) as refused:
-            Type(hint).read(value)
+            read(hint, value)
         assert refused.value.errors()[0]["type"] == "bool_is_not_a_number"

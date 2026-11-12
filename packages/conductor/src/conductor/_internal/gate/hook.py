@@ -16,6 +16,7 @@ from pydantic import StringConstraints, TypeAdapter, ValidationError
 
 from conductor._internal.address import NAME_PATTERN
 from conductor._internal.field import Field
+from conductor._internal.gate.declared import declared_field
 from conductor._internal.gate.refused import RefusedError
 from conductor._internal.markers import REQUIRED
 from conductor._internal.problem import NodeDeclarationError
@@ -41,7 +42,7 @@ def read_hook_fields(node_id: str, kind: str, returned: Any) -> dict[str, Field]
             raise RefusedError([problem.compute_hook_failed(node_id, reason=reason, error="not_a_mapping")]) from None
         raise RefusedError(problem.parameter_name_invalid(node_id, str(fault["loc"][0])) for fault in invalid.errors()) from None
     try:
-        return {name: Field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
+        return {name: declared_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
     except NodeDeclarationError as error:  # a type conductor does not support is the hook's failure
         raise RefusedError([problem.compute_hook_failed(node_id, reason=error.message, error=error.code)]) from None
 

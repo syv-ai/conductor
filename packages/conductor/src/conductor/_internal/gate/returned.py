@@ -32,6 +32,7 @@ from pydantic_core import (
 
 from conductor._internal.field import Field
 from conductor._internal.gate.refused import RefusedError
+from conductor._internal.gate.rules import exact_classes, output_schema_of, output_validator_of
 from conductor._internal.markers import SKIPPED
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.text import comma_separated
@@ -117,9 +118,8 @@ def _no_outputs(returned: Any) -> dict[str, Any]:
 def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
     """The door of a node with the one output ``result``. A value exactly of one of the type's plain classes (a
     ``str`` for ``-> str``) is taken as it is, with no call to pydantic."""
-    whole = field.whole
-    exact = whole.exact_classes
-    validate = whole.returned_validator.validate_python
+    exact = exact_classes(field.whole)
+    validate = output_validator_of(field.whole).validate_python
 
     def read(returned: Any) -> dict[str, Any]:
         if type(returned) in exact:
@@ -164,7 +164,7 @@ def _several_outputs(outputs: Mapping[str, Field], by_name: Callable[[Any], dict
     def with_skipped(read: dict[str, Any]) -> dict[str, Any]:
         return read if len(read) == len(names) else {name: read.get(name, SKIPPED) for name in names}
 
-    fields: dict[str, Any] = {name: core_schema.typed_dict_field(field.whole.returned_schema, required=False) for name, field in outputs.items()}
+    fields: dict[str, Any] = {name: core_schema.typed_dict_field(output_schema_of(field.whole), required=False) for name, field in outputs.items()}
     values: CoreSchema = core_schema.no_info_after_validator_function(with_skipped, core_schema.typed_dict_schema(fields))
     validate = SchemaValidator(core_schema.no_info_before_validator_function(taken_apart, values)).validate_python
 

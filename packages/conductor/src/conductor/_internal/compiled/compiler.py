@@ -64,7 +64,7 @@ from conductor._internal.compiled.nodes import (
 from conductor._internal.compiled.type import CompiledGraph, InputField
 from conductor._internal.context import ContextParameter, is_protocol, what_the_context_lacks
 from conductor._internal.field import Field
-from conductor._internal.gate import RefusedError, read_constant, read_hook_fields
+from conductor._internal.gate import RefusedError, bound_field, read_constant, read_hook_fields
 from conductor._internal.graph_record import GraphRecord, NodeRecord
 from conductor._internal.markers import REQUIRED
 from conductor._internal.node_definition import (
@@ -284,7 +284,10 @@ class _Compiler:
             constants.update(self._constants_of(record, added))
         planned = self._plan_inputs(record, fields, constants, read_by_hooks(definition), edges, generic=definition.generic)
         bound = planned.bound
-        outputs: dict[str, Field] | None = dict(definition.outputs) if bound is None else {name: field.bind(bound) for name, field in definition.outputs.items()}
+        outputs: dict[str, Field] | None = dict(definition.outputs)
+        if bound is not None:
+            outputs, refused = _bind(record.id, definition.outputs, bound)
+            self.problems += [found for problems in refused.values() for found in problems]
         if definition.compute_outputs is not None:
             arriving = {name: plan.sources[0].type.bare for name, plan in planned.inputs.items() if plan.sources}
             outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, constants, arriving, tuple(added))
@@ -372,14 +375,22 @@ class _Compiler:
             self.problems.append(problem.unknown_input(record.id, name, inputs=list(fields)))
         sources = {name: self._sources(record.id, name, edges[name]) for name in fields if name in edges}
         bound = None
-        if generic:
+        refused_defaults: set[str] = set()
+        if generic:  # the compiled node's fields have no type variables left
             bound = _bound(fields, sources)
-            fields = {name: field.bind(bound) for name, field in fields.items()}  # the compiled node's fields have no type variables left
+            fields, refused = _bind(record.id, fields, bound)
+            for name, problems in refused.items():
+                if name not in edges and name not in record.constants and name not in record.defaults:  # else the default is never used
+                    self.problems += problems
+                    refused_defaults.add(name)
         first = not any(name in fields for name in edges)  # no edge leads into the node, so its open inputs are graph inputs
         inputs: dict[str, InputPlan] = {}
         readable: dict[str, list[EdgeSource]] = {}  # the inputs whose edges can be read, planned once the node's loops are known
         collecting: set[str] = set()
         for name, field in fields.items():
+            if name in refused_defaults:
+                inputs[name] = InputMissing(field)
+                continue
             if name in record.constants and name in record.defaults:
                 self.problems.append(problem.constant_and_default(record.id, name))
             if name in edges:
@@ -716,6 +727,21 @@ def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] |
             for variable, hint in (expected.fits(source.type) or {}).items():
                 bound[variable] = bound[variable] | hint if variable in bound else hint
     return bound
+
+
+def _bind(node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any]) -> tuple[dict[str, Field], dict[str, list[Problem]]]:
+    """Returns the inputs or outputs ``fields`` of the node ``node_id`` with their type variables bound as ``bound``
+    says (``bound_field``), and the problem of each whose declared default the bound type refuses, by name. Such a
+    field keeps no default."""
+    bound_fields: dict[str, Field] = {}
+    refused: dict[str, list[Problem]] = {}
+    for name, field in fields.items():
+        try:
+            bound_fields[name] = bound_field(node_id, field, bound)
+        except RefusedError as error:
+            bound_fields[name] = Field(name, Type(field.hint).bind(bound).hint)
+            refused[name] = error.problems
+    return bound_fields, refused
 
 
 def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | None:
