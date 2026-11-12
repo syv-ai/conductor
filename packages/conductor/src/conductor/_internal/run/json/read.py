@@ -7,7 +7,7 @@ keeps in memory.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -15,6 +15,7 @@ from pydantic_core import PydanticCustomError
 
 from conductor._internal.ask import Answer
 from conductor._internal.base import SKIPPED, ItemIndexes, parse_node_path
+from conductor._internal.compiled import CompiledGraph
 from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, value_free_errors
@@ -31,12 +32,10 @@ from conductor._internal.run.progress import all_item_indexes
 from conductor._internal.run.reuse import ReusableOutcomes
 
 if TYPE_CHECKING:
-    from conductor._internal.graph import Graph
     from conductor._internal.run.json.codec import RunCodec
-    from conductor._internal.run.type import Run
 
 
-def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph, codec: RunCodec) -> Run:
+def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: CompiledGraph, codec: RunCodec) -> R:
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
     For the README graph, ``run_from_json(Run, run.to_json(), graph, codec_of(graph))`` returns a run with the inputs, the
@@ -91,7 +90,7 @@ def run_from_json(run_type: type[Run], saved: str | bytes, graph: Graph, codec: 
 
 
 def _answers_from_saved(
-    graph: Graph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[str, dict[ItemIndexes, Outcome]],
+    graph: CompiledGraph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[str, dict[ItemIndexes, Outcome]],
 ) -> dict[str, dict[ItemIndexes, Answer]]:
     """Turns each waiting call that a saved run has an answer for into that answer, kept until the node is called.
 

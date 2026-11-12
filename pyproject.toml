@@ -51,8 +51,46 @@ dev = [
     "pyright>=1.1.414",
     "pytest-timeout>=2.4.0",
     "pandas>=2.2",
+    "import-linter>=2.1",
 ]
 docs = [
     "mkdocs-material>=9.7.6",
     "mkdocstrings[python]>=1.0.4",
 ]
+
+# The packages of conductor._internal, top to bottom: a package imports only packages below it. Packages on one
+# line with " | " between them import none of each other. Bottom to top this is the order of the module map
+# (plans: D-L143), with its third row split where its packages stand on one another: series on types, and
+# table, field and context on those.
+[tool.importlinter]
+root_packages = ["conductor"]
+contract_types = ["through_init: tests.import_contracts.ThroughInitContract"]
+
+[[tool.importlinter.contracts]]
+name = "conductor._internal is in layers"
+type = "layers"
+containers = ["conductor._internal"]
+layers = [
+    "graph",
+    "registry",
+    "run",
+    "compiled",
+    "node",
+    "gate",
+    "ask | record",
+    "table | field | context",
+    "series",
+    "types",
+    "problem",
+    "base",
+]
+# The one import up a layer, an annotation only (under TYPE_CHECKING): a run names the graph it is a run of,
+# Run.graph: Graph, and Graph is the layer on top because it makes runs.
+ignore_imports = ["conductor._internal.run.type -> conductor._internal.graph"]
+
+[[tool.importlinter.contracts]]
+name = "a package of conductor._internal is imported only through its __init__"
+type = "through_init"
+container = "conductor._internal"
+# a module of functions that callers write through the module: `from conductor._internal.problem import catalogue as problem`
+modules_imported_by_name = ["conductor._internal.problem.catalogue", "conductor._internal.problem.declarations"]
