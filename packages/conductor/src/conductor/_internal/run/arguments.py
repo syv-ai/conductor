@@ -144,7 +144,8 @@ class ResultReader:
         """Returns what an input with several edges into it reads for ``item_indexes``.
 
         The edges come from different branches of one decision, so for one call at most one of them has a
-        value. Asked for any item, several may have one.
+        value. Asked for any item, several may have one. An input with a single edge is read with ``read_output``
+        directly by the callers, for speed: one call fewer on nearly every read.
 
         Returns:
             The first value an edge reads; else ``NOT_READY`` if an edge read that; else ``None`` if an edge read
