@@ -37,7 +37,6 @@ from __future__ import annotations
 import heapq
 import itertools
 import logging
-import operator
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
@@ -47,17 +46,9 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.address import ItemIndexes, NodePath
-from conductor._internal.ask import Ask, InvalidAskError, question_asked, waiting_record
-from conductor._internal.compiled import (
-    FlatFunctionNode,
-    FlatNode,
-    FlatSubgraph,
-    all_upstream,
-    outcome_loc,
-)
-from conductor._internal.markers import SKIPPED
+from conductor._internal.ask import Ask, InvalidAskError, question_asked
+from conductor._internal.compiled import FlatFunctionNode, all_upstream, outcome_loc
 from conductor._internal.outcomes import (
-    Answered,
     Done,
     NotCalled,
     NotReady,
@@ -65,7 +56,6 @@ from conductor._internal.outcomes import (
     Skipped,
     Waiting,
     all_item_indexes,
-    calls_expected,
     has_every_outcome,
     length,
 )
@@ -74,28 +64,14 @@ from conductor._internal.problem import catalogue as problem
 from conductor._internal.run.reuse import ReusableOutcomes, reused_outcome
 from conductor._internal.run.state import COMPLETE, RUNNING, WAITING, EndedEarly, RunState
 from conductor._internal.scheduler.call import call, jsonable
-from conductor._internal.scheduler.events import (
-    EventBase,
-    NodeComplete,
-    NodeFailed,
-    NodeProgress,
-    NodeRetry,
-    NodeSkipped,
-    NodeStart,
-    NodeWaiting,
-)
+from conductor._internal.scheduler.events import EventBase
+from conductor._internal.scheduler.node_events import NodeEvents
 
 #: What a call can raise that is never tried again, whatever a ``Policy``'s ``retry_on`` names: the node's own failure,
 #: an output its type refused, a question for a person. Repeating the call repeats it.
 _NEVER_RETRIED = (NodeError, CallRejectedError, Ask)
 
-#: The least time between two ``NodeProgress`` of one node.
-_SECONDS_BETWEEN_PROGRESS = 0.25
-
 _logger = logging.getLogger("conductor")
-
-#: A node's place in the order a leg tries the nodes in.
-_POSITION = operator.attrgetter("position")
 
 
 @dataclass(slots=True)
@@ -185,7 +161,9 @@ class Scheduler:
         checkpoint: Callable[[RunState], None] | None = None, checkpoint_every: float | None = None,
     ) -> None:
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
-        self.emit, self.stop, self.context, self.checkpoint = emit, stop, context, checkpoint
+        self.stop, self.context, self.checkpoint = stop, context, checkpoint
+        #: What tells the listener about each node; None when nobody listens.
+        self.node_events = NodeEvents(emit, nodes, outcomes, finished) if emit is not None else None
         #: How the run stands for this leg: running, until the leg ends it early or closes.
         self.state: RunState = RUNNING
         #: The nodes every unit of which is finished: those the run came with, then as the leg leaves them.
@@ -225,21 +203,6 @@ class Scheduler:
         self.recorded_since_last_pass = 0
         #: Whether a unit was left untried because a unit before it may take the earlier answer it would take.
         self.out_of_turn = False
-        # what only a listener needs
-        with_outcomes: set[FlatFunctionNode] = {node for node, held in self.outcomes.items() if held}
-        self.started: set[FlatNode] = with_outcomes | {around for node in with_outcomes for around in _parents(node)}
-        #: The nodes said complete, on this leg or on an earlier one; a node an answer finished between legs is said on
-        #: this one. A subgraph's node is complete when every node inside it is.
-        self.complete: set[FlatNode] = {node for node in self.nodes if node.node_path in finished} if finished else set()
-        if self.complete and emit is not None:
-            for node in list(self.complete):
-                self._complete_parents(node, announce=False)
-        #: The nodes said skipped: every unit a branch not taken.
-        self.skipped: set[FlatNode] = set()
-        self.touched = with_outcomes - self.complete
-        self.reused: defaultdict[FlatFunctionNode, int] = defaultdict(int)
-        self.progress_at: dict[FlatFunctionNode, float] = {}
-        self.progress_said: dict[FlatFunctionNode, int] = {}
 
     def run(self) -> tuple[RunState, frozenset[NodePath]]:
         """Run the leg: try what is ready, look over the run when something happened in it, and wait for the
@@ -364,8 +327,8 @@ class Scheduler:
         if self.collectors and self._release_collectors():
             self.changed = True
             return True
-        if self.emit and self.touched:
-            self._completions()
+        if self.node_events is not None:
+            self.node_events.nothing_is_ready(self.running)
         if self.running:
             return True
         if self.out_of_turn and (self.recorded_since_last_pass or self._skip_calls_that_cannot_start()):
@@ -407,11 +370,12 @@ class Scheduler:
             if previous is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True  # a unit before it may take this answer; the next walk tries it again
                 return
-            self.reused[node] += 1
+            if self.node_events is not None:
+                self.node_events.outcome_reused(node)
             self._record(node, item_indexes, previous, trying_every_call)
         else:
-            if self.emit:
-                self._announce(node)
+            if self.node_events is not None:
+                self.node_events.call_starts(node)
             if policy.threaded or policy.retries:
                 self._make(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
             else:
@@ -424,7 +388,7 @@ class Scheduler:
         waiting: set[FlatFunctionNode] = set()
         unfinished: set[FlatFunctionNode] = set()
         for node, outcomes in self.outcomes.items():
-            if node in self.complete:
+            if node.node_path in self.finished:
                 continue
             if Waiting in {type(outcome) for outcome in outcomes.values()}:
                 waiting.add(node)
@@ -441,12 +405,8 @@ class Scheduler:
                 del self.reusable[path]
             if self.going:
                 self.state = WAITING
-        if self.emit:
-            self.touched.update(self.nodes)
-            self._completions()
-            for node in self.nodes:  # a node the leg left part done says how far it got
-                if node.loops and node in self.progress_said:
-                    self._progress(node, last=True)
+        if self.node_events is not None:
+            self.node_events.scheduler_ended()
 
     def _make(self, attempt: _Attempt, trying_every_call: bool = False) -> None:
         """Make one try of a call: on the spot for a node that is not called on threads, else on a thread as soon as
@@ -515,8 +475,8 @@ class Scheduler:
         delay = policy.retry_delay * 2**attempt.number
         self.running[(node, item_indexes)] = attempt.arguments
         self._after(delay, "retry", _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1))
-        if self.emit:
-            self.emit(NodeRetry(loc=outcome_loc(node, item_indexes), attempt=attempt.number + 1, retries=policy.retries, delay=delay, cause=self._failure(node, item_indexes, error)))
+        if self.node_events is not None:
+            self.node_events.call_retries(node, item_indexes, attempt.number + 1, delay, self._failure(node, item_indexes, error))
         return True
 
     def _outcome(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
@@ -550,8 +510,8 @@ class Scheduler:
         if type(outcome) is Problem:  # its exact class, which nothing derives from: isinstance of a pydantic model costs four times as much
             if self.going:  # the first failure is the cause; a later one changes nothing
                 self.end(EndedEarly("failed", outcome))
-                if self.emit:
-                    self.emit(NodeFailed(loc=node.node_path, cause=outcome))
+                if self.node_events is not None:
+                    self.node_events.call_failed(node, outcome)
             return
         outcomes = self.outcomes[node]
         if outcomes and item_indexes not in outcomes and item_indexes < next(reversed(outcomes)):
@@ -568,14 +528,8 @@ class Scheduler:
                 if items > self.max_items:
                     self._stop_at_item_limit(node, item_indexes, output, items, self.max_items)
                     return
-        if self.emit:
-            self.touched.add(node)
-            if type(outcome) is not Skipped:
-                self._announce(node)  # a unit taken from earlier work, or a blank one, starts its node as a call does
-            if type(outcome) is Waiting:
-                self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
-            if node.loops:
-                self._progress(node)
+        if self.node_events is not None:
+            self.node_events.outcome_recorded(node, item_indexes, outcome)
         if trying_every_call or not self.going or not outcome.has_outputs:  # nothing reads a unit that waits for a person
             return
         depth = len(item_indexes)
@@ -653,86 +607,3 @@ class Scheduler:
             named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
             self.end(EndedEarly("stopped", problem.item_limit(*loc, series=f"{named.compiled_node.id}.{series_output}", items=items, max_items=item_limit)))
-
-    # -- what the leg says --------------------------------------------------------------------
-
-    def _announce(self, node: FlatNode) -> None:
-        """Say that ``node`` started, once, after each subgraph's node it is inside."""
-        if node not in self.started:
-            if node.parent is not None:
-                self._announce(node.parent)
-            self.started.add(node)
-            if self.emit:
-                self.emit(NodeStart(loc=node.node_path))
-
-    def _progress(self, node: FlatFunctionNode, last: bool = False) -> None:
-        """Say how far a node running per item has got, at most four times a second; ``last`` says its final count, unless already said."""
-        now = time.monotonic()
-        emit = self.emit
-        if not emit or not (last or now - self.progress_at.get(node, -1.0) >= _SECONDS_BETWEEN_PROGRESS):
-            return
-        done = sum(1 for outcome in self.outcomes[node].values() if outcome.has_outputs)  # counted only when said, at most four times a second
-        if self.progress_said.get(node) != done:
-            self.progress_at[node], self.progress_said[node] = now, done
-            every_item_indexes, known = all_item_indexes(self.all_outcomes, node.loops, ())
-            emit(NodeProgress(loc=node.node_path, done=done, total=len(every_item_indexes) if known else None))
-
-    def _completions(self) -> None:
-        """Say which touched nodes are complete: nothing they wait on is working, and every unit is done."""
-        emit = self.emit
-        assert emit is not None
-        working = {node for node, _ in self.running}
-        for node in sorted(self.touched, key=_POSITION):
-            if node in working or working & all_upstream(node):
-                continue
-            self.touched.discard(node)
-            outcomes = self.outcomes[node]
-            if node in self.complete or not self._finished(node):
-                continue
-            self.complete.add(node)
-            if node.loops and node in self.progress_said:
-                self._progress(node, last=True)
-            if outcomes and all(_is_skipped_or_not_called(outcome) for outcome in outcomes.values()):
-                self.skipped.add(node)
-                emit(NodeSkipped(loc=node.node_path))
-            else:
-                not_called = sum(type(outcome) is NotCalled for outcome in outcomes.values())
-                emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
-            self._complete_parents(node, announce=True)
-
-    def _complete_parents(self, node: FlatNode, announce: bool) -> None:
-        """Count the subgraph's node around ``node`` as complete once every node inside it is, and so on
-        outwards; with ``announce``, tell the listener: skipped when every node inside was, else complete, with one
-        unit for each item the subgraph's node runs for."""
-        around = node.parent
-        while around is not None and around not in self.complete and all(inner in self.complete for inner in around.inner_nodes.values()):
-            self.complete.add(around)
-            if announce and self.emit is not None:
-                if all(inner in self.skipped for inner in around.inner_nodes.values()):
-                    self.skipped.add(around)
-                    self.emit(NodeSkipped(loc=around.node_path))
-                else:
-                    self.emit(NodeComplete(loc=around.node_path, outcomes=calls_expected(self.all_outcomes, around.loops)[0]))
-            around = around.parent
-
-    def _finished(self, node: FlatFunctionNode, may_wait: bool = True) -> bool:
-        """Whether every unit of ``node`` is known and none of them is still to run or waiting; ``may_wait`` False
-        when the caller already knows none waits."""
-        if may_wait and Waiting in {type(outcome) for outcome in self.outcomes[node].values()}:
-            return False
-        return has_every_outcome(self.all_outcomes, node)
-
-
-def _is_skipped_or_not_called(outcome: Outcome) -> bool:
-    """Whether a unit is a branch not taken: its node wasn't called for one above it, or was called and returned
-    ``SKIPPED`` on every output."""
-    return type(outcome) is Skipped or ((type(outcome) is Done or type(outcome) is Answered) and bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values()))
-
-
-def _parents(node: FlatNode) -> list[FlatSubgraph]:
-    """The subgraphs' nodes ``node`` is inside, innermost first."""
-    around = []
-    while node.parent is not None:
-        node = node.parent
-        around.append(node)
-    return around
