@@ -35,7 +35,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.run.flat import flat_graph_of
 from pydantic import BaseModel, ValidationError
 from pytest import MonkeyPatch
 
@@ -81,7 +80,7 @@ def test_a_code_fingerprint_names_a_loop_by_its_address_not_by_how_the_address_c
 
     def digest() -> str:
         graph = Graph.compile(make_graph(words, upper), registry_of(words, upper))
-        return flat_graph_of(graph).functions[("upper",)].code_fingerprint
+        return json.loads(graph.run(text="a").to_json())["code"]["upper"]
 
     before = digest()
     monkeypatch.setattr(OutputAddress, "__repr__", lambda self: f"Renamed({self.node_id}, {self.output})")

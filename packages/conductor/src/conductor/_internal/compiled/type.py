@@ -26,10 +26,11 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import json_hash, plural, split_address
+from conductor._internal.base import NodePath, json_hash, plural, split_address
+from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
-from conductor._internal.gate import InputsDoor
-from conductor._internal.problem import Problem
+from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
+from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
 
@@ -208,6 +209,36 @@ class CompiledGraph:
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
         return json_hash([own, subgraph_fingerprints], 8, keys_sorted=True)
+
+    @functools.cached_property
+    def _context_door(self) -> ContextDoor:
+        """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
+        ``context_type`` and every node that takes the context, those inside subgraphs too."""
+        return ContextDoor(self._context_type, self._context_takers())
+
+    def _context_takers(self) -> list[tuple[NodePath, ContextParameter]]:
+        """Every function node of the graph and of its subgraphs that takes the run's context, as its node path
+        (``("loud", "shout")``) and its ``Context`` parameter, in the order a run tries them."""
+        takers: list[tuple[NodePath, ContextParameter]] = []
+        for compiled_node in self._nodes.values():
+            if isinstance(compiled_node, CompiledSubgraphNode):
+                takers += [((compiled_node.id, *path), parameter) for path, parameter in compiled_node.inner._context_takers()]
+            elif (parameter := compiled_node.definition.context) is not None:
+                takers.append(((compiled_node.id,), parameter))
+        return takers
+
+    def _checked_context[C](self, context: C | None) -> C | None:
+        """``context`` as the host passed it, once the context door let it in.
+
+        Raises:
+            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
+                node that takes it (``context_missing``).
+        """
+        try:
+            checked: C | None = self._context_door(context)
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
+        return checked
 
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:

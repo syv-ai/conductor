@@ -3,6 +3,7 @@ calls nothing and changes nothing."""
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 import time
 from collections import Counter
@@ -22,7 +23,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.run.flat import flat_graph_of
 
 from tests.test_core.nodes import calls_without_outcome
 
@@ -178,12 +178,16 @@ def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skippe
     nodes = {"d": "decide", "w": "pieces", "q": "ask", "t": "tag"}
     run = _ran(nodes, [("w.result", "q.text"), ("d.yes", "t.text"), ("q.result", "t.mark")], "no a b", threaded)
     assert run.status == "waiting" and len(run.waiting) == 3
-    assert [missing for missing in calls_without_outcome(run) if missing[0] == ("t",)] == []  # skipped, whichever node returned first
+    assert "t" not in calls_without_outcome(run)  # skipped, whichever node returned first
 
 
 def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run() -> None:
     nodes, edges, _ = GRAPHS["collecting an empty series"]
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), _registry(frozenset({"words"})))
-    flat_graph_of(graph).nodes["w"].downstream.clear()  # a bug in the engine, made by hand: the series makes no downstream node ready
+    run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
+    # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a flat graph of its
+    # own with a copy of the node, so the graph's flat graph stays whole.
+    series = dataclasses.replace(run._flat.function_nodes["w"], downstream=[])
+    broken = dataclasses.replace(run._flat, function_nodes={**run._flat.function_nodes, "w": series}, nodes={**run._flat.nodes, "w": series})
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
-        graph.run(dict.fromkeys(graph.inputs, ""))
+        dataclasses.replace(run, _flat=broken).resume()

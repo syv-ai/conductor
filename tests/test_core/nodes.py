@@ -6,8 +6,6 @@ from typing import Annotated, Literal, TypedDict
 
 import polars as pl
 from conductor import SKIPPED, Ask, NodeRegistry, Param, Series, Table
-from conductor._internal.run.flat import flat_graph_of
-from conductor._internal.run.progress import all_item_indexes
 
 
 class Invoice(TypedDict):
@@ -113,13 +111,6 @@ def place(waiting):
 
 
 def calls_without_outcome(run):
-    """Every call of ``run`` that has no outcome, as its node path and item indexes, ``(("t",), (1,))``.
-
-    A node whose calls are not all known yet is listed by its node path alone. A complete run has none.
-    """
-    missing = []
-    for node in flat_graph_of(run.graph).function_nodes.values():
-        item_indexes, known = all_item_indexes(run._outcomes, node.loops, ())
-        outcomes = run._outcomes[node.name]
-        missing += [(node.node_path, key) for key in item_indexes if key not in outcomes] + ([] if known else [node.node_path])
-    return missing
+    """The nodes of ``run`` with a call that has no outcome yet, or whose calls are not all known, as ``run.progress``
+    counts them: ``["t"]``. A call waiting for a person has an outcome. A complete run has none."""
+    return [name for name, count in run.progress.nodes.items() if count.total is None or count.finished + count.waiting < count.total]

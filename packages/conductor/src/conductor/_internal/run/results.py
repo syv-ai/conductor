@@ -21,30 +21,34 @@ from .flat import (
     CollectingArgument,
     EdgeArgument,
     FlatFunctionNode,
+    FlatGraph,
     display_inputs_of,
-    flat_graph_of,
 )
 from .outcome import NotReady, Outcome
 
 
-def results_of(graph: CompiledGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """``run.results``: every node's outputs so far, by node id and output name."""
+def results_of(
+    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """``run.results``: every node's outputs so far, by node id and output name. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {n: {o: reader.display_value(display_inputs_of(*function_of(graph, f"{n}.{o}"))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
+    return {n: {o: reader.display_value(display_inputs_of(*function_of(flat, f"{n}.{o}"))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
 
 
-def outputs_of(graph: CompiledGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> dict[str, Any]:
-    """``run.outputs`` of a complete run: the graph outputs, by address."""
+def outputs_of(
+    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """``run.outputs`` of a complete run: the graph outputs, by address. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {address: reader.display_value(display_inputs_of(*function_of(graph, address))) for address in graph.outputs}
+    return {address: reader.display_value(display_inputs_of(*function_of(flat, address))) for address in graph.outputs}
 
 
-def function_of(graph: CompiledGraph, address: str) -> tuple[FlatFunctionNode, str]:
+def function_of(flat: FlatGraph, address: str) -> tuple[FlatFunctionNode, str]:
     """The function node that returns the output at ``address`` (``node.output``), and the output's name on
     that function. For a subgraph (``e.upper.result``) it is the function inside the
     subgraph, since the subgraph's node is never called itself."""
     node_id, output = split_address(address)
-    return flat_graph_of(graph).nodes[node_id].source_of(output)
+    return flat.nodes[node_id].source_of(output)
 
 
 class DisplayReader(ResultReader):
@@ -106,7 +110,7 @@ class DisplayReader(ResultReader):
         """
         node_input = node_inputs[len(item_indexes)]
         if len(item_indexes) == len(node_inputs) - 1:
-            value = node_input.value(self, item_indexes)
+            value = self.read_argument(node_input, item_indexes)
             return None if value is SKIPPED else value
         looped_over = self._list_looped_over(cast("CollectingArgument", node_input), item_indexes)  # every input before the last lists one loop
         if looped_over is None or looped_over is SKIPPED:

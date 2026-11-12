@@ -31,7 +31,6 @@ from conductor._internal.base import (
     node_path_text,
     parse_loc_text,
 )
-from conductor._internal.compiled import CompiledGraph
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.problem import catalogue as problem
@@ -128,6 +127,8 @@ class Run[C]:
     _outcomes: dict[str, dict[ItemIndexes, Outcome]]
     #: What each node may take from the run this one went on from.
     _reusable: dict[NodePath, ReusableOutcomes]
+    #: The flat graph of ``graph``: the function nodes the run calls.
+    _flat: FlatGraph = field(kw_only=True)
     state: RunState = READY
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
     _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
@@ -182,7 +183,7 @@ class Run[C]:
                 (``context_missing``).
         """
         _check_limits(timeout=timeout)
-        return self._run_scheduler(self._flat.checked_context(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
+        return self._run_scheduler(self.graph._checked_context(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
 
     def stream(
         self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
@@ -208,7 +209,7 @@ class Run[C]:
                 above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
         _check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return stream(self._run_scheduler, self._flat.checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
+        return stream(self._run_scheduler, self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every, only_costs_nothing)
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
@@ -362,13 +363,13 @@ class Run[C]:
             del fresh._reusable[path]
         return fresh
 
-    def _reusable_outcomes(self, into: CompiledGraph | None = None) -> dict[NodePath, ReusableOutcomes]:
+    def _reusable_outcomes(self, into: FlatGraph) -> dict[NodePath, ReusableOutcomes]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
         instance order, then the earlier work this run held and didn't take.
 
-        ``into`` another graph keeps only the nodes it holds as they are here (by
-        ``code_fingerprint``): the others' units could never be taken there, and kept they would only make its
-        save larger.
+        ``into`` is the flat graph of the graph the new run is of, this run's or another's. Only the nodes it has
+        as they are here (by ``code_fingerprint``) are kept: the others' units could never be taken there, and kept
+        they would only make its save larger.
         """
         work: dict[NodePath, ReusableOutcomes] = {}
         reader = self._reader
@@ -395,10 +396,11 @@ class Run[C]:
                 of_node.by_fingerprint.setdefault(fingerprint, done)
             for asked, answers in unused.answers.items():
                 of_node.answers.setdefault(asked, []).extend(answers)
-        ours, theirs = self._flat.functions, flat_graph_of(into or self.graph).functions
+        ours, theirs = self._flat.function_nodes, into.function_nodes
         return {
             path: of_node for path, of_node in work.items()
-            if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(path)) is not None and there.code_fingerprint == ours[path].code_fingerprint
+            if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(name := node_path_text(path))) is not None
+            and there.compiled_node.code_fingerprint == ours[name].compiled_node.code_fingerprint
         }
 
     def again(
@@ -438,7 +440,7 @@ class Run[C]:
         invoices there are is known once ``read`` has returned. ``run.resume(only_costs_nothing=True)`` calls
         ``read`` first when its ``Policy`` says ``costs_nothing``.
         """
-        return progress_of(self.graph, self._outcomes)
+        return progress_of(self._flat, self._outcomes)
 
     @property
     def not_called(self) -> list[NotCalled]:
@@ -459,7 +461,7 @@ class Run[C]:
         ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
         made, or no item of it could have a value.
         """
-        return results_of(self.graph, self._outcomes, self.inputs)
+        return results_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -471,7 +473,7 @@ class Run[C]:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        return outputs_of(self.graph, self._outcomes, self.inputs)
+        return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by address: ``{"join.result":"A!+B!+C!"}`` for the README graph.
@@ -487,10 +489,6 @@ class Run[C]:
 
     # -- what a leg reads -------------------------------------------------------
 
-    @property
-    def _flat(self) -> FlatGraph:
-        """The flat graph of the run's graph."""
-        return flat_graph_of(self.graph)
 
     @property
     def _reader(self) -> ResultReader:
@@ -545,12 +543,13 @@ RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
-def ready_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None) -> Run[C]:
+def make_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None) -> Run[C]:
     """Returns a run of ``graph`` that has not started, with the inputs the inputs door let in: what
     ``graph.with_inputs(text="a\\nb")`` returns. No node has an outcome yet; with ``previous``, the run may reuse
     that run's outcomes (``Run.with_inputs``)."""
-    outcomes: dict[str, dict[ItemIndexes, Outcome]] = {name: {} for name in flat_graph_of(graph).function_nodes}
-    return Run(graph, inputs, max_items, outcomes, previous._reusable_outcomes(into=graph) if previous is not None else {})
+    flat = flat_graph_of(graph)
+    outcomes: dict[str, dict[ItemIndexes, Outcome]] = {name: {} for name in flat.function_nodes}
+    return Run(graph, inputs, max_items, outcomes, previous._reusable_outcomes(into=flat) if previous is not None else {}, _flat=flat)
 
 
 def _check_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:

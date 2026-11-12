@@ -27,7 +27,6 @@ from conductor._internal.problem import Problem
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.run import node_events as node_events_module
 from conductor._internal.run.events import EventBase, NodeWaiting
-from conductor._internal.run.flat import FlatFunctionNode, flat_graph_of, outcome_loc
 from conductor._internal.run.node_events import NodeEvents
 from conductor._internal.run.outcome import Outcome
 from pytest import MonkeyPatch
@@ -94,9 +93,10 @@ class Told:
 
     def __init__(self, record: GraphRecord, registry: NodeRegistry, finished: tuple[str, ...] = (), **inputs: Any) -> None:
         graph = Graph.compile(record, registry)
-        self.finished_run: dict[str, dict[ItemIndexes, Outcome]] = graph.run(inputs)._outcomes
+        run = graph.run(inputs)
+        self.finished_run: dict[str, dict[ItemIndexes, Outcome]] = run._outcomes
         self.outcomes = {name: dict(outcomes) if name in finished else {} for name, outcomes in self.finished_run.items()}
-        self.nodes: dict[str, FlatFunctionNode] = flat_graph_of(graph).function_nodes
+        self.nodes = run._flat.function_nodes
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
         self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths)
@@ -143,7 +143,7 @@ class Told:
         return taken
 
     def _timed_out(self, name: str, item_indexes: ItemIndexes) -> Problem:
-        return problem.external_failed(*outcome_loc(self.nodes[name], item_indexes), error="TimeoutError")
+        return problem.external_failed(name, *item_indexes, error="TimeoutError")  # the loc of a node of the graph itself
 
 
 def _one_line(event: EventBase) -> str:

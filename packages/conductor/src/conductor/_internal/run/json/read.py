@@ -21,7 +21,7 @@ from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, value_free_errors
 from conductor._internal.problem import catalogue as problem
 
-from ..flat import flat_graph_of
+from ..flat import FlatGraph, flat_graph_of
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
@@ -80,21 +80,20 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             outcomes[node.name] = {
                 item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, in_call_order, strict=True) if outcome is not None
             }
-    answers = _answers_from_saved(graph, read.answers or {}, outcomes)
-    functions = flat.functions
+    answers = _answers_from_saved(flat, read.answers or {}, outcomes)
     code_changed = {
-        path: fingerprint for name, fingerprint in read.code.items() if fingerprint != functions[path := parse_node_path(name)].code_fingerprint
+        parse_node_path(name): fingerprint for name, fingerprint in read.code.items() if fingerprint != flat.function_nodes[name].compiled_node.code_fingerprint
     }
     # outcomes that other code produced are never reused
     reusable = {path: of_node for name, of_node in read.reusable.items() if (path := parse_node_path(name)) not in code_changed}
     return run_type(
-        graph, read.inputs, read.max_items, outcomes, reusable, state=read.state, _code_changed=code_changed,
+        graph, read.inputs, read.max_items, outcomes, reusable, _flat=flat, state=read.state, _code_changed=code_changed,
         _finished_nodes=frozenset(parse_node_path(name) for name in read.complete), _answers=answers,
     )
 
 
 def _answers_from_saved(
-    graph: CompiledGraph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[str, dict[ItemIndexes, Outcome]],
+    flat: FlatGraph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[str, dict[ItemIndexes, Outcome]],
 ) -> dict[str, dict[ItemIndexes, Answer]]:
     """Turns each waiting call that a saved run has an answer for into that answer, kept until the node is called.
 
@@ -102,7 +101,7 @@ def _answers_from_saved(
     returns ``{"approve": {(1,): Answer(its question, "ok", True)}}``.
 
     Args:
-        graph: The run's graph.
+        flat: The flat graph of the run's graph.
         saved: The saved run's ``answers``, each read by its node's ``Asked`` parameter: the codec takes them only
             for such a node.
         outcomes: The outcomes read so far, by node name. Changed in place.
@@ -112,7 +111,7 @@ def _answers_from_saved(
     """
     answers: dict[str, dict[ItemIndexes, Answer]] = {}
     for name, by_call_number in saved.items():
-        node = flat_graph_of(graph).function_nodes[name]
+        node = flat.function_nodes[name]
         (parameter,) = node.compiled_node.answer_fields
         every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
         for call_number, value in by_call_number.items():

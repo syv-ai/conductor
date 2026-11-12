@@ -18,7 +18,7 @@ from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.types import Type
 
-from ..flat import FlatFunctionNode, flat_graph_of
+from ..flat import FlatFunctionNode
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..results import function_of
@@ -79,7 +79,7 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for address, value in run.outputs.items():
-        function, output = function_of(run.graph, address)
+        function, output = function_of(run._flat, address)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
@@ -101,27 +101,27 @@ def saved_run(run: Run, codec: RunCodec) -> SavedRun[SavedOutcomes, SavedReusabl
     key at all.
     """
     graph = run.graph
-    flat = flat_graph_of(graph)
-    functions = flat.functions
+    function_nodes = run._flat.function_nodes
     outcomes = {
         node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))
-        for node in flat.function_nodes.values() if run._outcomes[node.name] or node.name in run._answers
+        for node in function_nodes.values() if run._outcomes[node.name] or node.name in run._answers
     }
-    reusable = {
-        node_path_text(path): saved_reusable(functions[path].outputs, of_node)
-        for path, of_node in run._reusable.items() if of_node.by_fingerprint or of_node.answers
-    }
+    reusable = {}
+    for path, of_node in run._reusable.items():
+        if of_node.by_fingerprint or of_node.answers:
+            name = node_path_text(path)
+            reusable[name] = saved_reusable(function_nodes[name].compiled_node.outputs, of_node)
     code = {
-        name: run._code_changed.get(path) or compiled_node.code_fingerprint
-        for path, compiled_node in functions.items() if (name := node_path_text(path)) in outcomes or name in reusable
+        name: run._code_changed.get(node.node_path) or node.compiled_node.code_fingerprint
+        for name, node in function_nodes.items() if name in outcomes or name in reusable
     }
     answers = {
         node.name: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
-        for node in flat.function_nodes.values() if node.name in run._answers
+        for node in function_nodes.values() if node.name in run._answers
     }
     return SavedRun(
         graph=graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
-        complete=[node.name for node in flat.function_nodes.values() if node.node_path in run._finished_nodes],
+        complete=[node.name for node in function_nodes.values() if node.node_path in run._finished_nodes],
         tables_written_once=tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None,
         answers=answers or None,
     )

@@ -24,8 +24,8 @@ In the flat graph every edge and every loop names a function node:
 - ``loud/strip`` and ``loud/shout`` are inside the loop over ``lines.result``, because ``loud`` is.
 
 A call reads an input that edges lead to through an ``EdgeArgument`` (one value per call) or a
-``CollectingArgument`` (one value per item of a loop, as a list); each has ``value(reader, item_indexes)``, which
-reads it from the run's outcomes with ``ResultReader`` (``arguments.py``).
+``CollectingArgument`` (one value per item of a loop, as a list). Each holds the input as its own graph compiled
+it, and the edges as the flat graph names them; ``ResultReader`` (``arguments.py``) reads it from the run's outcomes.
 
 A flat node has nothing from a run in it: it is made once and shared by every run of the graph.
 """
@@ -37,7 +37,7 @@ import functools
 import typing
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import Any, assert_never
 from weakref import WeakKeyDictionary
 
 from conductor._internal.base import (
@@ -62,69 +62,47 @@ from conductor._internal.compiled import (
     OutputAddress,
 )
 from conductor._internal.field import Field
-from conductor._internal.gate import ContextDoor, EdgeDoor, RefusedError, demands_more
+from conductor._internal.gate import EdgeDoor, demands_more
 from conductor._internal.node import Policy
-from conductor._internal.problem import InvalidCallError
 from conductor._internal.series import Series
-
-if TYPE_CHECKING:
-    from .arguments import ResultReader
 
 
 @typing.final
 @dataclass(frozen=True, slots=True)
 class EdgeArgument:
-    """One argument a call reads through edges, one value per call: ``shout.line`` reads one item of
+    """How a call reads an input that edges lead to, one value per call: ``shout.line`` reads one item of
     ``lines.result``, so for the call at ``(1,)`` it is ``"b"``.
 
     Attributes:
-        name: The parameter's name.
-        field: The input, as its node declares it.
-        sources: What each edge into the input reads, each naming a function node by its name. With several
-            edges, each comes from a different branch of one decision.
-        as_list: Whether a call gets the value as a list of one: a ``Series`` input wired to a value made once
-            per call.
+        input: The input as its own graph compiled it: its field, and ``as_list``.
+        edges: What each edge into it reads, as the flat graph names it: the function node that returns the
+            output (``loud/shout`` for ``loud.shout.result``), the output's name there, and that node's loops.
     """
 
-    name: str
-    field: Field
-    sources: tuple[Edge, ...]
-    as_list: bool
-
-    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
-        """The value the call at ``item_indexes`` gets."""
-        if self.as_list:
-            return reader.read_as_list(self, item_indexes)
-        sources = self.sources
-        return reader.read_output(sources[0], item_indexes) if len(sources) == 1 else reader.read_alternatives(sources, item_indexes)
+    input: EdgeInput
+    edges: tuple[Edge, ...]
 
 
 @typing.final
 @dataclass(frozen=True, slots=True)
 class CollectingArgument:
-    """One argument a call gets as a list, one value per item of a loop: ``join.texts`` collects the loop over
-    ``lines.result`` and reads ``shout.result`` for each item, so its one call gets ``["A!", "B!"]``.
+    """How a call reads an input that collects a loop, one value per item, as a list: ``join.texts`` collects the
+    loop over ``lines.result`` and reads ``shout.result`` for each item, so its one call gets ``["A!", "B!"]``.
 
     Attributes:
-        name: The parameter's name.
-        field: The input, as its node declares it.
-        series: The list whose loop it collects, by function node name and output.
-        depth: How many loops the node that returns ``series`` is inside.
-        sources: What each edge into the input reads for one item.
+        input: The input as its own graph compiled it: its field.
+        series: The list whose loop it collects, by the name of the function node that returns it.
+        depth: How many loops that node is inside.
+        edges: What each edge into it reads for one item, as the flat graph names it.
         loop_body: The function nodes inside the loop that the value depends on, each after the nodes upstream
             of it: ``(shout,)``.
     """
 
-    name: str
-    field: Field
+    input: CollectingInput
     series: OutputAddress
     depth: int
-    sources: tuple[Edge, ...]
+    edges: tuple[Edge, ...]
     loop_body: tuple[FlatFunctionNode, ...]
-
-    def value(self, reader: ResultReader, item_indexes: ItemIndexes) -> Any:
-        """The list the call at ``item_indexes`` gets."""
-        return reader.collect(self, item_indexes)
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -167,8 +145,8 @@ class FlatFunctionNode(_FlatNodeBase):
             ``None`` for every other input. The arguments of a call start as a copy of it.
         graph_inputs: The inputs the caller gives a value for: the input's name, and the key the run keeps the
             caller's value under (``"lines.text"``).
-        edge_arguments: The inputs that edges lead to, in the order declared: an ``EdgeArgument`` for an input that
-            reads one value per call, a ``CollectingArgument`` for one that collects a loop.
+        edge_arguments: The inputs that edges lead to, by name, in the order declared: an ``EdgeArgument`` for an
+            input that reads one value per call, a ``CollectingArgument`` for one that collects a loop.
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
@@ -197,7 +175,7 @@ class FlatFunctionNode(_FlatNodeBase):
     policy: Policy
     constants: dict[str, Any]
     graph_inputs: tuple[tuple[str, str], ...]
-    edge_arguments: tuple[EdgeArgument | CollectingArgument, ...]
+    edge_arguments: dict[str, EdgeArgument | CollectingArgument]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     edge_door: EdgeDoor | None
     function: Callable[..., Any]
@@ -223,15 +201,11 @@ class FlatSubgraph(_FlatNodeBase):
 
     Attributes:
         compiled_node: The node as the outer graph compiled it.
-        inputs: How each input of the subgraph node gets its value, by name: a constant, a graph input, or an
-            argument read through edges. A node inside that reads a graph input of the subgraph gets its value the
-            same way: in the example, ``loud/strip``'s ``line`` is read as ``inputs["line"]`` is.
         inner_nodes: The nodes of the subgraph as flat nodes, by their id in the subgraph. Empty until they are
             made, which is right after this node is.
     """
 
     compiled_node: CompiledSubgraphNode
-    inputs: dict[str, ConstantInput | GraphInput | EdgeArgument | CollectingArgument]
     inner_nodes: dict[str, FlatNode] = dataclasses.field(default_factory=dict[str, "FlatNode"])
 
     def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
@@ -282,7 +256,7 @@ def outcome_loc(node: FlatNode, item_indexes: ItemIndexes) -> Loc:
     return (*outcome_loc(node.parent, item_indexes[:parent_depth]), node.compiled_node.id, *item_indexes[parent_depth:])
 
 
-#: The input a host's read of an output stands in for: a ``Series`` input that accepts ``None`` items, so every
+#: The input a host's read of an output stands in for, compiled as if a node's: a ``Series`` input that accepts ``None`` items, so every
 #: item is shown at its index, with ``None`` for an item that has no value.
 _DISPLAY_FIELD = Field("shown", Series[Any | None], REQUIRED)  # type: ignore[misc]  # mypy takes no union as a type argument here
 
@@ -310,8 +284,11 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeArgument
     if node_inputs is None:
         source = Edge(node.name, output, _loops_by_name(node.loops), None, node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
-        per_loop = [_collecting_argument("shown", _DISPLAY_FIELD, looped_over, (source,), functions) for looped_over in node.loops]
-        node_inputs = node.display_inputs[output] = tuple(per_loop) or (EdgeArgument("shown", _DISPLAY_FIELD, (source,), as_list=False),)
+        per_loop = [
+            _collecting_argument(CollectingInput(_DISPLAY_FIELD, OutputAddress(series_node.name, series), _loops_by_name(series_node.loops), (source,)), (series_node, series), (source,), functions)
+            for series_node, series in node.loops
+        ]
+        node_inputs = node.display_inputs[output] = tuple(per_loop) or (EdgeArgument(EdgeInput(_DISPLAY_FIELD, (source,), source.loops), (source,)),)
     return node_inputs
 
 
@@ -323,17 +300,10 @@ class FlatGraph:
         function_nodes: Every function node of the graph and of its subgraphs, at any depth, by name
             (``"loud/shout"``), in the order a run tries them: each after the nodes upstream of it.
         nodes: Every flat node, a function or a subgraph, by name (``"loud"``, ``"loud/shout"``).
-        context_door: Checks the ``context=`` of each call that starts or resumes a run.
     """
 
     function_nodes: dict[str, FlatFunctionNode]
     nodes: dict[str, FlatNode]
-    context_door: ContextDoor
-
-    @functools.cached_property
-    def functions(self) -> dict[NodePath, CompiledFunctionNode]:
-        """Every function node as its own graph compiled it, by node path (``("loud", "shout")``)."""
-        return {node.node_path: node.compiled_node for node in self.function_nodes.values()}
 
     @functools.cached_property
     def threads(self) -> int:
@@ -341,40 +311,27 @@ class FlatGraph:
         ``concurrency`` of every function node called on a thread."""
         return sum(node.policy.concurrency for node in self.function_nodes.values() if node.policy.threaded)
 
-    def checked_context[C](self, context: C | None) -> C | None:
-        """``context`` as the host passed it, once the context door let it in.
-
-        Raises:
-            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
-                node that takes it (``context_missing``).
-        """
-        try:
-            checked: C | None = self.context_door(context)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
-        return checked
-
 
 _FLAT_GRAPHS: WeakKeyDictionary[CompiledGraph, FlatGraph] = WeakKeyDictionary()
 
 
 def flat_graph_of(graph: CompiledGraph) -> FlatGraph:
-    """Returns the flat graph of ``graph``, made the first time a run of it needs it and kept as long as the graph."""
+    """Returns the flat graph of ``graph``, made the first time a run of it is made and kept as long as the graph."""
     flat = _FLAT_GRAPHS.get(graph)
     if flat is None:
         functions: dict[str, FlatFunctionNode] = {}
         nodes_by_name: dict[str, FlatNode] = {}
-        _add_flat_nodes(graph, None, functions, nodes_by_name)
+        _add_flat_nodes(graph, None, {}, functions, nodes_by_name)
         for node in functions.values():
             for upstream_node, shared_indexes in node.upstream.items():
                 upstream_node.downstream.append((node, shared_indexes))
-        takers = [(node.node_path, context) for node in functions.values() if (context := node.compiled_node.definition.context) is not None]
-        flat = _FLAT_GRAPHS[graph] = FlatGraph(functions, nodes_by_name, ContextDoor(graph._context_type, takers))
+        flat = _FLAT_GRAPHS[graph] = FlatGraph(functions, nodes_by_name)
     return flat
 
 
 def _add_flat_nodes(
-    graph: CompiledGraph, parent: FlatSubgraph | None, functions: dict[str, FlatFunctionNode], nodes_by_name: dict[str, FlatNode],
+    graph: CompiledGraph, parent: FlatSubgraph | None, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeArgument | CollectingArgument],
+    functions: dict[str, FlatFunctionNode], nodes_by_name: dict[str, FlatNode],
 ) -> dict[str, FlatNode]:
     """Makes the flat nodes of ``graph``, and of each subgraph in it, and adds them to ``functions`` and
     ``nodes_by_name``.
@@ -385,6 +342,9 @@ def _add_flat_nodes(
     Args:
         graph: The compiled graph: the one a run is of, or a subgraph of it.
         parent: The flat node of the subgraph that ``graph`` is; ``None`` for the graph a run is of.
+        outer_inputs: For a subgraph, how each input of its node gets its value, by name: a graph input of the
+            subgraph is read the same way (``loud/strip``'s ``line`` as ``loud``'s ``line``). Empty for the graph a
+            run is of.
         functions: The function nodes made so far, by name, in the order a run tries them. Added to.
         nodes_by_name: Every flat node made so far, by name. Added to.
 
@@ -395,17 +355,19 @@ def _add_flat_nodes(
     outer_loops = parent.loops if parent is not None else ()
     nodes_by_id: dict[str, FlatNode] = {}
     for compiled_node in graph._nodes.values():
-        inputs = {name: _flat_input(name, node_input, graph, parent, nodes_by_id, functions) for name, node_input in compiled_node.inputs.items()}
-        loops = (*outer_loops, *[nodes_by_id[loop.node_id].source_of(loop.output) for loop in compiled_node.loops])
         node_path = (*parent_path, compiled_node.id)
+        inputs = {
+            name: _flat_input(node_path, node_input, graph, outer_inputs, nodes_by_id, functions) for name, node_input in compiled_node.inputs.items()
+        }
+        loops = (*outer_loops, *[nodes_by_id[loop.node_id].source_of(loop.output) for loop in compiled_node.loops])
         if isinstance(compiled_node, CompiledSubgraphNode):
-            subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, inputs=inputs)
-            subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, functions, nodes_by_name)
+            subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops)
+            subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, inputs, functions, nodes_by_name)
             nodes_by_id[compiled_node.id] = nodes_by_name[subgraph.name] = subgraph
             continue
         constants: dict[str, Any] = {}
         graph_inputs: list[tuple[str, str]] = []
-        edge_arguments: list[EdgeArgument | CollectingArgument] = []
+        edge_arguments: dict[str, EdgeArgument | CollectingArgument] = {}
         upstream: dict[FlatFunctionNode, int] = {}
         collecting: dict[OutputAddress, list[tuple[str, bool]]] = {}
         for name, node_input in inputs.items():
@@ -419,27 +381,26 @@ def _add_flat_nodes(
                 case GraphInput(address=address):
                     graph_inputs.append((name, address))
                     continue
-                case EdgeArgument(sources=sources):
-                    read = [(source.node_id, source.depth) for source in sources]
-                    depth = max(len(source.loops_of_value) for source in sources)
-                case CollectingArgument(field=field, series=series, sources=sources, depth=depth):
-                    read = [(series.node_id, depth), *[(source.node_id, source.depth) for source in sources]]
-                    series_node = functions[series.node_id]
-                    looped_over = (series_node, series.output)
+                case EdgeArgument(edges=edges):
+                    read = [(edge.node_id, edge.depth) for edge in edges]
+                    depth = max(len(edge.loops_of_value) for edge in edges)
+                case CollectingArgument(input=collecting_input, series=series, edges=edges, depth=depth):
+                    read = [(series.node_id, depth), *[(edge.node_id, edge.depth) for edge in edges]]
+                    looped_over = (functions[series.node_id], series.output)
                     # what a node inside the loop reads from outside it can say that no item will have a value
                     read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
-                    collecting.setdefault(series, []).append((name, field.accepts_none_items))
+                    collecting.setdefault(series, []).append((name, collecting_input.field.accepts_none_items))
                 case _:
                     assert_never(node_input)
-            edge_arguments.append(node_input if node_input.name == name else dataclasses.replace(node_input, name=name))
+            edge_arguments[name] = node_input
             for upstream_node, shared_indexes in (*[(functions[node_id], min(read_depth, depth)) for node_id, read_depth in read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
-        read_by_door = {argument.name: argument.field for argument in edge_arguments if _demands_more(argument)}
+        read_by_door = {name: argument.input.field for name, argument in edge_arguments.items() if _demands_more(argument)}
         definition = compiled_node.definition
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops, policy=compiled_node.definition.policy,
-            constants=constants, graph_inputs=tuple(graph_inputs), edge_arguments=tuple(edge_arguments), lists_from_same_loop=tuple(map(tuple, collecting.values())),
+            constants=constants, graph_inputs=tuple(graph_inputs), edge_arguments=edge_arguments, lists_from_same_loop=tuple(map(tuple, collecting.values())),
             edge_door=EdgeDoor(read_by_door) if read_by_door else None,
             function=definition.function if definition.asked is None else definition.asked.filling(definition.function),
             upstream=upstream, position=len(functions),
@@ -457,7 +418,7 @@ def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[Out
 
 
 def _flat_input(
-    name: str, node_input: Input, graph: CompiledGraph, parent: FlatSubgraph | None,
+    node_path: NodePath, node_input: Input, graph: CompiledGraph, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeArgument | CollectingArgument],
     nodes_by_id: Mapping[str, FlatNode], functions: Mapping[str, FlatFunctionNode],
 ) -> ConstantInput | GraphInput | EdgeArgument | CollectingArgument:
     """Returns how a call reads the input that its own graph compiled as ``node_input``: a constant or a graph input
@@ -465,56 +426,57 @@ def _flat_input(
 
     Every edge is changed to name the function node that returns the output, by its name, with the loops
     that function node is inside. In the example, the compiled input ``join.texts`` reads ``loud.shout.result``; the
-    flat graph's argument reads ``result`` of ``loud/shout``. A graph input of a subgraph gets the input the outer graph
-    made for it: ``loud/strip``'s ``line`` gets the input of ``loud``'s input ``line``.
+    flat graph's argument reads ``result`` of ``loud/shout``. A graph input of a subgraph is read as the input of
+    the subgraph node is: ``loud/strip``'s ``line`` as ``loud``'s ``line``.
 
     Args:
-        name: The input's name.
+        node_path: The node path of the node the input is of.
         node_input: The input as the node's own graph compiled it.
         graph: That graph.
-        parent: The flat node of the subgraph that ``graph`` is; ``None`` for the graph a run is of.
+        outer_inputs: See ``_add_flat_nodes``.
         nodes_by_id: The flat nodes of ``graph`` made so far, by id.
         functions: Every function node made so far, by name.
     """
 
-    def flat_source(source: Edge, starts_loop: bool) -> Edge:
-        source_node, output = nodes_by_id[source.node_id].source_of(source.output)
-        if starts_loop and source.item:
-            source_node.looped_outputs.setdefault(output, (nodes_by_id[source.node_id], source.output))
-        return Edge(source_node.name, output, _loops_by_name(source_node.loops), source.record_field, source.type, item=source.item)
+    def flat_edge(edge: Edge, starts_loop: bool) -> Edge:
+        source_node, output = nodes_by_id[edge.node_id].source_of(edge.output)
+        if starts_loop and edge.item:
+            source_node.looped_outputs.setdefault(output, (nodes_by_id[edge.node_id], edge.output))
+        return Edge(source_node.name, output, _loops_by_name(source_node.loops), edge.record_field, edge.type, item=edge.item)
 
     match node_input:
         case ConstantInput():
             return node_input
-        case MissingInput():
-            raise RuntimeError(f"'{name}' gets no value: a graph with problems has no flat graph")
+        case MissingInput(field=field):
+            raise RuntimeError(f"'{node_path_text(node_path)}.{field.name}' gets no value: a graph with problems has no flat graph")
         case GraphInput(address=address):
-            return node_input if parent is None else parent.inputs[graph._input_fields[address].name]
-        case EdgeInput(field=field, sources=sources, as_list=as_list):
-            return EdgeArgument(name, field, tuple([flat_source(source, not as_list) for source in sources]), as_list)
-        case CollectingInput(field=field, series=series, sources=sources):
+            if not outer_inputs:  # the graph a run is of: the caller gives the value
+                return node_input
+            return outer_inputs[graph._input_fields[address].name]
+        case EdgeInput(sources=sources, as_list=as_list):
+            return EdgeArgument(node_input, tuple([flat_edge(edge, not as_list) for edge in sources]))
+        case CollectingInput(series=series, sources=sources):
             looped_over = nodes_by_id[series.node_id].source_of(series.output)
-            return _collecting_argument(name, field, looped_over, tuple([flat_source(source, False) for source in sources]), functions)
+            return _collecting_argument(node_input, looped_over, tuple([flat_edge(edge, False) for edge in sources]), functions)
         case _:
             assert_never(node_input)
 
 
 def _collecting_argument(
-    name: str, field: Field, looped_over: tuple[FlatFunctionNode, str], sources: tuple[Edge, ...], functions: Mapping[str, FlatFunctionNode],
+    node_input: CollectingInput, looped_over: tuple[FlatFunctionNode, str], edges: tuple[Edge, ...], functions: Mapping[str, FlatFunctionNode],
 ) -> CollectingArgument:
     """Returns the argument for an input that collects one value per item of the list ``looped_over``. Used for
     a node's own input and for what ``run.results`` shows.
 
     Args:
-        name: The input's name.
-        field: The input's field.
+        node_input: The input as its own graph compiled it.
         looped_over: The list, as the function node that returns it and the output's name.
-        sources: What each edge reads for one item, each naming a function node by its name.
-        functions: The function nodes the sources name, by name.
+        edges: What each edge reads for one item, each naming a function node by its name.
+        functions: The function nodes the edges name, by name.
     """
     series_node, output = looped_over
-    loop_body = _loop_body_of(looped_over, [functions[source.node_id] for source in sources])
-    return CollectingArgument(name, field, OutputAddress(series_node.name, output), len(series_node.loops), sources, loop_body)
+    loop_body = _loop_body_of(looped_over, [functions[edge.node_id] for edge in edges])
+    return CollectingArgument(node_input, OutputAddress(series_node.name, output), len(series_node.loops), edges, loop_body)
 
 
 def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:
@@ -544,9 +506,9 @@ def _demands_more(argument: EdgeArgument | CollectingArgument) -> bool:
     """Whether ``argument`` is read by its node's edge door before each call: its input's type demands more than the
     outputs its edges read declare (``demands_more``)."""
     match argument:
-        case EdgeArgument(field=field, sources=sources, as_list=as_list):
-            return demands_more(field, [source.type for source in sources], per_item=as_list)
-        case CollectingArgument(field=field, sources=sources):
-            return demands_more(field, [source.type for source in sources], per_item=True)
+        case EdgeArgument(input=EdgeInput(field=field, as_list=as_list), edges=edges):
+            return demands_more(field, [edge.type for edge in edges], per_item=as_list)
+        case CollectingArgument(input=CollectingInput(field=field), edges=edges):
+            return demands_more(field, [edge.type for edge in edges], per_item=True)
         case _:
             assert_never(argument)
