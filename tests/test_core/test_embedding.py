@@ -343,7 +343,7 @@ def test_an_inner_input_a_hook_reads_is_set_inside_and_not_offered():
 def test_an_inner_graphs_problems_are_its_own_with_the_embedding_in_front():
     assert problems(mapped_with_problems("broken-inner")) == [("unknown_node", ("e", "x"))]
     described = mapped_with_problems("broken-inner").describe().nodes["e"]
-    assert not described.loaded and [p.loc for p in described.problems] == [("e", "x")]
+    assert not described.found and [p.loc for p in described.problems] == [("e", "x")]
 
 
 def mapped_with_problems(inner: str):

@@ -666,7 +666,7 @@ def test_an_editor_reads_every_node_of_a_half_broken_graph_and_which_ones_loaded
     }), REGISTRY)
     drawn = json.loads(graph.describe().model_dump_json())["nodes"]
     assert list(drawn) == ["a", "b", "c", "x"]
-    assert {node_id: d["loaded"] for node_id, d in drawn.items()} == {"a": True, "b": True, "c": True, "x": False}
+    assert {node_id: d["found"] for node_id, d in drawn.items()} == {"a": True, "b": True, "c": True, "x": False}
 
 
 def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
@@ -674,7 +674,7 @@ def _drawn(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, str], 
     outputs, and its problems."""
     described = graph.describe().nodes[node_id]
     return (
-        described.loaded, described.runs.msg if described.runs else None, {i.field.name: i.feed.mode for i in described.inputs},
+        described.found, described.runs.msg if described.runs else None, {i.field.name: i.feed.mode for i in described.inputs},
         [o.name for o in described.outputs], [p.type for p in described.problems],
     )
 

@@ -113,7 +113,7 @@ class CompiledGraph:
         Each node lists its own ``problems``, and ``problems`` beside the nodes lists every one. A node with a
         problem is drawn with its fields all the same, an input whose edge is refused fed ``unset``, and so is a
         node that reads it. A ``type_mismatch`` names the input in its ``loc``; a ``cycle`` and
-        ``series_not_nested`` name the node. Only a node whose fields aren't known is there with ``loaded``
+        ``series_not_nested`` name the node. Only a node whose fields aren't known is there with ``found``
         false and no fields, its problems saying why: an unknown node or version, an id no address can say, a
         graph that embeds itself, a hook that failed or wasn't called for a value it reads, a subgraph
         with problems of its own. A subgraph is one node, with the fields it offers; one with problems
@@ -125,10 +125,10 @@ class CompiledGraph:
             own = [p for p in self.problems if p.loc[:1] == (record.id,)]
             compiled_node = self._nodes.get(record.id)
             if compiled_node is None:
-                nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, loaded=False, problems=own)
+                nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, found=False, problems=own)
                 continue
             nodes[record.id] = GraphNodeDescription(
-                node=record.node, version=record.version, loaded=True, problems=own, runs=runs_on(compiled_node.loops),
+                node=record.node, version=record.version, found=True, problems=own, runs=runs_on(compiled_node.loops),
                 inputs=[NodeInputDescription(field=plan.field.description, feed=input_source_of(compiled_node.loops, plan)) for plan in compiled_node.inputs.values()],
                 outputs=compiled_node.described_outputs(),
             )

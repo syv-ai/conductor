@@ -72,7 +72,7 @@ class GraphNodeDescription(ConductorModel):
     Attributes:
         node: The id of the definition it uses.
         version: The version of that definition.
-        loaded: Whether its fields are known: its definition was found at its version and its hooks gave its
+        found: Whether its fields are known: its definition was found at its version and its hooks gave its
             fields. ``problems`` says why when they aren't.
         problems: The problems placed on it. A node whose fields are known may hold some: an input an edge is
             refused for is fed ``unset``.
@@ -83,7 +83,7 @@ class GraphNodeDescription(ConductorModel):
 
     node: str
     version: int
-    loaded: bool
+    found: bool
     problems: list[Problem]
     runs: RunsOn | None = None
     inputs: list[NodeInputDescription] = []
