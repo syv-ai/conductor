@@ -48,8 +48,10 @@ class Problem(ConductorModel):
                                 the second item. Inside a subgraph, the subgraph node and its item indexes
                                 come first: ``("loud", 1, "shout")``
     a run that stopped          ``()``, when no one call stopped it (a timeout, a cancel)
-    a refused call              what the call got wrong: ``("inputs", name)``, ``("saved_run",)``,
-                                ``("record", *steps)``, or a node and item indexes for an answer
+    a refused call              the argument the call got wrong: ``("inputs", name)`` for a graph input,
+                                ``("saved_run",)`` for a saved run, ``("record", *steps)`` for JSON given as a
+                                graph record and the steps to the fault in it, or the node and item indexes of
+                                the call an answer (``run.answer``) is for
     ==========================  ==============================================================================
 
     The input or output in a graph problem's ``loc`` may not exist: an edge to an output the node does not have is
@@ -103,9 +105,11 @@ class ProblemKind[**Params]:
         self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
+        # The message with "{key}" for each ctx value. A key that may be left out is not passed, so the function writes
+        # the message it writes when the key is absent.
         placeholders = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
         self.sentence = typing.cast("Callable[..., str]", write_message)(**placeholders)
-        self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # a type checker reads TypedDict's fields only from a literal
+        self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # fields built from the signature, which a type checker cannot follow
             **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
             **({"variant": Literal[variant]} if variant else {}),
         })

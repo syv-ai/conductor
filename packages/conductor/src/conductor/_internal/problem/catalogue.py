@@ -231,8 +231,8 @@ def invalid_value(node_id: str, field: str, *, reason: str, errors: list[dict[st
 
     ``reason`` says what the type refused, without quoting the value: a problem may be shown to anyone. ``errors`` is
     pydantic's list of what it refused, each a ``type``, ``loc`` and ``msg`` without the value, so a host can key on
-    ``greater_than_equal`` or ``bool_is_not_a_number``. Their ``loc`` goes only as far as the type names a place: an
-    index or a declared field, never a key of a dict.
+    ``greater_than_equal`` or ``bool_is_not_a_number``. The ``loc`` of each has only list indexes and the fields the
+    type declares, never a key of a dict, since a key is part of the value.
 
     Args:
         node_id: The node.

@@ -8,8 +8,11 @@ rules)::
     #         msg="its hooks read ['code'], and no value can be made up for them; give the node an example", ctx={"inputs": ["code"]})
 
 Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``. A developer reads them
-when a test fails; a host never gets one from a graph or a run, so they are not in ``PROBLEMS``. Each kind's
-docstring is its entry on the problems page, and its example runs after that page's setup, as the core's do.
+when a test fails; a host never gets one from a graph or a run, so they are not in ``PROBLEMS``, the catalogue of the
+problems a graph or a run reports. Some kinds share a code (``hook_failed``, ``upgrade_broken``, ``run_failed``): the
+decorator names the code, and each kind's message says which case it is. Each kind's docstring is its entry on the
+problems page (``python -m conductor.about problems``); its example runs after the setup at the top of that page, and
+a test checks it makes this kind of problem.
 """
 
 from __future__ import annotations
