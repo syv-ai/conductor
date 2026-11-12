@@ -66,18 +66,16 @@ if typing.TYPE_CHECKING:
 
 
 class EdgeArgument(NamedTuple):
-    """One argument a call of a flat function node reads through edges: ``EdgeArgument("line", shout_line, False)``
-    for ``shout(line: str)``, where ``shout_line`` is the ``EdgeInput`` that reads one item of ``lines.result``.
+    """One argument a call of a flat function node reads through edges: ``EdgeArgument("line", shout_line)`` for
+    ``shout(line: str)``, where ``shout_line`` is the ``EdgeInput`` that reads one item of ``lines.result``.
 
     Attributes:
         name: The parameter's name.
         input: The compiled input that says what the edges read.
-        accepts_none: Whether the parameter accepts ``None``.
     """
 
     name: str
     input: EdgeInput | CollectingInput
-    accepts_none: bool
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -338,7 +336,7 @@ def _add_flat_nodes(
                     collecting.setdefault(series, []).append((name, field.accepts_none_items))
                 case _:
                     assert_never(node_input)
-            edge_arguments.append(EdgeArgument(name, node_input, node_input.field.whole.optional))
+            edge_arguments.append(EdgeArgument(name, node_input))
             depth = len(node_input.loops)
             for upstream_node, shared_indexes in (*[(functions[node_id], min(read_depth, depth)) for node_id, read_depth in read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))

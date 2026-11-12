@@ -108,7 +108,7 @@ class ResultReader:
         none_input: str | None = None
         fault: RefusedError | None = None
         ready = True
-        for name, node_input, accepts_none in node.edge_arguments:
+        for name, node_input in node.edge_arguments:
             try:
                 value = node_input.value(self, item_indexes)
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
@@ -120,7 +120,7 @@ class ResultReader:
                 return Skipped(node.compiled_node.outputs_when_skipped)
             if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node
                 ready = False
-            elif value is None and none_input is None and not accepts_none:
+            elif value is None and none_input is None and not node_input.field.whole.optional:
                 none_input = name
             arguments[name] = value
         if not ready:
