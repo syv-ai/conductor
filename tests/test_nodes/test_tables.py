@@ -84,7 +84,7 @@ for _definition in (contacts, csv, tags, words, counts, nobody, sentence, send, 
     REGISTRY.add(_definition)
 
 
-def load(*nodes: Any, edges: list[tuple[str, str]], constants: dict[str, Any] | None = None):
+def compile_graph(*nodes: Any, edges: list[tuple[str, str]], constants: dict[str, Any] | None = None):
     return Graph.compile(make_graph(*nodes, edges=edges, constants=constants or {}), REGISTRY)
 
 
@@ -102,7 +102,7 @@ def columns_of(field) -> dict[str, Any]:
 
 
 def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
-    graph = load(contacts, series.split, edges=[("contacts.result", "series-split.value")])
+    graph = compile_graph(contacts, series.split, edges=[("contacts.result", "series-split.value")])
     described = output(graph, "series-split")
     assert graph.problems == [] and (described.is_series, described.type) == (True, "record")
     assert described.json_schema["properties"] == {
@@ -113,9 +113,9 @@ def test_split_gives_a_tables_records_typed_as_its_row_type_declares_them():
     ]
 
 
-def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_cell_is_blank_and_collect_keeps_the_record():
+def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_field_is_none_and_collect_keeps_the_record():
     SENT.clear()
-    graph = load(contacts, series.split, send, tables.collect, edges=[
+    graph = compile_graph(contacts, series.split, send, tables.collect, edges=[
         ("contacts.result", "series-split.value"), ("series-split.result.email", "send.email"),
         ("series-split.result", "table-collect.records"), ("send.result", "table-collect.sent"),
     ], constants={"table-collect.columns": ["sent"]})
@@ -130,29 +130,29 @@ def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_cell_i
 
 
 def test_split_gives_records_of_unknown_columns_for_a_table_of_any_and_a_field_of_one_is_read_when_it_arrives():
-    graph = load(csv, series.split, shout, edges=[("csv.result", "series-split.value"), ("series-split.result.name", "shout.text")])
+    graph = compile_graph(csv, series.split, shout, edges=[("csv.result", "series-split.value"), ("series-split.result.name", "shout.text")])
     assert graph.problems == [] and output(graph, "series-split").type == "Any"
     assert graph.run().results["shout"]["result"] == ["ANN", "BO"]
 
 
 def test_split_gives_a_lists_items_of_the_lists_own_type():
-    graph = load(tags, series.split, shout, edges=[("tags.result", "series-split.value"), ("series-split.result", "shout.text")])
+    graph = compile_graph(tags, series.split, shout, edges=[("tags.result", "series-split.value"), ("series-split.result", "shout.text")])
     assert graph.problems == [] and (output(graph, "series-split").is_series, output(graph, "series-split").type) == (True, "str")
     assert graph.runs_on["shout"].series == "series-split.result" and graph.run().results["shout"]["result"] == ["RED", "BLUE"]
 
 
-def test_a_list_typed_into_split_is_items_of_any_type():
-    graph = load(series.split, edges=[], constants={"series-split.value": ["a", 1]})
+def test_a_list_constant_on_split_gives_items_of_any_type():
+    graph = compile_graph(series.split, edges=[], constants={"series-split.value": ["a", 1]})
     assert output(graph, "series-split").type == "Any" and graph.run().results["series-split"]["result"] == ["a", 1]
 
 
 def test_what_is_neither_a_table_nor_a_list_is_a_type_mismatch_on_the_edge_into_split():
-    (problem,) = load(sentence, series.split, edges=[("sentence.result", "series-split.value")]).problems
+    (problem,) = compile_graph(sentence, series.split, edges=[("sentence.result", "series-split.value")]).problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("series-split", "value"), "str", "Table | list")
 
 
-def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
-    graph = load(contacts, series.split, one_row, series.stack, edges=[
+def test_stack_puts_the_tables_returned_per_item_into_one_table_of_their_row_type():
+    graph = compile_graph(contacts, series.split, one_row, series.stack, edges=[
         ("contacts.result", "series-split.value"), ("series-split.result", "one-row.contact"), ("one-row.result", "series-stack.tables"),
     ])
     assert graph.problems == [] and not output(graph, "series-stack").is_series and output(graph, "series-stack").type.startswith("Table") and set(columns_of(output(graph, "series-stack"))) == {"name", "email"}
@@ -160,15 +160,15 @@ def test_stack_puts_the_tables_made_per_item_into_one_table_of_their_row_type():
     assert stacked.to_dicts() == graph.run().results["contacts"]["result"].to_dicts()
 
 
-def test_collect_gives_the_values_made_per_item_as_one_list():
-    graph = load(series.split, text.uppercase, series.collect, edges=[
+def test_collect_gives_the_values_returned_per_item_as_one_list():
+    graph = compile_graph(series.split, text.uppercase, series.collect, edges=[
         ("series-split.result", "text-uppercase.text"), ("text-uppercase.result", "series-collect.values"),
     ], constants={"series-split.value": ["a", "b"]})
     assert graph.problems == [] and graph.run().results["series-collect"]["result"] == ["A", "B"]
 
 
 def test_collect_takes_the_type_of_the_values_it_collects():
-    graph = load(counts, series.collect, edges=[("counts.result", "series-collect.values")])
+    graph = compile_graph(counts, series.collect, edges=[("counts.result", "series-collect.values")])
     assert graph.problems == [] and output(graph, "series-collect").type == "int"
 
 
@@ -176,7 +176,7 @@ def test_collect_takes_the_type_of_the_values_it_collects():
 
 
 def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_column():
-    graph = load(contacts, series.split, send, sentence, tables.collect, edges=[
+    graph = compile_graph(contacts, series.split, send, sentence, tables.collect, edges=[
         ("contacts.result", "series-split.value"), ("series-split.result.email", "send.email"), ("series-split.result", "table-collect.records"),
         ("send.result", "table-collect.sent"), ("sentence.result", "table-collect.team"),
     ], constants={"table-collect.columns": ["sent"], "table-collect.constant_columns": ["team"]})
@@ -208,14 +208,14 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
 
 
 def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
-    graph = load(contacts, sentence, tables.collect, edges=[("contacts.result", "table-collect.records"), ("sentence.result", "table-collect.team")], constants={"table-collect.constant_columns": ["team"]})
+    graph = compile_graph(contacts, sentence, tables.collect, edges=[("contacts.result", "table-collect.records"), ("sentence.result", "table-collect.team")], constants={"table-collect.constant_columns": ["team"]})
 
     assert graph.problems == [] and list(columns_of(output(graph, "table-collect"))) == ["name", "email", "team"]
     assert graph.run().results["table-collect"]["result"]["team"].to_list() == ["one two"] * 3
 
 
 def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
-    graph = load(contacts, series.split, tables.collect, edges=[
+    graph = compile_graph(contacts, series.split, tables.collect, edges=[
         ("contacts.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("series-split.result.name", "table-collect.email"),
     ], constants={"table-collect.columns": ["email"]})
     (problem,) = graph.problems
@@ -231,14 +231,14 @@ def test_collect_refuses_a_new_column_that_a_table_of_any_columns_already_has_wh
     nodes: tuple[Any, ...], edges: list[tuple[str, str]], constants: dict[str, Any],
 ):
     """A bare ``Table``'s columns are known only when the node runs, so a new column with one of their names fails then."""
-    graph = load(*nodes, tables.collect, edges=edges, constants=constants)
+    graph = compile_graph(*nodes, tables.collect, edges=edges, constants=constants)
     assert graph.problems == []
     cause = graph.run().state.cause
     assert (cause.type, cause.loc, cause.ctx) == ("column_taken", ("table-collect",), {"column": "age"})
 
 
 def test_collect_refuses_a_column_named_twice():
-    graph = load(tables.collect, edges=[], constants={"table-collect.columns": ["team"], "table-collect.constant_columns": ["team"]})
+    graph = compile_graph(tables.collect, edges=[], constants={"table-collect.columns": ["team"], "table-collect.constant_columns": ["team"]})
     (problem,) = graph.problems
     assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"]) == ("compute_hook_failed", "column_named_twice", {"column": "team"})
 
@@ -262,7 +262,7 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     assert "'word' has 2 values" in cause.msg and f"{people} record" in cause.msg and "once for each of the same records" in cause.msg
 
 
-def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_per_record():
+def test_collect_says_where_a_value_returned_once_goes_when_it_is_wired_as_a_column_per_record():
     @_node("two-people")
     def two_people() -> Table[Contact]:
         return pl.DataFrame({"name": ["Ida", "Bo"], "email": [None, None]}, schema={"name": pl.String, "email": pl.String})
@@ -280,7 +280,7 @@ def test_collect_says_where_a_value_made_once_goes_when_it_is_wired_as_a_column_
 
 
 def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
-    graph = load(nobody, sentence, tables.collect, header, edges=[
+    graph = compile_graph(nobody, sentence, tables.collect, header, edges=[
         ("nobody.result", "table-collect.records"), ("sentence.result", "table-collect.team"), ("table-collect.result", "header.table"),
     ], constants={"table-collect.constant_columns": ["team"]})
     run = graph.run()
@@ -289,7 +289,7 @@ def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
 
 
 def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
-    graph = load(csv, series.split, shout, tables.collect, edges=[
+    graph = compile_graph(csv, series.split, shout, tables.collect, edges=[
         ("csv.result", "series-split.value"), ("series-split.result.name", "shout.text"), ("series-split.result", "table-collect.records"),
         ("shout.result", "table-collect.loud"),
     ], constants={"table-collect.columns": ["loud"]})
@@ -299,7 +299,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
 
 
 def test_collect_takes_records_only():
-    (problem,) = load(words, tables.collect, edges=[("words.result", "table-collect.records")]).problems
+    (problem,) = compile_graph(words, tables.collect, edges=[("words.result", "table-collect.records")]).problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("table-collect", "records"), "Series[str]", "Table")
 
 
@@ -307,9 +307,9 @@ def test_collect_takes_records_only():
 
 
 def test_text_list_gives_its_texts_once_and_once_per_item_of_what_is_wired_to_for_each():
-    alone = load(text.text_list, shout, edges=[("text-list.result", "shout.text")], constants={"text-list.items": ["a", "b"]})
+    alone = compile_graph(text.text_list, shout, edges=[("text-list.result", "shout.text")], constants={"text-list.items": ["a", "b"]})
     assert alone.runs_on["text-list"].mode == "once" and alone.run().results["shout"]["result"] == ["A", "B"]
-    inside = load(words, text.text_list, edges=[("words.result", "text-list.for_each")], constants={"text-list.items": ["x", "y", "z"]})
+    inside = compile_graph(words, text.text_list, edges=[("words.result", "text-list.for_each")], constants={"text-list.items": ["x", "y", "z"]})
     assert inside.runs_on["text-list"].series == "words.result"
     assert inside.run().results["text-list"]["result"] == [["x", "y", "z"], ["x", "y", "z"]]
 

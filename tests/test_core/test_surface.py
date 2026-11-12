@@ -2,7 +2,7 @@
 
 How the public objects print, what a problem and an event are as records,
 which errors a caller catches, that the reference's quick start runs as
-written, and that the library stands up with no host installed and holds
+written, and that the library imports with no host installed and uses
 none of a host's words.
 """
 
@@ -112,7 +112,7 @@ def test_a_registry_prints_its_nodes_each_as_its_own_repr():
     assert repr(registry) == f"<NodeRegistry of 2 nodes:\n    {greet!r}\n    {shout!r}\n>"
 
 
-def test_a_loaded_graph_prints_a_one_line_summary():
+def test_a_compiled_graph_prints_a_one_line_summary():
     registry = _registry()
 
     assert repr(Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale"}]}), registry)) == "<Graph of 1 node, runnable>"
@@ -201,7 +201,7 @@ def test_an_unknown_input_names_the_inputs_the_node_has():
     assert found.msg == "'s' has no input 'facter'; it has value, factor."
 
 
-def test_a_bad_typed_in_value_names_the_field_and_the_type_but_never_the_value():
+def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
     """A host streams problems to a browser, so what a person typed stays out of them."""
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "scale", "constants": {"value": 1.0, "factor": "seventy"}}]}), _registry())
 
@@ -312,7 +312,7 @@ def _strict(document: str | bytes) -> Any:
 
 
 def _streamed_events() -> list[Any]:
-    """The events of a real run whose outputs are a frame holding NaN and a float that is not finite."""
+    """The events of a real run whose output is a frame with NaN and a float that is not finite."""
     registry = NodeRegistry()
 
     @registry.node("frame", title="Frame", description="For a test.")
@@ -347,7 +347,7 @@ def _every_event() -> list[Any]:
     return [*streamed, *built]
 
 
-def test_a_node_complete_of_a_frame_holding_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
+def test_a_node_complete_of_a_frame_with_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
     by_node = {event.loc[0]: event for event in _streamed_events() if isinstance(event, NodeComplete)}
 
     assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "outcomes": 1, "not_called": 0, "reused": 0}
@@ -519,7 +519,7 @@ def test_english_and_other_libraries_words_are_not_a_host_word(line):
     assert _host_words_in(line) == []
 
 
-def test_a_problems_ctx_holds_lists_as_lists_and_its_message_writes_them():
+def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
     from conductor import NodeRegistry
 
     empty = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "x", "node": "read"}]}), NodeRegistry()).problems[0]

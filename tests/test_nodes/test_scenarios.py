@@ -1,5 +1,5 @@
 """Fourteen things an author builds with tables, lists and documents, each a graph of this package's nodes and a
-host's own: how many boxes it takes, what runs how often, and what comes out."""
+host's own: how many nodes it takes, how often each node is called, and what comes out."""
 
 from dataclasses import dataclass
 from io import StringIO
@@ -188,7 +188,7 @@ def answered(run: Any, yes: set[str]) -> Any:
     return run.answer({waiting.id: waiting.inputs["number"] in yes for waiting in run.waiting}).resume()
 
 
-# -- 1. per-invoice approval: 4 boxes -----------------------------------------------------------------------
+# -- 1. per-invoice approval: 4 nodes -----------------------------------------------------------------------
 
 
 def test_scenario_1_per_invoice_approval():
@@ -207,7 +207,7 @@ def test_scenario_1_per_invoice_approval():
     assert run.answer(run.waiting[0], False).resume().outputs == {"approved-total.result": 400.0}
 
 
-# -- 2 and 5. CSV, a model call per record, a summary; edit one record and run again: 4 boxes ---------------
+# -- 2 and 5. CSV, a model call per record, a summary; edit one record and run again: 4 nodes ---------------
 
 COMPLAINTS = "id,text,amount\n1,late delivery,10\n2,broken lid,20\n3,wrong colour,30\n"
 
@@ -240,7 +240,7 @@ def test_scenario_5_editing_one_record_calls_the_model_for_that_record_only():
     assert ASKED == [] and third.outputs == second.outputs  # only `text` reaches the model, so another amount calls nothing
 
 
-# -- 3. documents, their invoices, an Excel per document with the document's name on each line: 4 boxes -----
+# -- 3. documents, their invoices, an Excel per document with the document's name on each line: 4 nodes -----
 
 
 def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
@@ -279,7 +279,7 @@ def test_scenario_3_without_the_name_a_table_input_takes_the_invoices_of_each_do
     assert [(sheet.name, sheet.text.count("\n") - 1) for sheet in sheets] == [("a.pdf.xlsx", 2), ("c.pdf.xlsx", 3)]
 
 
-# -- 4. eleven contracts, each, all together, or both: 2, 2 and 3 boxes -------------------------------------
+# -- 4. eleven contracts, each, all together, or both: 2, 2 and 3 nodes -------------------------------------
 
 CONTRACTS = [File(name=f"{n}.pdf", text=f"contract {n}") for n in range(11)]
 
@@ -304,7 +304,7 @@ def test_scenario_4_each_contract_and_then_all_of_them():
     assert graph.run(files=CONTRACTS).outputs == {"llm-all.result": "Give an overview of 11 texts"} and len(ASKED) == 12
 
 
-# -- 6. documents, their lines, a count per document; b.pdf gives 0: 3 boxes --------------------------------
+# -- 6. documents, their lines, a count per document; b.pdf gives 0: 3 nodes --------------------------------
 
 
 def test_scenario_6_a_document_with_no_lines_counts_zero():
@@ -315,10 +315,10 @@ def test_scenario_6_a_document_with_no_lines_counts_zero():
     assert run.results["count"]["result"] == [2, 0, 3] and run.not_called == []
 
 
-# -- 7. CSV, a mail per contact, an Excel of everyone; Bo's email is blank: 5 boxes -------------------------
+# -- 7. CSV, a mail per contact, an Excel of everyone; Bo has no email: 5 nodes -------------------------
 
 
-@pytest.mark.parametrize("reader", [read_contacts, read_csv], ids=["a table whose email column may be blank", "a table of unknown columns"])
+@pytest.mark.parametrize("reader", [read_contacts, read_csv], ids=["a table whose email column may be null", "a table of unknown columns"])
 def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_excel(reader: Any):
     graph = Graph.compile(make_graph(reader, split, send_mail, collect, excel, edges=[
         (f"{reader.id}.result", "series-split.value"),
@@ -333,7 +333,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
     assert run.outputs["excel.result"].text == "name,email,sent\nAnn,ann@x.dk,sent to ann@x.dk\nBo,,\nCy,cy@x.dk,sent to cy@x.dk\n"
 
 
-# -- 8. invoices, an approval each, an Excel per document of the approved ones: 5 boxes ---------------------
+# -- 8. invoices, an approval each, an Excel per document of the approved ones: 5 nodes ---------------------
 
 
 def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
@@ -360,7 +360,7 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
     ]
 
 
-# -- 9. a branch per invoice and back together: 6 boxes -----------------------------------------------------
+# -- 9. a branch per invoice and back together: 6 nodes -----------------------------------------------------
 
 
 def test_scenario_9_a_branch_per_item_and_back_together_in_the_items_order():
@@ -377,7 +377,7 @@ def test_scenario_9_a_branch_per_item_and_back_together_in_the_items_order():
     assert run.results["review"]["result"] == [None, "review A2", None] and run.results["book"]["result"] == ["booked A1", None, "booked A3"]
 
 
-# -- 10. a person approves each invoice of each document; saved and resumed: 3 boxes ------------------------
+# -- 10. a person approves each invoice of each document; saved and resumed: 3 nodes ------------------------
 
 
 def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
@@ -397,10 +397,10 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     assert done.outputs == {"approve.result": [[True, True], [], [True, False, True]]}  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf
 
 
-# -- 11. a sub-graph per item: 3 boxes ------------------------------------------------------------------------
+# -- 11. a subgraph per item: 3 nodes ------------------------------------------------------------------------
 
 
-def test_scenario_11_a_sub_graph_per_item():
+def test_scenario_11_a_subgraph_per_item():
     enrich = subgraph("enrich", title="Enrich a contact", description="Looks a contact up and writes a greeting.")(
         make_graph(llm, constants={"llm.prompt": "Write a greeting for"})
     )
@@ -411,10 +411,10 @@ def test_scenario_11_a_sub_graph_per_item():
     assert graph.run(file=CONTACTS).outputs == {"enrich.llm.result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
 
 
-# -- 12. a sub-graph given the whole table: 2 boxes -----------------------------------------------------------
+# -- 12. a subgraph given the whole table: 2 nodes -----------------------------------------------------------
 
 
-def test_scenario_12_a_sub_graph_given_the_whole_table():
+def test_scenario_12_a_subgraph_given_the_whole_table():
     table_report = subgraph("table-report", title="Report on a table", description="Writes a report on a table.")(
         make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], constants={"llm.prompt": "Write a report on"})
     )
@@ -423,7 +423,7 @@ def test_scenario_12_a_sub_graph_given_the_whole_table():
     assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"table-report.llm.result": "Write a report on 3 lines of id, text, amount"}
 
 
-# -- 13. contacts and orders joined on a key: 3 boxes ---------------------------------------------------------
+# -- 13. contacts and orders joined on a key: 3 nodes ---------------------------------------------------------
 
 
 def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
@@ -440,7 +440,7 @@ def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
     ]
 
 
-# -- 14. each document by three typed questions: 3 boxes ------------------------------------------------------
+# -- 14. each document by three typed questions: 3 nodes ------------------------------------------------------
 
 QUESTIONS = ["Who are the parties?", "When does it end?", "What does it cost?"]
 

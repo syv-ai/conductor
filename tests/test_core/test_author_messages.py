@@ -147,7 +147,7 @@ def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_
     assert found.msg == "'report.table' needs the column 'amount' (float); 'read.result' has name, email. Add the column in a node between, or connect a table that has it."
 
 
-def test_records_gathered_without_a_column_the_table_input_names_say_the_same():
+def test_records_collected_without_a_column_the_table_input_names_say_the_same():
     found = problem({"read": "contacts", "records": "records", "report": "report"}, [("read.result", "records.table"), ("records.result", "report.table")])
     assert (found.ctx["variant"], found.ctx["column"], found.ctx["has"], found.ctx["source"]) == ("add_column", "amount", ["name", "email"], "records.result")
 

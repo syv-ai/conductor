@@ -4,7 +4,7 @@ The host names the class once, on the registry (``NodeRegistry(context_type=AppC
 of it for each run (``graph.run(context=AppContext(...))``). A node asks for it by its first parameter,
 ``def sign(ctx: Context[AppContext], text: str)``. Compiling checks that the registry's class has what each node
 asks for; starting a run checks that the object is of that class. The context is never saved with a run, and it
-plays no part in which earlier outcomes a run reuses.
+plays no part in which outcomes of the previous run a run reuses.
 """
 
 import asyncio

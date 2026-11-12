@@ -87,9 +87,9 @@ loud = subgraph("loud", title="Loud", description="For a test.")(make_graph(shou
 class Told:
     """A ``NodeEvents`` for one graph, told by node name what the scheduler would tell it, and the events it said.
 
-    The outcomes it is told about are those of a run of the graph made to its end first. ``finished`` names the
+    The outcomes it is told about are those of a run of the graph run to its end first. ``finished`` names the
     nodes that were complete when the run was last resumed: their outcomes are in the run before the
-    ``NodeEvents`` is made.
+    ``NodeEvents`` is created.
     """
 
     def __init__(self, record: GraphRecord, registry: NodeRegistry, finished: tuple[str, ...] = (), **inputs: Any) -> None:
@@ -116,7 +116,7 @@ class Told:
         self.record(name, *item_indexes)
 
     def reuse(self, name: str, *item_indexes: int) -> None:
-        """The call's outcome was taken from an earlier run, and recorded."""
+        """The call's outcome was reused from the previous run, and recorded."""
         self.node_events.outcome_reused(self.nodes[name])
         self.record(name, *item_indexes)
 
@@ -257,7 +257,7 @@ def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one
     ]
 
 
-def test_an_outcome_taken_from_an_earlier_run_starts_its_node_and_is_counted_as_reused():
+def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_as_reused():
     told = _lines_shout_join()
     told.call("lines")
     for index in range(3):

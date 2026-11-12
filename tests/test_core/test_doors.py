@@ -37,7 +37,7 @@ DOORS: dict[str, list[str]] = {
 }
 
 
-def test_the_package_holds_the_doors_and_one_private_directory():
+def test_the_package_has_only_the_public_modules_and_one_private_directory():
     package = ROOT / "packages" / "conductor" / "src" / "conductor"
     entries = {entry.name for entry in package.iterdir() if entry.name != "__pycache__"}
     assert entries == {"__init__.py", "widgets.py", "events.py", "testing", "about", "_internal", "py.typed"}

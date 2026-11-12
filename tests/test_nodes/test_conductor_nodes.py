@@ -10,7 +10,7 @@ from pytest import MonkeyPatch
 
 
 def _run(node_id: str, **values: Any) -> dict[str, Any]:
-    """One node of the registry in a graph, its inputs typed in, run to the end."""
+    """One node of the registry in a graph, its inputs given as constants, run to the end."""
     record = make_graph(conductor_nodes.registry[node_id], constants={f"{node_id}.{name}": value for name, value in values.items()})
     run = Graph.compile(record, conductor_nodes.registry).run()
     assert run.status == "complete", run.state
@@ -46,7 +46,7 @@ def test_a_node_gives_its_result(node_id: str, values: dict[str, Any], expected:
     assert _run(node_id, **values) == {"result": expected}
 
 
-def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_takes_the_series_made_for_its_own_item_whole() -> None:
+def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input_collects_only_its_own_items_series() -> None:
     graph = Graph.compile(make_graph(text.split, regex_ops.extract, text.join, edges=[
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
     ], constants={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}), conductor_nodes.registry)
@@ -56,16 +56,16 @@ def test_a_node_that_gives_many_values_makes_an_item_of_each_and_a_series_input_
     assert graph.run(text="a1,b2 3,c").outputs == {"text-join.result": ["1", "2, 3", ""]}
 
 
-def test_a_decision_sends_its_value_one_way_and_the_other_way_does_not_run() -> None:
+def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is_skipped() -> None:
     graph = Graph.compile(make_graph(control.decision, text.uppercase, edges=[("control-decide.if_true", "text-uppercase.text")]), conductor_nodes.registry)
 
     assert graph.exclusive_groups == {"control-decide": {"when": ["if_true", "if_false"]}}
-    taken = graph.run(value="hi", when=True)
-    assert taken.outputs == {"text-uppercase.result": "HI"} and taken.results["control-decide"] == {"if_true": "hi", "if_false": None}
+    chosen = graph.run(value="hi", when=True)
+    assert chosen.outputs == {"text-uppercase.result": "HI"} and chosen.results["control-decide"] == {"if_true": "hi", "if_false": None}
     assert graph.run(value="hi", when=False).outputs == {"text-uppercase.result": None}
 
 
-def test_a_decisions_outputs_take_the_type_that_arrives_on_its_value() -> None:
+def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:
     graph = Graph.compile(make_graph(text.length, control.decision, edges=[("text-length.result", "control-decide.value")]), conductor_nodes.registry)
 
     outputs = graph.describe().nodes["control-decide"].outputs
@@ -85,7 +85,7 @@ def test_a_failure_says_what_went_wrong_in_a_code_of_its_own(node_id: str, value
     assert run.status == "failed" and run.state.cause is not None and run.state.cause.type == code
 
 
-def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_fault_not_the_patterns() -> None:
+def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_error_not_the_patterns() -> None:
     record = make_graph(regex_ops.replace_all, constants={"regex-replace.text": "a", "regex-replace.pattern": "a", "regex-replace.replacement": r"\9"})
 
     cause = Graph.compile(record, conductor_nodes.registry).run().state.cause
@@ -113,8 +113,8 @@ def test_a_node_is_still_its_function() -> None:
     assert json_ops.get_path([1, 2, 3], "-1") == 3
 
 
-def test_text_a_number_or_parsed_json_feeds_a_json_value_and_a_json_null_is_written_as_null() -> None:
-    for maker, value in ((text.uppercase, "x"), (json_ops.parse, "null")):
-        graph = Graph.compile(make_graph(maker, json_ops.stringify, edges=[(f"{maker.id}.result", "json-stringify.value")]), conductor_nodes.registry)
+def test_text_or_parsed_json_can_be_wired_into_a_json_value_and_a_json_null_is_written_as_null() -> None:
+    for source, value in ((text.uppercase, "x"), (json_ops.parse, "null")):
+        graph = Graph.compile(make_graph(source, json_ops.stringify, edges=[(f"{source.id}.result", "json-stringify.value")]), conductor_nodes.registry)
         assert graph.problems == []
         assert graph.run(text=value).outputs == {"json-stringify.result": '"X"' if value == "x" else "null"}

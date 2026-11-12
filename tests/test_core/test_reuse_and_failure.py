@@ -1,9 +1,8 @@
-"""How a run fails and what ``run.again`` reuses: the behaviours a host's side effects rest on.
+"""How a run fails, and what ``run.again`` reuses from the previous run.
 
-A node's own failure is a ``Problem`` on the run, never an exception out of
-it; only the outside world's failure is retried, and a failure never quotes a
-value. ``again`` calls a node only for an item whose inputs differ from what an
-earlier unit of that node received, so a CSV edited on one row sends one mail.
+A node's own failure is a problem on the run, never an exception out of it; only an outside service's failure is
+retried, and a failure never quotes a value. ``again`` calls a node only for an item whose arguments differ from those
+of the node's call in the previous run, so a CSV edited on one row sends one mail.
 """
 
 import asyncio
@@ -43,13 +42,13 @@ from tests.test_core.nodes import place, registry_of
 
 
 def _alone(definition: Any, **values: Any) -> Any:
-    """A graph of one node, ``n``, with these values typed in."""
+    """A graph of one node, ``n``, with these constants."""
     return Graph.compile(GraphRecord(nodes=[NodeRecord(id="n", node=definition.id, constants=values)]), registry_of(definition))
 
 
 @node("each", title="Each", description="For a test.")
 def _each(items: list[str]) -> Series[str]:
-    """The caller's list as a Series, so what reads it runs once per item."""
+    """Returns the graph input list as a series, so a node wired to it is called once per item."""
     return items
 
 
@@ -66,9 +65,9 @@ def _events(run: Any, **kwargs: Any) -> list[Any]:
 # -- failures ---------------------------------------------------------------------
 
 
-def test_what_a_units_result_rests_on_names_its_scope_by_address_not_by_how_a_class_prints(monkeypatch: MonkeyPatch):
-    """A waiting id and a saved run hold the digest, so it is made of the scope's addresses as an author writes
-    them (``words.result``), whatever the engine's class for an address is called or prints as."""
+def test_a_code_fingerprint_names_a_loop_by_its_address_not_by_how_the_address_class_prints(monkeypatch: MonkeyPatch):
+    """A waiting call's id and a saved run contain the code fingerprint, so it names a node's loops by their
+    addresses as an author writes them (``words.result``), whatever the engine's address class prints."""
     from conductor._internal.compiled.input_plans import OutputAddress
 
     @node("words", title="Words", description="For a test.")
@@ -318,7 +317,7 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
     assert calls.count("a") == 1 and calls.count("b") == 2
 
 
-def test_a_cancelled_leg_keeps_what_it_finished_and_resuming_calls_none_of_it_again():
+def test_a_cancelled_run_keeps_the_calls_it_finished_and_resume_calls_none_of_them_again():
     calls: list[str] = []
 
     @node("split", title="Split", description="For a test.")
@@ -372,7 +371,7 @@ def _mails() -> tuple[Any, list[str]]:
     return graph, sent
 
 
-def test_a_changed_item_is_new_work_all_the_way_down_and_nothing_else_is():
+def test_a_changed_item_is_called_again_at_every_downstream_node_and_nothing_else_is():
     graph, sent = _mails()
     first = graph.run(items=["ida", "bo", "al"])
     sent.clear()
@@ -383,7 +382,7 @@ def test_a_changed_item_is_new_work_all_the_way_down_and_nothing_else_is():
     assert again.results["confirm"]["result"] == ["SENT IDA", "SENT BOB", "SENT AL"]
 
 
-def test_an_item_inserted_above_or_a_duplicate_taken_out_moves_the_rest_without_calls():
+def test_an_item_inserted_first_or_a_duplicate_taken_out_reuses_the_other_items():
     graph, sent = _mails()
     first = graph.run(items=["ida", "ida", "bo"])
     sent.clear()
@@ -407,7 +406,7 @@ def test_a_run_with_changed_inputs_streams_and_a_node_entirely_reused_says_how_m
     assert events[-1].run.results["confirm"]["result"] == ["SENT IDA", "SENT BO", "SENT AL"]
 
 
-def test_a_series_reordered_is_new_work_and_one_unchanged_is_not():
+def test_a_series_input_reordered_is_called_again_and_one_unchanged_is_reused():
     calls: list[list[str]] = []
 
     @node("join-texts", title="Join texts", description="For a test.")
@@ -424,7 +423,7 @@ def test_a_series_reordered_is_new_work_and_one_unchanged_is_not():
     assert calls == [["a", "b"], ["b", "a"]]
 
 
-def test_a_dict_given_again_in_another_key_order_is_the_same_work():
+def test_a_dict_given_again_in_another_key_order_is_reused():
     calls: list[Any] = []
 
     @node("take-mapping", title="Take mapping", description="For a test.")
@@ -439,7 +438,7 @@ def test_a_dict_given_again_in_another_key_order_is_the_same_work():
     assert calls == [{"a": 1, "b": 2}]
 
 
-def test_what_a_value_is_stays_apart_in_what_a_unit_received():
+def test_values_that_compare_equal_but_differ_in_type_are_never_reused_for_each_other():
     calls: list[Any] = []
 
     @node("echo-any", title="Echo any", description="For a test.")
@@ -485,7 +484,7 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
     assert len(calls) == 2
 
 
-def test_an_answer_stays_with_its_item_when_an_item_is_inserted_above_and_an_edited_item_asks_again():
+def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edited_item_asks_again():
     @node("approve", title="Approve", description="For a test.")
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
@@ -502,7 +501,7 @@ def test_an_answer_stays_with_its_item_when_an_item_is_inserted_above_and_an_edi
 
 
 def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_before():
-    """A column's check belongs to its field, so graphs loaded and dropped before never lend theirs."""
+    """Each output checks its own columns: a graph compiled and freed before never passes its column types to another."""
     import gc
     from datetime import date
     from typing import TypedDict
@@ -551,7 +550,7 @@ def _line_records(table: Table[_Line]) -> Series[_Line]:
     return table.to_dicts()
 
 
-def test_a_document_inserted_at_the_top_reads_only_the_new_document_and_its_lines_are_read_where_they_now_are():
+def test_a_document_inserted_first_is_the_only_one_read_and_the_others_lines_move_with_them():
     read: list[str] = []
     upper_calls: list[str] = []
 
@@ -613,7 +612,7 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
     return graph, filtered, counted
 
 
-def test_a_row_a_filter_drops_inserted_above_leaves_the_whole_table_reader_uncalled():
+def test_a_row_the_filter_drops_inserted_first_leaves_the_reader_of_the_filtered_table_uncalled():
     graph, filtered, counted = _filtered()
     first = graph.run(text="name,age\nida,30\nbo,40\n")
     filtered.clear()
@@ -625,7 +624,7 @@ def test_a_row_a_filter_drops_inserted_above_leaves_the_whole_table_reader_uncal
     assert again.outputs == {"n.result": "ida,bo"}
 
 
-def test_equal_tables_made_by_different_filters_are_the_same_work_for_the_reader_below():
+def test_equal_tables_from_two_filter_settings_reuse_the_downstream_reader():
     graph, filtered, counted = _filtered()
     first = graph.run(text="name,age\nida,30\nbo,40\n", min=2)
     counted.clear()
@@ -636,7 +635,7 @@ def test_equal_tables_made_by_different_filters_are_the_same_work_for_the_reader
     assert again.outputs == {"n.result": "ida,bo"}
 
 
-def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_document_is_inserted_above():
+def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_document_is_inserted_first():
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str]:
         return text.split(",")
@@ -662,7 +661,7 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
 
 
 @pytest.mark.parametrize("rows", ["a,b", "a,b,c,d", "x,y,z"], ids=["fewer", "more", "same-count"])
-def test_again_with_changed_items_above_an_embedded_graph_gives_its_inner_fixed_value_node_on_every_item(rows):
+def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constant_node_to_every_item(rows):
     @node("label", title="Label", description="For a test.")
     def label(prefix: str) -> str:
         return prefix + ":"
@@ -691,7 +690,7 @@ def test_again_with_changed_items_above_an_embedded_graph_gives_its_inner_fixed_
     assert again.results["t"]["pair.result"] == [f"p:{r}" for r in rows.split(",")]
 
 
-def test_an_input_filled_again_overrides_the_first_value_and_the_earlier_run_is_untouched():
+def test_an_input_given_again_overrides_the_first_value_and_the_previous_run_is_unchanged():
     graph, sent = _mails()
     first = graph.run(items=["ida"])
 
@@ -751,7 +750,7 @@ def test_a_sorted_csv_or_an_edit_to_a_column_nothing_reads_sends_no_mail_and_a_c
     assert sent == ["i@a.dk", "b@a.dk"] and new_body.results["m"]["result"] == ["hi i@a.dk", "hi b@a.dk"]
 
 
-def test_a_document_inserted_above_items_split_from_items_calls_only_the_new_items():
+def test_a_document_inserted_first_in_a_nested_loop_calls_only_its_own_items():
     calls: list[str] = []
 
     @node("words", title="Words", description="For a test.")
@@ -862,7 +861,7 @@ def test_a_third_run_reuses_what_the_second_had_itself_reused():
     assert sent == ["eva", "confirm sent eva"] and third.results["mail"]["result"][:2] == ["sent ida", "sent bo"]
 
 
-def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
+def test_again_cancelled_and_resumed_reuses_what_again_run_to_the_end_reuses():
     rng = Random(7)
     graph, sent = _mails()
     names = ["ida", "bo", "al", "eva", "kim"]
@@ -889,8 +888,9 @@ def test_a_cancelled_leg_between_two_runs_reuses_what_one_direct_leg_does():
         run, items = direct, edited
 
 
-def test_a_call_that_returned_skipped_is_a_result_and_is_not_made_again_live_or_through_json():
-    """A node that returned ``SKIPPED`` was called: ``again`` takes that as it takes any result, and what reads it is skipped on the later run as on the first."""
+def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_from_json():
+    """A node that returned ``SKIPPED`` was called: ``again`` reuses that outcome like any other, and the node
+    downstream of it is skipped again."""
     calls: list[str] = []
 
     @node("only-long", title="Only long", description="For a test.")
@@ -911,13 +911,13 @@ def test_a_call_that_returned_skipped_is_a_result_and_is_not_made_again_live_or_
 
     events = _events(first.with_inputs())
     again = events[-1].run
-    loaded_again = Run.from_json(first.to_json(), graph).again()
+    read_back_again = Run.from_json(first.to_json(), graph).again()
 
     assert calls == ["a", "abc", "b"]
     assert [(e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
-    assert again.results == first.results == loaded_again.results and first.not_called == []
+    assert again.results == first.results == read_back_again.results and first.not_called == []
     nothing_long = _events(graph.with_inputs(items=["a", "b"]))
-    assert [e.loc for e in nothing_long if e.type == "node_skipped"] == [("o",), ("s",)]  # every unit came to no value, called or not
+    assert [e.loc for e in nothing_long if e.type == "node_skipped"] == [("o",), ("s",)]  # every call ended with no value, whether the node was called or not
 
 
 def test_a_first_run_reports_no_reuse():
@@ -936,10 +936,10 @@ def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
     prepared = first.with_inputs(items=["ida", "bo"])
 
     assert prepared.status == "ready" and sent == []
-    assert prepared.results == {"each": {"result": None}, "mail": {"result": None}, "confirm": {"result": None}}  # no Series made yet: nothing so far
+    assert prepared.results == {"each": {"result": None}, "mail": {"result": None}, "confirm": {"result": None}}  # no series returned yet, so no results
 
 
-def test_a_typed_in_value_counts_as_its_type_writes_it_not_as_it_was_spelled():
+def test_an_input_is_compared_for_reuse_as_its_type_reads_it_so_2_and_2_0_are_one_float():
     calls: list[float] = []
 
     @node("half", title="Half", description="For a test.")
@@ -1058,7 +1058,7 @@ def test_identical_answered_items_keep_their_answers_in_order_when_they_all_move
     assert moved.results["a"]["result"] == [True, True, False] and moved.waiting == []
 
 
-def test_a_third_identical_item_is_asked_and_two_earlier_answers_cover_only_two_items():
+def test_a_third_identical_item_is_asked_and_two_previous_answers_cover_only_two_items():
     run = _answered(["bo", "bo"], [True, False])
 
     more = run.again(items=["bo", "bo", "bo"])
@@ -1088,7 +1088,7 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
     assert swapped.results["a"]["result"] == [[False, True], [True, False]] and swapped.waiting == []  # d2's lines, then d1's
 
 
-def test_identical_items_share_an_earlier_result_and_a_third_takes_it_without_a_call():
+def test_identical_items_share_one_outcome_and_a_third_reuses_it_without_a_call():
     calls: list[str] = []
 
     @node("echo", title="Echo", description="For a test.")
@@ -1106,7 +1106,7 @@ def test_identical_items_share_an_earlier_result_and_a_third_takes_it_without_a_
 def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_waits_and_mails_once():
     """A answered; B changes Bo and waits; C reverts to A's input: Bo keeps A's answer and is not mailed twice.
 
-    The node hadn't finished in B, so what it was carried and didn't take is still there.
+    The node was not complete in B, so the reusable outcome from A that B did not use is still there for C.
     """
     sent: list[str] = []
 
@@ -1133,7 +1133,7 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
     assert c.status == "complete" and c.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk"] and sent == []
 
 
-def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_not_reached():
+def test_an_edit_after_a_failed_run_still_reuses_the_outcomes_the_failed_run_had_not_reached():
     calls: list[str] = []
 
     @node("echo", title="Echo", description="For a test.")
@@ -1154,7 +1154,7 @@ def test_a_second_edit_after_a_failed_leg_still_reuses_what_the_failed_leg_had_n
     assert fixed.status == "complete" and calls == [] and fixed.results["e"]["result"] == ["A", "B", "C"]
 
 
-def test_work_a_finished_node_did_not_take_is_dropped_so_an_edit_undone_two_runs_later_calls_it_again():
+def test_an_outcome_a_complete_node_did_not_reuse_is_dropped_so_an_edit_undone_two_runs_later_calls_again():
     calls: list[str] = []
 
     @node("echo", title="Echo", description="For a test.")
@@ -1163,13 +1163,13 @@ def test_work_a_finished_node_did_not_take_is_dropped_so_an_edit_undone_two_runs
         return text.upper()
 
     graph = Graph.compile(GraphRecord(nodes=[_EACH, NodeRecord(id="e", node="echo")], edges=[("each.result", "e.text")]), registry_of(_each, echo))
-    second = graph.run(items=["a"]).again(items=["b"])  # echo finished on b: its unit for a is gone
+    second = graph.run(items=["a"]).again(items=["b"])  # echo is complete on b, so its outcome for a is dropped
     calls.clear()
 
     assert second.again(items=["a", "b"]).results["e"]["result"] == ["A", "B"] and calls == ["a"]
 
 
-def test_a_waiting_item_goes_on_waiting_at_its_new_place_with_no_new_question():
+def test_a_waiting_call_moves_with_its_item_and_is_not_asked_again():
     asked: list[str] = []
 
     @node("approve", title="Approve", description="For a test.")
@@ -1186,7 +1186,7 @@ def test_a_waiting_item_goes_on_waiting_at_its_new_place_with_no_new_question():
     assert asked == ["eva"] and [(place(w), w.inputs["name"]) for w in moved.waiting] == [("a@0", "eva"), ("a@1", "ida"), ("a@2", "bo")]
 
 
-def test_a_waiting_item_carried_through_a_cancelled_again_waits_at_its_new_place():
+def test_a_waiting_call_moves_with_its_item_through_a_cancelled_again():
     asked: list[str] = []
 
     @node("approve", title="Approve", description="For a test.", policy=Policy(concurrency=2))
@@ -1206,7 +1206,7 @@ def test_a_waiting_item_carried_through_a_cancelled_again_waits_at_its_new_place
     assert asked == ["eva"] and [w.inputs["name"] for w in resumed.waiting] == ["eva", "ida", "bo"]
 
 
-def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_naming_the_current_one_and_where_its_own_went():
+def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_question_there_and_where_its_own_went():
     @node("approve", title="Approve", description="For a test.")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
@@ -1217,15 +1217,15 @@ def test_an_answer_for_a_place_that_now_holds_another_question_is_answer_stale_n
     moved = first.again(items=["ida", "al", "bo"])
 
     with pytest.raises(InvalidCallError) as refused:
-        moved.answer(bo.id, True)  # bo's id names a@1, where al waits now
+        moved.answer(bo.id, True)  # bo's id names a@1, where al's question waits
     (problem,) = refused.value.errors()
     current = moved.waiting[1].id
     moved_to = moved.waiting[2].id  # bo's question waits at a@2
     assert (problem.type, problem.loc, problem.ctx) == ("answer_stale", ("a", 1), {"waiting_id": bo.id, "current": current, "moved_to": moved_to})
-    assert moved.answer("a@1", True).results["a"]["result"] == [None, True, None]  # a place alone answers what waits there
+    assert moved.answer("a@1", True).results["a"]["result"] == [None, True, None]  # an id without its question's fingerprint answers whatever waits at that call
 
 
-def test_a_changed_node_asks_again_with_its_new_prompt_and_its_old_unit_is_gone():
+def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_id():
     @node("approve", title="Approve", description="For a test.")
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
@@ -1244,7 +1244,7 @@ def test_a_changed_node_asks_again_with_its_new_prompt_and_its_old_unit_is_gone(
     assert [w.prompt for w in run.waiting] == ["Send to ida?"] and run.waiting[0].id != waiting.id
 
 
-def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_new_work_after_a_save():
+def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_again_on_a_saved_run():
     @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
         return text.upper()
@@ -1331,7 +1331,7 @@ def test_a_docstring_of_a_node_or_of_a_function_or_class_inside_it_is_not_part_o
     assert ids["with another message"] != ids["with docstrings"]
 
 
-def test_a_node_redeclared_with_only_another_docstring_is_reused_after_a_save_and_one_with_another_constant_is_called_again():
+def test_a_node_redeclared_with_another_docstring_is_reused_on_a_saved_run_and_with_another_constant_is_not():
     calls: list[str] = []
 
     @node("echo", title="Echo", description="For a test.")
@@ -1365,18 +1365,18 @@ def test_a_node_redeclared_with_only_another_docstring_is_reused_after_a_save_an
     (list[int], list[str], []),
     (Literal["a", "b"], Literal["a"], "a"),
 ], ids=["list-item", "literal-values"])
-def test_a_node_redeclared_under_its_id_and_version_with_the_same_code_and_another_type_is_new_work_after_a_save(before: Any, after: Any, given: Any):
+def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_again_on_a_saved_run(before: Any, after: Any, given: Any):
     calls: list[Any] = []
 
-    def made(value: Any) -> str:
+    def take(value: Any) -> str:
         calls.append(value)
-        return "made"
+        return "take"
 
     def declared(input_type: Any) -> Any:
-        made.__annotations__["value"] = input_type
-        return node("made", title="Made", description="For a test.")(made)
+        take.__annotations__["value"] = input_type
+        return node("take", title="Take", description="For a test.")(take)
 
-    record = GraphRecord(nodes=[NodeRecord(id="m", node="made")])
+    record = GraphRecord(nodes=[NodeRecord(id="m", node="take")])
     saved = Graph.compile(record, registry_of(declared(before))).run(value=given).to_json()
 
     Run.from_json(saved, Graph.compile(record, registry_of(declared(after)))).again(value=given)
@@ -1384,7 +1384,7 @@ def test_a_node_redeclared_under_its_id_and_version_with_the_same_code_and_anoth
     assert calls == [given, given]
 
 
-def test_a_node_redeclared_to_take_a_blank_is_called_for_the_blank_item_it_was_not_called_for_before():
+def test_a_node_redeclared_to_take_none_is_called_for_the_item_it_was_not_called_for():
     class Row(TypedDict):
         name: str
         email: str | None
@@ -1401,8 +1401,8 @@ def test_a_node_redeclared_to_take_a_blank_is_called_for_the_blank_item_it_was_n
     def send(email: str) -> str:
         return f"to {email}"
 
-    @node("send", title="Send blank", description="For a test.")
-    def send_blank(email: str | None) -> str:
+    @node("send", title="Send or none", description="For a test.")
+    def send_or_none(email: str | None) -> str:
         return f"to {email}"
 
     record = GraphRecord(
@@ -1411,12 +1411,12 @@ def test_a_node_redeclared_to_take_a_blank_is_called_for_the_blank_item_it_was_n
     )
     saved = Graph.compile(record, registry_of(rows, records, send)).run(text="x").to_json()
 
-    again = Run.from_json(saved, Graph.compile(record, registry_of(rows, records, send_blank))).again()
+    again = Run.from_json(saved, Graph.compile(record, registry_of(rows, records, send_or_none))).again()
 
     assert again.results["s"]["result"] == ["to i@a.dk", "to None"]
 
 
-def test_an_item_that_comes_back_before_an_identical_earlier_item_takes_its_earlier_work_once_that_item_has():
+def test_identical_items_finishing_out_of_order_after_forget_both_reuse_the_previous_outcome():
     calls: list[str] = []
 
     @node("a", title="A", description="For a test.", policy=Policy(concurrency=2))
@@ -1426,7 +1426,7 @@ def test_an_item_that_comes_back_before_an_identical_earlier_item_takes_its_earl
     @node("c", title="C", description="For a test.", policy=Policy(concurrency=2))
     def c(text: str) -> str:
         if text == "p":
-            time.sleep(0.3)  # the second item's inputs are made first
+            time.sleep(0.3)  # so the second item's arguments are ready first
         return "c"
 
     @node("b", title="B", description="For a test.")
@@ -1493,7 +1493,7 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
     assert [(p.type, p.loc) for p in refused.value.errors()] == [("node_not_in_graph", ("nope",))]
 
 
-def test_a_table_nothing_holds_after_forget_is_not_written():
+def test_a_forgotten_nodes_table_is_not_written_in_the_saved_run():
     @node("split", title="Split", description="For a test.")
     def split(text: str) -> Series[str]:
         return text.split(",")
@@ -1506,7 +1506,7 @@ def test_a_table_nothing_holds_after_forget_is_not_written():
     assert "s" not in written["outcomes"] and "s" not in written.get("reusable", {})
 
 
-def test_identical_answered_items_keep_their_answers_across_a_cancelled_leg_as_on_a_direct_one():
+def test_identical_answered_items_keep_their_answers_across_a_cancelled_again_as_across_one_to_the_end():
     run = _answered(["bo", "bo", "al"], [True, False, True])
     direct = run.again(items=["eva", "bo", "bo", "al"])
     cancel = AsyncioEvent()
@@ -1519,7 +1519,7 @@ def test_identical_answered_items_keep_their_answers_across_a_cancelled_leg_as_o
     assert [w.inputs for w in through.waiting] == [w.inputs for w in direct.waiting] == [{"name": "eva"}]
 
 
-def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and_is_refused_naming_the_node():
+def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_the_node():
     @node("count", title="Count", description="For a test.")
     def count(text: str) -> int:
         return len(text)
@@ -1541,8 +1541,8 @@ def test_a_save_of_a_node_redeclared_so_it_runs_per_other_items_does_not_fit_and
     assert [(p.type, p.ctx["where"]) for p in refused.value.errors()] == [("saved_run_unreadable", "outcomes.c")]
 
 
-def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_finished_first():
-    """Item 1's upstream finishes before item 0's, so item 1 is tried first; it still takes the second earlier answer."""
+def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_finished_first():
+    """Item 1's upstream call finishes before item 0's, so item 1 is tried first; it still reuses the second answer."""
     from threading import Event as ThreadEvent
 
     first_done = ThreadEvent()
@@ -1572,8 +1572,8 @@ def test_identical_items_take_earlier_answers_in_item_order_whatever_thread_fini
         assert again.results["a"]["result"] == [True, False] and again.waiting == []
 
 
-def test_again_keeps_every_waiting_question_when_an_earlier_item_waits_on_a_person_above():
-    """split → ask_a → ask_b; a@0 still waits, b@1 and b@2 wait: ``again`` with the same inputs keeps all three, calling nothing."""
+def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and_calls_nothing():
+    """split -> ask_a -> ask_b; a@0 waits, b@1 and b@2 wait: ``again`` with the same inputs keeps all three and calls nothing."""
     calls: list[str] = []
 
     @node("split", title="Split", description="For a test.")
@@ -1615,16 +1615,16 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
     def b(y: str) -> int:
         return 1
 
-    box = subgraph("emb", title="Emb", description="For a test.")(make_graph(a, b, edges=[]))
+    box = subgraph("sub", title="Sub", description="For a test.")(make_graph(a, b, edges=[]))
     graph = Graph.compile(make_graph(box), registry_of(a, b, box))
     run = graph.run(x="q", y="w")
 
-    assert graph.outputs == ["emb.a.result", "emb.b.result"]
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("emb", "a"), "result")
+    assert graph.outputs == ["sub.a.result", "sub.b.result"]
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("sub", "a"), "result")
 
 
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
-    """What a finished node was carried and didn't take is dropped, so ``again`` doesn't keep every generation."""
+    """A complete node drops the reusable outcomes it did not reuse, so the saved run does not keep every previous run's."""
 
     class Line(TypedDict):
         name: str
@@ -1656,8 +1656,8 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
     assert run.status == "complete" and max(sizes) - min(sizes) < 100, sizes
 
 
-def test_an_edited_graph_takes_an_earlier_runs_work_for_the_nodes_the_edit_left_as_they_were():
-    """The author changes the last node's prompt: its items run again, the 300 calls above it do not."""
+def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit_left_unchanged():
+    """The author changes the last node's prompt: its 300 calls run again, the 300 calls upstream of it do not."""
     calls: list[str] = []
 
     @node("enrich", title="Enrich", description="For a test.")
@@ -1712,11 +1712,10 @@ def test_again_and_with_inputs_take_an_input_by_its_address_as_graph_run_does():
     assert [p.type for p in refused.value.errors()] == ["input_given_twice"]
 
 
-def test_a_unit_made_under_another_limit_or_other_choices_is_never_taken():
-    """What a unit's result rests on includes what each field's type refuses: an input whose limit or choices
-    changed reads the same value another way, so earlier work on it is called again and the edge value is held to
-    the limit the graph has."""
-    made: list[int] = []
+def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused():
+    """Reuse compares input types too: an input whose limit or choices changed may refuse the same value, so the node
+    is called again and the value on the edge is checked against the limit of the graph that runs."""
+    called: list[int] = []
 
     @node("give", title="Give", description="For a test.")
     def give(n: int) -> int:
@@ -1725,7 +1724,7 @@ def test_a_unit_made_under_another_limit_or_other_choices_is_never_taken():
     def graph_taking(hint: object):
         @node("take", title="Take", description="For a test.")
         def take(n: hint) -> int:  # type: ignore[valid-type]
-            made.append(n)
+            called.append(n)
             return n
 
         record = GraphRecord(nodes=[NodeRecord(id="g", node="give"), NodeRecord(id="t", node="take")], edges=[("g.result", "t.n")])
@@ -1733,10 +1732,10 @@ def test_a_unit_made_under_another_limit_or_other_choices_is_never_taken():
 
     loose = graph_taking(Annotated[int, Param(ge=0)])
     first = loose.run(n=3)
-    assert first.status == "complete" and made == [3]
+    assert first.status == "complete" and called == [3]
 
     same = graph_taking(Annotated[int, Param(ge=0, title="N")]).with_inputs(n=3, previous=first).resume()
-    assert same.status == "complete" and made == [3]  # a title changes nothing that is read
+    assert same.status == "complete" and called == [3]  # a title changes nothing that is read
 
     tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, previous=first).resume()
     assert tight.status == "failed" and tight.state.cause.type == "invalid_edge_value"

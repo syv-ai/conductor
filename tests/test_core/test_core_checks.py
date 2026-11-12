@@ -1,4 +1,4 @@
-"""The core's rules through the public door: registry, ids, reuse, answers, drawings, items, embedding, upgrades.
+"""The core's rules through the public API: registry, ids, reuse, answers, graph records, items, subgraphs, upgrades.
 
 The invoice graph reads a CSV, asks a person to approve each big amount, and
 sums the decisions; ``calls`` records which nodes were called, so a test can
@@ -131,8 +131,8 @@ def test_answer_stays_with_its_item_on_again():
         edges=[["each.result.name", "approve.name"], ["each.result.amount", "approve.amount"], ["approve.result", "summary.decisions"]],
     )), invoicing)
     run, _ = calls(lambda: graph.run(text=CSV))
-    for unit in run.waiting:
-        run = run.answer(unit, "yes")
+    for waiting_call in run.waiting:
+        run = run.answer(waiting_call, "yes")
     run, _ = calls(run.resume)
     edited = CSV.replace("Ida,ida@a.dk,100", "Ida,ida@a.dk,200").replace("Al,al@c.dk,7000", "Al,al@c.dk,8000")
     again, called = calls(lambda: run.again(text=edited))
@@ -145,12 +145,12 @@ def test_answer_stays_with_its_item_on_again():
         assert error.errors()[0].type == "invalid_answer"
 
 
-def test_half_finished_drawing():
-    drawing = invoices_then(
+def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to_run():
+    record = invoices_then(
         {"id": "approve", "node": "approve"}, {"id": "mystery", "node": "gone"}, {"id": "rep", "node": "repeat", "constants": {"times": -1}},
         edges=[["each.result.name", "approve.name"], ["each.result.nope", "rep.text"], ["ghost.result", "approve.amount"]],
     )
-    graph = Graph.compile(GraphRecord.model_validate(drawing), invoicing)
+    graph = Graph.compile(GraphRecord.model_validate(record), invoicing)
     found = sorted((p.type, p.loc) for p in graph.problems)
     assert found == [("edge_names_missing_node", ("approve", "amount")), ("invalid_value", ("rep", "times")), ("unknown_node", ("mystery",)),
                      ("unknown_output", ("rep", "text"))], found
@@ -168,7 +168,7 @@ def test_half_finished_drawing():
         assert error.errors()[0].type == "missing_input"
 
 
-def test_every_fault_of_one_node_is_said_at_once():
+def test_every_problem_of_one_node_is_reported_at_once():
     later = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "repeat"}], "edges": [["a.result", "b.times"]]}), registry)
     assert [(p.type, p.loc) for p in later.problems] == [("unbound_on_later_node", ("b", "text")), ("type_mismatch", ("b", "times"))]
     unbound = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "join"}, {"id": "c", "node": "repeat"}],
@@ -176,7 +176,7 @@ def test_every_fault_of_one_node_is_said_at_once():
     assert "type_mismatch" in [p.type for p in unbound.problems]
 
 
-def test_nested_series_gather_one_level_at_a_time():
+def test_nested_loops_are_collected_one_level_at_a_time():
     # documents -> lines -> per-line upper -> per-document join; the lines read whole are a list per document too.
     record = {"nodes": [{"id": "docs", "node": "split", "constants": {"sep": ";"}}, {"id": "lines", "node": "split"},
                         {"id": "up", "node": "upper"}, {"id": "per_doc", "node": "join"}, {"id": "all", "node": "join"}],
@@ -188,7 +188,7 @@ def test_nested_series_gather_one_level_at_a_time():
     }
     run = graph.run(text="a,b;c;")
     assert run.results["per_doc"]["result"] == ["A+B", "C", ""], run.results["per_doc"]
-    assert run.results["all"]["result"] == ["a+b", "c", ""]  # a Series input sits where its Series was made
+    assert run.results["all"]["result"] == ["a+b", "c", ""]  # a node collecting lines is inside the loop over docs, as lines is
 
 
 def test_items_of_two_series_at_one_node_are_refused():
@@ -207,7 +207,7 @@ def test_items_of_two_series_at_one_node_are_refused():
     assert "Wire 'a.result' into 'b'" in graph.problems[0].msg
 
 
-def test_branches_and_blanks():
+def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     @node("pick", title="Pick", description="For a test.")
     def pick(long: str | None = None, short: str | None = None) -> str:
         return long or short
@@ -219,14 +219,14 @@ def test_branches_and_blanks():
     run = graph.run(text="abcd,ab,xyzzy")
     assert run.results["L"]["result"] == ["ABCD", None, "XYZZY"]
     assert run.results["J"]["result"] == "ABCD+XYZZY"
-    assert run.results["both"]["result"] == "ABCD+ab+XYZZY"  # opposite branches of one decision gather in item order
-    blank = Graph.compile(GraphRecord.model_validate(invoices_then({"id": "mail", "node": "mail"}, edges=[["each.result.email", "mail.email"]])), registry_of(read_csv, each_invoice, mail))
-    run = blank.run(text="name,email,amount\nIda,ida@a.dk,1\nBo,,2\n")
+    assert run.results["both"]["result"] == "ABCD+ab+XYZZY"  # the two branches of one node are collected in item order
+    with_none = Graph.compile(GraphRecord.model_validate(invoices_then({"id": "mail", "node": "mail"}, edges=[["each.result.email", "mail.email"]])), registry_of(read_csv, each_invoice, mail))
+    run = with_none.run(text="name,email,amount\nIda,ida@a.dk,1\nBo,,2\n")
     assert run.status == "complete" and run.results["mail"]["result"] == ["sent to ida@a.dk", None]
     assert run.not_called == [NotCalled(loc=("mail", 1), input="email")]
 
 
-def test_one_value_gathers_as_a_series_of_one_and_a_list_given_for_one_value_is_refused():
+def test_one_value_is_collected_as_a_series_of_one_and_a_list_given_for_one_value_is_refused():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "up", "node": "upper"}, {"id": "j", "node": "join"}], "edges": [["up.result", "j.texts"]]}), registry)
     assert graph.run(text="a").outputs == {"j.result": "A"}
     with pytest.raises(InvalidCallError) as refused:
@@ -244,7 +244,7 @@ def test_max_items():
     assert done.status == "complete" and len(called) == 50
 
 
-def test_embedded_graph_and_versions():
+def test_an_upgraded_subgraph_keeps_the_address_of_its_last_inner_node():
     """The second version keeps the id of its last node, so what read ``e.tail.result`` still does."""
     enrich_v1 = make_graph(upper, tail)
     enrich_v2 = {"nodes": [{"id": "lower", "node": "lower"}, {"id": "dot", "node": "tail"}, {"id": "tail", "node": "tail"}], "edges": [["lower.result", "dot.text"], ["dot.result", "tail.text"]]}
@@ -259,7 +259,7 @@ def test_embedded_graph_and_versions():
     assert set(graph._nodes) == {"e", "u"}
 
 
-def test_an_upgrade_moves_an_edge_reading_an_embeddings_output_to_the_address_the_newer_version_gives_it():
+def test_an_upgrade_moves_an_edge_reading_a_subgraphs_output_to_the_address_the_newer_version_gives_it():
     v1 = subgraph("enrich", description="For a test.", title="Enrich")(make_graph(upper, tail))
     v2 = subgraph("enrich", title="Enrich", description="For a test.", replaces=v1, upgrade=Upgrade(renamed_outputs={"tail.result": "tail-2.result"}))(make_graph(lower, tail, tail))
     reg = registry_of(upper, lower, tail, v2)
@@ -353,7 +353,7 @@ def test_concurrency():
     assert t.monotonic() - start < 0.2 and len(seen) > 1 and run.results["w"]["result"] == list("abcdefgh")
 
 
-def test_again_paused_saved_and_resumed_keeps_earlier_items():
+def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
     @node("gate", title="Gate", description="For a test.")
     def gate(name: str, email: str) -> str:
         if name.startswith("B"):

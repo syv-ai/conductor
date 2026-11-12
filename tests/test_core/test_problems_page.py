@@ -47,15 +47,15 @@ def _store_setup() -> str:
     return "\n".join(re.findall(r"```python\n(.*?)```", section, re.S))
 
 
-def _made_by(kind: ProblemKind[...], problem: Problem) -> bool:
+def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
     """Whether ``problem`` is of ``kind``: its code and variant, and a message the kind's sentence writes."""
     if (problem.type, problem.ctx.get("variant")) != (kind.code, kind.variant):
         return False
     if kind.code in _MESSAGE_IS_THE_NODES:
         return True
     pattern = re.escape(kind.sentence)
-    for slot in re.findall(r"\\\{\w+\\\}", pattern):
-        pattern = pattern.replace(slot, ".*")
+    for placeholder in re.findall(r"\\\{\w+\\\}", pattern):
+        pattern = pattern.replace(placeholder, ".*")
     return re.fullmatch(pattern, problem.msg, re.S) is not None
 
 
@@ -77,7 +77,7 @@ def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], 
     exec(compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"), page.__dict__)  # noqa: S102
     made = eval(compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__)  # noqa: S307
     made = made if isinstance(made, list) else [made]
-    assert made and [problem for problem in made if not _made_by(kind, problem)] == []
+    assert made and [problem for problem in made if not _is_of_kind(kind, problem)] == []
 
 
 def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:

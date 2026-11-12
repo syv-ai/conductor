@@ -1,4 +1,4 @@
-"""Events and pipelining, Policy, hooks, a host's own types, exclusive groups and describe(), through the public door."""
+"""Events and pipelining, ``Policy``, hooks, a host's own types, branches (``exclusive_group``) and ``describe()``."""
 import asyncio
 import base64
 import json
@@ -94,17 +94,18 @@ def boom(text: str) -> str:
 reg = registry_of(split, upper, join, slow, slow2, gate, never, boom)
 
 
-def chain(*ids, gather=None):
+def chain(*ids, then_join=None):
+    """A graph record of these nodes, each wired to the next one's ``text``; with ``then_join``, a ``join`` collects the last."""
     nodes = [{"id": i, "node": i} for i in ids]
     edges = [[f"{a}.result", f"{b}.text"] for a, b in zip(ids, ids[1:])]
-    if gather:
+    if then_join:
         nodes.append({"id": "join", "node": "join"})
         edges.append([f"{ids[-1]}.result", "join.texts"])
     return {"nodes": nodes, "edges": edges}
 
 
 def test_events_in_order():
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "upper", gather=True)), reg)
+    graph = Graph.compile(GraphRecord.model_validate(chain("split", "upper", then_join=True)), reg)
     events = collect(graph.with_inputs(text="a,b,c"))
     kinds = [e.type for e in events]
     assert kinds[0] == "run_start" and kinds[-1] == "run_end" and events[-1].status == "complete", kinds
@@ -125,7 +126,7 @@ def test_concurrency_eight_items_in_one_sleep():
 
 def test_pipelining_two_slow_nodes():
     """16 items through two slow nodes of 8 at once: node by node is 4 sleeps, pipelined 3."""
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "slow", "slow2", gather=True)), reg)
+    graph = Graph.compile(GraphRecord.model_validate(chain("split", "slow", "slow2", then_join=True)), reg)
     start = t.monotonic()
     run = graph.run(text=",".join("abcdefghijklmnop"))
     took = t.monotonic() - start
@@ -198,7 +199,7 @@ def test_cancel_and_timeout():
     assert len(events[-1].run._outcomes["slow"]) < 24
 
 
-def test_gather_per_document_while_items_run():
+def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
     """documents -> lines -> slow per line -> per-document join: each document gets its own lines."""
 
     @node("docs", title="Docs", description="For a test.")
@@ -219,9 +220,9 @@ class Flaky(OSError):
     pass
 
 
-def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_waits_with_a_timeout(monkeypatch: MonkeyPatch):
-    """CPython 3.12's ``SimpleQueue.get(timeout=)`` can stay in the call for ever when it is the first look at an
-    empty queue, so a leg that waits for a retry never makes one: every timed wait follows a look that found nothing."""
+def test_a_run_waiting_for_a_retry_looks_at_its_queue_without_blocking_before_each_timed_wait(monkeypatch: MonkeyPatch):
+    """CPython 3.12's ``SimpleQueue.get(timeout=)`` can block for ever when it is the first look at an empty queue,
+    so a run that waits for a retry would never retry: every timed wait follows a look that found nothing."""
     looks: list[str] = []
 
     class Watched(SimpleQueue[Any]):
@@ -245,7 +246,7 @@ def test_a_leg_waiting_on_a_timer_looks_at_its_queue_without_waiting_before_it_w
 
 
 @pytest.mark.timeout(10)
-@pytest.mark.parametrize("policy", [Policy(), Policy(concurrency=2)], ids=["on the leg's thread", "on a pool thread"])
+@pytest.mark.parametrize("policy", [Policy(), Policy(concurrency=2)], ids=["on the run's thread", "on a pool thread"])
 def test_an_exit_a_node_raises_ends_the_run_with_it_wherever_the_node_is_called(policy: Policy):
     @node("leave", title="Leave", description="For a test.", policy=policy)
     def leave(text: str) -> str:
@@ -256,7 +257,7 @@ def test_an_exit_a_node_raises_ends_the_run_with_it_wherever_the_node_is_called(
 
 
 @pytest.mark.timeout(10)
-@pytest.mark.parametrize("policy", [Policy(), Policy(concurrency=2)], ids=["on the leg's thread", "on a pool thread"])
+@pytest.mark.parametrize("policy", [Policy(), Policy(concurrency=2)], ids=["on the run's thread", "on a pool thread"])
 def test_a_defect_in_an_output_types_own_check_ends_the_run_with_it_wherever_the_node_is_called(policy: Policy):
     def explode(value: str) -> str:
         raise RuntimeError("the type's own check has a bug")
@@ -380,7 +381,7 @@ def half(x: float) -> float:
     return x / 2
 
 
-def test_added_inputs_from_typed_value():
+def test_added_inputs_follow_the_formula_constant():
     reg3 = registry_of(number, formula)
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "n", "node": "number"}, {"id": "f", "node": "formula", "constants": {"formula": "{a} * 10 + {b}", "b": 2}}],
                        "edges": [["n.result", "f.a"]]}), reg3)
@@ -392,7 +393,7 @@ def test_added_inputs_from_typed_value():
     assert [p.type for p in broken.problems] == ["unknown_input"], broken.problems
 
 
-def test_outputs_typed_by_what_arrives():
+def test_computed_outputs_take_the_type_that_arrives_on_their_input():
     reg3 = registry_of(split, number, route, half, upper)
     graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "split"}, {"id": "n", "node": "number"}, {"id": "r", "node": "route", "constants": {"cases": ["3"]}},
                                  {"id": "h", "node": "half"}],
@@ -535,7 +536,7 @@ def test_an_edge_into_a_type_alias_or_a_literal_takes_what_its_values_may_be(sou
         assert graph.run(text="x").status == "complete"
 
 
-def test_a_json_null_is_a_value_of_a_json_input_and_never_a_blank():
+def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():
     run = _edge(parse_json, show_json).run(text="null")
 
     assert run.outputs == {"b.result": "null"} and run.not_called == []
@@ -590,7 +591,7 @@ def test_two_series_on_opposite_branches_refused():
 
 
 
-def test_describe_for_a_palette_and_a_drawing():
+def test_a_registrys_description_has_each_nodes_policy_hooks_branches_and_the_types_each_type_accepts():
     reg7 = registry_of(count, double, attach, size, formula, route, decide, slow)
     palette = json.loads(reg7.describe().model_dump_json())
     nodes = {n["id"]: n for n in palette["nodes"]}
@@ -600,14 +601,14 @@ def test_describe_for_a_palette_and_a_drawing():
     assert "number" in types["integer"] and "integer" not in types["number"], types
 
 
-def test_a_drawing_describes_the_added_inputs_of_a_node_one_of_which_nothing_feeds_yet():
+def test_a_compiled_graph_describes_a_nodes_added_inputs_with_one_that_no_edge_reaches():
     reg7 = registry_of(count, formula)
-    drawing = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "constants": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]}), reg7)
-    placed = json.loads(drawing.describe().model_dump_json())["nodes"]
-    assert [f["field"]["name"] for f in placed["f"]["inputs"]] == ["formula", "a", "b"], placed["f"]
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "c", "node": "count"}, {"id": "f", "node": "formula", "constants": {"formula": "{a}+{b}"}}], "edges": [["c.result", "f.a"]]}), reg7)
+    described = json.loads(graph.describe().model_dump_json())["nodes"]
+    assert [f["field"]["name"] for f in described["f"]["inputs"]] == ["formula", "a", "b"], described["f"]
 
 
-def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_not_vanish():
+def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its_node():
     def added(n: int) -> dict[str, Any]:
         return {f"x{i}": str for i in range(n)}
 
@@ -622,7 +623,8 @@ def test_a_hook_reading_a_value_nobody_typed_in_is_a_problem_and_its_node_does_n
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
 def test_a_hook_naming_a_field_with_a_character_of_an_address_is_a_problem_as_a_node_id_is(name: str):
-    """A field name is held to the node id's rule: none of the characters addresses, locs and waiting ids use."""
+    """An output name follows the node id rule: not empty, and none of the characters that addresses, locs and
+    waiting ids use."""
     @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {name: str})
     def dotted() -> Mapping[str, Any]:
         return {name: "x"}
@@ -633,7 +635,7 @@ def test_a_hook_naming_a_field_with_a_character_of_an_address_is_a_problem_as_a_
     assert [(p.type, p.loc) for p in Graph.compile(GraphRecord.model_validate({"nodes": [{"id": name, "node": "dotted"}]}), registry_of(dotted)).problems] == [("invalid_node_id", (name,))]
 
 
-def test_a_timed_out_or_cancelled_leg_keeps_the_calls_already_on_threads():
+def test_a_timed_out_run_keeps_the_calls_already_on_threads():
     sent: list[str] = []
 
     @node("mail4", title="Mail4", description="For a test.", policy=Policy(concurrency=4))
@@ -727,10 +729,10 @@ def test_the_last_progress_of_a_node_is_always_said():
     assert progress[-1] == (3000, 3000)
 
 
-# -- a subgraph's nodes are reused as they would be drawn in the graph itself --------------
+# -- a subgraph's inner nodes are reused as they would be in the outer graph itself --------------
 
 
-def test_again_with_one_of_an_embeddings_inputs_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():
+def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():
     from conductor import GraphRecord, NodeRecord
 
     calls = {"mark": 0, "confirm": 0}

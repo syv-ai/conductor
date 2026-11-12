@@ -55,7 +55,7 @@ assert results["first-row"]["result"]["region"].to_list() == ["north"]
 assert results["rows"]["result"] == 1
 """
 
-_AN_EMBEDDED_GRAPH = """
+_A_SUBGRAPH = """
 from conductor import Graph, NodeRegistry, make_graph, node, subgraph
 
 
@@ -129,7 +129,7 @@ def _programs() -> dict[str, str]:
     return {
         "readme.py": "".join(re.findall(r"```python\n(.*?)```", _README.read_text(), re.S)),
         "a_frame_in_and_out.py": _A_FRAME_IN_AND_OUT,
-        "an_embedded_graph.py": _AN_EMBEDDED_GRAPH,
+        "a_subgraph.py": _A_SUBGRAPH,
         "a_table_keeps_its_row_type.py": _A_TABLE_KEEPS_ITS_ROW_TYPE,
         "docs_custom_widget.py": next(block for block in re.findall(r"```python\n(.*?)```", _WRITING_NODES.read_text(), re.S) if "(Widget):" in block),
     }

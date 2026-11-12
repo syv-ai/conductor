@@ -135,7 +135,7 @@ def test_an_id_that_is_no_word_or_is_one_of_conductors_own_fails_at_the_class_st
     assert _refused(build).code == "type_declaration_invalid"
 
 
-def test_accepts_that_holds_something_other_than_classes_fails_at_the_class_statement() -> None:
+def test_accepts_given_something_other_than_classes_fails_at_the_class_statement() -> None:
     def build() -> None:
         @host_type("thing", title="Thing", accepts=["celsius"])  # type: ignore[list-item]
         class Thing(BaseModel):
