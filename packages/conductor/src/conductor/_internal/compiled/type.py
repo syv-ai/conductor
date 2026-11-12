@@ -72,7 +72,7 @@ class CompiledGraph:
     #: Each graph input as a run keeps it, by address.
     _input_fields: dict[str, InputField]
     #: The nodes that read each node.
-    _readers: dict[str, list[CompiledNode]]
+    _downstream: dict[str, list[CompiledNode]]
     #: The nodes with a ``Context`` parameter, a subgraph's too, as ``context_values`` reads them.
     _needs_context: list[tuple[str, FunctionDefinition[..., Any]]]
 
@@ -90,7 +90,7 @@ class CompiledGraph:
     @functools.cached_property
     def outputs(self) -> list[str]:
         """The outputs of the nodes nothing reads, as addresses."""
-        return [f"{p.id}.{o}" for p in self._nodes.values() if not self._readers[p.id] for o in p.outputs]
+        return [f"{p.id}.{o}" for p in self._nodes.values() if not self._downstream[p.id] for o in p.outputs]
 
     @property
     def runs_on(self) -> dict[str, RunsOn]:

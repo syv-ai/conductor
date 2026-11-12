@@ -109,41 +109,41 @@ class _Compiler:
         definitions: The newest version of each node definition, by id.
         inside_subgraphs: The ids of the subgraph definitions this record is inside, outermost first, so a
             subgraph that contains itself is found.
-        alone: Each subgraph compiled so far. Every compiler made for one ``compile_graph`` call shares it, so
+        compiled_subgraphs: Each subgraph compiled so far. Every compiler made for one ``compile_graph`` call shares it, so
             a subgraph used twice is compiled once.
         problems: The problems found so far.
         nodes: Each node compiled so far, by id.
-        opened: Each graph input found so far, with its field, in the order found.
+        graph_inputs: Each graph input found so far, with its field, in the order found.
         position: Each node's index in the record.
     """
 
-    def __init__(self, definitions: Mapping[str, NodeDefinition], inside_subgraphs: tuple[str, ...], alone: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
-        self.definitions, self.inside_subgraphs, self.alone = definitions, inside_subgraphs, alone
+    def __init__(self, definitions: Mapping[str, NodeDefinition], inside_subgraphs: tuple[str, ...], compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], CompiledGraph]) -> None:
+        self.definitions, self.inside_subgraphs, self.compiled_subgraphs = definitions, inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
-        self.opened: list[tuple[GraphInput, Field]] = []
+        self.graph_inputs: list[tuple[GraphInput, Field]] = []
         self.position: dict[str, int] = {}
 
     def compile[GraphT: CompiledGraph](self, record: GraphRecord, graph_type: type[GraphT]) -> GraphT:
         """Returns ``record`` compiled, as a ``graph_type``. It never raises for a wrong record: the graph has
         the problems, and every node whose inputs and outputs could be worked out."""
-        refused = {n.id for n in record.nodes if not is_node_id(n.id)}
-        self.problems += [problem.invalid_node_id(node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in refused]
+        invalid_ids = {n.id for n in record.nodes if not is_node_id(n.id)}
+        self.problems += [problem.invalid_node_id(node_id) for node_id in dict.fromkeys(n.id for n in record.nodes) if node_id in invalid_ids]
         known: dict[str, NodeRecord] = {}
         twice: set[str] = set()
         for node_record in record.nodes:
             if node_record.id in known:
                 twice.add(node_record.id)
-            elif node_record.id not in refused:
+            elif node_record.id not in invalid_ids:
                 known[node_record.id] = node_record
         self.problems += [problem.duplicate_node_id(node_id) for node_id in sorted(twice)]
         self.position = {node_id: i for i, node_id in enumerate(known)}
-        into: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in known}
+        edges_into: dict[str, dict[str, list[str]]] = {node_id: {} for node_id in known}
         seen: set[tuple[str, str]] = set()
         for source, target in record.edges:
             node_id, name = split_address(target)
             source_id = split_address(source)[0]
-            if source_id in refused or node_id in refused:
+            if source_id in invalid_ids or node_id in invalid_ids:
                 continue  # its own invalid_node_id says why
             if (source, target) in seen:
                 self.problems.append(problem.repeated_edge(node_id, name, source=source))
@@ -153,20 +153,20 @@ class _Compiler:
             if missing:
                 self.problems.append(problem.edge_names_missing_node(node_id, name, missing=missing[0], source=source, target=target))
             if node_id in known:  # the input is drawn as fed, whether or not its source exists
-                into[node_id].setdefault(name, []).append(source)
-        ordered = self._order(list(known), into)
+                edges_into[node_id].setdefault(name, []).append(source)
+        ordered = self._order(list(known), edges_into)
         for node_id in ordered:
             match self._resolve(known[node_id]):
                 case FunctionDefinition() as function:
-                    self._compile_function_node(known[node_id], function, into[node_id])
+                    self._compile_function_node(known[node_id], function, edges_into[node_id])
                 case SubgraphDefinition() as graph:
-                    self._compile_subgraph_node(known[node_id], graph, into[node_id])
+                    self._compile_subgraph_node(known[node_id], graph, edges_into[node_id])
                 case None:
                     pass
-        names = [field.name for _, field in self.opened]
+        names = [field.name for _, field in self.graph_inputs]
         inputs: dict[str, GraphInput] = {}
         input_fields: dict[str, InputField] = {}
-        for graph_input, field in self.opened:
+        for graph_input, field in self.graph_inputs:
             name = field.name if names.count(field.name) == 1 else graph_input.address
             inputs[name] = graph_input
             input_fields[graph_input.address] = InputField(name, graph_input.address, field)
@@ -189,14 +189,14 @@ class _Compiler:
             return None
         return newest.version_of(record.version)
 
-    def _order(self, order: list[str], into: dict[str, dict[str, list[str]]]) -> list[str]:
+    def _order(self, order: list[str], edges_into: dict[str, dict[str, list[str]]]) -> list[str]:
         """The nodes with each after what its edges read, ties in the record's order.
 
         A node on a cycle is a problem. The first of a cycle's nodes in the record is placed before the node
         whose edge closes the cycle, so that edge brings it nothing, and the rest follow in order.
         """
         position = self.position
-        reads = {n: frozenset({split_address(s)[0] for sources in into[n].values() for s in sources} & position.keys()) for n in order}
+        reads = {n: frozenset({split_address(s)[0] for sources in edges_into[n].values() for s in sources} & position.keys()) for n in order}
         downstream: dict[str, list[str]] = {n: [] for n in order}
         for n, sources in reads.items():
             for source in sources:
@@ -278,9 +278,9 @@ class _Compiler:
             return
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
-        if key not in self.alone:
-            self.alone[key] = _Compiler(self.definitions, stack, self.alone).compile(definition.graph, CompiledGraph)
-        inner = self.alone[key]
+        if key not in self.compiled_subgraphs:
+            self.compiled_subgraphs[key] = _Compiler(self.definitions, stack, self.compiled_subgraphs).compile(definition.graph, CompiledGraph)
+        inner = self.compiled_subgraphs[key]
         if inner.problems:
             self.problems += [problem.model_copy(update={"loc": (record.id, *problem.loc)}) for problem in inner.problems]
             return
@@ -288,8 +288,8 @@ class _Compiler:
         outputs: dict[str, Field] = {}
         for address in inner.outputs:
             node_id, output = split_address(address)
-            at = inner._nodes[node_id]
-            field = at.outputs[output]
+            inner_node = inner._nodes[node_id]
+            field = inner_node.outputs[output]
             group = field.param.exclusive_group
             if group:  # a decision inside is this node's, named by where it is made
                 field = Field(field.name, Annotated[field.hint, Param(exclusive_group=f"{node_id}.{group}")], field.default)
@@ -339,8 +339,8 @@ class _Compiler:
             if name in edges:
                 if name in record.constants or name in record.defaults:
                     self.problems.append(problem.constant_and_edge(record.id, name))
-                source_kind = sources[name]
-                inputs[name] = InputMissing(field) if source_kind is None else self._plan_from_edges(record.id, field, source_kind)
+                edge_sources = sources[name]
+                inputs[name] = InputMissing(field) if edge_sources is None else self._plan_from_edges(record.id, field, edge_sources)
             elif name in record.constants:
                 inputs[name] = _constant_plan(field, constants[name])
             elif first and name not in constant_at_compile:
@@ -349,8 +349,8 @@ class _Compiler:
                     inputs[name] = InputMissing(field)
                     continue
                 address = f"{record.id}.{name}"
-                opened = field if default is field.default else Field(name, field.hint, default)  # the record's default is the caller's
-                self.opened.append((GraphInput(address=address, node_id=record.id, field=opened.description), opened))
+                caller_field = field if default is field.default else Field(name, field.hint, default)  # the record's default is the caller's
+                self.graph_inputs.append((GraphInput(address=address, node_id=record.id, field=caller_field.description), caller_field))
                 inputs[name] = InputFromGraphInput(field, address)
             elif name in record.defaults:
                 self.problems.append(problem.default_on_later_node(record.id, name))
@@ -360,11 +360,11 @@ class _Compiler:
                 inputs[name] = InputMissing(field)
             else:
                 inputs[name] = InputConstant(field, field.default)
-        for name in self._never_meet(record.id, inputs):
+        for name in self._inputs_with_conflicting_edges(record.id, inputs):
             inputs[name] = InputMissing(fields[name])
         loops = max((plan.loops for plan in inputs.values()), key=len, default=())
         for name, plan in inputs.items():
-            if isinstance(plan, InputCollectsLoopResults) and (made_in := plan.sources[0].loops_of_value) == loops[: len(made_in)] and not any(s.item for s in plan.sources):
+            if isinstance(plan, InputCollectsLoopResults) and (source_loops := plan.sources[0].loops_of_value) == loops[: len(source_loops)] and not any(s.item for s in plan.sources):
                 # its source makes one value where the node runs, for another input's sake: that one, never every item's
                 inputs[name] = InputWrapsOneValue(plan.field, plan.sources)
         for name, plan in inputs.items():
@@ -511,26 +511,26 @@ class _Compiler:
         source = self.nodes.get(source_id)
         if source is None:  # a node whose fields aren't known, one placed later on a cycle, or none: its own problem says why
             return None
-        output, _, expected = rest.partition(".")
+        output, _, record_field = rest.partition(".")
         if output not in source.outputs:  # a subgraph's output: the longest part of the address that names one
             output = next((declared for declared in source.outputs if rest == declared or rest.startswith(f"{declared}.")), "")
-            expected = rest[len(output) + 1 :]
+            record_field = rest[len(output) + 1 :]
         field = source.outputs.get(output)
         if field is None:
             self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs]))
             return None
-        if expected and (split := _split_gives(field.type)):  # a table or a list is one value: only an item of a Series has a field to wire
+        if record_field and (split := _split_gives(field.type)):  # a table or a list is one value: only an item of a Series has a field to wire
             self.problems.append(problem.unknown_output_split_first(
-                node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=expected,
+                node_id, name, source=address, outputs=[f"{source_id}.{o}" for o in source.outputs], record_field=record_field,
                 whole=split[0], fields=split[1],
             ))
             return None
-        sources = _field_type(field.type, expected) if expected else field.type
-        if sources is None:
+        read_type = _field_type(field.type, record_field) if record_field else field.type
+        if read_type is None:
             fields = [f"{source_id}.{output}.{f}" for f in field.type.fields]
-            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=expected or None))
+            self.problems.append(problem.unknown_output(node_id, name, source=address, outputs=fields, record_field=record_field or None))
             return None
-        return EdgeSource(source_id, output, source.loops_around(output), expected or None, sources, item=field.is_series)
+        return EdgeSource(source_id, output, source.loops_around(output), record_field or None, read_type, item=field.is_series)
 
     def _edge_order(self, source: EdgeSource) -> tuple[int, int, str]:
         """Where an edge into an input falls among several: its node's place in the record, then the output's in its node."""
@@ -542,7 +542,7 @@ class _Compiler:
         """The branches that must be chosen for the output ``source`` reads to have a value."""
         return self.nodes[source.node_id].branches_required_for(source.output)
 
-    def _never_meet(self, node_id: str, inputs: Mapping[str, InputPlan]) -> set[str]:
+    def _inputs_with_conflicting_edges(self, node_id: str, inputs: Mapping[str, InputPlan]) -> set[str]:
         """Finds the inputs whose edges cannot be read together, and adds a problem for each.
 
         Several edges into one input must be alternatives. Each pair must need different outputs of one
@@ -558,9 +558,9 @@ class _Compiler:
         """
         refused: set[str] = set()
         for name, plan in inputs.items():
-            behind = [self._branches_required_for(s) for s in plan.sources]
+            branches = [self._branches_required_for(s) for s in plan.sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in plan.sources))
-            if not all(_opposed(a, b) for i, a in enumerate(behind) for b in behind[i + 1:]):
+            if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
                 self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in plan.sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
@@ -571,9 +571,9 @@ class _Compiler:
             (name, [self._branches_required_for(s) for s in plan.sources]) for name, plan in inputs.items()
             if isinstance(plan, InputCollectsLoopResults) and not plan.field.accepts_none_items and name not in refused
         ]
-        for i, (a, behind_a) in enumerate(aligned):
-            for b, behind_b in aligned[i + 1:]:
-                if all(_opposed(x, y) for x in behind_a for y in behind_b):
+        for i, (a, branches_a) in enumerate(aligned):
+            for b, branches_b in aligned[i + 1:]:
+                if all(_never_together(x, y) for x in branches_a for y in branches_b):
                     self.problems.append(problem.lists_from_different_loops(node_id, inputs=[a, b]))
                     refused.update((a, b))
         return refused
@@ -589,8 +589,8 @@ class _Compiler:
         for plan in inputs.values():
             if not plan.sources:
                 continue
-            behind = [self._branches_required_for(s) for s in plan.sources]
-            shared = behind[0].intersection(*behind[1:])
+            branches = [self._branches_required_for(s) for s in plan.sources]
+            shared = branches[0].intersection(*branches[1:])
             if isinstance(plan, InputCollectsLoopResults):
                 shared = frozenset(branch for branch in shared if branch.depth <= len(plan.loops))
             required_branches |= shared
@@ -620,11 +620,11 @@ def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[EdgeSource] |
     """
     bound: dict[TypeVar, Any] = {}
     for name, field in fields.items():
-        source_kind = sources.get(name)
-        if not field.whole.variables or not source_kind:
+        edge_sources = sources.get(name)
+        if not field.whole.variables or not edge_sources:
             continue
-        expected = _collects_and_expected_type(field, source_kind)[1]
-        for source in source_kind:
+        expected = _collects_and_expected_type(field, edge_sources)[1]
+        for source in edge_sources:
             for variable, hint in (expected.fits(source.type) or {}).items():
                 bound[variable] = bound[variable] | hint if variable in bound else hint
     return bound
@@ -665,9 +665,9 @@ def _mismatch(node_id: str, field: Field, source: EdgeSource) -> Problem:
     return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 
-def _constant_plan(field: Field, constants: Any) -> InputConstant | InputMissing:
+def _constant_plan(field: Field, value: Any) -> InputConstant | InputMissing:
     """The plan of an input holding a typed-in value, as its field read it."""
-    return InputMissing(field) if constants is _INVALID else InputConstant(field, constants)
+    return InputMissing(field) if value is _INVALID else InputConstant(field, value)
 
 
 def _field_type(record: Type, name: str) -> Type | None:
@@ -693,7 +693,7 @@ def _hint_and_default(given: Any) -> tuple[Any, Any]:
     return given, REQUIRED
 
 
-def _opposed(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
+def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
     """Whether two sets of branches never hold together: one decision goes one way for ``a`` and another for ``b``."""
     return any(x[:2] == y[:2] and x.output != y.output for x in a for y in b)
 
