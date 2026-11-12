@@ -115,6 +115,57 @@ class _AnswerOrder:
     passed: set[ItemIndexes] = field(default_factory=set)
 
 
+@dataclass(slots=True)
+class _Attempt:
+    """One try of one call that runs on a thread or may be retried.
+
+    Attributes:
+        node: The node that is called.
+        item_indexes: Which call of the node it is.
+        arguments: The arguments of the call.
+        number: 0 for the first try of the call, 1 for its first retry.
+    """
+
+    node: FlatFunctionNode
+    item_indexes: ItemIndexes
+    arguments: dict[str, Any]
+    number: int
+
+
+@dataclass(slots=True)
+class _Returned:
+    """What a thread hands back when a node's function has returned or raised.
+
+    Attributes:
+        attempt: The try that was made.
+        outputs: The node's outputs by name, or None when ``error`` is set.
+        error: What the function raised, or None.
+    """
+
+    attempt: _Attempt
+    outputs: Any
+    error: BaseException | None
+
+
+@dataclass(slots=True, order=True)
+class _Timer:
+    """Something the scheduler does at a set time. Timers sort by ``when``, then by ``order``.
+
+    Attributes:
+        when: The ``time.monotonic()`` at which it is due.
+        order: A counter, so two timers due at the same time are taken in the order they were set.
+        kind: ``"retry"``: make ``attempt``. ``"deadline"``: ``attempt`` is on a thread, and its ``attempt_timeout`` runs out.
+        attempt: The try to make, or the try that times out.
+        seconds: How long after it was set it is due.
+    """
+
+    when: float
+    order: int
+    kind: Literal["retry", "deadline"] = field(compare=False)
+    attempt: _Attempt = field(compare=False)
+    seconds: float = field(compare=False)
+
+
 class Scheduler:
     """One leg over the units of a run, which it records into.
 
@@ -158,14 +209,14 @@ class Scheduler:
         self.collectors: set[tuple[FlatFunctionNode, ItemIndexes]] = set()
         self.running: dict[tuple[FlatFunctionNode, ItemIndexes], dict[str, Any]] = {}  # units handed to threads, and their inputs
         self.attempts: dict[tuple[FlatFunctionNode, ItemIndexes], int] = {}  # the attempt each unit on a thread is on
-        #: Each node's units waiting for a thread: (instance, what it received, attempt).
-        self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[tuple[ItemIndexes, dict[str, Any], int]]] = defaultdict(deque)
+        #: Each node's tries waiting for a thread, first come first.
+        self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[_Attempt]] = defaultdict(deque)
         #: How many of each node's calls are on threads, which its ``concurrency`` bounds.
         self.on_threads: defaultdict[FlatFunctionNode, int] = defaultdict(int)
-        #: What came back from threads: a call's (node, instance, attempt, outputs, what went wrong), or what ``call`` itself raised.
-        self.returned: SimpleQueue[tuple[FlatFunctionNode, ItemIndexes, int, Any, BaseException | None] | BaseException] = SimpleQueue()
-        #: (when, order, what is due, node, instance, attempt): a retry of the attempt, or the deadline of the attempt on a thread.
-        self.timers: list[tuple[float, int, Literal["retry", "deadline"], FlatFunctionNode, ItemIndexes, int, float]] = []
+        #: What came back from threads: a try with its outputs or its error, or what ``call`` itself raised.
+        self.returned: SimpleQueue[_Returned | BaseException] = SimpleQueue()
+        #: The retries to make and the deadlines of the tries on threads, as a heap: the first is due first.
+        self.timers: list[_Timer] = []
         self.timer_order = itertools.count()
         self.pool: ThreadPoolExecutor | None = None
         #: For a node taking a person's earlier answers, how far through its units in order the leg has tried.
@@ -231,16 +282,16 @@ class Scheduler:
         """
         self.state, self.going = state, False
         for node, waiting in self.waiting_for_thread.items():
-            for item_indexes, _, _ in waiting:
-                self.running.pop((node, item_indexes), None)
+            for attempt in waiting:
+                self.running.pop((node, attempt.item_indexes), None)
             waiting.clear()
-        for _, _, due, node, item_indexes, _, _ in self.timers:
-            if due == "retry":
-                self.running.pop((node, item_indexes), None)
+        for timer in self.timers:
+            if timer.kind == "retry":
+                self.running.pop((timer.attempt.node, timer.attempt.item_indexes), None)
 
     def _wait(self) -> None:
         """Wait for a thread to come back, a timer to fire, or the next look at ``stop``."""
-        timeout = self.timers[0][0] - time.monotonic() if self.timers else None
+        timeout = self.timers[0].when - time.monotonic() if self.timers else None
         if self.stop is not None:
             timeout = 0.05 if timeout is None else min(timeout, 0.05)
         try:
@@ -257,30 +308,29 @@ class Scheduler:
                     returned = self.returned.get(timeout=timeout)
             if isinstance(returned, BaseException):
                 raise returned
-            self._returned(*returned)
+            self._returned(returned)
         except Empty:
             pass
         now = time.monotonic()
-        while self.timers and self.timers[0][0] <= now:
-            _, _, due, node, item_indexes, attempt, seconds = heapq.heappop(self.timers)
-            self._due(due, node, item_indexes, attempt, seconds)
+        while self.timers and self.timers[0].when <= now:
+            self._due(heapq.heappop(self.timers))
 
-    def _after(self, seconds: float, due: Literal["retry", "deadline"], node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int) -> None:
-        """Set a timer: the retry of an attempt, or the deadline of the attempt on a thread."""
-        heapq.heappush(self.timers, (time.monotonic() + seconds, next(self.timer_order), due, node, item_indexes, attempt, seconds))
+    def _after(self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt) -> None:
+        """Set a timer ``seconds`` from now: the retry ``attempt``, or the deadline of ``attempt``, which is on a thread."""
+        heapq.heappush(self.timers, _Timer(time.monotonic() + seconds, next(self.timer_order), kind, attempt, seconds))
 
     def _start_waiting_calls(self, node: FlatFunctionNode) -> None:
         """Put the node's waiting units on threads, as far as its ``concurrency`` allows."""
         waiting, policy = self.waiting_for_thread[node], node.policy
         while waiting and self.on_threads[node] < policy.concurrency and self.going:
-            item_indexes, arguments, attempt = waiting.popleft()
+            attempt = waiting.popleft()
             self.on_threads[node] += 1
-            self.attempts[(node, item_indexes)] = attempt
+            self.attempts[(node, attempt.item_indexes)] = attempt.number
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(self.threads, "conductor")
             if policy.attempt_timeout is not None:
-                self._after(policy.attempt_timeout, "deadline", node, item_indexes, attempt)
-            self.pool.submit(self._on_thread, node, item_indexes, arguments, attempt)
+                self._after(policy.attempt_timeout, "deadline", attempt)
+            self.pool.submit(self._on_thread, attempt)
 
     def _checkpoint(self) -> None:
         """Hand the listener a copy of the run as it stands, and set when the next is due."""
@@ -363,7 +413,7 @@ class Scheduler:
             if self.emit:
                 self._announce(node)
             if policy.threaded or policy.retries:
-                self._attempt(node, item_indexes, arguments, 0, trying_every_call)
+                self._make(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
             else:
                 self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context)), trying_every_call)
 
@@ -398,68 +448,75 @@ class Scheduler:
                 if node.loops and node in self.progress_said:
                     self._progress(node, last=True)
 
-    def _attempt(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, trying_every_call: bool = False) -> None:
+    def _make(self, attempt: _Attempt, trying_every_call: bool = False) -> None:
+        """Make one try of a call: on the spot for a node that is not called on threads, else on a thread as soon as
+        the node's ``concurrency`` allows."""
+        node, item_indexes, arguments = attempt.node, attempt.item_indexes, attempt.arguments
         if not node.policy.threaded:
             out, error = call(node, arguments, self.context)
-            if not self._retry(node, item_indexes, arguments, attempt, error):
-                if attempt:
+            if not self._retry(attempt, error):
+                if attempt.number:
                     self.running.pop((node, item_indexes), None)
                 self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error), trying_every_call)
             return
         self.running[(node, item_indexes)] = arguments
-        self.waiting_for_thread[node].append((item_indexes, arguments, attempt))
+        self.waiting_for_thread[node].append(attempt)
         self._start_waiting_calls(node)
 
-    def _on_thread(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int) -> None:
+    def _on_thread(self, attempt: _Attempt) -> None:
         """Make the call and hand what it came to back to the leg. What ``call`` lets out (an exit, a defect in a
         type's own check) goes back too and is raised on the leg's thread, as it is for a node called there."""
         try:
-            out, error = call(node, arguments, self.context)
+            out, error = call(attempt.node, attempt.arguments, self.context)
         except BaseException as raised:  # noqa: BLE001  a pool thread would keep it, and the leg would wait for the call for ever
             self.returned.put(raised)
         else:
-            self.returned.put((node, item_indexes, attempt, out, error))
+            self.returned.put(_Returned(attempt, out, error))
 
-    def _due(self, due: Literal["retry", "deadline"], node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int, seconds: float) -> None:
-        """A timer set for ``seconds`` fired: the retry of an attempt, or the deadline of the attempt on a thread."""
-        if due == "retry":
+    def _due(self, timer: _Timer) -> None:
+        """A timer fired: the retry of an attempt, or the deadline of the attempt on a thread."""
+        attempt = timer.attempt
+        node, item_indexes = attempt.node, attempt.item_indexes
+        if timer.kind == "retry":
             if self.going:
-                self._attempt(node, item_indexes, self.running[(node, item_indexes)], attempt)
-        elif self.attempts.get((node, item_indexes)) == attempt and (node, item_indexes) in self.running:  # the attempt still runs
+                self._make(attempt)
+        elif self.attempts.get((node, item_indexes)) == attempt.number and (node, item_indexes) in self.running:  # the attempt still runs
             del self.running[(node, item_indexes)]
-            self._record(node, item_indexes, problem.timeout(*outcome_loc(node, item_indexes), seconds=seconds))
+            self._record(node, item_indexes, problem.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
-    def _returned(self, node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int, out: Any, error: BaseException | None) -> None:
+    def _returned(self, returned: _Returned) -> None:
         """A call came back from its thread: free its slot, and keep what it came to unless its attempt was
         given up."""
+        attempt, out, error = returned.attempt, returned.outputs, returned.error
+        node, item_indexes = attempt.node, attempt.item_indexes
         self.on_threads[node] -= 1
-        latest = self.attempts.get((node, item_indexes)) == attempt
+        latest = self.attempts.get((node, item_indexes)) == attempt.number
         current = latest and (node, item_indexes) in self.running
         self._start_waiting_calls(node)
         if not current:
             if latest and error is None and not self.going and item_indexes not in self.outcomes[node]:
                 self.attempts.pop((node, item_indexes))
-                self._record(node, item_indexes, self._outcome(node, item_indexes, {}, out, None))  # past its timeout, but the leg is draining: keep it, never call it again
+                self._record(node, item_indexes, Done(out))  # past its timeout, but the leg is draining: keep it, never call it again
             return  # timed out while the leg runs on, or the leg stopped
         self.attempts.pop((node, item_indexes))
-        arguments = self.running[(node, item_indexes)]
-        if not self._retry(node, item_indexes, arguments, attempt, error):
+        if not self._retry(attempt, error):
             del self.running[(node, item_indexes)]
-            self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, out, error))
+            self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, out, error))
 
-    def _retry(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], attempt: int, error: BaseException | None) -> bool:
+    def _retry(self, attempt: _Attempt, error: BaseException | None) -> bool:
         """Put a failed attempt on a timer if the policy says to try again: an ``ExternalError``, or a class ``retry_on``
         names, never a node's own ``NodeError``, an output its type refused or an ``Ask``."""
+        node, item_indexes = attempt.node, attempt.item_indexes
         policy = node.policy
-        if error is None or attempt >= policy.retries or not self.going:
+        if error is None or attempt.number >= policy.retries or not self.going:
             return False
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
-        delay = policy.retry_delay * 2**attempt
-        self.running[(node, item_indexes)] = arguments
-        self._after(delay, "retry", node, item_indexes, attempt + 1)
+        delay = policy.retry_delay * 2**attempt.number
+        self.running[(node, item_indexes)] = attempt.arguments
+        self._after(delay, "retry", _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1))
         if self.emit:
-            self.emit(NodeRetry(loc=outcome_loc(node, item_indexes), attempt=attempt + 1, retries=policy.retries, delay=delay, cause=self._failure(node, item_indexes, error)))
+            self.emit(NodeRetry(loc=outcome_loc(node, item_indexes), attempt=attempt.number + 1, retries=policy.retries, delay=delay, cause=self._failure(node, item_indexes, error)))
         return True
 
     def _outcome(self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], out: Any, error: BaseException | None) -> Outcome | Problem:
