@@ -445,7 +445,7 @@ root = types.ModuleType("conductor")
 root.__path__ = importlib.util.find_spec("conductor").submodule_search_locations
 sys.modules["conductor"] = root
 
-from conductor._internal.series import Records, Series, without_places
+from conductor._internal.series import Records, Series, without_indexes
 from conductor._internal.types import Type
 
 class Row(TypedDict):
@@ -455,7 +455,7 @@ assert "conductor._internal.run" not in sys.modules and "conductor._internal.gra
 frame = pl.DataFrame({"n": [1, 2, 3]})
 assert type(SchemaValidator(Type(Series[Row]).returned_schema).validate_python(frame)) is Records
 assert SchemaValidator(Type(Series[int]).schema).validate_python(pl.Series([1, 2])) == [1, 2]
-assert without_places(frame, {1}).to_dicts() == [{"n": 1}, {"n": 3}]
+assert without_indexes(frame, {1}).to_dicts() == [{"n": 1}, {"n": 3}]
 """
 
 

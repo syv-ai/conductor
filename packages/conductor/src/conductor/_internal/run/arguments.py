@@ -39,7 +39,7 @@ from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import Edge
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import run_problems
-from conductor._internal.series import places_of_none, without_places
+from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
 from .flat import CollectingArgument, EdgeArgument, FlatFunctionNode
@@ -290,9 +290,9 @@ class ResultReader:
             dropped: set[int] = set()  # the indexes at which an input that accepts no None item has one
             for name, accepts_none_items in inputs:
                 if not accepts_none_items and arguments[name] is not None:
-                    dropped.update(places_of_none(arguments[name]))
+                    dropped.update(indexes_of_none(arguments[name]))
             if dropped:
                 for name, _ in inputs:
                     if arguments[name] is not None:
-                        arguments[name] = without_places(arguments[name], dropped)
+                        arguments[name] = without_indexes(arguments[name], dropped)
         return arguments
