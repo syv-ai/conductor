@@ -130,12 +130,10 @@ class ResultReader:
         """Returns what ``node_input`` reads for the call at ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``,
         ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
         match node_input:
+            case EdgeInput():
+                return self.read_as_list(node_input, item_indexes) if node_input.as_list else self.read_edges(node_input.sources, item_indexes)
             case CollectingArgument():
                 return self.collect(node_input, item_indexes)
-            case EdgeInput(as_list=True):
-                return self.read_as_list(node_input, item_indexes)
-            case EdgeInput():
-                return self.read_edges(node_input.sources, item_indexes)
             case _:
                 assert_never(node_input)
 
