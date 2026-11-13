@@ -12,7 +12,7 @@ import functools
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, Self
 
 from pydantic import JsonValue
 
@@ -163,14 +163,25 @@ class _Version:
         return f"{type(self).__name__}({', '.join(parts)})"
 
     @functools.cached_property
-    def _replaced(self) -> tuple[NodeDefinition, ...]:
-        """Each version this one replaces, newest first."""
-        return () if self.replaces is None else self.replaces.version_chain
+    def version_chain(self) -> tuple[Self | NodeDefinition, ...]:
+        """This version, then each version it replaces, newest first."""
+        return (self,) if self.replaces is None else (self, *self.replaces.version_chain)
 
     @functools.cached_property
     def versions(self) -> tuple[int, ...]:
         """Every version number, newest first."""
-        return (self.version, *(step.version for step in self._replaced))
+        return tuple(step.version for step in self.version_chain)
+
+    def version_of(self, version: int) -> Self | NodeDefinition:
+        """Returns this node at ``version``, walking back through what each version replaces.
+
+        Raises:
+            KeyError: It has no such version, naming the versions it has; ``version in definition.versions`` asks first.
+        """
+        for found in self.version_chain:
+            if found.version == version:
+                return found
+        raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
 
     def described_as[D: FunctionNodeDescription | SubgraphDescription](self, record: type[D], **more: Any) -> D:
         """Describes this version as an editor's palette shows it.
@@ -239,16 +250,6 @@ class FunctionDefinition[**P, R](_Version):
         with an ``Asked`` parameter. An ``Ask`` raised from any other node fails its call (``ask_not_declared``)."""
         return self.asks or self.asked is not None
 
-    @property
-    def version_chain(self) -> tuple[NodeDefinition, ...]:
-        """This version, then each version it replaces, newest first."""
-        return (self, *self._replaced)
-
-    def version_of(self, version: int) -> NodeDefinition:
-        """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
-        there are when it has none. ``version in definition.versions`` asks first."""
-        return _version_of(self.version_chain, version)
-
     def describe(self) -> FunctionNodeDescription:
         """The node as an editor's palette shows it."""
         return self.described_as(
@@ -271,16 +272,6 @@ class SubgraphDefinition(_Version):
     """
 
     graph: GraphRecord
-
-    @property
-    def version_chain(self) -> tuple[NodeDefinition, ...]:
-        """This version, then each version it replaces, newest first."""
-        return (self, *self._replaced)
-
-    def version_of(self, version: int) -> NodeDefinition:
-        """This node at ``version``, walking back through what each version replaces; a ``KeyError`` naming the versions
-        there are when it has none. ``version in definition.versions`` asks first."""
-        return _version_of(self.version_chain, version)
 
 
 
@@ -315,13 +306,6 @@ def where_declared(definition: NodeDefinition) -> str:
             return qualified_name(definition.function)
         case SubgraphDefinition():
             return f"the subgraph titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
-
-
-def _version_of(version_chain: tuple[NodeDefinition, ...], version: int) -> NodeDefinition:
-    for found in version_chain:
-        if found.version == version:
-            return found
-    raise KeyError(f"{version_chain[0].id!r} has no version {version!r}; it has {', '.join(str(step.version) for step in version_chain)}")
 
 
 def declared_inputs(definition: NodeDefinition) -> Mapping[str, Field]:
