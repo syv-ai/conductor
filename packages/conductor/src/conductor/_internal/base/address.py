@@ -35,7 +35,7 @@ from __future__ import annotations
 import re
 from typing import Annotated
 
-from pydantic import AfterValidator, ConfigDict, Field
+from pydantic import AfterValidator, ConfigDict, Field, field_validator
 from pydantic.dataclasses import dataclass
 from pydantic_core import PydanticCustomError
 
@@ -76,18 +76,6 @@ def _a_name(text: str) -> str:
     return text
 
 
-def _a_field(text: str | None) -> str | None:
-    """Returns ``text``, the name of a field of a record, when it is not empty and does not start with a dot. A
-    field's name may have dots of its own: ``"Amount in USD."``.
-
-    Raises:
-        PydanticCustomError: It is empty or starts with a dot (``not_a_field``).
-    """
-    if text is not None and (not text or text.startswith(".")):
-        raise PydanticCustomError("not_a_field", "'{text}' is not the name of a field: a field's name is not empty and does not start with '.'", {"text": text})
-    return text
-
-
 #: A node id, or the name of an input or output: ``"shout"``, ``"text-split"``. Every name in a graph record is one:
 #: a node's id, an input's, an output's and a graph input's or output's. Read from a graph record, anything else is
 #: refused (``is_name``).
@@ -111,7 +99,20 @@ class Address:
 
     node: Name
     output: Name
-    field: Annotated[str | None, AfterValidator(_a_field), Field(exclude_if=lambda field: field is None)] = None
+    field: Annotated[str | None, Field(exclude_if=lambda field: field is None)] = None
+
+    @field_validator("field")
+    @classmethod
+    def _a_field(cls, text: str | None) -> str | None:
+        """Takes ``text`` as the name of a field of a record when it is not empty and does not start with a dot. A
+        field's name may have dots of its own: ``"Amount in USD."``.
+
+        Raises:
+            PydanticCustomError: It is empty or starts with a dot (``not_a_field``).
+        """
+        if text is not None and (not text or text.startswith(".")):
+            raise PydanticCustomError("not_a_field", "'{text}' is not the name of a field: a field's name is not empty and does not start with '.'", {"text": text})
+        return text
 
     def __str__(self) -> str:
         return place_text((self.node,), self.output, self.field)
