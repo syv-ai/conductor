@@ -122,8 +122,8 @@ def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_do
     assert events is not None
     assert "- `NodeComplete`: Every call of a node has an outcome.\n" in events
     assert (  # a paragraph over several lines is one line, and its code is in Markdown's single backticks
-        "- `NodeProgress`: How many calls of a node inside a loop have an outcome that is not waiting, at most four times a second; "
-        "`total` is `None` until the number of calls is known.\n"
+        "- `NodeProgress`: How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a "
+        "second: the node's `CallCount`, as `run.progress` has it.\n"
     ) in events
 
 

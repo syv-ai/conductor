@@ -27,6 +27,7 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
+    CallCount,
     Deprecation,
     ExternalError,
     Graph,
@@ -262,7 +263,7 @@ def test_an_external_failure_is_a_node_error_and_there_is_no_retry_flag():
 SHAPES = {
     "run_start": ["type", "waiting"],
     "node_start": ["loc", "type"],
-    "node_progress": ["finished", "loc", "total", "type"],
+    "node_progress": ["count", "loc", "type"],
     "node_complete": ["loc", "not_called", "outcomes", "reused", "type"],
     "node_skipped": ["loc", "type"],
     "node_failed": ["cause", "loc", "type"],
@@ -294,9 +295,9 @@ def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
 
 
 def test_the_union_reads_an_event_back_by_its_type():
-    progress = TypeAdapter(Event).validate_python({"type": "node_progress", "loc": ["a"], "finished": 1, "total": None})
+    progress = TypeAdapter(Event).validate_python({"type": "node_progress", "loc": ["a"], "count": {"finished": 1, "waiting": 0, "known": 1, "total": None}})
 
-    assert progress == NodeProgress(loc=("a",), finished=1, total=None)
+    assert progress == NodeProgress(loc=("a",), count=CallCount(finished=1, waiting=0, known=1, total=None))
 
 
 def _strict(document: str | bytes) -> Any:
@@ -332,7 +333,7 @@ def _every_event() -> list[Any]:
     cause = Problem(type="external_failed", msg="e", loc=("n",), ctx={"error": "OSError"})
     built = [
         RunStart(waiting=(waiting,)),
-        NodeProgress(loc=("n",), finished=1, total=None),
+        NodeProgress(loc=("n",), count=CallCount(finished=1, waiting=0, known=1, total=None)),
         NodeSkipped(loc=("n",)),
         NodeFailed(loc=("n",), cause=cause),
         NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),

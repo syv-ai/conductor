@@ -148,12 +148,15 @@ class Told:
 
 
 def _one_line(event: EventBase) -> str:
-    """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc.
+    """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc, and
+    a count as its four numbers.
 
-    Example: ``NodeProgress(loc=("shout",), finished=1, total=3)`` is ``"node_progress shout finished=1 total=3"``.
+    Example: ``NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=3, total=3))`` is
+    ``"node_progress shout finished=1 waiting=0 known=3 total=3"``.
     """
     loc = event.waiting.loc if isinstance(event, NodeWaiting) else event.loc
     fields = event.model_dump(exclude={"type", "loc", "waiting"}, exclude_defaults=True)
+    fields.update(fields.pop("count", {}))
     if "cause" in fields:
         fields["cause"] = f"{fields['cause']['type']}@{'/'.join(map(str, fields['cause']['loc']))}"
     return " ".join([event.type, "/".join(map(str, loc)), *(f"{name}={value}" for name, value in fields.items())])
@@ -175,10 +178,10 @@ def test_the_three_node_graph_says_the_events_the_module_describes():
     assert told.take() == [
         "node_start lines",
         "node_start shout",
-        "node_progress shout finished=1 total=3",
+        "node_progress shout finished=1 waiting=0 known=3 total=3",
         "node_start join",
         "node_complete lines outcomes=1",
-        "node_progress shout finished=3 total=3",
+        "node_progress shout finished=3 waiting=0 known=3 total=3",
         "node_complete shout outcomes=3",
         "node_complete join outcomes=1",
     ]
@@ -194,7 +197,7 @@ def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
     assert told.take() == ["node_complete lines outcomes=1"]
     told.call("shout", 1)
     told.nothing_is_ready()
-    assert told.take() == ["node_progress shout finished=3 total=3", "node_complete shout outcomes=3"]
+    assert told.take() == ["node_progress shout finished=3 waiting=0 known=3 total=3", "node_complete shout outcomes=3"]
     told.call("join")
     told.nothing_is_ready()
     assert told.take() == ["node_start join", "node_complete join outcomes=1"]
@@ -223,9 +226,10 @@ def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
         "node_start lines",
         "node_start approve",
         "node_waiting approve/0",
-        "node_progress approve finished=0 total=2",
+        "node_progress approve finished=0 waiting=1 known=2 total=2",
         "node_waiting approve/1",
         "node_complete lines outcomes=1",
+        "node_progress approve finished=0 waiting=2 known=2 total=2",
     ]
 
 
@@ -236,7 +240,7 @@ def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_scheduler_end
     told.call("shout", 1)
     told.take()
     told.end()
-    assert told.take() == ["node_complete lines outcomes=1", "node_progress shout finished=2 total=3"]
+    assert told.take() == ["node_complete lines outcomes=1", "node_progress shout finished=2 waiting=0 known=3 total=3"]
 
 
 def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one_has_the_final_count(monkeypatch: MonkeyPatch):
@@ -251,10 +255,10 @@ def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one
     told.nothing_is_ready()
     progress = [event for event in told.take() if event.startswith("node_progress")]
     assert progress == [
-        "node_progress shout finished=1 total=8",
-        "node_progress shout finished=4 total=8",
-        "node_progress shout finished=7 total=8",
-        "node_progress shout finished=8 total=8",
+        "node_progress shout finished=1 waiting=0 known=8 total=8",
+        "node_progress shout finished=4 waiting=0 known=8 total=8",
+        "node_progress shout finished=7 waiting=0 known=8 total=8",
+        "node_progress shout finished=8 waiting=0 known=8 total=8",
     ]
 
 
@@ -267,9 +271,9 @@ def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_
     assert told.take() == [
         "node_start lines",
         "node_start shout",
-        "node_progress shout finished=1 total=3",
+        "node_progress shout finished=1 waiting=0 known=3 total=3",
         "node_complete lines outcomes=1",
-        "node_progress shout finished=3 total=3",
+        "node_progress shout finished=3 waiting=0 known=3 total=3",
         "node_complete shout outcomes=3 reused=3",
     ]
 
@@ -293,10 +297,10 @@ def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgrap
         "node_start lines",
         "node_start loud",
         "node_start loud/shout",
-        "node_progress loud/shout finished=1 total=2",
+        "node_progress loud/shout finished=1 waiting=0 known=2 total=2",
         "node_start join",
         "node_complete lines outcomes=1",
-        "node_progress loud/shout finished=2 total=2",
+        "node_progress loud/shout finished=2 waiting=0 known=2 total=2",
         "node_complete loud/shout outcomes=2",
         "node_complete loud outcomes=2",
         "node_complete join outcomes=1",

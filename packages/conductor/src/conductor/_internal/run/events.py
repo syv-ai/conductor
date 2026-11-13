@@ -11,10 +11,10 @@ The example graph, the first in conductor's README::
     RunStart(waiting=())
     NodeStart(loc=("lines",))
     NodeStart(loc=("shout",))
-    NodeProgress(loc=("shout",), finished=1, total=2)
+    NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=2, total=2))
     NodeStart(loc=("join",))
     NodeComplete(loc=("lines",), outcomes=1)
-    NodeProgress(loc=("shout",), finished=2, total=2)
+    NodeProgress(loc=("shout",), count=CallCount(finished=2, waiting=0, known=2, total=2))
     NodeComplete(loc=("shout",), outcomes=2)
     NodeComplete(loc=("join",), outcomes=1)
     RunEnd(status="complete")
@@ -43,6 +43,7 @@ from pydantic.json_schema import SkipJsonSchema
 from conductor._internal.base import ConductorModel, Loc
 from conductor._internal.problem import Problem
 
+from .progress import CallCount
 from .state import RunStatus
 from .waiting import Waiting
 
@@ -105,22 +106,20 @@ class NodeStart(_NodeEvent):
 
 
 class NodeProgress(_NodeEvent):
-    """How many calls of a node inside a loop have an outcome that is not waiting, at most four times a second;
-    ``total`` is ``None`` until the number of calls is known.
+    """How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a
+    second: the node's ``CallCount``, as ``run.progress`` has it.
 
     It comes after a call's outcome is written, and once more with the final count before the node's
     ``NodeComplete`` or at the end of the stream, unless the count has not changed. A node inside no loop has no
-    ``NodeProgress``. In the example ``shout`` has ``NodeProgress(finished=1, total=2)``, then ``finished=2, total=2``.
+    ``NodeProgress``. In the example ``shout`` has ``count=CallCount(finished=1, waiting=0, known=2, total=2)``, then
+    ``finished=2``.
 
     Attributes:
-        finished: How many calls of the node are finished: they have an outcome that is not waiting (done,
-            answered, skipped or not called).
-        total: How many calls the node will have. ``None`` while that depends on a series that does not exist yet.
+        count: The node's count: what ``run.progress.nodes["shout"]`` is at that moment.
     """
 
     type: Literal["node_progress"] = "node_progress"
-    finished: int
-    total: int | None
+    count: CallCount
 
 
 class NodeComplete(_NodeEvent):
@@ -258,7 +257,7 @@ class RunCheckpoint(EventBase):
     - With ``stream(checkpoint_every=seconds)``: after a call's outcome is written, when at least that many seconds
       have passed since the stream started or since the last checkpoint. With a node ``slow`` that takes 20
       milliseconds per line and ``checkpoint_every=0.01``, ``text="a\\nb"`` gives ``NodeStart(slow)``,
-      ``RunCheckpoint``, ``NodeProgress(slow, finished=1, total=2)``, ``RunCheckpoint``, and so on. One more comes at
+      ``RunCheckpoint``, ``NodeProgress(slow)``, ``RunCheckpoint``, and so on. One more comes at
       the moment the run stops (a call failed, or ``cancel``, ``hand_back`` or ``timeout``) while calls are still
       running on threads, before those calls are back: if the process dies while it waits for them, the host has
       everything but them.

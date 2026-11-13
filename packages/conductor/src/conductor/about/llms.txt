@@ -251,7 +251,7 @@ A failed call ends the run `failed`, its problem the run's `cause`: nothing more
 | Event | Carries |
 |---|---|
 | `node_start`, `node_skipped` | `loc`: the node's id, behind the id of each subgraph's node it is inside, `("emb", "upper")` |
-| `node_progress` | `loc`, `finished`, `total` (`None` until every item exists); at most four a second per node |
+| `node_progress` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it; at most four a second per node |
 | `node_complete` | `loc`, `outcomes` (how many calls it had), `not_called` (how many of them were not called for a `None`), `reused`; the values are in the run (`run.results`) |
 | `node_retry` | `loc` (the call's: the node's id, then its item indexes; inside a subgraph the subgraph node and its index first, `("emb", 1, "upper")`), `attempt`, `retries`, `delay`, `cause` |
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the call) |

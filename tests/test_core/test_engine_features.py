@@ -716,7 +716,7 @@ def test_the_last_progress_of_a_node_is_always_said():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "upper")), registry_of(split, upper))
     events = collect(graph.with_inputs(text=",".join(str(i) for i in range(3000))))
 
-    progress = [(e.finished, e.total) for e in events if e.type == "node_progress"]
+    progress = [(e.count.finished, e.count.total) for e in events if e.type == "node_progress"]
     assert progress[-1] == (3000, 3000)
 
 
