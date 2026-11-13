@@ -51,7 +51,6 @@ from typing import Any, Literal
 from pydantic import ValidationError
 
 from conductor._internal.base import REQUIRED
-from conductor._internal.compiled import compile_graph
 from conductor._internal.field import Field
 from conductor._internal.gate import RefusedError, record_values, validator_of
 from conductor._internal.graph import Graph
@@ -193,7 +192,7 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example:
         record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
         return _not_compiled(version, refused.errors())
-    graph = compile_graph(record, definitions, registry.context_type, Graph)
+    graph = Graph.compile(record, definitions)
     if graph.problems:
         return _not_compiled(version, graph.problems)
     try:
