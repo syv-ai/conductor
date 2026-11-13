@@ -146,7 +146,8 @@ def read_as_answer(value_type: Type, value: Any) -> Any:
     ``read_as_answer(Type(bool), True)`` is ``True``; ``read_as_answer(Type(bool), "yes")`` is refused. The value
     is read as its JSON text would be (``validate_as_json``), so an answer a host gives from Python and the same
     answer sent over HTTP read the same: a ``date`` is read from its ISO text too, and a ``Series``' list is kept
-    as a run stores a returned one. An ``Ask``'s choices and its default are read the same way.
+    as a run stores a returned one. An ``Ask``'s default is read the same way; its choices are read by the type
+    (``Type.read_choices``).
 
     Raises:
         PydanticCustomError: The value has no JSON form (``no_json_form``), or the type refuses it

@@ -199,6 +199,52 @@ def test_a_hosts_own_choice_keeps_its_fields_in_a_description_and_a_saved_questi
     assert loaded.answer("q", "ida").resume().outputs == {"result": "ida"}
 
 
+def test_a_choice_is_read_by_the_type_it_is_a_value_of_so_1_on_a_float_is_1_0():
+    @node("scale", title="Scale", description="For a test.", asks=True)
+    def scale(by: Annotated[float, Param(choices=[1, Choice(2, "Double")])] = 1.0) -> float:
+        raise Ask("How much?", choices=[1, 2])
+
+    declared = scale.describe().inputs[0].choices
+    _, run = _once(scale)
+    asked = run.waiting[0].questions[0].choices
+    for choices in (declared, asked):
+        assert choices is not None and [(choice.id, type(choice.id)) for choice in choices] == [(1.0, float), (2.0, float)]
+    assert '"choices":[{"id":1.0,"title":"1"},{"id":2.0,"title":"Double"}]' in scale.describe().model_dump_json()
+
+
+@pytest.mark.parametrize("choices", [[], [1, 1]], ids=["none", "one twice"])
+def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_when_raised(choices: list[int]) -> None:
+    with pytest.raises(NodeDeclarationError) as declared:
+
+        @node("pick_declared", title="Pick", description="For a test.")
+        def pick_declared(n: Annotated[int, Param(choices=choices)]) -> int:
+            return n
+
+    assert declared.value.code == "choices_invalid"
+
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick() -> int:
+        raise Ask("Which?", choices=choices)
+
+    cause = _once(pick)[1].state.cause
+    assert (cause.type, cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: " + ("none is given" if not choices else "one is given twice"))
+
+
+def test_the_choices_an_ask_offers_a_series_are_each_read_as_one_item():
+    @node("numbers", title="Numbers", description="For a test.", asks=True)
+    def numbers() -> Series[float]:
+        raise Ask("Which?", choices=[1, Choice(2, "Two")])
+
+    @node("lists", title="Lists", description="For a test.", asks=True)
+    def lists() -> Series[float]:
+        raise Ask("Which?", choices=[[1.0, 2.0]])
+
+    _, run = _once(numbers)
+    assert run.waiting[0].questions[0].choices == (Choice(1.0, "1"), Choice(2.0, "Two"))
+    assert run.answer("q", [2, 1]).resume().outputs == {"result": [2.0, 1.0]}
+    assert _once(lists)[1].state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid number"
+
+
 def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type():
     @node("when", title="When", description="For a test.", asks=True)
     def when(name: str) -> datetime.date:
@@ -444,12 +490,12 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
 @pytest.mark.parametrize(("ask", "reason"), [
     (lambda: Ask("?", default=3), "the default for 'result' is not an answer it takes: Input should be a valid string"),
     (lambda: Ask("?", default=SKIPPED), "the default for 'result' is not an answer it takes: the value has no JSON form"),
-    (lambda: Ask("?", choices=["a", 2]), "a choice for 'result' is not what it returns: Input should be a valid string"),
+    (lambda: Ask("?", choices=["a", 2]), "the choices for 'result' are refused: Input should be a valid string"),
     (lambda: Ask("?", choices=["a"], default="b"), "the default for 'result' is not an answer it takes: the answer is not one of the choices"),
-    (lambda: Ask("?", choices=["a", object()]), "a choice for 'result' is not what it returns: the value has no JSON form"),
-    (lambda: Ask("?", choices=[Choice(object(), "Thing")]), "a choice for 'result' is not what it returns: the value has no JSON form"),
-    (lambda: Ask("?", choices=["a", "a"]), "a choice for 'result' is offered twice"),
-    (lambda: Ask("?", choices=[]), "'result' is offered no choices"),
+    (lambda: Ask("?", choices=["a", object()]), "the choices for 'result' are refused: one has no JSON form"),
+    (lambda: Ask("?", choices=[Choice(object(), "Thing")]), "the choices for 'result' are refused: one has no JSON form"),
+    (lambda: Ask("?", choices=["a", "a"]), "the choices for 'result' are refused: one is given twice"),
+    (lambda: Ask("?", choices=[]), "the choices for 'result' are refused: none is given"),
     (lambda: Ask("?", choices={"result": ["a"]}), "the node asks one question, so it is answered with a value, and choices= is a list"),
 ])
 def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(ask, reason):
@@ -550,7 +596,7 @@ def test_a_choice_offered_for_a_table_is_a_table_like_any_choice_of_its_type():
     def wrong() -> Table[Line]:
         raise Ask("?", choices=[1])
 
-    assert _once(wrong)[1].state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: a table is a frame or a list of records, one object per row"
+    assert _once(wrong)[1].state.cause.ctx["reason"] == "the choices for 'result' are refused: a table is a frame or a list of records, one object per row"
 
 
 # -- answering ----------------------------------------------------------------------------------
@@ -872,7 +918,7 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
 
     _, run = _once(pick)
     assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
-    assert run.state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid integer"
+    assert run.state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid integer"
 
 
 def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:
@@ -897,7 +943,7 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
 
     _, run = _once(assign)
     assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
-    assert run.state.cause.ctx["reason"] == "a choice for 'result' is not what it returns: Input should be a valid string"
+    assert run.state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid string"
 
 
 def test_a_lone_output_is_asked_under_the_label_describe_shows_for_it():

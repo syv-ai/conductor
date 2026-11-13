@@ -12,7 +12,7 @@ import dataclasses
 import datetime
 import functools
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
@@ -33,7 +33,7 @@ from conductor._internal.problem import (
     value_free_errors,
 )
 
-from .choice import Choice
+from .choice import Choice, read_choices
 from .fit import fit
 from .hint import (
     READ_AS,
@@ -45,7 +45,7 @@ from .hint import (
     union_of,
 )
 from .host_type import NAMES, OWN_IDS, declaration_of
-from .param import Param, read_choice_ids, split_hint
+from .param import Param, split_hint
 
 #: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
 _SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
@@ -215,7 +215,7 @@ class Type:
         bare, param, others = self._parts
         held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
         if param.choices is not None:
-            held.append(f"choices={[choice.id for choice in param.choices]!r}")
+            held.append(f"choices={[choice.id for choice in self.read_choices(param.choices)]!r}")
         held += [_written_metadata(other) for other in others]
         return f"{_written(bare)}{held}" if held else _written(bare)
 
@@ -334,14 +334,23 @@ class Type:
 
     @functools.cached_property
     def choices(self) -> tuple[Choice, ...] | None:
-        """The values the type takes when it names them: ``Param(choices=)``, else a ``Literal``'s. Each id is the
-        JSON an answer picking it reads as: ``Param(choices=[1])`` on a ``float`` has the id ``1.0``."""
+        """The values the type takes when it names them: ``Param(choices=)``, else a ``Literal``'s, read by
+        ``read_choices``: ``Param(choices=[1])`` on a ``float`` has the id ``1.0``."""
         given = self._parts[1].choices
         if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
-            given = tuple(Choice(value, str(value)) for value in get_args(self.options[0]))
-        if given is None:
-            return None
-        return tuple(choice.model_copy(update={"id": self.to_json(read)}) for choice, read in zip(given, read_choice_ids(given, self.carried), strict=True))
+            given = get_args(self.options[0])
+        return None if given is None else self.read_choices(given)
+
+    def read_choices(self, given: Iterable[Any]) -> tuple[Choice, ...]:
+        """Reads ``given``, each a value of the type or a ``Choice``, as the type's choices (``read_choices``).
+
+        ``Type(int).read_choices([1, Choice(2, "Two")])`` is ``(Choice(1, "1"), Choice(2, "Two"))``.
+
+        Raises:
+            PydanticCustomError: An id is not a value of the type, or has no JSON form, or there are no choices or
+                an id is given twice; the message says which, quoting no value.
+        """
+        return read_choices(given, self._built[1])
 
     @functools.cached_property
     def hashes_plainly(self) -> bool:

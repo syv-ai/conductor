@@ -1,11 +1,12 @@
 """The door for what a node raises: an ``Ask``'s choices and default, checked when it is raised.
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
-The door returns the call's ``Question``, whose overrides for ``result`` are the two choices, each id in its JSON
-form. Given ``choices=[1, 2]`` it raises ``RefusedError`` with ``invalid_ask``: a choice is what an answer
-picks, so each is read as an answer is, and ``1`` is not a ``str``. An ``Ask`` raised by the function of an
-``Asked`` parameter is checked against that parameter in the same way. A default is held to every rule an answer is,
-the ``Ask``'s own choices included.
+The door returns the call's ``Question``, whose overrides for ``result`` are the two choices as the output's type
+reads them (``Type.read_choices``), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``RefusedError``
+with ``invalid_ask``: a choice is what an answer picks, so each is read strictly from its JSON form, and ``1`` is
+not a ``str``.
+An ``Ask`` raised by the function of an ``Asked`` parameter is checked against that parameter in the same way. A
+default is held to every rule an answer is, the ``Ask``'s own choices included.
 
 A ``NodeError``'s ``ctx`` is the other value a node raises; it is read where it is made, by ``NodeError`` itself, so
 a ``ctx`` that is not JSON fails at the node's own ``raise``.
@@ -25,7 +26,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import run_problems
 from conductor._internal.types import Choice
 
-from .answer import answer_value, read_as_answer
+from .answer import answer_value
 from .refused import RefusedError
 
 
@@ -59,7 +60,10 @@ class AskDoor:
         overrides: dict[str, QuestionOverrides] = {}
         if ask.choices is not None:
             for name, choices in self._by_output(ask.choices, "choices").items():
-                overrides[name] = {"choices": _offered(outputs[name], choices)}
+                try:  # a Series' choices are its items', so each id is read as one item
+                    overrides[name] = {"choices": outputs[name].type.read_choices(choices)}
+                except PydanticCustomError as refused:
+                    raise RefusedError([run_problems.invalid_ask(reason=f"the choices for '{name}' are refused: {refused.message()}")]) from None
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
                 overrides.setdefault(name, {})["default"] = _proposed(outputs[name], default, overrides.get(name, {}).get("choices"))
@@ -95,27 +99,6 @@ def undeclared_ask(ask: Ask, inputs: dict[str, Any]) -> Question:
         RefusedError: Always, with ``ask_not_declared``.
     """
     raise RefusedError([run_problems.ask_not_declared()])
-
-
-def _offered(field: Field, choices: list[Any]) -> tuple[Choice, ...]:
-    """The choices an ``Ask`` offers for one output, with their ids in JSON form.
-
-    A choice is what an answer picks, so its id is read as an answer is; a ``Series``' ids each as one item.
-
-    Raises:
-        RefusedError: No choice is offered, a choice is offered twice, or one is not a value of the output's type
-            (``invalid_ask``).
-    """
-    if not choices:
-        raise RefusedError([run_problems.invalid_ask(reason=f"'{field.name}' is offered no choices")])
-    given = [choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in choices]
-    try:
-        shown = tuple(choice.model_copy(update={"id": field.type.to_json(read_as_answer(field.type, choice.id))}) for choice in given)
-    except PydanticCustomError as refused:
-        raise RefusedError([run_problems.invalid_ask(reason=f"a choice for '{field.name}' is not what it returns: {refused.message()}")]) from None
-    if len({repr(choice.id) for choice in shown}) != len(shown):
-        raise RefusedError([run_problems.invalid_ask(reason=f"a choice for '{field.name}' is offered twice")])
-    return shown
 
 
 def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) -> JsonValue:

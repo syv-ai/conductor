@@ -7,30 +7,20 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import functools
-from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from pydantic import Field as PydanticField
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, TypeAdapter, ValidationError
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import (
-    CoreSchema,
-    PydanticCustomError,
-    PydanticSerializationError,
-    core_schema,
-)
+from pydantic_core import CoreSchema, PydanticCustomError, core_schema, to_json
 
-from conductor._internal.base import validate_as_json
-from conductor._internal.problem import (
-    NodeDeclarationError,
-    declaration_problems,
-    value_free_errors,
-)
+from conductor._internal.base import plain_json
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
-from .choice import Choice
+from .choice import read_choices
 from .hint import READ_AS, union_members, union_of
 
 #: The limits ``Param`` takes, by the words pydantic's ``Field`` uses.
@@ -57,9 +47,9 @@ class Param:
             host's own is a subclass of ``Widget``. Carried to the host and never read here.
         exclusive_group: Outputs of one node that share it are alternatives: on each call the node gives a value on
             one of them and ``SKIPPED`` on the rest.
-        choices: The values the field takes, each given as a value or as a ``Choice`` to title it, and held as a
-            ``Choice``. On a ``Literal`` field they title its values, one each; on any other they limit what it
-            takes. A ``Dropdown`` draws them.
+        choices: The values the field takes, each given as a value or as a ``Choice`` to title it, and held as
+            given; ``Type.choices`` reads them. On a ``Literal`` field they title its values, one each; on any other
+            they limit what it takes. A ``Dropdown`` draws them.
         ge: The least value taken. ``gt``, ``le`` and ``lt`` are the other bounds, and ``multiple_of`` a step; each
             fits a number, a date, a time or a duration.
         min_length: The fewest letters, items or keys taken; ``max_length`` the most. Each fits a text, bytes or a
@@ -82,9 +72,9 @@ class Param:
     pattern: str | None = None
 
     def __post_init__(self) -> None:
-        """Holds each choice as a ``Choice``, a bare value titled by its text."""
+        """Holds the choices as a tuple, so a ``Param`` hashes and an equal hint is read once."""
         if self.choices is not None:
-            object.__setattr__(self, "choices", tuple(c if isinstance(c, Choice) else Choice(c, str(c)) for c in self.choices))
+            object.__setattr__(self, "choices", tuple(self.choices))
 
     @functools.cached_property
     def limits(self) -> dict[str, Any]:
@@ -122,24 +112,25 @@ class Param:
             raise NodeDeclarationError(declaration_problems.bound_invalid(unheld=unheld, type=written))
         if self.choices is None:
             return limited
+        reader = TypeAdapter(limited_hint)
         try:
-            ids = read_choice_ids(self.choices, limited_hint)
-        except PydanticSerializationError:
-            raise NodeDeclarationError(declaration_problems.choices_invalid_no_json_form()) from None
-        except ValidationError as refused:
-            reason = value_free_errors(refused)[0]["msg"]
-            raise NodeDeclarationError(declaration_problems.choices_invalid_not_a_value(reason=reason)) from None
+            ids = [choice.id for choice in read_choices(self.choices, reader)]
+        except PydanticCustomError as refused:
+            match refused.type:
+                case "no_json_form":
+                    raise NodeDeclarationError(declaration_problems.choices_invalid_no_json_form()) from None
+                case "not_its_type":
+                    raise NodeDeclarationError(declaration_problems.choices_invalid_not_a_value(reason=refused.message())) from None
+                case _:  # none, or an id twice
+                    raise NodeDeclarationError(declaration_problems.choices_invalid()) from None
         literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]
-        distinct = {repr(i) for i in ids}
-        if not ids or len(distinct) != len(ids):
-            raise NodeDeclarationError(declaration_problems.choices_invalid())
-        if literal and distinct != {repr(value) for value in literal}:
+        if literal and {to_json(i) for i in ids} != {to_json(value) for value in literal}:
             raise NodeDeclarationError(declaration_problems.choices_invalid_on_a_literal(values=literal))
         if literal:  # a Literal's choices title its values
             return limited
 
         def one_of_the_choices(value: Any) -> Any:
-            if value is not None and value not in ids:
+            if value is not None and plain_json(reader.dump_python(value, mode="json")) not in ids:
                 raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
             return value
 
@@ -155,21 +146,6 @@ class Param:
 
 
 _NO_PARAM = Param()
-
-
-def read_choice_ids(choices: Iterable[Choice], hint: Any) -> list[Any]:
-    """Reads the id of each of ``choices`` by ``hint`` as its JSON text would be read (``validate_as_json``), as an answer picking it is read.
-
-    ``read_choice_ids((Choice("2026-01-02", "New year"),), date)`` is ``[date(2026, 1, 2)]``. Choices are the
-    type's own rule, so they are read here, where the type is declared, and nowhere else: by ``Param``'s schema,
-    which compares a value with them, and by ``Type.choices``, which writes them as JSON for an editor.
-
-    Raises:
-        PydanticSerializationError: An id has no JSON form.
-        ValidationError: An id is not a value of ``hint``.
-    """
-    reader = TypeAdapter(hint)
-    return [validate_as_json(reader, choice.id) for choice in choices]
 
 
 def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:

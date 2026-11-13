@@ -1338,6 +1338,16 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     assert a_day.describe().inputs[0].choices == (Choice("2024-01-02", "2024-01-02"),)
 
 
+def test_choices_that_are_not_finite_floats_are_told_apart_and_matched_by_their_json_form() -> None:
+    @node("cap", title="Cap", description="For a test.")
+    def cap(limit: Annotated[float, Param(choices=[float("inf"), float("nan")])]) -> str:
+        return str(limit)
+
+    assert [c.id for c in cap.describe().inputs[0].choices or ()] == ["Infinity", "NaN"]
+    taken = validator_of(cap.inputs["limit"].type).validate_python(float("nan"))
+    assert taken != taken  # nan, one of the choices, is taken
+
+
 @pytest.mark.parametrize("given", [
     {"policy": Policy(concurrency=4)},
     {"compute_outputs": lambda: {"x": int}},
