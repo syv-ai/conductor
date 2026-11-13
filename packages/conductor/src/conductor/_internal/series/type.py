@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import functools
+import typing
 from typing import TYPE_CHECKING, Any, get_args
 
+import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
+from conductor._internal.table import Table
 from conductor._internal.types import Type, union_of
 
 from .read import series_schema
-from .stored import SeriesItems, StoredSeries
+from .stored import Records, SeriesItems
 
 
 class _Series[T]:
@@ -48,12 +51,25 @@ class SeriesType(Type, of=_Series):
         return ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"), "Series", self.item.classes
 
     @functools.cached_property
+    def _table(self) -> Type | None:
+        """The type that reads a frame a node returns for the Series, ``Type(Table[R])``, when its items are records
+        ``R`` (a ``TypedDict``, or ``Any``) with no limit or choices; ``None`` for any other items, such as ``str``."""
+        item = self.item
+        if item.limited or not (item.bare is Any or typing.is_typeddict(item.bare)):
+            return None
+        table: Any = Table
+        return Type(table[item.bare])
+
+    @functools.cached_property
     def stored_hint(self) -> Any:
         """The type hint a saved run reads and writes a stored Series of this type by: ``SeriesItems[T | None]``,
-        or the hint of another class its items can be stored as (``Records[R]`` for records)."""
+        or for a Series of records ``R`` either that or ``Records[R]``."""
         items: Any = SeriesItems
-        other_forms = [hint for form in StoredSeries.by_returned_class.values() if (hint := form.stored_hint(self.item)) is not None]
-        return union_of((items[union_of((self.item.hint, type(None)))], *other_forms))
+        stored = items[union_of((self.item.hint, type(None)))]
+        if self._table is None:
+            return stored
+        records: Any = Records
+        return stored | records[self.item.bare]
 
     @functools.cached_property
     def returned_schema(self) -> CoreSchema:
@@ -68,38 +84,30 @@ class SeriesType(Type, of=_Series):
             return items if items is None else SeriesItems(items)  # ``Series[T] | None`` may be returned as None
 
         items = core_schema.no_info_after_validator_function(as_items, self.schema)
-        forms = self._returned_forms
-        if not forms:
+        if self._table is None:
             return items
 
         def form_of(value: Any) -> str:
-            return next((form.__name__ for returned_as, form in forms if isinstance(value, returned_as)), SeriesItems.__name__)
+            return Records.__name__ if isinstance(value, pl.DataFrame) else SeriesItems.__name__
 
-        read_as = {form.__name__: core_schema.no_info_after_validator_function(form, form.returned_type(self.item).schema) for _, form in forms}
-        choices: dict[Any, CoreSchema] = {SeriesItems.__name__: items, **read_as}
-        return core_schema.tagged_union_schema(choices, discriminator=form_of)
-
-    @functools.cached_property
-    def _returned_forms(self) -> list[tuple[type, type[StoredSeries]]]:
-        """Each class a node may return for the Series other than a list, with the form it is stored in: a
-        frame and ``Records`` for a Series of records, none for ``Series[str]``."""
-        return [(returned_as, form) for returned_as, form in StoredSeries.by_returned_class.items() if form.stored_hint(self.item) is not None]
+        records = core_schema.no_info_after_validator_function(Records, self._table.schema)
+        return core_schema.tagged_union_schema({SeriesItems.__name__: items, Records.__name__: records}, discriminator=form_of)
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Takes one step of a pydantic error's ``loc``, as ``Type._walked`` does. The name of a stored form, which
-        ``returned_schema`` puts first, leads to the type that form is read by and is not kept: ``"SeriesItems"`` to
-        this type, ``"Records"`` to ``Records.returned_type``, the table of the items' records."""
-        if step == SeriesItems.__name__ and self._returned_forms:
-            return self, False, None
-        for _, form in self._returned_forms:
-            if step == form.__name__:
-                return form.returned_type(self.item), False, None
+        ``returned_schema`` puts first for a Series of records, leads to the type that form is read by and is not
+        kept: ``"SeriesItems"`` to this type, ``"Records"`` to the table of the items' records."""
+        if self._table is not None:
+            if step == SeriesItems.__name__:
+                return self, False, None
+            if step == Records.__name__:
+                return self._table, False, None
         return super()._walked(step)
 
     @functools.cached_property
     def may_write_once(self) -> bool:  # type: ignore[override]  # decided per item type, where the base has one answer
         """Whether a Series of this type can be stored as a table: its items are records."""
-        return any(form.stored_hint(self.item) is not None for form in StoredSeries.by_returned_class.values())
+        return self._table is not None
 
     def written_once(self, stored: Any) -> Any | None:
         """Returns the table a stored Series is kept as, if it is kept as one; else ``None``."""
