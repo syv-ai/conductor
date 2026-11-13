@@ -76,7 +76,7 @@ def table_digest(frame: pl.DataFrame) -> str:
     kept = _DIGESTS.get(id(frame))
     if kept is not None and kept[0]() is frame:
         return kept[1]
-    digest = json_hash(written_table(frame), 16, keys_sorted=False)
+    digest = json_hash(written_table(frame), 16)
     key = id(frame)
     _DIGESTS[key] = (weakref.ref(frame, lambda _: _DIGESTS.pop(key, None)), digest)
     return digest

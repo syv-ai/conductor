@@ -54,7 +54,6 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     """The type of a ``Table[R]``, with or without ``| None``. A ``polars.DataFrame`` written as a hint is the
     table of any columns it is."""
 
-    keys_in_order: ClassVar[bool] = True  # a table is written by column, in order
     may_write_once = True
     typed_in_advice: ClassVar[str] = "; give a table as a list of records"
 

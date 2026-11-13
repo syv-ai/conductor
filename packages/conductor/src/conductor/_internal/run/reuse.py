@@ -74,7 +74,7 @@ def reused_outcome(
         in_turn: Returns whether every earlier call of the node has been tried.
     """
     compiled_node = node.compiled_node
-    fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
+    fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments)
     if fingerprint is None:
         return None
     if previous.answers:
@@ -106,19 +106,17 @@ def outer_items_fingerprint(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]
     return (arguments_fingerprint("", {"items": above}) or "") if above else ""
 
 
-def arguments_fingerprint(code_fingerprint: str, arguments: dict[str, Any], *, plain: bool = False) -> str | None:
+def arguments_fingerprint(code_fingerprint: str, arguments: dict[str, Any]) -> str | None:
     """A call's arguments and its node's code fingerprint as a short hash, or ``None`` when an argument has no JSON form.
 
-    A call whose arguments have no fingerprint is never reused.
+    A call whose arguments have no fingerprint is never reused. A dict read back from a database may have its keys
+    in another order; ``json_hash`` sorts them, so the dict hashes as it did before it was saved.
 
     Args:
         code_fingerprint: The node's code fingerprint.
         arguments: The call's arguments, by input name.
-        plain: ``True`` when no input takes a mapping. The arguments are then hashed in their own order, which is
-            the order of the node's inputs. A mapping, such as a dict read back from a database, may have its keys
-            in another order, so otherwise the keys are sorted first.
     """
     try:
-        return json_hash([code_fingerprint, arguments], 12, keys_sorted=not plain, fallback=untyped_to_hash)
+        return json_hash([code_fingerprint, arguments], 12, fallback=untyped_to_hash)
     except (TypeError, ValueError, PydanticSerializationError):
         return None

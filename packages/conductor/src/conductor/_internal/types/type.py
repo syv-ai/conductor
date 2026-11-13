@@ -9,7 +9,6 @@ subclass of ``Type``, declared in their own packages.
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import functools
 import typing
 from collections.abc import Mapping
@@ -46,9 +45,6 @@ from .hint import (
 )
 from .host_type import NAMES, OWN_IDS, declaration_of
 from .param import Param, split_hint
-
-#: The classes whose values are plain in JSON: no keys to order, and read back by their type as they were.
-_SCALARS = frozenset({str, int, float, bool, type(None), datetime.date, datetime.datetime, datetime.time, datetime.timedelta})
 
 #: The generic classes whose arguments ``Type`` reads as types of their own, so its rules reach their items.
 _CONTAINERS = (list, dict, tuple, set, frozenset)
@@ -129,15 +125,12 @@ class Type:
 
     Attributes:
         hint: The annotation, with its ``Annotated`` metadata and its type variables as written.
-        keys_in_order: Whether the JSON of a value always has its object keys in the same order, so its JSON can
-            be hashed without sorting the keys. True for a table.
         may_write_once: Whether ``written_once`` can return an object for a stored value of the type.
         typed_in_advice: Text added to the error for a value of the type that was typed into a graph and has no
             JSON form, saying what to give instead; empty for most types.
     """
 
     hint: Any
-    keys_in_order: ClassVar[bool] = False
     may_write_once: bool = False
     typed_in_advice: ClassVar[str] = ""
     _made: ClassVar[WeakValueDictionary[Any, Type]] = WeakValueDictionary()
@@ -340,13 +333,6 @@ class Type:
         if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
             given = get_args(self.options[0])
         return None if given is None else read_choices(given, self._built[1], self.to_json)
-
-    @functools.cached_property
-    def hashes_plainly(self) -> bool:
-        """Whether its values are plain in JSON: no keys to order, and no float beside a text it could be read as. So
-        what a unit received hashes as it is written, and a float that isn't finite reads back from its text."""
-        classes = {option for option in union_members(self.bare) if not _KINDS.get(get_origin(option) or option, Type).keys_in_order}
-        return classes <= _SCALARS and not {float, str} <= classes
 
     @property
     def item(self) -> Type | None:

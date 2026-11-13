@@ -92,7 +92,4 @@ def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: Unanswere
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when
     its call asks another question. What the node received is all of its inputs: a change to any of them asks
     again."""
-    inputs = waiting.question.inputs
-    values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
-    hashed = [compiled_node.id, compiled_node.code_fingerprint, values]
-    return json_hash(hashed, 4, keys_sorted=bool({type(v) for v in values} & {dict, list}))  # plain values have no keys to sort
+    return json_hash([compiled_node.id, compiled_node.code_fingerprint, waiting.question.inputs], 4)

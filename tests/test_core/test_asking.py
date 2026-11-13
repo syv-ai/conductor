@@ -750,6 +750,19 @@ def test_a_waiting_call_keeps_the_table_and_series_it_received_through_a_save():
     assert Run.from_json(run.to_json(), graph).waiting == run.waiting
 
 
+def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_their_keys_in_another_order():
+    @node("check", title="Check", description="For a test.", asks=True)
+    def check(data: dict[str, int]) -> bool:
+        raise Ask("Right?")
+
+    graph, run = _once(check, data={"a": 1, "b": 2})
+    saved = json.loads(run.to_json())
+    saved["outcomes"]["q"]["questions"]["0"]["inputs"]["data"] = {"b": 2, "a": 1}
+    loaded = Run.from_json(json.dumps(saved), graph)
+    assert [w.id for w in loaded.waiting] == [w.id for w in run.waiting]
+    assert loaded.answer(run.waiting[0].id, True).resume().outputs == {"result": True}
+
+
 def test_items_made_of_what_a_caller_gives_pause_save_answer_and_finish():
     gate, _ = _counted()
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}}, "q": {"node": "gate", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "q", "output": "result"}}}), registry_of(split, gate))

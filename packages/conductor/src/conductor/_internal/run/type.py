@@ -393,7 +393,7 @@ class Run[C]:
                         continue
                     case Done() | Answered() | Unanswered():  # the node was called, so its arguments are settled
                         arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))
-                        fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
+                        fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments)
                     case _:
                         assert_never(outcome)
                 if fingerprint is None:

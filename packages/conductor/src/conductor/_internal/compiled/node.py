@@ -81,12 +81,6 @@ class _CompiledNodeBase:
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
 
-    @functools.cached_property
-    def plain_inputs(self) -> bool:
-        """Whether no input's type can contain a mapping, so a call's arguments can be hashed without sorting
-        keys first."""
-        return all(node_input.field.type.hashes_plainly for node_input in self.inputs.values())
-
     def loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: for a function node, the
         loops the node is inside. In the example, ``shout.loops_around("result")`` is the loop over

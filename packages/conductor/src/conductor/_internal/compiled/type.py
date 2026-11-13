@@ -198,7 +198,7 @@ class CompiledGraph:
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
-        return json_hash([own, subgraph_fingerprints], 8, keys_sorted=True)
+        return json_hash([own, subgraph_fingerprints], 8)
 
     @functools.cached_property
     def _context_door(self) -> ContextDoor:
