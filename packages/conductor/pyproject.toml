@@ -17,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
     "polars>=2.0",
-    "pydantic>=2.11",
+    "pydantic>=2.12",
     # 4.16 is the first whose sentinel pickles and copies to itself and prints as its bare name (REQUIRED, SKIPPED).
     "typing-extensions>=4.16",
 ]

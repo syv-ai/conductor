@@ -16,7 +16,7 @@ classifiers = [
     "Framework :: FastAPI",
     "Typing :: Typed",
 ]
-dependencies = ["syv-conductor==2.0.0", "fastapi>=0.135", "pydantic>=2.11"]
+dependencies = ["syv-conductor==2.0.0", "fastapi>=0.135", "pydantic>=2.12"]
 
 [project.urls]
 Repository = "https://github.com/syv-ai/conductor"

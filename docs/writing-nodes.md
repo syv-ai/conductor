@@ -89,6 +89,8 @@ print(EntityDropdown(entity_kind="customer").model_dump(mode="json"))
 # {'type': 'entity-dropdown', 'entity_kind': 'customer'}
 ```
 
+A widget is sent to the editor as JSON, so each of its fields needs a type pydantic writes as JSON. A field of a class of your own that pydantic checks only with `isinstance`, such as a client, or a `polars.DataFrame` or a `type[X]`, raises pydantic's `PydanticInvalidForJsonSchema` where the class statement ends, naming the class and the field. Keep such a field out of the JSON with `Field(exclude=True)`, or give it a type pydantic writes as JSON.
+
 Pass an instance, `widget=Textarea()`: the class passed bare, `widget=Textarea`, is refused by a type checker and raises a `TypeError` where the node is declared.
 
 ## Types

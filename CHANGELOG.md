@@ -9,7 +9,7 @@ released together at one version. The format follows
 
 Ships as 2.0.0, a new major. The node contract, the graph record, compiling and the engine are each
 replaced, and no alias keeps a 1.x name alive. Conductor depends on `polars>=2.0`,
-`pydantic>=2.11` and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
+`pydantic>=2.12` and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
 rule.
 
 What changes in how you work, before the name-by-name tables:
@@ -311,7 +311,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.widgets.Text` | `TextInput` |
 | `conductor.widgets.Textarea` | `Textarea` |
 | `conductor.widgets.WIDGET_SCHEMA_KEYS` | gone: a widget is a pydantic model; its fields are its keys |
-| `conductor.widgets.Widget` | `Widget`; a host subclasses it for a control of its own |
+| `conductor.widgets.Widget` | `Widget`; a host subclasses it for a control of its own, and a subclass with a field that has no JSON form (a class pydantic checks only with `isinstance`, a `polars.DataFrame`, a `type[X]`) raises pydantic's `PydanticInvalidForJsonSchema` where its class statement ends |
 | `widgets` | `conductor.widgets`, imported as a module |
 | `WidgetType` | a widget's `type` field |
 | **Graphs and compiling** | |

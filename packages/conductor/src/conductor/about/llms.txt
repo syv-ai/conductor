@@ -304,7 +304,7 @@ A kind of problem is declared once, by a function of a `ProblemCatalogue`, and `
 
 ### conductor.widgets
 
-Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; compiling and running never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget. A `Param`'s widget is a `Widget`; a type checker refuses a class passed bare.
+Frozen models with a `type`, and a host subclasses `Widget` for a control of its own; compiling and running never read one. `title`, `description` and the limits of a value (`ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length`, `pattern`) belong to the `Param`, and a value outside its limits is refused. An untitled field reads as its name in everyday words. No type has a default widget. A `Param`'s widget is a `Widget`; a type checker refuses a class passed bare. A widget is written as JSON, so every field of a subclass needs a type pydantic writes as JSON: a field of a class pydantic checks only with `isinstance` (a client or a `polars.DataFrame`, let in with `arbitrary_types_allowed`) or of a `type[X]` raises `pydantic.errors.PydanticInvalidForJsonSchema` where the class statement ends (where the class is rebuilt, for a type named before it is defined), naming the class and the field (a field of a model inside it by that model). A field kept out of the JSON with `pydantic.Field(exclude=True)` is not checked, and neither is one typed `Any`, whose values nothing can know in advance.
 
 <!-- names: conductor.widgets -->
 

@@ -38,7 +38,8 @@ from conductor import (
 )
 from conductor._internal.gate import validator_of
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.errors import PydanticInvalidForJsonSchema
 
 
 def registry_of(*definitions):
@@ -619,6 +620,41 @@ def test_a_hosts_own_widget_compiles_runs_and_is_described_with_its_config():
     assert greet.describe().inputs[0].widget == {"type": "entity-picker", "entity_kind": "user"}
     graph = compiled_graph(greet)
     assert graph.problems == [] and graph.run(who="Bo").results["greet"]["result"] == "hi Bo"
+
+
+class Client:
+    """A host's class that pydantic checks only with ``isinstance``: it has no JSON form."""
+
+
+@pytest.mark.parametrize("hint", [Client, pl.DataFrame, type[str]], ids=["host class", "frame", "class itself"])
+def test_a_hosts_widget_with_a_field_that_has_no_json_form_is_refused_where_its_class_ends(hint: Any) -> None:
+    with pytest.raises(PydanticInvalidForJsonSchema, match=r"\.EntityPicker\.source has a type with no JSON form.*Field\(exclude=True\)"):
+
+        class EntityPicker(Widget):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+            source: hint  # type: ignore[valid-type]
+            type: Literal["entity-picker"] = "entity-picker"
+
+
+def test_a_field_with_no_json_form_in_a_model_inside_a_hosts_widget_is_named_with_that_model() -> None:
+    class Entity(BaseModel):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+        source: Client
+
+    with pytest.raises(PydanticInvalidForJsonSchema, match=r"\.Entity\.source\b.* has a type with no JSON form, but \S+\.EntityPicker is"):
+
+        class EntityPicker(Widget):
+            entity: Entity
+            type: Literal["entity-picker"] = "entity-picker"
+
+
+def test_a_hosts_widget_may_keep_a_field_with_no_json_form_out_of_its_json() -> None:
+    class EntityPicker(Widget):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+        type: Literal["entity-picker"] = "entity-picker"
+        source: Client | None = Field(default=None, exclude=True)
+
+    assert EntityPicker(source=Client()).model_dump(mode="json") == {"type": "entity-picker"}
 
 
 # -- versions, policy, deprecation -------------------------------------------------------------
