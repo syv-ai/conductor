@@ -9,34 +9,23 @@ repos:
   - repo: local
     rules:
       # ---------------------------------------------------------------- delivered on first touch
+      # A touch rule gives the one or two sections a file's area gets wrong, at the moment it is opened; the
+      # principles and the rest of conventions/ are read at the start of the work, and a broken rule is caught by
+      # its own check below, so neither is sent again here.
       - id: touch/library-code
         name: How conductor's library code is written
         files: '^packages/[^/]+/src/.*\.py$'
         stages: [touch]
         context:
-          - "@conventions/principles.md"
           - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
-          - "@conventions/names-and-words.md#google-style-docstrings"
-          - "@conventions/types-and-models.md#trust-the-declared-type"
           - "@conventions/types-and-models.md#fail-loud"
-          - "@conventions/types-and-models.md#invalid-states-cannot-be-written"
-          - "@conventions/principles.md#fewer-concepts-and-models"
-          - "@conventions/principles.md#change-radically-when-it-simplifies"
-          - "@conventions/design.md#one-rule-one-place"
-          - "@conventions/modules-and-imports.md#no-helper-without-a-job"
-          - "@conventions/modules-and-imports.md#json-in-and-out-is-one-concept"
-          - "@conventions/names-and-words.md#conductor-stands-alone"
-          - "@conventions/names-and-words.md#no-history-in-code"
-          - "@conventions/design.md#no-mirrors"
-          - "@conventions/design.md#look-up-dont-scan"
-          - "@conventions/commits-and-docs.md#no-ai-co-sign"
 
       - id: touch/gate
         name: The doors where outside values enter
         files: '^packages/conductor/src/conductor/_internal/gate/'
         stages: [touch]
         context:
-          - "@conventions/validation.md"
+          - "@conventions/validation.md#validation-is-the-wall"
 
       - id: touch/addresses
         name: Where JSON and place text are read
@@ -46,21 +35,25 @@ repos:
           - "@conventions/validation.md#text-is-read-once-at-its-door"
 
       - id: touch/package-layout
-        name: Package layout and imports
+        name: Package layout
         files: '^packages/conductor/src/conductor/_internal/'
         stages: [touch]
         context:
           - "@conventions/modules-and-imports.md#a-concept-is-a-package"
-          - "@conventions/principles.md#deep-modules-uniform-surfaces"
-          - "@conventions/modules-and-imports.md#imports-go-through-a-packages-surface"
-          - "@conventions/modules-and-imports.md#classes-are-imported-by-name"
-          - "@conventions/validation.md#validation-is-the-wall"
+
+      - id: touch/json
+        name: A concept's JSON
+        files: '^packages/conductor/src/conductor/_internal/(.*/(read|write|stored)\.py|run/json/)'
+        stages: [touch]
+        context:
+          - "@conventions/modules-and-imports.md#json-in-and-out-is-one-concept"
 
       - id: touch/engine-paths
         name: The engine's hot paths
         files: '^packages/conductor/src/conductor/_internal/(run|compiled|graph|registry)/'
         stages: [touch]
         context:
+          - "@conventions/design.md#look-up-dont-scan"
           - "@conventions/design.md#readability-over-speed"
 
       - id: touch/shown-to-people
@@ -76,21 +69,14 @@ repos:
         stages: [touch]
         context:
           - "@conventions/commits-and-docs.md#docs-are-part-of-the-change"
-          - "@conventions/design.md#the-wire-is-never-an-argument"
-          - "@conventions/names-and-words.md#conductor-stands-alone"
-          - "@conventions/names-and-words.md#no-history-in-code"
 
       - id: touch/tests
         name: How tests are written
         files: '^tests/.*\.py$'
         stages: [touch]
         context:
-          - "@conventions/principles.md"
           - "@conventions/design.md#tests-read-public-names"
           - "@conventions/design.md#no-mirrors"
-          - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
-          - "@conventions/names-and-words.md#no-history-in-code"
-          - "@conventions/commits-and-docs.md#no-ai-co-sign"
 
       # ---------------------------------------------------------------- the project's own checks
       - id: imports/through-init
