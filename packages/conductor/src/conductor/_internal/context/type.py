@@ -28,7 +28,7 @@ the host's class, such as a pre-built one, names a ``Protocol`` with the members
 Write a member as a read-only property: a frozen dataclass's fields can't be set, so a type checker says it does
 not satisfy a Protocol whose member is a plain attribute. Compiling a graph checks each node's ``Context[X]``
 against the registry's class: for a class, that the registry's class is it or a subclass of it (``issubclass``); for a
-Protocol, that the class has every member the Protocol declares, by name (``what_the_context_lacks``). It does not
+Protocol, that the class has every member the Protocol declares, by name (``ContextParameter.fit``). It does not
 check the members' types: an ``http_client: str`` has the name ``HasHttpClient`` asks for. Whether the types fit is
 the host's type checker's job.
 """
@@ -41,9 +41,14 @@ from typing import Annotated, Any, TypeVar
 
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
-from typing_extensions import get_protocol_members
+from typing_extensions import get_protocol_members, is_protocol
 
-from conductor._internal.problem import NodeDeclarationError, declaration_problems
+from conductor._internal.problem import (
+    NodeDeclarationError,
+    Problem,
+    compile_problems,
+    declaration_problems,
+)
 
 _T = TypeVar("_T")
 
@@ -85,7 +90,32 @@ class ContextParameter:
     cls: type
 
 
-def what_the_context_lacks(context_type: type, protocol: type) -> list[str]:
+    def fit(self, node_id: str, context_type: type | None) -> Problem | None:
+        """Says whether the class a registry names as its context, ``context_type``, is what this parameter asks for.
+
+        Example, with ``HostContext`` above: ``sign(ctx: Context[HostContext], text: str)`` fits ``HostContext`` and
+        any subclass of it. ``fetch(ctx: Context[HasHttpClient], url: str)`` fits a class with an ``http_client``,
+        of any type. On a registry that names no class, neither fits.
+
+        Args:
+            node_id: The node whose first parameter this is, for the problem's ``loc``.
+            context_type: The registry's ``context_type``; ``None`` when it names none.
+
+        Returns:
+            ``None`` when it fits; else ``context_does_not_fit`` at ``(node_id, name)``: the class is not ``cls`` or a
+            subclass of it, it lacks members of the Protocol ``cls`` (variant ``lacks``), or the registry names no
+            class (variant ``no_context_type``).
+        """
+        needs = self.cls.__name__
+        if context_type is None:
+            return compile_problems.context_does_not_fit_no_context_type(node_id, self.name, needs=needs)
+        if not is_protocol(self.cls):
+            return None if issubclass(context_type, self.cls) else compile_problems.context_does_not_fit(node_id, self.name, needs=needs, context_type=context_type.__name__)
+        lacks = _lacks(context_type, self.cls)
+        return compile_problems.context_does_not_fit_lacks(node_id, self.name, needs=needs, context_type=context_type.__name__, lacks=lacks) if lacks else None
+
+
+def _lacks(context_type: type, protocol: type) -> list[str]:
     """The names of the members of ``protocol`` that the class ``context_type`` does not have; ``[]`` when it has them all.
 
     Example, with ``HostContext`` above: ``HasHttpClient`` gives ``[]``, and a Protocol with a member ``database``

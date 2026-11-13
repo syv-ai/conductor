@@ -41,10 +41,8 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import MISSING
-from typing_extensions import is_protocol
 
 from conductor._internal.base import REQUIRED, Address
-from conductor._internal.context import ContextParameter, what_the_context_lacks
 from conductor._internal.field import Field
 from conductor._internal.gate import (
     RefusedError,
@@ -270,8 +268,8 @@ class _Compiler:
         returns, given the types its edges read. When a hook fails, the node is left out and the graph has the
         problem. Every other node is added, even when some of its inputs have problems.
         """
-        if definition.context is not None:
-            self._check_context(node_id, definition.context)
+        if definition.context is not None and (unfit := definition.context.fit(node_id, self.context_type)) is not None:
+            self.problems.append(unfit)
         fields = dict(definition.inputs)
         constants = self._constants_of(node_id, record, fields)
         added: dict[str, Field] = {}
@@ -300,24 +298,6 @@ class _Compiler:
                 id=node_id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
                 definition=definition,
             )
-
-    def _check_context(self, node_id: str, context: ContextParameter) -> None:
-        """Adds a problem when the registry's context class is not what the node's ``Context[X]`` asks for.
-
-        Example: ``sign(ctx: Context[HostContext], text: str)`` fits a registry that names ``HostContext`` or a
-        subclass of it. ``fetch(ctx: Context[HasHttpClient], url: str)`` fits one whose class has an
-        ``http_client``, of any type. On a registry that names no class, neither fits.
-        """
-        needs = context.cls.__name__
-        if self.context_type is None:
-            self.problems.append(compile_problems.context_does_not_fit_no_context_type(node_id, context.name, needs=needs))
-            return
-        context_type = self.context_type.__name__
-        if not is_protocol(context.cls):
-            if not issubclass(self.context_type, context.cls):
-                self.problems.append(compile_problems.context_does_not_fit(node_id, context.name, needs=needs, context_type=context_type))
-        elif lacks := what_the_context_lacks(self.context_type, context.cls):
-            self.problems.append(compile_problems.context_does_not_fit_lacks(node_id, context.name, needs=needs, context_type=context_type, lacks=lacks))
 
     def _compile_subgraph_node(self, node_id: str, record: NodeRecord, definition: SubgraphDefinition, edges: Mapping[str, tuple[Address, ...]]) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
