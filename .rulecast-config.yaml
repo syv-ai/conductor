@@ -451,16 +451,96 @@ repos:
         files: '^packages/.*\.py$'
         detect:
           llm:
+            model: sonnet
             question: >
-              Report each changed line that declares a new class, dataclass, pydantic model, TypedDict or Protocol
-              which holds facts an existing model already holds, or which is a second shape of an existing concept
-              (keyed against list, flat against compiled, description against definition, a "checked" or "keyed"
-              twin). Do not report a class that is the only model of its concept, or a dict built once to look
-              values up by key (an index over data held elsewhere is a lookup, not a model).
+              Report the `class` line of a class, dataclass, pydantic model, TypedDict or Protocol that this
+              change adds and that holds facts an existing model already holds or is a second shape of an
+              existing concept (keyed against list, flat against compiled, description against definition, a
+              "checked" or "keyed" twin). Do not report a class that is the only model of its concept, or a dict
+              built once to look values up by key (an index over data held elsewhere is a lookup, not a model).
+              A class is added only when its `class` line is marked and its name is on no unmarked line. A class
+              whose name is on an unmarked line (a signature, a call, an annotation) was there before the change
+              and was moved or edited: never report it.
+            grounding: false
         severity: warning
         message: "{{file}}:{{line}} may be a second model of a concept: {{reason}}"
         context:
           - "@conventions/principles.md#fewer-concepts-and-models"
+        examples:
+          baseline:
+            - path: packages/conductor-nodes/src/conductor_nodes/control.py
+              before: |
+                @dataclass(frozen=True)
+                class Decided[T]:
+                    """The outputs of ``control-decide``: ``value`` on one of them, ``SKIPPED`` on the other."""
+
+                    if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
+                    if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
+
+
+                @dataclass(frozen=True)
+                class Emptiness:
+                    """The outputs of ``control-if-empty``."""
+
+                    not_empty: Annotated[str, Param(title="Not empty", exclusive_group="emptiness")]
+                    empty: Annotated[str, Param(title="Empty", exclusive_group="emptiness")]
+
+
+                def if_empty(text: str) -> Emptiness:
+                    return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
+              after: |
+                @dataclass(frozen=True)
+                class Emptiness:
+                    """The outputs of ``control-if-empty``: the text on one of them, ``SKIPPED`` on the other."""
+
+                    not_empty: Annotated[str, Param(title="Not empty", exclusive_group="emptiness")]
+                    empty: Annotated[str, Param(title="Empty", exclusive_group="emptiness")]
+
+
+                @dataclass(frozen=True)
+                class Decided[T]:
+                    """The outputs of ``control-decide``: ``value`` on one of them, ``SKIPPED`` on the other."""
+
+                    if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
+                    if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
+
+
+                def if_empty(text: str) -> Emptiness:
+                    return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
+              expect: {}
+            - path: packages/conductor/src/conductor/_internal/record/graph.py
+              before: |
+                class GraphRecord(ConductorModel):
+                    """A graph as a host saves it: its nodes by id, and the outputs it declares."""
+
+                    nodes: dict[str, NodeRecord]
+                    outputs: dict[str, Address] = {}
+
+
+                def node_ids(record: GraphRecord) -> list[str]:
+                    return list(record.nodes)
+              after: |
+                class GraphRecord(ConductorModel):
+                    """A graph as a host saves it: its nodes by id, and the outputs it declares."""
+
+                    nodes: dict[str, NodeRecord]
+                    outputs: dict[str, Address] = {}
+
+
+                class ListedGraphRecord(ConductorModel):
+                    """A graph as a list of its nodes, each with its id, and the outputs it declares."""
+
+                    nodes: list[NodeRecord]
+                    outputs: dict[str, Address] = {}
+
+
+                def node_ids(record: GraphRecord) -> list[str]:
+                    return list(record.nodes)
+
+
+                def listed(record: GraphRecord) -> ListedGraphRecord:
+                    return ListedGraphRecord(nodes=list(record.nodes.values()), outputs=record.outputs)
+              expect: { new: [8] }
 
       - id: types/display-text-guessed
         name: Text a person sees is declared, not guessed
