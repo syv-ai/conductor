@@ -23,13 +23,12 @@ from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
-from ..blueprint import RunBlueprint
-from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
+from ..blueprint import BlueprintFunctionNode, RunBlueprint
+from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
 from .codec import where_in
 from .type import (
-    SAVED_ANSWERED,
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
@@ -84,7 +83,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             where, path = f"reusable.{name}.outcomes", parse_node_path(name)
             reusable_in_call_order = outcomes_from_saved(blueprint.function_nodes[path].compiled_node.outputs, saved_reusable.outcomes)
             where = f"reusable.{name}"
-            add_reusable_from_saved(reusable, path, saved_reusable, reusable_in_call_order)
+            add_reusable_from_saved(reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order)
     except ValueError as wrong:
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]) from None
     _share_tables_written_once(blueprint, in_call_order, read.tables_written_once)
@@ -135,10 +134,10 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
                 for index in indexes:
                     values_by_output[name][call_number][index] = SKIPPED
         outputs_by_call = [{name: values[call_number] for name, values in values_by_output.items()} for call_number in range(len(states))]
-        done, answered, skipped = SAVED_DONE, SAVED_ANSWERED, SAVED_SKIPPED
+        done, skipped = SAVED_DONE, SAVED_SKIPPED
         skipped_outcome = Skipped(outputs_when_skipped(outputs))
         outcomes: list[Outcome | None] = [
-            Done(of_call) if state == done else Answered(of_call) if state == answered else skipped_outcome if state == skipped else None
+            Done(of_call) if state == done else skipped_outcome if state == skipped else None
             for state, of_call in zip(states, outputs_by_call, strict=True)
         ]
         for call_number, waiting in saved.questions.items():
@@ -177,7 +176,7 @@ def _share_tables_written_once(blueprint: RunBlueprint, outcomes: Mapping[NodePa
         node, from_node = parse_node_path(node_name), parse_node_path(from_name)
         try:
             outcome, source = outcomes[node][call_number], outcomes[from_node][from_call_number]
-            if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.outputs[output] is not None:
+            if type(outcome) is not Done or type(source) is not Done or outcome.outputs[output] is not None:
                 raise LookupError(call_number)
             output_type = blueprint.function_nodes[node].compiled_node.outputs[output].whole
             table = blueprint.function_nodes[from_node].compiled_node.outputs[from_output].whole.written_once(source.outputs[from_output])
@@ -192,7 +191,7 @@ def _share_tables_written_once(blueprint: RunBlueprint, outcomes: Mapping[NodePa
             raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where="tables_written_once", reason=reason)]) from None
 
 
-def add_reusable_from_saved(reusable: ReusableOutcomes, path: NodePath, saved: SavedReusable, in_call_order: list[Outcome | None]) -> None:
+def add_reusable_from_saved(reusable: ReusableOutcomes, node: BlueprintFunctionNode, saved: SavedReusable, in_call_order: list[Outcome | None]) -> None:
     """Adds the outcomes one node may reuse from the previous run to ``reusable``, from their saved shape.
 
     The three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}`` are added each
@@ -200,7 +199,7 @@ def add_reusable_from_saved(reusable: ReusableOutcomes, path: NodePath, saved: S
 
     Args:
         reusable: The run's reusable outcomes, added to.
-        path: The node's path.
+        node: The node.
         saved: The saved outcomes and what identifies each.
         in_call_order: ``saved.outcomes`` as ``outcomes_from_saved`` returned them.
 
@@ -213,8 +212,8 @@ def add_reusable_from_saved(reusable: ReusableOutcomes, path: NodePath, saved: S
     item_indexes, outer_item_fingerprints = saved.item_indexes, saved.outer_item_fingerprints
     for place, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, in_call_order, strict=True)):
         match outcome:
-            case Done() | Answered() | Unanswered():
-                reusable.add(path, fingerprint, outcome, item_indexes=item_indexes.get(place), outer_items=outer_item_fingerprints.get(place, ""))
+            case Done() | Unanswered():
+                reusable.add(node, fingerprint, outcome, item_indexes=item_indexes.get(place), outer_items=outer_item_fingerprints.get(place, ""))
             case Skipped() | NoneInput() | None:
                 raise ValueError("an outcome is skipped, not called or missing, and only an outcome of a call is reused")
             case _:

@@ -15,15 +15,15 @@ keeps of one call. A run keeps its outcomes in a dict by node path and then by i
      ("shout",): {(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"}), (2,): Done({"result": "C!"})},
      ("join",):  {():   Done({"result": "A!+B!+C!"})}}
 
-A call has at most one outcome, and an outcome is never changed once it is written. There are five kinds, a
+A call has at most one outcome, and an outcome is never changed once it is written. There are four kinds, a
 class each. The examples add one small node to the graph above.
 
-- **done** (``Done``): the function was called and returned. Every outcome above is done.
+- **done** (``Done``): the call has its outputs: the function returned them, or it asked a person and the
+  person answered. Every outcome above is done.
 - **unanswered** (``Unanswered``): the function asked a person a question, by raising ``Ask``, and no answer has come
   yet. A node ``approve(line: str) -> bool``, wired to ``lines.result``, raises ``Ask("Approve longer?")`` for
-  the line ``"longer"``. Its call for that line is ``Unanswered("Approve longer?")``.
-- **answered** (``Answered``): the function asked a person, and the person answered. The answer is the call's
-  outputs: when the person answers ``False``, the call of ``approve`` is ``Answered({"result": False})``.
+  the line ``"longer"``. Its call for that line is ``Unanswered("Approve longer?")``. When the person answers
+  ``False``, the answer is the call's outputs, and the call is ``Done({"result": False})``.
 - **skipped** (``Skipped``): the function was not called, because the node is downstream of a branch that was
   not chosen. A **branch** is one of several outputs, declared with the same ``Param(exclusive_group=...)``, of
   which a node gives a value to exactly one per call and ``SKIPPED`` to the others. A node ``route(line)`` with
@@ -38,16 +38,16 @@ Two more words have no outcome of their own:
 
 - **not ready** (``NotReady``): a call cannot be made yet, because a value it needs does not exist yet. Before
   ``lines`` has returned, ``shout`` is not ready. It is tried again later. (``NotReady`` has one more reason,
-  for reusing a person's answers in order; its docstring has it.)
+  for reusing in item order the outcomes of a node that may ask; its docstring has it.)
 - **failed**: the function raised an exception other than ``Ask``. The run stops and keeps no outcome for the
   call, so ``resume()`` calls the function again.
 
 A node is **complete** when every call it will have has an outcome and none of them is unanswered; a run is
 complete when every node is.
 
-Done, answered, skipped and not called have ``outputs``: the call's outputs by name. Unanswered has none yet. Every
-class says which with ``has_outputs``, so code that needs an output asks ``outcome.has_outputs`` and then reads
-``outcome.outputs[name]``, whichever of the five classes it has.
+Done, skipped and not called have ``outputs``: the call's outputs by name. Unanswered has none yet. Every class says
+which with ``has_outputs``, so code that needs an output asks ``outcome.has_outputs`` and then reads
+``outcome.outputs[name]``, whichever of the four classes it has.
 """
 
 from __future__ import annotations
@@ -69,9 +69,9 @@ class NotReady(Enum):
     Attributes:
         NOT_READY: A value the call needs does not exist yet: the node it comes from has not returned, or is
             waiting for a person. Before ``lines`` has returned, every call of ``shout`` is ``NOT_READY``.
-        NOT_ITS_TURN: The call would reuse a person's answer from a previous run, and an earlier call of the same
-            node has to reuse its answer first. Answers to the same question are reused in the order of the
-            calls. Say a previous run of ``lines -> approve`` had the lines ``"longer"`` and ``"longer"``, and a
+        NOT_ITS_TURN: The call is of a node that may ask a person, it would reuse an outcome from a previous run,
+            and an earlier call of the same node has to reuse its outcome first. Answers to the same question are
+            reused in the order of the calls. Say a previous run of ``lines -> approve`` had the lines ``"longer"`` and ``"longer"``, and a
             person answered ``True`` for the first and ``False`` for the second. Both calls ask the same question,
             since they have the same arguments, so a new run on the same text gives ``True`` to ``(0,)`` and ``False`` to ``(1,)``. If ``(1,)`` is
             ready first, it is ``NOT_ITS_TURN`` until ``(0,)`` has taken its answer.
@@ -85,30 +85,16 @@ class NotReady(Enum):
 @final
 @dataclass(frozen=True, slots=True)
 class Done:
-    """The function was called and returned: ``Done({"result": "B!"})`` for the call ``(1,)`` of ``shout``.
+    """The call has its outputs: ``Done({"result": "B!"})`` for the call ``(1,)`` of ``shout``.
+
+    The function returned them, or it asked a person, by raising ``Ask``, and the outputs are the person's answer.
+    A run tells the two apart only when it reuses outcomes, by whether the node may ask (``run/reuse.py``).
 
     Attributes:
-        outputs: The call's outputs by name. An output is the value the function returned for it, which may be
-            ``None``, or ``SKIPPED`` for an output on a branch that was not chosen. The value of a ``Series``
+        outputs: The call's outputs by name. An output is the value the function returned or the person answered
+            for it, which may be ``None``, or ``SKIPPED`` for an output on a branch that was not chosen. The value of a ``Series``
             output is a ``StoredSeries``, the form in which a run keeps a series: it reads as the returned list,
             and ``len()`` gives its number of items.
-        has_outputs: ``True``.
-    """
-
-    outputs: dict[str, Any]
-    has_outputs: ClassVar[Literal[True]] = True
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class Answered:
-    """The function asked a person a question, and the person answered: ``Answered({"result": False})``.
-
-    It is a class of its own, not ``Done``, because a run going on from this one reuses answers in the order of the
-    calls (``NotReady.NOT_ITS_TURN``): two calls that got the same arguments may have been answered differently.
-
-    Attributes:
-        outputs: The call's outputs by name, read from the person's answer: ``{"result": False}``.
         has_outputs: ``True``.
     """
 
@@ -183,5 +169,5 @@ class Unanswered:
     has_outputs: ClassVar[Literal[False]] = False
 
 
-#: What happened to one call: one of the five kinds of outcome.
-Outcome = Done | Answered | Skipped | NoneInput | Unanswered
+#: What happened to one call: one of the four kinds of outcome.
+Outcome = Done | Skipped | NoneInput | Unanswered

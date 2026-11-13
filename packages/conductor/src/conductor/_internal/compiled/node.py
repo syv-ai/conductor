@@ -120,11 +120,13 @@ class CompiledFunctionNode(_CompiledNodeBase):
     @functools.cached_property
     def code_fingerprint(self) -> str:
         """A short hash of what a call's outputs depend on besides its arguments: the node's id and version, its
-        code, the types of its inputs and outputs, and its loops.
+        code, the types of its inputs and outputs, its loops, and whether it may ask a person.
 
         A run that reuses the outputs of an earlier run (``with_inputs(previous=run)``) reuses a call only while
         this is the same. So a node redeclared under the same id and version, but with other code, an input or
-        output of another type, limit or choice, or inside other loops, is called again. The code is read from
+        output of another type, limit or choice, inside other loops, or with ``asks`` turned on or off, is called
+        again: a node that may ask has its outcomes reused once each, in item order, and one that may not without
+        limit, so the outcomes of one are never reused as the other's. The code is read from
         the function's own bytecode and constants, not from the functions it calls.
         """
         definition = self.definition
@@ -133,7 +135,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         # each loop as place_text writes it (``"e/split.result"``), not as a repr: a waiting call's id and a saved run
         # contain the hash, so it changes only when that text does
         loops = tuple([place_text(node, output) for node, output in self.loops])
-        written = repr((definition.id, definition.version, code, fields, loops))
+        written = repr((definition.id, definition.version, code, fields, loops, definition.asks))
         return short_hash(written.encode(), 8)
 
     @functools.cached_property

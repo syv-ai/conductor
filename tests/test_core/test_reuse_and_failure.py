@@ -1084,6 +1084,28 @@ def test_a_third_identical_item_is_asked_and_two_previous_answers_cover_only_two
     assert [place(w) for w in more.waiting] == ["a@2"] and more.results["a"]["result"] == [True, False, None]
 
 
+@pytest.mark.parametrize("through_json", [False, True])
+def test_a_node_that_may_ask_reuses_each_return_once_in_item_order_and_calls_again_for_an_identical_item_beyond_them(through_json: bool) -> None:
+    """``stamp`` may ask, and returned for both "bo"s without asking. Run again with "al" above and a third "bo": the two
+    "bo"s keep their own returns, first to first, and the third is called, as a third answer would be asked."""
+    counter = iter(range(1, 100))
+    calls: list[str] = []
+
+    @node("stamp", title="Stamp", description="For a test.", asks=True)
+    def stamp(name: str) -> str:
+        calls.append(name)
+        return f"{name}{next(counter)}"
+
+    graph = Graph.compile(_record({"each": _each, "s": stamp}, [("each.result", "s.name")]), registry_of(_each, stamp))
+    first = graph.run(items=["bo", "bo"])
+    calls.clear()
+
+    moved = first.with_inputs(items=["al", "bo", "bo", "bo"])
+    moved = (Run.from_json(moved.to_json(), graph) if through_json else moved).resume()
+
+    assert moved.results["s"]["result"] == ["al3", "bo1", "bo2", "bo4"] and calls == ["al", "bo"] and moved.waiting == []
+
+
 def test_identical_lines_answered_differently_under_documents_keep_their_documents_when_the_documents_swap():
     @node("lines", title="Lines", description="For a test.")
     def lines(doc: str) -> Series[str]:
@@ -1398,6 +1420,36 @@ def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_a
     assert calls == [given, given]
 
 
+def test_a_node_redeclared_with_the_same_code_to_no_longer_ask_is_called_again_and_never_takes_the_answers():
+    """``approve`` asks through a helper, so turning ``asks`` off leaves its code as it was. Bo was answered yes and then
+    no; with "al" inserted above, the answers must not land on the wrong Bo, so every call is made again."""
+    asking = {"on": True}
+    calls: list[str] = []
+
+    def decide(name: str) -> bool:
+        if asking["on"]:
+            raise Ask(f"Mail {name}?")
+        return True
+
+    def approve(name: str) -> bool:
+        calls.append(name)
+        return decide(name)
+
+    def graph_of(definition: FunctionDefinition) -> Graph:
+        return Graph.compile(_record({"each": _each, "a": definition}, [("each.result", "a.name")]), registry_of(_each, definition))
+
+    may_ask = node("approve", title="Approve", description="For a test.", asks=True)(approve)
+    never_asks = node("approve", title="Approve", description="For a test.")(approve)
+    first = graph_of(may_ask).run(items=["bo", "bo"])
+    answered = first.answer({w.id: answer for w, answer in zip(first.waiting, [True, False], strict=True)}).resume()
+    asking["on"] = False
+    calls.clear()
+
+    again = graph_of(never_asks).with_inputs(items=["al", "bo", "bo"], previous=answered).resume()
+
+    assert again.results["a"]["result"] == [True, True, True] and calls == ["al", "bo", "bo"]
+
+
 def test_a_node_redeclared_to_take_none_is_called_for_the_item_it_was_not_called_for():
     class Row(TypedDict):
         name: str
@@ -1576,6 +1628,43 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
         first_done.clear()
         again = answered.again(items=["bo-0", "bo-1"])
         assert again.results["a"]["result"] == [True, False] and again.waiting == []
+
+
+def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_whatever_thread_finished_first():
+    """``stamp`` may ask, runs on threads and returned for two "bo"s without asking. Run again with "al" above and a third
+    "bo", where the second "bo" is fetched before the first: the two keep their own returns, first to first, and the
+    third is called."""
+    from threading import Event as ThreadEvent
+    from threading import Lock
+
+    first_fetched, counter, lock = ThreadEvent(), iter(range(1, 100)), Lock()
+    calls: list[str] = []
+
+    @node("fetch", title="Fetch", description="For a test.", policy=Policy(concurrency=4, reuse_when_inputs_match=False))
+    def fetch(name: str) -> str:
+        if name == "bo-0":
+            assert first_fetched.wait(timeout=10)  # the first "bo" comes back after the second
+        elif name == "bo-1":
+            first_fetched.set()
+        return name.split("-")[0]
+
+    @node("stamp", title="Stamp", description="For a test.", asks=True, policy=Policy(concurrency=4))
+    def stamp(name: str) -> str:
+        with lock:
+            calls.append(name)
+            return f"{name}{next(counter)}"
+
+    graph = Graph.compile(_record({"each": _each, "f": fetch, "s": stamp}, [("each.result", "f.name"), ("f.result", "s.name")]), registry_of(_each, fetch, stamp))
+    first = graph.run(items=["bo-0", "bo-1"])
+    returned = first.results["s"]["result"]
+
+    for _ in range(3):
+        first_fetched.clear()
+        calls.clear()
+        again = first.again(items=["al", "bo-0", "bo-1", "bo-2"])
+        al, *reused, third = again.results["s"]["result"]
+        assert reused == returned and al.startswith("al") and third.startswith("bo") and third not in returned
+        assert sorted(calls) == ["al", "bo"] and again.waiting == []
 
 
 @pytest.mark.parametrize(("name", "results", "asked"), [("bo", [True, False], []), ("zz", [None, True], ["a@0"])])

@@ -59,7 +59,7 @@ from .events import (
     NodeStart,
     NodeWaiting,
 )
-from .outcome import Answered, Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
+from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
 from .progress import CallCount, call_count, calls_expected, is_complete
 from .waiting import waiting_record
 
@@ -227,7 +227,7 @@ def _is_skipped(outcome: Outcome) -> bool:
     match outcome:
         case Skipped():
             return True
-        case Done() | Answered():
+        case Done():
             return bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values())
         case NoneInput() | Unanswered():
             return False

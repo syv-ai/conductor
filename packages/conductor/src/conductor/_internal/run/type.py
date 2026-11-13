@@ -1,7 +1,7 @@
 """``Run``: a graph's inputs and the outcome of every call so far, as one value that writes itself as JSON.
 
 For the README graph, ``graph.run(text="a\\nb")`` calls ``lines`` once, ``shout`` once per line and ``join`` once, and
-the run keeps one outcome per call: ``Done`` (it returned), ``Answered`` (a person answered for it), ``Skipped`` (it
+the run keeps one outcome per call: ``Done`` (it returned, or a person answered for it), ``Skipped`` (it
 is on a branch that was not chosen), ``NoneInput`` (an argument was ``None`` and its input does not accept ``None``)
 or ``Unanswered`` (it asked a person and waits for an answer). A call with no outcome has not been made yet.
 ``resume()`` calls every node that is ready, until the run is complete, waiting, failed or stopped, so a run can
@@ -44,7 +44,7 @@ from .events import (
 )
 from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
-    Answered,
+    Done,
     NoneInput,
     NotReady,
     Outcome,
@@ -284,7 +284,7 @@ class Run[C]:
         is answered with its value, several (a node with several outputs) with a mapping by question name, where a
         question with a default or a blank-taking type without choices may be left out, and of an
         ``exclusive_group`` exactly one is answered; a question limited by choices is answered unless it has a
-        default. The answer is the call's outputs, and its outcome ``Answered``; ``resume`` then calls the nodes
+        default. The answer is the call's outputs, and its outcome ``Done``; ``resume`` then calls the nodes
         that read them. A run that ended early takes answers as a waiting one does, a cancelled one included.
 
         Args:
@@ -339,7 +339,7 @@ class Run[C]:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
-            answered[(node, item_indexes)] = Answered(read)
+            answered[(node, item_indexes)] = Done(read)
         if problems:
             raise InvalidCallError(problems)
         run = dataclasses.replace(self._copy(share_outcomes=True), _last_resume=kept_by_an_answer(self._last_resume))

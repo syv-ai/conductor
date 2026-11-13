@@ -21,10 +21,10 @@ from ..state import EndedEarly
 #: value of a key.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
-#: What a saved run writes for one call: ``"done"`` when its function returned, ``"answered"`` when a person answered
-#: it, ``"skipped"`` when it was skipped. Any other call is written as ``null``.
-SavedOutcomeState = Literal["done", "answered", "skipped"]
-SAVED_DONE, SAVED_ANSWERED, SAVED_SKIPPED = get_args(SavedOutcomeState)
+#: What a saved run writes for one call: ``"done"`` when it has its outputs, which its function returned or a person
+#: answered, ``"skipped"`` when it was skipped. Any other call is written as ``null``.
+SavedOutcomeState = Literal["done", "skipped"]
+SAVED_DONE, SAVED_SKIPPED = get_args(SavedOutcomeState)
 
 
 class SavedOutcomes(BaseModel):
@@ -53,8 +53,8 @@ class SavedOutcomes(BaseModel):
     A key after ``outputs`` that is empty is left out of the JSON.
 
     Attributes:
-        states: For each call, ``"done"`` when its function returned, ``"answered"`` when a person answered it,
-            ``"skipped"`` when it was skipped, else ``None``.
+        states: For each call, ``"done"`` when its function returned or a person answered it, ``"skipped"`` when
+            it was skipped, else ``None``.
         outputs: By output name, the value of the output for each call; ``None`` for a call that has no outputs.
         questions: By call number, what the ``Ask`` of a call waiting for a person said: its prompt, and the
             choices and defaults it set.

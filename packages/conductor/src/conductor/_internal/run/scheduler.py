@@ -34,11 +34,12 @@ after. The scheduler then calls ``shout`` with those arguments and writes what i
    An attempt that is still on its thread after ``attempt_timeout`` seconds fails the run; its thread cannot be
    stopped. Only node functions run on pool threads. Outcomes are written on the scheduler's thread.
 
-3. **Reusing answers in item order.** A run made with ``graph.with_inputs(previous=run)`` takes an outcome of
-   the earlier run in place of a call with the same arguments (``run/reuse.py``). A person's answer is taken
-   once, by the first call in item order that has those arguments. Calls on threads come back in any order, so
-   a call that could take an answer is left untried until every call of its node before it has been tried
-   (``_in_turn``), and ``_try_every_call`` runs again for it once another outcome is recorded. A call before it
+3. **Reusing in item order.** A run made with ``graph.with_inputs(previous=run)`` takes an outcome of
+   the earlier run in place of a call with the same arguments (``run/reuse.py``). An outcome of a node that may
+   ask a person, its answer or its return, is taken once, by the first call in item order that has those
+   arguments. Calls on threads come back in any order, so a call that could take one is left untried until every
+   call of its node before it has been tried (``_in_turn``), and ``_try_every_call`` runs again for it once
+   another outcome is recorded. A call before it
    that waits on a person's answer upstream holds it back until that answer comes.
 
 4. **Stopping, the item limit and checkpoints.** The first call that fails ends the run as ``failed``. So does
@@ -80,7 +81,6 @@ from .call import call, jsonable
 from .events import EventBase
 from .node_events import NodeEvents
 from .outcome import (
-    Answered,
     Done,
     NoneInput,
     NotReady,
@@ -141,9 +141,9 @@ class _Timer:
 
 
 @dataclass(slots=True)
-class _AnswerOrder:
-    """How far the calls of one node have been tried in item order, for a node that takes a person's answers
-    from an earlier run.
+class _ItemOrder:
+    """How far the calls of one node have been tried in item order, for a node that may ask a person and reuses
+    outcomes from an earlier run.
 
     Attributes:
         order: The item indexes of the node's calls, in item order.
@@ -199,8 +199,8 @@ class Scheduler:
             threads: How many pool threads the graph needs: the sum of ``concurrency`` over its nodes that are
                 called on threads.
             outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
-            reusable: The outcomes of the previous run that a call may reuse. The scheduler takes out the answers it
-                reuses.
+            reusable: The outcomes of the previous run that a call may reuse. The scheduler takes out the outcomes
+                it reuses once each.
             complete: The node paths of the nodes that were complete when the last ``resume()`` ended, for the listener.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
@@ -251,11 +251,11 @@ class Scheduler:
         #: Gives each timer its ``order``.
         self.timer_order = itertools.count()
 
-        # 3. Reusing answers in item order.
+        # 3. Reusing in item order.
         #: The outcomes of the previous run that a call may reuse.
         self.reusable = reusable
-        #: How far each node that takes a person's earlier answers has been tried in item order.
-        self.answer_orders: dict[BlueprintFunctionNode, _AnswerOrder] = {}
+        #: How far each node that may ask and reuses earlier outcomes has been tried in item order.
+        self.item_orders: dict[BlueprintFunctionNode, _ItemOrder] = {}
         #: Whether a call was left untried because a call of its node before it has not been tried yet.
         self.out_of_turn = False
         #: How many outcomes were recorded since ``_try_every_call`` last ran, not counting its own.
@@ -693,7 +693,7 @@ class Scheduler:
             return run_problems.external_failed(*loc, error=type(error).__name__)
         return run_problems.execution_failed(*loc, error=type(error).__name__)
 
-    # -- 3. Reusing answers in item order -------------------------------------------------------------------------
+    # -- 3. Reusing in item order ---------------------------------------------------------------------------------
 
     def _in_turn(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> bool:
         """Whether every call of ``node`` before ``item_indexes`` in item order has been tried.
@@ -707,12 +707,12 @@ class Scheduler:
         that person too. Nor is any call in turn while a series the node loops over is still to come, since an
         earlier call may be inside it: with two pages, page 1's lines wait until page 0's lines are known.
         """
-        turn = self.answer_orders.get(node)
+        turn = self.item_orders.get(node)
         if turn is None:
             order, every_call_known = all_item_indexes(self.all_outcomes, node.loops, ())
             if not every_call_known:
                 return False
-            turn = self.answer_orders[node] = _AnswerOrder(order, {indexes: position for position, indexes in enumerate(order)})
+            turn = self.item_orders[node] = _ItemOrder(order, {indexes: position for position, indexes in enumerate(order)})
         order, outcomes, reached = turn.order, self.outcomes[node], turn.reached
         while reached < len(order):
             next_indexes = order[reached]
@@ -737,7 +737,7 @@ class Scheduler:
                         return
 
     def _stop_if_over_item_limit(
-        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NoneInput, item_limit: int
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Done | Skipped | NoneInput, item_limit: int
     ) -> bool:
         """End the run as ``stopped`` with the problem ``item_limit`` if a series in ``outcome`` that a loop runs over
         has more items than ``item_limit``, unless ``end`` was called before: the first cause stays.

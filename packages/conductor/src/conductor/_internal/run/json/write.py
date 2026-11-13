@@ -18,12 +18,11 @@ from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
 from ..blueprint import BlueprintFunctionNode
-from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
+from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..reuse import ReusableOutcomes
 from .codec import saved_type
 from .type import (
-    SAVED_ANSWERED,
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
@@ -38,10 +37,7 @@ if TYPE_CHECKING:
 
 #: What ``states`` says for an outcome of each class; an outcome of any other class, and a call with no outcome,
 #: is written as ``None``.
-_STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED_ANSWERED, Skipped: SAVED_SKIPPED}
-
-#: The outcome classes whose outputs are written: what a function returned, or what a person answered.
-_HAS_OUTPUTS = (Done, Answered)
+_STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Skipped: SAVED_SKIPPED}
 
 
 def run_to_json(run: Run) -> str:
@@ -106,7 +102,7 @@ def saved_run(run: Run) -> SavedRun:
     }
     reusable = {}
     for path, node in function_nodes.items():
-        if path in run._reusable.done or path in run._reusable.answers:  # every outcome in done_by_call is in done too
+        if path in run._reusable.reused_freely or path in run._reusable.reused_in_item_order:  # every outcome in reused_freely_by_call is in reused_freely too
             reusable[names[path]] = saved_reusable(codec.reusable_classes[names[path]], codec.outcomes_classes[names[path]], node.compiled_node.outputs, run._reusable, path)
     code = {
         names[path]: run._reusable.code_changed.get(path) or node.compiled_node.code_fingerprint
@@ -151,13 +147,13 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     skipped_items: dict[str, dict[int, list[int]]] = {}
     questions: dict[int, Unanswered] = {}
     not_called_because: dict[int, str] = {}
-    if not classes.isdisjoint(_HAS_OUTPUTS):
-        if classes.issubset(_HAS_OUTPUTS):  # speed only: every call has outputs, as in a node that is complete
-            with_outputs = cast("list[Done | Answered]", outcomes)
+    if Done in classes:
+        if classes == {Done}:  # speed only: every call is done, as in a node that is complete
+            with_outputs = cast("list[Done]", outcomes)
             values_by_output = {name: [outcome.outputs[name] for outcome in with_outputs] for name in outputs}
         else:
             values_by_output = {
-                name: [outcome.outputs[name] if isinstance(outcome, _HAS_OUTPUTS) else None for outcome in outcomes]
+                name: [outcome.outputs[name] if type(outcome) is Done else None for outcome in outcomes]
                 for name in outputs
             }
         for name, output in outputs.items():
@@ -225,8 +221,8 @@ def saved_reusable(
     """Returns the outcomes one node may reuse from the previous run as a saved run writes them, each outcome once.
 
     ``SavedReusable`` shows the JSON. The order is: the outcomes known by the item indexes their call had, then
-    the outcomes known only by the fingerprint of their call's arguments, then the answers and the waiting
-    questions.
+    the outcomes known only by the fingerprint of their call's arguments, then the outcomes of a node that may
+    ask: its answers, its returns and its waiting questions.
 
     Args:
         saved_class: The codec's class for the node's reusable outcomes.
@@ -235,18 +231,18 @@ def saved_reusable(
         reusable: The run's reusable outcomes.
         path: The node's path.
     """
-    done_by_call = reusable.done_by_call.get(path, {})
-    outcomes: list[Outcome | None] = [done for _, done in done_by_call.values()]
-    fingerprints = [fingerprint for fingerprint, _ in done_by_call.values()]
-    item_indexes = dict(enumerate(done_by_call))
-    already_saved = set(fingerprints)  # ``done`` has these outcomes too: the first call that got those arguments
-    for fingerprint, done in reusable.done.get(path, {}).items():
+    by_call = reusable.reused_freely_by_call.get(path, {})
+    outcomes: list[Outcome | None] = [done for _, done in by_call.values()]
+    fingerprints = [fingerprint for fingerprint, _ in by_call.values()]
+    item_indexes = dict(enumerate(by_call))
+    already_saved = set(fingerprints)  # ``reused_freely`` has these outcomes too: the first call that got those arguments
+    for fingerprint, done in reusable.reused_freely.get(path, {}).items():
         if fingerprint not in already_saved:
             outcomes.append(done)
             fingerprints.append(fingerprint)
     outer_item_fingerprints: dict[int, str] = {}
-    for (fingerprint, outer_items_fingerprint), answers in reusable.answers.get(path, {}).items():
-        for outcome in answers:
+    for (fingerprint, outer_items_fingerprint), left in reusable.reused_in_item_order.get(path, {}).items():
+        for outcome in left:
             if outer_items_fingerprint:
                 outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint
             outcomes.append(outcome)
