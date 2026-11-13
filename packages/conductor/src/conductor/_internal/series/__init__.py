@@ -5,9 +5,9 @@ from .stored import (
     Records,
     SeriesItems,
     StoredSeries,
-    places_of_none,
-    without_places,
+    indexes_of_none,
+    without_indexes,
 )
 from .type import Series, SeriesType
 
-__all__ = ["Records", "Series", "SeriesItems", "SeriesType", "StoredSeries", "places_of_none", "set_has_no_order", "without_places"]
+__all__ = ["Records", "Series", "SeriesItems", "SeriesType", "StoredSeries", "indexes_of_none", "set_has_no_order", "without_indexes"]

@@ -198,21 +198,21 @@ class Records[T]:
 StoredSeries = SeriesItems | Records
 
 
-def places_of_none(value: Any) -> list[int]:
+def indexes_of_none(value: Any) -> list[int]:
     """Returns the indexes at which ``value``, the value of a ``Series`` or ``Table`` input, has ``None``.
-    ``places_of_none(["a", None])`` is ``[1]``. A value that is not a list (a table) has a row for every item, so
+    ``indexes_of_none(["a", None])`` is ``[1]``. A value that is not a list (a table) has a row for every item, so
     the result is ``[]``."""
-    return [place for place, item in enumerate(value) if item is None] if type(value) is list else []
+    return [index for index, item in enumerate(value) if item is None] if type(value) is list else []
 
 
-def without_places(value: list[Any] | pl.DataFrame, places: set[int]) -> list[Any] | pl.DataFrame:
+def without_indexes(value: list[Any] | pl.DataFrame, indexes: set[int]) -> list[Any] | pl.DataFrame:
     """Returns ``value``, the value of a ``Series`` or ``Table`` input, without the items at the indexes
-    ``places``. ``without_places(["a", "b", "c"], {1})`` is ``["a", "c"]``; a three-row frame and ``{1}`` give a
+    ``indexes``. ``without_indexes(["a", "b", "c"], {1})`` is ``["a", "c"]``; a three-row frame and ``{1}`` give a
     frame of its first and third row."""
     match value:
         case list():
-            return [item for place, item in enumerate(value) if place not in places]
+            return [item for index, item in enumerate(value) if index not in indexes]
         case pl.DataFrame():
-            return value.filter([place not in places for place in range(value.height)])
+            return value.filter([index not in indexes for index in range(value.height)])
         case _:
             assert_never(value)
