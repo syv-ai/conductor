@@ -92,7 +92,7 @@ from .outcome import (
     Skipped,
     Unanswered,
 )
-from .progress import all_item_indexes, has_every_outcome, length
+from .progress import all_item_indexes, length
 from .reuse import ReusableOutcomes
 from .state import EndedEarly, LastResume
 
@@ -205,7 +205,7 @@ class Scheduler:
         threads: int,
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         reusable: ReusableOutcomes,
-        finished: frozenset[NodePath],
+        complete: frozenset[NodePath],
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None,
@@ -222,8 +222,8 @@ class Scheduler:
                 called on threads.
             outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
             reusable: The outcomes of the previous run that a call may reuse. The scheduler takes out the answers it
-                reuses and drops a node's outcomes once the node is complete.
-            finished: The node paths of the nodes that were complete when the run was last resumed.
+                reuses.
+            complete: The node paths of the nodes that were complete when the last ``resume()`` ended, for the listener.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
             emit: The listener of ``run.stream()``, called with each event about a node. None for ``run.resume()``.
@@ -245,8 +245,6 @@ class Scheduler:
         self.stopped: LastResume = None
         #: False once ``end`` was called: no more calls are started.
         self.going = True
-        #: The node paths of the nodes that are complete: as given, and from ``_close`` as this ``resume()`` leaves them.
-        self.finished = finished
         #: Each node's outcomes by item indexes. These are the dicts of ``all_outcomes``, by node in place of node path.
         self.outcomes = {node: outcomes[node.node_path] for node in self.nodes}
         #: The nodes with an outcome written before one that is earlier in item order. ``_put_in_order`` sorts them.
@@ -300,14 +298,14 @@ class Scheduler:
 
         # 5. Telling a listener.
         #: Makes the events about each node. None when nobody listens.
-        self.node_events = NodeEvents(emit, nodes, outcomes, finished, self.arguments_for) if emit is not None else None
+        self.node_events = NodeEvents(emit, nodes, outcomes, complete, self.arguments_for) if emit is not None else None
 
-    def run(self) -> tuple[LastResume, frozenset[NodePath]]:
+    def run(self) -> LastResume:
         """Call every node that is ready, until none is and no attempt is on a thread, or until ``end`` is called.
 
         Returns:
             Why it stopped before then: how the run ended early, ``"running"`` when the host took the run back, or
-            ``None`` when it did not stop early; and the node paths of the nodes that are complete.
+            ``None`` when it did not stop early.
         """
         try:
             self._check_item_limit()
@@ -331,8 +329,10 @@ class Scheduler:
         finally:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
-        self._close()
-        return self.stopped, self.finished
+        self._put_in_order()
+        if self.node_events is not None:
+            self.node_events.scheduler_ended()
+        return self.stopped
 
     def end(self, stopped: EndedEarly | Literal["running"]) -> None:
         """Start no more calls. The attempts that wait for a thread or for a retry are dropped; ``run`` waits for
@@ -535,36 +535,6 @@ class Scheduler:
                 for call_indexes in all_item_indexes(self.all_outcomes, node.loops, item_indexes)[0]:
                     heapq.heappush(self.ready, (node.position, call_indexes))
         return released
-
-    def _close(self) -> None:
-        """Set the complete nodes that ``run`` returns, once no call is running.
-
-        A node is complete when it has an outcome for every call and none of them is waiting for a person. When
-        ``end`` was not called, every node is complete unless a node is waiting, or only the nodes that cost
-        nothing were called.
-
-        Raises:
-            RuntimeError: ``end`` was not called, every node was called, no call is waiting for a person, and a
-                node lacks an outcome. The scheduler failed to try a call that was ready.
-        """
-        self._put_in_order()
-        waiting: set[FlatFunctionNode] = set()
-        unfinished: set[FlatFunctionNode] = set()
-        for node, outcomes in self.outcomes.items():
-            if node.node_path in self.finished:
-                continue
-            if Unanswered in {type(outcome) for outcome in outcomes.values()}:
-                waiting.add(node)
-            # speed only: has_every_outcome says the same of a node inside no loop. Not calling it is worth 2% of a run of 500 chained nodes.
-            elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):
-                unfinished.add(node)
-        if self.going and not waiting and unfinished and not self.only_costs_nothing:
-            lacking = sorted(node.node_path for node in unfinished)
-            raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
-        self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
-        self.reusable.drop(self.finished)  # a complete node has no call left to take them
-        if self.node_events is not None:
-            self.node_events.scheduler_ended()
 
     def _put_in_order(self) -> None:
         """Sort the outcomes of each node in ``out_of_order`` by item indexes.

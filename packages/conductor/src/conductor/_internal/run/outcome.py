@@ -42,7 +42,8 @@ Two more words have no outcome of their own:
 - **failed**: the function raised an exception other than ``Ask``. The run stops and keeps no outcome for the
   call, so ``resume()`` calls the function again.
 
-A node is **complete** when every call it will have has an outcome; a run is complete when every node is.
+A node is **complete** when every call it will have has an outcome and none of them is unanswered; a run is
+complete when every node is.
 
 Done, answered, skipped and not called have ``outputs``: the call's outputs by name. Unanswered has none yet. Every
 class says which with ``has_outputs``, so code that needs an output asks ``outcome.has_outputs`` and then reads

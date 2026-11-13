@@ -48,7 +48,7 @@ from .outcome import (
     Outcome,
     Unanswered,
 )
-from .progress import Progress, progress_of
+from .progress import Progress, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
@@ -112,8 +112,9 @@ class Run[C]:
     #: How the last ``resume()`` left the run: ``"running"`` in a copy made while it went on, how it ended early, or
     #: ``None`` when it made every call that was ready.
     _last_resume: LastResume = None
-    #: The nodes whose every call was finished when the run was last resumed, so a later resume doesn't say them complete again.
-    _finished_nodes: frozenset[NodePath] = frozenset()
+    #: The nodes that were complete (``is_complete``) when the last ``resume()`` ended, so a later stream does not say
+    #: them complete again, and their outcomes from the previous run are dropped.
+    _complete_nodes: frozenset[NodePath] = frozenset()
 
     @property
     def _flat(self) -> FlatGraph:
@@ -238,6 +239,10 @@ class Run[C]:
 
         Returns:
             The copy, as the scheduler left it.
+
+        Raises:
+            RuntimeError: The scheduler did not stop early, and left a call that was ready untried: the run is
+                ``ready`` after a ``resume()`` that calls every node.
         """
         run = self._copy()
         checkpoint: Callable[[LastResume], None] | None = None
@@ -250,13 +255,20 @@ class Run[C]:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), _last_resume="running" if stopped is None else stopped)))
 
         flat = self._flat
-        stopped, run._finished_nodes = Scheduler(
-            nodes=list(flat.function_nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
-            finished=run._finished_nodes,
+        nodes = flat.function_nodes
+        complete_before = run._complete_nodes
+        run._last_resume = stopped = Scheduler(
+            nodes=list(nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
+            complete=complete_before,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
         ).run()
-        run._last_resume = stopped
+        outcomes = run._outcomes
+        run._complete_nodes = frozenset(path for path, node in nodes.items() if path in complete_before or is_complete(outcomes, node))
+        run._reusable.drop(run._complete_nodes)  # a complete node has no call left to take them
+        if stopped is None and not only_costs_nothing and len(run._complete_nodes) < len(nodes) and run.status == "ready":
+            lacking = sorted(path for path in nodes if path not in run._complete_nodes)
+            raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
         if emit is not None:  # a run handed back is still running: it did not end, and the host stores it to go on elsewhere
             emit(RunCheckpoint(run=run) if stopped == "running" else RunEnd.of(run))
         return run

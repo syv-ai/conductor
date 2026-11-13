@@ -1,5 +1,6 @@
-"""How far a run is: how many calls each node has an outcome for, and how many it will have; and the item indexes
-of every call a node will have (``all_item_indexes``), which the scheduler and a saved run read too.
+"""How far a run is: how many calls each node has an outcome for, and how many it will have; whether a node is
+complete (``is_complete``), the one rule for it; and the item indexes of every call a node will have
+(``all_item_indexes``), which the scheduler and a saved run read too.
 
 The example graph::
 
@@ -184,11 +185,23 @@ def calls_expected(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], loops: 
     return expected, complete
 
 
-def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
-    """Whether ``node`` is complete: it has an outcome for every call it will have.
+def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+    """Whether ``node`` is complete: it has an outcome for every call it will have, and none of them waits for a person.
 
-    ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. A ``Unanswered`` outcome
-    counts: the call was made, though no answer has come.
+    ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. ``approve`` with an
+    ``Unanswered`` outcome is not, until the person answers.
+    """
+    of_node = outcomes[node.node_path]
+    if not node.loops:  # A shortcut: one call, so its one outcome decides. It saves 2% of a run of a chain of 500 nodes.
+        return bool(of_node) and type(of_node[()]) is not Unanswered
+    return has_every_outcome(outcomes, node) and all(type(outcome) is not Unanswered for outcome in of_node.values())
+
+
+def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+    """Whether ``node`` has an outcome for every call it will have.
+
+    ``shout`` has when ``lines`` has returned and ``shout`` has three outcomes. An ``Unanswered`` outcome counts:
+    the call was made, though no answer has come.
     """
     if not node.loops:  # A shortcut: calls_expected says one call, so any outcome is every outcome. It saves 2% of to_json on a chain of 500 nodes.
         return bool(outcomes[node.node_path])

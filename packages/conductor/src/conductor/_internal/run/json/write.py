@@ -115,7 +115,7 @@ def saved_run(run: Run) -> SavedRun:
     return codec.model_construct(
         graph=run.graph.fingerprint, ended_early=None if run._last_resume == "running" else run._last_resume,  # a resume going on is the process's, never the save's
         max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
-        complete=[names[path] for path in function_nodes if path in run._finished_nodes],
+        complete=[names[path] for path in function_nodes if path in run._complete_nodes],
         tables_written_once=tables_written_once(function_nodes.values(), outcomes),
     )
 

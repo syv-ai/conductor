@@ -24,7 +24,7 @@ from conductor._internal.problem import Problem, run_problems
 
 from .flat import FlatFunctionNode
 from .outcome import Outcome, Unanswered
-from .progress import has_every_outcome
+from .progress import is_complete
 
 #: The status of a run: ``run.status``. ``ready``, ``waiting`` and ``complete`` are read from its outcomes;
 #: ``running`` is a copy made while a ``resume()`` went on; ``failed``, ``stopped``, ``cancelled`` and ``timed_out``
@@ -57,8 +57,8 @@ def status_of(
 ) -> tuple[RunStatus, Problem | None]:
     """The status of a run, and the problem that ended it early when that is its status.
 
-    ``running`` in a copy made while a ``resume()`` went on; else ``complete`` once every node has an outcome for
-    every call and none waits for a person; else how the last ``resume()`` ended early, with its cause; else
+    ``running`` in a copy made while a ``resume()`` went on; else ``complete`` once every node is complete
+    (``is_complete``); else how the last ``resume()`` ended early, with its cause; else
     ``waiting`` while a call waits for a person, and ``ready`` before that.
 
     Args:
@@ -68,11 +68,11 @@ def status_of(
     """
     if last_resume == "running":
         return "running", None
-    waiting = any(type(outcome) is Unanswered for of_node in outcomes.values() for outcome in of_node.values())
-    if not waiting and all(has_every_outcome(outcomes, node) for node in nodes):
+    if all(is_complete(outcomes, node) for node in nodes):
         return "complete", None
     if last_resume is not None:
         return last_resume.status, last_resume.cause
+    waiting = any(type(outcome) is Unanswered for of_node in outcomes.values() for outcome in of_node.values())
     return ("waiting" if waiting else "ready"), None
 
 

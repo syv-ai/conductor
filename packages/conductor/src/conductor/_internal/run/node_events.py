@@ -60,7 +60,7 @@ from .events import (
 )
 from .flat import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from .outcome import Answered, Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
-from .progress import call_count, calls_expected, has_every_outcome
+from .progress import call_count, calls_expected, is_complete
 from .waiting import waiting_record
 
 #: The least time between two ``NodeProgress`` of one node.
@@ -92,7 +92,7 @@ class NodeEvents:
         emit: Callable[[EventBase], None],
         nodes: list[FlatFunctionNode],
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
-        finished: frozenset[NodePath],
+        complete: frozenset[NodePath],
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
     ) -> None:
         """
@@ -100,7 +100,8 @@ class NodeEvents:
             emit: The listener.
             nodes: Every function node, in topological order.
             outcomes: The run's outcomes, by node path and item indexes.
-            finished: The node paths of the nodes that were complete when the run was last resumed.
+            complete: The node paths of the nodes that were complete when the last ``resume()`` ended, which a stream
+                has said, or would have said, are complete.
             arguments_for: Reads the arguments of a call from the run's outcomes, for what a waiting call received.
         """
         self.emit, self.nodes, self.outcomes, self.arguments_for = emit, nodes, outcomes, arguments_for
@@ -111,7 +112,7 @@ class NodeEvents:
             while subgraph is not None:
                 self.started.add(subgraph)
                 subgraph = subgraph.parent
-        complete_before: set[FlatFunctionNode] = {node for node in nodes if node.node_path in finished}
+        complete_before: set[FlatFunctionNode] = {node for node in nodes if node.node_path in complete}
         self.complete: set[FlatNode] = set(complete_before)
         for node in complete_before:
             self._complete_subgraphs_around(node, announce=False)
@@ -167,9 +168,9 @@ class NodeEvents:
             if node in nodes_running or nodes_running & all_upstream(node):
                 continue
             self.changed.discard(node)
-            outcomes = self.outcomes[node.node_path]
-            if node in self.complete or Unanswered in {type(outcome) for outcome in outcomes.values()} or not has_every_outcome(self.outcomes, node):
+            if node in self.complete or not is_complete(self.outcomes, node):
                 continue
+            outcomes = self.outcomes[node.node_path]
             self.complete.add(node)
             if node.loops and node in self.progress_finished:
                 self._progress(node, last=True)
