@@ -291,7 +291,8 @@ class NodeRegistry[C]:
         )
 
     def _described(self, definition: NodeDefinition) -> NodeDescription:
-        """A node as the palette shows it; a subgraph with the fields it offers, worked out against this registry once."""
+        """A node as the palette shows it; a subgraph with the fields it offers and whether a node inside it asks, worked out
+        against this registry once."""
         match definition:
             case FunctionDefinition():
                 return definition.describe()
@@ -299,9 +300,11 @@ class NodeRegistry[C]:
                 pass
         if definition.id not in self._graph_descriptions:
             record = GraphRecord(nodes={"node": NodeRecord(node=definition.id, version=definition.version)})
-            described = compile_graph(record, self, self._context_type, CompiledGraph).describe().nodes["node"]
+            compiled = compile_graph(record, self, self._context_type, CompiledGraph)
+            described = compiled.describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
                 SubgraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
+                asks=compiled._asks(),
             )
         return self._graph_descriptions[definition.id]
 

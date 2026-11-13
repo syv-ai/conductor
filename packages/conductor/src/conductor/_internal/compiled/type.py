@@ -217,6 +217,14 @@ class CompiledGraph:
                 takers.append(((compiled_node.id,), parameter))
         return takers
 
+    def _asks(self) -> bool:
+        """Whether a call of a function node of the graph, or of its subgraphs at any depth, may wait for a person: the
+        node declares ``asks=True``."""
+        return any(
+            compiled_node.inner._asks() if isinstance(compiled_node, CompiledSubgraphNode) else compiled_node.definition.asks
+            for compiled_node in self._nodes.values()
+        )
+
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:
         """Reads the graph inputs of each call that makes a run: built when the first run is made."""

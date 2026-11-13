@@ -34,7 +34,8 @@ What changes in how you work, before the name-by-name tables:
   `graph_output_not_found`, `graph_inputs_share_a_name`, `graph_outputs_share_a_name`, `not_a_place`.
 - **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
   without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
-  pause. The answer is the node's outputs, and a node that needs it reads it from an edge: "approve, then
+  pause. A subgraph's palette entry in `registry.describe()` has `asks` too, true when a node inside it asks, at
+  any depth. The answer is the node's outputs, and a node that needs it reads it from an edge: "approve, then
   pay" is an asking `approval(invoice) -> bool` wired into `pay(invoice, ok: bool)`, and a host that offers
   the two as one palette entry makes them a `subgraph`. New code: `ask_not_declared`.
 - **A type means what it says, wherever it is read.** `Series[T]` and `Table[R]` are ordinary generic

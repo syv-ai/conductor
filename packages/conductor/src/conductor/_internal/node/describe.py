@@ -32,6 +32,8 @@ class _NodeDescription(ConductorModel):
         deprecation: The notice that this version is going away, when it is.
         inputs: Its inputs.
         outputs: Its outputs.
+        asks: Whether a call may wait for a person: a function that raises ``Ask``, or a subgraph with such a node
+            inside it, at any depth. A graph with such a node can pause, so a host can't run it unattended.
     """
 
     id: str
@@ -46,6 +48,7 @@ class _NodeDescription(ConductorModel):
     deprecation: Deprecation | None
     inputs: list[FieldDescription]
     outputs: list[FieldDescription]
+    asks: bool
 
 
 class FunctionNodeDescription(_NodeDescription):
@@ -56,15 +59,12 @@ class FunctionNodeDescription(_NodeDescription):
         policy: How the engine calls it.
         takes_added_inputs: Whether what is typed into it adds inputs.
         computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
-        asks: Whether a call may wait for a person: its function raises ``Ask``. A graph with such a node can
-            pause, so a host can't run it unattended.
     """
 
     kind: Literal["function"] = "function"
     policy: Policy
     takes_added_inputs: bool
     computes_outputs: bool
-    asks: bool
 
 
 class SubgraphDescription(_NodeDescription):

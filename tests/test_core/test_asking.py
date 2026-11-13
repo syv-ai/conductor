@@ -1181,6 +1181,15 @@ def test_describe_says_whether_a_node_asks_and_a_registry_node_takes_asks_as_nod
     assert (registry["reason"].describe().asks, approval.describe().asks, pay.describe().asks) == (True, True, False)
 
 
+def test_a_subgraph_asks_when_a_node_inside_it_asks_however_deep():
+    registry = registry_of(approval, pay)
+    inner = registry.subgraph("inner", title="Inner", description="For a test.")(make_graph(approval))
+    registry.subgraph("outer", title="Outer", description="For a test.")(make_graph(inner))
+    registry.subgraph("pays", title="Pays", description="For a test.")(make_graph(pay))
+    asks = {entry.id: entry.asks for entry in registry.describe().nodes}
+    assert asks == {"approval": True, "pay": False, "inner": True, "outer": True, "pays": False}
+
+
 # -- approve, then pay -------------------------------------------------------------------------------
 
 
