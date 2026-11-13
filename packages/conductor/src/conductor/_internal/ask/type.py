@@ -15,8 +15,8 @@ from conductor._internal.base import REQUIRED
 class Ask(BaseException):
     """Stops a call to ask a person; the return type of the function that raises it is what they answer.
 
-    Nothing that reads the call runs until an answer arrives. A node that raises it in its own function says
-    ``asks=True`` on its ``@node``, and the answer is its outputs: the node is not called again for it. A free-text
+    Nothing that reads the call runs until an answer arrives. A node that raises it says ``asks=True`` on its
+    ``@node``, and the answer is its outputs: the node is not called again for it. A free-text
     question is the plain case, ``-> str`` and ``raise Ask(prompt)``::
 
         @node("reason", title="Reason", description="Asks why a ticket was closed.", asks=True)

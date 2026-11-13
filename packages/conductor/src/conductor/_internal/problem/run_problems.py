@@ -20,7 +20,7 @@ RUN_PROBLEMS = ProblemCatalogue(
 
 @RUN_PROBLEMS.problem()
 def ask_not_declared(*loc: str | int) -> str:
-    """A node raised ``Ask`` in its own function, and its ``@node`` does not say ``asks=True``.
+    """A node raised ``Ask``, and its ``@node`` does not say ``asks=True``.
 
     A node that may wait for a person says so where it is declared, so a host knows before a run which graphs can
     pause. Add ``asks=True`` to the ``@node``.
@@ -36,7 +36,7 @@ def ask_not_declared(*loc: str | int) -> str:
 
         why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run(text="a"))
     """
-    return "The node asked a person, but its @node does not say asks=True. Add asks=True."
+    return "The node asked a person without saying so; add asks=True to its @node."
 
 
 @RUN_PROBLEMS.problem()

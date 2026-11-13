@@ -3,7 +3,7 @@
 ``run_from_json`` is the door. The graph's codec validates the whole text: every key and every value. Then
 ``outcomes_from_saved`` and ``reusable_from_saved`` turn each node's saved lists into what a run keeps in memory, and
 ``run_from_json`` checks what only the lists together can show: that the lists of each node are as long as its calls,
-that a table written once is found where its entry says, and that an answer is for a call that waits.
+and that a table written once is found where its entry says.
 """
 
 from __future__ import annotations
