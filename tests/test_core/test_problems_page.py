@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import re
 import sys
-from ast import Expr, Expression, Module
+from ast import Call, Expr, Expression, Module, Name
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -78,6 +78,20 @@ def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], 
     made = eval(compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__)  # noqa: S307
     made = made if isinstance(made, list) else [made]
     assert made and [problem for problem in made if not _is_of_kind(kind, problem)] == []
+
+
+#: The helper of the page's setup that meets a problem where each section's text says it is met: in
+#: ``graph.problems``, in a refused call's ``InvalidCallError``, as a run's cause, or in a ``NodeDeclarationError``.
+_MET_BY = {"Compiling a graph": "problems", "Refused calls": "refused", "Why a run stopped": "why_it_stopped", "Declaring a node": "declaration_refused"}
+_SECTIONED = [*PROBLEMS, *DECLARATION_PROBLEMS]
+
+
+@pytest.mark.parametrize("kind", _SECTIONED, ids=[f"{kind.code}-{kind._message.__name__}" for kind in _SECTIONED])
+def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(kind: ProblemKind[...]) -> None:
+    """The example's last line calls its section's helper, and the test above runs it, so the problem is met there."""
+    *_, last = ast.parse(_kind_docs(kind).example).body
+    assert isinstance(last, Expr) and isinstance(last.value, Call) and isinstance(last.value.func, Name)
+    assert last.value.func.id == _MET_BY[kind.section]
 
 
 def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:

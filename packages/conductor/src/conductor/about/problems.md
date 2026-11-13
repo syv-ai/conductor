@@ -100,9 +100,9 @@ def contacts(text: str) -> Table[Contact]:
     return pl.DataFrame([dict(zip(("name", "email"), line.split(), strict=True)) for line in text.splitlines()])
 
 
-def problems(record: dict) -> list[Problem]:
-    """The problems of a graph record, compiled with ``registry``."""
-    return Graph.compile(GraphRecord.model_validate(record), registry).problems
+def problems(record: dict | GraphRecord, nodes: NodeRegistry = registry) -> list[Problem]:
+    """The problems of a graph record, compiled with ``nodes``."""
+    return Graph.compile(GraphRecord.model_validate(record), nodes).problems
 
 
 def refused(call: Callable[[], object]) -> list[Problem]:

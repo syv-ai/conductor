@@ -76,7 +76,8 @@ What changes in how you work, before the name-by-name tables:
   problem code with an example, its message, what its `ctx` keys mean and how to fix it, each kind from the
   docstring of the function that declares it, and a test runs every example. The docs build writes the same
   page; there is no `docs/problems.md`. `ProblemCatalogue.section(title, text)` groups a catalogue's kinds,
-  and `ProblemKind.section` says which group a kind is in.
+  and `ProblemKind.section` says which group a kind is in. `PROBLEMS` has three: compiling a graph (in
+  `graph.problems`), refused calls (raised as `InvalidCallError`) and why a run stopped.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
   `int` `Whole number`), a host's class from its `@host_type` declaration;
