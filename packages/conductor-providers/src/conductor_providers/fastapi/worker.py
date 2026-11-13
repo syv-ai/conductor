@@ -179,8 +179,8 @@ class Worker(Generic[C]):
         return await self._create(run.graph.record.model_dump_json(), who, run)
 
     async def estimate(self, graph: Any, inputs: Mapping[str, Any], who: C) -> Progress:
-        """How many calls a run of ``graph`` on ``inputs`` will make, from one call of ``resume()`` that calls only
-        the nodes that cost nothing; nothing is stored.
+        """How many calls a run of ``graph`` on ``inputs`` will make, from ``run.estimate()``, which calls only the
+        nodes that cost nothing; nothing is stored.
 
         The call is made as a stored run's is: with the caller's context and the router's ``resume_timeout`` and
         ``max_items``.
@@ -200,7 +200,7 @@ class Worker(Generic[C]):
 
         def estimated() -> Progress:
             ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
-            return ready.resume(context=self._context(who), timeout=self._resume_timeout, only_costs_nothing=True).progress
+            return ready.estimate(context=self._context(who), timeout=self._resume_timeout).progress
 
         return await asyncio.to_thread(estimated)
 

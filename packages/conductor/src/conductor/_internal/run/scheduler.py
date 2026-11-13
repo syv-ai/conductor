@@ -50,7 +50,7 @@ after. The scheduler then calls ``shout`` with those arguments and writes what i
    an outcome is recorded, when a call is retried or fails, and when nothing is ready. ``NodeEvents`` makes the
    events (``node_events.py``).
 
-6. **Only the nodes that cost nothing.** ``run.resume(only_costs_nothing=True)`` calls only the nodes whose
+6. **Only the nodes that cost nothing.** ``run.estimate()`` calls only the nodes whose
    ``Policy`` says ``costs_nothing``: say ``lines``, so that ``run.progress`` knows ``shout`` has three calls
    before ``shout`` is called. Every other node is not ready (``_only_costs_nothing``). A call that raises is
    left without an outcome, and the run ends ``ready``.
@@ -231,7 +231,7 @@ class Scheduler:
             context: The run's context, passed to each node that takes it; ``None`` when the host passed none.
             checkpoint: Called with the run's state to hand the host a copy of the run.
             checkpoint_every: The least number of seconds between two checkpoints. None for no checkpoints.
-            only_costs_nothing: Call only the nodes whose ``Policy`` says ``costs_nothing`` (job 6).
+            only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called (job 6).
         """
         if only_costs_nothing:
             arguments_for = _only_costs_nothing(arguments_for)

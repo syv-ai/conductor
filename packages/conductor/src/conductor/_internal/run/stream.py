@@ -20,17 +20,16 @@ from .state import RUNNING, EndedEarly, RunState, deadline
 
 
 async def stream(
-    run_scheduler: Callable[[Any, Callable[[EventBase], None] | None, Callable[[], RunState | None] | None, float | None, bool], Any],
+    run_scheduler: Callable[[Any, Callable[[EventBase], None] | None, Callable[[], RunState | None] | None, float | None], Any],
     context: Any, timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
-    checkpoint_every: float | None, only_costs_nothing: bool,
+    checkpoint_every: float | None,
 ) -> AsyncGenerator[Event]:
     """What ``run.stream()`` returns: ``run_scheduler`` called on a thread of its own, its events yielded here.
 
     For the README graph the events are ``RunStart``, then ``NodeStart`` and ``NodeComplete`` for ``lines``, ``shout``
     and ``join``, then ``RunEnd``. ``run_scheduler`` is ``Run._run_scheduler`` of the run streamed, called with the
     run's context, the function each event is handed to, the check made before each call (``cancel``,
-    ``hand_back`` and ``timeout``), ``checkpoint_every`` and ``only_costs_nothing``. ``Run.stream`` says what each
-    argument does.
+    ``hand_back`` and ``timeout``) and ``checkpoint_every``. ``Run.stream`` says what each argument does.
     """
     loop, events = asyncio.get_running_loop(), Queue["Event | None"]()
     cancelled = ThreadEvent()
@@ -47,7 +46,7 @@ async def stream(
 
     def leg() -> None:
         try:
-            run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every, only_costs_nothing)
+            run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
         except BaseException as error:  # the engine's own defect reaches the caller
             failed.append(error)
         finally:

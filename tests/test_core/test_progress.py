@@ -1,4 +1,4 @@
-"""``run.progress``, and ``resume(only_costs_nothing=True)``, which calls only the nodes that cost nothing.
+"""``run.progress``, and ``run.estimate()``, which calls only the nodes that cost nothing.
 
 The graph here is ``upload -> read -> approve``: ``upload`` costs nothing and returns the documents it is given,
 ``read`` finds the invoices in a document (it stands for a call that costs something), and ``approve`` asks a
@@ -76,9 +76,9 @@ def test_a_run_nothing_was_called_for_knows_only_its_first_node() -> None:
     assert (progress.finished, progress.known, progress.total) == (0, 1, None)
 
 
-def test_only_costs_nothing_calls_the_free_nodes_and_leaves_the_run_ready() -> None:
+def test_estimate_calls_the_free_nodes_and_leaves_the_run_ready() -> None:
     CALLS.clear()
-    run = _invoices().with_inputs(files=["d2", "d1"]).resume(only_costs_nothing=True)
+    run = _invoices().with_inputs(files=["d2", "d1"]).estimate()
 
     assert CALLS == ["upload"]
     assert run.status == "ready"
@@ -87,7 +87,7 @@ def test_only_costs_nothing_calls_the_free_nodes_and_leaves_the_run_ready() -> N
 
 
 def test_the_total_is_a_floor_then_exact_with_the_waiting_calls_counted() -> None:
-    run = _invoices().with_inputs(files=["d2", "d1"]).resume(only_costs_nothing=True).resume()
+    run = _invoices().with_inputs(files=["d2", "d1"]).estimate().resume()
 
     assert run.status == "waiting"
     assert run.progress.nodes["approve"] == CallCount(finished=0, waiting=3, known=3, total=3)
@@ -97,7 +97,7 @@ def test_the_total_is_a_floor_then_exact_with_the_waiting_calls_counted() -> Non
 
 
 def test_known_grows_while_a_series_above_is_missing_somewhere() -> None:
-    run = _invoices().with_inputs(files=["d2", "d1"]).resume(only_costs_nothing=True)
+    run = _invoices().with_inputs(files=["d2", "d1"]).estimate()
     finished = run.resume()
     run._outcomes["read"][(0,)] = finished._outcomes["read"][(0,)]  # as a checkpoint has it: one document read
 
@@ -115,15 +115,21 @@ def test_a_run_read_back_has_the_same_progress_and_saves_none() -> None:
 def test_a_full_resume_after_it_repeats_no_call_and_no_event_of_the_free_nodes() -> None:
     CALLS.clear()
     graph = _graph(upload, read, edges=[("upload.result", "read.document")])
-    estimate_events = _events(graph.with_inputs(files=["d2"]), only_costs_nothing=True)
-    estimated = estimate_events[-1].run
+    estimated = graph.with_inputs(files=["d2"]).estimate()
     events = _events(estimated)
 
-    assert [(e.type, e.loc) for e in estimate_events if hasattr(e, "loc")] == [("node_start", ("upload",)), ("node_complete", ("upload",))]
-    assert estimate_events[-1].status == "ready"
     assert {e.loc for e in events if hasattr(e, "loc")} == {("read",)}
     assert CALLS == ["upload", "read"]
     assert events[-1].run.status == "complete"
+
+
+def test_resume_and_stream_take_no_flag_to_call_only_the_free_nodes() -> None:
+    run = _invoices().with_inputs(files=["d1"])
+
+    with pytest.raises(TypeError, match="only_costs_nothing"):
+        run.resume(only_costs_nothing=True)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="only_costs_nothing"):
+        run.stream(only_costs_nothing=True)  # type: ignore[call-arg]
 
 
 @pytest.mark.parametrize("raised", [Ask("Which files?"), NodeError("No files.")])
@@ -133,7 +139,7 @@ def test_a_free_node_that_raises_has_no_outcome_and_raises_again_at_the_next_res
         raise raised
 
     graph = _graph(pick, read, edges=[("pick.result", "read.document")])
-    estimated = graph.with_inputs(files=["d2"]).resume(only_costs_nothing=True)
+    estimated = graph.with_inputs(files=["d2"]).estimate()
 
     assert estimated.status == "ready"
     assert estimated.progress.nodes["pick"] == CallCount(finished=0, waiting=0, known=1, total=1)
@@ -144,11 +150,11 @@ def test_a_free_node_that_raises_has_no_outcome_and_raises_again_at_the_next_res
 def test_a_graph_of_free_nodes_only_is_complete() -> None:
     graph = _graph(upload, edges=[])
 
-    assert graph.with_inputs(files=["a"]).resume(only_costs_nothing=True).status == "complete"
+    assert graph.with_inputs(files=["a"]).estimate().status == "complete"
 
 
 def test_the_item_limit_stops_it_as_it_stops_a_resume() -> None:
-    run = _invoices().with_inputs(files=["d2", "d1", "d3"], max_items=2).resume(only_costs_nothing=True)
+    run = _invoices().with_inputs(files=["d2", "d1", "d3"], max_items=2).estimate()
 
     assert run.status == "stopped"
     assert run.progress.nodes["read"].total == 3
@@ -165,7 +171,7 @@ def test_a_subgraph_node_counts_the_calls_of_the_nodes_inside_it() -> None:
 
     twice = subgraph("twice", title="Twice", description="For a test.")(make_graph(double, double))
     graph = Graph.compile(make_graph(numbers, twice, edges=[("numbers.result", "twice.value")]), registry_of(numbers, twice, double))
-    progress = graph.with_inputs(count=3).resume(only_costs_nothing=True).progress
+    progress = graph.with_inputs(count=3).estimate().progress
 
     assert list(progress.nodes) == ["numbers", "twice/double-1", "twice/double-2", "twice"]
     assert progress.nodes["twice"] == CallCount(finished=0, waiting=0, known=6, total=6)
@@ -173,7 +179,7 @@ def test_a_subgraph_node_counts_the_calls_of_the_nodes_inside_it() -> None:
 
 
 def test_progress_is_json_a_host_reads_back() -> None:
-    progress = _invoices().with_inputs(files=["d1"]).resume(only_costs_nothing=True).progress
+    progress = _invoices().with_inputs(files=["d1"]).estimate().progress
 
     assert Progress.model_validate_json(progress.model_dump_json()) == progress
 
