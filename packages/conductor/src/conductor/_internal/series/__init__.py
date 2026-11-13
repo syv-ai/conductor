@@ -2,7 +2,7 @@
 
 from .read import set_has_no_order
 from .stored import (
-    ColumnsOnDemand,
+    Records,
     SeriesItems,
     StoredSeries,
     places_of_none,
@@ -10,4 +10,4 @@ from .stored import (
 )
 from .type import Series, SeriesType
 
-__all__ = ["ColumnsOnDemand", "Series", "SeriesItems", "SeriesType", "StoredSeries", "places_of_none", "set_has_no_order", "without_places"]
+__all__ = ["Records", "Series", "SeriesItems", "SeriesType", "StoredSeries", "places_of_none", "set_has_no_order", "without_places"]

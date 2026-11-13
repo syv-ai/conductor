@@ -1,25 +1,28 @@
-"""How a run stores the items a node returned for a ``Series`` output.
+"""How a run stores the items a node returned for a ``Series`` output: as ``SeriesItems`` or as ``Records``.
 
 Example: a node returns ``[{"name": "Ann"}, {"name": "Bo"}]`` for a ``Series`` output. The run stores it as a
 ``SeriesItems``. A node wired to that output is called once per item, with ``stored[0]`` and then ``stored[1]``.
 If its edge reads the field ``name`` (``split.result.name``), it is called with ``stored.columns["name"][0]``,
-which is ``"Ann"``.
+which is ``"Ann"``. A node that returns a ``polars.DataFrame`` for a ``Series`` of records has it stored as
+``Records``, which keeps the frame.
 
-A package can store what a node returned in another form by subclassing ``StoredSeries`` with ``returned_as``:
-the table package stores a ``polars.DataFrame`` as ``Records``. Code that reads a stored Series uses only what
-``StoredSeries`` lists, so it never asks which form it has.
+Both classes have ``len(stored)``, ``stored[place]`` (the item at that index), ``columns``, ``as_list()``,
+``as_table_input()``, ``field_as_list(name)``, ``for_saving()`` and ``written_once()``, so code that reads a
+stored Series never asks which of the two it has.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, ClassVar, get_args
+from typing import Any, assert_never, get_args
 
+import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import SKIPPED
-from conductor._internal.types import NoSuchFieldError, Type, field_of
+from conductor._internal.table import Table, written_columns
+from conductor._internal.types import NoSuchFieldError, field_of
 
 
 class ColumnsOnDemand(dict[str, list[Any]]):
@@ -39,92 +42,16 @@ class ColumnsOnDemand(dict[str, list[Any]]):
         return column
 
 
-class StoredSeries:
-    """The base class of every form a run stores a ``Series`` output in.
+class SeriesItems(list[Any]):
+    """A ``Series`` output stored as the list the node returned. An item the node returned ``SKIPPED`` for is
+    ``SKIPPED`` in the list.
 
-    Every subclass has ``len(stored)``, ``stored[place]`` (the item at that index) and the members below.
-    A subclass declared with ``returned_as=SomeClass`` is used when a node returns a ``SomeClass`` for a
-    ``Series`` output, and it then defines ``stored_hint`` and ``returned_type`` as well, and is made from the value
-    that type reads.
+    Example: ``SeriesItems([{"name": "Ann"}, None]).columns["name"]`` is ``["Ann", None]``.
 
     Attributes:
         columns: ``columns[name]`` is a list with the field ``name`` of every item, in order. The list is made the
             first time it is asked for. For an item that is ``None`` or ``SKIPPED`` the list has that value, and
             for an item with no field ``name`` it has a ``NoSuchFieldError`` instance.
-    """
-
-    __slots__ = ()
-
-    columns: ColumnsOnDemand
-    by_returned_class: ClassVar[dict[type, type[StoredSeries]]] = {}
-
-    def __init_subclass__(cls, *, returned_as: type | None = None) -> None:
-        super().__init_subclass__()
-        if returned_as is not None:
-            StoredSeries.by_returned_class[returned_as] = cls
-
-    @classmethod
-    def stored_hint(cls, item: Type) -> Any | None:
-        """Returns the type hint a saved run reads and writes this class by, for a Series whose items have the
-        type ``item``; ``None`` if items of that type can't be stored as this class. ``Records`` returns
-        ``Records[Row]`` for items of a ``TypedDict`` ``Row`` and ``None`` for items of ``str``."""
-        raise NotImplementedError
-
-    @classmethod
-    def returned_type(cls, item: Type) -> Type:
-        """Returns the type that reads a value of the ``returned_as`` class, returned by a node for a Series whose
-        items have the type ``item``; the class is then made from what it read. ``Records.returned_type(Type(Row))``
-        is ``Type(Table[Row])``, which checks a frame's columns against ``Row``, and ``Records(frame)`` stores it.
-        Called only for an ``item`` that ``stored_hint`` takes."""
-        raise NotImplementedError
-
-    def as_list(self) -> list[Any]:
-        """Returns the items as a new plain list, as a node with a ``Series`` input receives them: ``None`` where
-        an item is ``SKIPPED``."""
-        raise NotImplementedError
-
-    def as_table_input(self) -> Any:
-        """Returns the items as a node with a ``Table`` input receives them, before the input's type validates
-        them: the list of ``as_list``, such as ``[{"name": "Ann"}]``, unless the subclass has a table already,
-        which ``Records`` returns as it is."""
-        return self.as_list()
-
-    def field_as_list(self, name: str) -> list[Any]:
-        """Returns the field ``name`` of every item as a new list, with ``None`` for an item that is ``None`` or
-        ``SKIPPED``. ``SeriesItems([{"n": 1}, None]).field_as_list("n")`` is ``[1, None]``.
-
-        Raises:
-            NoSuchFieldError: An item has no field ``name``.
-        """
-        column = self.columns[name]
-        for cell in column:
-            if type(cell) is NoSuchFieldError:  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the read fails
-                raise NoSuchFieldError(name)
-        return [None if cell is SKIPPED else cell for cell in column]
-
-    def for_saving(self) -> tuple[StoredSeries, list[int]]:
-        """Returns the Series as a saved run writes it, and the indexes of its ``SKIPPED`` items, which the save
-        writes as ``None`` and lists beside the Series. ``SeriesItems(["a", SKIPPED]).for_saving()`` is
-        ``(SeriesItems(["a", None]), [1])``."""
-        return self, []
-
-    def written_once(self) -> Any | None:
-        """Returns the object this Series is stored as when a save should write that object only once however
-        many outputs have it (a table); ``None`` for a list."""
-        return None
-
-    @staticmethod
-    def without_rows(value: Any, places: set[int]) -> Any:
-        """Returns ``value``, a value ``as_table_input`` returned that is not a list, without the rows at the
-        indexes ``places``: a three-row frame and ``{1}`` give a frame of its first and third row."""
-        raise NotImplementedError
-
-
-class SeriesItems(list[Any], StoredSeries):
-    """A ``Series`` output stored as the list the node returned. An item the node returned ``SKIPPED`` for is
-    ``SKIPPED`` in the list.
-
-    Example: ``SeriesItems([{"name": "Ann"}, None]).columns["name"]`` is ``["Ann", None]``.
     """
 
     __slots__ = ("columns",)
@@ -146,16 +73,129 @@ class SeriesItems(list[Any], StoredSeries):
         return column
 
     def as_list(self) -> list[Any]:
+        """Returns the items as a new plain list, as a node with a ``Series`` input receives them: ``None`` where
+        an item is ``SKIPPED``."""
         return [None if item is SKIPPED else item for item in self]
 
-    def for_saving(self) -> tuple[StoredSeries, list[int]]:
+    def as_table_input(self) -> list[Any]:
+        """Returns the items as a node with a ``Table`` input receives them, before the input's type validates
+        them: the list of ``as_list``, such as ``[{"name": "Ann"}]``."""
+        return self.as_list()
+
+    def field_as_list(self, name: str) -> list[Any]:
+        """Returns the field ``name`` of every item as a new list, with ``None`` for an item that is ``None`` or
+        ``SKIPPED``. ``SeriesItems([{"n": 1}, None]).field_as_list("n")`` is ``[1, None]``.
+
+        Raises:
+            NoSuchFieldError: An item has no field ``name``.
+        """
+        column = self.columns[name]
+        for cell in column:
+            if type(cell) is NoSuchFieldError:  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the read fails
+                raise NoSuchFieldError(name)
+        return [None if cell is SKIPPED else cell for cell in column]
+
+    def for_saving(self) -> tuple[SeriesItems, list[int]]:
+        """Returns the Series as a saved run writes it, and the indexes of its ``SKIPPED`` items, which the save
+        writes as ``None`` and lists beside the Series. ``SeriesItems(["a", SKIPPED]).for_saving()`` is
+        ``(SeriesItems(["a", None]), [1])``."""
         skipped = [place for place, item in enumerate(self) if item is SKIPPED]
         return (SeriesItems(self.as_list()), skipped) if skipped else (self, [])
+
+    def written_once(self) -> None:
+        """Returns ``None``: a list is written wherever an output has it, unlike the frame of ``Records``."""
+        return None
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Returns the schema of ``SeriesItems[T]`` in a saved run: a JSON array of ``T``, read into this class."""
         return core_schema.no_info_after_validator_function(cls, handler.generate_schema(list[get_args(source)[0]]))  # type: ignore[misc]  # the item type is known only here
+
+
+class Records[T]:
+    """A ``Series`` of records stored as the table (a ``polars.DataFrame``) a node returned for it, one row per
+    record. Only the frame is kept. A column is read out of it as a Python list the first time an edge reads a
+    field of a record or the run is saved, and that list is then reused, so each column exists as a Python list at
+    most once and a column nothing reads never does.
+
+    Example: for a frame with the columns ``name`` and ``amount`` and two rows, ``records[0]`` is
+    ``{"name": "Ann", "amount": 10}`` and ``records.columns["amount"]`` is ``[10, 20]``. A node with a ``Table``
+    input wired to the Series is called with ``records.frame`` itself, so no record is built for it.
+
+    ``Records[R]`` is also the type hint a saved run reads and writes one by, as the table's own JSON.
+
+    Attributes:
+        frame: The table whose rows are the records.
+        columns: ``columns[name]`` is the list of the cells of the column ``name``; for a name the frame has no
+            column of, a list of ``NoSuchFieldError``.
+    """
+
+    __slots__ = ("columns", "frame")
+
+    def __init__(self, frame: pl.DataFrame) -> None:
+        """Stores ``frame``, which is already validated as the table of the records' type."""
+        self.frame = frame
+        self.columns = ColumnsOnDemand(self._cells_of)
+
+    def _cells_of(self, name: str) -> list[Any]:
+        if name not in self.frame.columns:
+            return [NoSuchFieldError(name)] * self.frame.height
+        cells: list[Any] = self.frame[name].to_list()
+        return cells
+
+    def __len__(self) -> int:
+        return self.frame.height
+
+    def __getitem__(self, place: int) -> dict[str, Any]:
+        """Returns the record at the index ``place`` as a dict."""
+        columns = self.columns
+        return {name: columns[name][place] for name in self.frame.columns}
+
+    def as_list(self) -> list[dict[str, Any]]:
+        """Returns the records as a new list of dicts, as a node with a ``Series`` input receives them."""
+        names = self.frame.columns
+        return [dict(zip(names, cells, strict=True)) for cells in zip(*(self.columns[name] for name in names), strict=True)]
+
+    def as_table_input(self) -> pl.DataFrame:
+        """Returns the frame itself, as a node with a ``Table`` input receives it."""
+        return self.frame
+
+    def field_as_list(self, name: str) -> list[Any]:
+        """Returns the column ``name`` as a new list.
+
+        Raises:
+            NoSuchFieldError: The frame has a row and no column ``name``.
+        """
+        if self.frame.height and name not in self.frame.columns:  # a frame of a Series[Any] may lack the field the edge names
+            raise NoSuchFieldError(name)
+        return list(self.columns[name])
+
+    def for_saving(self) -> tuple[Records[T], list[int]]:
+        """Returns the Series as a saved run writes it, and no indexes: a frame has no ``SKIPPED`` row."""
+        return self, []
+
+    def written_once(self) -> pl.DataFrame:
+        """Returns the frame, which a save writes once however many outputs have it."""
+        return self.frame
+
+    def _as_json(self) -> dict[str, Any]:
+        # Read through ``columns``, so a run saved at every checkpoint reads each column out of the frame once.
+        return written_columns(self.frame, {name: self.columns[name] for name in self.frame.columns})
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        """Returns the schema of ``Records[R]`` in a saved run: the JSON of ``Table[R]``, read into this class."""
+        table: Any = Table
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.no_info_after_validator_function(cls, handler.generate_schema(table[get_args(source)[0]])),
+            python_schema=core_schema.is_instance_schema(cls),
+            serialization=core_schema.plain_serializer_function_ser_schema(Records._as_json),
+        )
+
+
+#: The two forms a run stores a ``Series`` output in: the list a node returned, or the frame it returned for a
+#: Series of records. ``SeriesType`` chooses one by the class of the value.
+StoredSeries = SeriesItems | Records
 
 
 def places_of_none(value: Any) -> list[int]:
@@ -165,10 +205,14 @@ def places_of_none(value: Any) -> list[int]:
     return [place for place, item in enumerate(value) if item is None] if type(value) is list else []
 
 
-def without_places(value: Any, places: set[int]) -> Any:
+def without_places(value: list[Any] | pl.DataFrame, places: set[int]) -> list[Any] | pl.DataFrame:
     """Returns ``value``, the value of a ``Series`` or ``Table`` input, without the items at the indexes
-    ``places``. ``without_places(["a", "b", "c"], {1})`` is ``["a", "c"]``; a value that is not a list is
-    cut by the ``StoredSeries`` subclass registered for its class."""
-    if type(value) is list:
-        return [item for place, item in enumerate(value) if place not in places]
-    return StoredSeries.by_returned_class[type(value)].without_rows(value, places)
+    ``places``. ``without_places(["a", "b", "c"], {1})`` is ``["a", "c"]``; a three-row frame and ``{1}`` give a
+    frame of its first and third row."""
+    match value:
+        case list():
+            return [item for place, item in enumerate(value) if place not in places]
+        case pl.DataFrame():
+            return value.filter([place not in places for place in range(value.height)])
+        case _:
+            assert_never(value)

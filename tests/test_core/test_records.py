@@ -2,6 +2,8 @@
 a node gets plain records, and the table is checked column by column when the node returns it."""
 
 import json
+import subprocess
+import sys
 from typing import Any, NotRequired, TypedDict
 
 import polars as pl
@@ -21,7 +23,7 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.table import Records
+from conductor._internal.series import Records
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
@@ -428,3 +430,35 @@ def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_decla
         node("declared", title="Declared", description="For a test.")(declared)
     assert refused.value.code == "row_field_optional"
     assert "name" in refused.value.problem.msg and "| None" in refused.value.problem.msg
+
+
+_SERIES_PACKAGE_ALONE = """
+import importlib.util, sys, types
+from typing import TypedDict
+
+import polars as pl
+from pydantic_core import SchemaValidator
+
+# conductor's __init__ imports every package; an empty module in its place loads the series package with only the
+# packages it imports itself.
+root = types.ModuleType("conductor")
+root.__path__ = importlib.util.find_spec("conductor").submodule_search_locations
+sys.modules["conductor"] = root
+
+from conductor._internal.series import Records, Series, without_places
+from conductor._internal.types import Type
+
+class Row(TypedDict):
+    n: int
+
+assert "conductor._internal.run" not in sys.modules and "conductor._internal.graph" not in sys.modules
+frame = pl.DataFrame({"n": [1, 2, 3]})
+assert type(SchemaValidator(Type(Series[Row]).returned_schema).validate_python(frame)) is Records
+assert SchemaValidator(Type(Series[int]).schema).validate_python(pl.Series([1, 2])) == [1, 2]
+assert without_places(frame, {1}).to_dicts() == [{"n": 1}, {"n": 3}]
+"""
+
+
+def test_the_series_package_stores_a_frame_and_reads_a_column_whatever_else_is_imported() -> None:
+    done = subprocess.run([sys.executable, "-c", _SERIES_PACKAGE_ALONE], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr

@@ -1,6 +1,6 @@
-"""``Table[R]``: a whole table as one value, a ``polars.DataFrame`` to a node. Nothing outside this package imports polars."""
+"""``Table[R]``: a whole table as one value, a ``polars.DataFrame`` to a node."""
 
-from .stored import Records
 from .type import Table, TableType
+from .write import written_columns
 
-__all__ = ["Records", "Table", "TableType"]
+__all__ = ["Table", "TableType", "written_columns"]
