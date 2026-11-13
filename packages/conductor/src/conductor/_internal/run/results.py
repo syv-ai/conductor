@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from conductor._internal.base import SKIPPED, ItemIndexes
+from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import CompiledGraph, Edge
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
@@ -27,20 +27,20 @@ from .outcome import NotReady, Outcome
 
 
 def results_of(
-    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """``run.results``: every node's outputs so far, by node id and output name. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {n: {o: reader.display_value(display_inputs_of(*flat.nodes[n].source_of(o))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
+    return {n: {o: reader.display_value(display_inputs_of(*flat.nodes[(n,)].source_of(o))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
 
 
 def outputs_of(
-    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
     it is. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {name: reader.display_value(display_inputs_of(*flat.nodes[edge.node[0]].source_of(edge.output))) for name, edge in graph._outputs.items()}
+    return {name: reader.display_value(display_inputs_of(*flat.nodes[edge.node].source_of(edge.output))) for name, edge in graph._outputs.items()}
 
 
 class DisplayReader(ResultReader):

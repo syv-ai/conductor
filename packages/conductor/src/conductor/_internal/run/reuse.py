@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.base import ItemIndexes, json_hash
+from conductor._internal.base import ItemIndexes, NodePath, json_hash
 from conductor._internal.types import untyped_to_hash
 
 from .flat import FlatFunctionNode
@@ -53,7 +53,7 @@ class ReusableOutcomes:
 
 def reused_outcome(
     previous: ReusableOutcomes, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any],
-    outcomes: dict[str, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], in_turn: Callable[[], bool],
 ) -> Done | Answered | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
     """The outcome a call reuses from the previous run in place of calling the function, or ``None`` when there is none.
 
@@ -70,7 +70,7 @@ def reused_outcome(
         node: The node.
         item_indexes: The item indexes of the call.
         arguments: The arguments of the call.
-        outcomes: The run's outcomes, by node name and then by item indexes.
+        outcomes: The run's outcomes, by node path and then by item indexes.
         in_turn: Returns whether every earlier call of the node has been tried.
     """
     compiled_node = node.compiled_node
@@ -89,7 +89,7 @@ def reused_outcome(
     return previous.by_fingerprint.get(fingerprint)
 
 
-def outer_items_fingerprint(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode, item_indexes: ItemIndexes) -> str:
+def outer_items_fingerprint(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode, item_indexes: ItemIndexes) -> str:
     """A fingerprint of the items of the outer loops of a call: every loop the node is inside but the innermost.
 
     It keeps a person's answers with the item they were given for. In ``pages -> lines -> approve``, two pages may
@@ -100,7 +100,7 @@ def outer_items_fingerprint(outcomes: dict[str, dict[ItemIndexes, Outcome]], nod
     """
     # The outcome of the node that returned the series has outputs: a call inside a loop is made only after the series exists.
     above = [
-        outcomes[series.name][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
+        outcomes[series][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
         for depth, (series, output) in enumerate(node.loops[:-1])
     ]
     return (arguments_fingerprint("", {"items": above}) or "") if above else ""

@@ -28,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes
+from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes, NodePath, place_text
 
 from .flat import FlatFunctionNode, FlatGraph, FlatSubgraph
 from .outcome import Outcome, Unanswered
@@ -71,41 +71,41 @@ class Progress(CallCount):
     nodes: dict[str, CallCount]
 
 
-def call_count(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> CallCount:
+def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> CallCount:
     """The count of one function node, read from a run's outcomes.
 
     Args:
-        outcomes: The run's outcomes, by node name and then by item indexes.
+        outcomes: The run's outcomes, by node path and then by item indexes.
         node: The node.
 
     Returns:
         Its count: ``CallCount(finished=0, waiting=0, known=0, total=None)`` for ``shout`` before ``lines`` has
         returned.
     """
-    of_node = outcomes[node.name]
+    of_node = outcomes[node.node_path]
     waiting = sum(1 for outcome in of_node.values() if type(outcome) is Unanswered)
     known, final = calls_expected(outcomes, node.loops)
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
-def progress_of(flat_graph: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]]) -> Progress:
+def progress_of(flat_graph: FlatGraph, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]) -> Progress:
     """The progress of a run with these outcomes: what ``run.progress`` returns.
 
     Args:
         flat_graph: The flat graph of the run's graph.
-        outcomes: The run's outcomes, by node name and then by item indexes.
+        outcomes: The run's outcomes, by node path and then by item indexes.
 
     Returns:
         The count of each node, in the order of the flat graph with a subgraph node after the nodes inside it,
         and their sums.
     """
     nodes: dict[str, CallCount] = {}
-    for name, flat in flat_graph.nodes.items():
+    for path, flat in flat_graph.nodes.items():
         if isinstance(flat, FlatSubgraph):  # the nodes inside it come before it, so their counts are made
-            nodes[name] = _sum(nodes[inner.name] for inner in flat.inner_nodes.values())
+            nodes[place_text(path)] = _sum(nodes[place_text(inner.node_path)] for inner in flat.inner_nodes.values())
         else:
-            nodes[name] = call_count(outcomes, flat)
-    run = _sum(nodes[name] for name in flat_graph.function_nodes)
+            nodes[place_text(path)] = call_count(outcomes, flat)
+    run = _sum(nodes[place_text(path)] for path in flat_graph.function_nodes)
     return Progress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
 
 
@@ -120,7 +120,7 @@ def _sum(counts: Iterable[CallCount]) -> CallCount:
 
 
 def all_item_indexes(
-    outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...], prefix: ItemIndexes,
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], loops: tuple[tuple[NodePath, str], ...], prefix: ItemIndexes,
 ) -> tuple[list[ItemIndexes], bool]:
     """The item indexes of every call a node will have, and whether that list is complete yet.
 
@@ -130,10 +130,10 @@ def all_item_indexes(
     so for it the result is always ``([()], True)``: one call.
 
     Args:
-        outcomes: The run's outcomes, by node name and then by item indexes. Every node has an entry, empty
+        outcomes: The run's outcomes, by node path and then by item indexes. Every node has an entry, empty
             until its first outcome.
-        loops: The loops the node is inside, outermost first. Each is the node that returns the series and the
-            name of that output.
+        loops: The loops the node is inside, outermost first. Each is the path of the node that returns the series and
+            the name of that output.
         prefix: Return only the item indexes that start with these. ``()`` returns all of them. With two nested
             loops, ``(1,)`` returns the calls for item 1 of the outer loop: ``(1, 0)``, ``(1, 1)``, ...
 
@@ -146,7 +146,7 @@ def all_item_indexes(
     every_item_indexes, complete = [prefix], True
     for depth in range(start, deepest):
         series_node, output = loops[depth]
-        of_series_node = outcomes[series_node.name]
+        of_series_node = outcomes[series_node]
         one_loop_deeper: list[ItemIndexes] = []
         for item_indexes in every_item_indexes:
             outcome = of_series_node.get(item_indexes)
@@ -158,7 +158,7 @@ def all_item_indexes(
     return every_item_indexes, complete
 
 
-def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[int, bool]:
+def calls_expected(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], loops: tuple[tuple[NodePath, str], ...]) -> tuple[int, bool]:
     """How many calls a node inside ``loops`` will have in this run, and whether that number is final yet.
 
     A node inside no loop has one call: for ``lines`` and ``join`` the result is ``(1, True)``. ``shout`` is
@@ -166,14 +166,14 @@ def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple
     before. With two nested loops the inner series may differ in length; the number is the sum of their lengths.
 
     Args:
-        outcomes: The run's outcomes, by node name and then by item indexes.
+        outcomes: The run's outcomes, by node path and then by item indexes.
         loops: The loops the node is inside, outermost first, as ``all_item_indexes`` takes them.
     """
     if not loops:
         return 1, True
     calls_of_series_node, complete = all_item_indexes(outcomes, loops[:-1], ())
     series_node, output = loops[-1]
-    of_series_node = outcomes[series_node.name]
+    of_series_node = outcomes[series_node]
     expected = 0
     for item_indexes in calls_of_series_node:
         outcome = of_series_node.get(item_indexes)
@@ -184,16 +184,16 @@ def calls_expected(outcomes: dict[str, dict[ItemIndexes, Outcome]], loops: tuple
     return expected, complete
 
 
-def has_every_outcome(outcomes: dict[str, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
     """Whether ``node`` is complete: it has an outcome for every call it will have.
 
     ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. A ``Unanswered`` outcome
     counts: the call was made, though no answer has come.
     """
     if not node.loops:  # A shortcut: calls_expected says one call, so any outcome is every outcome. It saves 2% of to_json on a chain of 500 nodes.
-        return bool(outcomes[node.name])
+        return bool(outcomes[node.node_path])
     expected, complete = calls_expected(outcomes, node.loops)
-    return complete and len(outcomes[node.name]) == expected
+    return complete and len(outcomes[node.node_path]) == expected
 
 
 def length(value: Any) -> int:

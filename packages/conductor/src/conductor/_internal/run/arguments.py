@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final, Literal
 
-from conductor._internal.base import SKIPPED, ItemIndexes, node_path_text
+from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import Edge
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import run_problems
@@ -60,18 +60,18 @@ class ResultReader:
     """Reads what a call needs from the outcomes of a run, and returns the call's arguments.
 
     Attributes:
-        outcomes: The run's outcomes, by node name and then by item indexes.
+        outcomes: The run's outcomes, by node path and then by item indexes.
         graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``).
         for_any_item: Empty in the reader a run calls its nodes with. A reader made to answer "can any item of
             this loop have a value?" (``_list_looped_over``) keeps here what ``arguments_for`` returned for each
-            node inside the loop, by node name.
+            node inside the loop, by node path.
     """
 
     __slots__ = ("for_any_item", "graph_inputs", "outcomes")
 
-    def __init__(self, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
+    def __init__(self, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
         self.outcomes, self.graph_inputs = outcomes, graph_inputs
-        self.for_any_item: dict[str, dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]] = {}
+        self.for_any_item: dict[NodePath, dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]] = {}
 
     def arguments_for(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         """Returns the arguments of the call of ``node`` for ``item_indexes``, or why the node is not called.
@@ -181,11 +181,11 @@ class ResultReader:
         Raises:
             NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
         """
-        depth, node_name, output = edge.depth, node_path_text(edge.node), edge.output
-        outcome = self.outcomes[node_name].get(item_indexes[:depth])
+        depth, node, output = edge.depth, edge.node, edge.output
+        outcome = self.outcomes[node].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
-                would_be = self.for_any_item[node_name]
+                would_be = self.for_any_item[node]
                 if isinstance(would_be, dict):
                     return MAY_HAVE_VALUE
                 return would_be if would_be is NotReady.NOT_READY else would_be.outputs[output]
@@ -262,12 +262,12 @@ class ResultReader:
         if argument.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
             any_item = type(self)(self.outcomes, self.graph_inputs)
             for node in argument.loop_body:  # each after the nodes it reads
-                any_item.for_any_item[node.name] = any_item.arguments_for(node, item_indexes)
+                any_item.for_any_item[node.node_path] = any_item.arguments_for(node, item_indexes)
             value = any_item._edges_for_any_item(argument, item_indexes)
             if value is not MAY_HAVE_VALUE:
                 return value
         series_node, output = argument.series
-        outcome = self.outcomes[series_node.name].get(item_indexes)
+        outcome = self.outcomes[series_node].get(item_indexes)
         return outcome.outputs[output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
     def _edges_for_any_item(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:

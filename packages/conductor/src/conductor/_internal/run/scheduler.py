@@ -13,7 +13,7 @@ A run of it has five calls. A call is a node and item indexes: ``lines ()``, ``s
 ``shout (2,)`` and ``join ()``. For each, the scheduler asks ``arguments_for(node, item_indexes)``. For
 ``shout (1,)`` the answer is ``NOT_READY`` until ``lines`` has an outcome, and ``{"line": "b", "mark": "!"}``
 after. The scheduler then calls ``shout`` with those arguments and writes what it returns as the outcome
-``outcomes["shout"][(1,)] = Done({"result": "B!"})``. Outcomes are the only thing it changes in a run.
+``outcomes[("shout",)][(1,)] = Done({"result": "B!"})``. Outcomes are the only thing it changes in a run.
 
 ``Scheduler``'s jobs follow, and its methods are in the same order.
 
@@ -198,9 +198,9 @@ class Scheduler:
         *,
         nodes: list[FlatFunctionNode],
         threads: int,
-        outcomes: dict[str, dict[ItemIndexes, Outcome]],
+        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         reusable: dict[NodePath, ReusableOutcomes],
-        answers: dict[str, dict[ItemIndexes, Answer]],
+        answers: dict[NodePath, dict[ItemIndexes, Answer]],
         finished: frozenset[NodePath],
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
@@ -216,10 +216,10 @@ class Scheduler:
             nodes: Every function node of the graph and of its subgraphs, in topological order.
             threads: How many pool threads the graph needs: the sum of ``concurrency`` over its nodes that are
                 called on threads.
-            outcomes: The run's outcomes, by node name and item indexes. The scheduler writes into this dict.
+            outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
             reusable: The outcomes of an earlier run that each node may take, by node path. The scheduler removes
                 what is taken and what can no longer be taken.
-            answers: A person's answers to an ``Asked`` parameter, by node name and item indexes, each for a call
+            answers: A person's answers to an ``Asked`` parameter, by node path and item indexes, each for a call
                 that has no outcome yet. The scheduler only reads them.
             finished: The node paths of the nodes that were complete when the run was last resumed.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
@@ -239,7 +239,7 @@ class Scheduler:
             arguments_for = _with_answers(arguments_for, answers)
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
         self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
-        #: A person's answers to an ``Asked`` parameter, by node name and item indexes.
+        #: A person's answers to an ``Asked`` parameter, by node path and item indexes.
         self.answers = answers
 
         # 1. Choosing the next call.
@@ -249,8 +249,8 @@ class Scheduler:
         self.going = True
         #: The node paths of the nodes that are complete: as given, and from ``_close`` as this ``resume()`` leaves them.
         self.finished = finished
-        #: Each node's outcomes by item indexes. These are the dicts of ``all_outcomes``, by node in place of name.
-        self.outcomes = {node: outcomes[node.name] for node in self.nodes}
+        #: Each node's outcomes by item indexes. These are the dicts of ``all_outcomes``, by node in place of node path.
+        self.outcomes = {node: outcomes[node.node_path] for node in self.nodes}
         #: The nodes with an outcome written before one that is earlier in item order. ``_put_in_order`` sorts them.
         self.out_of_order: set[FlatFunctionNode] = set()
         #: The calls to try, as a heap of (node position, item indexes): the first node in topological order first.
@@ -433,7 +433,7 @@ class Scheduler:
     ) -> None:
         """One call is over: write its outcome into the run, and do what follows from it.
 
-        Example: ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` writes ``outcomes["lines"][()]`` and
+        Example: ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` writes ``outcomes[("lines",)][()]`` and
         puts ``shout (0,)``, ``shout (1,)`` and ``shout (2,)`` on ``ready``.
 
         What follows, in this order: a checkpoint if one is due, the item limit, the listener, and the downstream
@@ -749,7 +749,7 @@ class Scheduler:
         calls it again, and it fails or asks then.
         """
         if error is None:
-            if self.answers and (of_node := self.answers.get(node.name)) is not None and (answer := of_node.get(item_indexes)) is not None:
+            if self.answers and (of_node := self.answers.get(node.node_path)) is not None and (answer := of_node.get(item_indexes)) is not None:
                 return Answered(outputs, answer.question)
             return Done(outputs)
         if self.only_costs_nothing:
@@ -774,7 +774,7 @@ class Scheduler:
         if isinstance(error, RefusedError):
             (refused,) = error.problems
             return refused.model_copy(update={"loc": loc})
-        _logger.error("node %r failed for item %r", node.name, item_indexes, exc_info=error)
+        _logger.error("node %r failed for item %r", place_text(node.node_path), item_indexes, exc_info=error)
         if isinstance(error, node.policy.retry_on):
             return run_problems.external_failed(*loc, error=type(error).__name__)
         return run_problems.execution_failed(*loc, error=type(error).__name__)
@@ -876,7 +876,7 @@ class Scheduler:
 
 def _with_answers(
     arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
-    answers: dict[str, dict[ItemIndexes, Answer]],
+    answers: dict[NodePath, dict[ItemIndexes, Answer]],
 ) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
     """``arguments_for``, with a person's answer to a call's ``Asked`` parameter among its arguments.
 
@@ -886,7 +886,7 @@ def _with_answers(
 
     def with_answer(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         arguments = arguments_for(node, item_indexes)
-        of_node = answers.get(node.name)
+        of_node = answers.get(node.node_path)
         if of_node is not None and type(arguments) is dict and (answer := of_node.get(item_indexes)) is not None:
             return {**arguments, answer.parameter: answer.value}
         return arguments

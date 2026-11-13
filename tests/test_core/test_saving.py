@@ -893,9 +893,9 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
     )
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"
-    assert list(run._outcomes["s"].values()) == [Done({"result": "ab"}), NoneInput({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
-    assert [type(u) for u in run._outcomes["c"].values()] == [Unanswered, NoneInput, Skipped, Unanswered]
-    assert run._outcomes["c"][(1,)] == NoneInput({"result": None}, "email")
+    assert list(run._outcomes[("s",)].values()) == [Done({"result": "ab"}), NoneInput({"result": None}, "email"), Done({"result": SKIPPED}), Done({"result": "cd"})]
+    assert [type(u) for u in run._outcomes[("c",)].values()] == [Unanswered, NoneInput, Skipped, Unanswered]
+    assert run._outcomes[("c",)][(1,)] == NoneInput({"result": None}, "email")
     read_back = Run.from_json(run.to_json(), graph)
     assert read_back._outcomes == run._outcomes
     assert read_back.resume().not_called == run.not_called == [

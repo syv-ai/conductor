@@ -163,11 +163,6 @@ def place_text(node: NodePath, name: str | None = None, field: str | None = None
     return text if field is None else f"{text}.{field}"
 
 
-def node_path_text(path: NodePath) -> str:
-    """A node path as text, joined by ``/``."""
-    return "/".join(path)
-
-
 def parse_node_path(text: str) -> NodePath:
     """The node path that ``place_text`` wrote as ``text``: ``parse_node_path("loud/shout")`` returns ``("loud", "shout")``."""
     return tuple(text.split("/"))

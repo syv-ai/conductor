@@ -28,7 +28,6 @@ from conductor._internal.base import (
     ItemIndexes,
     Loc,
     NodePath,
-    node_path_text,
     parse_loc_text,
 )
 from conductor._internal.gate import RefusedError, check_limits
@@ -115,22 +114,22 @@ class Run[C]:
     graph: Graph[C]
     inputs: dict[str, Any]
     max_items: int | None
-    #: Each function node's outcomes by item indexes, in item order, by the node's name: ``_outcomes["w"]`` for a node
-    #: of the graph itself, ``_outcomes["e/ask"]`` for one inside ``e``. Only the scheduler writes out of that order,
-    #: and it sorts them again before it hands the run on.
-    _outcomes: dict[str, dict[ItemIndexes, Outcome]]
+    #: Each function node's outcomes by item indexes, in item order, by the node's path: ``_outcomes[("w",)]`` for a
+    #: node of the graph itself, ``_outcomes[("e", "ask")]`` for one inside ``e``. Only the scheduler writes out of that
+    #: order, and it sorts them again before it hands the run on.
+    _outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]
     #: What each node may take from the run this one went on from.
     _reusable: dict[NodePath, ReusableOutcomes]
     #: The flat graph of ``graph``: the function nodes the run calls.
     _flat: FlatGraph = field(kw_only=True)
     state: RunState = READY
-    #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
+    #: For a node whose outcomes a saved run made with other code or another signature, what that code was; a later run never reuses them.
     _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
-    #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
+    #: The nodes whose every call was finished when the run was last resumed, so a later resume doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
-    #: A person's answers to a node's ``Asked`` parameter, by node name and item indexes, each kept until its call is
-    #: made: ``_answers["approve"][(1,)]`` once ``run.answer`` is given ``True`` for ``approve@1``. Never changed in place.
-    _answers: dict[str, dict[ItemIndexes, Answer]] = field(default_factory=dict[str, dict[ItemIndexes, Answer]])
+    #: A person's answers to a node's ``Asked`` parameter, by node path and item indexes, each kept until its call is
+    #: made: ``_answers[("approve",)][(1,)]`` once ``run.answer`` is given ``True`` for ``approve@1``. Never changed in place.
+    _answers: dict[NodePath, dict[ItemIndexes, Answer]] = field(default_factory=dict[NodePath, dict[ItemIndexes, Answer]])
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
@@ -315,8 +314,8 @@ class Run[C]:
             except ValueError:  # a place in it isn't a number
                 problems.append(call_problems.not_waiting(waiting_id.partition("@")[0], waiting_id=waiting_id, status=self.status))
                 continue
-            node = self._flat.function_nodes.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
-            found = self._outcomes[node.name].get(item_indexes) if node is not None else None
+            node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
+            found = self._outcomes[nodes].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
                 problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self.status, moved_to=moved_to))
@@ -341,19 +340,19 @@ class Run[C]:
             raise InvalidCallError(problems)
         run = self._copy(share_outcomes=True)
         for changed in {node for node, _ in answered}:  # its own outcomes and answers for each node it changes; every other node's are shared
-            run._outcomes[changed.name] = dict(self._outcomes[changed.name])
+            run._outcomes[changed.node_path] = dict(self._outcomes[changed.node_path])
             if changed.compiled_node.definition.asked is not None:
-                run._answers = {**run._answers, changed.name: dict(self._answers.get(changed.name, {}))}
+                run._answers = {**run._answers, changed.node_path: dict(self._answers.get(changed.node_path, {}))}
         for (node, item_indexes), now in answered.items():
             if isinstance(now, Answer):  # the call has no outcome until the node is called with the answer
-                del run._outcomes[node.name][item_indexes]
-                run._answers[node.name][item_indexes] = now
+                del run._outcomes[node.node_path][item_indexes]
+                run._answers[node.node_path][item_indexes] = now
             else:
-                run._outcomes[node.name][item_indexes] = now
+                run._outcomes[node.node_path][item_indexes] = now
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
-        """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
+        """The id of the call where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
         for node, item_indexes, outcome in self._waiting_outcomes():
             if node.node_path == nodes and question_fingerprint(node.compiled_node, outcome) == fingerprint:
@@ -388,7 +387,7 @@ class Run[C]:
         return fresh
 
     def _reusable_outcomes(self, into: FlatGraph) -> dict[NodePath, ReusableOutcomes]:
-        """What a run going on from this one may take, by node: each node's finished and waiting units, in
+        """What a run going on from this one may take, by node: each node's finished and waiting calls, in
         item order, then the outcomes this run carried from the previous run and did not take.
 
         ``into`` is the flat graph of the graph the new run is of, this run's or another's. Only the nodes it has
@@ -402,7 +401,7 @@ class Run[C]:
                 continue
             compiled_node = node.compiled_node
             of_node = work[node.node_path] = ReusableOutcomes()
-            for item_indexes, outcome in self._outcomes[node.name].items():
+            for item_indexes, outcome in self._outcomes[node.node_path].items():
                 match outcome:
                     case Skipped() | NoneInput():  # the node was not called for the item, so there is nothing to reuse
                         continue
@@ -428,8 +427,8 @@ class Run[C]:
         ours, theirs = self._flat.function_nodes, into.function_nodes
         return {
             path: of_node for path, of_node in work.items()
-            if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(name := node_path_text(path))) is not None
-            and there.compiled_node.code_fingerprint == ours[name].compiled_node.code_fingerprint
+            if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(path)) is not None
+            and there.compiled_node.code_fingerprint == ours[path].compiled_node.code_fingerprint
         }
 
     def again(
@@ -454,7 +453,7 @@ class Run[C]:
     def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
         """Every call waiting for a person, with its node and item indexes, in node then item order."""
         for node in self._flat.function_nodes.values():
-            for item_indexes, outcome in self._outcomes[node.name].items():
+            for item_indexes, outcome in self._outcomes[node.node_path].items():
                 if type(outcome) is Unanswered:
                     yield node, item_indexes, outcome
 
@@ -477,7 +476,7 @@ class Run[C]:
         inside a subgraph where its node stands."""
         return [
             NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
-            for node in self._flat.function_nodes.values() for item_indexes, outcome in self._outcomes[node.name].items() if type(outcome) is NoneInput
+            for node in self._flat.function_nodes.values() for item_indexes, outcome in self._outcomes[node.node_path].items() if type(outcome) is NoneInput
         ]
 
     @property
@@ -577,7 +576,7 @@ def make_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, 
     ``graph.with_inputs(text="a\\nb")`` returns. No node has an outcome yet; with ``previous``, the run may reuse
     that run's outcomes (``Run.with_inputs``)."""
     flat = flat_graph_of(graph)
-    outcomes: dict[str, dict[ItemIndexes, Outcome]] = {name: {} for name in flat.function_nodes}
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {path: {} for path in flat.function_nodes}
     return Run(graph, inputs, max_items, outcomes, previous._reusable_outcomes(into=flat) if previous is not None else {}, _flat=flat)
 
 

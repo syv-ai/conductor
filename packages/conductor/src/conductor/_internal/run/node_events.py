@@ -75,7 +75,7 @@ class NodeEvents:
     Attributes:
         emit: The listener: it is called with each event.
         nodes: Every function node of the graph and of its subgraphs, in topological order.
-        outcomes: The run's outcomes, by node name and item indexes. The scheduler writes them; they are only read here.
+        outcomes: The run's outcomes, by node path and item indexes. The scheduler writes them; they are only read here.
         started: The nodes that have had ``NodeStart``, in this call or an earlier one.
         complete: The nodes that have had ``NodeComplete`` or ``NodeSkipped``, in this call or an earlier one.
         skipped: The nodes that had ``NodeSkipped`` in this call.
@@ -89,18 +89,18 @@ class NodeEvents:
         self,
         emit: Callable[[EventBase], None],
         nodes: list[FlatFunctionNode],
-        outcomes: dict[str, dict[ItemIndexes, Outcome]],
+        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         finished: frozenset[NodePath],
     ) -> None:
         """
         Args:
             emit: The listener.
             nodes: Every function node, in topological order.
-            outcomes: The run's outcomes, by node name and item indexes.
+            outcomes: The run's outcomes, by node path and item indexes.
             finished: The node paths of the nodes that were complete when the run was last resumed.
         """
         self.emit, self.nodes, self.outcomes = emit, nodes, outcomes
-        with_outcomes: set[FlatFunctionNode] = {node for node in nodes if outcomes[node.name]}
+        with_outcomes: set[FlatFunctionNode] = {node for node in nodes if outcomes[node.node_path]}
         self.started: set[FlatNode] = set(with_outcomes)
         for node in with_outcomes:
             subgraph = node.parent
@@ -163,7 +163,7 @@ class NodeEvents:
             if node in nodes_running or nodes_running & all_upstream(node):
                 continue
             self.changed.discard(node)
-            outcomes = self.outcomes[node.name]
+            outcomes = self.outcomes[node.node_path]
             if node in self.complete or Unanswered in {type(outcome) for outcome in outcomes.values()} or not has_every_outcome(self.outcomes, node):
                 continue
             self.complete.add(node)

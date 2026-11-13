@@ -22,7 +22,7 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.base import ItemIndexes
+from conductor._internal.base import ItemIndexes, NodePath, place_text
 from conductor._internal.problem import Problem, run_problems
 from conductor._internal.run import node_events as node_events_module
 from conductor._internal.run.events import EventBase, NodeWaiting
@@ -93,9 +93,9 @@ class Told:
     def __init__(self, record: GraphRecord, registry: NodeRegistry, finished: tuple[str, ...] = (), **inputs: Any) -> None:
         graph = Graph.compile(record, registry)
         run = graph.run(inputs)
-        self.finished_run: dict[str, dict[ItemIndexes, Outcome]] = run._outcomes
-        self.outcomes = {name: dict(outcomes) if name in finished else {} for name, outcomes in self.finished_run.items()}
-        self.nodes = run._flat.function_nodes
+        self.finished_run: dict[NodePath, dict[ItemIndexes, Outcome]] = run._outcomes
+        self.outcomes = {path: dict(outcomes) if place_text(path) in finished else {} for path, outcomes in self.finished_run.items()}
+        self.nodes = {place_text(path): node for path, node in run._flat.function_nodes.items()}
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
         self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths)
@@ -106,8 +106,9 @@ class Told:
 
     def record(self, name: str, *item_indexes: int) -> None:
         """The call's outcome was recorded, with no call made."""
-        self.outcomes[name][item_indexes] = self.finished_run[name][item_indexes]
-        self.node_events.outcome_recorded(self.nodes[name], item_indexes, self.outcomes[name][item_indexes])
+        path = self.nodes[name].node_path
+        self.outcomes[path][item_indexes] = self.finished_run[path][item_indexes]
+        self.node_events.outcome_recorded(self.nodes[name], item_indexes, self.outcomes[path][item_indexes])
 
     def call(self, name: str, *item_indexes: int) -> None:
         """The call is about to be made, and then its outcome was recorded."""

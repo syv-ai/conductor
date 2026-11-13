@@ -20,6 +20,7 @@ from pydantic import BaseModel, GetCoreSchemaHandler, NonNegativeInt, create_mod
 from pydantic import Field as PydanticField
 from pydantic_core import CoreSchema, core_schema
 
+from conductor._internal.base import place_text
 from conductor._internal.compiled import CompiledGraph
 from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
@@ -225,8 +226,8 @@ def codec_of(graph: CompiledGraph) -> type[SavedRun]:
         codec = _CODECS[graph] = run_codec(
             graph.fingerprint,
             inputs={name: field.whole for name, field in graph._inputs.items()},
-            outputs={node.name: node.compiled_node.outputs for node in flat.function_nodes.values()},
-            asked={node.name: asked.field for node in flat.function_nodes.values() if (asked := node.compiled_node.definition.asked) is not None},
-            nodes=list(flat.function_nodes),
+            outputs={place_text(path): node.compiled_node.outputs for path, node in flat.function_nodes.items()},
+            asked={place_text(path): asked.field for path, node in flat.function_nodes.items() if (asked := node.compiled_node.definition.asked) is not None},
+            nodes=[place_text(path) for path in flat.function_nodes],
         )
     return codec

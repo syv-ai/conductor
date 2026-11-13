@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from conductor._internal.ask import Answer
-from conductor._internal.base import SKIPPED, ItemIndexes, parse_node_path, place_text
+from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.compiled import (
     CompiledGraph,
     outputs_when_not_called,
@@ -69,37 +69,38 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
         reason = value_free_errors(error)[0]["msg"]
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where_in(codec, first["loc"]), reason=reason)]) from None
     flat = flat_graph_of(graph)
-    in_call_order: dict[str, list[Outcome | None]] = {}
-    reused: dict[str, ReusableOutcomes] = {}
+    in_call_order: dict[NodePath, list[Outcome | None]] = {}
+    reused: dict[NodePath, ReusableOutcomes] = {}
     try:
         for name, saved_outcomes in read.outcomes.items():
-            where = f"outcomes.{name}"
-            in_call_order[name] = outcomes_from_saved(flat.function_nodes[name].compiled_node.outputs, saved_outcomes)
+            where, path = f"outcomes.{name}", parse_node_path(name)
+            in_call_order[path] = outcomes_from_saved(flat.function_nodes[path].compiled_node.outputs, saved_outcomes)
         for name, saved_reusable in read.reusable.items():
-            where = f"reusable.{name}.outcomes"
-            reusable_in_call_order = outcomes_from_saved(flat.function_nodes[name].compiled_node.outputs, saved_reusable.outcomes)
+            where, path = f"reusable.{name}.outcomes", parse_node_path(name)
+            reusable_in_call_order = outcomes_from_saved(flat.function_nodes[path].compiled_node.outputs, saved_reusable.outcomes)
             where = f"reusable.{name}"
-            reused[name] = reusable_from_saved(saved_reusable, reusable_in_call_order)
+            reused[path] = reusable_from_saved(saved_reusable, reusable_in_call_order)
     except ValueError as wrong:
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]) from None
     _share_tables_written_once(flat, in_call_order, read.tables_written_once)
-    outcomes: dict[str, dict[ItemIndexes, Outcome]] = {}
-    for node in flat.function_nodes.values():
-        outcomes[node.name] = {}
-        if (of_node := in_call_order.get(node.name)) is not None:
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {}
+    for path, node in flat.function_nodes.items():
+        outcomes[path] = {}
+        if (of_node := in_call_order.get(path)) is not None:
             every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
             if len(of_node) != len(every_item_indexes):
                 reason = f"its lists have {len(of_node)} entries, but the saved series give the node {len(every_item_indexes)} calls"
-                raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=f"outcomes.{node.name}", reason=reason)])
-            outcomes[node.name] = {
+                raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=f"outcomes.{place_text(path)}", reason=reason)])
+            outcomes[path] = {
                 item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True) if outcome is not None
             }
     answers = _answers_from_saved(flat, read.answers, outcomes)
     code_changed = {
-        parse_node_path(name): fingerprint for name, fingerprint in read.code.items() if fingerprint != flat.function_nodes[name].compiled_node.code_fingerprint
+        path: fingerprint for name, fingerprint in read.code.items()
+        if fingerprint != flat.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
     }
     # outcomes that other code produced are never reused
-    reusable = {path: of_node for name, of_node in reused.items() if (path := parse_node_path(name)) not in code_changed}
+    reusable = {path: of_node for path, of_node in reused.items() if path not in code_changed}
     return run_type(
         graph, read.inputs, read.max_items, outcomes, reusable, _flat=flat, state=read.state, _code_changed=code_changed,
         _finished_nodes=frozenset(parse_node_path(name) for name in read.complete), _answers=answers,
@@ -107,35 +108,36 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
 
 
 def _answers_from_saved(
-    flat: FlatGraph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[str, dict[ItemIndexes, Outcome]],
-) -> dict[str, dict[ItemIndexes, Answer]]:
+    flat: FlatGraph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+) -> dict[NodePath, dict[ItemIndexes, Answer]]:
     """Turns each waiting call that a saved run has an answer for into that answer, kept until the node is called.
 
     ``{"approve": {1: True}}`` with ``approve``'s second call waiting takes that ``Unanswered`` out of ``outcomes`` and
-    returns ``{"approve": {(1,): Answer(its question, "ok", True)}}``.
+    returns ``{("approve",): {(1,): Answer(its question, "ok", True)}}``.
 
     Args:
         flat: The flat graph of the run's graph.
         saved: The saved run's ``answers``, each read by its node's ``Asked`` parameter: the codec takes them only
             for such a node.
-        outcomes: The outcomes read so far, by node name. Changed in place.
+        outcomes: The outcomes read so far, by node path. Changed in place.
 
     Raises:
         InvalidCallError: An answer names a call that is not waiting (``saved_run_unreadable``).
     """
-    answers: dict[str, dict[ItemIndexes, Answer]] = {}
+    answers: dict[NodePath, dict[ItemIndexes, Answer]] = {}
     for name, by_call_number in saved.items():
-        node = flat.function_nodes[name]
+        path = parse_node_path(name)
+        node = flat.function_nodes[path]
         (parameter,) = node.compiled_node.answer_fields
         every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
         for call_number, value in by_call_number.items():
             item_indexes = every_item_indexes[call_number] if call_number < len(every_item_indexes) else None
-            waiting = outcomes[name].get(item_indexes) if item_indexes is not None else None
+            waiting = outcomes[path].get(item_indexes) if item_indexes is not None else None
             if type(waiting) is not Unanswered or item_indexes is None:
                 reason = "it names a call that is not waiting for a person"
                 raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=f"answers.{name}.{call_number}", reason=reason)])
-            del outcomes[name][item_indexes]
-            answers.setdefault(name, {})[item_indexes] = Answer(waiting.question, parameter, value)
+            del outcomes[path][item_indexes]
+            answers.setdefault(path, {})[item_indexes] = Answer(waiting.question, parameter, value)
     return answers
 
 
@@ -192,7 +194,7 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
     return outcomes
 
 
-def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[str, list[Outcome | None]], entries: list[SameAs]) -> None:
+def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[NodePath, list[Outcome | None]], entries: list[SameAs]) -> None:
     """Fills in the outputs that a saved run wrote as ``null`` and listed under ``tables_written_once``.
 
     The saved run lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
@@ -201,7 +203,7 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[str, list[Outc
 
     Args:
         flat: The flat graph of the run's graph.
-        outcomes: Each node's outcomes in call-number order, by name. Changed in place.
+        outcomes: Each node's outcomes in call-number order, by node path. Changed in place.
         entries: The saved run's ``tables_written_once``.
 
     Raises:
@@ -210,7 +212,8 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[str, list[Outc
             (``saved_run_unreadable``).
     """
     for entry in entries:
-        (node, output, call_number), (from_node, from_output, from_call_number) = entry.output, entry.same_as
+        (node_name, output, call_number), (from_name, from_output, from_call_number) = entry.output, entry.same_as
+        node, from_node = parse_node_path(node_name), parse_node_path(from_name)
         try:
             outcome, source = outcomes[node][call_number], outcomes[from_node][from_call_number]
             if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.outputs[output] is not None:
@@ -222,8 +225,8 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[str, list[Outc
             outcome.outputs[output] = output_validator_of(output_type).validate_python(table, strict=True)
         except (LookupError, AttributeError, ValidationError) as wrong:
             reason = output_type.refusal(wrong).reason if isinstance(wrong, ValidationError) else "that is not an output written in full before it"
-            where = f"{place_text(parse_node_path(node), output)}[{call_number}]"
-            same_as = f"{place_text(parse_node_path(from_node), from_output)}[{from_call_number}]"
+            where = f"{place_text(node, output)}[{call_number}]"
+            same_as = f"{place_text(from_node, from_output)}[{from_call_number}]"
             reason = f"'{where}' can't be read as the table at '{same_as}': {reason}"
             raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where="tables_written_once", reason=reason)]) from None
 

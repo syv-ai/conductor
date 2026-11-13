@@ -212,7 +212,7 @@ def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_
     run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
     # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a flat graph of its
     # own with a copy of the node, so the graph's flat graph stays whole.
-    series = dataclasses.replace(run._flat.function_nodes["w"], downstream=[])
-    broken = dataclasses.replace(run._flat, function_nodes={**run._flat.function_nodes, "w": series}, nodes={**run._flat.nodes, "w": series})
+    series = dataclasses.replace(run._flat.function_nodes[("w",)], downstream=[])
+    broken = dataclasses.replace(run._flat, function_nodes={**run._flat.function_nodes, ("w",): series}, nodes={**run._flat.nodes, ("w",): series})
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
         dataclasses.replace(run, _flat=broken).resume()

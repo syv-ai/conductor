@@ -694,7 +694,7 @@ def test_a_checkpoint_taken_mid_run_resumes_with_no_inner_call_repeated():
 
 def _outcome_count(run, subgraph_node: str, node_id: str) -> int:
     """How many calls of the inner node ``node_id`` of ``subgraph_node`` have an outcome in ``run``."""
-    return len(run._outcomes[f"{subgraph_node}/{node_id}"])
+    return len(run._outcomes[(subgraph_node, node_id)])
 
 
 # -- one address: a node path and item indexes -----------------------------------------------------

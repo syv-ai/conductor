@@ -13,7 +13,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Answer, Question
-from conductor._internal.base import SKIPPED, node_path_text, parse_node_path, place_text
+from conductor._internal.base import SKIPPED, NodePath, place_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
@@ -61,7 +61,7 @@ def run_to_json(run: Run) -> str:
     try:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
-        where = first_unwritable_value(saved)
+        where = first_unwritable_value(saved, run._flat.function_nodes)
         raise InvalidCallError([call_problems.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
 
 
@@ -78,7 +78,7 @@ def outputs_to_json(run: Run) -> str:
     written = {}
     for text, value in run.outputs.items():
         source = run.graph._outputs[text]
-        function, output = run._flat.nodes[source.node[0]].source_of(source.output)
+        function, output = run._flat.nodes[source.node].source_of(source.output)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
@@ -102,26 +102,27 @@ def saved_run(run: Run) -> SavedRun:
     """
     codec = codec_of(run.graph)
     function_nodes = run._flat.function_nodes
+    names = {path: place_text(path) for path in function_nodes}
     outcomes = {
-        node.name: saved_outcomes(codec.outcomes_classes[node.name], node.compiled_node.outputs, _outcomes_by_call_number(run, node))
-        for node in function_nodes.values() if run._outcomes[node.name] or node.name in run._answers
+        names[path]: saved_outcomes(codec.outcomes_classes[names[path]], node.compiled_node.outputs, _outcomes_by_call_number(run, node))
+        for path, node in function_nodes.items() if run._outcomes[path] or path in run._answers
     }
     reusable = {}
     for path, of_node in run._reusable.items():
         if of_node.by_fingerprint or of_node.answers:
-            name = node_path_text(path)
-            reusable[name] = saved_reusable(codec.reusable_classes[name], codec.outcomes_classes[name], function_nodes[name].compiled_node.outputs, of_node)
+            name = names[path]
+            reusable[name] = saved_reusable(codec.reusable_classes[name], codec.outcomes_classes[name], function_nodes[path].compiled_node.outputs, of_node)
     code = {
-        name: run._code_changed.get(node.node_path) or node.compiled_node.code_fingerprint
-        for name, node in function_nodes.items() if name in outcomes or name in reusable
+        names[path]: run._code_changed.get(path) or node.compiled_node.code_fingerprint
+        for path, node in function_nodes.items() if names[path] in outcomes or names[path] in reusable
     }
     answers = {
-        node.name: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
-        for node in function_nodes.values() if node.name in run._answers
+        names[path]: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
+        for path, node in function_nodes.items() if path in run._answers
     }
     return codec.model_construct(
         graph=run.graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
-        complete=[node.name for node in function_nodes.values() if node.node_path in run._finished_nodes],
+        complete=[names[path] for path in function_nodes if path in run._finished_nodes],
         tables_written_once=tables_written_once(function_nodes.values(), outcomes),
         answers=answers,
     )
@@ -134,12 +135,12 @@ def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome |
     is the call number of its call; ``None`` is a call that has no outcome yet, and an ``Answer`` one that has none
     and a person's answer to the node's ``Asked`` parameter.
     """
-    outcomes = run._outcomes[node.name]
+    outcomes = run._outcomes[node.node_path]
     # speed only: the outcomes are in call order already, as the line below would list them. Without it to_json takes 1.3 to 1.9
     # times as long.
     if has_every_outcome(run._outcomes, node):
         return list(outcomes.values())
-    answers = run._answers.get(node.name, {})
+    answers = run._answers.get(node.node_path, {})
     return [outcomes.get(item_indexes) or answers.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
 
 
@@ -216,7 +217,8 @@ def tables_written_once(function_nodes: Iterable[FlatFunctionNode], outcomes: Ma
     first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table, which stays alive in ``outcomes`` during this call
     same: list[SameAs] = []
     for node in function_nodes:
-        of_node = outcomes.get(node.name)
+        name = place_text(node.node_path)
+        of_node = outcomes.get(name)
         if of_node is None:
             continue
         for output, field in node.compiled_node.outputs.items():
@@ -227,10 +229,10 @@ def tables_written_once(function_nodes: Iterable[FlatFunctionNode], outcomes: Ma
                 table = None if stored is None else field.whole.written_once(stored)
                 if table is None:
                     continue
-                before = first.setdefault(id(table), (table, (node.name, output, call_number)))
-                if before[1] != (node.name, output, call_number) and before[0] is table:
+                before = first.setdefault(id(table), (table, (name, output, call_number)))
+                if before[1] != (name, output, call_number) and before[0] is table:
                     values[call_number] = None
-                    same.append(SameAs.model_construct(output=(node.name, output, call_number), same_as=before[1]))
+                    same.append(SameAs.model_construct(output=(name, output, call_number), same_as=before[1]))
     return same
 
 
@@ -270,7 +272,7 @@ def saved_reusable(
     )
 
 
-def first_unwritable_value(saved: SavedRun) -> str:
+def first_unwritable_value(saved: SavedRun, function_nodes: Iterable[NodePath]) -> str:
     """Returns where a run that could not be written has a value with no JSON form: ``"text"``, ``"loud/shout.result"``.
 
     It writes each graph input and each output's list on its own, through the graph's codec (``include=`` names the
@@ -279,16 +281,19 @@ def first_unwritable_value(saved: SavedRun) -> str:
 
     Args:
         saved: The run as ``saved_run`` returned it.
+        function_nodes: The path of every function node of the run's graph, in the order they are saved.
 
     Returns:
-        The name of the graph input, or the node's name in a saved run and the output; ``"the run"`` when
-        each is written alone.
+        The name of the graph input, or the output as ``place_text`` writes it; ``"the run"`` when each is
+        written alone.
     """
     alone: list[tuple[str, Any]] = [(name, {"inputs": {name}}) for name in saved.inputs]
-    for name, outcomes in saved.outcomes.items():
-        alone.extend((place_text(parse_node_path(name), output), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
-    for name, reusable in saved.reusable.items():
-        alone.extend((place_text(parse_node_path(name), output), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
+    for path in function_nodes:
+        if (outcomes := saved.outcomes.get(name := place_text(path))) is not None:
+            alone.extend((place_text(path, output), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
+    for path in function_nodes:
+        if (reusable := saved.reusable.get(name := place_text(path))) is not None:
+            alone.extend((place_text(path, output), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
     for where, include in alone:
         try:
             saved.model_dump_json(include=include)
