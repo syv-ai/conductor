@@ -509,8 +509,9 @@ class _Compiler:
                     kwargs[name] = value
         try:
             returned = hook(**kwargs)
-        except NodeError as error:  # the hook raised a NodeError: keep its message, code and ctx
-            self.problems.append(compile_problems.compute_hook_failed(node_id, reason=error.message, error=error.code, error_ctx=dict(error.ctx) or None))
+        except NodeError as error:  # the hook raised a NodeError: keep its problem
+            (raised,) = error.problems
+            self.problems.append(compile_problems.compute_hook_failed(node_id, reason=raised.msg, error=raised.type, error_ctx=dict(raised.ctx) or None))
             return None
         except Exception as error:  # noqa: BLE001  any other exception of the hook is a problem of this node
             _logger.error("the %s hook of node %r failed", kind, node_id, exc_info=error)

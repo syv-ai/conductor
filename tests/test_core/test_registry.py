@@ -155,7 +155,7 @@ def test_a_second_node_under_one_id_is_refused_naming_where_both_were_written():
     with pytest.raises(NodeDeclarationError, match="two nodes have the id 'dup'") as raised:
         registry.add(second)
 
-    assert raised.value.code == "duplicate_node_id"
+    assert raised.value.problems[0].type == "duplicate_node_id"
     assert str(raised.value).count("defined") == 2
     assert registry["dup"] is first
 
@@ -284,7 +284,7 @@ def test_declaring_a_node_on_a_registry_that_has_its_id_is_a_duplicate_whatever_
         def newer(x: str = "") -> str:
             return x
 
-    assert from_the_decorator.value.code == from_add.value.code == "duplicate_node_id"
+    assert from_the_decorator.value.problems[0].type == from_add.value.problems[0].type == "duplicate_node_id"
 
 
 @pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
@@ -468,7 +468,7 @@ def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
         def no_hook(text: str, **values: Any) -> str:
             return text
 
-    assert raised.value.code == "var_keyword_without_hook"
+    assert raised.value.problems[0].type == "var_keyword_without_hook"
 
 
 def test_var_positional_is_refused():
@@ -615,7 +615,7 @@ def test_two_classes_may_claim_one_id_until_one_registry_has_both():
     assert dict(NodeRegistry(types=[second]).types) == {"text": second}
     with pytest.raises(NodeDeclarationError, match="type id 'text'") as raised:
         NodeRegistry(types=[first, second])
-    assert raised.value.code == "duplicate_type_id"
+    assert raised.value.problems[0].type == "duplicate_type_id"
 
 
 def test_one_id_from_two_classes_is_refused_naming_both_and_one_class_twice_is_not():
@@ -669,7 +669,7 @@ def test_a_subclass_that_declares_its_parents_id_cannot_sit_beside_its_parent():
     with pytest.raises(NodeDeclarationError, match="type id 'text'") as raised:
         registry.add(cut)
 
-    assert raised.value.code == "duplicate_type_id"
+    assert raised.value.problems[0].type == "duplicate_type_id"
     assert dict(registry.types) == {"text": Text}
 
 

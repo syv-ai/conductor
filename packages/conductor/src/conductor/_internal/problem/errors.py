@@ -66,15 +66,21 @@ _CTX = TypeAdapter(dict[str, JsonValue])
 
 
 class ConductorError(Exception):
-    """The base class of every exception conductor raises.
+    """The base class of every exception conductor raises. Each says what went wrong as ``Problem``s, so a host
+    translates an exception as it translates a graph's problems.
 
     Attributes:
-        message: What went wrong, for whoever meets the error.
+        problems: What went wrong, in the order it was found.
     """
 
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
+    def __init__(self, problems: Iterable[Problem], text: str) -> None:
+        """
+        Args:
+            problems: What went wrong.
+            text: The exception's text, made from the problems for whoever reads a traceback.
+        """
+        self.problems = list(problems)
+        super().__init__(text)
 
 
 class NodeDeclarationError(ConductorError, TypeError):
@@ -89,21 +95,20 @@ class NodeDeclarationError(ConductorError, TypeError):
     graph. Like pydantic's ``PydanticUserError``, it has a code that does not change between versions.
 
     Attributes:
-        problem: What was declared wrong, a kind of ``DECLARATION_PROBLEMS``; ``python -m conductor.about problems``
-            has each, with an example.
-        code: The problem's code, ``async_run`` above.
+        problems: What was declared wrong, one problem of a kind of ``DECLARATION_PROBLEMS``, whose ``type`` is its
+            code (``async_run`` above); ``python -m conductor.about problems`` has each, with an example.
         where: Where the fault is, outermost first: ``("@node('fetch') on fetch",)``, then the input's name for a
             fault in one input. The error's text is these and the problem's message, joined by ``": "``.
     """
 
     def __init__(self, problem: Problem, *where: str) -> None:
-        self.problem, self.code, self.where = problem, problem.type, where
-        super().__init__(": ".join([*where, problem.msg]))
+        super().__init__([problem], ": ".join([*where, problem.msg]))
+        self.where = where
 
     def within(self, place: str) -> NodeDeclarationError:
         """Returns this error with ``place`` in front of where it is: ``@node('fetch') on fetch`` around an input's
         fault."""
-        return NodeDeclarationError(self.problem, place, *self.where)
+        return NodeDeclarationError(self.problems[0], place, *self.where)
 
 
 class InvalidCallError(ConductorError, ValueError):
@@ -125,8 +130,8 @@ class InvalidCallError(ConductorError, ValueError):
     """
 
     def __init__(self, problems: Iterable[Problem]) -> None:
-        self.problems = list(problems)
-        super().__init__("\n".join([f"{len(self.problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in self.problems)]))
+        problems = list(problems)
+        super().__init__(problems, "\n".join([f"{len(problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in problems)]))
 
 
 class NodeError(ConductorError):
@@ -134,13 +139,14 @@ class NodeError(ConductorError):
 
         raise NodeError("The document could not be read.", code="unreadable", ctx={"pages": 0})
 
-    The call fails with a ``Problem`` of that code, message and ``ctx``; conductor adds the node and the item indexes
-    as its ``loc``. Without a ``code`` the problem's code is ``failed``. A ``NodeError`` is never retried: a failure
-    of the outside world is an ``ExternalError``.
+    The error is its one problem, made when it is raised: ``Problem(type="unreadable", loc=(), msg="The document
+    could not be read.", ctx={"pages": 0})``. The call fails with that problem; conductor adds the node and the item
+    indexes as its ``loc``. Without a ``code`` the problem's code is ``failed`` (``external_failed`` for an
+    ``ExternalError``). A ``NodeError`` is never retried: a failure of the outside world is an ``ExternalError``.
 
     Attributes:
-        code: The problem's code: the node's own, else ``failed`` (``external_failed`` for an ``ExternalError``).
-        ctx: The values a host makes its own message from, as JSON.
+        problems: The one problem, with ``loc`` empty: its ``type`` is the code, its ``msg`` the message and its
+            ``ctx`` the values a host makes its own message from, as JSON.
 
     Raises:
         pydantic.ValidationError: ``ctx`` has a value that is not JSON, such as an object, a set or a tuple. It is
@@ -148,9 +154,7 @@ class NodeError(ConductorError):
     """
 
     def __init__(self, message: str, *, code: str = failed.code, ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
-        super().__init__(message)
-        self.code = code
-        self.ctx = _CTX.validate_python(ctx)
+        super().__init__([Problem.model_construct(type=code, loc=(), msg=message, ctx=_CTX.validate_python(ctx))], message)
 
 
 class ExternalError(NodeError):

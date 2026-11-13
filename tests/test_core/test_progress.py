@@ -192,4 +192,4 @@ def test_a_free_node_is_refused_the_run_context() -> None:
         def sign(ctx: Context[HostContext], text: str) -> str:
             return text
 
-    assert raised.value.code == "costs_nothing_takes_context"
+    assert raised.value.problems[0].type == "costs_nothing_takes_context"

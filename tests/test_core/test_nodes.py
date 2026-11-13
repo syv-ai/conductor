@@ -100,7 +100,7 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_fun
     with pytest.raises(NodeDeclarationError) as raised:
         declared(bad)
     assert isinstance(raised.value, TypeError)
-    assert raised.value.code == "output_without_type"
+    assert raised.value.problems[0].type == "output_without_type"
     assert "@node('x') on bad" in str(raised.value)
 
 
@@ -108,7 +108,7 @@ def test_a_node_id_must_have_something_in_it_and_no_mark_an_address_or_waiting_i
     for wrong in ("", "a.b", "a/b", "a@b", "a~b"):
         with pytest.raises(NodeDeclarationError) as raised:
             node(wrong, title="Wrong", description="For a test.")
-        assert raised.value.code == "invalid_node_id"
+        assert raised.value.problems[0].type == "invalid_node_id"
 
     def amount() -> int:
         return 1
@@ -135,7 +135,7 @@ def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_
     ):
         with pytest.raises(NodeDeclarationError) as raised:
             declaration()
-        assert raised.value.code == "empty_title_or_description"
+        assert raised.value.problems[0].type == "empty_title_or_description"
         assert f"('x') has an empty {empty}" in str(raised.value)
 
 
@@ -157,7 +157,7 @@ def test_an_async_function_is_refused():
 
     with pytest.raises(NodeDeclarationError, match="@node\\('x'\\) on fetch") as raised:
         declared(fetch)
-    assert raised.value.code == "async_run"
+    assert raised.value.problems[0].type == "async_run"
 
 
 def test_a_default_its_type_cannot_read_fails_where_it_is_written():
@@ -166,7 +166,7 @@ def test_a_default_its_type_cannot_read_fails_where_it_is_written():
 
     with pytest.raises(NodeDeclarationError, match="'x'|x:") as raised:
         declared(f)
-    assert raised.value.code == "default_invalid"
+    assert raised.value.problems[0].type == "default_invalid"
 
 
 def test_a_default_outside_its_own_bounds_fails_where_it_is_written():
@@ -175,7 +175,7 @@ def test_a_default_outside_its_own_bounds_fails_where_it_is_written():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.code == "default_invalid"
+    assert raised.value.problems[0].type == "default_invalid"
 
 
 def test_a_series_default_is_checked_against_the_limits_of_each_item():
@@ -184,7 +184,7 @@ def test_a_series_default_is_checked_against_the_limits_of_each_item():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.code == "default_invalid"
+    assert raised.value.problems[0].type == "default_invalid"
 
 
 def test_an_unknown_param_argument_is_pythons_own_type_error():
@@ -208,7 +208,7 @@ def test_a_bound_written_wrong_is_refused_where_it_is_written():
     for wrong in (on_text, on_table, on_text_or_none, on_texts):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(wrong)
-        assert raised.value.code == "bound_invalid"
+        assert raised.value.problems[0].type == "bound_invalid"
 
 
 def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
@@ -231,7 +231,7 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(loose)
-    assert raised.value.code == "outputs_not_frozen"
+    assert raised.value.problems[0].type == "outputs_not_frozen"
 
 
 def test_a_class_pydantic_cannot_check_is_refused_where_the_class_is_declared():
@@ -241,7 +241,7 @@ def test_a_class_pydantic_cannot_check_is_refused_where_the_class_is_declared():
         class Thing:
             pass
 
-    assert raised.value.code == "type_not_carried"
+    assert raised.value.problems[0].type == "type_not_carried"
 
 
 def test_a_series_of_tables_is_accepted_as_many_tables():
@@ -392,7 +392,7 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(g)
-    assert raised.value.code == "default_invalid"
+    assert raised.value.problems[0].type == "default_invalid"
 
 
 def test_none_on_an_input_that_takes_none_is_not_checked_against_its_limits():
@@ -679,13 +679,13 @@ def test_a_chain_written_wrong_is_refused_where_it_is_written():
     other = node("other", title="F", description="For a test.")(f)
     with pytest.raises(NodeDeclarationError) as raised:
         node("x", title="F", description="For a test.", replaces=other)(f)
-    assert raised.value.code == "replaces_another_node"
+    assert raised.value.problems[0].type == "replaces_another_node"
     with pytest.raises(NodeDeclarationError) as raised:
         node("x", title="F", description="For a test.", upgrade=Upgrade())(f)
-    assert raised.value.code == "upgrade_without_replaces"
+    assert raised.value.problems[0].type == "upgrade_without_replaces"
     with pytest.raises(NodeDeclarationError) as raised:
         node("x", title="G", description="For a test.", replaces=node("x", title="F", description="For a test.")(f))(g)
-    assert raised.value.code == "upgrade_missing"
+    assert raised.value.problems[0].type == "upgrade_missing"
 
 
 def test_a_subgraph_may_be_declared_at_a_version_of_its_own():
@@ -719,7 +719,7 @@ def test_a_hook_parameter_must_name_an_input_by_name():
     for hook in (names_nothing, star, double_star):
         with pytest.raises(NodeDeclarationError) as raised:
             declared(f, compute_outputs=hook)
-        assert raised.value.code == "hook_parameter_unknown", hook
+        assert raised.value.problems[0].type == "hook_parameter_unknown", hook
 
 
 def test_a_compute_added_inputs_hook_needs_a_var_keyword_parameter():
@@ -728,7 +728,7 @@ def test_a_compute_added_inputs_hook_needs_a_var_keyword_parameter():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f, compute_added_inputs=lambda: {})
-    assert raised.value.code == "compute_added_inputs_without_var_keyword"
+    assert raised.value.problems[0].type == "compute_added_inputs_without_var_keyword"
 
 
 def test_a_hook_gets_the_constant_or_else_the_declared_default():
@@ -983,7 +983,7 @@ def test_a_none_default_on_an_input_that_takes_no_none_is_refused():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.code == "default_invalid"
+    assert raised.value.problems[0].type == "default_invalid"
 
 
 def test_a_default_reaches_the_function_as_its_declared_type():
@@ -1114,7 +1114,7 @@ def test_a_series_of_series_does_not_exist():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.code == "nested_series"
+    assert raised.value.problems[0].type == "nested_series"
 
 
 def test_a_bare_series_is_many_values_of_anything():
@@ -1149,7 +1149,7 @@ def test_a_wrongly_typed_limit_is_refused_as_a_bound():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert raised.value.code == "bound_invalid"
+    assert raised.value.problems[0].type == "bound_invalid"
 
 
 def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
@@ -1224,7 +1224,7 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
             def bad(level: Annotated[Literal["low", "high"], Param(choices=wrong)]) -> str:
                 return level
 
-        assert raised.value.code == "choices_invalid"
+        assert raised.value.problems[0].type == "choices_invalid"
         assert str(raised.value).endswith("; give each choice once, as a value of the field's type")
 
 
@@ -1275,7 +1275,7 @@ def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_e
         return names
 
     (problem,) = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}}, "outputs": {}}), registry_of(glue)).problems
-    assert (raised.code, problem.ctx["error"]) == (code, code)
+    assert (raised.problems[0].type, problem.ctx["error"]) == (code, code)
 
 
 def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is_the_callers():
@@ -1309,7 +1309,7 @@ def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(choice
         def bad(n: Annotated[int, Param(choices=choices, **limits)]) -> int:  # type: ignore[arg-type]
             return n
 
-    assert raised.value.code == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid"
     assert f"a choice is not a value of the field's type: {reason};" in str(raised.value)
 
 
@@ -1383,7 +1383,7 @@ def test_a_limit_pydantic_supports_on_a_type_is_kept_and_one_it_does_not_is_refu
         class Order:
             code: Annotated[str, Param(ge=0)]
 
-    assert raised.value.code == "bound_invalid"
+    assert raised.value.problems[0].type == "bound_invalid"
 
 
 def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_a_model_a_node_takes_and_on_a_table():
@@ -1394,14 +1394,14 @@ def test_a_param_whose_choices_are_not_values_of_its_type_is_refused_at_node_in_
         class Order:
             n: Annotated[int, Param(choices=["one", "two"])]
 
-    assert raised.value.code == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid"
 
     def on_table(x: Annotated[Table, Param(choices=["a"])]) -> int:
         return 0
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(on_table)
-    assert raised.value.code == "choices_invalid"
+    assert raised.value.problems[0].type == "choices_invalid"
 
 
 @pytest.mark.parametrize("default", [b"\xff\xfe", object()], ids=["bytes-not-utf-8", "any-object"])
@@ -1412,7 +1412,7 @@ def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared(defau
         def b(data: Any = default) -> int:
             return 1
 
-    assert raised.value.code == "default_invalid"
+    assert raised.value.problems[0].type == "default_invalid"
 
 
 def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records_default_as_its_json():

@@ -6,7 +6,7 @@ the module that declares the node or the type is imported, so only the node's de
     @node("fetch", title="Fetch", description="Fetches a page.")
     async def fetch(url: str) -> str: ...
     # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def; ...
-    # error.code == "async_run", error.problem == async_run()
+    # error.problems == [async_run()], whose type is "async_run"
 
 A kind is declared as the kinds of ``PROBLEMS`` are (``ProblemCatalogue.problem`` gives the rules): its function
 returns the message, and its keyword-only parameters are the keys of ``ctx``. A declaration problem has no ``loc``;
@@ -27,8 +27,8 @@ from .type import ProblemCatalogue
 #: Every kind of problem a declaration can have.
 DECLARATION_PROBLEMS = ProblemCatalogue(
     "Declaring a node",
-    "Raised as `NodeDeclarationError` when the module that declares the node or the type is imported. `error.code` is "
-    "the code and `error.problem` the problem, whose message is written for the node's developer; the error's text puts "
+    "Raised as `NodeDeclarationError` when the module that declares the node or the type is imported. `error.problems` "
+    "is the one problem, its `type` the code and its message written for the node's developer; the error's text puts "
     "where the fault is in front of it: `@node('adds') on adds: value: ...`.",
 )
 

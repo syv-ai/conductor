@@ -61,7 +61,7 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value, 
 - A node with one input on a branch not chosen and another `None` is skipped, whatever the order of its parameters: a skip wins over a `None`, and over an input whose edge names a field its record lacks, which fails the call (`invalid_edge_value`, the first such input in the signature) only when no input is skipped. It wins over an input that has no value yet too: the node is skipped at once, and the nodes downstream go on, while the other input's source still waits for a person.
 - The function returns `SKIPPED` on a branch not chosen and raises `Ask(...)` when a person must answer, which its `@node` declares with `asks=True`. `Ask` is a `BaseException`, so an `except Exception` in the node lets it through.
 - What the host supplies for a run arrives as the run's context, a node's first parameter typed `Context[X]`.
-- `@node` checks the function: an `async def`, a parameter with no type, `*args`, `**kwargs` with no `compute_added_inputs`, a dataclass of outputs that isn't frozen, and a field name gone from the next version with no `Upgrade` raise `NodeDeclarationError`, with a `code`.
+- `@node` checks the function: an `async def`, a parameter with no type, `*args`, `**kwargs` with no `compute_added_inputs`, a dataclass of outputs that isn't frozen, and a field name gone from the next version with no `Upgrade` raise `NodeDeclarationError`, whose one problem in `problems` has the code as its `type`.
 
 ### Versions and Policies
 
@@ -233,12 +233,12 @@ Retries live on the node's `Policy`, and count per call.
 
 ### Errors
 
-The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and as an ended run's `run.cause`, and in `InvalidCallError.problems`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *item_indexes)`, a graph problem's `(node_id, input)`.
+The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and as an ended run's `run.cause`, and in the `problems` of every exception conductor raises. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *item_indexes)`, a graph problem's `(node_id, input)`.
 
 ```
-NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code and problem (DECLARATION_PROBLEMS)
+NodeDeclarationError    a node or registry declared wrong, at import; a TypeError; problems: its one problem (DECLARATION_PROBLEMS)
 InvalidCallError        a call was given what it cannot act on, every fault listed
-NodeError               a node's own failure: message, code, ctx (JSON values only; anything else is pydantic's ValidationError where it is raised)
+NodeError               a node's own failure, NodeError(message, code=, ctx=); problems: its one problem, loc () until the run adds the call's (ctx JSON values only; anything else is pydantic's ValidationError where it is raised)
 └── ExternalError         retried
 ```
 

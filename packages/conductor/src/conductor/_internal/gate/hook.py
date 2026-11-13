@@ -45,7 +45,7 @@ def read_hook_fields(node_id: str, kind: str, returned: Any) -> dict[str, Field]
     try:
         return {name: declared_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
     except NodeDeclarationError as error:  # a type conductor does not support is the hook's failure
-        raise InvalidCallError([compile_problems.compute_hook_failed(node_id, reason=error.message, error=error.code)]) from None
+        raise InvalidCallError([compile_problems.compute_hook_failed(node_id, reason=str(error), error=error.problems[0].type)]) from None
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:

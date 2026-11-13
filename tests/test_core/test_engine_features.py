@@ -655,7 +655,7 @@ def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
         try:
             declare()
         except NodeDeclarationError as error:
-            assert error.code == code, (code, error.code)
+            assert error.problems[0].type == code, (code, error.problems[0].type)
         else:
             raise AssertionError(code)
 

@@ -125,7 +125,7 @@ def _returned() -> Context[AppContext]:
 def test_the_context_anywhere_but_the_whole_first_parameter_is_refused_at_declaration(function: Any):
     with pytest.raises(NodeDeclarationError, match="Context") as raised:
         node("x", title="X", description="For a test.")(function)
-    assert raised.value.code == "context_misplaced"
+    assert raised.value.problems[0].type == "context_misplaced"
 
 
 def test_the_context_names_a_class():
@@ -135,7 +135,7 @@ def test_the_context_names_a_class():
         def bare(ctx: Context[list[str]], text: str) -> str:
             return text
 
-    assert raised.value.code == "context_not_a_class"
+    assert raised.value.problems[0].type == "context_not_a_class"
 
 
 def test_an_added_input_named_as_the_context_parameter_is_the_hooks_failure():
@@ -175,10 +175,10 @@ def test_a_subregistry_naming_another_class_or_one_a_registry_with_none_lacks_is
 
     with pytest.raises(NodeDeclarationError, match="OtherContext") as raised:
         app_registry().add_subregistry(NodeRegistry(context_type=OtherContext))  # type: ignore[arg-type]
-    assert raised.value.code == "context_type_differs"
+    assert raised.value.problems[0].type == "context_type_differs"
     with pytest.raises(NodeDeclarationError, match="AppContext") as raised:
         NodeRegistry().add_subregistry(app_registry(sign))  # type: ignore[arg-type]
-    assert raised.value.code == "context_type_differs"
+    assert raised.value.problems[0].type == "context_type_differs"
 
 
 # -- compiling checks the class against what each node asks for ---------------------------------

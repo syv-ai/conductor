@@ -122,7 +122,7 @@ def test_an_empty_title_fails_at_the_class_statement() -> None:
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).code == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "type_declaration_invalid"
 
 
 @pytest.mark.parametrize("wrong_id", [5, "str", "Series", "Table", "record", "list[int]", "a b", "a|b", ""], ids=repr)
@@ -132,7 +132,7 @@ def test_an_id_that_is_no_word_or_is_one_of_conductors_own_fails_at_the_class_st
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).code == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "type_declaration_invalid"
 
 
 def test_accepts_given_something_other_than_classes_fails_at_the_class_statement() -> None:
@@ -141,7 +141,7 @@ def test_accepts_given_something_other_than_classes_fails_at_the_class_statement
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).code == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "type_declaration_invalid"
 
 
 def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> None:
@@ -152,7 +152,7 @@ def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> 
                 self.path = path
 
     refused = _refused(build)
-    assert refused.code == "type_not_carried" and "Handle" in str(refused)
+    assert refused.problems[0].type == "type_not_carried" and "Handle" in str(refused)
 
 
 def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says_to_put_it_on_top() -> None:
@@ -163,12 +163,12 @@ def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says
             x: float
 
     refused = _refused(build)
-    assert refused.code == "type_not_carried" and "@host_type above @dataclass" in str(refused)
+    assert refused.problems[0].type == "type_not_carried" and "@host_type above @dataclass" in str(refused)
 
 
 def test_a_class_python_lets_nobody_write_on_is_refused_with_the_way_out() -> None:
     refused = _refused(lambda: host_type("whole", title="Whole")(int))
-    assert refused.code == "type_declaration_invalid" and "a class of your own" in str(refused)
+    assert refused.problems[0].type == "type_declaration_invalid" and "a class of your own" in str(refused)
 
 
 def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_line_to_write() -> None:
@@ -180,7 +180,7 @@ def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_lin
         return ""
 
     refused = _refused(lambda: declared(f))
-    assert refused.code == "type_not_named" and "Plain" in str(refused) and '@host_type("...", title="...")' in str(refused)
+    assert refused.problems[0].type == "type_not_named" and "Plain" in str(refused) and '@host_type("...", title="...")' in str(refused)
 
 
 def test_a_subclass_does_not_inherit_its_parents_declaration() -> None:
@@ -191,7 +191,7 @@ def test_a_subclass_does_not_inherit_its_parents_declaration() -> None:
         return ""
 
     refused = _refused(lambda: declared(f))
-    assert refused.code == "type_not_named" and "Money's declaration is its own" in str(refused)
+    assert refused.problems[0].type == "type_not_named" and "Money's declaration is its own" in str(refused)
 
 
 def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure() -> None:
@@ -216,7 +216,7 @@ def test_accepts_that_is_no_list_of_classes_fails_at_the_class_statement(accepts
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).code == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "type_declaration_invalid"
 
 
 def test_a_title_of_only_spaces_fails_at_the_class_statement() -> None:
@@ -225,7 +225,7 @@ def test_a_title_of_only_spaces_fails_at_the_class_statement() -> None:
         class Thing(BaseModel):
             pass
 
-    assert _refused(build).code == "type_declaration_invalid"
+    assert _refused(build).problems[0].type == "type_declaration_invalid"
 
 
 def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused() -> None:
@@ -239,4 +239,4 @@ def test_host_type_on_something_that_is_no_class_or_is_a_typed_dict_is_refused()
 
     for wrong in (42, list[int], a_function, Row):
         refused = _refused(lambda wrong=wrong: host_type("thing", title="Thing")(wrong))
-        assert refused.code == "type_declaration_invalid", wrong
+        assert refused.problems[0].type == "type_declaration_invalid", wrong

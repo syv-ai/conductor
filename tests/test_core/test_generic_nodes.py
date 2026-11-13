@@ -227,7 +227,7 @@ def test_a_variable_on_no_input_and_a_constrained_one_are_refused_where_the_node
         def pick[T: (int, str)](value: T) -> T:
             return value
 
-    assert (only_in_return.value.code, constrained.value.code) == ("type_variable_only_in_return", "type_variable_constrained")
+    assert (only_in_return.value.problems[0].type, constrained.value.problems[0].type) == ("type_variable_only_in_return", "type_variable_constrained")
 
 
 def test_a_generic_dataclass_of_outputs_returns_one_branch_at_run_time() -> None:

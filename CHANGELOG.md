@@ -96,8 +96,8 @@ What changes in how you work, before the name-by-name tables:
   typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several. A
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
   `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
-  auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, with a
-  `code` and the `problem` behind it, a kind of `DECLARATION_PROBLEMS`; `python -m conductor.about problems`
+  auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, whose
+  `problems` is the one problem behind it, a kind of `DECLARATION_PROBLEMS`; `python -m conductor.about problems`
   lists each kind with an example. A `Param` is checked against its type as pydantic
   builds the schema: a limit pydantic doesn't hold on the type (`ge` on a `bool` or an `IntEnum`), or
   a choice that isn't a value of it, is `bound_invalid` or `choices_invalid`, so a host's `BaseModel`
@@ -176,6 +176,10 @@ What changes in how you work, before the name-by-name tables:
   calling the nodes only for the items that changed (`run.again(...)`). A run's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
   refused at the call (`invalid_max_items`, `invalid_timeout`, `invalid_checkpoint_every`).
+- **Every exception conductor raises says what is wrong as problems.** `NodeDeclarationError`, `InvalidCallError` and
+  `NodeError` each have `problems`, a list of `Problem`. A `NodeError` makes its one problem where it is raised, from its
+  message, `code` and `ctx`, with an empty `loc` that the run fills with the call's; it has no `code`, `ctx` or `message`
+  attribute, and `NodeDeclarationError` no `code` or `problem`.
 - **A problem's `ctx` is JSON.** `Problem.ctx` is typed `Mapping[str, JsonValue]`, and
   `NodeError(ctx=)` and `ExternalError(ctx=)` read theirs where the error is made: a value with no
   JSON form (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at the node's
@@ -395,7 +399,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
 | `LoopRunawayError` | `graph.run(max_items=)`, the problem `item_limit` |
 | `NodeConnectionError` | `ExternalError`, the one failure that is retried |
-| `NodeError` | `NodeError(message, code=, ctx=)`, never retried |
+| `NodeError` | `NodeError(message, code=, ctx=)`, never retried; its `problems` is its one problem |
 | `NodeExecutionError` | `NodeError(message, code=, ctx=)` |
 | `NodeTimeoutError` | `Policy(attempt_timeout=)`; the call fails with the code `timeout` |
 | `NodeValidationError` | `NodeError(message, code=, ctx=)` |

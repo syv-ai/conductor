@@ -223,7 +223,7 @@ def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_w
         def pick_declared(n: Annotated[int, Param(choices=choices)]) -> int:
             return n
 
-    assert declared.value.code == "choices_invalid"
+    assert declared.value.problems[0].type == "choices_invalid"
 
     @node("pick", title="Pick", description="For a test.", asks=True)
     def pick() -> int:
@@ -1041,7 +1041,7 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
         def assign_by_param(who: Annotated[str, Param(choices=[ida])]) -> str:
             return who
 
-    assert declared.value.code == "choices_invalid"
+    assert declared.value.problems[0].type == "choices_invalid"
 
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign() -> str:

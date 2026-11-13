@@ -106,7 +106,7 @@ def _newer_y(y: Annotated[Txt, _param("Y")]) -> Annotated[Txt, Param(title="R")]
 def test_an_input_gone_from_the_next_version_needs_an_upgrade():
     with pytest.raises(NodeDeclarationError) as raised:
         node("two", title="Newer y", description="For a test.", replaces=node("two", title="Older x", description="For a test.")(_older_x))(_newer_y)
-    assert raised.value.code == "upgrade_missing" and "two" in str(raised.value)
+    assert raised.value.problems[0].type == "upgrade_missing" and "two" in str(raised.value)
 
 
 def test_an_upgrade_must_say_where_a_gone_input_went():
@@ -210,7 +210,7 @@ _KINDS = pytest.mark.parametrize("kind", ["function", "subgraph"])
 def test_a_version_that_drops_an_input_needs_an_upgrade_for_a_function_and_a_subgraph_alike(kind: str) -> None:
     with pytest.raises(NodeDeclarationError) as raised:
         _versions_of_summed(kind, None)
-    assert raised.value.code == "upgrade_missing" and "summed" in str(raised.value)
+    assert raised.value.problems[0].type == "upgrade_missing" and "summed" in str(raised.value)
 
 
 @_KINDS
@@ -362,7 +362,7 @@ def test_an_upgrade_that_drops_an_output_without_renaming_it_is_refused_where_it
     """A rewrite reads the node's constants, never the edges out of it, so it cannot say where an output went."""
     with pytest.raises(NodeDeclarationError, match="'x'") as raised:
         node("o", title="Newer out", description="For a test.", replaces=node("o", title="Older out", description="For a test.")(_older_out), upgrade=upgrade)(_newer_out)
-    assert raised.value.code == "upgrade_missing"
+    assert raised.value.problems[0].type == "upgrade_missing"
 
 
 def test_an_output_an_upgrade_renames_needs_nothing_more():

@@ -432,8 +432,8 @@ def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_decla
 
     with pytest.raises(NodeDeclarationError) as refused:
         node("declared", title="Declared", description="For a test.")(declared)
-    assert refused.value.code == "row_field_optional"
-    assert "name" in refused.value.problem.msg and "| None" in refused.value.problem.msg
+    assert refused.value.problems[0].type == "row_field_optional"
+    assert "name" in refused.value.problems[0].msg and "| None" in refused.value.problems[0].msg
 
 
 _SERIES_PACKAGE_ALONE = """

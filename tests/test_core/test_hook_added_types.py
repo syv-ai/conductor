@@ -63,7 +63,7 @@ def test_a_node_that_adds_no_inputs_has_no_added_types_to_read():
 
     with pytest.raises(NodeDeclarationError) as raised:
         node("plain", title="Plain", description="For a test.", compute_outputs=_typed_like_what_arrives)(plain)
-    assert raised.value.code == "hook_parameter_unknown"
+    assert raised.value.problems[0].type == "hook_parameter_unknown"
 
 
 def test_var_keyword_on_a_hook_is_only_the_added_types():
@@ -80,7 +80,7 @@ def test_var_keyword_on_a_hook_is_only_the_added_types():
         node("a", title="A", description="For a test.", compute_added_inputs=_columns, compute_outputs=values)(run)
     with pytest.raises(NodeDeclarationError) as too_early:
         node("b", title="B", description="For a test.", compute_added_inputs=adding, compute_outputs=_typed_like_what_arrives)(run)
-    assert (untyped.value.code, too_early.value.code) == ("hook_parameter_unknown", "arriving_on_compute_added_inputs")
+    assert (untyped.value.problems[0].type, too_early.value.problems[0].type) == ("hook_parameter_unknown", "arriving_on_compute_added_inputs")
 
 
 def test_the_definition_says_what_each_hook_parameter_receives():

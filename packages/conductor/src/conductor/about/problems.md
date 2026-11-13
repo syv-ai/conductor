@@ -119,7 +119,8 @@ def declaration_refused(declare: Callable[[], object]) -> Problem:
     try:
         declare()
     except NodeDeclarationError as error:
-        return error.problem
+        (problem,) = error.problems
+        return problem
     raise AssertionError("the declaration was not refused")
 
 

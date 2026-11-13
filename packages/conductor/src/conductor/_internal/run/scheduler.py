@@ -680,14 +680,14 @@ class Scheduler:
     def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem) -> Problem:
         """The problem a call failed with, with the call's loc: a door's problem, or one for what the function raised.
 
-        A door's problem is kept, and a ``NodeError`` gives its own. Any other exception, an ``InvalidCallError`` the
-        function let escape included, is written to the log with its traceback; the problem has only its class name,
-        as its text may quote values: ``external_failed`` for a class in the node's ``retry_on``, else
-        ``execution_failed``.
+        A door's problem is kept, and so is the one a ``NodeError`` made when it was raised. Any other exception, an
+        ``InvalidCallError`` the function let escape included, is written to the log with its traceback; the problem
+        has only its class name, as its text may quote values: ``external_failed`` for a class in the node's
+        ``retry_on``, else ``execution_failed``.
         """
         loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
-            return Problem.model_construct(type=error.code, loc=loc, msg=error.message, ctx=error.ctx)  # ctx was validated when the error was made
+            error = error.problems[0]
         if isinstance(error, Problem):
             return error.model_copy(update={"loc": loc})
         _logger.error("node %r failed for item %r", place_text(node.node_path), item_indexes, exc_info=error)

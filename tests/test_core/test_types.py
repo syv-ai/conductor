@@ -201,7 +201,7 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
     for hint in hints:
         with pytest.raises(NodeDeclarationError, match=r"value: pydantic's Field\(\.\.\.\) in the hint.*Annotated\[int, Param\(ge=0\)\]") as raised:
             node("count", title="Count", description="For a test.")(_returning_its_input(hint))
-        assert raised.value.code == "pydantic_field_in_hint", hint
+        assert raised.value.problems[0].type == "pydantic_field_in_hint", hint
 
     class Row(TypedDict):
         times: Annotated[int, limit]
@@ -209,7 +209,7 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
     for returned in (Annotated[int, limit], Table[Row]):  # an output, and a column of a table
         with pytest.raises(NodeDeclarationError) as raised:
             node("count", title="Count", description="For a test.")(_returning(returned))
-        assert raised.value.code == "pydantic_field_in_hint", returned
+        assert raised.value.problems[0].type == "pydantic_field_in_hint", returned
 
 
 def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discriminator_to_write() -> None:
@@ -225,7 +225,7 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
 
     with pytest.raises(NodeDeclarationError, match=r"value: pydantic's Field\(discriminator=\.\.\.\) in the hint.*Annotated\[Cat \| Dog, Discriminator\(\"kind\"\)\]") as raised:
         node("pet", title="Pet", description="For a test.")(_returning_its_input(Annotated[Cat | Dog, Field(discriminator="kind")]))
-    assert raised.value.code == "pydantic_field_in_hint" and "Param" not in str(raised.value)
+    assert raised.value.problems[0].type == "pydantic_field_in_hint" and "Param" not in str(raised.value)
 
     pet = node("pet", title="Pet", description="For a test.")(_returning_its_input(Annotated[Cat | Dog, Discriminator("kind")]))
     assert _run(pet, value={"kind": "dog"}).outputs == {"result": "kind='dog'"}
@@ -417,7 +417,7 @@ def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -
     for hint in (Annotated[str, Textarea()], Series[Annotated[str, Textarea()]], Annotated[str, Textarea()] | None):
         with pytest.raises(NodeDeclarationError, match=r"Param\(widget=") as raised:
             node("note", title="Note", description="For a test.")(_returning_its_input(hint))
-        assert raised.value.code == "widget_outside_param"
+        assert raised.value.problems[0].type == "widget_outside_param"
 
     @node("note", title="Note", description="For a test.")
     def note(text: Annotated[str, Param(widget=Textarea())]) -> str:
