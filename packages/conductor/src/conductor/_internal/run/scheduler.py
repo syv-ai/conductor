@@ -49,11 +49,6 @@ after. The scheduler then calls ``shout`` with those arguments and writes what i
 5. **Telling a listener.** For ``run.stream()`` the scheduler tells a ``NodeEvents`` when a call starts, when
    an outcome is recorded, when a call is retried or fails, and when nothing is ready. ``NodeEvents`` makes the
    events (``node_events.py``).
-
-6. **Only the nodes that cost nothing.** ``run.estimate()`` calls only the nodes whose
-   ``Policy`` says ``costs_nothing``: say ``lines``, so that ``run.progress`` knows ``shout`` has three calls
-   before ``shout`` is called. Every other node is not ready (``_only_costs_nothing``). A call that raises is
-   left without an outcome, and the run ends ``ready``.
 """
 
 from __future__ import annotations
@@ -123,21 +118,6 @@ class _Attempt:
     item_indexes: ItemIndexes
     arguments: dict[str, Any]
     number: int
-
-
-@dataclass(slots=True)
-class _Returned:
-    """What a pool thread hands back when a node's function has returned or raised.
-
-    Attributes:
-        attempt: The attempt that was made.
-        outputs: The node's outputs by name, or None when ``error`` is set.
-        error: What the function raised, or the problem a door of the call refused it with, or None.
-    """
-
-    attempt: _Attempt
-    outputs: Any
-    error: BaseException | Problem | None
 
 
 @dataclass(slots=True, order=True)
@@ -213,7 +193,6 @@ class Scheduler:
         context: Any,
         checkpoint: Callable[[LastResume], None] | None = None,
         checkpoint_every: float | None = None,
-        only_costs_nothing: bool = False,
     ) -> None:
         """
         Args:
@@ -233,12 +212,9 @@ class Scheduler:
             context: The run's context, passed to each node that takes it; ``None`` when the host passed none.
             checkpoint: Called with why the scheduler stopped, if it did, to hand the host a copy of the run.
             checkpoint_every: The least number of seconds between two checkpoints. None for no checkpoints.
-            only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called (job 6).
         """
-        if only_costs_nothing:
-            arguments_for = _only_costs_nothing(arguments_for)
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
-        self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
+        self.stop, self.context = stop, context
 
         # 1. Choosing the next call.
         #: Why ``run`` stopped before every call that is ready was made: ``None`` until ``end`` is called.
@@ -268,11 +244,9 @@ class Scheduler:
         self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[_Attempt]] = defaultdict(deque)
         #: How many attempts of each node are on threads. The node's ``concurrency`` is the most there may be.
         self.on_threads: defaultdict[FlatFunctionNode, int] = defaultdict(int)
-        #: The number of the attempt that each call last put on a thread.
-        self.attempts: dict[tuple[FlatFunctionNode, ItemIndexes], int] = {}
-        #: What the pool threads hand back: an attempt with its outputs or its error, or an exception that ``call``
-        #: itself raised.
-        self.returned: SimpleQueue[_Returned | BaseException] = SimpleQueue()
+        #: What the pool threads hand back: an attempt with what ``call`` returned for it (the node's outputs, and what
+        #: the function raised or the problem a door of the call refused it with), or an exception ``call`` itself raised.
+        self.returned: SimpleQueue[tuple[_Attempt, Any, BaseException | Problem | None] | BaseException] = SimpleQueue()
         #: The retries to make and the deadlines of the attempts on threads, as a heap: the one due first is first.
         self.timers: list[_Timer] = []
         #: Gives each timer its ``order``.
@@ -421,7 +395,7 @@ class Scheduler:
                 self._record(node, item_indexes, outcome, trying_every_call)
 
     def _record(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem | None, trying_every_call: bool = False
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False
     ) -> None:
         """One call is over: write its outcome into the run, and do what follows from it.
 
@@ -430,20 +404,17 @@ class Scheduler:
 
         What follows, in this order: a checkpoint if one is due, the item limit, the listener, and the downstream
         calls. A ``Problem`` in place of an outcome means the call failed: nothing is written, and the run ends
-        as ``failed``. ``None`` means the call raised while only the nodes that cost nothing are called (job 6):
-        nothing is written, and the run goes on.
+        as ``failed``.
 
         Args:
             node: The node of the call.
             item_indexes: Which call of the node.
-            outcome: The call's outcome, the problem it failed with, or ``None``.
+            outcome: The call's outcome, or the problem it failed with.
             trying_every_call: True from ``_try_every_call``, which reaches the downstream calls itself.
         """
         # speed only: isinstance of a pydantic model costs four times as much, and no class derives from Problem
         if type(outcome) is Problem:
             self._fail(node, outcome)
-            return
-        if outcome is None:
             return
         outcomes = self.outcomes[node]
         if outcomes and item_indexes not in outcomes and item_indexes < next(reversed(outcomes)):
@@ -576,7 +547,6 @@ class Scheduler:
         while waiting and self.on_threads[node] < policy.concurrency and self.going:
             attempt = waiting.popleft()
             self.on_threads[node] += 1
-            self.attempts[(node, attempt.item_indexes)] = attempt.number
             if self.pool is None:
                 self.pool = ThreadPoolExecutor(self.threads, "conductor")
             if policy.attempt_timeout is not None:
@@ -595,7 +565,7 @@ class Scheduler:
         except BaseException as raised:  # noqa: BLE001  the pool would swallow it, and the scheduler would wait for the attempt for ever
             self.returned.put(raised)
         else:
-            self.returned.put(_Returned(attempt, outputs, error))
+            self.returned.put((attempt, outputs, error))
 
     def _wait(self) -> None:
         """Wait until an attempt is back from its thread, a timer is due, or it is time to ask ``stop`` again.
@@ -624,7 +594,7 @@ class Scheduler:
         while self.timers and self.timers[0].when <= now:
             self._due(heapq.heappop(self.timers))
 
-    def _call_returned(self, returned: _Returned) -> None:
+    def _call_returned(self, returned: tuple[_Attempt, Any, BaseException | Problem | None]) -> None:
         """An attempt is back from its thread: start the node's next waiting attempt, then retry this one or
         record its outcome.
 
@@ -633,18 +603,14 @@ class Scheduler:
         without an error, and the run is ending. The call was made, so its outcome is recorded and a later
         ``resume()`` does not make it again.
         """
-        attempt, outputs, error = returned.attempt, returned.outputs, returned.error
+        attempt, outputs, error = returned
         node, item_indexes = attempt.node, attempt.item_indexes
         self.on_threads[node] -= 1
-        latest = self.attempts.get((node, item_indexes)) == attempt.number
-        current = latest and (node, item_indexes) in self.running
         self._start_waiting_calls(node)
-        if not current:
-            if latest and error is None and not self.going and item_indexes not in self.outcomes[node]:
-                self.attempts.pop((node, item_indexes))
+        if self.running.get((node, item_indexes)) is not attempt:  # only a deadline that passed takes an attempt on a thread out of ``running``
+            if error is None and not self.going and item_indexes not in self.outcomes[node]:
                 self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, None))
             return
-        self.attempts.pop((node, item_indexes))
         if not self._retry(attempt, error):
             del self.running[(node, item_indexes)]
             self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, error))
@@ -686,25 +652,21 @@ class Scheduler:
         if timer.kind == "retry":
             if self.going:
                 self._make_attempt(attempt)
-        elif self.attempts.get((node, item_indexes)) == attempt.number and (node, item_indexes) in self.running:
+        elif self.running.get((node, item_indexes)) is attempt:
             del self.running[(node, item_indexes)]
             self._record(node, item_indexes, run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
     def _outcome(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | Problem | None
-    ) -> Outcome | Problem | None:
+    ) -> Outcome | Problem:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with what the
         ``Ask`` said when the function raised one, or the problem the call failed with.
 
         A person who is asked is shown what the call received, as JSON, so arguments with no JSON form are a problem,
-        and so is an ``Ask`` that does not fit the node's outputs. While only the nodes that cost nothing
-        are called, a call that raised has no outcome (``None``): the next ``resume()`` that calls every node
-        calls it again, and it fails or asks then.
+        and so is an ``Ask`` that does not fit the node's outputs.
         """
         if error is None:
             return Done(outputs)
-        if self.only_costs_nothing:
-            return None
         if isinstance(error, Ask):
             try:
                 jsonable(arguments)  # a person is shown what the call received with the question (run.waiting)
@@ -785,41 +747,33 @@ class Scheduler:
         if item_limit is None:
             return
         for node in self.nodes:
-            for output in node.looped_outputs:
+            if node.looped_outputs:
                 for item_indexes, outcome in self.outcomes[node].items():
-                    if outcome.has_outputs and length(outcome.outputs[output]) > item_limit:
-                        self._stop_at_item_limit(node, item_indexes, output, length(outcome.outputs[output]), item_limit)
+                    if outcome.has_outputs and self._stop_if_over_item_limit(node, item_indexes, outcome, item_limit):
                         return
 
     def _stop_if_over_item_limit(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NoneInput, item_limit: int
     ) -> bool:
-        """End the run as ``stopped`` if a series in ``outcome`` that a loop runs over has more items than
-        ``item_limit``.
-
-        Returns:
-            Whether a series has more.
-        """
-        for output in node.looped_outputs:
-            items = length(outcome.outputs[output])
-            if items > item_limit:
-                self._stop_at_item_limit(node, item_indexes, output, items, item_limit)
-                return True
-        return False
-
-    def _stop_at_item_limit(self, node: FlatFunctionNode, item_indexes: ItemIndexes, output: str, items: int, item_limit: int) -> None:
-        """End the run as ``stopped`` with the problem ``item_limit``, unless ``end`` was called before: the first
-        cause stays.
+        """End the run as ``stopped`` with the problem ``item_limit`` if a series in ``outcome`` that a loop runs over
+        has more items than ``item_limit``, unless ``end`` was called before: the first cause stays.
 
         The problem names the series as the graph with the loop names it. ``node.looped_outputs[output]`` is
         that name: the node and output themselves, or, when the loop is outside a subgraph the node is inside,
         the subgraph node and its output. Its loc has the item indexes of that node.
+
+        Returns:
+            Whether a series has more.
         """
-        if self.going:
-            named, series_output = node.looped_outputs[output]
-            loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
-            series = place_text((named.compiled_node.id,), series_output)
-            self.end(EndedEarly("stopped", run_problems.item_limit(*loc, series=series, items=items, max_items=item_limit)))
+        for output, (named, series_output) in node.looped_outputs.items():
+            items = length(outcome.outputs[output])
+            if items > item_limit:
+                if self.going:
+                    loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
+                    series = place_text((named.compiled_node.id,), series_output)
+                    self.end(EndedEarly("stopped", run_problems.item_limit(*loc, series=series, items=items, max_items=item_limit)))
+                return True
+        return False
 
     def _checkpoint(self, checkpoints: _Checkpoints) -> None:
         """Hand the host a copy of the run now, with its outcomes in item order, and set when the next is due."""
@@ -827,17 +781,3 @@ class Scheduler:
         self._put_in_order()
         checkpoints.save(self.stopped)
 
-
-def _only_costs_nothing(
-    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
-) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
-    """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready.
-
-    So a ``resume()`` restricted to the nodes that cost nothing goes as any other, and never calls ``shout`` when
-    only ``lines`` costs nothing.
-    """
-
-    def restricted(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
-        return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
-
-    return restricted

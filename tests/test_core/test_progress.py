@@ -132,8 +132,8 @@ def test_resume_and_stream_take_no_flag_to_call_only_the_free_nodes() -> None:
         run.stream(only_costs_nothing=True)  # type: ignore[call-arg]
 
 
-@pytest.mark.parametrize("raised", [Ask("Which files?"), NodeError("No files.")])
-def test_a_free_node_that_raises_has_no_outcome_and_raises_again_at_the_next_resume(raised: Exception) -> None:
+@pytest.mark.parametrize(("raised", "status", "waiting"), [(Ask("Which files?"), "waiting", 1), (NodeError("No files."), "failed", 0)])
+def test_a_free_node_that_asks_or_fails_does_so_in_the_estimate_as_in_a_resume(raised: Exception, status: str, waiting: int) -> None:
     @node("pick", title="Pick", description="For a test.", policy=FREE, asks=True)
     def pick(files: list[str]) -> Series[str]:
         raise raised
@@ -141,10 +141,9 @@ def test_a_free_node_that_raises_has_no_outcome_and_raises_again_at_the_next_res
     graph = _graph(pick, read, edges=[("pick.result", "read.document")])
     estimated = graph.with_inputs(files=["d2"]).estimate()
 
-    assert estimated.status == "ready"
-    assert estimated.progress.nodes["pick"] == CallCount(finished=0, waiting=0, known=1, total=1)
-    after = estimated.resume()
-    assert after.status == ("waiting" if isinstance(raised, Ask) else "failed")
+    assert estimated.status == status
+    assert estimated.progress.nodes["pick"] == CallCount(finished=0, waiting=waiting, known=1, total=1)
+    assert estimated.resume().status == status
 
 
 def test_a_graph_of_free_nodes_only_is_complete() -> None:

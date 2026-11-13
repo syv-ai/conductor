@@ -21,7 +21,7 @@ from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import cache
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from conductor._internal.base import (
     ConductorModel,
@@ -45,7 +45,9 @@ from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
     NoneInput,
+    NotReady,
     Outcome,
+    Skipped,
     Unanswered,
 )
 from .progress import Progress, is_complete, progress_of
@@ -177,9 +179,9 @@ class Run[C]:
 
         ``graph.with_inputs(csv=csv).estimate().progress`` counts the calls of every node. The nodes are called as
         far as they are ready, and the run is ``ready`` afterwards, unless every node costs nothing (then it is
-        ``complete``) or a series has more items than ``max_items`` (then it is ``stopped``). A call that raises
-        has no outcome, and fails or asks at the next ``resume()``. That ``resume()`` makes none of the calls
-        again, and a stream of it says nothing of the nodes that were complete.
+        ``complete``) or a series has more items than ``max_items`` (then it is ``stopped``). A call that fails or
+        asks a person does so as in ``resume()``: the run is ``failed`` or ``waiting``. The next ``resume()`` makes
+        none of the calls again, and a stream of it says nothing of the nodes that were complete.
 
         Args:
             context: The run's context, as ``resume`` takes it.
@@ -235,7 +237,7 @@ class Run[C]:
             stop: Asked before each call whether the run must stop now, and why.
             checkpoint_every: The least number of seconds between two checkpoints; ``None`` for none.
             only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called, for
-                ``estimate``.
+                ``estimate``: every call of another node is not ready.
 
         Returns:
             The copy, as the scheduler left it.
@@ -260,8 +262,8 @@ class Run[C]:
         run._last_resume = stopped = Scheduler(
             nodes=list(nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
             complete=complete_before,
-            max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
-            checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
+            max_items=run.max_items, arguments_for=_only_costs_nothing(run._reader.arguments_for) if only_costs_nothing else run._reader.arguments_for,
+            emit=emit, stop=stop, context=context, checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).run()
         outcomes = run._outcomes
         run._complete_nodes = frozenset(path for path, node in nodes.items() if path in complete_before or is_complete(outcomes, node))
@@ -521,6 +523,18 @@ class Run[C]:
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
+
+
+def _only_costs_nothing(
+    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
+    """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready: what
+    ``estimate`` hands the scheduler, so that it calls ``lines`` and never ``shout`` when only ``lines`` costs nothing."""
+
+    def restricted(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
+        return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
+
+    return restricted
 
 
 def make_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None) -> Run[C]:
