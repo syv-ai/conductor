@@ -706,7 +706,7 @@ def test_a_subgraph_given_json_text_reads_it_as_a_graph_record_and_refuses_an_un
 
     with pytest.raises(InvalidCallError) as refused:
         subgraph("e", title="E", description="For a test.")(json.dumps({"nodes": {"a": {"node": "x", "vaules": {}}}}))
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a", "vaules"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "a", "vaules"))]
     assert subgraph("e", title="E", description="For a test.")('{"nodes": {"a": {"node": "x"}}}').graph == GraphRecord.model_validate({"nodes": {"a": {"node": "x"}}})
 
 

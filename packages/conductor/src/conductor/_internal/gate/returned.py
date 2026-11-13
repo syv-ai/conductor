@@ -1,7 +1,7 @@
 """The return door: what a node's function returns, read into the node's outputs by one pydantic validator.
 
 Example: ``shout(line: str) -> str`` returns ``"B!"``, and its door gives ``{"result": "B!"}``. Returned ``3``, the
-door raises ``RefusedError`` with the problem ``invalid_output`` for the output ``result``.
+door raises ``InvalidCallError`` with the problem ``invalid_output`` for the output ``result``.
 
 A value is read strictly: a value already of its class is kept as it is, a dict is read into a model, and ``"12"``
 is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every output.
@@ -31,9 +31,8 @@ from pydantic_core import (
 
 from conductor._internal.base import SKIPPED, comma_separated
 from conductor._internal.field import Field
-from conductor._internal.problem import run_problems
+from conductor._internal.problem import InvalidCallError, run_problems
 
-from .refused import RefusedError
 from .rules import exact_classes, output_schema_of, output_validator_of
 
 
@@ -73,7 +72,7 @@ class ReturnDoor:
     Built once per compiled node, on the node's first call. Calling it with the returned value gives the outputs.
 
     Raises (when called):
-        RefusedError: With one ``invalid_output`` problem, which names the output when there is one to name and quotes
+        InvalidCallError: With one ``invalid_output`` problem, which names the output when there is one to name and quotes
             nothing of the value.
     """
 
@@ -100,7 +99,7 @@ class ReturnDoor:
         """Returns the outputs of the node that returned ``returned``.
 
         Raises:
-            RefusedError: The value is not what the node declares (``invalid_output``).
+            InvalidCallError: The value is not what the node declares (``invalid_output``).
         """
         if returned is SKIPPED:
             return dict.fromkeys(self._names, SKIPPED)
@@ -110,7 +109,7 @@ class ReturnDoor:
 def _no_outputs(returned: Any) -> dict[str, Any]:
     """The outputs of a node declared ``-> None``: none, when it returned ``None``."""
     if returned is not None:
-        raise RefusedError([run_problems.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
+        raise InvalidCallError([run_problems.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
     return {}
 
 
@@ -177,7 +176,7 @@ def _several_outputs(outputs: Mapping[str, Field], by_name: Callable[[Any], dict
     return read
 
 
-def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> RefusedError:
+def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> InvalidCallError:
     """The ``invalid_output`` of the first fault pydantic's ``error`` names, raised by the validator of a node with
     several outputs.
 
@@ -188,20 +187,20 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Refuse
     first = error.errors()[0]
     ctx = first.get("ctx", {})
     if first["type"] == "alternatives_both_given":
-        return RefusedError([run_problems.invalid_output(reason=first["msg"], name=ctx["second"])])
+        return InvalidCallError([run_problems.invalid_output(reason=first["msg"], name=ctx["second"])])
     if first["type"] in ("output_missing", "output_unknown"):
-        return RefusedError([run_problems.invalid_output(reason=first["msg"], name=ctx["name"])])
+        return InvalidCallError([run_problems.invalid_output(reason=first["msg"], name=ctx["name"])])
     if not first["loc"]:
-        return RefusedError([run_problems.invalid_output(reason=first["msg"])])
+        return InvalidCallError([run_problems.invalid_output(reason=first["msg"])])
     name = str(first["loc"][0])
     return _refused_output(outputs[name], error, under=(name,))
 
 
-def _refused_output(field: Field, error: ValidationError, under: tuple[str, ...] = ()) -> RefusedError:
+def _refused_output(field: Field, error: ValidationError, under: tuple[str, ...] = ()) -> InvalidCallError:
     """The ``invalid_output`` of a value the type of the output ``field`` refused; ``error`` and ``under`` are as
     ``Type.refusal`` takes them."""
     refused = field.whole.refusal(error, under)
-    return RefusedError([run_problems.invalid_output(reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column)])
+    return InvalidCallError([run_problems.invalid_output(reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column)])
 
 
 def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:

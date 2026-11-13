@@ -88,7 +88,7 @@ class Ended(ResumeEnd):
                 run = run.answer(waiting_id, value)
                 taken.append(waiting_id)
             except InvalidCallError as error:
-                refused[waiting_id] = error.errors()
+                refused[waiting_id] = error.problems
             except Exception as error:
                 log.exception("the answer queued for %s could not be checked", waiting_id)
                 refused[waiting_id] = [router_problems.answer_check_failed(waiting_id=waiting_id, error=type(error).__name__)]
@@ -145,7 +145,7 @@ class Raised(ResumeEnd):
         Returns:
             The end, its cause the first of the refusal's problems.
         """
-        return cls.because(refusal.errors()[0], held)
+        return cls.because(refusal.problems[0], held)
 
     def row_after(self, state: StoredState) -> RowAfterResume:
         """What to write to the row: the run failed. The row keeps its last checkpoint as ``run``, its ``outcome``

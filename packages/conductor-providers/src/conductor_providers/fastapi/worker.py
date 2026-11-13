@@ -551,7 +551,7 @@ class Worker(Generic[C]):
                     else:
                         yield event.model_dump_json()
         except InvalidCallError as refusal:
-            every = "; ".join(f"{problem.type} at {'.'.join(map(str, problem.loc))}: {problem.msg}" for problem in refusal.errors())
+            every = "; ".join(f"{problem.type} at {'.'.join(map(str, problem.loc))}: {problem.msg}" for problem in refusal.problems)
             log.error("resuming run %s was refused: %s", row.id, every, exc_info=True)  # the cause is the first problem only
             yield Raised.refused(refusal, held)
         except Exception:

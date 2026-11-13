@@ -233,7 +233,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
     assert run.status == "failed" and run.state.cause is not None and run.state.cause.loc == ("e", 1)
     with pytest.raises(InvalidCallError) as raised:
         run.outputs
-    (refused,) = raised.value.errors()
+    (refused,) = raised.value.problems
     assert refused.type == "run_not_complete" and refused.ctx["status"] == "failed"
     assert run.results["e"]["result"][0] == 0
 

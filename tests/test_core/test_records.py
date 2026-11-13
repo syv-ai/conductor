@@ -367,7 +367,7 @@ def test_a_saved_run_whose_tables_written_once_names_an_output_not_written_in_fu
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
-    (found,) = refused.value.errors()
+    (found,) = refused.value.problems
     assert found.type == "saved_run_unreadable" and found.ctx["where"] == "tables_written_once" and "'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
 
 
@@ -387,7 +387,7 @@ def test_a_saved_run_whose_tables_written_once_names_a_table_of_other_columns_is
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
-    (found,) = refused.value.errors()
+    (found,) = refused.value.problems
     assert found.type == "saved_run_unreadable" and "the column 'name' its row type declares is missing" in found.msg
 
 

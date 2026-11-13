@@ -70,12 +70,11 @@ from conductor._internal.gate import (
     NoOutputs,
     OneResult,
     OutputsClass,
-    RefusedError,
     ReturnShape,
     declared_field,
     read_record,
 )
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError, declaration_problems
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Type
 
@@ -210,12 +209,8 @@ def subgraph(
     number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
-        try:
-            graph = read_record(record)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
         return SubgraphDefinition(
-            graph=graph, id=id, version=number, title=title, description=description, category=category,
+            graph=read_record(record), id=id, version=number, title=title, description=description, category=category,
             tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
             upgrade=upgrade or Upgrade(),
         )

@@ -85,7 +85,7 @@ def _outputs_of(definition: Any) -> dict[str, Any]:
 def _refused(call: Any) -> list[Any]:
     with pytest.raises(InvalidCallError) as raised:
         call()
-    return raised.value.errors()
+    return raised.value.problems
 
 
 # -- the return type says how to ask ---------------------------------------------------------------

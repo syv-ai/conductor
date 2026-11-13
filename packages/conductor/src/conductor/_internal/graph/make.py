@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import MISSING
 
 from conductor._internal.base import REQUIRED, Address
-from conductor._internal.gate import RefusedError, read_record, record_values
+from conductor._internal.gate import read_record, record_values
 from conductor._internal.node import FunctionDefinition, NodeDefinition, read_by_hooks
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
@@ -97,7 +97,7 @@ def make_graph(
     )
     try:
         record = read_record(written.model_dump(mode="json"), written_by="make_graph's arguments")
-    except RefusedError as refused:  # an input given a value and an edge, an edge given twice, a name that is not one
+    except InvalidCallError as refused:  # an input given a value and an edge, an edge given twice, a name that is not one
         problems += refused.problems
     if problems:
         raise InvalidCallError(problems)
@@ -135,7 +135,7 @@ def _values_by_place(kind: str, given: Mapping[str, Any], ids: Sequence[str], pr
     for node_id, named in by_node.items():
         try:
             written |= {(node_id, name): value for name, value in record_values(node_id, named).items()}
-        except RefusedError as refused:
+        except InvalidCallError as refused:
             problems += refused.problems
     return written
 

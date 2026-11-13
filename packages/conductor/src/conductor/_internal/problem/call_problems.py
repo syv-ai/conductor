@@ -15,7 +15,7 @@ from .type import ProblemCatalogue
 CALL_PROBLEMS = ProblemCatalogue(
     "Refused calls",
     "Raised as `InvalidCallError` by a call given what it cannot act on: `graph.run`, `run.answer`, `Run.from_json`, "
-    "`make_graph` and the like; `error.errors()` lists them. `loc` is what in the call is wrong: an argument "
+    "`make_graph` and the like; `error.problems` lists them. `loc` is what in the call is wrong: an argument "
     '(`("timeout",)`), a name inside one (`("inputs", "text")`), the steps to the fault in a graph record or a saved '
     'run (`("record", "nodes", "u", "node")`), or the node it is about, with the parameter that is wrong '
     '(`("approve",)`, `("who", "ctx")`).',

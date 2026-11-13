@@ -154,13 +154,13 @@ def test_upgrade_reads_the_record_through_the_record_door_and_refuses_two_nodes_
 
     with pytest.raises(InvalidCallError) as refused:
         _registry().upgrade(two_of_one_id, "r")
-    assert [(p.type, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", "repeated_key")]
+    assert [(p.type, p.ctx["error"]) for p in refused.value.problems] == [("invalid_record", "repeated_key")]
     with pytest.raises(InvalidCallError) as refused:
         _registry().upgrade(id_no_name, "a.b")
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a.b", "[key]"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "a.b", "[key]"))]
     with pytest.raises(InvalidCallError) as refused:
         _registry().upgrade(_graph(), "nope")
-    assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["e", "r"])]
+    assert [(p.type, p.ctx["nodes"]) for p in refused.value.problems] == [("node_not_in_graph", ["e", "r"])]
 
 
 def test_a_node_already_at_its_latest_version_returns_the_graph_unchanged():
@@ -350,7 +350,7 @@ def test_a_rewrite_returning_a_set_is_refused_as_set_has_no_order_at_the_node():
 
     with pytest.raises(InvalidCallError) as refused:
         registry_of(tagged).upgrade(GraphRecord.model_validate({"nodes": {"t": {"node": "tagged", "inputs": {"tag": {"constant": "a"}}}}}), "t")
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("t", "tags"), ["set_has_no_order"])
 
 
@@ -375,7 +375,7 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
         if written is None:
             with pytest.raises(InvalidCallError) as refused:
                 registry.upgrade(saved, "w")
-            assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_value", ("w", "day"))]
+            assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_value", ("w", "day"))]
         else:
             upgraded = registry.upgrade(saved, "w")
             assert _inputs(upgraded, "w") == {"day": {"constant": written}}
@@ -457,7 +457,7 @@ def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
 
     with pytest.raises(InvalidCallError) as refused:
         registry.upgrade(graph, "f")
-    [problem] = refused.value.errors()
+    [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["written_by"]) == (
         "invalid_record", ("record", "nodes", "f", "inputs", "text"), "one_of_constant_graph_input_sources", "the Upgrade of 'fed' to version 2",
     )

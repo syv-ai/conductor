@@ -200,7 +200,7 @@ def test_a_series_longer_than_max_items_stops_the_run_before_any_file_is_read():
 def _refused(call: Any) -> list[tuple[str, tuple[str, ...]]]:
     with pytest.raises(InvalidCallError) as refused:
         call()
-    return [(p.type, p.loc) for p in refused.value.errors()]
+    return [(p.type, p.loc) for p in refused.value.problems]
 
 
 def test_a_list_given_or_set_as_a_constant_at_an_input_of_one_value_is_refused_and_starts_no_loop():
@@ -267,7 +267,7 @@ def _checked_registry() -> NodeRegistry:
 def _refused_as(call: Any) -> list[tuple[str, str]]:
     with pytest.raises(InvalidCallError) as refused:
         call()
-    return [(p.type, p.ctx["errors"][0]["type"]) for p in refused.value.errors()]
+    return [(p.type, p.ctx["errors"][0]["type"]) for p in refused.value.problems]
 
 
 def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():

@@ -623,13 +623,13 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     first, second = (w.id for w in run.waiting)
     with pytest.raises(InvalidCallError) as refused:
         run.answer({"e@5/q": "x", "e@1/q~00000000": "y", "e@0/up": "z", "e@x/q": "w"})
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("not_waiting", ("e", 5, "q")), ("answer_stale", ("e", 1, "q")), ("not_waiting", ("e", 0, "up")), ("not_waiting", ("e",)),
     ]
-    assert refused.value.errors()[1].ctx["current"] == second
+    assert refused.value.problems[1].ctx["current"] == second
     with pytest.raises(InvalidCallError) as twice:
         run.answer({first: "a", "e@0/q": "b"})
-    assert [(p.type, p.loc) for p in twice.value.errors()] == [("invalid_answer", ("e", 0, "q"))]
+    assert [(p.type, p.loc) for p in twice.value.problems] == [("invalid_answer", ("e", 0, "q"))]
     assert run.answer("e@1/q", "by place").resume().results["e"]["result"] == [None, "by place"]
 
 
@@ -735,7 +735,7 @@ def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():
     assert ids[0].startswith("e@0/in/q~") and ids[1].startswith("e@1/in/q~") and run.waiting[1].loc == ("e", 1, "in", "q")
     with pytest.raises(InvalidCallError) as refused:
         run.answer("e@1/in/q~00000000", "x")
-    assert refused.value.errors()[0].loc == ("e", 1, "in", "q")
+    assert refused.value.problems[0].loc == ("e", 1, "in", "q")
     done = Run.from_json(run.answer({ids[1]: "two"}).resume().to_json(), graph).answer(ids[0], "one").resume()
     assert done.status == "complete" and done.outputs == {"result": ["one", "two"]} and CALLS["upper"] == 2
 

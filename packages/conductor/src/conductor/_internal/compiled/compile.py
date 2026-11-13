@@ -45,7 +45,6 @@ from pydantic import MISSING
 from conductor._internal.base import REQUIRED, Address, NodePath, place_text
 from conductor._internal.field import Field
 from conductor._internal.gate import (
-    RefusedError,
     bound_field,
     read_constant,
     read_hook_fields,
@@ -58,7 +57,7 @@ from conductor._internal.node import (
     SubgraphDefinition,
     read_by_hooks,
 )
-from conductor._internal.problem import NodeError, Problem, compile_problems
+from conductor._internal.problem import InvalidCallError, NodeError, Problem, compile_problems
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.types import Type
 
@@ -106,7 +105,7 @@ def compile_graph[GraphT: CompiledGraph](
     Never raises for a wrong graph: the returned graph's ``problems`` say what is wrong.
 
     Raises:
-        RefusedError: ``record`` is not a graph record's shape, as ``read_record`` raises.
+        InvalidCallError: ``record`` is not a graph record's shape, as ``read_record`` raises.
     """
     return _Compiler(definitions, context_type, (), {}).compile(record, graph_type)
 
@@ -468,7 +467,7 @@ class _Compiler:
             if value is not MISSING:
                 try:
                     constants[name] = read_constant(node_id, field, value)
-                except RefusedError as refused:
+                except InvalidCallError as refused:
                     self.problems += refused.problems
                     constants[name] = _INVALID
         return constants
@@ -519,7 +518,7 @@ class _Compiler:
             return None
         try:
             return read_hook_fields(node_id, kind, returned)
-        except RefusedError as refused:
+        except InvalidCallError as refused:
             self.problems += refused.problems
             return None
 
@@ -742,7 +741,7 @@ def _bind(node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any
     for name, field in fields.items():
         try:
             bound_fields[name] = bound_field(node_id, field, bound)
-        except RefusedError as error:
+        except InvalidCallError as error:
             bound_fields[name] = Field(name, Type(field.hint).bind(bound).hint)
             refused[name] = error.problems
     return bound_fields, refused

@@ -181,7 +181,7 @@ def _problems(record: GraphRecord | dict[str, Any]) -> list[tuple[str, tuple[Any
 def _refused(graph: Any, *args: Any, **kwargs: Any) -> list[tuple[str, tuple[Any, ...]]]:
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(*args, **kwargs)
-    return [(p.type, p.loc) for p in refused.value.errors()]
+    return [(p.type, p.loc) for p in refused.value.problems]
 
 
 # -- the record ------------------------------------------------------------------------------------
@@ -202,11 +202,13 @@ def test_a_node_record_without_the_node_it_uses_is_refused():
 def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"u": {"node": "upper", "valuse": {"text": "x"}}}}), REGISTRY)
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "u", "valuse"), "extra_forbidden")]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "u", "valuse"), "extra_forbidden")]
 
 
 @pytest.mark.parametrize(("record", "loc", "error"), [
     ('{"nodes": [', ("record",), "json_invalid"),
+    (b'{"nodes": \xff}', ("record",), "json_invalid"),
+    ('{"nodes": ' + "1" * 5000 + "}", ("record",), "json_invalid"),
     (json.dumps({"nodes": {"u": {"type": "upper"}}}), ("record", "nodes", "u", "node"), "missing"),
     (json.dumps({"nodes": [{"id": "u", "node": "upper"}]}), ("record", "nodes"), "dict_type"),
     (json.dumps({"nodes": {"u": {"node": "upper", "inputs": {"text": {"constant": "a", "graph_input": "text"}}}}}), ("record", "nodes", "u", "inputs", "text"), "one_of_constant_graph_input_sources"),
@@ -215,7 +217,7 @@ def test_a_graph_record_with_a_misspelled_key_is_refused_naming_it():
 def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_error(record, loc, error):
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record, REGISTRY)
-    problems = refused.value.errors()
+    problems = refused.value.problems
     assert all(p.type == "invalid_record" for p in problems) and (problems[0].loc, problems[0].ctx["error"]) == (loc, error)
     assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith("The record is not a graph record at")
 
@@ -376,7 +378,7 @@ def test_nodes_reading_each_other_are_a_cycle_on_each_and_the_graph_does_not_run
 def _refused_run(graph: Any) -> list[Problem]:
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
-    return refused.value.errors()
+    return refused.value.problems
 
 
 def test_an_unknown_node_is_one_problem_naming_the_nodes_there_are_and_adds_no_inputs_or_outputs():
@@ -455,10 +457,10 @@ def test_a_node_id_or_a_source_that_is_no_name_is_refused_at_the_record_door():
     for bad in ("a@b", "a/b"):
         with pytest.raises(InvalidCallError) as refused:
             Graph.compile(json.dumps({"nodes": {bad: {"node": "upper"}, "u": {"node": "tail"}}}), REGISTRY)
-        assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", bad, "[key]"))]
+        assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", bad, "[key]"))]
         with pytest.raises(InvalidCallError) as refused:
             Graph.compile(json.dumps({"nodes": {"u": {"node": "tail", "inputs": {"text": {"sources": [{"node": bad, "output": "result"}]}}}}}), REGISTRY)
-        problem = refused.value.errors()[0]
+        problem = refused.value.problems[0]
         assert (problem.type, problem.loc[:5], problem.loc[-1]) == ("invalid_record", ("record", "nodes", "u", "inputs", "text"), "node")
 
 
@@ -493,9 +495,9 @@ def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
     assert list(graph.inputs) == ["mode"]
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(mode=5, text="a fixed input is not offered", typo="x")
-    found = sorted((p.type, p.loc) for p in refused.value.errors())
+    found = sorted((p.type, p.loc) for p in refused.value.problems)
     assert found == [("invalid_input", ("inputs", "mode")), ("not_offered", ("inputs", "text")), ("not_offered", ("inputs", "typo"))]
-    assert [p.ctx["inputs"] for p in refused.value.errors() if p.type == "not_offered"] == [["mode"], ["mode"]]
+    assert [p.ctx["inputs"] for p in refused.value.problems if p.type == "not_offered"] == [["mode"], ["mode"]]
 
 
 # -- subgraphs -------------------------------------------------------------------------------
@@ -548,7 +550,7 @@ def test_a_constant_for_an_input_the_subgraph_does_not_offer_is_unknown_input():
     assert [(p.type, p.loc) for p in named_like_an_output] == [("unknown_input", ("e", "result"))]
     with pytest.raises(InvalidCallError) as by_inner_address:
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich", "inputs": {"upper.text": {"constant": "a"}}}}}), REGISTRY)
-    assert [(p.type, p.loc) for p in by_inner_address.value.errors()] == [("invalid_record", ("record", "nodes", "e", "inputs", "upper.text", "[key]"))]
+    assert [(p.type, p.loc) for p in by_inner_address.value.problems] == [("invalid_record", ("record", "nodes", "e", "inputs", "upper.text", "[key]"))]
 
 
 def test_a_table_returned_inside_a_subgraph_is_offered_whole_as_one_value():
@@ -708,7 +710,7 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
     assert list(graph.runs_on) == ["f", "u", "t", "j"] and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
-    assert [p.type for p in refused.value.errors()] == ["type_mismatch"]
+    assert [p.type for p in refused.value.problems] == ["type_mismatch"]
 
 
 def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inputs():
@@ -768,7 +770,7 @@ def test_an_inner_nodes_error_is_reported_at_its_node_path_with_the_ctx_its_auth
 def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich"}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "e/upper", "output": "result"}]}}}}}), OUTSIDE)
-    [problem] = refused.value.errors()
+    [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("invalid_record", ("record", "nodes", "u", "inputs", "text", "sources", 0, "node"), "not_a_name")
 
 
@@ -814,7 +816,7 @@ def test_a_subgraph_whose_two_inner_inputs_name_one_graph_input_takes_one_value_
 def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_at_the_record_door():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich"}, "e/upper": {"node": "upper"}}}), OUTSIDE)
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "e/upper", "[key]"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "e/upper", "[key]"))]
 
 
 def test_a_set_given_for_a_series_input_is_refused_as_it_has_no_order():
@@ -829,7 +831,7 @@ def test_a_set_given_for_a_series_input_is_refused_as_it_has_no_order():
     graph = Graph.compile(make_graph(send), registry)
     with pytest.raises(InvalidCallError) as refused:
         graph.run(contacts={"b", "a"})
-    assert "a set has no order" in refused.value.errors()[0].msg
+    assert "a set has no order" in refused.value.problems[0].msg
     assert graph.run(contacts=["b", "a"]).outputs == {"result": "b,a"}
 
 
@@ -970,7 +972,7 @@ def test_a_bool_as_a_constant_or_a_graph_input_is_refused_for_a_float_input():
     assert (problem.type, problem.ctx["reason"]) == ("invalid_value", "a yes or no is not a number; give a number")
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), registry).run(x=True)
-    assert refused.value.errors()[0].type == "invalid_input"
+    assert refused.value.problems[0].type == "invalid_input"
     assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), registry).run(x=2).outputs == {"result": 4.0}
 
 

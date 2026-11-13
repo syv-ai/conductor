@@ -1078,7 +1078,7 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(text="a").stream(checkpoint_every=every)
-    assert [p.type for p in refused.value.errors()] == ["invalid_checkpoint_every"]
+    assert [p.type for p in refused.value.problems] == ["invalid_checkpoint_every"]
 
 
 @pytest.mark.parametrize("timeout", [0, -1, math.nan, True, "5"])
@@ -1087,7 +1087,7 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
             call(graph.with_inputs(text="a"))
-        assert [p.type for p in refused.value.errors()] == ["invalid_timeout"]
+        assert [p.type for p in refused.value.problems] == ["invalid_timeout"]
 
 
 def test_each_checkpoint_of_a_run_reusing_the_previous_runs_outcomes_resumes_without_a_call():

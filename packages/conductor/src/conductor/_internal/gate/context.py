@@ -1,7 +1,7 @@
 """The context door: the ``context=`` a host passes when it starts or resumes a run.
 
 Example: on a registry that names ``HostContext``, ``graph.run(text="Done", context=HostContext(...))`` passes. Given a
-``Caller`` instead, the door raises ``RefusedError`` with ``invalid_context``, which names the two classes and
+``Caller`` instead, the door raises ``InvalidCallError`` with ``invalid_context``, which names the two classes and
 quotes nothing of the object. Given no context when the graph has a node ``sign(ctx: Context[HostContext], ...)``, it
 raises ``context_missing`` for ``sign``. A graph none of whose nodes takes the context runs with one or without.
 
@@ -16,16 +16,14 @@ from typing import Any
 
 from conductor._internal.base import NodePath
 from conductor._internal.context import ContextParameter
-from conductor._internal.problem import call_problems
-
-from .refused import RefusedError
+from conductor._internal.problem import InvalidCallError, call_problems
 
 
 class ContextDoor:
     """Checks the ``context=`` of a call that starts or resumes a run of one graph. Built once per graph.
 
     Raises (when called):
-        RefusedError: The object is not an instance of the registry's class (``invalid_context``), or there is none
+        InvalidCallError: The object is not an instance of the registry's class (``invalid_context``), or there is none
             and a node takes it (``context_missing``, one problem per such node).
     """
 
@@ -44,14 +42,14 @@ class ContextDoor:
         """Returns ``context`` as the host passed it, ``None`` included when no node takes it.
 
         Raises:
-            RefusedError: See the class.
+            InvalidCallError: See the class.
         """
         if context is None:
             if self._missing:
-                raise RefusedError(self._missing)
+                raise InvalidCallError(self._missing)
             return None
         if self._context_type is None:
-            raise RefusedError([call_problems.invalid_context_no_context_type("context", got=type(context).__name__)])
+            raise InvalidCallError([call_problems.invalid_context_no_context_type("context", got=type(context).__name__)])
         if not isinstance(context, self._context_type):
-            raise RefusedError([call_problems.invalid_context("context", expected=self._context_type.__name__, got=type(context).__name__)])
+            raise InvalidCallError([call_problems.invalid_context("context", expected=self._context_type.__name__, got=type(context).__name__)])
         return context

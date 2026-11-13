@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import MISSING
 
 from conductor._internal.base import Address
-from conductor._internal.gate import RefusedError, read_record, record_values
+from conductor._internal.gate import read_record, record_values
 from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
@@ -27,10 +27,7 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     rewrite that gives a value to an input that edges lead into gives that input a constant beside its sources, and
     the door refuses it, naming the step.
     """
-    try:
-        graph = read_record(record)
-    except RefusedError as refused:
-        raise InvalidCallError(refused.problems) from None
+    graph = read_record(record)
     node_record = graph.nodes.get(node_id)
     if node_record is None:
         raise InvalidCallError([call_problems.node_not_in_graph(node_id, nodes=sorted(graph.nodes))])
@@ -64,10 +61,8 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
             for other, node in graph.nodes.items()
         }
         outputs = {name: _renamed_source(address, node_id, upgrade.renamed_outputs) for name, address in graph.outputs.items()}
-        try:  # unchecked until here: the door checks what the step wrote
-            graph = read_record(GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"), written_by=f"the Upgrade of '{node_record.node}' to version {step.version}")
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
+        # unchecked until here: the door checks what the step wrote
+        graph = read_record(GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"), written_by=f"the Upgrade of '{node_record.node}' to version {step.version}")
     return graph
 
 
@@ -80,10 +75,7 @@ def _rewritten(node_id: str, inputs: Mapping[str, InputEntry], rewrite: Callable
         InvalidCallError: A value it returns has no JSON form (``invalid_value``).
     """
     values = {name: entry.default if entry.constant is MISSING else entry.constant for name, entry in inputs.items() if entry.constant is not MISSING or entry.default is not MISSING}
-    try:
-        written = record_values(node_id, rewrite(values))
-    except RefusedError as refused:
-        raise InvalidCallError(refused.problems) from None
+    written = record_values(node_id, rewrite(values))
     kept = {
         name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)
         for name, entry in inputs.items() if entry.constant is MISSING

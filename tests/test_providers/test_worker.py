@@ -202,7 +202,7 @@ async def test_a_resume_with_a_higher_item_limit_of_an_unreadable_saved_run_is_r
     with pytest.raises(InvalidCallError) as refused:
         await worker.resume(await worker.read(run_id), max_items=5)
 
-    assert [problem.type for problem in refused.value.errors()] == ["saved_run_unreadable"] and store.rows[run_id] == unreadable
+    assert [problem.type for problem in refused.value.problems] == ["saved_run_unreadable"] and store.rows[run_id] == unreadable
 
 
 @pytest.mark.parametrize("status", ["running", "waiting", "complete"])

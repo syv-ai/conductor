@@ -25,10 +25,9 @@ from pydantic_core import PydanticCustomError, PydanticSerializationError
 from conductor._internal.ask import QuestionOverrides, answer_required
 from conductor._internal.base import SKIPPED, Loc, comma_separated, validate_as_json
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.problem import call_problems
+from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Choice, Type, untyped_as_json
 
-from .refused import RefusedError
 from .rules import output_validator_of
 
 
@@ -36,7 +35,7 @@ class AnswerDoor:
     """Reads a person's answer to a waiting call of one node into the node's outputs. Built once per node.
 
     Raises (when called):
-        RefusedError: With an ``invalid_answer`` for every fault, quoting nothing of the answer: the answer is not
+        InvalidCallError: With an ``invalid_answer`` for every fault, quoting nothing of the answer: the answer is not
             a mapping where there are several questions, names a question there is none of, leaves out one that
             must be answered, gives a value its type refuses or that is not one of the choices, or answers none
             or two of an exclusive group.
@@ -62,11 +61,11 @@ class AnswerDoor:
             waiting_id: The waiting id the answer was given for, for the problems.
 
         Raises:
-            RefusedError: See the class.
+            InvalidCallError: See the class.
         """
         read, faults = self._read(answer, overrides)
         if faults:
-            raise RefusedError(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason=reason, question=question or None) for question, reason in faults)
+            raise InvalidCallError(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason=reason, question=question or None) for question, reason in faults)
         return read
 
     def _read(self, answer: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:

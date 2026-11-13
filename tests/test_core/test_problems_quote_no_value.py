@@ -84,7 +84,7 @@ def _refused(call: Any) -> list[Problem]:
     with pytest.raises(InvalidCallError) as raised:
         call()
     assert SECRET not in str(raised.value)
-    return raised.value.errors()
+    return raised.value.problems
 
 
 def _graph_input(hint: Any, good: Any, bad: Any) -> list[Problem]:

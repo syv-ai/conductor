@@ -30,8 +30,8 @@ from typing import Annotated
 from conductor._internal.base import Loc, NodePath, json_hash, place_text, plural
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
-from conductor._internal.problem import InvalidCallError, Problem
+from conductor._internal.gate import ContextDoor, InputsDoor
+from conductor._internal.problem import Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
 
@@ -216,19 +216,6 @@ class CompiledGraph:
             elif (parameter := compiled_node.definition.context) is not None:
                 takers.append(((compiled_node.id,), parameter))
         return takers
-
-    def _checked_context[C](self, context: C | None) -> C | None:
-        """``context`` as the host passed it, once the context door let it in.
-
-        Raises:
-            InvalidCallError: The door refused it: of another class (``invalid_context``), or none for a graph with a
-                node that takes it (``context_missing``).
-        """
-        try:
-            checked: C | None = self._context_door(context)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
-        return checked
 
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:

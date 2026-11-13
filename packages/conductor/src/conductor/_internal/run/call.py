@@ -13,8 +13,7 @@ from typing import Any
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
-from conductor._internal.gate import RefusedError
-from conductor._internal.problem import Problem, run_problems
+from conductor._internal.problem import InvalidCallError, Problem, run_problems
 from conductor._internal.types import untyped_as_json
 
 from .flat import FlatFunctionNode
@@ -36,8 +35,9 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
         ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, problem)``: a door refused
         an argument (``invalid_edge_value``) or what the function returned (``invalid_output``), the problem
         without the call's loc. Or ``(None, error)``: what the function raised, an ``Ask`` included (the node's
-        ``Ask`` door, in the scheduler, refuses one the node did not declare: ``ask_not_declared``).
-        ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
+        ``Ask`` door, in the scheduler, refuses one the node did not declare: ``ask_not_declared``), and an
+        ``InvalidCallError`` too, which is the node's own failure. ``KeyboardInterrupt`` and ``SystemExit`` are
+        raised, not returned.
     """
     compiled_node = node.compiled_node
     definition = compiled_node.definition
@@ -51,7 +51,7 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
                 raise
             return None, error
         return compiled_node.return_door(returned), None
-    except RefusedError as refused:  # the edge door or the return door, each of which reports its first fault
+    except InvalidCallError as refused:  # the edge door or the return door, each of which reports its first fault
         (problem,) = refused.problems
         return None, problem
 
@@ -63,7 +63,7 @@ def jsonable(arguments: dict[str, Any]) -> Any:
     strings ``"Infinity"`` and ``"NaN"``.
 
     Raises:
-        RefusedError: An argument has no JSON form (problem ``question_unwritable``, which names the first
+        InvalidCallError: An argument has no JSON form (problem ``question_unwritable``, which names the first
             such input).
     """
     try:
@@ -73,5 +73,5 @@ def jsonable(arguments: dict[str, Any]) -> Any:
             try:
                 plain_json(value, fallback=untyped_as_json)
             except (TypeError, ValueError, PydanticSerializationError) as unwritable:
-                raise RefusedError([run_problems.question_unwritable(reason=str(unwritable), input=name)]) from None
+                raise InvalidCallError([run_problems.question_unwritable(reason=str(unwritable), input=name)]) from None
         raise error

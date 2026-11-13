@@ -52,7 +52,7 @@ from pydantic import ValidationError
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
-from conductor._internal.gate import RefusedError, record_values, validator_of
+from conductor._internal.gate import record_values, validator_of
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
     FunctionDefinition,
@@ -132,11 +132,7 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
     """
-    try:
-        written = record_values(version.id, constants)
-    except RefusedError as refused:
-        raise InvalidCallError(refused.problems) from None
-    inputs = {name: InputEntry(constant=value) for name, value in written.items()}
+    inputs = {name: InputEntry(constant=value) for name, value in record_values(version.id, constants).items()}
     return GraphRecord(nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)})
 
 
@@ -190,14 +186,14 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example:
     try:
         record = _one_node_graph(version, dict(example))
     except InvalidCallError as refused:
-        return _not_compiled(version, refused.errors())
+        return _not_compiled(version, refused.problems)
     graph = Graph.compile(record, definitions)
     if graph.problems:
         return _not_compiled(version, graph.problems)
     try:
         run = graph.run(context=context)
     except InvalidCallError as refused:
-        call_problems = refused.errors()
+        call_problems = refused.problems
         return [problems.example_refused(
             version.id, version.version, reason=_reason(call_problems), cause=[p.type for p in call_problems], problems=[p.model_dump(mode="json") for p in call_problems],
         )]

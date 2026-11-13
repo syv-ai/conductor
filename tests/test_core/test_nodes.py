@@ -148,7 +148,7 @@ def test_a_node_id_in_a_record_with_a_tilde_is_refused_at_the_record_door():
 
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"a~b": {"node": "upper"}}}), registry)
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a~b", "[key]"), "not_a_name")]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "a~b", "[key]"), "not_a_name")]
 
 
 def test_an_async_function_is_refused():
@@ -384,7 +384,7 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
 
     with pytest.raises(InvalidCallError) as refused:
         compiled_graph(f).run(xs=None)
-    assert [p.type for p in refused.value.errors()] == ["invalid_input"]
+    assert [p.type for p in refused.value.problems] == ["invalid_input"]
     assert codes(compiled_graph(f, constants={"f.xs": None})) == ["invalid_value"]
 
     def g(xs: Series[int] = None) -> int:  # type: ignore[assignment]
@@ -1105,7 +1105,7 @@ def test_a_params_choices_limit_a_field_of_a_dataclass_input_as_its_limits_do():
     for wrong in ({"colour": "green", "n": 1}, {"colour": "red", "n": -1}):
         with pytest.raises(InvalidCallError) as raised:
             graph.run(order=wrong)
-        assert [problem.type for problem in raised.value.errors()] == ["invalid_input"]
+        assert [problem.type for problem in raised.value.problems] == ["invalid_input"]
 
 
 def test_a_series_of_series_does_not_exist():

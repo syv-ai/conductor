@@ -154,7 +154,7 @@ def test_answer_stays_with_its_item_on_again():
         again.answer(again.waiting[0], "maybe")
         raise AssertionError
     except InvalidCallError as error:
-        assert error.errors()[0].type == "invalid_answer"
+        assert error.problems[0].type == "invalid_answer"
 
 
 def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to_run():
@@ -171,14 +171,14 @@ def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to
         graph.run(text=CSV)
         raise AssertionError
     except InvalidCallError as error:
-        assert len(error.errors()) == 4
+        assert len(error.problems) == 4
     open_first = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "a", "output": "result"}}}), registry)
     assert open_first.problems == [] and list(open_first.inputs) == ["text"]
     try:
         open_first.run()
         raise AssertionError
     except InvalidCallError as error:
-        assert error.errors()[0].type == "missing_input"
+        assert error.problems[0].type == "missing_input"
 
 
 def test_every_problem_of_one_node_is_reported_at_once():
@@ -238,7 +238,7 @@ def test_one_value_is_collected_as_a_series_of_one_and_a_list_given_for_one_valu
     assert graph.run(text="a").outputs == {"result": "A"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text=["a", "b"])
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_input", ("inputs", "text"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_input", ("inputs", "text"))]
 
 
 def test_max_items():

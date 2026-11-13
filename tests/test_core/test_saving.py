@@ -66,7 +66,7 @@ def _round_trip(run: Any) -> Any:
 def _refused(graph: Any, saved: dict[str, Any]) -> Any:
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc) == ("saved_run_unreadable", ("saved_run",))
     return problem
 
@@ -438,7 +438,7 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("saved_run", "o.result"), "o.result")
 
 
@@ -461,7 +461,7 @@ def test_saving_a_run_whose_node_has_outcomes_and_reusable_outcomes_names_the_ou
     with pytest.raises(InvalidCallError) as refused:
         second.to_json()
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "odd.result")
 
 
@@ -475,7 +475,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "value")
 
 
@@ -492,7 +492,7 @@ def test_saving_a_table_column_json_cannot_write_raises_naming_the_output():
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert problem.type == "run_unwritable" and problem.ctx["where"].startswith("b.result")
     assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
 
@@ -610,7 +610,7 @@ def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_displa
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(edited, registry_of(shout)))
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc) == ("saved_run_of_another_graph", ("saved_run",)) and set(problem.ctx) == {"saved", "graph"}
     assert Run.from_json(saved, Graph.compile(moved, registry_of(shout))).results == {"s": {"result": "A"}}
 
@@ -632,7 +632,7 @@ def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(outer, with_inner(quiet)))
-    assert [p.type for p in refused.value.errors()] == ["saved_run_of_another_graph"]
+    assert [p.type for p in refused.value.problems] == ["saved_run_of_another_graph"]
 
 
 def _jsonb(text: str) -> str:
@@ -742,7 +742,7 @@ def test_a_saved_run_read_into_a_graph_missing_a_node_definition_is_refused_with
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, narrow)
 
-    assert refused.value.errors() == narrow.problems and (narrow.problems[0].type, narrow.problems[0].loc[0]) == ("unknown_node", gone)
+    assert refused.value.problems == narrow.problems and (narrow.problems[0].type, narrow.problems[0].loc[0]) == ("unknown_node", gone)
 
 
 def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_field():

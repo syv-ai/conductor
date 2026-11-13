@@ -110,7 +110,7 @@ def refused(call: Callable[[], object]) -> list[Problem]:
     try:
         call()
     except InvalidCallError as error:
-        return error.errors()
+        return error.problems
     raise AssertionError("the call was not refused")
 
 

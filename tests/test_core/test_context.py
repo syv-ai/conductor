@@ -276,7 +276,7 @@ def test_a_run_whose_nodes_take_the_context_and_is_given_none_is_refused_before_
     graph = Graph.compile(record, app_registry(sign, signed))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(inner="a", outer="b")
-    assert [(p.type, p.loc, p.ctx) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("context_missing", ("sign", "ctx"), {"parameter": "ctx", "needs": "AppContext"}),
         ("context_missing", ("signed", "sign", "ctx"), {"parameter": "ctx", "needs": "AppContext"}),
     ]
@@ -286,10 +286,10 @@ def test_a_context_of_another_class_is_refused_at_the_start_of_a_run():
     graph = Graph.compile(make_graph(sign), app_registry(sign))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text="a", context=Caller("Ida"))  # type: ignore[arg-type]
-    assert [(p.type, p.loc, p.ctx) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("invalid_context", ("context",), {"expected": "AppContext", "got": "Caller"}),
     ]
-    assert "Ida" not in refused.value.errors()[0].msg
+    assert "Ida" not in refused.value.problems[0].msg
 
 
 def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
@@ -297,7 +297,7 @@ def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
     registry.add(upper)
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(make_graph(upper), registry).run(text="a", context=IDA)  # type: ignore[arg-type]
-    assert [(p.type, p.ctx) for p in refused.value.errors()] == [("invalid_context", {"got": "AppContext", "variant": "no_context_type"})]
+    assert [(p.type, p.ctx) for p in refused.value.problems] == [("invalid_context", {"got": "AppContext", "variant": "no_context_type"})]
 
 
 def test_a_graph_none_of_whose_nodes_takes_the_context_runs_with_it_or_without():
@@ -309,7 +309,7 @@ def test_resume_and_stream_are_checked_as_run_is():
     ready = Graph.compile(make_graph(sign), app_registry(sign)).with_inputs(text="a")
     with pytest.raises(InvalidCallError) as refused:
         ready.stream()
-    assert [p.type for p in refused.value.errors()] == ["context_missing"]
+    assert [p.type for p in refused.value.problems] == ["context_missing"]
 
     async def events() -> list[Any]:
         return [event async for event in ready.stream(context=IDA)]

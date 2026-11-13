@@ -97,7 +97,7 @@ def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> No
 
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text="a,b", separator="")
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_input", ("inputs", "separator"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_input", ("inputs", "separator"))]
 
 
 def test_a_pattern_that_takes_too_long_fails_its_node_instead_of_freezing_the_run(monkeypatch: MonkeyPatch) -> None:

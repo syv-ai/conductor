@@ -3,7 +3,7 @@
 Example: the graph of one node, ``make_graph(shout)``, has the graph inputs ``line`` (required) and ``mark``
 (default ``"!"``). ``graph.run(line="b")`` gives the door ``{"line": "b"}``, which returns ``{"line": "b", "mark":
 "!"}``: every graph input by name, its default where the caller gave none. Given ``{"line": 3, "colour": "red"}``
-it raises ``RefusedError`` with every fault at once: ``not_offered`` for ``colour``, then ``invalid_input`` for
+it raises ``InvalidCallError`` with every fault at once: ``not_offered`` for ``colour``, then ``invalid_input`` for
 ``line``.
 
 The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are checked by
@@ -21,9 +21,8 @@ from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
-from conductor._internal.problem import Problem, call_problems
+from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
-from .refused import RefusedError
 from .rules import schema_of
 
 
@@ -35,7 +34,7 @@ class InputsDoor:
     ``int`` is 3).
 
     Raises (when called):
-        RefusedError: With every fault, in this order: each name the caller gave that the graph does not offer
+        InvalidCallError: With every fault, in this order: each name the caller gave that the graph does not offer
             (``not_offered``), in the order given; then each graph input in turn that is missing (``missing_input``)
             or whose value its type refuses (``invalid_input``, and its variant ``make_a_series`` for a list given to
             an input of one value).
@@ -61,12 +60,12 @@ class InputsDoor:
             given: What the caller gave, each value under the input's name.
 
         Raises:
-            RefusedError: See the class.
+            InvalidCallError: See the class.
         """
         try:
             values: dict[str, Any] = self._validator.validate_python(given)
         except ValidationError as error:
-            raise RefusedError(self._problems(given, error)) from None
+            raise InvalidCallError(self._problems(given, error)) from None
         return values
 
     def _problems(self, given: Mapping[Any, Any], error: ValidationError) -> list[Problem]:
@@ -129,11 +128,11 @@ def check_limits(*, max_items: Any = None, timeout: Any = None, checkpoint_every
     raises.
 
     Raises:
-        RefusedError: With a problem for each limit refused, in the order above (``invalid_max_items``,
+        InvalidCallError: With a problem for each limit refused, in the order above (``invalid_max_items``,
             ``invalid_timeout``, ``invalid_checkpoint_every``), which quotes the value given.
     """
     given = {"max_items": max_items, "timeout": timeout, "checkpoint_every": checkpoint_every}
     try:
         _LIMITS.validate_python(given)
     except ValidationError as error:
-        raise RefusedError([_LIMIT_PROBLEMS[name](given[name]) for name in dict.fromkeys(str(e["loc"][0]) for e in error.errors())]) from None
+        raise InvalidCallError([_LIMIT_PROBLEMS[name](given[name]) for name in dict.fromkeys(str(e["loc"][0]) for e in error.errors())]) from None

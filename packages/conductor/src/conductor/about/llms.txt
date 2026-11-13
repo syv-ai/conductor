@@ -233,7 +233,7 @@ Retries live on the node's `Policy`, and count per call.
 
 ### Errors
 
-The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and an ended run's `run.state`, and in `InvalidCallError.errors()`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *item_indexes)`, a graph problem's `(node_id, input)`.
+The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`: on `graph.problems`, on `node_failed` and an ended run's `run.state`, and in `InvalidCallError.problems`. Its `type` is a stable code (see "Problem and error codes"); a node failure's `loc` is `(node_id, *item_indexes)`, a graph problem's `(node_id, input)`.
 
 ```
 NodeDeclarationError    a node or registry declared wrong, at import; a TypeError, with code and problem (DECLARATION_PROBLEMS)
@@ -242,7 +242,7 @@ NodeError               a node's own failure: message, code, ctx (JSON values on
 └── ExternalError         retried
 ```
 
-A failed call ends the run `failed`, its problem the `cause` of `run.state`, an `EndedEarly`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, whose `errors()` lists a `Problem` for every fault, and nothing changes. Running a graph with problems raises it too, listing them. A failure never quotes a value the run handled: a node's exception other than a `NodeError` goes to `logging.getLogger("conductor")` and only its class name reaches `ctx`.
+A failed call ends the run `failed`, its problem the `cause` of `run.state`, an `EndedEarly`: nothing more starts, the calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them. A call that can't be acted on raises `InvalidCallError`, whose `problems` lists a `Problem` for every fault, and nothing changes. Running a graph with problems raises it too, listing them. A failure never quotes a value the run handled: a node's exception other than a `NodeError` goes to `logging.getLogger("conductor")` and only its class name reaches `ctx`.
 
 ### Events
 

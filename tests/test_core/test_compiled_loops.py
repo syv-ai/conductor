@@ -403,7 +403,7 @@ def test_a_list_given_to_a_graph_input_of_one_value_is_refused_saying_how_a_loop
     graph = compile_graph({"u": "upper"}, [])
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text=["a", "b", "c"])
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx) == (
         "invalid_input", ("inputs", "text"), {"name": "text", "expected": "str", "length": 3, "variant": "make_a_series"},
     )

@@ -121,7 +121,7 @@ print([problem.type for problem in Graph.compile(names_and_greetings, registry).
 try:
     graph.run(text=["a", "b"])
 except InvalidCallError as e:
-    print([p.type for p in e.errors()])  # ['invalid_input']
+    print([p.type for p in e.problems])  # ['invalid_input']
 ```
 
 **Worth questioning:** a list sent to a `str` input is refused, where it could have run the node once per item. This holds because a graph then runs the same way whatever it is given, and an editor can show how often each node runs before anyone runs it.
@@ -284,7 +284,7 @@ print(counted.run(n="3").outputs)  # {'result': 'xxx'}
 try:
     counted.run(n=True)
 except InvalidCallError as refused:
-    print([found.type for found in refused.errors()])  # ['invalid_input']: a yes or no is not a number
+    print([found.type for found in refused.problems])  # ['invalid_input']: a yes or no is not a number
 ```
 
 **Worth questioning:** a door reports the first fault of a node's return, but every fault of a caller's inputs. A return is one call's outcome, one problem; a caller fixes all their inputs at once.

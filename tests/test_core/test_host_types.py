@@ -91,7 +91,7 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
     assert type(graph.run(text="hello").outputs["result"]) is Text
     with pytest.raises(Exception) as refused:
         graph.run(text="x" * 21)
-    assert refused.value.errors()[0].type == "invalid_input"
+    assert refused.value.problems[0].type == "invalid_input"
 
 
 def test_a_type_that_accepts_another_takes_its_values_on_an_edge() -> None:

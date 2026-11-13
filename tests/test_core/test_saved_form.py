@@ -272,7 +272,7 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
         try:
             Run.from_json(json.dumps(damaged), graph).to_json()
         except InvalidCallError as refused:
-            assert [p.type for p in refused.errors()] in (["saved_run_unreadable"], ["saved_run_of_another_graph"]), (above, last, change)
+            assert [p.type for p in refused.problems] in (["saved_run_unreadable"], ["saved_run_of_another_graph"]), (above, last, change)
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
@@ -322,7 +322,7 @@ def test_a_damaged_saved_run_is_refused_at_the_place_pydantic_names(damage: Any,
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", at)
     assert "secret" not in problem.msg
 
@@ -339,7 +339,7 @@ def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_o
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "o.result")
 
 
@@ -374,7 +374,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     graph = _everything()
     with pytest.raises(InvalidCallError) as refused:
         graph.run(_inputs("a")).outputs_to_json()
-    assert [problem.type for problem in refused.value.errors()] == ["run_not_complete"]
+    assert [problem.type for problem in refused.value.problems] == ["run_not_complete"]
 
     @node("odd", title="Odd", description="For a test.")
     def odd(text: str) -> Any:
@@ -384,7 +384,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     registry.add(odd)
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry).run(text="x").outputs_to_json()
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "result"), "result")
 
 
@@ -435,5 +435,5 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
 
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.listed.skipped_items.result")

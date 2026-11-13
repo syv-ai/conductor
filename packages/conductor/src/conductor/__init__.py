@@ -24,7 +24,8 @@ from conductor._internal.compiled import (
 )
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
-from conductor._internal.graph import Graph, make_graph, read_json
+from conductor._internal.gate import read_json
+from conductor._internal.graph import Graph, make_graph
 from conductor._internal.node import (
     Deprecation,
     FunctionDefinition,

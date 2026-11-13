@@ -135,7 +135,7 @@ def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
     with pytest.raises(InvalidCallError) as refused:
         waiting.answer(waiting.waiting[0].id, {"side": 2})
 
-    assert [(p.type, p.ctx["reason"]) for p in refused.value.errors()] == [("invalid_answer", "its type's own check gave a dict, not a Square")]
+    assert [(p.type, p.ctx["reason"]) for p in refused.value.problems] == [("invalid_answer", "its type's own check gave a dict, not a Square")]
 
 
 def test_an_asks_choice_is_checked_against_its_types_own_class_as_an_answer_is():
@@ -299,7 +299,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_giv
     assert (on_edge.state.cause.type, on_edge.state.cause.loc, on_edge.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
     with pytest.raises(InvalidCallError) as given:
         Graph.compile(GraphRecord.model_validate({"nodes": {"t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}}}), registry_of(total)).run(lines=yes_no)
-    assert [p.type for p in given.value.errors()] == ["invalid_input"]
+    assert [p.type for p in given.value.problems] == ["invalid_input"]
 
 
 class Graded(TypedDict):
@@ -319,7 +319,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
     given = pl.DataFrame({"level": [1], "score": [3]}).with_columns(pl.lit(True).alias(column))
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "count_rows", "inputs": {"rows": {"graph_input": "rows"}}}}, "outputs": {"result": {"node": "c", "output": "result"}}}), registry_of(count_rows)).run(rows=given)
-    assert [(p.type, p.ctx.get("column")) for p in refused.value.errors()] == [("invalid_input", column)]
+    assert [(p.type, p.ctx.get("column")) for p in refused.value.problems] == [("invalid_input", column)]
 
 
 @pytest.mark.parametrize(("returned", "return_type"), [("no", bool), ("12", int), ("2026-01-02", datetime.date), (12.0, int)],
@@ -409,7 +409,7 @@ def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made
     graph = Graph.compile(make_graph(count_contacts), registry_of(count_contacts))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}])  # polars would read the 5 as text
-    assert refused.value.errors()[0].ctx["column"] == "name"
+    assert refused.value.problems[0].ctx["column"] == "name"
 
 
 def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatch_at_compile():
@@ -519,7 +519,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
     for given, loc in (({"scores": {SECRET: "x"}, "people": []}, ()), ({"scores": {}, "people": [{"counts": {}}, {"counts": {SECRET: "x"}}]}, (1, "counts"))):
         with pytest.raises(InvalidCallError) as refused:
             graph.run(given)
-        (problem,) = refused.value.errors()
+        (problem,) = refused.value.problems
         assert SECRET not in problem.model_dump_json() and [tuple(e["loc"]) for e in problem.ctx["errors"]] == [loc]
 
 

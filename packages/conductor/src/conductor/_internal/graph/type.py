@@ -8,27 +8,11 @@ from types import MappingProxyType
 from typing import Any
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import RefusedError, check_limits
-from conductor._internal.gate import read_json as read_json_text
+from conductor._internal.gate import check_limits
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import FlatGraph, Run, SavedRun, codec_of, make_run
-
-
-def read_json(text: str | bytes) -> Any:
-    """Returns JSON text as plain data, the way conductor reads a graph record's text: with every object's keys seen,
-    so a key written twice is refused where a ``dict`` would keep the last. A host's route that takes a body holding
-    a graph record reads the body with it, ``body = read_json(await request.body())``, and hands the record on to
-    ``Graph.compile`` as data.
-
-    Raises:
-        InvalidCallError: The text is not JSON, or writes a key twice in one object: ``invalid_record``.
-    """
-    try:
-        return read_json_text(text)
-    except RefusedError as refused:
-        raise InvalidCallError(refused.problems) from None
 
 
 class Graph[C](CompiledGraph):
@@ -53,10 +37,7 @@ class Graph[C](CompiledGraph):
         ``graph.problems``, and a graph with problems does not run. The graph keeps its own copy of the
         definitions as they are when it is compiled, and the registry's ``context_type``.
         """
-        try:
-            return compile_graph(record, registry, registry.context_type, Graph)
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
+        return compile_graph(record, registry, registry.context_type, Graph)
 
     @functools.cached_property
     def _flat(self) -> FlatGraph:
@@ -94,12 +75,8 @@ class Graph[C](CompiledGraph):
         """
         if self.problems:
             raise InvalidCallError(self.problems)
-        try:
-            check_limits(max_items=max_items)
-            values = self._inputs_door({**inputs, **by_name})
-        except RefusedError as refused:
-            raise InvalidCallError(refused.problems) from None
-        return make_run(self, values, max_items, previous)
+        check_limits(max_items=max_items)
+        return make_run(self, self._inputs_door({**inputs, **by_name}), max_items, previous)
 
     def run(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,

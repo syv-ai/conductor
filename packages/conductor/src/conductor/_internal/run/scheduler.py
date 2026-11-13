@@ -71,9 +71,9 @@ from typing import Any, Literal
 
 from conductor._internal.ask import Ask
 from conductor._internal.base import ItemIndexes, NodePath, place_text
-from conductor._internal.gate import RefusedError
 from conductor._internal.problem import (
     ExternalError,
+    InvalidCallError,
     NodeError,
     Problem,
     run_problems,
@@ -393,7 +393,7 @@ class Scheduler:
             return
         try:
             arguments = self.arguments_for(node, item_indexes)
-        except RefusedError as missing:  # an edge reads a field that the record it reads from does not have
+        except InvalidCallError as missing:  # an edge reads a field that the record it reads from does not have
             (problem,) = missing.problems
             self._record(node, item_indexes, self._failure(node, item_indexes, problem), trying_every_call)
             return
@@ -753,7 +753,7 @@ class Scheduler:
         if isinstance(error, Ask):
             try:
                 return Unanswered(node.compiled_node.ask_door(error, jsonable(arguments)))
-            except RefusedError as refused:  # the Ask door, or arguments with no JSON form
+            except InvalidCallError as refused:  # the Ask door, or arguments with no JSON form
                 (problem,) = refused.problems
                 return self._failure(node, item_indexes, problem)
         return self._failure(node, item_indexes, error)

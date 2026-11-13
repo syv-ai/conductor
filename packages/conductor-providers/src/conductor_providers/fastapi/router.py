@@ -165,7 +165,7 @@ class _RefusingRoute(APIRoute):
             try:
                 return await handle(request)
             except InvalidCallError as error:
-                raise _refusal(422, error.errors()) from None
+                raise _refusal(422, error.problems) from None
             except NoSuchRunError as error:
                 raise _refusal(404, error.problems) from None
             except RefusedError as error:

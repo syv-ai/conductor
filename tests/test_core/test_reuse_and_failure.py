@@ -1040,7 +1040,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
         tamper(copy)
         with pytest.raises(InvalidCallError) as refused:
             Run.from_json(json.dumps(copy), graph)
-        (problem,) = refused.value.errors()
+        (problem,) = refused.value.problems
         assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", at), problem
 
 
@@ -1231,7 +1231,7 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
 
     with pytest.raises(InvalidCallError) as refused:
         moved.answer(bo.id, True)  # bo's id names a@1, where al's question waits
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     current = moved.waiting[1].id
     moved_to = moved.waiting[2].id  # bo's question waits at a@2
     assert (problem.type, problem.loc, problem.ctx) == ("answer_stale", ("a", 1), {"waiting_id": bo.id, "current": current, "moved_to": moved_to})
@@ -1497,7 +1497,7 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
     assert Run.from_json(forgotten.to_json(), graph).resume().status == "complete" and calls == ["fetch a"]
     with pytest.raises(InvalidCallError) as refused:
         run.forget("nope")
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("node_not_in_graph", ("nope",))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("node_not_in_graph", ("nope",))]
 
 
 def test_a_forgotten_nodes_table_is_not_written_in_the_saved_run():
@@ -1545,7 +1545,7 @@ def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(record, registry_of(split, count_all)))
 
-    assert [(p.type, p.ctx["where"]) for p in refused.value.errors()] == [("saved_run_unreadable", "outcomes.c")]
+    assert [(p.type, p.ctx["where"]) for p in refused.value.problems] == [("saved_run_unreadable", "outcomes.c")]
 
 
 def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_finished_first():

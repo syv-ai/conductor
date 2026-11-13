@@ -107,22 +107,26 @@ class NodeDeclarationError(ConductorError, TypeError):
 
 
 class InvalidCallError(ConductorError, ValueError):
-    """A call on a graph or a run was given something it cannot act on, and nothing was done.
+    """A value given to conductor was refused, and nothing was done with it.
 
     ``graph.run(n="many")`` on a graph whose input ``n`` is an ``int`` raises it with one ``invalid_input`` problem.
     Raised before anything runs, listing every problem at once, by ``graph.run``, ``graph.with_inputs``,
     ``run.resume``, ``run.stream``, ``run.answer``, ``run.with_inputs``, ``run.again``, ``run.forget``,
-    ``run.outputs``, ``Run.from_json``, ``Graph.compile`` (for JSON that is not a graph record), ``registry.upgrade``
-    and ``make_graph``. The run the caller has is unchanged. It is a ``ValueError`` too, as pydantic's error is.
+    ``run.outputs``, ``Run.from_json``, ``Graph.compile`` (for JSON that is not a graph record), ``read_json``,
+    ``registry.upgrade`` and ``make_graph``. The run the caller has is unchanged. It is a ``ValueError`` too, as
+    pydantic's error is.
+
+    Every door of the gate raises it for a value it does not let in. Where the value came from a graph or a run
+    rather than a caller, the engine keeps the problems instead: compiling puts them in ``graph.problems``, and a
+    run records the problem as the outcome of the call it belongs to.
+
+    Attributes:
+        problems: What is wrong, in the order it was found.
     """
 
     def __init__(self, problems: Iterable[Problem]) -> None:
-        self._problems = list(problems)
-        super().__init__("\n".join([f"{len(self._problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in self._problems)]))
-
-    def errors(self) -> list[Problem]:
-        """Every problem, in the order the call found them."""
-        return list(self._problems)
+        self.problems = list(problems)
+        super().__init__("\n".join([f"{len(self.problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in self.problems)]))
 
 
 class NodeError(ConductorError):

@@ -88,7 +88,7 @@ def _refused(record: Any) -> list[tuple[str, tuple, str]]:
     """The problems the record door raises for ``record``, JSON text or plain data, as ``(type, loc, ctx.error)``."""
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record if isinstance(record, str) else json.dumps(record), REGISTRY)
-    return [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()]
+    return [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems]
 
 
 # -- the record's shape ---------------------------------------------------------
@@ -190,7 +190,7 @@ def test_an_input_written_twice_in_one_node_is_refused_as_a_key_written_twice():
 
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(text, REGISTRY)
-    [problem] = refused.value.errors()
+    [problem] = refused.value.problems
     assert (problem.type, problem.ctx["error"]) == ("invalid_record", "repeated_key") and "'text'" in problem.msg
 
 
@@ -252,7 +252,7 @@ def test_a_refusal_of_a_name_says_which_text_is_not_a_name():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"b": {"node": "upper", "inputs": {"text": {"graph_input": "a.b"}}}}}), REGISTRY)
 
-    [problem] = refused.value.errors()
+    [problem] = refused.value.problems
     assert problem.ctx["reason"].startswith("'a.b' is not a name") and problem.msg.endswith("Fix the record's JSON.")
 
 
@@ -343,7 +343,7 @@ def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required
     assert graph.run(x="q").outputs == {"a_result": "q", "b_result": "Q"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("missing_input", ("inputs", "x"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("missing_input", ("inputs", "x"))]
 
 
 def test_one_graph_input_given_two_different_defaults_in_the_record_is_used_two_ways():
@@ -400,7 +400,7 @@ def _made(**arguments: Any) -> list[tuple[str, tuple]]:
     """The problems ``make_graph`` raises for ``arguments`` as ``(type, loc)``; its nodes are ``_hello`` and ``_shout``."""
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, _shout, **arguments)
-    return [(p.type, p.loc) for p in refused.value.errors()]
+    return [(p.type, p.loc) for p in refused.value.problems]
 
 
 def test_make_graph_with_no_edges_chains_each_node_to_the_one_before():
@@ -443,12 +443,12 @@ def test_make_graph_with_edges_takes_those_as_every_edge_and_matches_nothing_by_
 def test_make_graph_without_edges_refuses_nodes_it_cannot_chain_and_says_to_pass_edges():
     with pytest.raises(InvalidCallError, match="pass edges=") as refused:
         make_graph(_email, _count, outputs={"email": "email.result", "result": "count.result"})
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("not_a_chain", ("count",))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("not_a_chain", ("count",))]
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_count, _hello, _shout, constants={"hello.name": "x"}, outputs={"count": "count.result", "result": "shout.result"})
-    assert [(p.type, p.loc, p.ctx["inputs"]) for p in refused.value.errors()] == [("not_a_chain", ("hello",), [])]
-    assert refused.value.errors()[0].ctx == {"node_id": "hello", "before": "count", "inputs": [], "outputs": ["result"]}
-    assert refused.value.errors()[0].msg == (
+    assert [(p.type, p.loc, p.ctx["inputs"]) for p in refused.value.problems] == [("not_a_chain", ("hello",), [])]
+    assert refused.value.problems[0].ctx == {"node_id": "hello", "before": "count", "inputs": [], "outputs": ["result"]}
+    assert refused.value.problems[0].msg == (
         "'hello' can't follow 'count' without edges: make_graph wires a node's one required input (it has none) to the one output of the node "
         "before it (that has result); pass edges= to make_graph."
     )
@@ -473,10 +473,10 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
     assert list(graph.inputs) == ["name"] and [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("pad", "width"))]
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, blank)
-    assert [(p.type, p.loc, p.ctx) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("not_a_chain", ("blank",), {"variant": "read_by_a_hook", "node_id": "blank", "before": "hello", "read_by_hooks": ["width"]}),
     ]
-    assert refused.value.errors()[0].msg == (
+    assert refused.value.problems[0].msg == (
         "'blank' can't follow 'hello' without edges: a hook reads width when the graph is compiled, and an input a hook reads takes a constant, "
         "which no edge can give; give width a constant and pass edges= to make_graph."
     )
@@ -485,7 +485,7 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
 def test_make_graph_refuses_a_place_on_a_node_it_was_not_given():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"nobody.name": "x"})
-    assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["hello"])]
+    assert [(p.type, p.ctx["nodes"]) for p in refused.value.problems] == [("node_not_in_graph", ["hello"])]
     assert _made(edges=[("nobody.result", "shout.text")], constants={"hello.name": "x"}, outputs={"result": "shout.result", "hello": "hello.result"}) == [("node_not_in_graph", ("nobody",))]
     assert _made(edges=[], inputs={"who": "nobody.name"}, outputs={"result": "shout.result", "hello": "hello.result"}) == [("node_not_in_graph", ("nobody",))]
     assert _made(outputs={"result": "nobody.result"}) == [("node_not_in_graph", ("nobody",))]
@@ -509,7 +509,7 @@ def test_make_graph_writes_wrong_inputs_outputs_and_constants_as_given_and_compi
 def test_make_graph_refuses_a_set_as_a_constant_as_set_has_no_order(value: object):
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"hello.name": value})
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("hello", "name"), ["set_has_no_order"])
 
 
@@ -567,11 +567,11 @@ def test_make_graph_refuses_two_graph_inputs_or_two_graph_outputs_that_would_sha
     with pytest.raises(InvalidCallError) as refused:
         make_graph(upper, upper, edges=[])
 
-    assert [(p.type, p.loc, p.ctx) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("graph_inputs_share_a_name", ("inputs", "text"), {"name": "text", "inputs": ["upper-1.text", "upper-2.text"]}),
         ("graph_outputs_share_a_name", ("outputs", "result"), {"name": "result", "outputs": ["upper-1.result", "upper-2.result"]}),
     ]
-    assert ["make_graph's inputs=" in refused.value.errors()[0].msg, "make_graph's outputs=" in refused.value.errors()[1].msg] == [True, True]
+    assert ["make_graph's inputs=" in refused.value.problems[0].msg, "make_graph's outputs=" in refused.value.problems[1].msg] == [True, True]
 
 
 def test_make_graph_names_the_graph_inputs_and_outputs_it_is_given():
@@ -600,9 +600,9 @@ def test_make_graph_refuses_a_constant_together_with_a_graph_input_or_an_edge():
     with pytest.raises(InvalidCallError) as edge_and_input:
         make_graph(_hello, _shout, edges=[("hello.result", "shout.text")], inputs={"name": "hello.name", "text": "shout.text"})
 
-    assert [(p.loc, p.ctx["error"]) for p in with_input.value.errors()] == [(("record", "nodes", "hello", "inputs", "name"), one_of)]
-    assert [(p.loc, p.ctx["error"]) for p in with_edge.value.errors()] == [(("record", "nodes", "shout", "inputs", "text"), one_of)]
-    assert [(p.loc, p.ctx["error"]) for p in edge_and_input.value.errors()] == [(("record", "nodes", "shout", "inputs", "text"), one_of)]
+    assert [(p.loc, p.ctx["error"]) for p in with_input.value.problems] == [(("record", "nodes", "hello", "inputs", "name"), one_of)]
+    assert [(p.loc, p.ctx["error"]) for p in with_edge.value.problems] == [(("record", "nodes", "shout", "inputs", "text"), one_of)]
+    assert [(p.loc, p.ctx["error"]) for p in edge_and_input.value.problems] == [(("record", "nodes", "shout", "inputs", "text"), one_of)]
 
 
 def test_make_graph_refuses_an_edge_written_twice():
@@ -630,7 +630,7 @@ def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_
     assert graph.runs_on["u"].mode == "once" and graph.run(text="a").outputs == {"result": "A"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text=["a"])
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_input", ("inputs", "text"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_input", ("inputs", "text"))]
 
 
 def test_a_list_as_a_constant_or_a_default_for_an_input_of_one_value_is_invalid_value():
@@ -646,7 +646,7 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
     def refused(given: dict[Any, Any]) -> list[tuple[str, tuple[str | int, ...], dict[str, Any]]]:
         with pytest.raises(InvalidCallError) as raised:
             graph.with_inputs(given)
-        return [(p.type, p.loc, p.ctx) for p in raised.value.errors()]
+        return [(p.type, p.loc, p.ctx) for p in raised.value.problems]
 
     assert refused({"nope": 1, "text": "a", "zz": 2}) == [
         ("not_offered", ("inputs", "nope"), {"name": "nope", "inputs": offered}),
@@ -673,8 +673,8 @@ def test_a_graph_input_is_given_by_its_name_never_by_an_address_and_an_item_limi
     with pytest.raises(InvalidCallError) as item_limit:
         graph.run(text="a", max_items=0)
 
-    assert [(p.type, p.loc) for p in by_address.value.errors()] == [("not_offered", ("inputs", "u.text"))]
-    assert [p.type for p in item_limit.value.errors()] == ["invalid_max_items"]
+    assert [(p.type, p.loc) for p in by_address.value.problems] == [("not_offered", ("inputs", "u.text"))]
+    assert [p.type for p in item_limit.value.problems] == ["invalid_max_items"]
     with pytest.raises(InvalidCallError):
         graph.with_inputs(text="a").with_max_items(-1)
 
@@ -808,7 +808,7 @@ def test_an_outer_record_never_names_an_inner_node_of_a_subgraph():
 
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps(record), SUBGRAPHS)
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "c", "inputs", "x.text", "[key]"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "c", "inputs", "x.text", "[key]"))]
 
 
 def test_a_subgraph_lists_its_inputs_and_outputs_in_the_registrys_describe():
@@ -895,7 +895,7 @@ def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_in
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich"}, "e/upper": {"node": "upper"}}}), SUBGRAPHS)
     ghost = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), SUBGRAPHS)
 
-    assert [(p.type, p.loc) for p in beside.value.errors()] == [("invalid_record", ("record", "nodes", "e/upper", "[key]"))]
+    assert [(p.type, p.loc) for p in beside.value.problems] == [("invalid_record", ("record", "nodes", "e/upper", "[key]"))]
     assert [(p.type, p.loc, p.ctx["target"]) for p in ghost.problems] == [("edge_names_missing_node", ("e", "text"), "e.text")]
 
 
@@ -985,7 +985,7 @@ def test_make_graph_refuses_a_constant_and_a_default_for_one_input():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"hello.name": "a"}, defaults={"hello.name": "b"})
 
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [
         ("invalid_record", ("record", "nodes", "hello", "inputs", "name"), "one_of_constant_graph_input_sources"),
     ]
 
@@ -1020,7 +1020,7 @@ def test_a_table_as_a_constant_is_refused_at_the_call_and_said_to_be_given_as_re
 
     with pytest.raises(InvalidCallError) as refused:
         make_graph(count, constants={"count.rows": pl.DataFrame({"a": [1]})})
-    (problem,) = refused.value.errors()
+    (problem,) = refused.value.problems
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
     assert problem.ctx["reason"] == "a value written in a graph record is saved with it as JSON; give a table as a list of records"
 
@@ -1063,7 +1063,7 @@ def test_a_float_that_is_not_finite_as_a_constant_is_written_as_text_so_a_record
 def test_make_graph_raises_every_problem_of_its_own_and_none_that_compile_finds():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")], constants={"nobody.x": 1})
-    assert sorted(p.type for p in refused.value.errors()) == ["node_not_in_graph", "not_a_place"]
+    assert sorted(p.type for p in refused.value.problems) == ["node_not_in_graph", "not_a_place"]
 
 
 def test_make_graph_writes_each_node_at_the_id_and_version_of_the_definition_it_was_given():
@@ -1091,7 +1091,7 @@ def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_wr
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_count, _hello, edges=[("count.result", "hello.name"), ("count", "hello.name")])
 
-    [problem] = refused.value.errors()
+    [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx) == ("not_a_place", ("edges", 1, 0), {"text": "count"})
     assert "write 'node.name'" in problem.msg and "column" not in problem.msg
 
@@ -1100,12 +1100,12 @@ def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"hello": "Ida", "hello.name..x": "Ida"}, defaults={".name": "Bo"})
 
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("not_a_place", ("constants", "hello")),
         ("not_a_place", ("defaults", ".name")),
         ("invalid_record", ("record", "nodes", "hello", "inputs", "name..x", "[key]")),  # an input's name has no dot
     ]
-    assert all("'node.name'" in p.msg for p in refused.value.errors()[:2])
+    assert all("'node.name'" in p.msg for p in refused.value.problems[:2])
 
 
 def test_make_graph_takes_a_node_with_an_id_of_its_own_and_refuses_one_id_for_two_nodes():
@@ -1113,14 +1113,14 @@ def test_make_graph_takes_a_node_with_an_id_of_its_own_and_refuses_one_id_for_tw
     assert list(record.nodes) == ["first", "second"] and record.nodes["second"].node == "hello"
     with pytest.raises(InvalidCallError) as refused:
         make_graph(("a", _hello), ("a", _hello), edges=[])
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a"), "repeated_key")]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "a"), "repeated_key")]
 
 
 def test_make_graph_refuses_a_text_that_is_not_node_and_name_at_the_argument_and_place_it_is_given():
     def refused(**arguments: Any) -> list[Problem]:
         with pytest.raises(InvalidCallError) as raised:
             make_graph(_hello, _shout, **arguments)
-        return raised.value.errors()
+        return raised.value.problems
 
     edge = refused(edges=[("hello.result", "shout")], outputs={"hello": "hello.result"})
     constant = refused(constants={"name": "x"})
@@ -1138,7 +1138,7 @@ def test_a_record_door_refusal_of_what_make_graph_wrote_says_to_fix_make_graphs_
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, _shout, edges=[("hello.result", "shout.text")], constants={"hello.name": "a", "shout.text": "x"})
 
-    [problem] = refused.value.errors()
+    [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["written_by"]) == (
         "invalid_record", ("record", "nodes", "shout", "inputs", "text"), "one_of_constant_graph_input_sources", "make_graph's arguments",
     )
@@ -1157,7 +1157,7 @@ def test_make_graph_refuses_a_defaults_key_whose_name_is_also_given_in_inputs():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, _shout, edges=[], defaults={"shout.times": 2}, inputs={"times": "hello.name"}, outputs={"hello": "hello.result"})
 
-    assert [(p.type, p.loc, p.ctx) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("graph_inputs_share_a_name", ("inputs", "times"), {"name": "times", "inputs": ["shout.times", "hello.name"]}),
     ]
 
@@ -1166,7 +1166,7 @@ def test_make_graph_refuses_an_output_with_a_field_as_the_record_does():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, outputs={"r": "hello.result.x"})
 
-    assert [(p.type, p.loc, p.ctx["error"], p.ctx["written_by"]) for p in refused.value.errors()] == [
+    assert [(p.type, p.loc, p.ctx["error"], p.ctx["written_by"]) for p in refused.value.problems] == [
         ("invalid_record", ("record", "outputs", "r"), "output_has_field", "make_graph's arguments"),
     ]
 

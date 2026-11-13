@@ -18,10 +18,9 @@ from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
-from conductor._internal.problem import run_problems
+from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import Type
 
-from .refused import RefusedError
 from .rules import exact_classes, validator_of
 
 
@@ -53,7 +52,7 @@ class EdgeDoor:
     ``SKIPPED``.
 
     Raises (when called):
-        RefusedError: An input's type refuses its value (``invalid_edge_value``, which names the input and quotes
+        InvalidCallError: An input's type refuses its value (``invalid_edge_value``, which names the input and quotes
             nothing of the value). The first input refused is reported.
     """
 
@@ -65,7 +64,7 @@ class EdgeDoor:
         """Returns a copy of ``arguments`` with each of the door's inputs read by its type.
 
         Raises:
-            RefusedError: An input's type refuses its value (``invalid_edge_value``).
+            InvalidCallError: An input's type refuses its value (``invalid_edge_value``).
         """
         read = dict(arguments)
         for name, whole, exact, validate in self._inputs:
@@ -76,5 +75,5 @@ class EdgeDoor:
                 read[name] = validate(value, strict=False)
             except ValidationError as error:
                 refused = whole.refusal(error)
-                raise RefusedError([run_problems.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+                raise InvalidCallError([run_problems.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
         return read

@@ -37,8 +37,7 @@ from typing import Any, Final, Literal, assert_never
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import Edge, EdgeInput
-from conductor._internal.gate import RefusedError
-from conductor._internal.problem import run_problems
+from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
@@ -94,7 +93,7 @@ class ResultReader:
             input reads ``None`` and its parameter does not accept ``None``.
 
         Raises:
-            RefusedError: An edge reads one field of a record (``lines.result.name``) and the record has no
+            InvalidCallError: An edge reads one field of a record (``lines.result.name``) and the record has no
                 such field (``invalid_edge_value``).
         """
         arguments = node.constants.copy()
@@ -102,7 +101,7 @@ class ResultReader:
         for name, address in node.graph_inputs:
             arguments[name] = graph_inputs[address]
         none_input: str | None = None
-        fault: RefusedError | None = None
+        fault: InvalidCallError | None = None
         ready = True
         for name, node_input in node.edge_inputs.items():
             try:
@@ -110,7 +109,7 @@ class ResultReader:
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
                 if fault is None:
                     reason = f"it has no field '{missing.field}'"
-                    fault = RefusedError([run_problems.invalid_edge_value(name=name, reason=reason, record_field=missing.field)])
+                    fault = InvalidCallError([run_problems.invalid_edge_value(name=name, reason=reason, record_field=missing.field)])
                 continue
             if value is SKIPPED:
                 return Skipped(node.compiled_node.outputs_when_skipped)

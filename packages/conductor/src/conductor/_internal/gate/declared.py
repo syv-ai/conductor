@@ -21,10 +21,14 @@ from pydantic_core import PydanticCustomError, PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.field import Field
-from conductor._internal.problem import NodeDeclarationError, compile_problems, declaration_problems
+from conductor._internal.problem import (
+    InvalidCallError,
+    NodeDeclarationError,
+    compile_problems,
+    declaration_problems,
+)
 from conductor._internal.types import Type
 
-from .refused import RefusedError
 from .rules import validator_of
 
 
@@ -57,7 +61,7 @@ def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Fie
     ``"-"``. A variable no edge binds is read as its bound, else ``Any``.
 
     Raises:
-        RefusedError: The bound type refuses the default the node declares, ``None`` included: one ``invalid_value``
+        InvalidCallError: The bound type refuses the default the node declares, ``None`` included: one ``invalid_value``
             problem (variant ``bound_default``) at ``(node_id, field)``.
     """
     if not field.whole.variables:
@@ -68,7 +72,7 @@ def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Fie
         return Field(field.name, hint, _read_default(whole, field.default))
     except ValidationError as error:
         refused = whole.refusal(error)
-        raise RefusedError([compile_problems.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None
+        raise InvalidCallError([compile_problems.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None
 
 
 def _read_default(whole: Type, default: Any) -> Any:

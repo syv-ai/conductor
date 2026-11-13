@@ -76,6 +76,8 @@ What changes in how you work, before the name-by-name tables:
   `ProblemCatalogue.joined(...)` one catalogue of several, and `ProblemKind.section` says which a kind is in.
   `PROBLEMS` has three: compiling a graph (in `graph.problems`), refused calls (raised as `InvalidCallError`)
   and why a run stopped.
+- **A refused call lists its problems in `problems`.** `InvalidCallError.problems` is every `Problem` the call
+  was refused for, as `graph.problems` is for a graph, and `read_json` raises it too.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
   `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
   `int` `Whole number`), a host's class from its `@host_type` declaration;

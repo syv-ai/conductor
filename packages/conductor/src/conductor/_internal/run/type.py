@@ -29,7 +29,7 @@ from conductor._internal.base import (
     NodePath,
     parse_loc_text,
 )
-from conductor._internal.gate import RefusedError, check_limits
+from conductor._internal.gate import check_limits
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .arguments import ResultReader
@@ -151,7 +151,7 @@ class Run[C]:
         Raises:
             InvalidCallError: ``max_items`` is not a whole number of at least 1 (``invalid_max_items``).
         """
-        _check_limits(max_items=max_items)
+        check_limits(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
     def resume(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
@@ -168,8 +168,8 @@ class Run[C]:
                 the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
                 (``context_missing``).
         """
-        _check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._checked_context(context), None, deadline(timeout))
+        check_limits(timeout=timeout)
+        return self._run_scheduler(self.graph._context_door(context), None, deadline(timeout))
 
     def estimate(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
         """Call only the nodes whose ``Policy`` says ``costs_nothing``, so that ``run.progress`` says how many calls
@@ -191,8 +191,8 @@ class Run[C]:
         Raises:
             InvalidCallError: As ``resume`` does.
         """
-        _check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._checked_context(context), None, deadline(timeout), only_costs_nothing=True)
+        check_limits(timeout=timeout)
+        return self._run_scheduler(self.graph._context_door(context), None, deadline(timeout), only_costs_nothing=True)
 
     def stream(
         self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
@@ -217,8 +217,8 @@ class Run[C]:
             InvalidCallError: As ``resume`` does, and for a ``checkpoint_every`` that is not a number of seconds
                 above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
-        _check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return stream(self._run_scheduler, self.graph._checked_context(context), timeout, cancel, hand_back, checkpoint_every)
+        check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
+        return stream(self._run_scheduler, self.graph._context_door(context), timeout, cancel, hand_back, checkpoint_every)
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
@@ -323,7 +323,7 @@ class Run[C]:
                 continue
             try:
                 read = compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=waiting_id)
-            except RefusedError as refused:
+            except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
@@ -564,16 +564,3 @@ def make_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, 
     flat = graph._flat
     outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {path: {} for path in flat.function_nodes}
     return Run(graph, inputs, max_items, outcomes, previous._reusable_outcomes(into=flat) if previous is not None else {})
-
-
-def _check_limits(*, max_items: int | None = None, timeout: float | None = None, checkpoint_every: float | None = None) -> None:
-    """Raises ``InvalidCallError`` with the problems of the limits a public method was given that no run can have.
-
-    Raises:
-        InvalidCallError: The problems ``check_limits`` found (``invalid_max_items``, ``invalid_timeout``,
-            ``invalid_checkpoint_every``).
-    """
-    try:
-        check_limits(max_items=max_items, timeout=timeout, checkpoint_every=checkpoint_every)
-    except RefusedError as refused:
-        raise InvalidCallError(refused.problems) from None

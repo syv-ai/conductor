@@ -14,9 +14,8 @@ from typing import Any
 from pydantic import JsonValue, ValidationError
 
 from conductor._internal.field import Field
-from conductor._internal.problem import compile_problems
+from conductor._internal.problem import InvalidCallError, compile_problems
 
-from .refused import RefusedError
 from .rules import validator_of
 
 
@@ -25,11 +24,11 @@ def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
     read by the input's type.
 
     Raises:
-        RefusedError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
+        InvalidCallError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
     """
     try:
         return validator_of(field.whole).validate_python(value)
     except ValidationError as error:
         refused = field.whole.refusal(error)
-        raise RefusedError([compile_problems.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+        raise InvalidCallError([compile_problems.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 

@@ -4,6 +4,6 @@ compiled from is ``record/``.
 """
 
 from .make import make_graph
-from .type import Graph, read_json
+from .type import Graph
 
-__all__ = ["Graph", "make_graph", "read_json"]
+__all__ = ["Graph", "make_graph"]

@@ -623,7 +623,7 @@ def test_a_hook_naming_a_field_with_a_character_of_an_address_is_a_problem_as_a_
     assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("d", name))]
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {name: {"node": "dotted"}}}), registry_of(dotted))
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", name, "[key]"))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", name, "[key]"))]
 
 
 def test_a_timed_out_run_keeps_the_calls_already_on_threads():
@@ -707,7 +707,7 @@ def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
     try:
         run.outputs
     except InvalidCallError as error:
-        assert error.errors()[0].type == "run_not_complete"
+        assert error.problems[0].type == "run_not_complete"
     else:
         raise AssertionError("outputs of a failed run")
 

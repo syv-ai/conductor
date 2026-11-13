@@ -1,11 +1,13 @@
-"""The gate: every place a value from outside enters the engine, called a door, and the one exception a door raises.
+"""The gate: every place a value from outside enters the engine, called a door.
 
 A value is checked once, at the door it comes in by. Inside, nothing checks it again. Each door is built once for
 what it reads (a node's outputs, a graph's inputs) and then called with the value from outside::
 
     outputs = compiled_node.return_door(returned)   # {"result": "B!"} for shout returning "B!"
 
-It returns the value as the engine keeps it, or raises ``RefusedError``, whose problems carry the door's code.
+It returns the value as the engine keeps it, or raises ``InvalidCallError``, whose problems carry the door's code. A
+public method lets it reach its caller; compiling keeps its problems in ``graph.problems``, and a run keeps the
+problem as the outcome of the call it belongs to.
 Every door reads values with the validators of ``rules.py``, built there from a type's schema with the rules every
 type is held to (a yes or no is not a number); no module outside the gate builds a validator of a type.
 
@@ -57,7 +59,6 @@ from .hook import read_hook_fields
 from .inputs import InputsDoor, check_limits
 from .raised import AskDoor, undeclared_ask
 from .record import read_json, read_record, record_values
-from .refused import RefusedError
 from .returned import (
     HookOutputs,
     NoOutputs,
@@ -70,7 +71,7 @@ from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
     "AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
-    "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
+    "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
     "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_json", "read_record", "record_values",
     "undeclared_ask", "validator_of",
 ]
