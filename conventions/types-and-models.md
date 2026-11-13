@@ -4,7 +4,7 @@
 
 Never re-check at run time what a parameter's annotation already declares (no `isinstance` guard, `_raise_unless_...` or `checked_...`); when a value's type is uncertain, trace it back to where it enters and make it certain there.
 
-Why: "We HATE defensive programming. We want to fail loudly if something that we didn't expect to happen happens. We also despise redundant None/type/instance checks." "When we construct a NodeDefinition we should 100% know that it's a NodeDefinition."
+Why: a check for a state the types rule out hides the bug that made it, and makes every reader wonder when it happens.
 
 ```python
 def add(self, definition: NodeDefinition) -> None:
@@ -15,7 +15,7 @@ def add(self, definition: NodeDefinition) -> None:
 
 Let an unexpected state raise: no `except Exception: return None`, no silent default and no fallback that turns a fault into a skip.
 
-Why: "We want to fail loudly if something that we didn't expect to happen happens."
+Why: a silent default turns a bug into a wrong result found much later; a loud failure points at the cause.
 
 ```python
 try: return to_json(value)
@@ -27,7 +27,7 @@ return to_json(value)            # good
 
 Split a record whose fields hide an either/or into two types, give no field a `None` or empty value in one of its uses or a union of several types for one thing, and no type two meanings (a path to a node or to an output).
 
-Why: "I see a union of 4 types allowed for field `widget`. Why? That to me indicates a fragmentation upstream."
+Why: a union of several shapes for one field means the shape was not decided where the value is made.
 
 ```python
 class Version: function: Callable | None; graph: GraphRecord | None   # bad
@@ -39,7 +39,7 @@ class SubgraphVersion: graph: GraphRecord
 
 Read text a person sees from what `@node`, `@host_type` or `Param(title=...)` declares, never guess it from a class name, a docstring or `getattr` with a default, and advise in a problem only what is right in every case.
 
-Why: "There should be absolutely *NO* question what the user sees."
+Why: what a person sees must never be guessed from a code name; it is declared where the node or type is.
 
 ```python
 title = getattr(cls, "title", None) or cls.__name__   # bad

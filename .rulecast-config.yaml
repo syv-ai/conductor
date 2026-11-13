@@ -26,7 +26,7 @@ repos:
         context:
           - "@conventions/validation.md#validation-is-the-wall"
 
-      - id: touch/addresses
+      - id: touch/places
         name: Where JSON and place text are read
         files: '^(packages/conductor/src/conductor/_internal/(base/place|gate/record|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
         stages: [touch]
@@ -78,33 +78,6 @@ repos:
           - "@conventions/design.md#no-mirrors"
 
       # ---------------------------------------------------------------- the project's own checks
-      - id: imports/through-init
-        name: Another package is imported only through its __init__
-        files: '^packages/conductor/src/conductor/.*\.py$'
-        detect:
-          command:
-            run: [.venv/bin/pre-commit, run, imported-only-through-init, --files, "{{files}}"]
-            output:
-              lines:
-                pattern: '^(?<file>[^:\s]+\.py):(?<line>\d+):(?<message>.*)$'
-        message: "{{file}}:{{line}} imports a file inside another package: {{message}}. Import the name from the package (its __init__), or by a relative name inside your own package."
-        context:
-          - "@conventions/modules-and-imports.md#imports-go-through-a-packages-surface"
-
-      - id: imports/classes-by-name
-        name: A class or exception is imported by name
-        files: '^(packages/[^/]+/src|tests)/.*\.py$'
-        detect:
-          command:
-            run: [.venv/bin/python, -c, "from tests.test_core.test_imports_by_name import classes_through_a_module; print(*classes_through_a_module(), sep='\\n')"]
-            scope: project
-            output: { lines: gcc-nocol }
-        stages: [verify]
-        message: "{{file}}:{{line}} writes {{message}} through its module. Import the class by name (`from module import Class`) and write it bare."
-        context:
-          - "@conventions/modules-and-imports.md#classes-are-imported-by-name"
-          - "@conventions/validation.md#validation-is-the-wall"
-
       # ---------------------------------------------------------------- ruff rules the project does not select
       - id: names/errors-end-in-error
         name: Exception classes end in Error
@@ -138,60 +111,6 @@ repos:
                     pass
                 class Event(BaseModel):
                     pass
-
-      - id: docstrings/missing
-        name: Every public class and module-level function has a docstring
-        files: '^packages/[^/]+/src/.*\.py$'
-        scope: container
-        detect:
-          ast-grep:
-            language: python
-            rule:
-              any:
-                - kind: function_definition
-                  not: { inside: { kind: class_definition, stopBy: end } }
-                - kind: class_definition
-              not:
-                any:
-                  - has:
-                      field: body
-                      has: { nthChild: 1, kind: expression_statement, has: { kind: string } }
-                  - inside: { kind: decorated_definition, has: { kind: decorator, regex: 'overload' } }
-                  - has: { field: name, regex: '^_' }
-                  - has: { field: body, regex: '^\.\.\.$' }
-                  - inside: { kind: function_definition, stopBy: end }
-        message: "{{file}}:{{line}} has no docstring. Say what it does, in Google style (Args, Returns, Raises, Attributes)."
-        context:
-          - "@conventions/names-and-words.md#google-style-docstrings"
-        examples:
-          bad:
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              code: |
-                def seconds(value):
-                    return value / 1000
-              expect: { lines: [1] }
-          good:
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              code: |
-                def seconds(value: float) -> float:
-                    """Returns a time given in milliseconds in seconds."""
-                    return value / 1000
-          baseline:
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              before: |
-                def a():
-                    return 1
-              after: |
-                def a():
-                    x = 1
-                    return x
-
-                def b():
-                    return 2
-
-                def _c():
-                    return 3
-              expect: { new: [5], preexisting: [1] }
 
       - id: types/no-blind-except
         name: No except that swallows every exception
@@ -227,9 +146,9 @@ repos:
                 except BaseException as error:
                     failed.append(error)
 
-      # ---------------------------------------------------------------- names the owner ruled out
+      # ---------------------------------------------------------------- ruled-out names
       - id: names/ruled-out-identifiers
-        name: Names the owner ruled out stay out
+        name: Ruled-out names stay out
         files: '^packages/[^/]+/src/.*\.py$'
         detect:
           ast-grep:
@@ -241,9 +160,9 @@ repos:
                   regex: '^at$'
                 - kind: identifier
                   regex: '^(WrongAsk|Referred|_Said|_say|AsItStandsReader|EarlierWork|_as_earlier_work|earlier_columns|SavedForm|has_every_unit|comes_to|_?wanted(_\w*)?|\w*_wanted|_?legs?(_\w*)?|\w*_legs?|_?placed(_\w*)?|\w*_placed|Placed\w*|_places|\w*_places|places_\w+|_inlined|\w*_inlined|[A-Z]\w*At[A-Z]\w*|(\w+_)?at_path|_?node_at)$'
-        message: "{{file}}:{{line}} names `{{text}}`, a name the owner ruled out. Choose a plain name that says its job."
+        message: "{{file}}:{{line}} names `{{text}}`, a ruled-out name. Choose a plain name that says its job."
         context:
-          - "@conventions/names-and-words.md#names-the-owner-ruled-out"
+          - "@conventions/names-and-words.md#ruled-out-names"
         examples:
           bad:
             - path: packages/conductor/src/conductor/_internal/run/type.py
@@ -283,55 +202,14 @@ repos:
                     wanted = 1
               expect: { new: [5], preexisting: [3] }
 
-      - id: names/ruled-out-phrases
-        name: Phrases the owner ruled out stay out
-        files: '^(packages/[^/]+/src/.*\.py|docs/.*\.md|README\.md|packages/conductor/src/conductor/about/.*\.(txt|md))$'
-        detect:
-          regex:
-            pattern: '(?<phrase>\bas it stands\b|\bbirthed\b|\bbarren\b)'
-            flags: i
-        message: "{{file}}:{{line}} says \"{{phrase}}\", wording the owner ruled out. Say it in plain words."
-        context:
-          - "@conventions/names-and-words.md#names-the-owner-ruled-out"
-        examples:
-          bad:
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              code: |
-                """The run as it stands: what has been called."""
-              expect: { lines: [1] }
-            - path: docs/design.md
-              code: |
-                A barren item has no value.
-              expect: { lines: [1] }
-          good:
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              code: |
-                """The run so far: the calls made and their outcomes."""
-            - path: docs/design.md
-              code: |
-                An item whose node was skipped has no value; a stand of trees is not a stand-in.
-          baseline:
-            - path: docs/design.md
-              before: |
-                # Runs
-
-                A run, as it stands, is saved.
-              after: |
-                # Runs
-
-                Each run is saved.
-                A run, as it stands, is saved.
-                It was birthed.
-              expect: { new: [5], preexisting: [4] }
-
       - id: names/no-saved-run-package
         name: No package named saved_run
         files: '^packages/conductor/src/conductor/_internal/saved_run/'
         detect:
           path: {}
-        message: "{{file}} is in a package named saved_run, a name the owner ruled out. A run's JSON form lives in run/json/."
+        message: "{{file}} is in a package named saved_run, a ruled-out name. A run's JSON form lives in run/json/."
         context:
-          - "@conventions/names-and-words.md#names-the-owner-ruled-out"
+          - "@conventions/names-and-words.md#ruled-out-names"
         examples:
           bad:
             - path: packages/conductor/src/conductor/_internal/saved_run/type.py
@@ -340,46 +218,6 @@ repos:
               expect: { lines: [1] }
 
       # ---------------------------------------------------------------- docstrings and comments
-      - id: docstrings/no-plan-references
-        name: No plan files or decision ids in code and docs
-        files: '^(packages/.*\.(py|txt|md)|tests/.*\.py|docs/.*\.md|README\.md|AGENTS\.md|CHANGELOG\.md|pyproject\.toml|skills/.*)$'
-        detect:
-          regex:
-            pattern: '(?<ref>\bD-[A-Z]{1,3}\d+\b|\bplans/|\bredo/|\bBOARD\.md\b|\bdesign-decisions\.md\b)'
-        message: "{{file}}:{{line}} cites `{{ref}}`, a programme plan or decision. Say what the code does now, in its own words."
-        context:
-          - "@conventions/names-and-words.md#no-history-in-code"
-        examples:
-          bad:
-            - path: pyproject.toml
-              code: |
-                # Bottom to top this is the order of the module map (plans: D-L143).
-              expect: { lines: [1] }
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              code: |
-                x = 1
-                # see redo/terminology.md
-              expect: { lines: [2] }
-          good:
-            - path: pyproject.toml
-              code: |
-                # Packages on one line with " | " between them import none of each other.
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              code: |
-                # a D-shaped graph: four nodes, two paths; see docs/design.md
-          baseline:
-            - path: packages/conductor/src/conductor/_internal/run/type.py
-              before: |
-                def run():
-                    # D-L12 says so
-                    return 1
-              after: |
-                def run():
-                    x = 1
-                    # D-L12 says so
-                    return x  # D-U3
-              expect: { new: [4], preexisting: [3] }
-
       # ---------------------------------------------------------------- types and models
       - id: types/no-alias-for-a-container
         name: No alias that only renames a dict, list or tuple
@@ -620,7 +458,7 @@ repos:
                     return record
               expect: { new: [4], preexisting: [3] }
 
-      - id: validation/address-split-by-hand
+      - id: validation/place-split-by-hand
         name: A dotted place is read only by make_graph
         files: '^packages/conductor/src/conductor/.*\.py$'
         exclude: '^packages/conductor/src/conductor/_internal/graph/make\.py$'

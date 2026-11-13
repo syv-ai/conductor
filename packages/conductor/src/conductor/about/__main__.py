@@ -19,6 +19,14 @@ Usage: python -m conductor.about [section]
 
 
 def main(argv: list[str]) -> int:
+    """Print the reference, the problems page, the section slugs or one section, as ``argv`` asks.
+
+    Args:
+        argv: The command's arguments, without the program name.
+
+    Returns:
+        The exit code: 0, or 1 when no section matches.
+    """
     if not argv:
         sys.stdout.write(get_content())
         return 0

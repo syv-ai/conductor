@@ -4,18 +4,18 @@
 
 Write every name, docstring and comment so a Python developer who has never seen conductor or its plans reads it right: plain Python words, graph words where one fits, no coined metaphors and no word taken from a plan or word list.
 
-Why: "The language and variable naming is incredibly esoteric." "If we cannot explain it simply, we don't understand it well enough." "There are no settled vocabulary. If there is, do not trust it."
+Why: a name or a sentence that needs the plans to be understood is not understood; if it cannot be said simply, the idea is not clear yet.
 
 ```python
 """Going on is one leg of the run, as it stands."""                                   # bad
 """Whether the run can go on: it has calls left to make and nobody has cancelled it."""  # good
 ```
 
-## Names the owner ruled out
+## Ruled-out names
 
 Never use these names, and rename one on any line you edit: `WrongAsk`, `Referred`, `Placed`/`placed`, `_Said`/`_say`, `_places`, `_inlined`, `listed()`, `comes_to()`, `wanted`, `leg`/`_leg`, `EarlierWork`, `_as_earlier_work`, `earlier_columns`, `FunctionAtPath`, `EmbeddedGraphAtPath`, `at_path`, `node_at`, a parameter `at`, `AsItStandsReader`, "as it stands", `SavedForm`, `has_every_unit()`, a package `saved_run`, "birthed", "barren"; `_hint` only for a type hint, "sentinel" never "mark", and inputs "are" a value, never "hold" it.
 
-Why: "WrongAsk is a pretty bad name." "If we cannot explain it simply, we don't understand it well enough."
+Why: these names were read wrong or said nothing; a plain name says the job.
 
 ```python
 wanted_args, held_args = get_args(target), get_args(source)      # bad
@@ -26,7 +26,7 @@ expected_args, given_args = get_args(target), get_args(source)   # good
 
 Write no host's words (flow, app), imports, access model or concrete types into conductor, and change it for a host's finding only when it holds as a general library need.
 
-Why: "conductor shouldn't be aware of host types at all. The idea is that nodes a built on the host's side." "We would generally prefer to stay in graph terminology whenever possible."
+Why: conductor is a library for any host; a host's words or types in it fit it to one application.
 
 ```python
 def run_flow(flow: FlowRecord) -> None: ...      # bad
@@ -37,7 +37,7 @@ def run_graph(record: GraphRecord) -> None: ...  # good
 
 Name every exception class for what went wrong and end it in `Error`; `Ask` is the one exception.
 
-Why: "it should have an Error suffix so we know this is an actual error (not a hack of errors like Ask is)."
+Why: the suffix tells a reader the class is a real error, unlike `Ask`, which is raised to ask a person.
 
 ```python
 class WrongAsk(Exception): ...         # bad
@@ -48,7 +48,7 @@ class InvalidAskError(Exception): ...  # good
 
 Give every public class and function a Google-style docstring that says what it does, with `Args`, `Returns`, `Raises` and `Attributes` saying what each argument and field is for.
 
-Why: "In general, the docstrings are a mess. Use Google's format consistently in Conductor." "The docstring needs to explain what it does and what the fields do."
+Why: one docstring format, saying what a thing does and what each field means, is what a reader and the reference read.
 
 ```python
 def read_answer(waiting, answer):
@@ -67,7 +67,7 @@ def read_answer(waiting: Waiting, answer: Any) -> dict[str, Any]:
 
 Write code, comments, docstrings and docs in the present tense of what the code does, with no "renamed from", "formerly", "no longer", dates, plan files, decision ids or PR numbers; history goes only in `CHANGELOG.md`.
 
-Why: "We do not want ANY temporal comments or reference to any iterations or past states outside CHANGELOG — and even there, we use it sparingly."
+Why: code says what it does now; its history lives in git and, sparingly, in CHANGELOG.
 
 ```toml
 # The order of the module map (plans: D-L143), with its third row split.        # bad
