@@ -185,7 +185,7 @@ def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> s
     """
     if outputs:
         return f"The graph output '{output}' is '{source}', which its node does not have; it has {comma_separated(outputs)}."
-    return f"The graph output '{output}' is '{source}', and the graph has no node '{source.partition('.')[0]}'."
+    return f"The graph output '{output}' is '{source}', whose node is not in the graph; name an output of a node it has."
 
 
 @PROBLEMS.problem()
