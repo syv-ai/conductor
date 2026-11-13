@@ -213,8 +213,6 @@ def tables_written_once(function_nodes: Iterable[FlatFunctionNode], outcomes: Ma
         if of_node is None:
             continue
         for output, field in node.compiled_node.outputs.items():
-            if not field.whole.may_write_once:
-                continue
             values = of_node.outputs[output]
             for call_number, stored in enumerate(values):
                 table = None if stored is None else field.whole.written_once(stored)

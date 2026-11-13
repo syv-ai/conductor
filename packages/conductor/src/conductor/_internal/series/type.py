@@ -104,11 +104,6 @@ class SeriesType(Type, of=_Series):
                 return self._table, False, None
         return super()._walked(step)
 
-    @functools.cached_property
-    def may_write_once(self) -> bool:  # type: ignore[override]  # decided per item type, where the base has one answer
-        """Whether a Series of this type can be stored as a table: its items are records."""
-        return self._table is not None
-
     def written_once(self, stored: Any) -> Any | None:
         """Returns the table a stored Series is kept as, if it is kept as one; else ``None``."""
         return stored.written_once()

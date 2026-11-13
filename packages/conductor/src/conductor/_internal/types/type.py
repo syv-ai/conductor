@@ -125,13 +125,11 @@ class Type:
 
     Attributes:
         hint: The annotation, with its ``Annotated`` metadata and its type variables as written.
-        may_write_once: Whether ``written_once`` can return an object for a stored value of the type.
         typed_in_advice: Text added to the error for a value of the type that was typed into a graph and has no
             JSON form, saying what to give instead; empty for most types.
     """
 
     hint: Any
-    may_write_once: bool = False
     typed_in_advice: ClassVar[str] = ""
     _made: ClassVar[WeakValueDictionary[Any, Type]] = WeakValueDictionary()
 
