@@ -570,14 +570,15 @@ class _Compiler:
         source = self.nodes.get(address.node)
         if source is None:  # not compiled, or on a cycle and later: a problem of its own says why
             return None
-        outputs = [str(Address(address.node, output)) for output in source.outputs]
         if address.output not in source.outputs:
+            outputs = [str(Address(address.node, output)) for output in source.outputs]
             self.problems.append(compile_problems.unknown_output(node_id, name, source=str(address), outputs=outputs))
             return None
         field = source.outputs[address.output]
         if address.field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
             self.problems.append(compile_problems.unknown_output_make_a_series(
-                node_id, name, source=str(address), outputs=outputs, record_field=address.field, whole=parts[0], fields=parts[1],
+                node_id, name, source=str(address), outputs=[str(Address(address.node, output)) for output in source.outputs],
+                record_field=address.field, whole=parts[0], fields=parts[1],
             ))
             return None
         read_type = field.type if address.field is None else _field_type(field.type, address.field)

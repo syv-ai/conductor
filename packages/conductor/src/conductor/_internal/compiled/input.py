@@ -31,7 +31,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, ClassVar, final
 
-from conductor._internal.base import Path, place_text
+from conductor._internal.base import Path, node_path_text, place_text
 from conductor._internal.field import Field
 from conductor._internal.types import Type
 
@@ -58,6 +58,8 @@ class Edge:
             is then inside the loop over this output, and an item is found by one more item index than
             ``depth``.
         depth: How many loops the node is inside: the number of item indexes that say which call of it.
+        node_name: The path of the node the edge comes from, as text (``"loud/shout"``): the key a run keeps the
+            node's outcomes under.
     """
 
     source: Path
@@ -66,9 +68,11 @@ class Edge:
     type: Type
     item: bool
     depth: int = dataclasses.field(init=False, compare=False, repr=False)
+    node_name: str = dataclasses.field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "depth", len(self.loops))
+        object.__setattr__(self, "node_name", node_path_text(self.source[:-1]))
 
     def __str__(self) -> str:
         """The edge's source as a person reads it: ``"lines.result"``, ``"read.result.email"``,

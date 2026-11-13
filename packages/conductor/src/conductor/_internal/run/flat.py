@@ -383,11 +383,11 @@ def _add_flat_nodes(
                     graph_inputs.append((name, graph_input))
                     continue
                 case EdgeArgument(edges=edges):
-                    read = [(node_path_text(edge.source[:-1]), edge.depth) for edge in edges]
+                    read = [(edge.node_name, edge.depth) for edge in edges]
                     depth = max(len(edge.loops_of_value) for edge in edges)
                 case CollectingArgument(input=collecting_input, series=series, edges=edges, depth=depth):
                     looped_over = series
-                    read = [(series[0].name, depth), *[(node_path_text(edge.source[:-1]), edge.depth) for edge in edges]]
+                    read = [(series[0].name, depth), *[(edge.node_name, edge.depth) for edge in edges]]
                     # what a node inside the loop reads from outside it can say that no item will have a value
                     read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
@@ -489,7 +489,7 @@ def _collecting_argument(
         functions: The function nodes the edges name, by name.
     """
     series_node, output = looped_over
-    loop_body = _loop_body_of(looped_over, [functions[node_path_text(edge.source[:-1])] for edge in edges])
+    loop_body = _loop_body_of(looped_over, [functions[edge.node_name] for edge in edges])
     return CollectingArgument(node_input, looped_over, len(series_node.loops), edges, loop_body)
 
 

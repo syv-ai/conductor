@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final, Literal
 
-from conductor._internal.base import SKIPPED, ItemIndexes, node_path_text
+from conductor._internal.base import SKIPPED, ItemIndexes
 from conductor._internal.compiled import Edge
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import run_problems
@@ -181,7 +181,7 @@ class ResultReader:
         Raises:
             NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
         """
-        depth, node_name, output = edge.depth, node_path_text(edge.source[:-1]), edge.source[-1]
+        depth, node_name, output = edge.depth, edge.node_name, edge.source[-1]
         outcome = self.outcomes[node_name].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
