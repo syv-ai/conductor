@@ -14,7 +14,7 @@ from pydantic import MISSING
 
 from conductor._internal.base import Address
 from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.node import NodeDefinition, declared_inputs
+from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
@@ -49,7 +49,7 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
     for step, older in reversed(steps):
         upgrade = step.upgrade
-        gone = declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()
+        gone = older.declared_inputs.keys() - step.declared_inputs.keys() - upgrade.renamed_inputs.keys()
         inputs = {
             upgrade.renamed_inputs.get(name, name): entry for name, entry in graph.nodes[node_id].inputs.items()
             if not (name in gone and entry.sources is not MISSING)

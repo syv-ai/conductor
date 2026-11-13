@@ -62,7 +62,6 @@ from conductor._internal.node import (
     SubgraphDescription,
     node,
     subgraph,
-    where_declared,
     with_defaults,
 )
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
@@ -251,7 +250,7 @@ class NodeRegistry[C]:
         for definition in definitions:
             held = nodes.get(definition.id)
             if held is not None:
-                raise NodeDeclarationError(declaration_problems.duplicate_node_id(id=definition.id, first=where_declared(held), second=where_declared(definition)))
+                raise NodeDeclarationError(declaration_problems.duplicate_node_id(id=definition.id, first=held.where_declared, second=definition.where_declared))
             nodes[definition.id] = with_defaults(definition, tags=self._tags, category=self._category, extra=self._extra)
         return nodes
 
