@@ -286,13 +286,14 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
 def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: list[str]) -> str:
     """``make_graph`` is given no edges, and cannot wire one of its nodes to the node before it.
 
-    Without ``edges=``, ``make_graph`` wires each node's one required input that has no constant to the one output of
-    the node before it. Pass the edges instead: ``make_graph(upper, greet, edges=[("upper.result", "greet.name")])``.
+    Without ``edges=``, ``make_graph`` wires each node's one required input that has no constant and that no hook
+    reads to the one output of the node before it. Pass the edges instead: ``make_graph(upper, greet,
+    edges=[("upper.result", "greet.name")])``.
 
     Args:
         node_id: The node that cannot be wired.
         before: The node before it.
-        inputs: The required inputs of ``node_id`` that have no constant.
+        inputs: The required inputs of ``node_id`` that have no constant and that no hook reads.
         outputs: The outputs of ``before``.
 
     Example:
@@ -301,6 +302,27 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     return (
         f"'{node_id}' can't follow '{before}' without edges: make_graph wires a node's one required input (it has {comma_separated(inputs)}) "
         f"to the one output of the node before it (that has {comma_separated(outputs)}); pass edges= to make_graph."
+    )
+
+
+@CALL_PROBLEMS.problem("not_a_chain", variant="read_by_a_hook")
+def not_a_chain_read_by_a_hook(node_id: str, /, *, before: str, read_by_hooks: list[str]) -> str:
+    """``make_graph`` is given no edges, and every required input of a node that has no constant is read by a hook.
+
+    A hook reads its inputs when the graph is compiled, so an input it reads takes a constant, and no edge can feed
+    it. Give it a constant, and pass the edges: ``make_graph(upper, pick, edges=[], constants={"pick.names": "a,b"})``.
+
+    Args:
+        node_id: The node that cannot be wired.
+        before: The node before it.
+        read_by_hooks: The required inputs of ``node_id`` that a hook reads and that have no constant.
+
+    Example:
+        refused(lambda: make_graph(upper, pick))
+    """
+    return (
+        f"'{node_id}' can't follow '{before}' without edges: a hook reads {comma_separated(read_by_hooks)} when the graph is compiled, "
+        f"and an input a hook reads takes a constant, which no edge can give; give {comma_separated(read_by_hooks)} a constant and pass edges= to make_graph."
     )
 
 

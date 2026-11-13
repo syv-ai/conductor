@@ -137,7 +137,8 @@ What changes in how you work, before the name-by-name tables:
   (a value for a node it wasn't given, a value with no JSON form, a place that is not `node.name`
   (`not_a_place`), two graph inputs or outputs of one name (`graph_inputs_share_a_name`,
   `graph_outputs_share_a_name`), what the record refuses (`invalid_record`), a chain it can't draw; a chain never wires
-  an input a hook reads, which takes a constant), and an input a
+  an input a hook reads, which takes a constant, and when only such inputs are left `not_a_chain` has the variant `read_by_a_hook`, naming them in
+  `ctx.read_by_hooks`), and an input a
   node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
   `Graph.compile(record, registry).problems`. A record's constants, defaults and
   `display` are JSON values; `make_graph` writes each constant and default as its JSON, a float that isn't

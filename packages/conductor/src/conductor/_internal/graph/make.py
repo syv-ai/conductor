@@ -15,9 +15,9 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import Address
+from conductor._internal.base import REQUIRED, Address
 from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.node import FunctionDefinition, NodeDefinition
+from conductor._internal.node import FunctionDefinition, NodeDefinition, read_by_hooks
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
@@ -206,7 +206,8 @@ def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problem
 
 def _chain_edges(definitions: Mapping[str, NodeDefinition], filled: set[tuple[str, str]], problems: list[Problem]) -> list[tuple[str, str]]:
     """The one edge from each node into the next, given the inputs that already get a constant or a default
-    (``filled``); ``not_a_chain`` added to ``problems`` for each pair without exactly one."""
+    (``filled``); ``not_a_chain`` added to ``problems`` for each pair without exactly one, with the variant
+    ``read_by_a_hook`` when the only required inputs left are ones a hook reads."""
     edges: list[tuple[str, str]] = []
     chain = list(definitions.items())
     for (before_id, before), (after_id, after) in zip(chain, chain[1:], strict=False):
@@ -214,10 +215,14 @@ def _chain_edges(definitions: Mapping[str, NodeDefinition], filled: set[tuple[st
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)
                 open_inputs = [name for name in after.required_inputs if (after_id, name) not in filled]
+                hooked = read_by_hooks(after)
+                needs_constant = [name for name, field in after.inputs.items() if name in hooked and field.default is REQUIRED and (after_id, name) not in filled]
             case _:  # a subgraph's types are known only when it is compiled, so a chain can't be drawn through it
-                outputs, open_inputs = [], []
-        if len(outputs) != 1 or len(open_inputs) != 1:
-            problems.append(call_problems.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
-        else:
+                outputs, open_inputs, needs_constant = [], [], []
+        if len(outputs) == 1 and len(open_inputs) == 1:
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
+        elif not open_inputs and needs_constant:
+            problems.append(call_problems.not_a_chain_read_by_a_hook(after_id, before=before_id, read_by_hooks=needs_constant))
+        else:
+            problems.append(call_problems.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
     return edges
