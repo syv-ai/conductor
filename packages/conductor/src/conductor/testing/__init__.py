@@ -58,7 +58,6 @@ from conductor._internal.node import (
     FunctionDefinition,
     NodeDefinition,
     SubgraphDefinition,
-    declared_inputs,
     read_by_hooks,
 )
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
@@ -162,7 +161,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given:
     if given:
         values = dict(given[0])
     else:
-        values = {name: made for name, field in declared_inputs(older).items() if (made := _made_up(field)) is not _CANNOT}
+        values = {name: made for name, field in older.declared_inputs.items() if (made := _made_up(field)) is not _CANNOT}
     newest = registry[older.id].version
     try:
         record = _one_node_graph(older, values)

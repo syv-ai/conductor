@@ -17,12 +17,7 @@ from pydantic import MISSING
 
 from conductor._internal.base import REQUIRED, Address
 from conductor._internal.gate import RefusedError, read_record, record_values
-from conductor._internal.node import (
-    FunctionDefinition,
-    NodeDefinition,
-    SubgraphDefinition,
-    read_by_hooks,
-)
+from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
@@ -157,7 +152,7 @@ def _graph_inputs(
             place = _place(text, ("inputs", name), list(definitions), problems)
             if place is not None:
                 graph_input_of[(place[0], place[1])] = name
-    open_inputs = [(node_id, name) for node_id, definition in definitions.items() for name in _required_inputs(definition) if (node_id, name) not in filled]
+    open_inputs = [(node_id, name) for node_id, definition in definitions.items() for name in definition.required_inputs if (node_id, name) not in filled]
     automatic = [place for place in dict.fromkeys([*defaulted, *open_inputs]) if place not in graph_input_of]
     counts = Counter([name for _, name in automatic])
     for name, count in counts.items():
@@ -178,38 +173,13 @@ def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str
         if place is not None:
             declared[name] = Address(*place)
     taken = {(address.node, address.output) for address in declared.values()}
-    leaves = [(node_id, output) for node_id, definition in definitions.items() if node_id not in led_out for output in _outputs_of(definition) if (node_id, output) not in taken]
+    leaves = [(node_id, output) for node_id, definition in definitions.items() if node_id not in led_out for output in definition.output_names if (node_id, output) not in taken]
     counts = Counter(output for _, output in leaves)
     for name, count in counts.items():
         if count > 1 or name in declared:
             places = [f"{node_id}.{output}" for node_id, output in leaves if output == name] + ([str(declared[name])] if name in declared else [])
             problems.append(call_problems.graph_outputs_share_a_name("outputs", name, name=name, outputs=places))
     return {**declared, **{output: Address(node_id, output) for node_id, output in leaves if counts[output] == 1 and output not in declared}}
-
-
-def _required_inputs(definition: NodeDefinition) -> list[str]:
-    """The inputs of ``definition`` a caller must give a value for when nothing else does: a function's inputs with no
-    default that no hook reads; a subgraph's graph inputs whose record gives no default."""
-    match definition:
-        case FunctionDefinition():
-            hooked = read_by_hooks(definition)
-            return [name for name, field in definition.inputs.items() if field.default is REQUIRED and name not in hooked]
-        case SubgraphDefinition():
-            names: dict[str, bool] = {}  # each graph input, and whether the record gives it a default
-            for node in definition.graph.nodes.values():
-                for entry in node.inputs.values():
-                    if entry.graph_input is not MISSING:
-                        names[entry.graph_input] = names.get(entry.graph_input, False) or entry.default is not MISSING
-            return [name for name, defaulted in names.items() if not defaulted]
-
-
-def _outputs_of(definition: NodeDefinition) -> list[str]:
-    """The outputs of ``definition``: a function's, a subgraph's graph outputs."""
-    match definition:
-        case FunctionDefinition():
-            return list(definition.outputs)
-        case SubgraphDefinition():
-            return list(definition.graph.outputs)
 
 
 def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problems: list[Problem]) -> dict[str, NodeDefinition]:

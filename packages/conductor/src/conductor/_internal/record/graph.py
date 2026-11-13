@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Annotated
 
-from pydantic import AfterValidator
+from pydantic import MISSING, AfterValidator
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import Address, ConductorModel, Name
@@ -44,3 +44,13 @@ class GraphRecord(ConductorModel):
 
     nodes: Mapping[Name, NodeRecord] = {}
     outputs: Mapping[Name, Annotated[Address, AfterValidator(_whole_output)]] = {}
+
+    @property
+    def required_inputs(self) -> tuple[Name, ...]:
+        """The graph inputs a caller must give: each one that no entry naming it gives a default.
+
+        Two entries may name one graph input; a default on either is the graph input's default.
+        """
+        named = [(entry.graph_input, entry.default is not MISSING) for node in self.nodes.values() for entry in node.inputs.values() if entry.graph_input is not MISSING]
+        defaulted = {name for name, has_default in named if has_default}
+        return tuple(dict.fromkeys(name for name, _ in named if name not in defaulted))

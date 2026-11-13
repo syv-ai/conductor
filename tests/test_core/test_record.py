@@ -726,6 +726,27 @@ def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id_and_the_names_its
     assert [f.field.name for f in graph.describe().nodes["e"].inputs] == ["text"]
 
 
+def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_record_gives_no_default():
+    """``b`` has a default; ``c`` and ``d`` are each named by two entries with a default on one of them, so each has one."""
+    halves = subgraph("halves", title="Halves", description="For a test.")(GraphRecord.model_validate({
+        "nodes": {
+            "x": {"node": "upper", "inputs": {"text": {"graph_input": "a"}}},
+            "y": {"node": "upper", "inputs": {"text": {"graph_input": "b", "default": "b"}}},
+            "z": {"node": "tail", "inputs": {"text": {"graph_input": "c"}}},
+            "w": {"node": "tail", "inputs": {"text": {"graph_input": "c", "default": "c"}}},
+            "u": {"node": "tail", "inputs": {"text": {"graph_input": "d", "default": "d"}}},
+            "v": {"node": "tail", "inputs": {"text": {"graph_input": "d"}}},
+        },
+        "outputs": {"x": {"node": "x", "output": "result"}, "y": {"node": "y", "output": "result"}},
+    }))
+
+    record = make_graph(halves)
+
+    assert record.nodes["halves"].inputs == {"a": InputEntry(graph_input="a")}
+    assert record.outputs == {"x": Address("halves", "x"), "y": Address("halves", "y")}
+    assert Graph.compile(record, registry_of(upper, tail, halves)).run(a="a").outputs == {"x": "A", "y": "B"}
+
+
 def test_a_wrong_address_on_a_subgraph_node_is_a_problem_on_it_and_never_names_an_inner_node():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}, "tail": {"sources": [{"node": "v", "output": "result"}]}}}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "e", "output": "nope"}]}}}, "v": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}), SUBGRAPHS)
 

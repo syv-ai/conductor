@@ -17,7 +17,7 @@ from typing import Any, Literal, Protocol, Self
 from pydantic import JsonValue
 
 from conductor._internal.ask import Ask
-from conductor._internal.base import qualified_name
+from conductor._internal.base import REQUIRED, qualified_name
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
 from conductor._internal.gate import AskedValueDoor, RefusedError, ReturnShape
@@ -124,7 +124,8 @@ class _Version:
     """What every version of a node has, whether it is a function or a subgraph.
 
     Never made on its own: a version is a ``FunctionDefinition`` or a ``SubgraphDefinition``, the two kinds of
-    ``NodeDefinition``.
+    ``NodeDefinition``. Each kind answers ``where_declared``, ``declared_inputs``, ``required_inputs`` and
+    ``output_names`` in its own way, so no caller asks which kind it holds to learn them.
 
     Attributes:
         id: The id a graph names it by. Stored in every graph that uses it, so changing it is a data migration, not
@@ -250,6 +251,28 @@ class FunctionDefinition[**P, R](_Version):
         with an ``Asked`` parameter. An ``Ask`` raised from any other node fails its call (``ask_not_declared``)."""
         return self.asks or self.asked is not None
 
+    @property
+    def where_declared(self) -> str:
+        """Where the function was written, for a message that names the node: ``readme.shout`` for ``def shout`` in
+        the module ``readme``."""
+        return qualified_name(self.function)
+
+    @property
+    def declared_inputs(self) -> Mapping[str, Field]:
+        """The inputs its signature declares, which are ``inputs``."""
+        return self.inputs
+
+    @property
+    def required_inputs(self) -> tuple[str, ...]:
+        """The inputs a graph must give a value to: those with no default that no hook reads."""
+        hooked = read_by_hooks(self)
+        return tuple(name for name, field in self.inputs.items() if field.default is REQUIRED and name not in hooked)
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        """The names of its outputs."""
+        return tuple(self.outputs)
+
     def describe(self) -> FunctionNodeDescription:
         """The node as an editor's palette shows it."""
         return self.described_as(
@@ -273,6 +296,26 @@ class SubgraphDefinition(_Version):
 
     graph: GraphRecord
 
+    @property
+    def where_declared(self) -> str:
+        """Its title and versions, for a message that names the node, as a subgraph has no module: ``the subgraph
+        titled 'Loud lines' (versions 2, 1)``."""
+        return f"the subgraph titled {self.title!r} (versions {', '.join(map(str, self.versions))})"
+
+    @property
+    def declared_inputs(self) -> Mapping[str, Field]:
+        """Empty: a subgraph declares no inputs of its own, as their types are known only when a graph using it is compiled."""
+        return {}
+
+    @property
+    def required_inputs(self) -> tuple[str, ...]:
+        """The graph inputs its record gives no default."""
+        return self.graph.required_inputs
+
+    @property
+    def output_names(self) -> tuple[str, ...]:
+        """The graph outputs its record declares."""
+        return tuple(self.graph.outputs)
 
 
 #: One version of a node: a function, or a subgraph.
@@ -293,28 +336,6 @@ def with_defaults(definition: NodeDefinition, *, tags: tuple[str, ...], category
     if (merged_tags, merged_category, merged_extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
         return definition
     return dataclasses.replace(definition, tags=merged_tags, category=merged_category, extra=MappingProxyType(merged_extra), replaces=replaces)
-
-
-def where_declared(definition: NodeDefinition) -> str:
-    """Returns where a node was written, for a message that names it.
-
-    For ``def shout(...)`` in the module ``readme`` it is ``readme.shout``. A subgraph has no module, so it is its
-    title and versions: ``the subgraph titled 'Loud lines' (versions 2, 1)``.
-    """
-    match definition:
-        case FunctionDefinition():
-            return qualified_name(definition.function)
-        case SubgraphDefinition():
-            return f"the subgraph titled {definition.title!r} (versions {', '.join(map(str, definition.versions))})"
-
-
-def declared_inputs(definition: NodeDefinition) -> Mapping[str, Field]:
-    """The inputs a version declares; a subgraph declares none of its own, its fields being known only when a graph using it loads."""
-    match definition:
-        case FunctionDefinition():
-            return definition.inputs
-        case SubgraphDefinition():
-            return {}
 
 
 def read_by_hooks(definition: FunctionDefinition[..., Any]) -> frozenset[str]:
