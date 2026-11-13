@@ -1,7 +1,7 @@
 """The door for what a node raises: an ``Ask``'s choices and default, checked when it is raised.
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
-The door returns the call's ``Question``, whose overrides for ``result`` are the two choices as the output's type
+The door returns the call's ``Question``, whose choices for ``result`` are the two as the output's type
 reads them (``read_choices`` with the gate's validator of the output), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``InvalidCallError``
 with ``invalid_ask``: a choice is what an answer picks, so each is read strictly from its JSON form, and ``1`` is
 not a ``str``.
@@ -19,7 +19,7 @@ from typing import Any
 from pydantic import JsonValue
 from pydantic_core import PydanticCustomError
 
-from conductor._internal.ask import NOTHING_SET, Ask, Question, QuestionOverrides
+from conductor._internal.ask import Ask, Question
 from conductor._internal.base import REQUIRED, comma_separated
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
@@ -53,21 +53,20 @@ class AskDoor:
         Raises:
             InvalidCallError: See the class.
         """
-        if ask.choices is None and ask.default is REQUIRED:
-            return Question(ask.prompt, inputs, NOTHING_SET)
         outputs = self._outputs
-        overrides: dict[str, QuestionOverrides] = {}
+        choices: dict[str, tuple[Choice, ...]] = {}
+        defaults: dict[str, JsonValue] = {}
         if ask.choices is not None:
-            for name, choices in self._by_output(ask.choices, "choices").items():
+            for name, given in self._by_output(ask.choices, "choices").items():
                 value_type = outputs[name].type  # a Series' choices are its items', so each id is read as one item
                 try:
-                    overrides[name] = {"choices": read_choices(choices, output_validator_of(value_type), value_type.to_json)}
+                    choices[name] = read_choices(given, output_validator_of(value_type), value_type.to_json)
                 except PydanticCustomError as refused:
                     raise InvalidCallError([run_problems.invalid_ask(reason=f"the choices for '{name}' are refused: {refused.message()}")]) from None
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
-                overrides.setdefault(name, {})["default"] = _proposed(outputs[name], default, overrides.get(name, {}).get("choices"))
-        return Question(ask.prompt, inputs, overrides)
+                defaults[name] = _proposed(outputs[name], default, choices.get(name))
+        return Question(ask.prompt, inputs, choices, defaults)
 
     def _by_output(self, given: Any, argument: str) -> dict[str, Any]:
         """One ``Ask`` argument by output name: a lone output's as itself, several outputs' from the mapping given.

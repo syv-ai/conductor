@@ -15,10 +15,7 @@ door (``gate/answer.py``).
 """
 
 from .question import (
-    NOTHING_SET,
     Question,
-    QuestionOverrides,
     answer_required,
-    as_asked,
 )
 from .type import Ask

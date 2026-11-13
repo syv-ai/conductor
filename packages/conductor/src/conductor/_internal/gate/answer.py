@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError
 
-from conductor._internal.ask import QuestionOverrides, as_asked
+from conductor._internal.ask import Question
 from conductor._internal.base import SKIPPED, Loc, comma_separated, validate_as_json
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
@@ -51,31 +51,31 @@ class AnswerDoor:
         self._outputs = outputs
         self._questions = questions
 
-    def __call__(self, answer: Any, overrides: Mapping[str, QuestionOverrides], *, loc: Loc, waiting_id: str) -> dict[str, Any]:
+    def __call__(self, answer: Any, asked: Question, *, loc: Loc, waiting_id: str) -> dict[str, Any]:
         """Returns the outputs the answer fills, by name, read from ``answer``.
 
         Args:
             answer: The answer: a value for one question, a mapping by question name for several.
-            overrides: What the ``Ask`` set on each question, by output name.
+            asked: What the call asked: its ``Ask``'s choices and defaults, by output name.
             loc: Where the call that waits is, for the problems.
             waiting_id: The waiting id the answer was given for, for the problems.
 
         Raises:
             InvalidCallError: See the class.
         """
-        read, faults = self._read(answer, overrides)
+        read, faults = self._read(answer, asked)
         if faults:
             raise InvalidCallError(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason=reason, question=question or None) for question, reason in faults)
         return read
 
-    def _read(self, answer: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
+    def _read(self, answer: Any, asked: Question) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
         """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer."""
         outputs, questions = self._outputs, self._questions
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
-                return {name: answer_value(field, answer, as_asked(field, questions[name], overrides).choices)}, []
+                return {name: answer_value(field, answer, asked.as_asked(field, questions[name]).choices)}, []
             except PydanticCustomError as refused:
                 return {}, [(None, refused.message())]
         if answer is None and not outputs:
@@ -86,16 +86,16 @@ class AnswerDoor:
         read: dict[str, Any] = {}
         groups: dict[str, list[str]] = {}
         for name, field in outputs.items():
-            asked, group = as_asked(field, questions[name], overrides), field.param.exclusive_group
+            question, group = asked.as_asked(field, questions[name]), field.param.exclusive_group
             try:
                 if name in answer:
-                    read[name] = answer_value(field, answer[name], asked.choices)
+                    read[name] = answer_value(field, answer[name], question.choices)
                 elif group is not None:
                     read[name] = SKIPPED
-                elif field.default is SKIPPED and "default" not in overrides.get(name, {}):
+                elif field.default is SKIPPED and name not in asked.defaults:
                     read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
-                elif not asked.required:
-                    read[name] = read_as_answer(field.whole, asked.default)  # its default, else None for a type that takes it
+                elif not question.required:
+                    read[name] = read_as_answer(field.whole, question.default)  # its default, else None for a type that takes it
                 else:
                     faults.append((name, f"'{name}' was not answered"))
             except PydanticCustomError as refused:

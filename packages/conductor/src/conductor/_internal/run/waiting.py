@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath, json_hash
 from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.field import FieldDescription
@@ -60,7 +59,7 @@ def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unans
     asked, outputs = waiting.question, compiled_node.outputs
     return Waiting(
         id=write_waiting_id(loc, question_fingerprint(compiled_node, waiting)), loc=loc, prompt=asked.prompt,
-        questions=[as_asked(outputs[name], question, asked.overrides) for name, question in compiled_node.questions.items()],
+        questions=[asked.as_asked(outputs[name], question) for name, question in compiled_node.questions.items()],
         inputs=asked.inputs,
     )
 

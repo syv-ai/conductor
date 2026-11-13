@@ -319,7 +319,7 @@ class Run[C]:
                 problems.append(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason="the call is answered twice"))
                 continue
             try:
-                read = compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=waiting_id)
+                read = compiled_node.answer_door(one, found.question, loc=loc, waiting_id=waiting_id)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found

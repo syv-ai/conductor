@@ -10,30 +10,13 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Any, TypedDict
+from typing import Any
 
 from pydantic import JsonValue, SerializeAsAny
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.types import Choice
-
-
-class QuestionOverrides(TypedDict, total=False):
-    """What an ``Ask`` sets on one output's question; a key is present only when the ``Ask`` set it.
-
-    Attributes:
-        choices: The choices offered, each id read by the output's type in its JSON form (``read_choices``).
-        default: The proposed answer in its JSON form.
-    """
-
-    choices: tuple[SerializeAsAny[Choice], ...]
-    default: JsonValue
-
-
-#: The overrides of an ``Ask`` that set nothing, shared by every call such an ``Ask`` stops.
-NOTHING_SET: Mapping[str, QuestionOverrides] = MappingProxyType({})
 
 
 @dataclass(slots=True)
@@ -47,15 +30,39 @@ class Question:
     Attributes:
         prompt: What the person reads.
         inputs: What the node received, as JSON.
-        overrides: What the ``Ask`` set on each question, by output name; empty when it set nothing.
+        choices: The choices the ``Ask`` offered, by output name, each id read by the output's type in its JSON form
+            (``read_choices``); an output it set none on is not named.
+        defaults: The answer the ``Ask`` proposed, by output name, in its JSON form; an output it proposed none for is
+            not named.
     """
 
     prompt: str
     inputs: dict[str, Any]
-    overrides: Mapping[str, QuestionOverrides] = dataclasses.field(default_factory=dict)
+    choices: Mapping[str, tuple[SerializeAsAny[Choice], ...]] = dataclasses.field(default_factory=dict)
+    defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
+
+    def as_asked(self, field: Field, question: FieldDescription) -> FieldDescription:
+        """The question about ``field`` as this call asks it: the question its type sets, with the choices and default
+        the ``Ask`` set on it, and ``required`` worked out from them. The questions a host is shown and the answer
+        door both read it.
+
+        ``Ask("Who?", default="bo")`` on ``assign(ticket: str) -> str`` asks ``result`` with ``default="bo"`` and
+        ``required=False``. Where the ``Ask`` set nothing on ``field``, ``question`` itself is returned.
+
+        Args:
+            field: The output the answer fills.
+            question: The question about it as its type sets it (``CompiledFunctionNode.questions``).
+        """
+        name = field.name
+        if name not in self.choices and name not in self.defaults:
+            return question
+        choices = self.choices.get(name, question.choices)
+        default = self.defaults.get(name, question.default)
+        required = answer_required(field, self.defaults, limited=choices is not None)
+        return question.model_copy(update={"choices": choices, "default": default, "required": required})
 
 
-def answer_required(field: Field, overrides: QuestionOverrides, *, limited: bool) -> bool:
+def answer_required(field: Field, defaults: Mapping[str, JsonValue], *, limited: bool) -> bool:
     """Whether an answer must give the question about ``field``. The answer door and the questions a host is shown
     both ask this.
 
@@ -65,29 +72,9 @@ def answer_required(field: Field, overrides: QuestionOverrides, *, limited: bool
 
     Args:
         field: The field the answer fills.
-        overrides: What the ``Ask`` set on its question.
+        defaults: The answers the ``Ask`` proposed, by output name.
         limited: Whether choices, the type's or the ``Ask``'s, limit the answer.
     """
-    defaulted = "default" in overrides or field.default is not REQUIRED
+    defaulted = field.name in defaults or field.default is not REQUIRED
     may_be_none = not field.is_series and field.whole.optional and not limited
     return not defaulted and field.param.exclusive_group is None and not may_be_none
-
-
-def as_asked(field: Field, question: FieldDescription, overrides: Mapping[str, QuestionOverrides]) -> FieldDescription:
-    """The question about ``field`` as a call asks it: the question its type sets, with the choices and default the
-    call's ``Ask`` set on it, and ``required`` worked out from them. The questions a host is shown and the answer door
-    both read it.
-
-    ``Ask("Who?", default="bo")`` on ``assign(ticket: str) -> str`` asks ``result`` with ``default="bo"`` and
-    ``required=False``. Where the ``Ask`` set nothing on ``field``, ``question`` itself is returned.
-
-    Args:
-        field: The output the answer fills.
-        question: The question about it as its type sets it (``CompiledFunctionNode.questions``).
-        overrides: What the ``Ask`` set, by output name.
-    """
-    set_here = overrides.get(field.name)
-    if set_here is None:
-        return question
-    limited = set_here.get("choices", question.choices) is not None
-    return question.model_copy(update={**set_here, "required": answer_required(field, set_here, limited=limited)})
