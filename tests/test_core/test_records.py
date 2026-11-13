@@ -265,20 +265,24 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]
 
 
-def test_a_table_argument_is_written_once_however_often_its_fingerprint_is_taken(monkeypatch: MonkeyPatch) -> None:
-    from conductor._internal.run.reuse import arguments_fingerprint
+def test_a_table_is_written_once_however_often_it_is_hashed_and_hashes_by_its_cells(monkeypatch: MonkeyPatch) -> None:
+    from conductor._internal.base import json_hash
     from conductor._internal.table import write
+    from conductor._internal.types import untyped_to_hash
 
     written: list[int] = []
     as_written = write.written_table
     monkeypatch.setattr(write, "written_table", lambda frame: written.append(1) or as_written(frame))
     frame = pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})
 
-    first = arguments_fingerprint("code", {"table": frame, "n": 1})
-    assert arguments_fingerprint("code", {"table": frame, "n": 1}) == first and len(written) == 1
-    assert arguments_fingerprint("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}), "n": 1}) == first  # by its cells
-    assert arguments_fingerprint("code", {"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}), "n": 1}) != first
-    assert arguments_fingerprint("code", {"table": frame.rename({"age": "years"}), "n": 1}) != first
+    def hashed(table: pl.DataFrame) -> str:
+        return json_hash(["code", {"table": table, "n": 1}], 12, fallback=untyped_to_hash)
+
+    first = hashed(frame)
+    assert hashed(frame) == first and len(written) == 1
+    assert hashed(pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})) == first  # by its cells
+    assert hashed(pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]})) != first
+    assert hashed(frame.rename({"age": "years"})) != first
 
 
 # -- a table two outputs share is written once in a saved run------------------------------------------------

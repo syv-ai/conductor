@@ -108,12 +108,11 @@ def saved_run(run: Run) -> SavedRun:
         for path, node in function_nodes.items() if run._outcomes[path]
     }
     reusable = {}
-    for path, of_node in run._reusable.items():
-        if of_node.by_fingerprint or of_node.answers:
-            name = names[path]
-            reusable[name] = saved_reusable(codec.reusable_classes[name], codec.outcomes_classes[name], function_nodes[path].compiled_node.outputs, of_node)
+    for path, node in function_nodes.items():
+        if path in run._reusable.done or path in run._reusable.answers:  # every outcome in done_by_call is in done too
+            reusable[names[path]] = saved_reusable(codec.reusable_classes[names[path]], codec.outcomes_classes[names[path]], node.compiled_node.outputs, run._reusable, path)
     code = {
-        names[path]: run._code_changed.get(path) or node.compiled_node.code_fingerprint
+        names[path]: run._reusable.code_changed.get(path) or node.compiled_node.code_fingerprint
         for path, node in function_nodes.items() if names[path] in outcomes or names[path] in reusable
     }
     return codec.model_construct(
@@ -226,7 +225,7 @@ def tables_written_once(function_nodes: Iterable[FlatFunctionNode], outcomes: Ma
 
 
 def saved_reusable(
-    saved_class: type[SavedReusable], outcomes_class: type[SavedOutcomes], outputs: Mapping[str, Field], reusable: ReusableOutcomes,
+    saved_class: type[SavedReusable], outcomes_class: type[SavedOutcomes], outputs: Mapping[str, Field], reusable: ReusableOutcomes, path: NodePath,
 ) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run as a saved run writes them, each outcome once.
 
@@ -238,18 +237,20 @@ def saved_reusable(
         saved_class: The codec's class for the node's reusable outcomes.
         outcomes_class: The codec's class for the node's outcomes.
         outputs: The outputs of the node, by name.
-        reusable: The outcomes the node may reuse.
+        reusable: The run's reusable outcomes.
+        path: The node's path.
     """
-    outcomes: list[Outcome | None] = [done for _, done in reusable.by_item_indexes.values()]
-    fingerprints = [fingerprint for fingerprint, _ in reusable.by_item_indexes.values()]
-    item_indexes = dict(enumerate(reusable.by_item_indexes))
-    already_saved = set(fingerprints)  # by_fingerprint has these outcomes too: the first call that got those arguments
-    for fingerprint, done in reusable.by_fingerprint.items():
+    done_by_call = reusable.done_by_call.get(path, {})
+    outcomes: list[Outcome | None] = [done for _, done in done_by_call.values()]
+    fingerprints = [fingerprint for fingerprint, _ in done_by_call.values()]
+    item_indexes = dict(enumerate(done_by_call))
+    already_saved = set(fingerprints)  # ``done`` has these outcomes too: the first call that got those arguments
+    for fingerprint, done in reusable.done.get(path, {}).items():
         if fingerprint not in already_saved:
             outcomes.append(done)
             fingerprints.append(fingerprint)
     outer_item_fingerprints: dict[int, str] = {}
-    for (fingerprint, outer_items_fingerprint), answers in reusable.answers.items():
+    for (fingerprint, outer_items_fingerprint), answers in reusable.answers.get(path, {}).items():
         for outcome in answers:
             if outer_items_fingerprint:
                 outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint

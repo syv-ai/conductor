@@ -1,7 +1,7 @@
 """Reads a run from the JSON that ``run.to_json()`` wrote.
 
 ``run_from_json`` is the door. The graph's codec validates the whole text: every key and every value. Then
-``outcomes_from_saved`` and ``reusable_from_saved`` turn each node's saved lists into what a run keeps in memory, and
+``outcomes_from_saved`` and ``add_reusable_from_saved`` turn each node's saved lists into what a run keeps in memory, and
 ``run_from_json`` checks what only the lists together can show: that the lists of each node are as long as its calls,
 and that a table written once is found where its entry says.
 """
@@ -9,6 +9,7 @@ and that a table written once is found where its entry says.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import assert_never
 
 from pydantic import ValidationError
 
@@ -69,7 +70,11 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
         reason = value_free_errors(error)[0]["msg"]
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where_in(codec, first["loc"]), reason=reason)]) from None
     in_call_order: dict[NodePath, list[Outcome | None]] = {}
-    reused: dict[NodePath, ReusableOutcomes] = {}
+    code_changed = {
+        path: fingerprint for name, fingerprint in read.code.items()
+        if fingerprint != flat.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
+    }
+    reusable = ReusableOutcomes(code_changed=code_changed)
     try:
         for name, saved_outcomes in read.outcomes.items():
             where, path = f"outcomes.{name}", parse_node_path(name)
@@ -78,7 +83,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             where, path = f"reusable.{name}.outcomes", parse_node_path(name)
             reusable_in_call_order = outcomes_from_saved(flat.function_nodes[path].compiled_node.outputs, saved_reusable.outcomes)
             where = f"reusable.{name}"
-            reused[path] = reusable_from_saved(saved_reusable, reusable_in_call_order)
+            add_reusable_from_saved(reusable, path, saved_reusable, reusable_in_call_order)
     except ValueError as wrong:
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]) from None
     _share_tables_written_once(flat, in_call_order, read.tables_written_once)
@@ -93,14 +98,9 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             outcomes[path] = {
                 item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True) if outcome is not None
             }
-    code_changed = {
-        path: fingerprint for name, fingerprint in read.code.items()
-        if fingerprint != flat.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
-    }
-    # outcomes that other code produced are never reused
-    reusable = {path: of_node for path, of_node in reused.items() if path not in code_changed}
+    reusable.drop(code_changed)  # outcomes that other code produced are never reused
     return run_type(
-        graph, read.inputs, read.max_items, outcomes, reusable, state=read.state, _code_changed=code_changed,
+        graph, read.inputs, read.max_items, outcomes, reusable, state=read.state,
         _finished_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
 
@@ -195,14 +195,15 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[NodePath, list
             raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where="tables_written_once", reason=reason)]) from None
 
 
-def reusable_from_saved(saved: SavedReusable, in_call_order: list[Outcome | None]) -> ReusableOutcomes:
-    """Returns the outcomes one node may reuse from the previous run, from their saved shape.
+def add_reusable_from_saved(reusable: ReusableOutcomes, path: NodePath, saved: SavedReusable, in_call_order: list[Outcome | None]) -> None:
+    """Adds the outcomes one node may reuse from the previous run to ``reusable``, from their saved shape.
 
-    The three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}`` come back as a
-    ``ReusableOutcomes`` that has each of them twice: by the item indexes its call had, and by the fingerprint
-    of its call's arguments.
+    The three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}`` are added each
+    twice: by the item indexes its call had, and by the fingerprint of its call's arguments.
 
     Args:
+        reusable: The run's reusable outcomes, added to.
+        path: The node's path.
         saved: The saved outcomes and what identifies each.
         in_call_order: ``saved.outcomes`` as ``outcomes_from_saved`` returned them.
 
@@ -213,14 +214,11 @@ def reusable_from_saved(saved: SavedReusable, in_call_order: list[Outcome | None
     if len(saved.fingerprints) != len(in_call_order):
         raise ValueError("'fingerprints' is not as long as the lists of 'outcomes'")
     item_indexes, outer_item_fingerprints = saved.item_indexes, saved.outer_item_fingerprints
-    reusable = ReusableOutcomes()
     for place, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, in_call_order, strict=True)):
-        if type(outcome) is Done:
-            reusable.by_fingerprint.setdefault(fingerprint, outcome)
-            if place in item_indexes:
-                reusable.by_item_indexes[item_indexes[place]] = (fingerprint, outcome)
-        elif type(outcome) is Answered or type(outcome) is Unanswered:
-            reusable.answers.setdefault((fingerprint, outer_item_fingerprints.get(place, "")), []).append(outcome)
-        else:
-            raise ValueError("an outcome is skipped, not called or missing, and only an outcome of a call is reused")
-    return reusable
+        match outcome:
+            case Done() | Answered() | Unanswered():
+                reusable.add(path, fingerprint, outcome, item_indexes=item_indexes.get(place), outer_items=outer_item_fingerprints.get(place, ""))
+            case Skipped() | NoneInput() | None:
+                raise ValueError("an outcome is skipped, not called or missing, and only an outcome of a call is reused")
+            case _:
+                assert_never(outcome)

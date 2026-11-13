@@ -18,9 +18,9 @@ from __future__ import annotations
 import dataclasses
 from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, assert_never, cast, overload
+from typing import TYPE_CHECKING, Any, overload
 
 from conductor._internal.base import (
     ConductorModel,
@@ -44,19 +44,13 @@ from .flat import FlatFunctionNode, FlatGraph, outcome_loc
 from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
-    Done,
     NoneInput,
     Outcome,
-    Skipped,
     Unanswered,
 )
 from .progress import Progress, progress_of
 from .results import outputs_of, results_of
-from .reuse import (
-    ReusableOutcomes,
-    arguments_fingerprint,
-    outer_items_fingerprint,
-)
+from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
 from .state import (
     READY,
@@ -117,11 +111,9 @@ class Run[C]:
     #: node of the graph itself, ``_outcomes[("e", "ask")]`` for one inside ``e``. Only the scheduler writes out of that
     #: order, and it sorts them again before it hands the run on.
     _outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]
-    #: What each node may take from the run this one went on from.
-    _reusable: dict[NodePath, ReusableOutcomes]
+    #: The outcomes of the run this one went on from that its calls may reuse.
+    _reusable: ReusableOutcomes
     state: RunState = READY
-    #: For a node whose outcomes a saved run made with other code or another signature, what that code was; a later run never reuses them.
-    _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes whose every call was finished when the run was last resumed, so a later resume doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
 
@@ -368,54 +360,8 @@ class Run[C]:
         if unknown:
             raise InvalidCallError([call_problems.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        for path in [path for path in fresh._reusable if path[0] in node_ids]:  # a subgraph's id forgets every node inside it
-            del fresh._reusable[path]
+        fresh._reusable.drop({path for path in self._flat.function_nodes if path[0] in node_ids})  # a subgraph's id forgets every node inside it
         return fresh
-
-    def _reusable_outcomes(self, into: FlatGraph) -> dict[NodePath, ReusableOutcomes]:
-        """What a run going on from this one may take, by node: each node's finished and waiting calls, in
-        item order, then the outcomes this run carried from the previous run and did not take.
-
-        ``into`` is the flat graph of the graph the new run is of, this run's or another's. Only the nodes it has
-        as they are here (by ``code_fingerprint``) are kept: the others' outcomes could never be taken there, and kept
-        they would only make its save larger.
-        """
-        work: dict[NodePath, ReusableOutcomes] = {}
-        reader = self._reader
-        for node in self._flat.function_nodes.values():
-            if not node.policy.reuse_when_inputs_match or node.node_path in self._code_changed:
-                continue
-            compiled_node = node.compiled_node
-            of_node = work[node.node_path] = ReusableOutcomes()
-            for item_indexes, outcome in self._outcomes[node.node_path].items():
-                match outcome:
-                    case Skipped() | NoneInput():  # the node was not called for the item, so there is nothing to reuse
-                        continue
-                    case Done() | Answered() | Unanswered():  # the node was called, so its arguments are settled
-                        arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))
-                        fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments)
-                    case _:
-                        assert_never(outcome)
-                if fingerprint is None:
-                    continue
-                match outcome:
-                    case Done():
-                        of_node.by_item_indexes[item_indexes] = (fingerprint, outcome)
-                        of_node.by_fingerprint.setdefault(fingerprint, outcome)
-                    case Answered() | Unanswered():
-                        of_node.answers.setdefault((fingerprint, outer_items_fingerprint(self._outcomes, node, item_indexes)), []).append(outcome)
-        for path, unused in self._reusable.items():  # the outcomes this run carried from the previous run and did not take
-            of_node = work.setdefault(path, ReusableOutcomes())
-            for fingerprint, done in unused.by_fingerprint.items():
-                of_node.by_fingerprint.setdefault(fingerprint, done)
-            for asked, answers in unused.answers.items():
-                of_node.answers.setdefault(asked, []).extend(answers)
-        ours, theirs = self._flat.function_nodes, into.function_nodes
-        return {
-            path: of_node for path, of_node in work.items()
-            if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(path)) is not None
-            and there.compiled_node.code_fingerprint == ours[path].compiled_node.code_fingerprint
-        }
 
     def again(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, context: C | None = None,
@@ -538,19 +484,16 @@ class Run[C]:
         return run_to_json(self)
 
     def _copy(self, *, share_outcomes: bool = False) -> Run[C]:
-        """A copy to change: its own outcomes to write into and its own outcomes of the previous run to take from;
-        or with ``share_outcomes`` this run's dicts of outcomes, for a caller that replaces whole nodes and takes
-        nothing.
+        """A copy to change: its own outcomes to write into and its own reusable outcomes to take from; or with
+        ``share_outcomes`` this run's dict of outcomes for each node and its reusable outcomes, for a caller that
+        replaces whole nodes and takes nothing.
 
         Args:
-            share_outcomes: Whether the copy shares this run's dict of outcomes for each node.
+            share_outcomes: Whether the copy shares this run's dict of outcomes for each node and its reusable outcomes.
         """
         if share_outcomes:
-            outcomes, previous = dict(self._outcomes), dict(self._reusable)
-        else:  # its own answers to take, as this run holds them too
-            outcomes = {name: dict(held) for name, held in self._outcomes.items()}
-            previous = {path: ReusableOutcomes(of_node.by_item_indexes, of_node.by_fingerprint, {asked: list(left) for asked, left in of_node.answers.items()}) for path, of_node in self._reusable.items()}
-        return dataclasses.replace(self, _outcomes=outcomes, _reusable=previous)
+            return dataclasses.replace(self, _outcomes=dict(self._outcomes))
+        return dataclasses.replace(self, _outcomes={name: dict(held) for name, held in self._outcomes.items()}, _reusable=self._reusable.copy())
 
 
 RunEnd.model_rebuild(_types_namespace={"Run": Run})
@@ -563,4 +506,4 @@ def make_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, 
     that run's outcomes (``Run.with_inputs``)."""
     flat = graph._flat
     outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {path: {} for path in flat.function_nodes}
-    return Run(graph, inputs, max_items, outcomes, previous._reusable_outcomes(into=flat) if previous is not None else {})
+    return Run(graph, inputs, max_items, outcomes, ReusableOutcomes.from_run(previous, into=flat) if previous is not None else ReusableOutcomes())

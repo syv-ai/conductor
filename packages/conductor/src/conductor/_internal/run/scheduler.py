@@ -93,7 +93,7 @@ from .outcome import (
     Unanswered,
 )
 from .progress import all_item_indexes, has_every_outcome, length
-from .reuse import ReusableOutcomes, reused_outcome
+from .reuse import ReusableOutcomes
 from .state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
 
 #: The exceptions of a call that is never retried, whatever the ``retry_on`` of its ``Policy`` names: the node's
@@ -204,7 +204,7 @@ class Scheduler:
         nodes: list[FlatFunctionNode],
         threads: int,
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
-        reusable: dict[NodePath, ReusableOutcomes],
+        reusable: ReusableOutcomes,
         finished: frozenset[NodePath],
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
@@ -221,8 +221,8 @@ class Scheduler:
             threads: How many pool threads the graph needs: the sum of ``concurrency`` over its nodes that are
                 called on threads.
             outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
-            reusable: The outcomes of an earlier run that each node may take, by node path. The scheduler removes
-                what is taken and what can no longer be taken.
+            reusable: The outcomes of the previous run that a call may reuse. The scheduler takes out the answers it
+                reuses and drops a node's outcomes once the node is complete.
             finished: The node paths of the nodes that were complete when the run was last resumed.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
@@ -281,7 +281,7 @@ class Scheduler:
         self.timer_order = itertools.count()
 
         # 3. Reusing answers in item order.
-        #: The outcomes of an earlier run that each node may take, by node path.
+        #: The outcomes of the previous run that a call may reuse.
         self.reusable = reusable
         #: How far each node that takes a person's earlier answers has been tried in item order.
         self.answer_orders: dict[FlatFunctionNode, _AnswerOrder] = {}
@@ -402,13 +402,7 @@ class Scheduler:
         policy = node.policy
         if not isinstance(arguments, dict):  # a Skipped or NoneInput outcome
             self._record(node, item_indexes, arguments, trying_every_call)
-        elif (
-            (reusable := self.reusable)
-            and policy.reuse_when_inputs_match
-            and (of_node := reusable.get(node.node_path)) is not None
-            and (previous := reused_outcome(of_node, node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes)))
-            is not None
-        ):
+        elif (previous := self.reusable.take(node, item_indexes, arguments, self.all_outcomes, lambda: self._in_turn(node, item_indexes))) is not None:
             if previous is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True
                 return
@@ -568,16 +562,14 @@ class Scheduler:
                 unfinished.add(node)
         if self.going and not waiting and not unfinished:
             self.state, self.finished = COMPLETE, frozenset(node.node_path for node in self.nodes)
-            self.reusable.clear()
         elif self.going and not waiting and not self.only_costs_nothing:
             lacking = sorted(node.node_path for node in unfinished)
             raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
         else:
             self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
-            for path in [path for path in self.reusable if path in self.finished]:  # a complete node has no call left to take them
-                del self.reusable[path]
             if self.going:
                 self.state = WAITING if waiting else READY
+        self.reusable.drop(self.finished)  # a complete node has no call left to take them
         if self.node_events is not None:
             self.node_events.scheduler_ended()
 
