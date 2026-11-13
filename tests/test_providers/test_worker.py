@@ -21,7 +21,6 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeError,
-    NodeRecord,
     NodeRegistry,
     Run,
     Series,
@@ -68,7 +67,7 @@ async def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
 
     run_id = await _started(_worker(store, registry), make_graph(edges), {"x": 1})
 
-    assert (await store.ended(run_id)).outputs == {"edges.result": ["Infinity", "-Infinity", "NaN", 1.0]}
+    assert (await store.ended(run_id)).outputs == {"result": ["Infinity", "-Infinity", "NaN", 1.0]}
 
 
 @host_type("cents", title="Cents")
@@ -98,11 +97,11 @@ async def test_an_output_only_its_own_type_can_write_completes_as_it_does_in_the
     def prices(cents: int) -> Series[Cents]:
         return [Cents(cents), Cents(cents + 1)]
 
-    graph = GraphRecord(nodes=[NodeRecord(id="price", node="price"), NodeRecord(id="prices", node="prices")])
-    run_id = await _started(_worker(store, registry), graph, {"price.cents": 5, "prices.cents": 7})
+    graph = make_graph(price, prices, edges=[], inputs={"price": "price.cents", "prices": "prices.cents"}, outputs={"price": "price.result", "prices": "prices.result"})
+    run_id = await _started(_worker(store, registry), graph, {"price": 5, "prices": 7})
 
     ended = await store.ended(run_id)
-    assert (ended.status, ended.outputs, ended.cause) == ("complete", {"price.result": 5, "prices.result": [7, 8]}, None)
+    assert (ended.status, ended.outputs, ended.cause) == ("complete", {"price": 5, "prices": [7, 8]}, None)
 
 
 class Part(TypedDict):
@@ -124,7 +123,7 @@ async def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> Non
 
     ended = await store.ended(run_id)
     columns = [{"columns": [{"name": "text", "type": "str", "values": [text]}]} for text in ("a", "b")]
-    assert (ended.status, ended.outputs) == ("complete", {"as-table.result": columns})
+    assert (ended.status, ended.outputs) == ("complete", {"result": columns})
 
 
 # -- an item limit, a resume ----------------------------------------------------------------------
@@ -156,7 +155,7 @@ async def test_a_run_stopped_at_its_item_limit_says_why_and_is_resumed_at_the_sa
     assert (await store.ended(run_id)).status == "stopped"
     await worker.resume(await worker.read(run_id), max_items=2)
     completed = await store.ended(run_id)
-    assert completed.outputs == {"up.result": ["A", "B"]}
+    assert completed.outputs == {"result": ["A", "B"]}
     assert completed.cause is None and (await last_end())["cause"] is None
 
 
@@ -231,7 +230,7 @@ async def test_only_a_run_whose_last_resume_call_ended_early_is_resumed(status: 
 
 async def test_a_cancel_reaches_the_resume_call_that_an_answer_queued_during_the_previous_one_started() -> None:
     registry, graph, gates, calls = gated()
-    inputs = {"items.text": "a,b", "busy.text": "x", "approve.text": "y"}
+    inputs = {"csv": "a,b", "text": "x", "question": "y"}
     for gate in ("first", "second"):
         gates[gate].set()
     (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
@@ -255,7 +254,7 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     registry, graph, gates, calls = gated()
     for gate in gates.values():
         gate.set()
-    run = Graph.compile(graph, registry).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    run = Graph.compile(graph, registry).run({"csv": "a,b", "text": "x", "question": "y"})
     answered = run.answer({run.waiting[0].id: True})
     calls.clear()
     store = MemoryStore()
@@ -304,7 +303,7 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
     assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
     assert await worker.answer(waiting, {waiting_id: True}) == "started"
     completed = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
-    assert RunView.of(completed).outputs == {"busy.result": "x", "after.result": True}
+    assert RunView.of(completed).outputs == {"busy": "x", "after": True}
 
 
 # -- answers --------------------------------------------------------------------------------------
@@ -339,7 +338,7 @@ async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_r
     assert [(problem.type, problem.ctx) for problem in twice.value.problems] == [("already_answered", {"waiting_id": waiting_id})]
 
     gate.set()
-    assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
+    assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
     with pytest.raises(RefusedError) as complete:
         await worker.answer(await worker.read(run_id), {})
     assert [problem.type for problem in complete.value.problems] == ["run_complete"]
@@ -364,7 +363,7 @@ async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_lon
         gate.set()
         ended = await store.ended(run_id)
 
-    assert (ended.status, ended.refused, ended.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
+    assert (ended.status, ended.refused, ended.outputs) == ("complete", {}, {"busy": "x", "after": True})
     assert await _resume_calls(store, run_id) == 2
 
 
@@ -419,7 +418,7 @@ async def test_an_answer_queued_just_before_a_resume_call_writes_its_end_starts_
     run_id = await _started(worker, graph, inputs)
     ended = await store.ended(run_id)
 
-    assert store.answered and (ended.status, ended.refused, ended.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
+    assert store.answered and (ended.status, ended.refused, ended.outputs) == ("complete", {}, {"busy": "x", "after": True})
     assert [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"] == ["waiting", "complete"]
 
 
@@ -516,7 +515,7 @@ async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_an
 
     await worker.resume(await worker.read("left"))
     completed = await store.ended("left")  # the resume call after the resume ended waiting, and took the answer queued two resume calls before
-    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
+    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy": "x", "after": True})
 
 
 async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_question() -> None:
@@ -534,7 +533,7 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
 
     assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
     completed = await store.ended(run_id)
-    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy.result": "x", "after.result": True})
+    assert (completed.status, completed.refused, completed.outputs) == ("complete", {}, {"busy": "x", "after": True})
 
 
 @host_type("fragile", title="Fragile")
@@ -554,7 +553,7 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
     registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
 
     @registry.node("ask", title="Ask", description="For a test.", asks=True)
-    def ask(text: str) -> Fragile:
+    def ask(question: str) -> Fragile:
         raise Ask("Which?")
 
     @registry.node("busy", title="Busy", description="For a test.")
@@ -562,8 +561,8 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
         gate.wait(5)
         return text
 
-    graph = GraphRecord(nodes=[NodeRecord(id="ask", node="ask"), NodeRecord(id="busy", node="busy")])
-    inputs = {"ask.text": "y", "busy.text": "x"}
+    graph = make_graph(ask, busy, edges=[], outputs={"ask": "ask.result", "busy": "busy.result"})
+    inputs = {"question": "y", "text": "x"}
     gate.set()
     (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
     gate.clear()
@@ -587,7 +586,7 @@ async def test_a_cancel_given_a_run_read_before_its_resume_call_started_cancels_
     store = MemoryStore()
     worker = _worker(store, registry)
 
-    run_id = await _started(worker, graph, {"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    run_id = await _started(worker, graph, {"csv": "a,b", "text": "x", "question": "y"})
     gates["first"].set()
     waiting = await store.ended(run_id)
     read_while_it_waited = await worker.read(run_id)
@@ -606,7 +605,7 @@ def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], 
     registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "in_second", "second")}, []
 
     @registry.node("approve", title="Approve", description="For a test.", asks=True)
-    def approve(text: str) -> bool:
+    def approve(question: str) -> bool:
         raise Ask("Go on?")
 
     @registry.node("one", title="One", description="For a test.")
@@ -627,9 +626,8 @@ def _asked_beside_a_chain() -> tuple[NodeRegistry, GraphRecord, dict[str, Any], 
         calls.append("three")
         return text
 
-    nodes = [NodeRecord(id=name, node=name) for name in ("approve", "one", "two", "three")]
-    graph = GraphRecord(nodes=nodes, edges=[("one.result", "two.text"), ("two.result", "three.text")])
-    inputs = {"approve.text": "y", "one.text": "x"}
+    graph = make_graph(approve, one, two, three, edges=[("one.result", "two.text"), ("two.result", "three.text")], outputs={"approve": "approve.result", "three": "three.result"})
+    inputs = {"question": "y", "text": "x"}
     for gate in gates.values():
         gate.set()
     (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
@@ -748,7 +746,7 @@ async def test_a_resume_call_the_store_raises_in_is_given_up_and_the_run_is_resu
         ended = await store.ended(run_id)  # once the lease ran out and a sweep took the run
 
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
-    assert (ended.status, ended.cause, ends, ended.outputs) == ("complete", None, ["complete"], {"slow.result": list(range(40))})
+    assert (ended.status, ended.cause, ends, ended.outputs) == ("complete", None, ["complete"], {"result": list(range(40))})
     assert await _resume_calls(store, run_id) == 2
 
 
@@ -806,7 +804,7 @@ async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls
     registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
 
     @registry.node("approve", title="Approve", description="For a test.", asks=True)
-    def approve(text: str) -> bool:
+    def approve(question: str) -> bool:
         raise Ask("Go on?")
 
     @registry.node("busy", title="Busy", description="For a test.")
@@ -818,9 +816,8 @@ async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls
     def opaque(text: str) -> Opaque:
         return Opaque()
 
-    nodes = [NodeRecord(id=name, node=name) for name in ("approve", "busy", "opaque")]
-    graph = GraphRecord(nodes=nodes, edges=[("busy.result", "opaque.text")])
-    run_id = await _started(_worker(store, registry, checkpoint_every=0.01), graph, {"approve.text": "y", "busy.text": "x"})
+    graph = make_graph(approve, busy, opaque, edges=[("busy.result", "opaque.text")], outputs={"approve": "approve.result", "opaque": "opaque.result"})
+    run_id = await _started(_worker(store, registry, checkpoint_every=0.01), graph, {"question": "y", "text": "x"})
     await asyncio.sleep(0.05)  # a checkpoint is due by the time the busy step ends
     gate.set()
     failed = await store.ended(run_id)
@@ -1058,7 +1055,7 @@ async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_th
     assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
 
     await second.sweep()
-    assert (await store.ended(run_id)).outputs == {"slow.result": list(range(40))}
+    assert (await store.ended(run_id)).outputs == {"result": list(range(40))}
     events = [event["type"] for event in await store.stored_events(run_id)]
     assert (events.count("run_start"), events.count("run_end"), events[-1]) == (2, 1, "run_end")
     assert sorted(calls) == list(range(40))
@@ -1146,7 +1143,7 @@ async def test_a_worker_whose_renewal_never_returns_stops_once_another_took_the_
         # leaving ``hung.serving()`` waits for its resume call, which ends only once it learns it lost the run
 
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
-    assert (ended.status, ends, ended.outputs) == ("complete", ["complete"], {"slow.result": list(range(40))})
+    assert (ended.status, ends, ended.outputs) == ("complete", ["complete"], {"result": list(range(40))})
     assert len(calls) < 2 * 40  # the resume call that lost the run stopped before it had called everything again
 
 
@@ -1178,7 +1175,7 @@ async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the
         ended = await store.ended(run_id)  # once the lease the deployed worker left ran out
 
     ends = [event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"]
-    assert (ended.status, ended.cause, ends, ended.outputs) == ("complete", None, ["complete"], {"slow.result": list(range(40))})
+    assert (ended.status, ended.cause, ends, ended.outputs) == ("complete", None, ["complete"], {"result": list(range(40))})
 
 
 async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_worker_has_shut_down() -> None:
@@ -1235,7 +1232,7 @@ async def test_a_sweep_that_raises_is_logged_and_the_next_one_takes_the_run(fail
     async with worker.serving():
         ended = await store.ended("left")
 
-    assert ended.outputs == {"shout.result": "A"}
+    assert ended.outputs == {"result": "A"}
     logged = [record.exc_info is not None for record in caplog.records if record.name == "conductor_providers.fastapi"]
     assert logged and all(logged)
 
@@ -1291,7 +1288,7 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
     registry, graph, gates, calls = gated()
     for gate in gates.values():
         gate.set()
-    run = Graph.compile(graph, registry).run({"items.text": "a,b", "busy.text": "x", "approve.text": "y"})
+    run = Graph.compile(graph, registry).run({"csv": "a,b", "text": "x", "question": "y"})
     checkpoint = run.answer({run.waiting[0].id: True})
     calls.clear()
     store = MemoryStore()
@@ -1300,13 +1297,13 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
 
     await asyncio.gather(one.sweep(), other.sweep())
 
-    assert (await store.ended("left")).outputs == {"busy.result": "x", "per_item.result": ["a", "b"]}
+    assert (await store.ended("left")).outputs == {"busy": "x", "per_item": ["a", "b"]}
     assert calls == ["a", "b"] and await _resume_calls(store, "left") == 1
 
 
 async def test_a_worker_whose_run_another_took_stops_resuming_it_and_writes_nothing_more() -> None:
     registry, graph, gates, calls = gated()
-    inputs = {"items.text": "a,b", "busy.text": "x", "approve.text": "y"}
+    inputs = {"csv": "a,b", "text": "x", "question": "y"}
     store = MemoryStore()
     slow, taker = _worker(store, registry, lease=0.15), _worker(store, registry)
 

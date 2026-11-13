@@ -207,7 +207,7 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
         ("run_failed", ("unsure", 1), ["invalid_ask"]),
         ("run_failed", ("offline", 1), ["external_failed"]),
         ("run_failed", ("who", 1), ["context_missing"]),
-        ("run_failed", ("upper", 1), ["unknown_input"]),
+        ("run_failed", ("upper", 1), ["unknown_input", "input_has_no_value"]),
     ]
 
 

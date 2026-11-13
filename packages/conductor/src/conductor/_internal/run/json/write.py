@@ -51,7 +51,7 @@ def run_to_json(run: Run) -> str:
     r"""Returns the whole run as JSON text.
 
     For the finished run of the README graph on ``"a\nb\nc"`` the text starts
-    ``{"graph":"<16 hex characters>","state":{"status":"complete"},"max_items":null,"inputs":{"lines.text":"a\nb\nc"},``
+    ``{"graph":"<16 hex characters>","state":{"status":"complete"},"max_items":null,"inputs":{"text":"a\nb\nc"},``
     and goes on with every node's outcomes. ``SavedRun`` shows all of it.
 
     Raises:
@@ -67,9 +67,9 @@ def run_to_json(run: Run) -> str:
 
 
 def outputs_to_json(run: Run) -> str:
-    """Returns the graph outputs of a complete run (``run.outputs``) as JSON text, by address.
+    """Returns the graph outputs of a complete run (``run.outputs``) as JSON text, by name.
 
-    For the README run it returns ``{"join.result":"A!+B!+C!"}``. Each value is written by its output's type, as
+    For the README run it returns ``{"result":"A!+B!+C!"}``. Each value is written by its output's type, as
     in a saved run: a table as its columns, ``inf`` and ``nan`` as text, a host type by its own schema.
 
     Raises:
@@ -78,7 +78,8 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for text, value in run.outputs.items():
-        function, output = run._flat.outputs[text]
+        source = run.graph._outputs[text].source
+        function, output = run._flat.nodes[source.node].source_of(source.output)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
@@ -267,13 +268,13 @@ def saved_reusable(outputs: Mapping[str, Field], reusable: ReusableOutcomes) -> 
 def first_unwritable_value(
     inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]],
 ) -> str:
-    """Returns where a run that could not be written has a value with no JSON form: ``"lines.text"``, ``"loud/shout.result"``.
+    """Returns where a run that could not be written has a value with no JSON form: ``"text"``, ``"loud/shout.result"``.
 
     It writes each graph input and each output's list on its own and returns the first that fails. It is
     called only after pydantic refused the whole run, so a run that can be written pays nothing for it.
 
     Args:
-        inputs: The type of each graph input, by address.
+        inputs: The type of each graph input, by name.
         outputs: The outputs of each function node, by the node's name in a saved run.
         saved: The run that could not be written.
 

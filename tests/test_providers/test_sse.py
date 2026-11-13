@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRecord, Param, Problem, Waiting, node
+from conductor import SKIPPED, Ask, Graph, GraphRecord, Param, Problem, Waiting, node
 from conductor.events import NodeComplete, NodeFailed, NodeWaiting, RunEnd
 from conductor.widgets import Textarea
 
@@ -33,10 +33,10 @@ def split(text: str) -> list[str]:
 
 
 def test_an_ending_says_its_status_and_cause_and_leaves_the_run_out():
-    (ending,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="s", node="split", constants={"text": "a,b"})]), split) if isinstance(e, RunEnd)]
+    (ending,) = [e for e in _events(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"constant": "a,b"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), split) if isinstance(e, RunEnd)]
 
     assert _payload(ending) == {"type": "run_end", "status": "complete", "cause": None}
-    assert ending.run.outputs == {"s.result": ["a", "b"]}
+    assert ending.run.outputs == {"result": ["a", "b"]}
 
 
 def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
@@ -44,7 +44,7 @@ def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
     def ask(text: str) -> Annotated[str, Param(title="Svar", widget=Textarea())]:
         raise Ask("Hvad?", default="forslag")
 
-    (waiting,) = [e for e in _events(GraphRecord(nodes=[NodeRecord(id="ask", node="ask", constants={"text": "x"})]), ask) if isinstance(e, NodeWaiting)]
+    (waiting,) = [e for e in _events(GraphRecord.model_validate({"nodes": {"ask": {"node": "ask", "inputs": {"text": {"constant": "x"}}}}, "outputs": {"result": {"node": "ask", "output": "result"}}}), ask) if isinstance(e, NodeWaiting)]
     failed = _payload(NodeFailed(loc=("n",), cause=Problem(type="boom", msg="Boom.", loc=("n", 2))))
 
     waiting_record = _payload(waiting)["waiting"]
@@ -72,7 +72,7 @@ def if_empty(text: str) -> Emptiness:
 
 
 def test_a_branch_nodes_completion_streams_with_none_for_the_branch_not_chosen():
-    events = _events(GraphRecord(nodes=[NodeRecord(id="d", node="if-empty", constants={"text": "x"})]), if_empty)
+    events = _events(GraphRecord.model_validate({"nodes": {"d": {"node": "if-empty", "inputs": {"text": {"constant": "x"}}}}, "outputs": {"not_empty": {"node": "d", "output": "not_empty"}, "empty": {"node": "d", "output": "empty"}}}), if_empty)
 
     (completed,) = [_payload(event) for event in events if event.type == "node_complete"]
 

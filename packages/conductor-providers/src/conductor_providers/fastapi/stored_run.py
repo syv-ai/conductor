@@ -75,7 +75,7 @@ class Outcome(BaseModel):
 
     Attributes:
         waiting: What waits for a person.
-        outputs: The graph's outputs by address once the run is complete; ``None`` until then.
+        outputs: The graph's outputs by name once the run is complete; ``None`` until then.
         progress: ``run.progress``: how many calls of each node have an outcome, and how many there will be. Written
             also with each checkpoint, so it is as of the last checkpoint while the run is running. ``None`` for a
             run whose row could not be read as a run.

@@ -47,9 +47,16 @@ class Money(BaseModel):
 
 def _run(definition: Any, *more: Any, edges: list[list[str]] | None = None, **values: Any) -> Any:
     """``definition`` as node ``q`` with ``values`` as its constants, and each of ``more`` as a node named by its id;
-    the run, resumed."""
-    nodes = [{"id": "q", "node": definition.id, "constants": values}, *({"id": other.id, "node": other.id} for other in more)]
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges or []}), registry_of(definition, *more))
+    the outputs of ``q`` are the graph's outputs. The run, resumed."""
+    nodes: dict[str, Any] = {
+        "q": {"node": definition.id, "inputs": {name: {"constant": value} for name, value in values.items()}},
+        **{other.id: {"node": other.id} for other in more},
+    }
+    for source, target in edges or []:
+        (source_node, output), (target_node, name) = source.split("."), target.split(".")
+        nodes[target_node]["inputs"][name] = {"sources": [{"node": source_node, "output": output}]}
+    outputs = {name: {"node": "q", "output": name} for name in definition.outputs}
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": nodes, "outputs": outputs}), registry_of(definition, *more))
     assert not graph.problems, graph.problems
     return graph.run().resume()
 
@@ -60,7 +67,7 @@ def test_an_answer_to_a_series_of_dates_is_read_from_its_json() -> None:
         raise Ask("Which days?")
 
     run = _run(days)
-    assert run.answer("q", ["2026-01-01"]).resume().outputs == {"q.result": [datetime.date(2026, 1, 1)]}
+    assert run.answer("q", ["2026-01-01"]).resume().outputs == {"result": [datetime.date(2026, 1, 1)]}
 
 
 def test_a_limit_on_a_hosts_text_refuses_a_constant_over_it() -> None:
@@ -68,7 +75,7 @@ def test_a_limit_on_a_hosts_text_refuses_a_constant_over_it() -> None:
     def short(text: Annotated[Text, Param(max_length=3)]) -> str:
         return text
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "short", "constants": {"text": "too long"}}]}), registry_of(short))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"q": {"node": "short", "inputs": {"text": {"constant": "too long"}}}}, "outputs": {"result": {"node": "q", "output": "result"}}}), registry_of(short))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
@@ -77,7 +84,7 @@ def test_a_list_of_a_hosts_text_is_a_type_like_any_other() -> None:
     def texts(items: list[Text]) -> int:
         return sum(type(item) is Text for item in items)
 
-    assert _run(texts, items=["a", "b"]).outputs == {"q.result": 2}
+    assert _run(texts, items=["a", "b"]).outputs == {"result": 2}
 
 
 def test_a_model_does_not_land_on_a_json_value() -> None:
@@ -89,10 +96,7 @@ def test_a_model_does_not_land_on_a_json_value() -> None:
     def json(value: JsonValue) -> str:
         return str(value)
 
-    graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "m", "node": "money"}, {"id": "j", "node": "json"}],
-        "edges": [["m.result", "j.value"]],
-    }), registry_of(money, json))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "money"}, "j": {"node": "json", "inputs": {"value": {"sources": [{"node": "m", "output": "result"}]}}}}, "outputs": {"result": {"node": "j", "output": "result"}}}), registry_of(money, json))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -115,7 +119,7 @@ def test_a_hosts_own_method_named_accepts_is_nothing_to_conductor() -> None:
     registry = NodeRegistry()
     registry.add(money, take)
     registry.describe()
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "m", "node": "money"}, {"id": "t", "node": "take"}], "edges": [["m.result", "t.offer"]]}), registry)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "money"}, "t": {"node": "take", "inputs": {"offer": {"sources": [{"node": "m", "output": "result"}]}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}), registry)
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -150,7 +154,7 @@ def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:
     def total(numbers: list[int]) -> int:
         return sum(numbers)
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "total", "constants": {"numbers": [True]}}]}), registry_of(total))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"q": {"node": "total", "inputs": {"numbers": {"constant": [True]}}}}, "outputs": {"result": {"node": "q", "output": "result"}}}), registry_of(total))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
@@ -167,11 +171,8 @@ def test_a_list_of_whole_numbers_lands_on_a_list_of_numbers_and_never_on_a_list_
     def words(texts: list[str]) -> int:
         return len(texts)
 
-    assert _run(mean, ints, edges=[["ints.result", "q.numbers"]]).outputs == {"q.result": 1.5}
-    graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "i", "node": "ints"}, {"id": "w", "node": "words"}],
-        "edges": [["i.result", "w.texts"]],
-    }), registry_of(ints, words))
+    assert _run(mean, ints, edges=[["ints.result", "q.numbers"]]).outputs == {"result": 1.5}
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"i": {"node": "ints"}, "w": {"node": "words", "inputs": {"texts": {"sources": [{"node": "i", "output": "result"}]}}}}}), registry_of(ints, words))
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
@@ -184,9 +185,9 @@ def test_a_pydantic_type_is_carried_with_the_limits_it_has() -> None:
         return word * times * least
 
     for wrong in ({"times": 0}, {"times": 1, "least": 1}, {"times": 1, "word": ""}):
-        graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "count", "constants": wrong}]}), registry_of(count))
+        graph = Graph.compile(GraphRecord.model_validate({"nodes": {"q": {"node": "count", "inputs": {name: {"constant": value} for name, value in wrong.items()}}}}), registry_of(count))
         assert [problem.type for problem in graph.problems] == ["invalid_value"], wrong
-    assert _run(count, times=3).outputs == {"q.result": "aaaaaa"}
+    assert _run(count, times=3).outputs == {"result": "aaaaaa"}
 
 
 def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> None:
@@ -227,7 +228,7 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
     assert raised.value.code == "pydantic_field_in_hint" and "Param" not in str(raised.value)
 
     pet = node("pet", title="Pet", description="For a test.")(_returning_its_input(Annotated[Cat | Dog, Discriminator("kind")]))
-    assert _run(pet, value={"kind": "dog"}).outputs == {"q.result": "kind='dog'"}
+    assert _run(pet, value={"kind": "dog"}).outputs == {"result": "kind='dog'"}
 
 
 def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
@@ -242,9 +243,9 @@ def test_a_pydantic_field_inside_a_hosts_own_model_is_the_models() -> None:
     def restock(stock: Stock) -> int:
         return stock.count
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "q", "node": "restock", "constants": {"stock": {"count": -1}}}]}), registry_of(restock))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"q": {"node": "restock", "inputs": {"stock": {"constant": {"count": -1}}}}}, "outputs": {"result": {"node": "q", "output": "result"}}}), registry_of(restock))
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
-    assert _run(restock, stock={"count": 2}).outputs == {"q.result": 2}
+    assert _run(restock, stock={"count": 2}).outputs == {"result": 2}
 
 
 def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_validated_as_the_builtin_and_made_the_subclass() -> None:
@@ -294,7 +295,7 @@ def test_a_table_of_no_rows_has_every_declared_column_of_its_declared_type() -> 
         return people.height
 
     assert _run(nobody).results["q"]["result"].schema == pl.Schema({"name": pl.String, "born": pl.Date})
-    assert _run(count_people, people=[]).outputs == {"q.result": 0}
+    assert _run(count_people, people=[]).outputs == {"result": 0}
 
 
 def test_records_collected_into_a_table_are_read_once_each_cell_by_its_columns_type() -> None:
@@ -307,7 +308,7 @@ def test_records_collected_into_a_table_are_read_once_each_cell_by_its_columns_t
         return people["born"].min()
 
     run = _run(oldest, person, edges=[["person.result", "q.people"]])
-    assert run.outputs == {"q.result": datetime.date(1990, 1, 2)}
+    assert run.outputs == {"result": datetime.date(1990, 1, 2)}
 
 
 def test_a_table_type_works_inside_a_union_and_inside_a_series() -> None:
@@ -319,10 +320,10 @@ def test_a_table_type_works_inside_a_union_and_inside_a_series() -> None:
     def each() -> Series[Table[Named]]:
         return [pl.DataFrame({"name": ["Ann"]}), pl.DataFrame({"name": ["Bo", "Cy"]})]
 
-    assert _run(size, value=[{"name": "Ann"}]).outputs == {"q.result": 1}
-    assert _run(size, value=["a", "b"]).outputs == {"q.result": 2}
+    assert _run(size, value=[{"name": "Ann"}]).outputs == {"result": 1}
+    assert _run(size, value=["a", "b"]).outputs == {"result": 2}
     run = _run(size, each, edges=[["each.result", "q.value"]])
-    assert run.outputs == {"q.result": [1, 2]}
+    assert run.outputs == {"result": [1, 2]}
     back = Run.from_json(run.to_json(), Graph.compile(run.graph.record, registry_of(size, each)))
     assert [frame.to_dicts() for frame in back.results["each"]["result"]] == [[{"name": "Ann"}], [{"name": "Bo"}, {"name": "Cy"}]]
 
@@ -341,7 +342,7 @@ def test_a_record_with_a_date_is_no_json_value() -> None:
         return str(value)
 
     def problems(source: Any) -> list[str]:
-        graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": source.id}, {"id": "j", "node": "json"}], "edges": [["s.result", "j.value"]]}), registry_of(source, json))
+        graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": source.id}, "j": {"node": "json", "inputs": {"value": {"sources": [{"node": "s", "output": "result"}]}}}}}), registry_of(source, json))
         return [problem.type for problem in graph.problems]
 
     assert problems(dated) == ["type_mismatch"] and problems(named) == []
@@ -361,9 +362,12 @@ def test_a_models_class_variables_are_not_its_fields() -> None:
         return text.upper()
 
     def compiled(field: str) -> Any:
-        return Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "address"}, {"id": "s", "node": "shout"}], "edges": [[f"a.result.{field}", "s.text"]]}), registry_of(address, shout))
+        return Graph.compile(GraphRecord.model_validate({
+            "nodes": {"a": {"node": "address"}, "s": {"node": "shout", "inputs": {"text": {"sources": [{"node": "a", "output": "result", "field": field}]}}}},
+            "outputs": {"result": {"node": "s", "output": "result"}},
+        }), registry_of(address, shout))
 
-    assert compiled("city").run().outputs == {"s.result": "AARHUS"}
+    assert compiled("city").run().outputs == {"result": "AARHUS"}
     for wrong in ("town", "type_id"):
         (problem,) = compiled(wrong).problems
         assert (problem.type, problem.ctx["outputs"]) == ("unknown_output", ["a.result.city"])
@@ -395,7 +399,7 @@ def test_a_host_type_names_the_other_classes_it_takes() -> None:
     def warm(temperature: Celsius) -> bool:
         return temperature.degrees > 15
 
-    assert _run(absolute, outside, edges=[["outside.result", "q.temperature"]]).outputs == {"q.result": 293.15}
+    assert _run(absolute, outside, edges=[["outside.result", "q.temperature"]]).outputs == {"result": 293.15}
     registry = registry_of(outside, absolute, warm)
     assert {described.id: described.accepted_as for described in registry.describe().types}["celsius"] == ["celsius", "kelvin"]
 
@@ -509,7 +513,7 @@ def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_has_a_funct
 
     program, saved = tmp_path / "shout.py", tmp_path / "run.json"
     program.write_text(_A_NODE_WITH_A_FUNCTION_IN_ITS_HINT)
-    for padding, printed in (("0", ""), ("100000", "{'shout.result': 'A'} calls: 0\n")):
+    for padding, printed in (("0", ""), ("100000", "{'result': 'A'} calls: 0\n")):
         child = subprocess.run([sys.executable, str(program), str(saved), padding], capture_output=True, text=True, timeout=120, check=False)
         assert child.returncode == 0, child.stderr
         assert child.stdout == printed

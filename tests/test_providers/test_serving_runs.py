@@ -167,14 +167,23 @@ def _run(scenario: Callable[[], Coroutine[Any, Any, None]]) -> None:
     asyncio.run(scenario())
 
 
-def _chain(*node_ids: str, edges: tuple[tuple[str, str], ...] = (), constants: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
-    nodes = [{"id": n, "node": n, **({"constants": constants[n]} if constants and n in constants else {})} for n in node_ids]
-    return {"nodes": nodes, "edges": [list(edge) for edge in edges]}
+def _source(node_id: str) -> dict[str, Any]:
+    """The entry of an input fed by the output ``result`` of ``node_id``."""
+    return {"sources": [{"node": node_id, "output": "result"}]}
 
 
-_GATE_ASK = _chain("gate", "ask", edges=(("gate.result", "ask.value"),))
-_WORK = _chain("numbers", "work", edges=(("numbers.result", "work.i"),))
-_APPROVE = _chain("numbers", "approve_each", "after", edges=(("numbers.result", "approve_each.i"), ("approve_each.result", "after.approved")))
+def _graph(nodes: dict[str, dict[str, Any]], *, returns: str | None = None) -> dict[str, Any]:
+    """A graph record of ``nodes``, each ``{node id: inputs}`` where the node's id is its definition's; with ``returns``,
+    the graph returns that node's output ``result`` as ``result``."""
+    record: dict[str, Any] = {"nodes": {node_id: {"node": node_id, "inputs": inputs} for node_id, inputs in nodes.items()}}
+    if returns is not None:
+        record["outputs"] = {"result": {"node": returns, "output": "result"}}
+    return record
+
+
+_GATE_ASK = _graph({"gate": {}, "ask": {"value": _source("gate")}}, returns="ask")
+_WORK = _graph({"numbers": {"n": {"graph_input": "n"}}, "work": {"i": _source("numbers")}}, returns="work")
+_APPROVE = _graph({"numbers": {"n": {"graph_input": "n"}}, "approve_each": {"i": _source("numbers")}, "after": {"approved": _source("approve_each")}}, returns="after")
 
 
 @pytest.fixture
@@ -199,7 +208,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
             (waiting_call,) = (await b.read(run_id))["waiting"]
             assert (await b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True})).json() == {"answers": "started"}
             done = await a.until_status(run_id, "complete")
-            assert done["outputs"] == {"ask.result": True}
+            assert done["outputs"] == {"result": True}
             assert served.calls == ["gate"]  # what ran did not run again
 
     _run(scenario)
@@ -298,7 +307,7 @@ def test_answers_sent_while_a_resume_call_runs_are_applied_when_it_ends(served: 
             assert (await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: False})).json() == {"answers": "queued"}
             served.open_the_gate()
             done = await b.until_status(run_id, "complete")
-            assert done["outputs"] == {"after.result": [True, False]}
+            assert done["outputs"] == {"result": [True, False]}
 
     _run(scenario)
 
@@ -352,7 +361,7 @@ def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_a_409(se
             assert twice.status_code == 409
             assert [(problem["type"], problem["ctx"]) for problem in twice.json()["detail"]] == [("already_answered", {"waiting_id": second["id"]})]
             served.open_the_gate()
-            assert (await b.until_status(run_id, "complete"))["outputs"] == {"after.result": [True, False]}
+            assert (await b.until_status(run_id, "complete"))["outputs"] == {"result": [True, False]}
 
     _run(scenario)
 
@@ -360,7 +369,7 @@ def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_a_409(se
 def test_an_answer_sent_while_the_last_resume_call_runs_is_refused_when_the_run_completes(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
-            run_id = await a.start(_chain("gate"))
+            run_id = await a.start(_graph({"gate": {}}))
             await served.until_calls(1)
             assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json() == {"answers": "queued"}
             served.open_the_gate()
@@ -374,9 +383,9 @@ def test_an_answer_sent_while_the_last_resume_call_runs_is_refused_when_the_run_
 def test_a_node_the_run_context_does_not_fit_is_shown_at_compile_and_its_run_is_refused_before_it_starts(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            compiled = (await a.client.post("/compile", json=_chain("needs_missing"))).json()
+            compiled = (await a.client.post("/compile", json=_graph({"needs_missing": {}}))).json()
             assert [(p["type"], p["loc"]) for p in compiled["problems"]] == [("context_does_not_fit", ["needs_missing", "value"])]
-            created = await a.client.post("/runs", json={"graph": _chain("needs_missing"), "inputs": {}})
+            created = await a.client.post("/runs", json={"graph": _graph({"needs_missing": {}}), "inputs": {}})
             assert created.status_code == 422
             assert [(p["type"], p["loc"]) for p in created.json()["detail"]] == [("context_does_not_fit", ["needs_missing", "value"])]
 
@@ -386,12 +395,12 @@ def test_a_node_the_run_context_does_not_fit_is_shown_at_compile_and_its_run_is_
 def test_a_node_connects_to_the_database_itself_and_gets_the_caller_who_started_the_run(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            counted = await a.start(_chain("count_runs", constants={"count_runs": {"status": "running"}}))
-            assert (await a.until_status(counted, "complete"))["outputs"] == {"count_runs.result": 1}
+            counted = await a.start(_graph({"count_runs": {"status": {"constant": "running"}}}, returns="count_runs"))
+            assert (await a.until_status(counted, "complete"))["outputs"] == {"result": 1}
 
             a.client.headers["X-User"] = "bo"
-            asked = await a.start(_chain("who"))
-            assert (await a.until_status(asked, "complete"))["outputs"] == {"who.result": "bo"}
+            asked = await a.start(_graph({"who": {}}, returns="who"))
+            assert (await a.until_status(asked, "complete"))["outputs"] == {"result": "bo"}
 
     _run(scenario)
 
@@ -399,7 +408,7 @@ def test_a_node_connects_to_the_database_itself_and_gets_the_caller_who_started_
 def test_a_run_is_seen_only_by_the_caller_who_started_it(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            run_id = await a.start(_chain("greet"), {"name": "ida"})
+            run_id = await a.start(_graph({"greet": {"name": {"graph_input": "name"}}}), {"name": "ida"})
             await a.until_status(run_id, "complete")
             for route in ("", "/events"):
                 assert (await a.client.get(f"/runs/{run_id}{route}", headers={"X-User": "bo"})).status_code == 404
@@ -432,7 +441,7 @@ def test_a_wrong_answer_is_a_422_listing_every_problem_and_a_complete_run_is_a_4
 def test_a_graph_that_cannot_run_is_a_422_before_anything_is_saved_and_compile_says_where(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
-            broken = {"nodes": [{"id": "x", "node": "nonesuch"}]}
+            broken = {"nodes": {"x": {"node": "nonesuch"}}}
             refused = await a.client.post("/runs", json={"graph": broken})
             assert refused.status_code == 422 and [p["type"] for p in refused.json()["detail"]] == ["unknown_node"]
             described = (await a.client.post("/compile", json=broken)).json()
@@ -449,7 +458,7 @@ def test_an_edited_input_runs_again_calling_only_the_items_that_changed(served: 
             await a.until_status(run_id, "complete")
             again = await a.client.post(f"/runs/{run_id}/again", json={"n": 4})
             assert again.status_code == 202
-            assert (await a.until_status(again.json()["id"], "complete"))["outputs"] == {"work.result": [0, 1, 2, 3]}
+            assert (await a.until_status(again.json()["id"], "complete"))["outputs"] == {"result": [0, 1, 2, 3]}
             assert served.calls == ["work 0", "work 1", "work 2", "work 3"]
 
     _run(scenario)
@@ -457,14 +466,14 @@ def test_an_edited_input_runs_again_calling_only_the_items_that_changed(served: 
 
 def test_an_end_user_fills_the_inputs_of_a_published_graph_and_names_no_node(served: Served) -> None:
     (served.directory / "served_app.py").write_text(
-        _app_source() + '\noffered["hello"] = GraphRecord.model_validate({"nodes": [{"id": "greet", "node": "greet"}]})\n'
+        _app_source() + '\noffered["hello"] = GraphRecord.model_validate({"nodes": {"greet": {"node": "greet", "inputs": {"name": {"graph_input": "name"}}}}, "outputs": {"greeting": {"node": "greet", "output": "result"}}})\n'
     )
 
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             created = await a.client.post("/graphs/hello/runs", json={"name": "ida"})
             assert created.status_code == 202, created.text
-            assert (await a.until_status(created.json()["id"], "complete"))["outputs"] == {"greet.result": "hi ida"}
+            assert (await a.until_status(created.json()["id"], "complete"))["outputs"] == {"greeting": "hi ida"}
             assert (await a.client.post("/graphs/nope/runs", json={})).status_code == 404
 
     _run(scenario)
@@ -474,7 +483,7 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(s
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             served.open_the_gate()
-            run_id = await a.start(_chain("gate"))
+            run_id = await a.start(_graph({"gate": {}}))
             response = await a.client.get(f"/runs/{run_id}/events")
             assert response.headers["cache-control"] == "no-cache"
             assert response.headers["content-type"].startswith("text/event-stream")

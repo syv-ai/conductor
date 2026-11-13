@@ -8,10 +8,10 @@ is ``REQUIRED`` and ``SKIPPED``.
 """
 
 from .address import (
-    NAME_PATTERN,
     Address,
     ItemIndexes,
     Loc,
+    Name,
     NodePath,
     is_name,
     loc_text,

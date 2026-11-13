@@ -1,50 +1,45 @@
-"""``GraphRecord``: a graph as a host stores it, its nodes and its edges, ``{"nodes": [...], "edges": [["lines.result", "shout.line"]]}``.
-
-Edges are kept sorted, so two records that differ only in the order of their edges are equal and save alike. The
-package's docstring has the whole record.
-"""
+"""``GraphRecord``: a graph as a host stores it, its nodes by id, ``{"nodes": {"shout": {"node": "shout"}}}``. The
+package's docstring has a whole record."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping
 from typing import Annotated
 
-from pydantic import AfterValidator, field_validator
+from pydantic import AfterValidator
 
-from conductor._internal.base import Address, ConductorModel
+from conductor._internal.base import Address, ConductorModel, Name
 
 from .node import JSON_ONLY, NodeRecord
 
-#: Where an edge comes from, as a graph record writes it: an output, ``"lines.result"``, or one field of the record an
-#: output returns, ``"read.result.email"``; text that ``Address.parse`` reads, kept as the text.
-SourceText = Annotated[str, AfterValidator(lambda text: str(Address.parse(text)))]
 
-#: Where an edge leads, as a graph record writes it: an input, ``"shout.line"``; text that ``Address.parse_input``
-#: reads, kept as the text.
-TargetText = Annotated[str, AfterValidator(lambda text: str(Address.parse_input(text)))]
+def _whole_output(address: Address) -> Address:
+    """Returns ``address`` when it names a whole output.
+
+    Raises:
+        ValueError: It names one field of an output: a graph output is a whole output.
+    """
+    if address.field is not None:
+        raise ValueError("a graph output is a whole output; give a node the field through an edge")
+    return address
 
 
 class GraphRecord(ConductorModel):
-    """A graph as a host stores it: its nodes and its edges.
+    """A graph as a host stores it: its nodes by id, each with what its inputs get, and the graph's outputs.
 
-    What a graph takes and returns is worked out when it is compiled, never stored: its graph inputs, the inputs
-    with no edge on the nodes no edge leads into, and its graph outputs, the outputs of the nodes no edge leaves.
-    What a host keeps about the whole graph (its name, a viewport) it stores beside the record.
+    A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph
+    input is an input of a node whose entry names it (``RecordGraphInput``), and a graph output is an output of a
+    node, by name. Used as a subgraph, these are the node's inputs and outputs. What a host keeps about the whole
+    graph (its name, a viewport) it stores beside the record. The record keeps no order of its nodes: where order
+    matters, nodes are taken by id.
+
+    Attributes:
+        nodes: Each node, by id.
+        outputs: Each graph output, by name, as the output of a node it is: ``{"result": {"node": "join",
+            "output": "result"}}``. Empty for a graph that returns nothing.
     """
 
     model_config = ConductorModel.model_config | JSON_ONLY
 
-    #: Any sequence going in; a tuple once built.
-    nodes: Sequence[NodeRecord] = ()
-    #: ``(from, to)`` pairs of addresses, ``("read.text", "up.text")``; sorted once built.
-    edges: Sequence[tuple[SourceText, TargetText]] = ()
-
-    @field_validator("nodes")
-    @classmethod
-    def _nodes_as_tuple(cls, nodes: Sequence[NodeRecord]) -> tuple[NodeRecord, ...]:
-        return tuple(nodes)
-
-    @field_validator("edges")
-    @classmethod
-    def _edges_sorted(cls, edges: Sequence[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
-        return tuple(sorted(edges))
+    nodes: Mapping[Name, NodeRecord] = {}
+    outputs: Mapping[Name, Annotated[Address, AfterValidator(_whole_output)]] = {}

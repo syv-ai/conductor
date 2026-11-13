@@ -53,7 +53,7 @@ def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input
 
     assert graph.runs_on["regex-extract"].msg == "per item of text-split.result"
     assert graph.runs_on["text-join"].msg == "per item of text-split.result"
-    assert graph.run(text="a1,b2 3,c").outputs == {"text-join.result": ["1", "2, 3", ""]}
+    assert graph.run(text="a1,b2 3,c").outputs == {"result": ["1", "2, 3", ""]}
 
 
 def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is_skipped() -> None:
@@ -61,8 +61,8 @@ def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is
 
     assert graph.exclusive_groups == {"control-decide": {"when": ["if_true", "if_false"]}}
     chosen = graph.run(value="hi", when=True)
-    assert chosen.outputs == {"text-uppercase.result": "HI"} and chosen.results["control-decide"] == {"if_true": "hi", "if_false": None}
-    assert graph.run(value="hi", when=False).outputs == {"text-uppercase.result": None}
+    assert chosen.outputs == {"result": "HI"} and chosen.results["control-decide"] == {"if_true": "hi", "if_false": None}
+    assert graph.run(value="hi", when=False).outputs == {"result": None}
 
 
 def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:
@@ -117,4 +117,4 @@ def test_text_or_parsed_json_can_be_wired_into_a_json_value_and_a_json_null_is_w
     for source, value in ((text.uppercase, "x"), (json_ops.parse, "null")):
         graph = Graph.compile(make_graph(source, json_ops.stringify, edges=[(f"{source.id}.result", "json-stringify.value")]), conductor_nodes.registry)
         assert graph.problems == []
-        assert graph.run(text=value).outputs == {"json-stringify.result": '"X"' if value == "x" else "null"}
+        assert graph.run(text=value).outputs == {"result": '"X"' if value == "x" else "null"}

@@ -61,7 +61,7 @@ class ResultReader:
 
     Attributes:
         outcomes: The run's outcomes, by node name and then by item indexes.
-        graph_inputs: The values the caller gave for the graph inputs, by address (``"lines.text"``).
+        graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``).
         for_any_item: Empty in the reader a run calls its nodes with. A reader made to answer "can any item of
             this loop have a value?" (``_list_looped_over``) keeps here what ``arguments_for`` returned for each
             node inside the loop, by node name.
@@ -188,12 +188,12 @@ class ResultReader:
                 would_be = self.for_any_item[edge.source.node]
                 if isinstance(would_be, dict):
                     return MAY_HAVE_VALUE
-                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[edge.source.name]
+                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[edge.source.output]
             return NotReady.NOT_READY
-        value = outcome.outputs[edge.source.name]
+        value = outcome.outputs[edge.source.output]
         if value is None or value is SKIPPED:
             return value
-        record_field = edge.record_field
+        record_field = edge.source.field
         if not edge.item:
             return value if record_field is None else field_of(value, record_field)
         try:  # ``value`` is a stored Series: one item of it, or one field of that item
@@ -229,7 +229,7 @@ class ResultReader:
             return series
         edges = argument.edges
         if len(edges) == 1 and edges[0].item:  # the input collects the list itself: its items, or one field of each
-            record_field = edges[0].record_field
+            record_field = edges[0].source.field
             if record_field is not None:
                 return series.field_as_list(record_field)
             return series.as_table_input() if argument.input.field.whole.record is not None else series.as_list()
@@ -267,7 +267,7 @@ class ResultReader:
             if value is not MAY_HAVE_VALUE:
                 return value
         outcome = self.outcomes[argument.series.node].get(item_indexes)
-        return outcome.outputs[argument.series.name] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
+        return outcome.outputs[argument.series.output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
     def _edges_for_any_item(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or

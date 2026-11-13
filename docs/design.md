@@ -47,18 +47,19 @@ print(sorted(d.id for d in free))  # ['join', 'upper', 'words']
 
 ## The graph record and `make_graph`
 
-- **A record is `{"nodes": [...], "edges": [[from, to], ...]}`**, nothing more: what a host keeps about the whole graph, such as a canvas viewport, it stores beside the record. A node is `{"id", "node", "version", "constants", "defaults", "display"}`, with empty fields left out. `id` names this node in this graph, and `node` is the id of the node definition it uses. One combined string would need parsing everywhere. In conductor's JSON, `node` always means a node definition's id and `node_id` a node's id in a graph.
+- **A record is `{"nodes": {id: node, ...}, "outputs": {name: output, ...}}`**, nothing more: what a host keeps about the whole graph, such as a canvas viewport, it stores beside the record. A node is `{"node", "version", "inputs", "display"}`, with empty fields left out, under its id in this graph; `node` is the id of the node definition it uses. One combined string would need parsing everywhere. In conductor's JSON, `node` always means a node definition's id and `node_id` a node's id in a graph. A key written twice in one JSON object, so two nodes with one id, is refused as `invalid_record`, as is a node id, input or output that is not a name (empty, or with `.`, `/`, `@` or `~` in it).
 - **`version` defaults to 1, and compiling never upgrades.** `registry.upgrade` does, when asked.
-- **`constants` are fixed; `defaults` are prefilled and stay open.** There is one map per intent, chosen over a `locked` flag beside one map. A default is allowed only where a caller can give the value: on a graph input, an input with no edge on a node with no incoming edges. Anywhere else it is `default_not_a_graph_input`.
+- **Each input the record lists gets exactly one thing:** a `constant`, fixed on every call of every run; a `graph_input`, the caller's value under that name, with a `default` for when the caller gives none; or the `sources` of the edges into it. One entry of one kind per input was chosen over a map per intent or a `locked` flag beside one map: an input can't be given two things, so no rule has to say which wins, and an entry of two kinds is refused as `invalid_record`. An input the record leaves out gets the node's own default.
 - **Constants, defaults and a node's `display` are JSON.** A constant is kept as its JSON reads back: a date as its ISO text, a float that isn't finite as `"NaN"` or `"Infinity"`. So a record always equals its own JSON, and its fingerprint survives a store. A value with no JSON form, such as a polars frame, is `invalid_value` at the call. A hand-built record with a float that isn't finite in it is `invalid_record`.
 - **A node's `display` is the host's.** Conductor stores it, never reads it, and leaves it out of the fingerprint. It sits on the node so it follows the node through an upgrade.
 - **There is no flag on an input that makes it a constant.** A node can't know every graph it is used in, so whether an input is a constant is said per graph: a constant in the record is the graph author's value, a graph input is the caller's.
-- **Edges are a sorted list of address pairs** (`node.field`, or `node.output.field` for one field of a record). Two records that differ only in edge order are equal, and nothing a run does depends on the list's order: several edges into one input are alternatives, opposite branches of one decision, never a list to join. So a host may sort the list. Edges stored per node were rejected: reconnecting reorders either shape.
-- **`make_graph(*nodes, edges=, constants=, defaults=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required input with no constant from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It writes a record and compiles nothing. It raises one `InvalidCallError` listing what it can't write (a value for a node it wasn't given, a value with no JSON form, an edge or a key of `constants` or `defaults` that is no address, a chain it can't draw); everything else, a mistyped input or an edge between types that don't meet included, is in `Graph.compile(record, registry).problems`, so compiling is the one place a record's faults are found. A script that only saves the record hears nothing until it is compiled.
+- **An edge is kept on the input it leads into**, as a source: an output, `{"node": "read", "output": "result"}`, or one field of the record it returns, with `"field": "email"`. Several sources of one input are alternatives, opposite branches of one decision, never a list to join, so nothing a run does depends on their order; a source listed twice is refused. An edge from a node the graph does not have is the problem `edge_names_missing_node`.
+- **A graph declares its inputs and outputs**, as a function declares its parameters and its return value. A graph input is there only where an input's entry names it, and several inputs may name one graph input, so the caller's one value feeds them all; a graph output is there only in `outputs`, by name, as the output of a node it is. Used as a subgraph, these are the node's inputs and outputs. Working them out from the first and last nodes was rejected: adding a node at the end would change what the graph returns, and a subgraph's ports would be addresses inside it.
+- **`make_graph(*nodes, edges=, constants=, defaults=, inputs=, outputs=)`** follows scikit-learn's `make_pipeline`. With no `edges` the nodes form a chain: each node takes its one required input with no constant from the one output of the node before it, or the call fails with `not_a_chain`. With `edges`, those are every edge. It declares the graph's ports for a plain graph: its inputs are the open inputs of the nodes no edge leads into, each named by its input, and every key of `defaults`; its outputs are the outputs of the nodes no edge leaves, each named by its output. Where two would share a name it raises `ports_share_a_name`, and `inputs={"text": ["a.text", "b.text"]}` or `outputs={"result": "join.result"}` names them. It writes a record and compiles nothing. It raises one `InvalidCallError` listing what it can't write (a value for a node it wasn't given, a value with no JSON form, an edge or a key that is not `"node.name"`, two ports of one name, a chain it can't draw); everything else, a mistyped input or an edge between types that don't meet included, is in `Graph.compile(record, registry).problems`, so compiling is the one place a graph's faults are found. A script that only saves the record hears nothing until it is compiled.
 
 ```python
 record = make_graph(words, upper, join)
-print(record.model_dump_json())  # {"nodes":[{"id":"words","node":"words"},{"id":"upper","node":"upper"},{"id":"join","node":"join"}],"edges":[["upper.result","join.texts"],["words.result","upper.text"]]}
+print(record.model_dump_json())  # {"nodes":{"words":{"node":"words","inputs":{"text":{"graph_input":"text"}}},"upper":{"node":"upper","inputs":{"text":{"sources":[{"node":"words","output":"result"}]}}},"join":{"node":"join","inputs":{"texts":{"sources":[{"node":"upper","output":"result"}]}}}},"outputs":{"result":{"node":"join","output":"result"}}}
 
 
 @registry.node("half", title="Half", description="Halves a number.")
@@ -67,7 +68,7 @@ def half(n: float) -> float:
 
 
 typed = make_graph(half, constants={"half.n": float("nan")})
-print(typed.nodes[0].constants)  # {'n': 'NaN'}
+print(typed.nodes["half"].inputs["n"])  # constant='NaN'
 ```
 
 **Worth questioning:** the chain never matches by name. A chain that wired inputs to outputs by their names would, given an output and an input that happen to share a name, wire them without saying so, and leave the input the author meant empty. A chain that refuses to guess can't do that.
@@ -77,15 +78,15 @@ print(typed.nodes[0].constants)  # {'n': 'NaN'}
 ## `Graph` and `Run`
 
 - **`Graph.compile(record, registry)` never raises for a fault in the graph.** Each fault is a `Problem` (`type`, `loc`, `msg`, `ctx`) an editor can mark on the node. Only input that isn't a record at all raises (`invalid_record`). The shape is the caller's to get right; what the record says is the graph's.
-- **Nobody declares a graph's inputs or outputs.** Its inputs are the inputs with no edge on the nodes with no incoming edges; its outputs are the outputs of the nodes with no outgoing edges. A graph input with no value yet is not a problem, just as an unfitted scikit-learn pipeline isn't broken.
+- **A graph input with no value yet is not a problem**, just as an unfitted scikit-learn pipeline isn't broken. A required input that gets nothing, neither a constant, a graph input nor an edge, is `input_has_no_value`, on any node.
 - **A compiled graph keeps its own copy of its node definitions**, so a later change to the registry can't break it.
 - **One way in, and verbs that mirror each other.** `Graph(...)` and `Run(...)` refuse to be constructed. `graph.with_inputs` checks inputs and gives a run that hasn't started; `graph.run` is that plus `resume()`. On a run, `with_inputs` and `again` do the same with changed inputs, reusing what they can of this run. `answer` returns another run and runs nothing.
 - **`again` reuses by content.** A call reuses a previous call's output when it would get exactly the arguments a call of the same node got in the previous run, under the same version, code, inputs and outputs. Identical items share one previous output. A person's answers are taken in item order, first to first and second to second, so an item inserted above keeps everyone's answer. `run.forget(*ids)` calls chosen nodes again, for a host that must recheck access. `edited.with_inputs(..., previous=old)` reuses the old run across an edit, for the nodes the edit left alone.
-- **Errors are data.** One `Problem` record is used everywhere, with stable codes listed in `PROBLEMS.codes` for a host to translate by. A message says how to fix the fault and never quotes a value. A node's own exception text goes to the log. A caller's input named twice, by name and by address, is `input_given_twice` from every verb that takes inputs.
+- **Errors are data.** One `Problem` record is used everywhere, with stable codes listed in `PROBLEMS.codes` for a host to translate by. A message says how to fix the fault and never quotes a value. A node's own exception text goes to the log.
 
 ```python
 graph = Graph.compile(record, registry)
-print(graph.run(text="a b").outputs)  # {'join.result': 'A+B'}
+print(graph.run(text="a b").outputs)  # {'result': 'A+B'}
 ```
 
 **Worth questioning:** the code in the reuse key is the node function's own bytecode and constants, so a changed helper isn't seen. A node that depends on more than its inputs sets `Policy(reuse_when_inputs_match=False)`. Hashing all reachable code would be slow and would still miss the outside world.
@@ -110,7 +111,11 @@ def greet(name: str, greeting: str) -> str:
     return f"{greeting} {name}"
 
 
-names_and_greetings = make_graph(words, words, greet, edges=[("words-1.result", "greet.name"), ("words-2.result", "greet.greeting")])
+names_and_greetings = make_graph(
+    words, words, greet,
+    edges=[("words-1.result", "greet.name"), ("words-2.result", "greet.greeting")],
+    inputs={"names": "words-1.text", "greetings": "words-2.text"},
+)
 print([problem.type for problem in Graph.compile(names_and_greetings, registry).problems])  # ['series_not_nested']
 
 try:
@@ -173,7 +178,7 @@ def tone(text: str) -> Literal["formal", "casual"]:
 
 
 asked = Graph.compile(make_graph(tone), registry).run(text="hello")
-print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'tone.result': 'casual'}
+print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'result': 'casual'}
 ```
 
 **Worth questioning:** `Ask` derives from `BaseException`. Otherwise a node's `except Exception` would swallow the pause and carry on with a wrong value.
@@ -186,15 +191,15 @@ print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'tone.resul
 - **Nodes are called on the run's own thread by default** (`Policy(concurrency=1)`). An author asks for threads with `concurrency` or `attempt_timeout`. Threads by default would surprise code that isn't thread-safe, and calling inline is most of the core's speed.
 - **Values are checked where it matters.** A node's return is read strictly against its type (`invalid_output`). An edge's value is checked again only where its source's type doesn't already guarantee it fits, decided when compiling, so a plain chain checks nothing at run time.
 - **Only `ExternalError`, or a class the node's `retry_on` names, is retried.** A `NodeError` of the node's own, an output its type refused and an `Ask` are never retried, whatever `retry_on` says: repeating the call repeats them. After a failure, calls already on threads finish and are kept, so resuming repeats none.
-- **A graph record can be a node, a subgraph:** `subgraph("id", title=..., description=...)(record)`, taking no policy or hook, as its inner nodes have their own. From outside it is one node, whose inputs and outputs are those of its graph compiled alone. Compiling the outer graph lays out the subgraph's inner function nodes in it, each named by its node path (`shout/upper` in a saved run), so the compiled graph and a run have function nodes only. An inner node has its calls as any node does, one per item of every loop it is inside, outside the subgraph and in it. So a `None` or a skip that arrives reaches the inner nodes wired to it, exactly as if they were drawn in the outer graph, and the subgraph node is never called, skipped or not called itself. A separate run per item of the subgraph was chosen against: a saved run of 2,000 items was 34 times the size of the same nodes drawn in one graph.
+- **A graph record can be a node, a subgraph:** `subgraph("id", title=..., description=...)(record)`, taking no policy or hook, as its inner nodes have their own. From outside it is one node, whose inputs and outputs are the ones its graph declares. Compiling the outer graph lays out the subgraph's inner function nodes in it, each named by its node path (`shout/upper` in a saved run), so the compiled graph and a run have function nodes only. An inner node has its calls as any node does, one per item of every loop it is inside, outside the subgraph and in it. So a `None` or a skip that arrives reaches the inner nodes wired to it, exactly as if they were drawn in the outer graph, and the subgraph node is never called, skipped or not called itself. A separate run per item of the subgraph was chosen against: a saved run of 2,000 items was 34 times the size of the same nodes drawn in one graph.
 
 ```python
 from conductor import subgraph
 
 shout = subgraph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
-shouted = Graph.compile(make_graph(shout, join, edges=[("shout.upper.result", "join.texts")]), registry)
-print(list(shouted.inputs), shouted.outputs)  # ['text'] ['join.result']
+shouted = Graph.compile(make_graph(shout, join, edges=[("shout.result", "join.texts")]), registry)
+print(list(shouted.inputs), shouted.outputs)  # ['text'] ['result']
 ```
 
 **Worth questioning:** a host whose slow nodes forget `concurrency` runs them in series. This holds because the slow node knows it's slow, and saying so is one argument.
@@ -230,7 +235,7 @@ asyncio.run(follow())
 - **One reading of an annotation.** Each hint is read once into one object that names the type, gives its pydantic schema, writes a value as JSON and says which types may land on it. It reads no value itself: the gate does (next section). Validation is pydantic's throughout. The one question pydantic doesn't answer is whether an output of one type may feed an input of another, so that is conductor's own walk over the two types; answering it from pydantic's JSON schema was tried and accepted edges whose values were then refused.
 - **`Series[T]` and `Table[R]` are ordinary generic classes** with their own pydantic schema. So a table can be a member of a union, an item of a `Series` and a field of a host's model, and it has one JSON form wherever a host sees one, `{"columns": [{"name", "type", "values"}]}`. A value read as `Table[R]` has exactly `R`'s columns wherever it comes from: a caller, a person's answer, collected records, a node's own return; a missing column is refused and others are cut. A bare `Table` keeps every column. To a type checker a `Series[T]` is a `list[T]` and a `Table[R]` a frame.
 - **A node may be written for any type.** `def split[T](value: Table[T] | list[T]) -> Series[T]` takes the type that arrives on its edge, decided when the graph is compiled; after that the node has ordinary inputs and outputs. The nodes `series-split`, `series-stack` and `control-decide` of `syv-conductor-nodes` are written this way and have no hooks. A hook stays for what a type can't say: inputs or outputs named by a constant.
-- **One flat record per input or output.** A `FieldDescription` always has a `type` and a `schema`, `is_series` says whether it is a `Series`, and a table's columns are in its schema. Where it is used it is nested, not copied: an input of a node in `graph.describe()` is `{field, source}`, a graph input `{address, node_id, field}`.
+- **One flat record per input or output.** A `FieldDescription` always has a `type` and a `schema`, `is_series` says whether it is a `Series`, and a table's columns are in its schema. Where it is used it is nested, not copied: an input of a node in `graph.describe()` is `{field, source}`, a graph input `{field}`.
 - **`Policy` is a strict pydantic model.** `Policy(retries="2")` raises pydantic's own error where it is written.
 - **What a person sees for a type is declared.** Conductor's own types take their id and title from one fixed table; a host's type shown to people is declared with `@host_type("id", title="Title")` above the class, checked when the class statement ends. Nothing falls back to a class's name. A type's id shows its generic arguments (`list[address]`), so a mismatch can say them, and a class inside a generic declares its id and title too. A host shows its own words for type ids in its editor. Every Python block in the docs is type-checked under mypy and pyright.
 
@@ -275,7 +280,7 @@ def times(n: Annotated[int, Param(ge=1)]) -> str:
 
 
 counted = Graph.compile(make_graph(times), registry)
-print(counted.run(n="3").outputs)  # {'times.result': 'xxx'}
+print(counted.run(n="3").outputs)  # {'result': 'xxx'}
 try:
     counted.run(n=True)
 except InvalidCallError as refused:

@@ -36,11 +36,11 @@ from __future__ import annotations
 import heapq
 import logging
 import typing
-from collections import Counter
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar
 
+from pydantic import MISSING
 from typing_extensions import is_protocol
 
 from conductor._internal.base import REQUIRED, Address
@@ -51,7 +51,7 @@ from conductor._internal.gate import (
     bound_field,
     read_constant,
     read_hook_fields,
-    read_keyed_record,
+    read_record,
 )
 from conductor._internal.node import (
     FunctionDefinition,
@@ -62,10 +62,15 @@ from conductor._internal.node import (
 )
 from conductor._internal.problem import NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.record import (
+    GraphRecord,
+    NodeRecord,
+    RecordConstant,
+    RecordEdges,
+    RecordGraphInput,
+)
 from conductor._internal.types import Type
 
-from .describe import GraphInputDescription
 from .input import (
     CollectingInput,
     ConstantInput,
@@ -81,7 +86,7 @@ from .node import (
     CompiledSubgraphNode,
     RequiredBranch,
 )
-from .type import CompiledGraph, InputField
+from .type import CompiledGraph
 
 _logger = logging.getLogger("conductor")
 
@@ -110,7 +115,7 @@ def compile_graph[GraphT: CompiledGraph](
     Never raises for a wrong graph: the returned graph's ``problems`` say what is wrong.
 
     Raises:
-        RefusedError: ``record`` is not a graph record's shape, as ``read_keyed_record`` raises.
+        RefusedError: ``record`` is not a graph record's shape, as ``read_record`` raises.
     """
     return _Compiler(definitions, context_type, (), {}).compile(record, graph_type)
 
@@ -154,9 +159,10 @@ class _Compiler:
             Every compiler of one ``compile_graph`` call shares it, so a subgraph used twice is compiled once.
         problems: The problems found so far.
         nodes: Each node compiled so far, by id.
-        graph_inputs: Each graph input found so far, in the order found, with the field the caller gives a
-            value for.
-        position: Each node's index in the record, which breaks ties in the order of the nodes.
+        graph_inputs: Each graph input found so far, by name, in the order found: the field the caller gives a
+            value for, with the type of the inputs it feeds and the default the caller's value replaces.
+        record: The graph record being compiled.
+        position: Each node's index among the record's node ids, sorted: it breaks ties in the order of the nodes.
     """
 
     def __init__(
@@ -167,7 +173,8 @@ class _Compiler:
         self.inside_subgraphs, self.compiled_subgraphs = inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
-        self.graph_inputs: list[tuple[GraphInputDescription, Field]] = []
+        self.graph_inputs: dict[str, Field] = {}
+        self.record = GraphRecord()
         self.position: dict[str, int] = {}
 
     def compile[GraphT: CompiledGraph](self, record: GraphRecord | str | bytes, graph_type: type[GraphT]) -> GraphT:
@@ -176,49 +183,44 @@ class _Compiler:
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
         could be worked out. A node whose definition is not found, or whose hook failed, is left out.
         """
-        keyed = read_keyed_record(record)
-        self.problems += keyed.problems
-        self.position = {node_id: i for i, node_id in enumerate(keyed.nodes)}
-        for node_id in self._order(list(keyed.nodes), keyed.edges_into):
-            node_record = keyed.nodes[node_id]
-            match self._resolve(node_record):
+        self.record = read_record(record)
+        ids = sorted(self.record.nodes)  # the record keeps no order of its nodes, so ties go by id
+        self.position = {node_id: i for i, node_id in enumerate(ids)}
+        edges_into = {node_id: _edges_into(self.record.nodes[node_id]) for node_id in ids}
+        for node_id in self._order(ids, edges_into):
+            node_record = self.record.nodes[node_id]
+            match self._resolve(node_id, node_record):
                 case FunctionDefinition() as function:
-                    self._compile_function_node(node_record, function, keyed.edges_into[node_id])
-                case SubgraphDefinition() as graph:
-                    self._compile_subgraph_node(node_record, graph, keyed.edges_into[node_id])
+                    self._compile_function_node(node_id, node_record, function, edges_into[node_id])
+                case SubgraphDefinition() as subgraph:
+                    self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
-        names = Counter(field.name for _, field in self.graph_inputs)
-        inputs: dict[str, GraphInputDescription] = {}
-        input_fields: dict[str, InputField] = {}
-        for graph_input, field in self.graph_inputs:
-            name = field.name if names[field.name] == 1 else graph_input.address  # two graph inputs with one name go by address
-            inputs[name] = graph_input
-            input_fields[graph_input.address] = InputField(name, graph_input.address, field)
-        downstream: dict[str, list[CompiledNode]] = {node_id: [] for node_id in self.nodes}
-        for compiled_node in self.nodes.values():
-            for source_id in compiled_node.upstream_ids:
-                downstream[source_id].append(compiled_node)
-        return graph_type(keyed.record, self.problems, inputs, self.nodes, input_fields, downstream, self.context_type)
+        outputs: dict[str, Edge] = {}
+        for name, address in sorted(self.record.outputs.items()):
+            source = self._sources("outputs", name, (address,))
+            if source is not None:
+                outputs[name] = source[0]
+        return graph_type(self.record, self.problems, self.nodes, self.graph_inputs, outputs, self.context_type)
 
-    def _resolve(self, record: NodeRecord) -> NodeDefinition | None:
+    def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition a node of the record names, at the record's version; ``None``, with a
         problem, when there is none."""
         try:
             newest = self.definitions[record.node]
         except KeyError:
-            self.problems.append(problem.unknown_node(record.id, node=record.node, choices=sorted(definition.id for definition in self.definitions)))
+            self.problems.append(problem.unknown_node(node_id, node=record.node, choices=sorted(definition.id for definition in self.definitions)))
             return None
         if record.version not in newest.versions:
-            self.problems.append(problem.unknown_version(record.id, node=record.node, version=record.version, newest=newest.version))
+            self.problems.append(problem.unknown_version(node_id, node=record.node, version=record.version, newest=newest.version))
             return None
         return newest.version_of(record.version)
 
-    def _order(self, order: list[str], edges_into: dict[str, dict[str, list[Address]]]) -> list[str]:
+    def _order(self, order: list[str], edges_into: Mapping[str, Mapping[str, tuple[Address, ...]]]) -> list[str]:
         """Returns the node ids in the order they are compiled: each after the nodes its edges come from, and
-        in the record's order where that leaves a choice.
+        by id where that leaves a choice.
 
-        Every node on a cycle has the problem ``cycle``. To go on, the cycle's first node in the record is put
+        Every node on a cycle has the problem ``cycle``. To go on, the cycle's first node by id is put
         first. The edge into it from inside the cycle then comes from a node that is not compiled yet, so the
         input it leads to gets no value. The rest of the cycle follows in order.
         """
@@ -252,7 +254,9 @@ class _Compiler:
 
     # -- compiling a node -------------------------------------------------------
 
-    def _compile_function_node(self, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: dict[str, list[Address]]) -> None:
+    def _compile_function_node(
+        self, node_id: str, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: Mapping[str, tuple[Address, ...]],
+    ) -> None:
         """Compiles a node whose definition is a function, and adds it to ``nodes``.
 
         Its inputs are those its definition declares and those its ``compute_added_inputs`` hook adds; each gets
@@ -261,33 +265,33 @@ class _Compiler:
         problem. Every other node is added, even when some of its inputs have problems.
         """
         if definition.context is not None:
-            self._check_context(record.id, definition.context)
+            self._check_context(node_id, definition.context)
         fields = dict(definition.inputs)
-        constants = self._constants_of(record, fields)
+        constants = self._constants_of(node_id, record, fields)
         added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
-            made = self._hook(record, definition, "compute_added_inputs", definition.compute_added_inputs, constants, {}, ())
+            made = self._hook(node_id, definition, "compute_added_inputs", definition.compute_added_inputs, constants, {}, ())
             if made is None:
                 return
             added = made
             taken = sorted(added.keys() & (fields.keys() | ({definition.context.name} if definition.context is not None else set())))
             if taken:
-                self.problems.append(problem.compute_hook_failed(record.id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
+                self.problems.append(problem.compute_hook_failed(node_id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
             fields.update(added)
-            constants.update(self._constants_of(record, added))
-        planned = self._plan_inputs(record, fields, constants, read_by_hooks(definition), edges, generic=definition.generic)
+            constants.update(self._constants_of(node_id, record, added))
+        planned = self._plan_inputs(node_id, record, fields, constants, read_by_hooks(definition), edges, generic=definition.generic)
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs)
         if bound is not None:
-            outputs, refused = _bind(record.id, definition.outputs, bound)
+            outputs, refused = _bind(node_id, definition.outputs, bound)
             self.problems += [found for problems in refused.values() for found in problems]
         if definition.compute_outputs is not None:
             arriving = {name: node_input.sources[0].type.bare for name, node_input in planned.inputs.items() if node_input.sources}
-            outputs = self._hook(record, definition, "compute_outputs", definition.compute_outputs, constants, arriving, tuple(added))
+            outputs = self._hook(node_id, definition, "compute_outputs", definition.compute_outputs, constants, arriving, tuple(added))
         if outputs is not None:
-            self.nodes[record.id] = CompiledFunctionNode(
-                id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
+            self.nodes[node_id] = CompiledFunctionNode(
+                id=node_id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
                 definition=definition,
             )
 
@@ -309,13 +313,13 @@ class _Compiler:
         elif lacks := what_the_context_lacks(self.context_type, context.cls):
             self.problems.append(problem.context_does_not_fit_lacks(node_id, context.name, needs=needs, context_type=context_type, lacks=lacks))
 
-    def _compile_subgraph_node(self, record: NodeRecord, definition: SubgraphDefinition, edges: dict[str, list[Address]]) -> None:
+    def _compile_subgraph_node(self, node_id: str, record: NodeRecord, definition: SubgraphDefinition, edges: Mapping[str, tuple[Address, ...]]) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
 
         Example: the subgraph ``strip -> shout`` used as the node ``loud``. The subgraph's graph record is
-        compiled first, on its own. The node's inputs are that graph's inputs, by their names there (``line``).
-        Its outputs are that graph's outputs, by their addresses there, so an edge reads ``loud.shout.result``.
-        An output keeps the field the node inside declares. The loops and the branches an output depends on are
+        compiled first, on its own. The node's inputs and outputs are the graph inputs and outputs its record
+        declares, by name (``line``, ``result``), so an edge reads ``loud.result``. An output keeps the field the
+        node inside declares. The loops and the branches an output depends on are
         asked of the compiled node (``loops_around``, ``branches_required_for``), which answers as it would if the
         subgraph's nodes were drawn in this graph.
 
@@ -324,7 +328,7 @@ class _Compiler:
         of a graph with problems are not known.
         """
         if definition.id in self.inside_subgraphs:
-            self.problems.append(problem.subgraph_contains_itself(record.id, node=definition.id))
+            self.problems.append(problem.subgraph_contains_itself(node_id, node=definition.id))
             return
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
@@ -332,18 +336,18 @@ class _Compiler:
             self.compiled_subgraphs[key] = _Compiler(self.definitions, self.context_type, stack, self.compiled_subgraphs).compile(definition.graph, CompiledGraph)
         inner = self.compiled_subgraphs[key]
         if inner.problems:
-            self.problems += [inner_problem.model_copy(update={"loc": (record.id, *inner_problem.loc)}) for inner_problem in inner.problems]
+            self.problems += [inner_problem.model_copy(update={"loc": (node_id, *inner_problem.loc)}) for inner_problem in inner.problems]
             return
-        fields = inner._inputs_as_a_node
-        planned = self._plan_inputs(record, fields, self._constants_of(record, fields), frozenset(), edges)
-        self.nodes[record.id] = CompiledSubgraphNode(
-            id=record.id, loops=planned.loops, inputs=planned.inputs, outputs=inner._outputs_as_a_node, required_branches=planned.required_branches,
+        fields = inner._inputs
+        planned = self._plan_inputs(node_id, record, fields, self._constants_of(node_id, record, fields), frozenset(), edges)
+        self.nodes[node_id] = CompiledSubgraphNode(
+            id=node_id, loops=planned.loops, inputs=planned.inputs, outputs={output: inner._output_field(output) for output in inner._outputs}, required_branches=planned.required_branches,
             definition=definition, inner=inner,
         )
 
     def _plan_inputs(
-        self, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
-        edges: dict[str, list[Address]], *, generic: bool = False,
+        self, node_id: str, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
+        edges: Mapping[str, tuple[Address, ...]], *, generic: bool = False,
     ) -> _InputPlans:
         """Makes the compiled input of every input of a node, and works out which loops the node is inside.
 
@@ -356,28 +360,28 @@ class _Compiler:
         is kept so an editor can still draw it; the graph does not run.
 
         Args:
+            node_id: The node's id.
             record: The node in the graph record.
             fields: The node's inputs, by name.
             constants: The constant or default the record gives each input, already read by the input's type, by
                 name; ``_INVALID`` where the type rejected it.
             constant_at_compile: The inputs a hook reads when the graph is compiled. Their value must be known
                 then, so they never become graph inputs.
-            edges: For each input that edges lead to, by name, the addresses of the outputs they come from.
+            edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
             generic: Whether an input's type has a type variable, which the edges then bind.
         """
-        for name in sorted({*record.constants, *record.defaults, *edges} - fields.keys()):
-            self.problems.append(problem.unknown_input(record.id, name, inputs=list(fields)))
-        sources = {name: self._sources(record.id, name, edges[name]) for name in fields if name in edges}
+        for name in sorted(record.inputs.keys() - fields.keys()):
+            self.problems.append(problem.unknown_input(node_id, name, inputs=list(fields)))
+        sources = {name: self._sources(node_id, name, edges[name]) for name in fields if name in edges}
         bound = None
         refused_defaults: set[str] = set()
         if generic:  # the compiled node's fields have no type variables left
             bound = _bound(fields, sources)
-            fields, refused = _bind(record.id, fields, bound)
+            fields, refused = _bind(node_id, fields, bound)
             for name, problems in refused.items():
-                if name not in edges and name not in record.constants and name not in record.defaults:  # else the default is never used
+                if name not in record.inputs:  # else the default is never used
                     self.problems += problems
                     refused_defaults.add(name)
-        first = not any(name in fields for name in edges)  # no edge leads into the node, so its open inputs are graph inputs
         inputs: dict[str, Input] = {}
         readable: dict[str, list[Edge]] = {}  # the inputs whose edges can be read, planned once the node's loops are known
         collecting: set[str] = set()
@@ -385,43 +389,32 @@ class _Compiler:
             if name in refused_defaults:
                 inputs[name] = MissingInput(field)
                 continue
-            if name in record.constants and name in record.defaults:
-                self.problems.append(problem.constant_and_default(record.id, name))
-            if name in edges:
-                if name in record.constants or name in record.defaults:
-                    self.problems.append(problem.constant_and_edge(record.id, name))
-                edge_sources = sources[name]
-                if edge_sources is None:
+            match record.inputs.get(name):
+                case RecordEdges():
+                    edge_sources = sources[name]
+                    if edge_sources is None:
+                        inputs[name] = MissingInput(field)
+                        continue
+                    collects, expected = _collects_and_expected_type(field, edge_sources)
+                    if self._edges_fit(node_id, field, expected, edge_sources):
+                        readable[name] = edge_sources
+                        if collects:
+                            collecting.add(name)
+                    else:
+                        inputs[name] = MissingInput(field)
+                case RecordConstant():
+                    inputs[name] = _constant_input(field, constants[name])
+                case RecordGraphInput() if name in constant_at_compile:  # a hook reads it before any caller gives it
+                    self.problems.append(problem.hook_needs_value(node_id, name))
                     inputs[name] = MissingInput(field)
-                    continue
-                collects, expected = _collects_and_expected_type(field, edge_sources)
-                if self._edges_fit(record.id, field, expected, edge_sources):
-                    readable[name] = edge_sources
-                    if collects:
-                        collecting.add(name)
-                else:
+                case RecordGraphInput(graph_input=graph_input):
+                    inputs[name] = self._graph_input(node_id, field, graph_input, constants.get(name, field.default))
+                case None if field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
+                    self.problems.append(problem.input_has_no_value(node_id, name))
                     inputs[name] = MissingInput(field)
-            elif name in record.constants:
-                inputs[name] = _constant_input(field, constants[name])
-            elif first and name not in constant_at_compile:
-                default = constants.get(name, field.default)
-                if default is _INVALID:
-                    inputs[name] = MissingInput(field)
-                    continue
-                address = str(Address(record.id, name))
-                # a default in the record replaces the node's own
-                caller_field = field if default is field.default else Field(name, field.hint, default)
-                self.graph_inputs.append((GraphInputDescription(address=address, node_id=record.id, field=caller_field.description), caller_field))
-                inputs[name] = GraphInput(field, address)
-            elif name in record.defaults:
-                self.problems.append(problem.default_not_a_graph_input(record.id, name))
-                inputs[name] = _constant_input(field, constants[name])
-            elif field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
-                self.problems.append(problem.unbound_on_later_node(record.id, name))
-                inputs[name] = MissingInput(field)
-            else:
-                inputs[name] = ConstantInput(field, field.default)
-        for name in self._inputs_with_conflicting_edges(record.id, fields, readable, collecting):
+                case None:
+                    inputs[name] = ConstantInput(field, field.default)
+        for name in self._inputs_with_conflicting_edges(node_id, fields, readable, collecting):
             del readable[name]
             inputs[name] = MissingInput(fields[name])
         # Only an edge puts a node inside a loop. A collecting input needs the loops around the one it collects.
@@ -443,33 +436,57 @@ class _Compiler:
                 subgraphs = list(dict.fromkeys(port.node for port in series if isinstance(self.nodes[port.node], CompiledSubgraphNode)))
                 if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph: no wire to suggest
                     self.problems.append(problem.loops_not_nested_inside_subgraph(
-                        record.id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
+                        node_id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
                     ))
                 else:
                     self.problems.append(problem.series_not_nested(
-                        record.id, series=[str(s) for s in series], inputs=[reading, name],
+                        node_id, series=[str(s) for s in series], inputs=[reading, name],
                         wire_from=str(outer), wire_into=inner.node,
                     ))
                 inputs[name] = MissingInput(node_input.field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
 
-    def _constants_of(self, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
-        """Returns the constant or default the record gives each of ``fields``, read by the input's type, by
-        name. An input the record gives neither is left out. Where the type rejects the value, the graph gets the
-        problem ``invalid_value`` and the input gets ``_INVALID``."""
+    def _graph_input(self, node_id: str, field: Field, name: str, default: Any) -> GraphInput | MissingInput:
+        """Returns the compiled input of the input ``field`` of ``node_id``, whose value the caller gives as the graph
+        input ``name``, and adds the graph input to ``graph_inputs``.
+
+        Example: ``strip.line`` and ``shout.line`` both name the graph input ``line``, so a caller's ``line="a"`` is
+        the value of both. The two must take one type and have one default; else the graph has the problem
+        ``graph_input_used_two_ways`` and the second gets no value.
+
+        Args:
+            node_id: The node.
+            field: The input.
+            name: The graph input's name.
+            default: The value when the caller gives none: the record's, else the input's own; ``_INVALID`` when the
+                input's type refused the record's.
+        """
+        if default is _INVALID:
+            return MissingInput(field)
+        caller_field = Field(name, field.hint, default)
+        found = self.graph_inputs.setdefault(name, caller_field)
+        if found is not caller_field and (found.hint != caller_field.hint or found.default_json != caller_field.default_json):
+            self.problems.append(problem.graph_input_used_two_ways(node_id, field.name, graph_input=name))
+            return MissingInput(field)
+        return GraphInput(field, name)
+
+    def _constants_of(self, node_id: str, record: NodeRecord, fields: Mapping[str, Field]) -> dict[str, Any]:
+        """Returns the constant, or the graph input's default, the record gives each of ``fields``, read by the input's
+        type, by name. An input the record gives neither is left out. Where the type rejects the value, the graph gets
+        the problem ``invalid_value`` and the input gets ``_INVALID``."""
         constants: dict[str, Any] = {}
         for name, field in fields.items():
-            if name not in record.constants and name not in record.defaults:
-                continue
-            try:
-                constants[name] = read_constant(record.id, field, record.constants[name] if name in record.constants else record.defaults[name])
-            except RefusedError as refused:
-                self.problems += refused.problems
-                constants[name] = _INVALID
+            match record.inputs.get(name):
+                case RecordConstant(constant=value) | RecordGraphInput(default=value) if value is not MISSING:
+                    try:
+                        constants[name] = read_constant(node_id, field, value)
+                    except RefusedError as refused:
+                        self.problems += refused.problems
+                        constants[name] = _INVALID
         return constants
 
     def _hook(
-        self, record: NodeRecord, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
+        self, node_id: str, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
         constants: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
     ) -> dict[str, Field] | None:
         """Calls one of a node's hooks and returns what it returned, as fields by name; ``None``, with a
@@ -480,7 +497,7 @@ class _Compiler:
         it), or, for ``**added: type``, those types for every input ``compute_added_inputs`` added.
 
         Args:
-            record: The node in the graph record.
+            node_id: The node's id.
             definition: The node's definition.
             kind: Which hook it is: ``compute_added_inputs`` or ``compute_outputs``.
             hook: The hook.
@@ -498,7 +515,7 @@ class _Compiler:
                 case "value":
                     value = constants.get(name, definition.inputs[name].default)  # @node made sure the parameter names a declared input
                     if value is REQUIRED:
-                        self.problems.append(problem.hook_needs_value(record.id, name))
+                        self.problems.append(problem.hook_needs_value(node_id, name))
                         return None
                     if value is _INVALID:
                         return None  # the problem invalid_value says why
@@ -506,31 +523,34 @@ class _Compiler:
         try:
             returned = hook(**kwargs)
         except NodeError as error:  # the hook raised a NodeError: keep its message, code and ctx
-            self.problems.append(problem.compute_hook_failed(record.id, reason=error.message, error=error.code, error_ctx=dict(error.ctx) or None))
+            self.problems.append(problem.compute_hook_failed(node_id, reason=error.message, error=error.code, error_ctx=dict(error.ctx) or None))
             return None
         except Exception as error:  # noqa: BLE001  any other exception of the hook is a problem of this node
-            _logger.error("the %s hook of node %r failed", kind, record.id, exc_info=error)
-            self.problems.append(problem.compute_hook_failed(record.id, reason=str(error), error=type(error).__name__))
+            _logger.error("the %s hook of node %r failed", kind, node_id, exc_info=error)
+            self.problems.append(problem.compute_hook_failed(node_id, reason=str(error), error=type(error).__name__))
             return None
         try:
-            return read_hook_fields(record.id, kind, returned)
+            return read_hook_fields(node_id, kind, returned)
         except RefusedError as refused:
             self.problems += refused.problems
             return None
 
     # -- edges ------------------------------------------------------------------
 
-    def _sources(self, node_id: str, name: str, addresses: list[Address]) -> list[Edge] | None:
-        """Returns what the edges from ``addresses`` into one input read, in the record's order of their nodes
-        and then of the outputs of each node.
+    def _sources(self, node_id: str, name: str, addresses: tuple[Address, ...]) -> list[Edge] | None:
+        """Returns what the edges from ``addresses`` into one input read, by the order of their nodes' ids and then
+        of the outputs of each node. A graph output is read as the input ``name`` of ``"outputs"``.
 
         Returns:
-            The sources. ``None`` when an edge cannot be read: its address names no output of its node (the graph
-            gets the problem), or its node was not compiled (a problem of its own says why, or it is on a cycle
-            and comes later).
+            The sources. ``None`` when an edge cannot be read: its node is not in the graph record, or the address
+            names no output of its node (the graph gets the problem), or its node was not compiled (a problem of
+            its own says why, or it is on a cycle and comes later).
         """
         sources: list[Edge] = []
         for address in addresses:
+            if address.node not in self.record.nodes:
+                self.problems.append(problem.edge_names_missing_node(node_id, name, missing=address.node, source=str(address), target=f"{node_id}.{name}"))
+                return None
             source = self._source(address, node_id, name)
             if source is None:
                 return None
@@ -553,48 +573,42 @@ class _Compiler:
         return True
 
     def _source(self, address: Address, node_id: str, name: str) -> Edge | None:
-        """Returns what an edge from ``address`` reads: ``node.output``, or ``node.output.field`` for one field
-        of a record.
-
-        The output's name is what follows the node's id. The outputs of a subgraph node are themselves addresses
-        (``shout.result``), so in ``loud.shout.result`` the output is ``shout.result``.
+        """Returns what an edge from ``address`` reads: an output, or one field of the record an output returns.
 
         Returns:
             The edge's source, which reads one item per call when the output is a ``Series``. ``None``, with a
             problem, when the address names no output of its node; ``None`` when its node was not compiled.
         """
         source = self.nodes.get(address.node)
-        if source is None:  # not compiled, on a cycle and later, or no such node: a problem of its own says why
+        if source is None:  # not compiled, or on a cycle and later: a problem of its own says why
             return None
         outputs = [str(Address(address.node, output)) for output in source.outputs]
-        named = address.output_and_field(source.outputs)
-        if named is None:
+        if address.output not in source.outputs:
             self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=outputs))
             return None
-        output, record_field = named
-        field = source.outputs[output]
-        if record_field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
+        field = source.outputs[address.output]
+        if address.field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
             self.problems.append(problem.unknown_output_make_a_series(
-                node_id, name, source=str(address), outputs=outputs, record_field=record_field, whole=parts[0], fields=parts[1],
+                node_id, name, source=str(address), outputs=outputs, record_field=address.field, whole=parts[0], fields=parts[1],
             ))
             return None
-        read_type = field.type if record_field is None else _field_type(field.type, record_field)
+        read_type = field.type if address.field is None else _field_type(field.type, address.field)
         if read_type is None:
-            fields = [str(Address.of_field(address.node, output, f)) for f in field.type.fields]
-            self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=record_field))
+            fields = [str(Address(address.node, address.output, f)) for f in field.type.fields]
+            self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=address.field))
             return None
-        return Edge(Address(address.node, output), source.loops_around(output), record_field, read_type, item=field.is_series)
+        return Edge(address, source.loops_around(address.output), read_type, item=field.is_series)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
-        """Returns where an edge falls among several into one input: by its node's index in the record, then by
-        its output's index in that node."""
-        return self.position[edge.source.node], list(self.nodes[edge.source.node].outputs).index(edge.source.name), edge.address
+        """Returns where an edge falls among several into one input: by its node's index among the node ids, then
+        by its output's index in that node."""
+        return self.position[edge.source.node], list(self.nodes[edge.source.node].outputs).index(edge.source.output), str(edge.source)
 
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
         """The branches that must be chosen for the output ``edge`` reads to have a value."""
-        return self.nodes[edge.source.node].branches_required_for(edge.source.name)
+        return self.nodes[edge.source.node].branches_required_for(edge.source.output)
 
     def _inputs_with_conflicting_edges(
         self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
@@ -624,7 +638,7 @@ class _Compiler:
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[s.address for s in sources]))
+                self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [str(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
@@ -658,6 +672,17 @@ class _Compiler:
                 shared = frozenset(branch for branch in shared if branch.depth <= len(node_input.loops))
             required_branches |= shared
         return frozenset(required_branches)
+
+
+def _edges_into(record: NodeRecord) -> dict[str, tuple[Address, ...]]:
+    """The outputs the edges into each input of a node come from, by input name: in the example, ``shout``'s are
+    ``{"line": (Address("lines", "result"),)}``. An input with a constant or a default is not in it."""
+    edges: dict[str, tuple[Address, ...]] = {}
+    for name, entry in record.inputs.items():
+        match entry:
+            case RecordEdges(sources=sources):
+                edges[name] = sources
+    return edges
 
 
 def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:
@@ -758,7 +783,7 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
     one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
     that column added.
     """
-    address, expected = source.address, field.whole.id
+    address, expected = str(source.source), field.whole.id
     got = f"Series[{source.type.text}]" if source.item else source.type.text
     parts = _taken_apart(source.type)
     if field.whole.record is not None:

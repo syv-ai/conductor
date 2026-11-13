@@ -14,7 +14,7 @@ import threading
 import time
 from asyncio import CancelledError
 from asyncio import Event as AsyncioEvent
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from threading import Event as ThreadEvent
 from typing import Any, TypedDict
 
@@ -27,7 +27,6 @@ from conductor import (
     Graph,
     GraphRecord,
     InvalidCallError,
-    NodeRecord,
     NotCalled,
     Policy,
     Run,
@@ -60,12 +59,24 @@ def _numbers(count: int) -> str:
     return ",".join(str(i) for i in range(count))
 
 
+def _record(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], constants: Mapping[str, Mapping[str, Any]]) -> GraphRecord:
+    """The record of ``nodes`` (node id to node definition id) joined by ``edges`` (``("node.output",
+    "node.input")``), with ``constants`` by node and input. The ``result`` of the one node no edge leaves is the
+    graph output ``result``."""
+    entries: dict[str, dict[str, Any]] = {node_id: {name: {"constant": value} for name, value in constants.get(node_id, {}).items()} for node_id in nodes}
+    for source, target in edges:
+        (source_node, output), (target_node, name) = source.split("."), target.split(".")
+        entries[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
+    (last,) = set(nodes) - {source.split(".")[0] for source, _ in edges}
+    return GraphRecord.model_validate({
+        "nodes": {node_id: {"node": definition_id, "inputs": entries[node_id]} for node_id, definition_id in nodes.items()},
+        "outputs": {"result": {"node": last, "output": "result"}},
+    })
+
+
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
     """A graph in which ``split`` returns ``items`` items and ``definition``, as node ``slow``, is called once per item."""
-    return Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(items)}), NodeRecord(id="slow", node=definition.id)],
-        edges=[("split.result", "slow.text")],
-    ), registry_of(split, definition, *more))
+    return Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"constant": _numbers(items)}}}, "slow": {"node": definition.id, "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}}}), registry_of(split, definition, *more))
 
 
 def _events(run: Any, **kwargs: Any) -> list[Any]:
@@ -135,14 +146,11 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
     def meet(a: str, b: str) -> str:
         return f"{a}|{b}"
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="s", node="source"), NodeRecord(id="l", node="left"), NodeRecord(id="r", node="right"), NodeRecord(id="m", node="meet")],
-        edges=[("s.result", "l.text"), ("s.result", "r.text"), ("l.result", "m.a"), ("r.result", "m.b")],
-    ), registry_of(source, left, right, meet))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "source", "inputs": {"text": {"graph_input": "text"}}}, "l": {"node": "left", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "r": {"node": "right", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "m": {"node": "meet", "inputs": {"a": {"sources": [{"node": "l", "output": "result"}]}, "b": {"sources": [{"node": "r", "output": "result"}]}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry_of(source, left, right, meet))
 
     events = _events(graph.with_inputs(text="abc"))
 
-    assert events[-1].run.outputs == {"m.result": "ABC|cba"}
+    assert events[-1].run.outputs == {"result": "ABC|cba"}
     assert sorted(calls) == ["left", "right", "source"]
     assert [e.loc[0] for e in events if e.type == "node_complete"][-1] == "m"
 
@@ -175,9 +183,9 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
             raise ValueError("no c")
         return text
 
-    skipping = Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="only-short")]), registry_of(only_short))
-    assert skipping.run(text="long").outputs == {"o.result": None}
-    assert skipping.run(text="ab").outputs == {"o.result": "ab"}
+    skipping = Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "only-short", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry_of(only_short))
+    assert skipping.run(text="long").outputs == {"result": None}
+    assert skipping.run(text="ab").outputs == {"result": "ab"}
 
     failing = Graph.compile(make_graph(split, fails_on_c), registry_of(split, fails_on_c))
     failed = failing.run(text="a,b,c")
@@ -260,10 +268,10 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
         raise ExternalError("never retried")
 
     registry = registry_of(fetch_two)
-    pinned = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=1)]), registry)
-    newest = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="fetch", version=2)]), registry)
+    pinned = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "fetch", "version": 1, "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "f", "output": "result"}}}), registry)
+    newest = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "fetch", "version": 2, "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "f", "output": "result"}}}), registry)
 
-    assert pinned.run(text="x").outputs == {"f.result": "one"} and calls == [1, 1, 1]
+    assert pinned.run(text="x").outputs == {"result": "one"} and calls == [1, 1, 1]
     calls.clear()
     assert newest.run(text="x").status == "failed" and calls == [2]
 
@@ -296,9 +304,9 @@ def test_nodes_at_concurrency_one_are_all_called_on_the_callers_thread():
         seen.add(threading.get_ident())
         return text
 
-    nodes = [NodeRecord(id="s", node="split", constants={"text": _numbers(20)})] + [NodeRecord(id=f"n{i}", node="step") for i in range(100)]
+    nodes = {"s": "split", **{f"n{i}": "step" for i in range(100)}}
     edges = [("s.result", "n0.text")] + [(f"n{i - 1}.result", f"n{i}.text") for i in range(1, 100)]
-    graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, step))
+    graph = Graph.compile(_record(nodes, edges, {"s": {"text": _numbers(20)}}), registry_of(split, step))
 
     assert graph.run().status == "complete"
     assert seen == {threading.get_ident()}
@@ -338,14 +346,11 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
     def instant(texts: Series[str]) -> str:
         return "now"
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(40)}), NodeRecord(id="slow", node="sleeper"), NodeRecord(id="i", node="instant")],
-        edges=[("split.result", "slow.text"), ("split.result", "i.texts")],
-    ), registry_of(split, sleeper, instant))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"constant": _numbers(40)}}}, "slow": {"node": "sleeper", "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}, "i": {"node": "instant", "inputs": {"texts": {"sources": [{"node": "split", "output": "result"}]}}}}, "outputs": {"result": {"node": "i", "output": "result"}}}), registry_of(split, sleeper, instant))
 
     run = graph.run()
 
-    assert run.status == "complete" and run.outputs["i.result"] == "now" and len(calls) == 40
+    assert run.status == "complete" and run.outputs["result"] == "now" and len(calls) == 40
 
 
 def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the_run_a_checkpoint_and_a_saved_run():
@@ -361,10 +366,7 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
     def needs_text(text: str) -> str:
         return text
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="split", node="split", constants={"text": _numbers(4)}), NodeRecord(id="slow", node="first-is-last"), NodeRecord(id="after", node="needs-text")],
-        edges=[("split.result", "slow.text"), ("slow.result", "after.text")],
-    ), registry_of(split, first_is_last, needs_text))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"constant": _numbers(4)}}}, "slow": {"node": "first-is-last", "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}, "after": {"node": "needs-text", "inputs": {"text": {"sources": [{"node": "slow", "output": "result"}]}}}}}), registry_of(split, first_is_last, needs_text))
     in_item_order = [("after", 0), ("after", 1), ("after", 2), ("after", 3)]
 
     async def streamed() -> list[Any]:
@@ -403,12 +405,11 @@ def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(item
         calls.append((left, right))
         return left + right
 
-    first = [NodeRecord(id="s", node="from-a-thread", constants={"text": "x"})] if items is None else [
-        NodeRecord(id="split", node="split", constants={"text": _numbers(items)}), NodeRecord(id="s", node="from-a-thread"),
-    ]
-    graph = Graph.compile(GraphRecord(
-        nodes=[*first, NodeRecord(id="a", node="left"), NodeRecord(id="b", node="right"), NodeRecord(id="r", node="both")],
-        edges=[*([] if items is None else [("split.result", "s.text")]), ("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "r.left"), ("b.result", "r.right")],
+    first, constants = ({}, {"s": {"text": "x"}}) if items is None else ({"split": "split"}, {"split": {"text": _numbers(items)}})
+    graph = Graph.compile(_record(
+        {**first, "s": "from-a-thread", "a": "left", "b": "right", "r": "both"},
+        [*([] if items is None else [("split.result", "s.text")]), ("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "r.left"), ("b.result", "r.right")],
+        constants,
     ), registry_of(split, from_a_thread, left, right, both))
 
     run = graph.run()
@@ -440,14 +441,14 @@ def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume
         return "+".join(texts)
 
     if shape == "chain":
-        nodes = [NodeRecord(id="f", node="first", constants={"text": "x"}), *(NodeRecord(id=f"t{i}", node="then") for i in range(5))]
+        nodes, constants = {"f": "first", **{f"t{i}": "then" for i in range(5)}}, {"f": {"text": "x"}}
         edges = [("f.result", "t0.text"), *((f"t{i}.result", f"t{i + 1}.text") for i in range(4))]
-        expected, outputs = 6, {"t4.result": "x!!!!!"}
+        expected, outputs = 6, {"result": "x!!!!!"}
     else:
-        nodes = [NodeRecord(id="split", node="split", constants={"text": _numbers(4)}), NodeRecord(id="f", node="first"), NodeRecord(id="t", node="then"), NodeRecord(id="l", node="last")]
+        nodes, constants = {"split": "split", "f": "first", "t": "then", "l": "last"}, {"split": {"text": _numbers(4)}}
         edges = [("split.result", "f.text"), ("f.result", "t.text"), ("t.result", "l.texts")]
-        expected, outputs = 9, {"l.result": "0!+1!+2!+3!"}
-    graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, first, then, last))
+        expected, outputs = 9, {"result": "0!+1!+2!+3!"}
+    graph = Graph.compile(_record(nodes, edges, constants), registry_of(split, first, then, last))
 
     run = graph.run()
 
@@ -488,9 +489,9 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
         time.sleep(1.0)
         return "done"
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="slow-second")]), registry_of(slow_second))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "slow-second", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), registry_of(slow_second))
 
-    assert graph.run(text="x").outputs == {"s.result": "done"}
+    assert graph.run(text="x").outputs == {"result": "done"}
 
 
 # -- what a node may raise ---------------------------------------------------------------------
@@ -506,7 +507,7 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
     def raises(text: str) -> str:
         raise raised
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="r", node="raises")]), registry_of(raises))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "raises", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "r", "output": "result"}}}), registry_of(raises))
 
     run = graph.run(text="x")
     streamed = _events(graph.with_inputs(text="x"))[-1].run
@@ -522,7 +523,7 @@ def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_strea
     def echo(text: str) -> str:
         return text
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="echo")]), registry_of(echo))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), registry_of(echo))
     prepared = graph.with_inputs(text="x")
 
     def broken(*args: Any, **kwargs: Any) -> Any:
@@ -804,7 +805,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
         calls.append(1)
         raise ExternalError("try again")
 
-    prepared = Graph.compile(GraphRecord(nodes=[NodeRecord(id="f", node="flaky")]), registry_of(flaky)).with_inputs(text="x")
+    prepared = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "flaky", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "f", "output": "result"}}}), registry_of(flaky)).with_inputs(text="x")
 
     async def go() -> Any:
         cancel, last = AsyncioEvent(), None
@@ -829,7 +830,7 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
     async def inside() -> Any:
         return graph.run(text="a,b")
 
-    assert _bounded(inside()).outputs == graph.run(text="a,b").outputs == {"join.result": "a+b"}
+    assert _bounded(inside()).outputs == graph.run(text="a,b").outputs == {"result": "a+b"}
 
 
 # -- what a saved run keeps --------------------------------------------------------------------
@@ -854,17 +855,14 @@ def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_t
     def width(reading: Reading, checked: str) -> str:
         return f"{reading.low}..{reading.high} {checked}"
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="m", node="measure"), NodeRecord(id="c", node="check"), NodeRecord(id="w", node="width")],
-        edges=[("m.result", "c.reading"), ("m.result", "w.reading"), ("c.result", "w.checked")],
-    ), registry_of(measure, check, width))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "measure", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "check", "inputs": {"reading": {"sources": [{"node": "m", "output": "result"}]}}}, "w": {"node": "width", "inputs": {"reading": {"sources": [{"node": "m", "output": "result"}]}, "checked": {"sources": [{"node": "c", "output": "result"}]}}}}, "outputs": {"result": {"node": "w", "output": "result"}}}), registry_of(measure, check, width))
     paused = graph.run(text="x")
 
     read_back = Run.from_json(paused.to_json(), graph)
 
     reading = read_back.results["m"]["result"]
     assert math.isnan(reading.value) and (reading.low, reading.high) == (-math.inf, math.inf)
-    assert read_back.answer("c", "yes").resume().outputs == {"w.result": "-inf..inf yes"}
+    assert read_back.answer("c", "yes").resume().outputs == {"result": "-inf..inf yes"}
 
 
 class Contact(TypedDict):
@@ -886,10 +884,7 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
     def greet(email: str) -> str:
         return email
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="b", node="bare"), NodeRecord(id="r", node="contact-records"), NodeRecord(id="g", node="greet")],
-        edges=[("b.result", "r.table"), ("r.result.email", "g.email")],
-    ), registry_of(bare, contact_records, greet))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "bare", "inputs": {"text": {"graph_input": "text"}}}, "r": {"node": "contact-records", "inputs": {"table": {"sources": [{"node": "b", "output": "result"}]}}}, "g": {"node": "greet", "inputs": {"email": {"sources": [{"node": "r", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(bare, contact_records, greet))
 
     run = graph.run(text="x")
 
@@ -910,10 +905,7 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
     def records(table: Table[Reachable]) -> Series[Reachable]:
         return table.to_dicts()
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="c", node="contacts"), NodeRecord(id="r", node="records"), NodeRecord(id="m", node="send")],
-        edges=[("c.result", "r.table"), ("r.result.email", "m.email")],
-    ), registry_of(contacts, records, send))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}}, "r": {"node": "records", "inputs": {"table": {"sources": [{"node": "c", "output": "result"}]}}}, "m": {"node": "send", "inputs": {"email": {"sources": [{"node": "r", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry_of(contacts, records, send))
     run = graph.run(text="x")
 
     read_back = Run.from_json(run.to_json(), graph)
@@ -956,8 +948,8 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
         time.sleep(0.2)
         return ["a", "b", "c", "d"]
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="b", node="boom"), NodeRecord(id="m", node="many")]), registry_of(boom, many))
-    run = graph.run({"b.text": "x", "m.text": "y"}, max_items=2)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "boom", "inputs": {"text": {"graph_input": "b_text"}}}, "m": {"node": "many", "inputs": {"text": {"graph_input": "m_text"}}}}, "outputs": {"b_result": {"node": "b", "output": "result"}, "m_result": {"node": "m", "output": "result"}}}), registry_of(boom, many))
+    run = graph.run(b_text="x", m_text="y", max_items=2)
 
     assert (run.status, run.state.cause.type) == ("failed", "execution_failed")
 
@@ -976,8 +968,8 @@ def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_ne
         time.sleep(0.9)
         return text
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="l", node="late"), NodeRecord(id="o", node="long")]), registry_of(late, long))
-    run = graph.run({"l.text": "mail", "o.text": "x"})
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"l": {"node": "late", "inputs": {"text": {"graph_input": "l_text"}}}, "o": {"node": "long", "inputs": {"text": {"graph_input": "o_text"}}}}, "outputs": {"l_result": {"node": "l", "output": "result"}, "o_result": {"node": "o", "output": "result"}}}), registry_of(late, long))
+    run = graph.run(l_text="mail", o_text="x")
     assert (run.status, run.state.cause.type) == ("failed", "timeout") and effects == ["mail"]
 
     resumed = run.resume()
@@ -1148,10 +1140,8 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_a_f
     def upper(text: str) -> str:
         return text.upper()
 
-    inner = subgraph("twice", title="Twice", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="u", node="upper"), NodeRecord(id="v", node="upper")], edges=[("u.result", "v.text")]))
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="w", node="words"), NodeRecord(id="sub", node="twice")], edges=[("w.result", "sub.text")],
-    ), registry_of(words, upper, inner))
+    inner = subgraph("twice", title="Twice", description="For a test.")(GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "v": {"node": "upper", "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "v", "output": "result"}}}))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}}, "sub": {"node": "twice", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}}}, "outputs": {"result": {"node": "sub", "output": "result"}}}), registry_of(words, upper, inner))
     events = _events(graph.with_inputs(text="a _ b _"))
 
     complete = {e.loc: (e.outcomes, e.not_called) for e in events if e.type == "node_complete"}
@@ -1160,4 +1150,4 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_a_f
         NotCalled(loc=("sub", 1, "u"), input="text"), NotCalled(loc=("sub", 3, "u"), input="text"),
         NotCalled(loc=("sub", 1, "v"), input="text"), NotCalled(loc=("sub", 3, "v"), input="text"),
     ]
-    assert events[-1].run.results["sub"] == {"v.result": ["A", None, "B", None]}
+    assert events[-1].run.results["sub"] == {"result": ["A", None, "B", None]}

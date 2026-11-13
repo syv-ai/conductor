@@ -44,10 +44,10 @@ def join(texts: Series[str]) -> str:
 graph = Graph.compile(make_graph(lines, shout, join), registry)
 run = graph.run(text="a\nb\nc")
 print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
-print(run.outputs)                     # {'join.result': 'A!+B!+C!'}
+print(run.outputs)                     # {'result': 'A!+B!+C!'}
 ```
 
-`lines` returns three texts. `shout` takes one, so it was called three times. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python; an editor writes the same thing as JSON, as the rest of this page shows.
+`lines` returns three texts. `shout` takes one, so it was called three times. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python, and declares what the graph takes and returns: `text`, the input of the first node, and `result`, the output of the last. An editor writes the same thing as JSON, as the rest of this page shows.
 
 ## One or many
 
@@ -103,29 +103,28 @@ A node can still be called like the function, so that is its unit test. The regi
 
 ## Compile a graph
 
-This is the graph record an editor saves. Each node has an `id` of its own in this graph, and a `node`, which says which of your definitions it uses. The two are often the same, but a graph that uses `approve` twice has two ids. Each edge goes from an output to an input, and `read.result.name` is the `name` of each invoice `read` returns:
+This is the graph record an editor saves. Its nodes are keyed by an id of their own in this graph, and each has a `node`, which says which of your definitions it uses. The two are often the same, but a graph that uses `approve` twice has two ids. Each input gets one of three things: a `constant`, a `graph_input` the caller gives, or the `sources` of the edges into it. A source is an output of a node, and `{"node": "read", "output": "result", "field": "name"}` is the `name` of each invoice `read` returns. `outputs` names what the graph returns:
 
 ```python
 record = """{
-  "nodes": [
-    {"id": "read", "node": "read"},
-    {"id": "approve", "node": "approve"},
-    {"id": "summary", "node": "summary"}
-  ],
-  "edges": [
-    ["read.result.name", "approve.name"],
-    ["read.result.amount", "approve.amount"],
-    ["approve.result", "summary.approved"]
-  ]
+  "nodes": {
+    "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
+    "approve": {"node": "approve", "inputs": {
+      "name": {"sources": [{"node": "read", "output": "result", "field": "name"}]},
+      "amount": {"sources": [{"node": "read", "output": "result", "field": "amount"}]}
+    }},
+    "summary": {"node": "summary", "inputs": {"approved": {"sources": [{"node": "approve", "output": "result"}]}}}
+  },
+  "outputs": {"summary": {"node": "summary", "output": "result"}}
 }"""
 
 graph = Graph.compile(record, registry)
 print(list(graph.inputs))  # ['csv']
-print(graph.outputs)       # ['summary.result']
+print(graph.outputs)       # ['summary']
 print({node_id: runs.msg for node_id, runs in graph.runs_on.items()})  # {'read': 'once', 'approve': 'per item of read.result', 'summary': 'once'}
 ```
 
-Nobody declares what the graph takes or returns. Its inputs are the inputs no edge reaches on its first nodes, and its outputs are the outputs of its last nodes. `approve` takes one name and one amount, so it runs once per invoice. `summary` takes every answer, so it runs once.
+A graph declares what it takes and returns, as a function declares its parameters and its return value: `csv` is a graph input, and `summary` a graph output. Used as a node of another graph, those are its inputs and outputs. `approve` takes one name and one amount, so it runs once per invoice. `summary` takes every answer, so it runs once.
 
 ## Show problems
 
@@ -133,18 +132,17 @@ A half-finished graph still compiles. Everything wrong is a problem with a place
 
 ```python
 unfinished = Graph.compile("""{
-  "nodes": [
-    {"id": "read", "node": "read"},
-    {"id": "approve", "node": "approve"},
-    {"id": "mail", "node": "send-mail"}
-  ],
-  "edges": [["read.result.name", "approve.name"]]
+  "nodes": {
+    "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
+    "approve": {"node": "approve", "inputs": {"name": {"sources": [{"node": "read", "output": "result", "field": "name"}]}}},
+    "mail": {"node": "send-mail"}
+  }
 }""", registry)
 
 print(unfinished.is_runnable)  # False
 for problem in unfinished.problems:
     print(problem.loc, problem.type)
-# ('approve', 'amount') unbound_on_later_node
+# ('approve', 'amount') input_has_no_value
 # ('mail',) unknown_node
 ```
 
@@ -181,7 +179,7 @@ run = Run.from_json(saved, Graph.compile(record, registry))
 run = run.answer(run.waiting[0], True).resume()
 
 print(run.status)   # complete
-print(run.outputs)  # {'summary.result': '2 of 2 approved'}
+print(run.outputs)  # {'summary': '2 of 2 approved'}
 ```
 
 The answer is checked against its question before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` goes on from where the run stopped, and no node is called twice for an invoice.

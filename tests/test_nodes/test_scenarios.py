@@ -203,8 +203,8 @@ def test_scenario_1_per_invoice_approval():
 
     run = graph.run(file=INVOICES)
     assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [("approve", (1,), "Approve A2 for 900.0?")]
-    assert run.answer(run.waiting[0], True).resume().outputs == {"approved-total.result": 1300.0}
-    assert run.answer(run.waiting[0], False).resume().outputs == {"approved-total.result": 400.0}
+    assert run.answer(run.waiting[0], True).resume().outputs == {"result": 1300.0}
+    assert run.answer(run.waiting[0], False).resume().outputs == {"result": 400.0}
 
 
 # -- 2 and 5. CSV, a model call per record, a summary; edit one record and run again: 4 nodes ---------------
@@ -224,7 +224,7 @@ def test_scenario_2_csv_then_a_model_call_per_record_then_a_summary():
     ASKED.clear()
     run = _csv_llm_summary().run(file=File(name="complaints.csv", text=COMPLAINTS))
     assert run.results["llm"]["result"] == ["Classify: late delivery", "Classify: broken lid", "Classify: wrong colour"]
-    assert run.outputs == {"llm-all.result": "Summarise 3 texts"}
+    assert run.outputs == {"result": "Summarise 3 texts"}
     assert ASKED == ["late delivery", "broken lid", "wrong colour", "Classify: late delivery + Classify: broken lid + Classify: wrong colour"]
 
 
@@ -287,13 +287,13 @@ CONTRACTS = [File(name=f"{n}.pdf", text=f"contract {n}") for n in range(11)]
 def test_scenario_4_each_contract_alone():
     ASKED.clear()
     graph = Graph.compile(make_graph(upload, llm, edges=[("upload.result.text", "llm.text")], constants={"llm.prompt": "Summarise:"}), REGISTRY)
-    assert len(graph.run(files=CONTRACTS).outputs["llm.result"]) == 11 and len(ASKED) == 11
+    assert len(graph.run(files=CONTRACTS).outputs["result"]) == 11 and len(ASKED) == 11
 
 
 def test_scenario_4_all_contracts_together():
     ASKED.clear()
     graph = Graph.compile(make_graph(upload, llm_all, edges=[("upload.result.text", "llm-all.texts")], constants={"llm-all.prompt": "Compare"}), REGISTRY)
-    assert graph.run(files=CONTRACTS).outputs == {"llm-all.result": "Compare 11 texts"} and len(ASKED) == 1
+    assert graph.run(files=CONTRACTS).outputs == {"result": "Compare 11 texts"} and len(ASKED) == 1
 
 
 def test_scenario_4_each_contract_and_then_all_of_them():
@@ -301,7 +301,7 @@ def test_scenario_4_each_contract_and_then_all_of_them():
     graph = Graph.compile(make_graph(upload, llm, llm_all, edges=[
         ("upload.result.text", "llm.text"), ("llm.result", "llm-all.texts"),
     ], constants={"llm.prompt": "Summarise:", "llm-all.prompt": "Give an overview of"}), REGISTRY)
-    assert graph.run(files=CONTRACTS).outputs == {"llm-all.result": "Give an overview of 11 texts"} and len(ASKED) == 12
+    assert graph.run(files=CONTRACTS).outputs == {"result": "Give an overview of 11 texts"} and len(ASKED) == 12
 
 
 # -- 6. documents, their lines, a count per document; b.pdf gives 0: 3 nodes --------------------------------
@@ -330,7 +330,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
     run = graph.run(file=CONTACTS)
     assert run.status == "complete" and [(n.loc[0], n.loc[1:], n.input) for n in run.not_called] == [("send-mail", (1,), "to")]
     assert run.results["send-mail"]["result"] == ["sent to ann@x.dk", None, "sent to cy@x.dk"]
-    assert run.outputs["excel.result"].text == "name,email,sent\nAnn,ann@x.dk,sent to ann@x.dk\nBo,,\nCy,cy@x.dk,sent to cy@x.dk\n"
+    assert run.outputs["result"].text == "name,email,sent\nAnn,ann@x.dk,sent to ann@x.dk\nBo,,\nCy,cy@x.dk,sent to cy@x.dk\n"
 
 
 # -- 8. invoices, an approval each, an Excel per document of the approved ones: 5 nodes ---------------------
@@ -373,7 +373,7 @@ def test_scenario_9_a_branch_per_item_and_back_together_in_the_items_order():
         ("book.result", "report.notes"),
     ]), REGISTRY)
     run = graph.run(file=INVOICES)
-    assert run.outputs == {"report.result": "booked A1; review A2; booked A3"}
+    assert run.outputs == {"result": "booked A1; review A2; booked A3"}
     assert run.results["review"]["result"] == [None, "review A2", None] and run.results["book"]["result"] == ["booked A1", None, "booked A3"]
 
 
@@ -394,7 +394,7 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
     resumed = Run.from_json(saved, graph).answer(second.id, False).resume()
     assert resumed.status == "waiting" and [w.loc[1:] for w in resumed.waiting] == [(0, 1)]
     done = Run.from_json(resumed.to_json(), graph).answer(first.id, True).resume()
-    assert done.outputs == {"approve.result": [[True, True], [], [True, False, True]]}  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf
+    assert done.outputs == {"result": [[True, True], [], [True, False, True]]}  # a list for each document, in order: two of a.pdf, none of b.pdf, three of c.pdf
 
 
 # -- 11. a subgraph per item: 3 nodes ------------------------------------------------------------------------
@@ -408,7 +408,7 @@ def test_scenario_11_a_subgraph_per_item():
         ("read-contacts.result", "series-split.value"), ("series-split.result.name", "enrich.text"),
     ]), registry_with(enrich))
     assert graph.runs_on["enrich"].series == "series-split.result"
-    assert graph.run(file=CONTACTS).outputs == {"enrich.llm.result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
+    assert graph.run(file=CONTACTS).outputs == {"result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
 
 
 # -- 12. a subgraph given the whole table: 2 nodes -----------------------------------------------------------
@@ -420,7 +420,7 @@ def test_scenario_12_a_subgraph_given_the_whole_table():
     )
     graph = Graph.compile(make_graph(read_csv, table_report, edges=[("read-csv.result", "table-report.table")]), registry_with(table_report))
     assert graph.runs_on["table-report"].mode == "once"
-    assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"table-report.llm.result": "Write a report on 3 lines of id, text, amount"}
+    assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"result": "Write a report on 3 lines of id, text, amount"}
 
 
 # -- 13. contacts and orders joined on a key: 3 nodes ---------------------------------------------------------
@@ -429,11 +429,11 @@ def test_scenario_12_a_subgraph_given_the_whole_table():
 def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
     graph = Graph.compile(make_graph(read_csv, read_csv, join_tables, edges=[
         ("read-csv-1.result", "join-tables.left"), ("read-csv-2.result", "join-tables.right"),
-    ], constants={"join-tables.on": "customer_id"}), REGISTRY)
+    ], constants={"join-tables.on": "customer_id"}, inputs={"customers": "read-csv-1.file", "orders": "read-csv-2.file"}), REGISTRY)
     assert all(runs.mode == "once" for runs in graph.runs_on.values())
     customers = File(name="customers.csv", text="customer_id,name\n1,Ann\n2,Bo\n")
     orders = File(name="orders.csv", text="customer_id,item\n2,lamp\n1,desk\n1,chair\n")
-    joined = graph.run({"read-csv-1.file": customers, "read-csv-2.file": orders}).outputs["join-tables.result"]
+    joined = graph.run(customers=customers, orders=orders).outputs["result"]
     assert joined.sort("item").to_dicts() == [
         {"customer_id": 1, "name": "Ann", "item": "chair"}, {"customer_id": 1, "name": "Ann", "item": "desk"},
         {"customer_id": 2, "name": "Bo", "item": "lamp"},
@@ -457,11 +457,11 @@ def test_scenario_14_each_document_by_three_typed_questions():
 
     ASKED.clear()
     first = graph.run(files=CONTRACTS)
-    assert len(ASKED) == 33 and first.outputs["llm.result"][4] == [f"{question} contract 4" for question in QUESTIONS]
+    assert len(ASKED) == 33 and first.outputs["result"][4] == [f"{question} contract 4" for question in QUESTIONS]
 
     ASKED.clear()
     changed = [*CONTRACTS[:4], File(name="4.pdf", text="contract 4, amended"), *CONTRACTS[5:]]
-    assert first.again(files=changed).outputs["llm.result"][4][0] == "Who are the parties? contract 4, amended" and len(ASKED) == 3
+    assert first.again(files=changed).outputs["result"][4][0] == "Who are the parties? contract 4, amended" and len(ASKED) == 3
 
 
 def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_the_problem_names_the_wire():
@@ -470,10 +470,12 @@ def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_th
     ], constants={"text-list.items": QUESTIONS}), REGISTRY)
     (problem,) = graph.problems
     assert (problem.type, problem.loc) == ("series_not_nested", ("llm",))
-    assert (problem.ctx["wire_from"], problem.ctx["wire_into"], problem.ctx["inputs"]) == ("upload.result", "text-list", ["prompt", "text"])
+    assert problem.ctx["inputs"] == ["prompt", "text"]
+    # the record keeps no node order, so the wire suggested goes from the list whose node's id sorts first
+    assert (problem.ctx["wire_from"], problem.ctx["wire_into"]) == ("text-list.result", "upload")
 
 
 def test_scenario_14b_the_summary_of_several_takes_one_document_as_a_series_of_one():
     ASKED.clear()
     graph = Graph.compile(make_graph(read_pdf, llm_all, edges=[("read-pdf.result", "llm-all.texts")], constants={"llm-all.prompt": "Summarise"}), REGISTRY)
-    assert graph.run(file=A_PDF).outputs == {"llm-all.result": "Summarise 1 texts"} and ASKED == [A_PDF.text]
+    assert graph.run(file=A_PDF).outputs == {"result": "Summarise 1 texts"} and ASKED == [A_PDF.text]

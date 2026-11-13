@@ -7,11 +7,14 @@ from typing import Any, NotRequired, TypedDict
 import polars as pl
 import pytest
 from conductor import (
+    Address,
     Graph,
     GraphRecord,
     InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
+    RecordEdges,
+    RecordGraphInput,
     Run,
     Series,
     Table,
@@ -74,9 +77,13 @@ def mails(found: Series[str | None]) -> int:
 
 
 def _graph(source: Any = contacts) -> Any:
+    reads = {"greet": ("name", "name"), "one": ("contact", None), "every": ("found", None), "names": ("found", "name"), "mails": ("found", "email")}
+    readers = {
+        node_id: NodeRecord(node=node_id, inputs={name: RecordEdges(sources=[Address("c", "result", field)])}) for node_id, (name, field) in reads.items()
+    }
     return Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="c", node=source.id), *(NodeRecord(id=n, node=n) for n in ("greet", "one", "every", "names", "mails"))],
-        edges=[("c.result.name", "greet.name"), ("c.result", "one.contact"), ("c.result", "every.found"), ("c.result.name", "names.found"), ("c.result.email", "mails.found")],
+        nodes={"c": NodeRecord(node=source.id, inputs={"text": RecordGraphInput(graph_input="text")}), **readers},
+        outputs={node_id: Address(node_id, "result") for node_id in reads},
     ), registry_of(source, greet, one, every, names, mails))
 
 
@@ -85,9 +92,9 @@ def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(sou
     RECEIVED.clear()
     run = _graph(source).run(text="x")
 
-    assert run.outputs == {"greet.result": ["hi ida", "hi bo"], "one.result": ["ida", "bo"], "every.result": 2, "names.result": "ida+bo", "mails.result": 2}
+    assert run.outputs == {"greet": ["hi ida", "hi bo"], "one": ["ida", "bo"], "every": 2, "names": "ida+bo", "mails": 2}
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert RECEIVED == [*records, records, ["ida", "bo"], ["ida@x.dk", None]] and all(type(record) is dict for record in RECEIVED[:2])
+    assert RECEIVED == [records, ["ida@x.dk", None], ["ida", "bo"], *records] and all(type(record) is dict for record in RECEIVED[3:])  # nodes called in id order
     assert run.results["c"]["result"] == records  # a host reads plain records too
 
 
@@ -147,7 +154,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
     graph = Graph.compile(make_graph(anything, show, edges=[("anything.result", "show.record")]), registry_of(anything, show))
     run = graph.run(text="x")
 
-    assert run.outputs["show.result"] == ["{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}", "{'name': 'bo', 'email': None, 'age': 52}"]
+    assert run.outputs["result"] == ["{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}", "{'name': 'bo', 'email': None, 'age': 52}"]
     assert Run.from_json(run.to_json(), graph).results == run.results
 
 
@@ -168,14 +175,14 @@ def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_serie
         return len(found)
 
     registry = registry_of(parts, contacts, count)
-    inner = GraphRecord(nodes=[NodeRecord(id="p", node="parts"), NodeRecord(id="c", node="contacts")], edges=[("p.result", "c.text")])
+    inner = GraphRecord.model_validate({"nodes": {"p": {"node": "parts", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "contacts", "inputs": {"text": {"sources": [{"node": "p", "output": "result"}]}}}}, "outputs": {"result": {"node": "c", "output": "result"}}})
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="count", node="count")], edges=[("e.c.result", "count.found")]), registry)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}, "count": {"node": "count", "inputs": {"found": {"sources": [{"node": "e", "output": "result"}]}}}}, "outputs": {"result": {"node": "count", "output": "result"}}}), registry)
     RECEIVED.clear()
     run = graph.run(text="x,y")
 
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert (run.status, run.outputs["count.result"]) == ("complete", [2, 2]) and RECEIVED == [records, records]  # one call per part
+    assert (run.status, run.outputs["result"]) == ("complete", [2, 2]) and RECEIVED == [records, records]  # one call per part
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
@@ -189,7 +196,7 @@ def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table() 
     graph = Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet))
     run = graph.run(text="x")
 
-    assert run.outputs == {"greet.result": ["hi ida", "hi bo"]}
+    assert run.outputs == {"result": ["hi ida", "hi bo"]}
     assert type(run._outcomes["series-split"][()].outputs["result"]) is Records
     assert run.results["series-split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
 
@@ -233,7 +240,7 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
     run = graph.run(text="x")
 
     stored = run._outcomes["contacts"][()].outputs["result"]
-    assert run.outputs == {"rows.result": 2} and got[0] is stored.frame and dict(stored.columns) == {}
+    assert run.outputs == {"result": 2} and got[0] is stored.frame and dict(stored.columns) == {}
 
 
 def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_value_for() -> None:
@@ -253,7 +260,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
     ]), registry_of(contacts, mail, both))
     run = graph.run(text="x")
 
-    assert run.outputs["both.result"] == 1  # bo has no email, so mail was not called for him
+    assert run.outputs["result"] == 1  # bo has no email, so mail was not called for him
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]
 
 
@@ -305,7 +312,7 @@ def test_a_table_split_into_records_is_written_once_in_the_saved_run_and_is_one_
     table, records = read_back._outcomes["people"][()].outputs["result"], read_back._outcomes["series-split"][()].outputs["result"]
     assert type(records) is Records and records.frame is table
     assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
-    assert read_back.forget("greet").resume().outputs == {"greet.result": ["hi ida", "hi bo"]}
+    assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
 
 
 def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_reads_back() -> None:
@@ -335,14 +342,14 @@ def test_a_table_shared_inside_a_subgraph_is_written_once_under_the_inner_node_p
     from conductor_nodes.series import split
 
     registry = registry_of(people, split, greet)
-    inner = GraphRecord(nodes=[NodeRecord(id="people", node="people"), NodeRecord(id="split", node=split.id)], edges=[("people.result", "split.value")])
+    inner = GraphRecord.model_validate({"nodes": {"people": {"node": "people", "inputs": {"text": {"graph_input": "text"}}}, "split": {"node": split.id, "inputs": {"value": {"sources": [{"node": "people", "output": "result"}]}}}}, "outputs": {"result": {"node": "split", "output": "result"}}})
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="e", node="inner"), NodeRecord(id="greet", node="greet")], edges=[("e.split.result.name", "greet.name")]), registry)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}, "greet": {"node": "greet", "inputs": {"name": {"sources": [{"node": "e", "output": "result", "field": "name"}]}}}}, "outputs": {"result": {"node": "greet", "output": "result"}}}), registry)
     run = graph.run(text="x")
 
     assert json.loads(run.to_json())["tables_written_once"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
     read_back = Run.from_json(run.to_json(), graph)
-    assert read_back.to_json() == run.to_json() and read_back.outputs == {"greet.result": ["hi ida", "hi bo"]}
+    assert read_back.to_json() == run.to_json() and read_back.outputs == {"result": ["hi ida", "hi bo"]}
 
 
 @pytest.mark.parametrize("same_as", [
@@ -387,7 +394,7 @@ def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_on
     import pandas as pd
 
     graph = Graph.compile(make_graph(people), registry_of(people))
-    table = json.loads(graph.run(text="x").outputs_to_json())["people.result"]
+    table = json.loads(graph.run(text="x").outputs_to_json())["result"]
 
     in_polars = pl.DataFrame({c["name"]: c["values"] for c in table["columns"]})
     in_pandas = pd.DataFrame({c["name"]: c["values"] for c in table["columns"]})

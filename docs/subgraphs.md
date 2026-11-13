@@ -43,14 +43,14 @@ version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-
 
 ## Use one
 
-Wire it like any node. Its inputs are its graph's inputs, by their names there, and its outputs are its graph's
-outputs, by their addresses there, so an edge from it reads `shout.exclaim.result`. `make_graph` wants its `edges=` written
-out: a chain from or to a subgraph raises `not_a_chain`:
+Wire it like any node. Its inputs and outputs are the ones its graph declares, under their names there. `make_graph(upper,
+exclaim)` declared `text`, the input of `upper`, and `result`, the output of `exclaim`, so an edge from it reads
+`shout.result`. `make_graph` wants its `edges=` written out: a chain from or to a subgraph raises `not_a_chain`:
 
 ```python
-graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.exclaim.result", "join.texts")]), registry)
+graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]), registry)
 
-print(graph.run(text="hi there").outputs)  # {'join.result': 'HI! THERE!'}
+print(graph.run(text="hi there").outputs)  # {'result': 'HI! THERE!'}
 print(graph.runs_on["shout"].msg)              # per item of split.result
 ```
 
@@ -65,12 +65,12 @@ as it does for any node. A subgraph takes no `Policy` of its own, because it is 
 
 From outside, a subgraph is one node:
 
-- **Its inputs** are its graph's inputs (`graph.inputs` of the subgraph compiled alone): the inputs no edge reaches on its first
-  nodes, under the names that graph gives them: the input's own name, or, for just the inputs whose name two inner nodes share, `node.input`. A constant, a default or an edge on it works as on any node. An inner input that a hook reads (a function that
+- **Its inputs** are its graph's inputs (`graph.inputs` of the subgraph compiled alone): the graph inputs its record declares,
+  under their names there. A constant, a graph input or an edge on one works as on any node. An inner input that a hook reads (a function that
   computes a node's inputs or outputs when the graph is compiled, see [writing nodes](writing-nodes.md#inputs-and-outputs-that-a-constant-decides))
   must be a constant inside the subgraph, so it is not offered.
-- **Its outputs** are its graph's outputs (`graph.outputs` of the subgraph): the outputs of its last nodes, the nodes no edge leaves, under their
-  addresses there, `node.output`.
+- **Its outputs** are its graph's outputs (`graph.outputs` of the subgraph): the outputs its record's `outputs` names, under
+  their names there.
 - An output its graph returns once has the inner node's type. One returned inside loops is one `Series`
   for each loop: an output returned per line of each document is `Series[Series[str]]`, a list of lines per
   document. That is the shape `run.results` shows, and the shape a node wired to it works with, as
@@ -85,14 +85,22 @@ From outside, a subgraph is one node:
   (`lists_from_different_loops`): one branch's list would always be empty.
 
 ```python
-side_by_side = subgraph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(make_graph(upper, exclaim, edges=[]))
+side_by_side = subgraph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(
+    make_graph(
+        upper, exclaim, edges=[],
+        inputs={"loud": "upper.text", "keen": "exclaim.text"},
+        outputs={"loud": "upper.result", "keen": "exclaim.result"},
+    )
+)
 registry.add(side_by_side)
 both = Graph.compile(make_graph(side_by_side), registry)
 
-print(list(both.inputs))  # ['upper.text', 'exclaim.text']
-print(both.run({"upper.text": "a", "exclaim.text": "b"}).outputs)
-# {'both.upper.result': 'A', 'both.exclaim.result': 'b!'}
+print(list(both.inputs))  # ['keen', 'loud']
+print(both.run(loud="a", keen="b").outputs)  # {'keen': 'b!', 'loud': 'A'}
 ```
+
+`upper` and `exclaim` both take `text` and both return `result`, so `make_graph` is told what the graph calls them, as
+it would raise `ports_share_a_name` otherwise.
 
 A node outside gets a subgraph's output as it would get the same node's output if that node were drawn in the outer graph. Below, `upper`
 and `exclaim` each run once per word inside the subgraph. A node wired to both is called once per word, with
@@ -100,7 +108,11 @@ that word's two values:
 
 ```python
 both_per_word = subgraph("per-word", title="Per word", description="Each word in capital letters, and with an exclamation mark.")(
-    make_graph(split, upper, exclaim, edges=[("split.result", "upper.text"), ("split.result", "exclaim.text")])
+    make_graph(
+        split, upper, exclaim,
+        edges=[("split.result", "upper.text"), ("split.result", "exclaim.text")],
+        outputs={"loud": "upper.result", "keen": "exclaim.result"},
+    )
 )
 registry.add(both_per_word)
 
@@ -110,7 +122,7 @@ def beside(loud: str, keen: str) -> str:
     return f"{loud}/{keen}"
 
 
-graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.upper.result", "beside.loud"), ("per-word.exclaim.result", "beside.keen")]), registry)
+graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]), registry)
 print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
 print(graph.runs_on["beside"].msg)                             # per item of per-word.split.result
 ```
@@ -122,7 +134,7 @@ output's description (`graph.describe()`) lists its `loops`, so an editor can te
 
 ### An output returned inside two loops
 
-`lines` below is called once per document, and `upper` once per line. As an output of the subgraph, `upper.result` is a list
+`lines` below is called once per document, and `upper` once per line. As the subgraph's output `result`, what `upper` returns is a list
 of lines for each document, `Series[Series[str]]`:
 
 ```python
@@ -141,10 +153,10 @@ per_line = subgraph("per-line", title="Per line", description="Every line of eve
 )
 registry.add(per_line)
 
-graph = Graph.compile(make_graph(per_line, join, edges=[("per-line.upper.result", "join.texts")]), registry)
+graph = Graph.compile(make_graph(per_line, join, edges=[("per-line.result", "join.texts")]), registry)
 run = graph.run(text="a,b;c")
 
-print(run.results["per-line"]["upper.result"])  # [['A', 'B'], ['C']]
+print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
 print(run.results["join"]["result"])            # ['A B', 'C']
 print(graph.runs_on["join"].msg)                # per item of per-line.documents.result
 print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
@@ -169,7 +181,7 @@ def maybe(text: str) -> str | None:
 graph = Graph.compile(make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]), registry)
 run = graph.run(text="hi none")
 
-print(run.results["shout"])  # {'exclaim.result': ['HI!', None]}
+print(run.results["shout"])  # {'result': ['HI!', None]}
 for not_called in run.not_called:
     print(not_called.loc, not_called.input)
 # ('shout', 1, 'upper') text
@@ -186,10 +198,10 @@ gets the `None`:
 ```python
 graph = Graph.compile(make_graph(split, maybe, side_by_side, edges=[
     ("split.result", "maybe.text"),
-    ("maybe.result", "both.upper.text"),
-    ("split.result", "both.exclaim.text"),
+    ("maybe.result", "both.loud"),
+    ("split.result", "both.keen"),
 ]), registry)
-print(graph.run(text="hi none").results["both"])  # {'upper.result': ['HI', None], 'exclaim.result': ['hi!', 'none!']}
+print(graph.run(text="hi none").results["both"])  # {'keen': ['hi!', 'none!'], 'loud': ['HI', None]}
 ```
 
 ## A subgraph is compiled alone
@@ -238,8 +250,8 @@ graph that wires the wrong table to it gets a `type_mismatch`. So give a subgrap
 
 ## Where something is inside
 
-`run.results`, `graph.runs_on` and `graph.describe()` show the subgraph as one node. Its outputs in `run.results` are the outputs of the
-inner nodes that return them; it has no outputs of its own. Everything that happens inside it is reported with a `loc` that starts with
+`run.results`, `graph.runs_on` and `graph.describe()` show the subgraph as one node. Its outputs in `run.results` are its graph's outputs, by
+name, each what the inner node behind it returned; the subgraph node is never called itself. Everything that happens inside it is reported with a `loc` that starts with
 the subgraph node's id and, inside a loop, its item index, outermost first.
 
 - A problem of the subgraph's own graph record is that problem with the subgraph node's id in front,

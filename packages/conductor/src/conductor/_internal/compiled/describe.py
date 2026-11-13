@@ -108,18 +108,14 @@ class GraphNodeDescription(ConductorModel):
 
 
 class GraphInputDescription(ConductorModel):
-    """A graph input: an input of a node that no edge leads to, which the caller gives a value for when a run
-    starts. The values of ``graph.inputs`` are these. In the example, ``lines.text``.
+    """A graph input: a value the caller gives when a run starts, by name, which the graph record declares on the
+    inputs it feeds. The values of ``graph.inputs`` are these. In the example, ``text``.
 
     Attributes:
-        address: The key the caller's value is kept under, ``node.input``.
-        node_id: The node whose input it is.
-        field: The input. Its ``default`` is the value used when the caller gives none (the graph record's
-            default, else the node's), as JSON, and it is ``required`` when there is none.
+        field: The graph input. Its ``default`` is the value used when the caller gives none (the graph record's
+            default, else the input's own), as JSON, and it is ``required`` when there is none.
     """
 
-    address: str
-    node_id: str
     field: FieldDescription
 
 
@@ -128,10 +124,8 @@ class GraphDescription(ConductorModel):
 
     Attributes:
         nodes: Each node of the graph record, by id.
-        inputs: The graph inputs, by name: the input's own name, or its address (``node.input``) when two graph
-            inputs share a name.
-        outputs: The graph outputs, as addresses (``"join.result"``): every output of every node that no edge
-            leaves.
+        inputs: The graph inputs, by name.
+        outputs: The names of the graph outputs (``["result"]``).
         problems: Every problem of the graph, those on nodes included.
     """
 

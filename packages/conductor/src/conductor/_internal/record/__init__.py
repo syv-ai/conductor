@@ -1,32 +1,41 @@
-"""A graph as a host stores it: ``graph.py`` is ``GraphRecord``, ``node.py`` is ``NodeRecord``.
+"""A graph as a host stores it: ``graph.py`` is ``GraphRecord``, ``node.py`` is ``NodeRecord`` and what each input gets.
 
-A graph record is its nodes and its edges, and nothing else::
+A graph record is its nodes by id and its outputs by name::
 
     {
-        "nodes": [
-            {"id": "lines", "node": "lines"},
-            {"id": "shout", "node": "shout", "constants": {"mark": "?"}},
-            {"id": "join", "node": "join"}
-        ],
-        "edges": [["lines.result", "shout.line"], ["shout.result", "join.texts"]]
+        "nodes": {
+            "lines": {"node": "lines", "inputs": {"text": {"graph_input": "text"}}},
+            "shout": {"node": "shout", "inputs": {
+                "line": {"sources": [{"node": "lines", "output": "result"}]},
+                "mark": {"constant": "?"}
+            }},
+            "join": {"node": "join", "inputs": {"texts": {"sources": [{"node": "shout", "output": "result"}]}}}
+        },
+        "outputs": {"result": {"node": "join", "output": "result"}}
     }
 
-A node names the node definition it uses (``node``) and its version (``version``, 1 when left out). A constant
-(``constants``) is the value an input has on every call in every run: no caller can change it. A default
-(``defaults``) is the value of a graph input when the caller gives none. ``display`` is the host's own: conductor
-stores it and never reads it. An empty field is left out when the record is saved, so a bare node is
-``{"id": "join", "node": "join"}``.
+A node names the node definition it uses (``node``) and its version (``version``, 1 when left out). Each input it
+lists gets exactly one of three:
 
-Edges are a list of ``[source, target]`` addresses, ``node.input`` or ``node.output``, or ``node.output.field`` for
-one field of a record an output gives. They are kept sorted, so two records that differ only in the order of their
-edges are equal and save alike. An edge listed twice stays twice, and compiling reports it (``repeated_edge``).
-Several edges into one input are alternatives, from opposite branches of one decision, so nothing depends on the
-order of the list.
+- a constant (``RecordConstant``), the value the input has on every call in every run: no caller can change it;
+- a graph input (``RecordGraphInput``), the value the caller gives when a run starts, under the graph input's name,
+  with a default for when the caller gives none;
+- the edges into it (``RecordEdges``), each the output it comes from (an ``Address``), or one field of the record
+  an output returns: ``{"node": "read", "output": "result", "field": "email"}``.
 
-A host hands a record in as a ``GraphRecord`` or its JSON text; ``gate/record.py`` reads it. ``Graph.compile``
-compiles it into a ``Graph``, and what the record says that cannot be meant (a repeated edge, an edge naming a node
-the graph does not have, an input given both a constant and a default) is a problem of that graph.
+An input the record leaves out gets the node's own default. ``display`` is the host's own: conductor stores it and
+never reads it. An empty field of a node is left out when the record is saved, so a bare node is ``{"node":
+"join"}``. ``outputs`` names the graph's outputs, each a node's output; used as a subgraph, the graph's inputs and
+outputs are the node's.
+
+A host hands a record in as a ``GraphRecord`` or its JSON text; ``gate/record.py`` reads it, and refuses a record
+that is not this shape: a key written twice in one object (two nodes with one id), a node id or input that is not a
+name, a source listed twice, or an input given more than one of the three. ``Graph.compile`` compiles a record it
+read, and what the record says that cannot be meant as a graph (an edge from a node the graph does not have, an
+input the node does not have, a graph input given two types) is a problem of that graph.
 """
 
 from .graph import GraphRecord
-from .node import NodeRecord
+from .node import NodeRecord, RecordConstant, RecordEdges, RecordGraphInput
+
+__all__ = ["GraphRecord", "NodeRecord", "RecordConstant", "RecordEdges", "RecordGraphInput"]

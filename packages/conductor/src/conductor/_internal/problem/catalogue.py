@@ -60,16 +60,12 @@ def alternatives_from_different_loops(node_id: str, field: str, /, *, series: li
             loop.
 
     Example:
-        problems({
-            "nodes": [
-                {"id": "w", "node": "words"}, {"id": "r", "node": "route"},
-                {"id": "letters", "node": "words"}, {"id": "u", "node": "upper"},
-            ],
-            "edges": [
-                ["w.result", "r.text"], ["r.short", "letters.text"],
-                ["letters.result", "u.text"], ["r.long", "u.text"],
-            ],
-        })
+        problems({"nodes": {
+            "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+            "r": {"node": "route", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}},
+            "letters": {"node": "words", "inputs": {"text": {"sources": [{"node": "r", "output": "short"}]}}},
+            "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "letters", "output": "result"}, {"node": "r", "output": "long"}]}}}
+        }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     series_text = comma_separated(["none (not in a loop)" if one is None else one for one in series])
     return (
@@ -94,7 +90,9 @@ def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dic
         error_ctx: The ``ctx`` of the hook's ``NodeError``, when it has one.
 
     Example:
-        problems({"nodes": [{"id": "pick", "node": "pick", "constants": {"names": ""}}]})
+        problems({"nodes": {
+            "pick": {"node": "pick", "inputs": {"names": {"constant": ""}}}
+        }})
     """
     return f"The node could not work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired to it."
 
@@ -118,7 +116,9 @@ def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context
         def count_it(ctx: Context[int]) -> int:
             return ctx
 
-        problems({"nodes": [{"id": "count", "node": "count_it"}]})
+        problems({"nodes": {
+            "count": {"node": "count_it"}
+        }})
     """
     return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} is not a {needs}; ask for {context_type}, a base of it or a Protocol it satisfies."
 
@@ -147,7 +147,9 @@ def context_does_not_fit_lacks(node_id: str, parameter: str, /, *, needs: str, c
         def tables(ctx: Context[HasDatabase]) -> str:
             return ctx.database
 
-        problems({"nodes": [{"id": "tables", "node": "tables"}]})
+        problems({"nodes": {
+            "tables": {"node": "tables"}
+        }})
     """
     return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} lacks {comma_separated(lacks)}; give {context_type} what the node reads, or change what it asks for."
 
@@ -184,66 +186,30 @@ def cycle(*loc: str | int) -> str:
         loc: The node.
 
     Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
-            "edges": [["a.result", "b.text"], ["b.result", "a.text"]],
-        })
+        problems({"nodes": {
+            "a": {"node": "upper", "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}}},
+            "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}}}
+        }})
     """
     return "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it."
 
 
 @PROBLEMS.problem()
-def default_not_a_graph_input(node_id: str, field: str, /) -> str:
-    """The graph record gives a default to an input that is not a graph input.
-
-    Only a graph input gets its value from the caller, so only there can a default be replaced. Write the value as a
-    constant (``constants``) instead. In the example, ``g.greeting`` is not a graph input because ``g`` has an edge
-    into it, so it is not one of the graph's first nodes. An input that a node's ``compute_added_inputs`` or
-    ``compute_outputs`` reads is never a graph input either, on any node: the hook reads it when the graph is
-    compiled, before any caller.
-
-    Args:
-        node_id: The node.
-        field: The input.
-
-    Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "g", "node": "greet", "defaults": {"greeting": "hi"}}],
-            "edges": [["a.result", "g.name"]],
-        })
-    """
-    return f"'{field}' is not a graph input, so no caller can replace its default; make it a constant."
-
-
-@PROBLEMS.problem()
-def duplicate_node_id(node_id: str, /) -> str:
-    """Two nodes of the graph record have the same id.
-
-    Give one of them another id. ``make_graph`` picks free ids itself: ``upper-1``, ``upper-2``.
-
-    Args:
-        node_id: The id.
-
-    Example:
-        problems({"nodes": [{"id": "a", "node": "upper"}, {"id": "a", "node": "count"}]})
-    """
-    return f"Two nodes have the id '{node_id}'; rename one."
-
-
-@PROBLEMS.problem()
 def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: str) -> str:
-    """An edge names a node the graph record does not have.
+    """An edge, or a graph output, comes from a node the graph record does not have.
 
     Add the node, or remove the edge.
 
     Args:
-        loc: The node at the edge's target, and the input.
+        loc: The node the edge leads into, and the input; ``"outputs"`` and the name, for a graph output.
         missing: The id of the node that is not in the graph record.
         source: The edge's source, as an address.
-        target: The edge's target, as an address.
+        target: The input the edge leads into, as ``node.input``.
 
     Example:
-        problems({"nodes": [{"id": "a", "node": "upper"}], "edges": [["a.result", "ghost.text"]]})
+        problems({"nodes": {
+            "a": {"node": "upper", "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}}}
+        }})
     """
     return f"The edge from '{source}' to '{target}' names '{missing}', which is not a node of the graph; add that node or remove the edge."
 
@@ -261,11 +227,11 @@ def subgraph_contains_itself(*loc: str | int, node: str) -> str:
 
     Example:
         itself = subgraph("itself", title="Itself", description="A graph that contains itself.")(
-            GraphRecord.model_validate({"nodes": [{"id": "again", "node": "itself"}]})
+            GraphRecord.model_validate({"nodes": {"again": {"node": "itself"}}})
         )
         looping = NodeRegistry()
         looping.add(itself)
-        Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "i", "node": "itself"}]}), looping).problems
+        Graph.compile(GraphRecord.model_validate({"nodes": {"i": {"node": "itself"}}}), looping).problems
     """
     return f"The subgraph '{node}' contains itself; remove the node that leads back to it."
 
@@ -282,25 +248,11 @@ def hook_needs_value(node_id: str, field: str, /) -> str:
         field: The input.
 
     Example:
-        problems({"nodes": [{"id": "pick", "node": "pick"}]})
+        problems({"nodes": {
+            "pick": {"node": "pick"}
+        }})
     """
     return f"'{field}' needs a constant: the node works out its inputs and outputs from it when the graph is compiled."
-
-
-@PROBLEMS.problem()
-def invalid_node_id(node_id: str, /) -> str:
-    """A node's id contains ``.``, ``/``, ``@`` or ``~``.
-
-    Those characters build addresses (``a.result``), node paths (``loud/shout``) and waiting ids (``a@1~3fa2``). Pick
-    an id without them.
-
-    Args:
-        node_id: The id.
-
-    Example:
-        problems({"nodes": [{"id": "a.b", "node": "upper"}]})
-    """
-    return f"'{node_id}' cannot be a node id: '.', '/', '@' and '~' are used in addresses and waiting ids; choose an id without them."
 
 
 @PROBLEMS.problem()
@@ -320,7 +272,9 @@ def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict
         column: For a table, the column of the first value refused.
 
     Example:
-        problems({"nodes": [{"id": "c", "node": "count", "constants": {"n": "many"}}]})
+        problems({"nodes": {
+            "c": {"node": "count", "inputs": {"n": {"constant": "many"}}}
+        }, "outputs": {"result": {"node": "c", "output": "result"}}})
     """
     return f"The constant of '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
 
@@ -347,7 +301,10 @@ def invalid_value_bound_default(node_id: str, field: str, /, *, type: str, reaso
             return one
 
 
-        problems({"nodes": [{"id": "u", "node": "upper"}, {"id": "f", "node": "first"}], "edges": [["u.result", "f.one"]]})
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            "f": {"node": "first", "inputs": {"one": {"sources": [{"node": "u", "output": "result"}]}}}
+        }})
     """
     return f"The default of '{field}' is not a value of {type}, the type the edges into '{node_id}' give it: {reason.rstrip('.')}. Give a default of that type, or none."
 
@@ -357,8 +314,8 @@ def parameter_name_invalid(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook returns an input or output name that cannot be one.
 
     A name may not be empty or contain ``.``, ``/``, ``@`` or ``~``, the characters addresses (``a.result``), node
-    paths (``loud/shout``) and waiting ids (``a@1~3fa2``) are written with. A node id is held to the same rule
-    (``invalid_node_id``). Change the hook.
+    paths (``loud/shout``) and waiting ids (``a@1~3fa2``) are written with. Every name in a graph record is held to
+    the same rule. Change the hook.
 
     Args:
         node_id: The node.
@@ -374,29 +331,11 @@ def parameter_name_invalid(node_id: str, field: str, /) -> str:
             return {}
 
 
-        problems({"nodes": [{"id": "f", "node": "fields", "constants": {"names": "a.b"}}]})
+        problems({"nodes": {
+            "f": {"node": "fields", "inputs": {"names": {"constant": "a.b"}}}
+        }})
     """
     return f"'{field}' cannot be an input or output name: a name is not empty and has no '.', '/', '@' or '~'; change the node's hook."
-
-
-@PROBLEMS.problem()
-def repeated_edge(node_id: str, field: str, /, *, source: str) -> str:
-    """The same edge is in the graph record twice.
-
-    Remove one.
-
-    Args:
-        node_id: The node at the edge's target.
-        field: The input.
-        source: The edge's source, as an address.
-
-    Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
-            "edges": [["a.result", "b.text"], ["a.result", "b.text"]],
-        })
-    """
-    return f"The edge from '{source}' to '{field}' is in the graph twice; remove one."
 
 
 @PROBLEMS.problem()
@@ -417,10 +356,11 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
             return f"{a} {b}"
 
 
-        problems({
-            "nodes": [{"id": "w", "node": "words"}, {"id": "r", "node": "route"}, {"id": "p", "node": "pair"}],
-            "edges": [["w.result", "r.text"], ["r.short", "p.a"], ["r.long", "p.b"]],
-        })
+        problems({"nodes": {
+            "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+            "r": {"node": "route", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}},
+            "p": {"node": "pair", "inputs": {"a": {"sources": [{"node": "r", "output": "short"}]}, "b": {"sources": [{"node": "r", "output": "long"}]}}}
+        }})
     """
     return (
         f"{comma_separated(inputs)} read branches that never both have a value for the same item, so the node would get no items. "
@@ -445,10 +385,11 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str], 
         wire_into: The id of the node that returns the other series.
 
     Example:
-        problems({
-            "nodes": [{"id": "names", "node": "words"}, {"id": "greetings", "node": "words"}, {"id": "g", "node": "greet"}],
-            "edges": [["names.result", "g.name"], ["greetings.result", "g.greeting"]],
-        })
+        problems({"nodes": {
+            "names": {"node": "words", "inputs": {"text": {"graph_input": "names_text"}}},
+            "greetings": {"node": "words", "inputs": {"text": {"graph_input": "greetings_text"}}},
+            "g": {"node": "greet", "inputs": {"name": {"sources": [{"node": "names", "output": "result"}]}, "greeting": {"sources": [{"node": "greetings", "output": "result"}]}}}
+        }, "outputs": {"result": {"node": "g", "output": "result"}}})
     """
     return (
         f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
@@ -473,10 +414,11 @@ def loops_not_nested_inside_subgraph(node_id: str, /, *, series: list[str], inpu
 
     Example:
         registry.subgraph("split", title="Split", description="Returns the words of a text.")(make_graph(words))
-        problems({
-            "nodes": [{"id": "e", "node": "split"}, {"id": "w", "node": "words"}, {"id": "g", "node": "greet"}],
-            "edges": [["w.result", "g.name"], ["e.words.result", "g.greeting"]],
-        })
+        problems({"nodes": {
+            "e": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+            "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+            "g": {"node": "greet", "inputs": {"name": {"sources": [{"node": "w", "output": "result"}]}, "greeting": {"sources": [{"node": "e", "output": "result"}]}}}
+        }, "outputs": {"result": {"node": "g", "output": "result"}}})
     """
     return (
         f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
@@ -500,10 +442,11 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
         sources: The edges' sources, as addresses.
 
     Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "c", "node": "upper"}],
-            "edges": [["a.result", "c.text"], ["b.result", "c.text"]],
-        })
+        problems({"nodes": {
+            "a": {"node": "upper", "inputs": {"text": {"graph_input": "a_text"}}},
+            "b": {"node": "upper", "inputs": {"text": {"graph_input": "b_text"}}},
+            "c": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}, {"node": "b", "output": "result"}]}}}
+        }, "outputs": {"result": {"node": "c", "output": "result"}}})
     """
     return (
         f"More than one edge into '{field}' (from {comma_separated(sources)}) can give it a value on the same call. "
@@ -526,10 +469,10 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
         expected: The type the input takes.
 
     Example:
-        problems({
-            "nodes": [{"id": "c", "node": "count"}, {"id": "u", "node": "upper"}],
-            "edges": [["c.result", "u.text"]],
-        })
+        problems({"nodes": {
+            "c": {"node": "count", "inputs": {"n": {"graph_input": "n"}}},
+            "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result"}]}}}
+        }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
         f"'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; "
@@ -555,10 +498,10 @@ def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got
         fields: The fields each row or item has, so an editor can offer them; empty when they are not known.
 
     Example:
-        problems({
-            "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
-            "edges": [["c.result", "u.text"]],
-        })
+        problems({"nodes": {
+            "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
+            "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result"}]}}}
+        }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
         f"'{source}' is a whole {whole}, and '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
@@ -594,10 +537,10 @@ def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: s
             return int(invoices["amount"].sum())
 
 
-        problems({
-            "nodes": [{"id": "c", "node": "contacts"}, {"id": "t", "node": "total"}],
-            "edges": [["c.result", "t.invoices"]],
-        })
+        problems({"nodes": {
+            "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
+            "t": {"node": "total", "inputs": {"invoices": {"sources": [{"node": "c", "output": "result"}]}}}
+        }})
     """
     return (
         f"'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {comma_separated(has)}. "
@@ -606,23 +549,41 @@ def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: s
 
 
 @PROBLEMS.problem()
-def unbound_on_later_node(node_id: str, field: str, /) -> str:
-    """An input with no edge and no constant, on a node that is not one of the graph's first nodes.
+def input_has_no_value(node_id: str, field: str, /) -> str:
+    """An input with no default gets nothing in the graph record: no edge, no constant and no graph input.
 
-    Only the inputs of a graph's first nodes (the nodes with no edge into them) are graph inputs, which the caller
-    gives. Draw an edge into the input, or give it a constant.
+    Wire an edge into it, give it a constant, or make it a graph input, ``{"graph_input": "name"}``, so the caller
+    gives its value.
 
     Args:
         node_id: The node.
         field: The input.
 
     Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "g", "node": "greet"}],
-            "edges": [["a.result", "g.name"]],
-        })
+        problems({"nodes": {"g": {"node": "greet", "inputs": {"name": {"constant": "Ida"}}}}})
     """
-    return f"'{field}' has no edge and no constant, and only a first node's inputs come from the caller; wire an edge into it or give it a constant."
+    return f"'{field}' gets no value: wire an edge into it, give it a constant, or make it a graph input."
+
+
+@PROBLEMS.problem()
+def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) -> str:
+    """Two inputs that name one graph input take different types, or the record gives them different defaults.
+
+    A caller gives a graph input one value, so every input it feeds must read that value alike. Give the inputs
+    graph inputs of their own, or give them one default.
+
+    Args:
+        node_id: The node of the second input.
+        field: The second input.
+        graph_input: The graph input's name.
+
+    Example:
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "x"}}},
+            "c": {"node": "count", "inputs": {"n": {"graph_input": "x"}}},
+        }})
+    """
+    return f"'{field}' and another input both take the graph input '{graph_input}', with another type or default; give each its own graph input."
 
 
 @PROBLEMS.problem()
@@ -638,7 +599,9 @@ def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
         inputs: The node's inputs.
 
     Example:
-        problems({"nodes": [{"id": "u", "node": "upper", "constants": {"txt": "a"}}]})
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"txt": {"constant": "a"}, "text": {"graph_input": "text"}}}
+        }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
 
@@ -655,7 +618,9 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
         choices: The ids of the registry's node definitions.
 
     Example:
-        problems({"nodes": [{"id": "m", "node": "send-mail"}]})
+        problems({"nodes": {
+            "m": {"node": "send-mail"}
+        }})
     """
     return f"There is no node '{node}'; the nodes are {comma_separated(choices)}."
 
@@ -674,10 +639,10 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
         record_field: The field of a record the edge names, when the record has no field by that name.
 
     Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}],
-            "edges": [["a.text", "b.text"]],
-        })
+        problems({"nodes": {
+            "a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "text"}]}}}
+        }, "outputs": {"result": {"node": "b", "output": "result"}}})
     """
     return f"'{source}' is not an output of that node; it has {comma_separated(outputs)}."
 
@@ -698,10 +663,10 @@ def unknown_output_make_a_series(*loc: str | int, source: str, outputs: list[str
         fields: The fields each row or item has, so an editor can offer them; empty when they are not known.
 
     Example:
-        problems({
-            "nodes": [{"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}],
-            "edges": [["c.result.email", "u.text"]],
-        })
+        problems({"nodes": {
+            "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
+            "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "c", "output": "result", "field": "email"}]}}}
+        }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
         f"'{source}' names a field of a whole {whole}, which has no fields to wire. Put a node after it that returns its rows "
@@ -722,52 +687,11 @@ def unknown_version(*loc: str | int, node: str, version: int, newest: int) -> st
         newest: The newest version of the node definition.
 
     Example:
-        problems({"nodes": [{"id": "u", "node": "upper", "version": 9}]})
+        problems({"nodes": {
+            "u": {"node": "upper", "version": 9, "inputs": {"text": {"graph_input": "text"}}}
+        }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return f"'{node}' has no version {version}; the newest is {newest}."
-
-
-@PROBLEMS.problem()
-def constant_and_default(node_id: str, field: str, /) -> str:
-    """An input has both a constant and a default in the graph record.
-
-    Keep one: a constant fixes the input's value, a default makes it a graph input the caller may give.
-
-    Args:
-        node_id: The node.
-        field: The input.
-
-    Example:
-        problems({"nodes": [{"id": "u", "node": "upper", "constants": {"text": "a"}, "defaults": {"text": "b"}}]})
-    """
-    return f"'{field}' has both a constant and a default; keep one."
-
-
-@PROBLEMS.problem()
-def constant_and_edge(node_id: str, field: str, /) -> str:
-    """An input has both an edge into it and a constant in the graph record.
-
-    Keep one: remove the edge or the constant.
-
-    Args:
-        node_id: The node.
-        field: The input.
-
-    Example:
-        problems({
-            "nodes": [{"id": "a", "node": "upper"}, {"id": "b", "node": "upper", "constants": {"text": "x"}}],
-            "edges": [["a.result", "b.text"]],
-        })
-    """
-    return f"'{field}' has both an edge and a constant; keep one."
-
-
-PROBLEMS.section(
-    "A refused call",
-    "Raised as `InvalidCallError` by the call that caused it, before anything ran; `error.errors()` lists every "
-    "problem at once, and the graph and the run are unchanged. `loc` says what the call got wrong: "
-    '`("inputs", name)` for an input, `(node_id, *item_indexes)` for an answer, `("saved_run", ...)` for a saved run.',
-)
 
 
 @PROBLEMS.problem()
@@ -828,23 +752,6 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
         refused(lambda: Graph.compile(make_graph(who), registry).run())
     """
     return f"The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
-
-
-@PROBLEMS.problem()
-def input_given_twice(*loc: str | int, name: str, address: str) -> str:
-    """A call gives a graph input both by its name and by its address.
-
-    Give it once.
-
-    Args:
-        loc: ``"inputs"`` and the input's name.
-        name: The input's name.
-        address: The input's address.
-
-    Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).run({"upper.text": "a"}, text="b"))
-    """
-    return f"'{name}' is given twice, by its name and by its address '{address}'; give it once."
 
 
 @PROBLEMS.problem()
@@ -1059,12 +966,33 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
         outputs: The outputs of ``before``.
 
     Example:
-        refused(lambda: make_graph(upper, greet))
+        refused(lambda: make_graph(upper, greet, outputs={"result": "greet.result"}))
     """
     return (
         f"'{node_id}' can't follow '{before}' without edges: make_graph wires a node's one required input (it has {comma_separated(inputs)}) "
         f"to the one output of the node before it (that has {comma_separated(outputs)}); pass edges= to make_graph."
     )
+
+
+@PROBLEMS.problem()
+def ports_share_a_name(*loc: str | int, name: str, places: list[str]) -> str:
+    """``make_graph`` would name two graph inputs, or two graph outputs, alike.
+
+    Given no ``inputs=``, ``make_graph`` makes each open input of a node no edge leads into a graph input of the
+    input's name; given no ``outputs=``, it makes each output of a node no edge leaves a graph output of the output's
+    name. Two of the same name are two different values, so name them: ``inputs={"name": "greet.name", "who":
+    "greet-2.name"}``, or ``outputs={...}`` the same way. One graph input may feed several inputs:
+    ``inputs={"text": ["a.text", "b.text"]}``.
+
+    Args:
+        loc: ``"inputs"`` or ``"outputs"``, and the name.
+        name: The name.
+        places: Where each is, ``node.input`` or ``node.output``.
+
+    Example:
+        refused(lambda: make_graph(upper, upper, edges=[]))
+    """
+    return f"Two graph ports would both be named '{name}' ({comma_separated(places)}); name them with make_graph's inputs= or outputs=."
 
 
 @PROBLEMS.problem()

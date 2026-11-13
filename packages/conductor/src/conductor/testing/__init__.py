@@ -63,7 +63,7 @@ from conductor._internal.node import (
     read_by_hooks,
 )
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
-from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.record import GraphRecord, NodeRecord, RecordConstant
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.run import EndedEarly
 from conductor._internal.types import Param, kind_of_value
@@ -138,7 +138,8 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
         written = record_values(version.id, constants)
     except RefusedError as refused:
         raise InvalidCallError(refused.problems) from None
-    return GraphRecord(nodes=[NodeRecord(id=version.id, node=version.id, version=version.version, constants=written)])
+    inputs = {name: RecordConstant(constant=value) for name, value in written.items()}
+    return GraphRecord(nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)})
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:

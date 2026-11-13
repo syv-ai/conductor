@@ -94,7 +94,7 @@ def test_a_node_whose_body_asks_declares_asks_and_waits():
 
     run = Graph.compile(make_graph(reason), registry_of(reason)).run(ticket="T-1")
     assert run.status == "waiting"
-    assert run.answer(run.waiting[0], "fixed").resume().outputs == {"reason.result": "fixed"}
+    assert run.answer(run.waiting[0], "fixed").resume().outputs == {"result": "fixed"}
 
 
 def test_a_raise_of_ask_from_a_node_that_does_not_declare_asks_fails_the_run_naming_the_node():
@@ -145,7 +145,7 @@ def test_a_registry_node_takes_asks_as_node_does():
 
 def test_the_asking_function_returns_and_the_node_is_called_once_and_nothing_waits():
     run = _graph().run(text="A:100,B:200")
-    assert run.outputs == {"summary.result": "paid A; paid B"}
+    assert run.outputs == {"result": "paid A; paid B"}
     assert calls == [("approval", "A"), ("approve", "A", True), ("approval", "B"), ("approve", "B", True)]
 
 
@@ -159,7 +159,7 @@ def test_the_asking_function_asks_and_the_answer_of_its_return_type_fills_the_pa
     assert ("approve", "B", False) not in calls and ("approve", "B", True) not in calls
     calls.clear()
     done = run.answer(waiting, False).resume()
-    assert done.outputs == {"summary.result": "paid A; held B"}
+    assert done.outputs == {"result": "paid A; held B"}
     assert calls == [("approve", "B", False)]  # neither function is called again for A, nor the question again for B
 
 
@@ -182,7 +182,7 @@ def test_the_asks_choices_and_default_are_checked_against_the_parameters_type():
     assert [choice["id"] for choice in question.choices] == ["ida", "bo"] and question.default == "ida"
     (problem,) = _refused(lambda: run.answer(run.waiting[0], "al"))
     assert problem.type == "invalid_answer"
-    assert run.answer(run.waiting[0], "bo").resume().outputs == {"assign.result": "T-1 to bo"}
+    assert run.answer(run.waiting[0], "bo").resume().outputs == {"result": "T-1 to bo"}
 
     def wrong_choices(ticket: str) -> str:
         raise Ask("Who?", choices=[1, 2])
@@ -213,7 +213,7 @@ def test_a_waiting_run_saved_and_read_back_in_another_process_calls_the_node_onc
     answered = Run.from_json(run.answer(run.waiting[0], True).to_json(), graph)  # an answer given and not yet used is saved
     assert answered.waiting == []
     calls.clear()
-    assert answered.resume().outputs == {"summary.result": "paid B"}
+    assert answered.resume().outputs == {"result": "paid B"}
     assert calls == [("approve", "B", True)]
     done = answered.resume()
     assert Run.from_json(done.to_json(), graph).outputs == done.outputs
@@ -256,10 +256,10 @@ def test_two_identical_invoices_answered_differently_keep_their_answers_when_one
     run = graph.run(text="A:900,A:900")
     first, second = run.waiting
     run = run.answer({first.id: True, second.id: False}).resume()
-    assert run.outputs == {"summary.result": "paid A; held A"}
+    assert run.outputs == {"result": "paid A; held A"}
     calls.clear()
     again = run.again(text="C:100,A:900,A:900")
-    assert again.outputs == {"summary.result": "paid C; paid A; held A"}
+    assert again.outputs == {"result": "paid C; paid A; held A"}
     assert calls == [("approval", "C"), ("approve", "C", True)]
 
 

@@ -88,7 +88,7 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
     registry.add(short)
     graph = Graph.compile(make_graph(short), registry)
 
-    assert type(graph.run(text="hello").outputs["short.result"]) is Text
+    assert type(graph.run(text="hello").outputs["result"]) is Text
     with pytest.raises(Exception) as refused:
         graph.run(text="x" * 21)
     assert refused.value.errors()[0].type == "invalid_input"

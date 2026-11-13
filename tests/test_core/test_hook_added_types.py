@@ -34,9 +34,11 @@ for _definition in (pass_on, number, words):
     REGISTRY.add(_definition)
 
 
-def _compiled(edges: list[list[str]], names: list[str], **constants: Any):
-    nodes = [{"id": "n", "node": "number"}, {"id": "w", "node": "words"}, {"id": "p", "node": "pass-on", "constants": {"names": names, **constants}}]
-    return Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges}), REGISTRY)
+def _compiled(source: tuple[str, str], target: str, names: list[str], **constants: Any):
+    """The nodes ``n``, ``w`` and ``p``, with an edge from ``source``, ``(node, output)``, into ``p``'s input ``target``."""
+    inputs = {"names": {"constant": names}, **{name: {"constant": value} for name, value in constants.items()}, target: {"sources": [{"node": source[0], "output": source[1]}]}}
+    nodes = {"n": {"node": "number"}, "w": {"node": "words"}, "p": {"node": "pass-on", "inputs": inputs}}
+    return Graph.compile(GraphRecord.model_validate({"nodes": nodes}), REGISTRY)
 
 
 def _output_types(graph) -> dict[str, str | None]:
@@ -44,13 +46,13 @@ def _output_types(graph) -> dict[str, str | None]:
 
 
 def test_added_receives_the_type_arriving_on_each_added_input_and_any_where_nothing_is_wired():
-    graph = _compiled([["n.result", "p.count"]], ["count", "note"], note="x")
+    graph = _compiled(("n", "result"), "count", ["count", "note"], note="x")
     assert graph.problems == [] and _output_types(graph) == {"count": "int", "note": "Any"}
     assert graph.run().results["p"] == {"count": 3, "note": "x"}
 
 
 def test_added_receives_the_item_type_of_a_series_read_one_item_at_a_time():
-    graph = _compiled([["w.result", "p.word"]], ["word"])
+    graph = _compiled(("w", "result"), "word", ["word"])
     assert graph.problems == [] and _output_types(graph) == {"word": "str"}
     assert graph.run().results["p"]["word"] == ["a", "b"]
 

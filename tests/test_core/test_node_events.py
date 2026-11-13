@@ -200,8 +200,8 @@ def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
 
 
 def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_it_is_running():
-    record = make_graph(decide, other, both, edges=[("decide.yes", "both.first"), ("other.result", "both.second")])
-    told = Told(record, registry_of(decide, other, both), **{"decide.text": "a", "other.text": "b"})
+    record = make_graph(decide, other, both, edges=[("decide.yes", "both.first"), ("other.result", "both.second")], inputs={"choice": "decide.text", "other": "other.text"})
+    told = Told(record, registry_of(decide, other, both), choice="a", other="b")
     told.call("decide")
     told.record("both")  # skipped as soon as decide has not chosen yes, while other is still running
     told.nothing_is_ready(("other", ()))
@@ -281,7 +281,7 @@ def test_a_node_complete_when_the_run_was_last_resumed_is_not_said_again():
 
 
 def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgraph_node_is_complete_after_it():
-    record = make_graph(lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.shout.result", "join.texts")])
+    record = make_graph(lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.result", "join.texts")])
     told = Told(record, registry_of(lines, shout, loud, join), text="a\nb")
     told.call("lines")
     told.call("loud/shout", 0)

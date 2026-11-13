@@ -73,8 +73,8 @@ base = NodeRegistry()
 base.add(trim, upper)
 clean = subgraph("clean", title="Clean", description="For a test.")(make_graph(trim, upper))
 base.add(clean)
-outer = make_graph(clean, upper, edges=[("clean.upper.result", "upper.text")], constants={"clean.text": "  hi  "})
-assert Graph.compile(outer, base).run().outputs == {"upper.result": "HI"}
+outer = make_graph(clean, upper, edges=[("clean.result", "upper.text")], constants={"clean.text": "  hi  "})
+assert Graph.compile(outer, base).run().outputs == {"result": "HI"}
 """
 
 
@@ -200,7 +200,7 @@ from conductor.widgets import Textarea
 times = Param(gee=1)
 text = Param(widget=Textarea)
 asked = Ask("?", choices="ab")
-called = subgraph("inner", title="Inner", description="A subgraph.")(GraphRecord(nodes=[]))("a")
+called = subgraph("inner", title="Inner", description="A subgraph.")(GraphRecord())("a")
 """
 
 

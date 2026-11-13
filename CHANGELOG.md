@@ -14,6 +14,18 @@ rule.
 
 What changes in how you work, before the name-by-name tables:
 
+- **A graph record is its nodes by id, and declares what the graph takes and returns.** `{"nodes": {"shout":
+  {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node": "join", "output": "result"}}}`. Each input a
+  node lists gets exactly one of a `constant`, a `graph_input` (with an optional `default`) or the `sources` of the
+  edges into it, each `{"node", "output", "field"?}`. A graph input sits on any node's input, and several inputs
+  may name one; a graph output is named in `outputs`. A subgraph's inputs and outputs are those names, so an edge
+  reads `loud.result`, never a node inside. The record keeps no order of its nodes: where order matters, nodes go
+  by id. A key written twice in the JSON (two nodes with one id), a name with `.`, `/`, `@` or `~`, a source listed
+  twice and an input given two kinds are refused at the door (`invalid_record`). `graph.inputs`, `run.inputs`,
+  `graph.outputs` and `run.outputs` are keyed by the declared names. `make_graph` declares the ports of a plain
+  graph itself and takes `inputs=` and `outputs=` where two would share a name (`ports_share_a_name`). New public
+  names: `RecordConstant`, `RecordGraphInput`, `RecordEdges`, `Address`. New codes: `input_has_no_value`,
+  `graph_input_used_two_ways`, `ports_share_a_name`.
 - **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
   without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
   pause. A parameter can be the question instead: `ok: Annotated[bool, Asked(approval)]`, filled by a
@@ -112,19 +124,16 @@ What changes in how you work, before the name-by-name tables:
 - **Compiling never raises for a fault in the graph.** `Graph.compile(record, registry)` returns a `Graph`;
   read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
   `InvalidCallError` with the code `invalid_record`. A constant or a graph input that its field refuses
-  (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, constants=, defaults=)`
+  (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, constants=, defaults=, inputs=, outputs=)`
   writes a record from Python and compiles nothing: it raises one error listing what it can't write
-  (a value for a node it wasn't given, a value with no JSON form, an edge that is no address
-  (`invalid_record` at `("record", "edges", index, end)`, as compiling the same record says it), a key of
-  `constants` or `defaults` that is no input's address (`invalid_record` at `("record", "constants", key, "[key]")`), a
-  chain it can't draw), and an input a node doesn't have, a value its field refuses, a default no
-  caller reaches or an edge whose types don't meet (`type_mismatch`) is in
-  `Graph.compile(record, registry).problems`. A record's `constants`, `defaults` and
+  (a value for a node it wasn't given, a value with no JSON form, a place that is not `node.name`
+  (`invalid_record`), two graph ports of one name (`ports_share_a_name`), a chain it can't draw), and an input a
+  node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
+  `Graph.compile(record, registry).problems`. A record's constants, defaults and
   `display` are JSON values; `make_graph` writes each constant and default as its JSON, a float that isn't
   finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
   the same way (`invalid_value` where it has no JSON form). A subgraph offers
-  its graph's inputs by their names there and its outputs by their addresses there
-  (`e.upper.result`), and `subgraph` takes no `policy` or hook. Its inner nodes are laid out in the graph that uses it, each with a call per item of every loop the subgraph
+  the graph inputs and outputs its record declares, by name (`e.result`), and `subgraph` takes no `policy` or hook. Its inner nodes are laid out in the graph that uses it, each with a call per item of every loop the subgraph
   node is inside, so they are called, retried, timed out, cancelled and reused by `run.again` as the
   same nodes drawn in the graph itself, and say their events once, under `("e", "upper")`. A `None`
   arriving at the subgraph node leaves the inner nodes that read it uncalled, and `run.not_called`
@@ -134,9 +143,7 @@ What changes in how you work, before the name-by-name tables:
   `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a call's is a
   problem's (`("e", 0, "ask")`), a node's its id behind the subgraph node's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
 - **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
-  as their type says. A `dict` is refused with `InvalidCallError` and one `invalid_record` problem at `("record",)`; a
-  host with a dict writes `GraphRecord.model_validate(data)`. `InvalidCallError` with `invalid_record`
-  problems is also what JSON text of the wrong shape raises.
+  as their type says. `InvalidCallError` with `invalid_record` problems is what JSON text of the wrong shape raises.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
   complete, waiting or ended early, and whose `state` is `Going` or, for a run that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
@@ -180,7 +187,7 @@ What changes in how you work, before the name-by-name tables:
 - **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
 - **An answer is read as a return is.** A person's answer is read from its JSON form by the schema that reads what the node returns, so a host type whose own check gives another class refuses an answer as it refuses a return (`invalid_answer`, "its type's own check gave a dict, not a Square"). An `Ask` choice with no JSON form fails the call with `invalid_ask` ("the value has no JSON form"), where it raised out of `resume()`.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
-- **A default no caller reaches is a problem at compile.** `make_graph(..., defaults={"pad.width": 8})` on an input that is not a graph input writes the record, and `Graph.compile(record, registry).problems` has `default_not_a_graph_input`, as does a record default on an input a hook reads.
+- **A graph input on an input a hook reads is a problem at compile** (`hook_needs_value`): the hook reads its value when the graph is compiled, before any caller.
 - **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_to_json` are `null` where the Series was never returned because of a `None` outside the loop, or a branch there wasn't chosen (they were `[]`, the same as for a Series returned with no items), and `null` where every item is skipped from outside (they were a list of `null`s). A `None` outside still shows a `None` in each place. The same nodes inside a subgraph show the same.
 - **An output made inside two loops is shown as a list of lists.** `run.results`, `run.outputs` and `outputs_to_json` show the output of a node called per item of a list that is itself returned per item as one list per outer item, `null` for an outer item whose inner list was never returned (it was one flat list over every item): three documents split into lines, the second empty, show `[["A", "B"], null, ["C"]]`. The same nodes inside a subgraph show the same.
 - **A node outside a subgraph reads its outputs as it would read the same nodes drawn in its own graph.** For the subgraph `documents -> lines -> shout`, a `Series[str]` input wired to `shout.result` is called once per document with that document's lines (it was called once, with one flat list over every document), and an input of one `str` once per line; a node outside and `run.results` see the same list per document. A loop outside is named by the list inside that is looped over (`runs_on` says `per item of e.documents.result`; it named the offered output), so outputs returned in the same loop inside are paired item by item: one item of each of two of them reaches one call (it was `series_not_nested`), and a `Series` input beside an input of one value wired to the same per-item output receives that item's one value, as drawn flat (it received every item). The output is described with `is_series` and one `Series` per loop (`type` `Series[str]` for a list per document) and lists its `loops`; every field description gains `loops`, empty but here. A `Series` returned once per document is `Series[Series[T]]` too (it was a `Series` of whole lists). `series_not_nested` for a list inside a subgraph has `ctx.variant` `inside_subgraph` and tells the author what they can do.
@@ -295,7 +302,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `Flow` | `GraphRecord`; see "Converting a stored 1.x graph" |
 | `FlowDependency` | gone: a graph uses another as a node, `subgraph("id", title=, description=)(record)` |
 | `FlowTrigger` | gone: the host decides when a graph runs |
-| `GraphEdge` | a pair `("a.result", "b.text")` in `GraphRecord.edges` |
+| `GraphEdge` | a source, `{"node": "a", "output": "result"}`, on the input it leads into |
 | `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
 | `RegistryView` | `registry.filter(predicate)` and `add_subregistry`; a request's own nodes go in a registry of their own |
 | `resolve_graph_inputs` | `Graph.compile(record, registry).inputs`, each a `GraphInputDescription` |
@@ -422,28 +429,28 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 
 ### Converting a stored 1.x graph
 
-A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": [...], "edges": [[from, to], ...]}`. Each `GraphNode` becomes a `NodeRecord`, `{id, node, version, constants, defaults, display}`, empty fields left out. Each `GraphEdge` becomes a pair of addresses, `["source.source_handle", "target.target_handle"]`. Compile the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: return the list from a node as a `Series[X]` and wire it to the input that took one item, and the node runs once per item; a node after it that collected the items takes them through a `Series` input.
+A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": {id: node, ...}, "outputs": {...}}`. Each `GraphNode` becomes a `NodeRecord` under its id, `{node, version, inputs, display}`, empty fields left out. Each `GraphEdge` becomes a source on the input it leads into, `{"sources": [{"node": source, "output": source_handle}]}`. Declare the graph's inputs (`{"graph_input": name}` on each input a caller fills) and outputs (`outputs`). Compile the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: return the list from a node as a `Series[X]` and wire it to the input that took one item, and the node runs once per item; a node after it that collected the items takes them through a `Series` input.
 
 | 1.x field | 2.0 |
 |---|---|
-| `GraphNode.id` | `id`, without `.`, `/`, `@` or `~` |
+| `GraphNode.id` | its key in `nodes`, without `.`, `/`, `@` or `~` |
 | `GraphNode.type` | `node` (the id of the node it uses) and `version`, 1 when left out |
-| `GraphNode.data` | `constants` for what is fixed, `defaults` for what a caller may change; an input wired by an edge has neither |
+| `GraphNode.data` | an input's entry: `{"constant": v}` for what is fixed, `{"graph_input": name, "default": v}` for what a caller may change; an input wired by an edge has `{"sources": [...]}` |
 | `GraphNode.produces` | gone: the node's outputs are its return type's |
 | `GraphNode.consumes` | gone: the node's inputs are its signature's |
 | `GraphNode.compensation` | gone with compensation |
 | `GraphNode.on_error` | gone: a failed call ends the run `failed` |
 | `GraphNode.node_label` | `display`, the host's own |
 | `GraphNode.output_labels` | `display`, or a `Param(title=)` on the output |
-| `GraphEdge.id` | gone: an edge is its two addresses |
-| `GraphEdge.source` | the first address's node: `source.output` |
-| `GraphEdge.target` | the second address's node |
-| `GraphEdge.source_handle` | the first address's field, `source.output`, or `source.output.field` for one field of a record of a `Series` (a table's column is no address: `series-split` gives its records one at a time) |
-| `GraphEdge.target_handle` | the second address's field, `target.input` |
+| `GraphEdge.id` | gone: an edge is a source on the input it leads into |
+| `GraphEdge.source` | the source's `node` |
+| `GraphEdge.target` | the node whose input lists the source |
+| `GraphEdge.source_handle` | the source's `output`, with `field` for one field of a record of a `Series` (a table's column is no field: `series-split` gives its records one at a time) |
+| `GraphEdge.target_handle` | the input the source is listed on |
 | `GraphEdge.when` | gone: a branch is an output of one `exclusive_group`; wire from that output |
-| `GraphEdge.priority` | gone: edges are kept sorted; several into one input are alternatives, opposite branches of one decision |
-| `Flow.nodes` | `nodes` |
-| `Flow.edges` | `edges`, each `["a.result", "b.text"]` |
+| `GraphEdge.priority` | gone: several sources of one input are alternatives, opposite branches of one decision |
+| `Flow.nodes` | `nodes`, by id |
+| `Flow.edges` | the `sources` of each input |
 | `Flow.id` | not stored in the record: the host keys its rows |
 | `Flow.version` | not stored: each node has its own `version` |
 | `Flow.name` | not stored: the host's own, or the subgraph's `title` |

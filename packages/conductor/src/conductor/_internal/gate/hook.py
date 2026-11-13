@@ -4,17 +4,17 @@ the graph is compiled.
 Example: a node ``fields(names: str)`` whose ``compute_outputs`` hook, given ``names="a,b"``, returns
 ``{"a": str, "b": (int, 0)}`` gets two outputs, ``a: str`` and ``b: int`` with the default 0. A hook returns each
 field's type, or ``(type, default)`` as pydantic's ``create_model`` takes one. Given ``names="a.b"`` it returns
-``{"a.b": str}``, which is refused with ``parameter_name_invalid``: a name holds none of the characters addresses
-are written with (``address.NAME_PATTERN``, the rule node ids are held to too).
+``{"a.b": str}``, which is refused with ``parameter_name_invalid``: a name holds none of the characters places in a
+graph are written with (``Name``, the rule every name in a graph record is held to).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Any
 
-from pydantic import StringConstraints, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from conductor._internal.base import NAME_PATTERN, REQUIRED
+from conductor._internal.base import REQUIRED, Name
 from conductor._internal.field import Field
 from conductor._internal.problem import NodeDeclarationError
 from conductor._internal.problem import catalogue as problem
@@ -23,7 +23,7 @@ from .declared import declared_field
 from .refused import RefusedError
 
 #: What a hook returns: a type, or ``(type, default)``, for each name.
-_HOOK_FIELDS = TypeAdapter(dict[Annotated[str, StringConstraints(pattern=NAME_PATTERN)], Any])
+_HOOK_FIELDS = TypeAdapter(dict[Name, Any])
 
 
 def read_hook_fields(node_id: str, kind: str, returned: Any) -> dict[str, Field]:

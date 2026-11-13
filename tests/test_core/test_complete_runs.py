@@ -14,11 +14,13 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
+    FunctionDefinition,
     Graph,
     GraphRecord,
     NodeRegistry,
     Param,
     Policy,
+    RecordGraphInput,
     Series,
     node,
     subgraph,
@@ -113,7 +115,7 @@ GRAPHS: dict[str, tuple[dict[str, str], list[tuple[str, str]], str]] = {
     ),
     "a subgraph whose inner Series has no items, per line": ({"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"),
     "a subgraph per line, a node inside it reading nothing": ({"l": "lines", "e": "shout-and-stamp"}, [("l.result", "e.text")], "a;b"),
-    "a subgraph that collects an empty series": ({"e": "join-words", "u": "upper"}, [("e.j.result", "u.text")], ""),
+    "a subgraph that collects an empty series": ({"e": "join-words", "u": "upper"}, [("e.result", "u.text")], ""),
 }
 
 #: The nodes called on threads; every other is called on the thread that called the run.
@@ -129,12 +131,15 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
         name = function.__name__
         policy = {"policy": Policy(concurrency=4)} if name in threaded else {}
         registry.add(node(name, title=name.capitalize(), description=f"The {name} node.", asks=function is ask, **policy)(function))
-    chain = [["w.result", "u.text"]]
-    inner = {"nodes": [{"id": "w", "node": "words"}, {"id": "u", "node": "upper"}], "edges": chain}
-    registry.add(subgraph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(inner)))
-    joined = {"nodes": [*inner["nodes"], {"id": "j", "node": "join"}], "edges": [*chain, ["u.result", "j.items"]]}
+    shout_words = {"nodes": {"w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+                             "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}}},
+                   "outputs": {"result": {"node": "u", "output": "result"}}}
+    registry.add(subgraph("shout-words", title="Shout words", description="Each word of a text, in capitals.")(GraphRecord.model_validate(shout_words)))
+    joined = {"nodes": {**shout_words["nodes"], "j": {"node": "join", "inputs": {"items": {"sources": [{"node": "u", "output": "result"}]}}}},
+              "outputs": {"result": {"node": "j", "output": "result"}}}
     registry.add(subgraph("join-words", title="Join words", description="The words of a text in capitals, joined.")(GraphRecord.model_validate(joined)))
-    stamped = {"nodes": [{"id": "u", "node": "upper"}, {"id": "k", "node": "upper", "constants": {"text": "k"}}], "edges": []}
+    stamped = {"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "k": {"node": "upper", "inputs": {"text": {"constant": "k"}}}},
+               "outputs": {"u": {"node": "u", "output": "result"}, "k": {"node": "k", "output": "result"}}}
     registry.add(subgraph("shout-and-stamp", title="Shout and stamp", description="A text in capitals, and a K.")(GraphRecord.model_validate(stamped)))
     return registry
 
@@ -143,10 +148,29 @@ def _run(name: str, threaded: frozenset[str]) -> Any:
     return _ran(*GRAPHS[name], threaded)
 
 
+def _record(nodes: dict[str, str], edges: list[tuple[str, str]], registry: NodeRegistry) -> GraphRecord:
+    """The graph record of ``nodes`` and ``edges``, each edge ``(output, input)`` written ``"node.name"``. Every input
+    of a node no edge leads into is the graph input of the input's name, so every first node is given the text."""
+    inputs: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
+    for source, target in edges:
+        source_node, output = source.split(".")
+        target_node, name = target.split(".")
+        inputs[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
+    for node_id, node_name in nodes.items():
+        if not inputs[node_id]:
+            definition = registry[node_name]
+            names = definition.inputs if isinstance(definition, FunctionDefinition) else {
+                entry.graph_input for inner in definition.graph.nodes.values() for entry in inner.inputs.values() if isinstance(entry, RecordGraphInput)
+            }
+            inputs[node_id] = {name: {"graph_input": name} for name in names}
+    return GraphRecord.model_validate({"nodes": {node_id: {"node": node_name, "inputs": inputs[node_id]} for node_id, node_name in nodes.items()}})
+
+
 def _ran(nodes: dict[str, str], edges: list[tuple[str, str]], text: str, threaded: frozenset[str]) -> Any:
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), _registry(threaded))
+    registry = _registry(threaded)
+    graph = Graph.compile(_record(nodes, edges, registry), registry)
     assert not graph.problems, graph.problems
-    return graph.run(dict.fromkeys(graph.inputs, text))  # every first node is given the text
+    return graph.run(dict.fromkeys(graph.inputs, text))
 
 
 CASES = [pytest.param(name, threaded, id=f"{name}, on threads: {', '.join(sorted(threaded)) or 'none'}") for name in GRAPHS for threaded in THREADED]
@@ -183,7 +207,8 @@ def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skippe
 
 def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run() -> None:
     nodes, edges, _ = GRAPHS["collecting an empty series"]
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), _registry(frozenset({"words"})))
+    registry = _registry(frozenset({"words"}))
+    graph = Graph.compile(_record(nodes, edges, registry), registry)
     run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
     # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a flat graph of its
     # own with a copy of the node, so the graph's flat graph stays whole.

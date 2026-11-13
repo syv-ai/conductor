@@ -80,11 +80,6 @@ class _CompiledNodeBase:
     required_branches: frozenset[RequiredBranch]
 
     @functools.cached_property
-    def upstream_ids(self) -> frozenset[str]:
-        """The ids of the nodes that the edges into this node come from."""
-        return frozenset(edge.source.node for node_input in self.inputs.values() for edge in node_input.sources)
-
-    @functools.cached_property
     def plain_inputs(self) -> bool:
         """Whether no input's type can contain a mapping, so a call's arguments can be hashed without sorting
         keys first."""
@@ -195,14 +190,14 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     """A node of a compiled graph whose definition is a subgraph. The subgraph's own graph record is compiled
     on its own, as ``inner``, and the run calls the function nodes inside it in this node's loops.
 
-    Its inputs are the inner graph's inputs (``inner.inputs``), by their names there, and its outputs are the inner
-    graph's outputs (``inner.outputs``), by their addresses there. It has no policy (retries, threads, timeouts),
+    Its inputs and outputs are the graph inputs and outputs the subgraph's record declares, by name. It has no policy (retries, threads, timeouts),
     and its outputs are never reused as a whole: each node inside is called by its own policy, and a later run
     reuses the outputs of the nodes inside one by one, as it would if they were drawn in the graph itself.
 
     An output is read outside as it would be if the subgraph's nodes were drawn in the outer graph. Example: the
-    subgraph ``documents -> lines -> shout``, used as the node ``e``. ``lines`` is called once per document and
-    ``shout`` once per line. So a node outside wired to ``e.shout.result`` that takes one ``str`` is called once
+    subgraph ``documents -> lines -> shout``, used as the node ``e``, whose record declares the graph output
+    ``shouted``, the output ``result`` of ``shout``. ``lines`` is called once per document and ``shout`` once per
+    line. So a node outside wired to ``e.shouted`` that takes one ``str`` is called once
     per line of each document, and one that takes a ``Series[str]`` once per document. ``outputs`` has the output
     as ``shout`` declares it (``str``), and ``loops_around`` names the two loops. Its description says
     ``Series[Series[str]]``, one ``Series`` per loop.
@@ -219,7 +214,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """Returns the loops ``output`` has one value per item of, outermost first: the loops this node is
         inside, then the loops inside the subgraph.
 
-        Example: ``e`` above is called once, and ``loops_around("shout.result")`` is
+        Example: ``e`` above is called once, and ``loops_around("shouted")`` is
         ``(e.documents.result, e.lines.result)``. A loop inside is named by this node's id and the address of
         the list inside, so two outputs returned in the same loop inside name the same loop, and a node outside
         that reads both is called once per item with the two values of that item.
@@ -232,15 +227,16 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         called, and those the output needs inside the subgraph.
 
         Example: the subgraph ``e`` is ``route -> shout`` and ``route -> whisper``, one on each output of
-        ``route``. ``branches_required_for("shout.result")`` is ``RequiredBranch("e", "route.length",
-        "route.long", 0)`` and that of ``whisper.result`` names ``route.short``, so one input outside may be
+        ``route``, and its record declares the graph outputs ``loud`` (``shout.result``) and ``quiet``
+        (``whisper.result``). ``branches_required_for("loud")`` is ``RequiredBranch("e", "route.length",
+        "route.long", 0)`` and that of ``quiet`` names ``route.short``, so one input outside may be
         wired to both, as it may with the same nodes drawn in the outer graph. A branch inside is named by this
         node's id, with the group and the output as addresses inside the subgraph.
         """
         inside = self.inner._branches_required_for(output)
         depth = len(self.loops)
         return self.required_branches | {
-            RequiredBranch(self.id, str(Address(branch.node_id, branch.group)), str(Address(branch.node_id, branch.output)), depth + branch.depth)
+            RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", str(Address(branch.node_id, branch.output)), depth + branch.depth)
             for branch in inside
         }
 
@@ -248,19 +244,20 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """Returns each output as an editor shows it: as a list with one level per loop inside the subgraph, with
         those loops by name.
 
-        Example: ``shout.result`` of ``e`` above is described with ``is_series`` true, the item type
+        Example: ``shouted`` of ``e`` above is described with ``is_series`` true, the item type
         ``Series[str]`` (so the whole output is ``Series[Series[str]]``), and the ``loops``
         ``["documents.result", "lines.result"]``.
         """
         described = []
         series_of: Any = Series  # typed Any: the type checker cannot follow ``Series[...]`` built at run time
         for name, field in self.outputs.items():
-            loops = [loop.name for loop in self.loops_around(name)[len(self.loops) :]]
+            loops = [loop.output for loop in self.loops_around(name)[len(self.loops) :]]
             if not loops:
                 described.append(field.description)
                 continue
-            if field.is_series:  # an output that is itself a Series adds the innermost level
-                loops.append(name)
+            if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
+                source = self.inner._outputs[name].source
+                loops.append(str(Address(source.node, source.output)))
             item: Any = field.type.hint
             for _ in loops[1:]:
                 item = series_of[item]

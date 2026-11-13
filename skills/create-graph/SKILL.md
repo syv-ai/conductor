@@ -1,14 +1,14 @@
 ---
 name: create-graph
-description: Writes a conductor graph record (GraphRecord, make_graph), compiles it with Graph.compile and runs it with graph.run. Use when building, saving, running, drawing, serving or debugging a conductor graph; wiring edges, setting constants or defaults, giving graph inputs (with_inputs); reading outputs, problems or events; answering a node that asked a person (run.answer); or on "build a graph", "run a graph", "connect these nodes".
+description: Writes a conductor graph record (GraphRecord, make_graph), compiles it with Graph.compile and runs it with graph.run. Use when building, saving, running, drawing, serving or debugging a conductor graph; wiring edges, setting constants, declaring a graph's inputs and outputs, giving graph inputs (with_inputs); reading outputs, problems or events; answering a node that asked a person (run.answer); or on "build a graph", "run a graph", "connect these nodes".
 ---
 
 # Creating and running a conductor graph
 
-A graph is data, a `GraphRecord`: its nodes, each naming the node definition it uses and its constants and defaults, and its edges. `Graph.compile` compiles it against a registry into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
+A graph is data, a `GraphRecord`: its nodes by id, each naming the node definition it uses and what each of its inputs gets, and the graph's outputs by name. `Graph.compile` compiles it against a registry into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Graph, GraphRecord, NodeRecord, NodeRegistry, Series
+from conductor import Address, Graph, GraphRecord, NodeRecord, NodeRegistry, RecordConstant, RecordEdges, RecordGraphInput, Series
 
 registry = NodeRegistry(category="text")
 
@@ -29,35 +29,38 @@ def join(parts: Series[str], separator: str = "") -> str:
 
 
 record = GraphRecord(
-    nodes=[
-        NodeRecord(id="words", node="text-split"),
-        NodeRecord(id="loud", node="text-uppercase"),
-        NodeRecord(id="joined", node="text-join", constants={"separator": " + "}),
-    ],
-    edges=[("words.result", "loud.text"), ("loud.result", "joined.parts")],
+    nodes={
+        "words": NodeRecord(node="text-split", inputs={"text": RecordGraphInput(graph_input="text")}),
+        "loud": NodeRecord(node="text-uppercase", inputs={"text": RecordEdges(sources=(Address("words", "result"),))}),
+        "joined": NodeRecord(node="text-join", inputs={
+            "parts": RecordEdges(sources=(Address("loud", "result"),)),
+            "separator": RecordConstant(constant=" + "),
+        }),
+    },
+    outputs={"result": Address("joined", "result")},
 )
 
 graph = Graph.compile(record, registry)
 if not graph.is_runnable:
     raise ValueError([(p.type, p.loc, p.msg) for p in graph.problems])
-assert list(graph.inputs) == ["text", "separator"]     # the graph inputs: the inputs of words, the first node
+assert list(graph.inputs) == ["text"]                  # the graph inputs the record declares
 
 run = graph.run(text="red,green")
-assert run.outputs == {"joined.result": "RED + GREEN"}
+assert run.outputs == {"result": "RED + GREEN"}       # the graph outputs, by name
 results = run.results                                  # {node_id: {output: value}}; a node run per item gives a list
 assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
 assert graph.runs_on["joined"].mode == "once"         # parts is Series[str]: one call
 ```
 
-The same record as JSON is `{"nodes": [{"id": "words", "node": "text-split"}, ...], "edges": [["words.result", "loud.text"], ...]}`, what an editor writes and a host stores. From Python, `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes it too: with no `edges` the nodes form a chain, each node's one required input with no constant wired to the one output of the node before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice.
+The same record as JSON is `{"nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}}, "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}}, ...}, "outputs": {"result": {"node": "joined", "output": "result"}}}`, what an editor writes and a host stores. A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph input is there only where an input's entry names it, and a graph output only in `outputs`. From Python, `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes a record too: with no `edges` the nodes form a chain, each node's one required input with no constant wired to the one output of the node before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice. It declares the ports of a plain graph: the open inputs of the nodes no edge leads into, named by the input, and the outputs of the nodes no edge leaves, named by the output; where two would share a name it raises `ports_share_a_name`, and `inputs={"text": ["a.text", "b.text"]}` or `outputs={"result": "join.result"}` names them.
 
-An input takes an edge, a value or a default, never two: `constants` are fixed, `defaults` stay open for a caller, and an input with none of them takes its declared default. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input collects them again; an outer value, from a node outside the loop, is the same on every call. A list or a table is one value, so a list given as a graph input or a constant at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `series-split` in `syv-conductor-nodes`, makes the items. An edge may name one field of a record, `series-split.result.email`. Several edges into one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id is not empty and may not contain `.`, `/`, `@` or `~`.
+Each input the record lists gets exactly one of a `constant` (the same on every call), a `graph_input` (the caller's value, with an optional `default`) or `sources` (the edges into it); an input left out takes its declared default, and a required one left out is `input_has_no_value`. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input collects them again; an outer value, from a node outside the loop, is the same on every call. A list or a table is one value, so a list given as a graph input or a constant at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `series-split` in `syv-conductor-nodes`, makes the items. A source may name one field of a record, `{"node": "series-split", "output": "result", "field": "email"}` (`"series-split.result.email"` in `make_graph`). Several sources of one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id, an input, an output and a graph port are names: not empty, with no `.`, `/`, `@` or `~` (`invalid_record`).
 
 ## Quick reference
 
 | You want | Do (examples in REFERENCE.md) |
 |---|---|
-| Two graph inputs with one name | `graph.run({"words.text": value})`, by address |
+| One value for two inputs | name one graph input on both, `{"graph_input": "text"}`; in `make_graph`, `inputs={"text": ["a.text", "b.text"]}` |
 | Events as they happen | `async for event in graph.with_inputs(...).stream(): ...` |
 | To answer a node that asked | `run = run.answer(run.waiting[0], answer)`, or `run.answer({waiting.id: answer, ...})` for several, then `run.resume()` |
 | A service or the caller inside a node | `graph.run(context=AppContext(caller=caller))`, the class named on the registry, `NodeRegistry(context_type=AppContext)` |
@@ -72,7 +75,7 @@ An input takes an edge, a value or a default, never two: `constants` are fixed, 
 | Mistake | Fix |
 |---|---|
 | `try` around `Graph.compile` | it never raises for a bad graph: read `is_runnable` and `problems` |
-| Rebuilding the record to change a value per run | `graph.run(**inputs)`, or a `defaults` entry the caller may change |
+| Rebuilding the record to change a value per run | `graph.run(**inputs)`, or a graph input with a `default` the caller may change |
 | A loop node, or a `for` around `run` | wire a `Series` output to the node; the engine runs it once per item |
 | A table wired to an input of one value (`type_mismatch`, variant `make_a_series`) | put a node that returns the table's records as a `Series` between them, such as `series-split`, and wire its result or one field of it; to join two tables on a key, wire both whole into one node |
 | Items of two Series at one node (`series_not_nested`) | make one inside the other: wire the first into the node that makes the second; or give one whole to a `Series` input |

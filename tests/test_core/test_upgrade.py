@@ -1,7 +1,7 @@
 """Upgrading a node of a graph record from the version it was saved at to a later one.
 
 A node definition's ``Upgrade`` steps are checked when it is declared. ``registry.upgrade`` applies them to one node
-of a graph record: its constants and defaults, its version, the edges into an input a step renames and the edges out
+of a graph record: what each input gets (a constant, a graph input or edges), its version, and the edges out
 of an output it renames. ``Graph.compile`` never upgrades: a node pinned at an old version runs that version.
 """
 
@@ -11,6 +11,7 @@ from typing import Annotated
 
 import pytest
 from conductor import (
+    Address,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -18,6 +19,9 @@ from conductor import (
     NodeRecord,
     NodeRegistry,
     Param,
+    RecordConstant,
+    RecordEdges,
+    RecordGraphInput,
     Upgrade,
     host_type,
     node,
@@ -75,10 +79,18 @@ def _registry() -> NodeRegistry:
 
 
 def _graph(version: int = 1) -> GraphRecord:
-    return GraphRecord(nodes=[
-        NodeRecord(id="r", node="rename", version=version, constants={"name": "Ada Lovelace"} if version == 1 else {}),
-        NodeRecord(id="e", node="echo"),
-    ], edges=[("r.result" if version < 3 else "r.text", "e.text")])
+    return GraphRecord(
+        nodes={
+            "r": NodeRecord(node="rename", version=version, inputs={"name": RecordConstant(constant="Ada Lovelace")} if version == 1 else {}),
+            "e": NodeRecord(node="echo", inputs={"text": RecordEdges(sources=(Address("r", "result" if version < 3 else "text"),))}),
+        },
+        outputs={"result": Address("e", "result")},
+    )
+
+
+def _inputs(record: GraphRecord, node_id: str) -> dict:
+    """What each input of the node ``node_id`` gets, as the record's JSON writes it."""
+    return record.model_dump(mode="json")["nodes"][node_id].get("inputs", {})
 
 
 # --- an input or output the next version drops needs an upgrade ------------------
@@ -118,16 +130,15 @@ def test_a_version_keeping_its_fields_needs_no_upgrade():
 def test_a_two_step_upgrade_rewrites_the_constants_and_sets_the_last_version():
     upgraded = _registry().upgrade(_graph(), "r")
 
-    graph_node = next(n for n in upgraded.nodes if n.id == "r")
-    assert graph_node.version == 3
-    assert graph_node.constants == {"first": "Ada", "last": "Lovelace"}
+    assert upgraded.nodes["r"].version == 3
+    assert _inputs(upgraded, "r") == {"first": {"constant": "Ada"}, "last": {"constant": "Lovelace"}}
 
 
 def test_a_renamed_output_moves_the_edges_out_of_it_and_the_graph_compiles_clean():
     registry = _registry()
     upgraded = registry.upgrade(_graph(), "r")
 
-    assert upgraded.edges == (("r.text", "e.text"),)
+    assert _inputs(upgraded, "e") == {"text": {"sources": [{"node": "r", "output": "text"}]}}
     graph = Graph.compile(upgraded, registry)
     assert graph.is_runnable and graph.problems == [], graph.problems
 
@@ -135,21 +146,23 @@ def test_a_renamed_output_moves_the_edges_out_of_it_and_the_graph_compiles_clean
 def test_upgrade_with_to_stops_at_that_version():
     upgraded = _registry().upgrade(_graph(), "r", to=2)
 
-    assert next(n for n in upgraded.nodes if n.id == "r").version == 2
-    assert upgraded.edges == (("r.result", "e.text"),)
+    assert upgraded.nodes["r"].version == 2
+    assert _inputs(upgraded, "e") == {"text": {"sources": [{"node": "r", "output": "result"}]}}
 
 
-def test_upgrade_reads_the_nodes_as_compiling_does_the_first_of_two_with_one_id_and_refuses_one_whose_id_is_no_name():
-    graph = GraphRecord(nodes=[*_graph().nodes, NodeRecord(id="r", node="rename", version=2), NodeRecord(id="a.b", node="rename")])
+def test_upgrade_reads_the_record_through_the_record_door_and_refuses_two_nodes_of_one_id_or_an_id_that_is_no_name():
+    two_of_one_id = '{"nodes": {"r": {"node": "rename"}, "r": {"node": "rename", "version": 2}}}'
+    id_no_name = '{"nodes": {"a.b": {"node": "rename"}}}'
 
-    upgraded = _registry().upgrade(graph, "r")
-    assert [(n.id, n.version) for n in upgraded.nodes] == [("r", 3), ("e", 1), ("r", 2), ("a.b", 1)]
     with pytest.raises(InvalidCallError) as refused:
-        _registry().upgrade(graph, "a.b")
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_node_id", ("a.b",))]
+        _registry().upgrade(two_of_one_id, "r")
+    assert [(p.type, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", "repeated_key")]
     with pytest.raises(InvalidCallError) as refused:
-        _registry().upgrade(graph, "nope")
-    assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["r", "e"])]
+        _registry().upgrade(id_no_name, "a.b")
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a.b", "[key]"))]
+    with pytest.raises(InvalidCallError) as refused:
+        _registry().upgrade(_graph(), "nope")
+    assert [(p.type, p.ctx["nodes"]) for p in refused.value.errors()] == [("node_not_in_graph", ["e", "r"])]
 
 
 def test_a_node_already_at_its_latest_version_returns_the_graph_unchanged():
@@ -158,11 +171,6 @@ def test_a_node_already_at_its_latest_version_returns_the_graph_unchanged():
 
 
 def test_an_edge_into_an_input_the_step_renames_moves_with_it():
-    graph = GraphRecord(nodes=[
-        NodeRecord(id="src", node="echo"),
-        NodeRecord(id="r", node="rename"),
-    ], edges=[("src.result", "r.name")])
-
     def carry_v1(name: Annotated[Txt, _param("Name")] = Txt("")) -> Annotated[Txt, Param(title="R")]:
         return name
 
@@ -171,10 +179,10 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
         return full
 
     registry = registry_of(echo, carry)
-    graph = graph.model_copy(update={"nodes": (graph.nodes[0], NodeRecord(id="r", node="carry"))})
+    graph = GraphRecord.model_validate({"nodes": {"src": {"node": "echo"}, "r": {"node": "carry", "inputs": {"name": {"sources": [{"node": "src", "output": "result"}]}}}}})
 
     upgraded = registry.upgrade(graph, "r")
-    assert upgraded.edges == (("src.result", "r.full"),)
+    assert _inputs(upgraded, "r") == {"full": {"sources": [{"node": "src", "output": "result"}]}}
 
 
 def test_an_edge_into_an_input_a_rewrite_removes_is_removed_and_the_graph_compiles_clean():
@@ -190,10 +198,10 @@ def test_an_edge_into_an_input_a_rewrite_removes_is_removed_and_the_graph_compil
         return 3
 
     registry = registry_of(three, summed)
-    graph = GraphRecord(nodes=[NodeRecord(id="t", node="three"), NodeRecord(id="s", node="summed", constants={"a": 1})], edges=[("t.result", "s.b")])
+    graph = GraphRecord.model_validate({"nodes": {"t": {"node": "three"}, "s": {"node": "summed", "inputs": {"a": {"constant": 1}, "b": {"sources": [{"node": "t", "output": "result"}]}}}}})
 
     upgraded = registry.upgrade(graph, "s")
-    assert (upgraded.edges, upgraded.nodes[1].constants) == ((), {"a": 1})
+    assert _inputs(upgraded, "s") == {"a": {"constant": 1}}
     assert Graph.compile(upgraded, registry).problems == []
 
 
@@ -206,18 +214,18 @@ def test_a_rewrite_sees_constants_and_defaults_together_and_a_default_stays_a_de
         return src
 
     registry = registry_of(counted)
-    with_both = registry.upgrade(GraphRecord(nodes=[NodeRecord(id="c", node="counted", constants={"n": 2}, defaults={"src": "x"})]), "c").nodes[0]
-    with_neither = registry.upgrade(GraphRecord(nodes=[NodeRecord(id="c", node="counted")]), "c").nodes[0]
+    with_both = registry.upgrade(GraphRecord.model_validate({"nodes": {"c": {"node": "counted", "inputs": {"n": {"constant": 2}, "src": {"graph_input": "src", "default": "x"}}}}}), "c")
+    with_neither = registry.upgrade(GraphRecord.model_validate({"nodes": {"c": {"node": "counted"}}}), "c")
 
-    assert (with_both.constants, with_both.defaults) == ({"n": 3, "added": 1}, {"src": "x"})
-    assert (with_neither.constants, with_neither.defaults) == ({"n": 1, "added": 1}, {})
+    assert _inputs(with_both, "c") == {"n": {"constant": 3}, "added": {"constant": 1}, "src": {"graph_input": "src", "default": "x"}}
+    assert _inputs(with_neither, "c") == {"n": {"constant": 1}, "added": {"constant": 1}}
 
 
 def test_an_edge_reading_a_field_of_a_renamed_output_moves_with_it():
     registry = _registry()
-    graph = GraphRecord(nodes=[NodeRecord(id="r", node="rename", version=2), NodeRecord(id="e", node="echo")], edges=[("r.result.text", "e.text")])
+    graph = GraphRecord.model_validate({"nodes": {"r": {"node": "rename", "version": 2}, "e": {"node": "echo", "inputs": {"text": {"sources": [{"node": "r", "output": "result", "field": "text"}]}}}}})
 
-    assert registry.upgrade(graph, "r").edges == (("r.text.text", "e.text"),)
+    assert _inputs(registry.upgrade(graph, "r"), "e") == {"text": {"sources": [{"node": "r", "output": "text", "field": "text"}]}}
 
 
 def test_a_downgrade_or_an_unknown_node_raises():
@@ -234,7 +242,7 @@ def test_compile_leaves_a_pinned_version_alone():
 
     assert graph.describe().nodes["r"].version == 1
     assert graph.is_runnable, graph.problems
-    assert graph.run().outputs == {"e.result": "Ada Lovelace"}
+    assert graph.run().outputs == {"result": "Ada Lovelace"}
 
 
 # --- what moves with a renamed field ---------------------------------------------
@@ -251,16 +259,12 @@ def renames(full: Annotated[Txt, _param("Full")] = Txt("")) -> Named:
 
 def test_a_renamed_input_takes_its_value_with_it():
     registry = registry_of(echo, renames)
-    graph = GraphRecord(nodes=[
-        NodeRecord(id="r", node="renames", constants={"name": "Ada"}),
-        NodeRecord(id="e", node="echo"),
-    ], edges=[("r.result", "e.text")])
+    graph = GraphRecord.model_validate({"nodes": {"r": {"node": "renames", "inputs": {"name": {"constant": "Ada"}}}, "e": {"node": "echo", "inputs": {"text": {"sources": [{"node": "r", "output": "result"}]}}}}})
 
     upgraded = registry.upgrade(graph, "r")
 
-    graph_node = upgraded.nodes[0]
-    assert graph_node.constants == {"full": "Ada"}
-    assert upgraded.edges == (("r.text", "e.text"),)
+    assert _inputs(upgraded, "r") == {"full": {"constant": "Ada"}}
+    assert _inputs(upgraded, "e") == {"text": {"sources": [{"node": "r", "output": "text"}]}}
     assert Graph.compile(upgraded, registry).problems == []
 
 
@@ -282,33 +286,28 @@ def test_an_edge_follows_its_output_when_a_later_step_reuses_the_outputs_old_nam
         return {}
 
     registry = registry_of(echo, reuse)
-    graph = GraphRecord(nodes=[
-        NodeRecord(id="u", node="reuse"),
-        NodeRecord(id="e", node="echo"),
-    ], edges=[("u.result", "e.text")])
+    graph = GraphRecord.model_validate({"nodes": {"u": {"node": "reuse"}, "e": {"node": "echo", "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}}}}})
 
     upgraded = registry.upgrade(graph, "u")
 
-    assert upgraded.edges == (("u.first", "e.text"),)
+    assert _inputs(upgraded, "e") == {"text": {"sources": [{"node": "u", "output": "first"}]}}
 
 
 def test_upgrading_a_subgraph_sets_only_its_version():
     """A subgraph's versions are graph records, with no ``Upgrade`` to run: the node gets the later version and keeps
-    its constants as saved, and compiling says whether that version accepts them."""
+    its inputs as saved, and compiling says whether that version accepts them."""
 
     def inner_graph(inner_id: str) -> GraphRecord:
-        return GraphRecord(nodes=[NodeRecord(id=inner_id, node="echo")])
+        return GraphRecord(nodes={inner_id: NodeRecord(node="echo", inputs={"text": RecordGraphInput(graph_input="text")})})
 
     first = subgraph("inner_graph", title="Sub", description="d")(inner_graph("inner"))
     registry = registry_of(echo, subgraph("inner_graph", title="Sub", description="d", replaces=first)(inner_graph("renamed")))
-    graph = GraphRecord(nodes=[
-        NodeRecord(id="f", node="inner_graph", constants={"text": "x"}),
-    ])
+    graph = GraphRecord.model_validate({"nodes": {"f": {"node": "inner_graph", "inputs": {"text": {"constant": "x"}}}}})
 
     upgraded = registry.upgrade(graph, "f")
 
-    assert upgraded.nodes[0].version == 2
-    assert upgraded.nodes[0].constants == {"text": "x"}
+    assert upgraded.nodes["f"].version == 2
+    assert _inputs(upgraded, "f") == {"text": {"constant": "x"}}
     with pytest.raises(InvalidCallError, match="it has 1, 2"):
         registry.upgrade(graph, "f", to=5)
 
@@ -352,7 +351,7 @@ def test_a_rewrite_returning_a_set_is_refused_as_set_has_no_order_at_the_node():
         return ",".join(tags)
 
     with pytest.raises(InvalidCallError) as refused:
-        registry_of(tagged).upgrade(GraphRecord(nodes=[NodeRecord(id="t", node="tagged", constants={"tag": "a"})]), "t")
+        registry_of(tagged).upgrade(GraphRecord.model_validate({"nodes": {"t": {"node": "tagged", "inputs": {"tag": {"constant": "a"}}}}}), "t")
     (problem,) = refused.value.errors()
     assert (problem.type, problem.loc, [e["type"] for e in problem.ctx["errors"]]) == ("invalid_value", ("t", "tags"), ["set_has_no_order"])
 
@@ -366,7 +365,7 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
     def when_v1(day: str) -> str:
         return day
 
-    saved = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "when", "constants": {"day": "2026-01-02"}}]})
+    saved = GraphRecord.model_validate({"nodes": {"w": {"node": "when", "inputs": {"day": {"constant": "2026-01-02"}}}}})
     for returned, written in ((datetime.date(2026, 1, 2), "2026-01-02"), (pl.DataFrame({"a": [1]}), None)):
 
         @node("when", title="When", description="For a test.", replaces=when_v1, upgrade=Upgrade(rewrite=lambda before, r=returned: {"day": r}))
@@ -381,13 +380,13 @@ def test_a_rewrite_is_written_as_json_and_one_with_no_json_form_is_invalid_value
             assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_value", ("w", "day"))]
         else:
             upgraded = registry.upgrade(saved, "w")
-            assert upgraded.nodes[0].constants == {"day": written}
+            assert _inputs(upgraded, "w") == {"day": {"constant": written}}
             assert GraphRecord.model_validate_json(upgraded.model_dump_json()) == upgraded
 
 
 def test_a_subgraphs_input_rename_moves_only_the_edge_into_that_exact_input():
-    """The subgraph's inputs are ``a`` and, as two inner nodes take ``b``, ``a.b`` and ``c.b``: renaming ``a`` leaves
-    the edge into ``a.b`` where it is."""
+    """The subgraph's inputs are ``a``, ``ab`` and ``cb``: renaming ``a`` leaves the edges into ``ab`` and ``cb``
+    where they are."""
 
     @node("takes-b", title="Takes b", description="For a test.")
     def takes_b(b: str) -> str:
@@ -405,17 +404,59 @@ def test_a_subgraphs_input_rename_moves_only_the_edge_into_that_exact_input():
     def word() -> str:
         return "w"
 
-    def inner(last: str) -> GraphRecord:
-        return GraphRecord.model_validate({"nodes": [{"id": "a", "node": "takes-b"}, {"id": "c", "node": "takes-b"}, {"id": "x", "node": last}]})
+    def inner(last: str, name: str) -> GraphRecord:
+        return GraphRecord.model_validate({"nodes": {
+            "a": {"node": "takes-b", "inputs": {"b": {"graph_input": "ab"}}},
+            "c": {"node": "takes-b", "inputs": {"b": {"graph_input": "cb"}}},
+            "x": {"node": last, "inputs": {name: {"graph_input": name}}},
+        }})
 
-    v1 = subgraph("sub", title="Sub", description="For a test.")(inner("takes-a"))
-    v2 = subgraph("sub", title="Sub", description="For a test.", replaces=v1, upgrade=Upgrade(renamed_inputs={"a": "z"}))(inner("takes-z"))
+    v1 = subgraph("sub", title="Sub", description="For a test.")(inner("takes-a", "a"))
+    v2 = subgraph("sub", title="Sub", description="For a test.", replaces=v1, upgrade=Upgrade(renamed_inputs={"a": "z"}))(inner("takes-z", "z"))
     reg = registry_of(takes_b, takes_a, takes_z, word, v2)
-    edges = [["w.result", "s.a.b"], ["w.result", "s.c.b"], ["w.result", "s.a"]]
-    stored = GraphRecord.model_validate({"nodes": [{"id": "w", "node": "word"}, {"id": "s", "node": "sub", "version": 1}], "edges": edges})
+    word_result = {"sources": [{"node": "w", "output": "result"}]}
+    stored = GraphRecord.model_validate({"nodes": {"w": {"node": "word"}, "s": {"node": "sub", "version": 1, "inputs": {"ab": word_result, "cb": word_result, "a": word_result}}}})
     assert Graph.compile(stored, reg).problems == []
 
     moved = reg.upgrade(stored, "s")
 
-    assert moved.edges == (("w.result", "s.a.b"), ("w.result", "s.c.b"), ("w.result", "s.z"))
+    assert _inputs(moved, "s") == {"ab": word_result, "cb": word_result, "z": word_result}
     assert Graph.compile(moved, reg).problems == []
+
+
+def test_a_rename_carries_a_constant_a_graph_input_and_edges_as_they_are():
+    def carry_v1(a: str, b: str, c: str) -> str:
+        return a + b + c
+
+    @node("carry3", title="Carry", description="For a test.", replaces=node("carry3", title="Carry v1", description="For a test.")(carry_v1), upgrade=Upgrade(renamed_inputs={"a": "x", "b": "y", "c": "z"}))
+    def carry(x: str, y: str, z: str) -> str:
+        return x + y + z
+
+    registry = registry_of(echo, carry)
+    graph = GraphRecord.model_validate({"nodes": {"src": {"node": "echo"}, "k": {"node": "carry3", "inputs": {
+        "a": {"constant": "1"}, "b": {"graph_input": "bee", "default": "2"}, "c": {"sources": [{"node": "src", "output": "result"}]},
+    }}}, "outputs": {"result": {"node": "k", "output": "result"}}})
+
+    upgraded = registry.upgrade(graph, "k")
+
+    assert _inputs(upgraded, "k") == {"x": {"constant": "1"}, "y": {"graph_input": "bee", "default": "2"}, "z": {"sources": [{"node": "src", "output": "result"}]}}
+    assert Graph.compile(upgraded, registry).problems == []
+
+
+def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
+    """An input gets one of a constant, a graph input or edges: a rewrite that gives a value to an input edges lead
+    into would give it two, so the record door refuses what the step wrote."""
+
+    def fed_v1(text: str) -> str:
+        return text
+
+    @node("fed", title="Fed", description="For a test.", replaces=node("fed", title="Fed v1", description="For a test.")(fed_v1), upgrade=Upgrade(rewrite=lambda before: {**before, "text": "x"}))
+    def fed(text: str) -> str:
+        return text
+
+    registry = registry_of(echo, fed)
+    graph = GraphRecord.model_validate({"nodes": {"src": {"node": "echo"}, "f": {"node": "fed", "inputs": {"text": {"sources": [{"node": "src", "output": "result"}]}}}}})
+
+    with pytest.raises(InvalidCallError) as refused:
+        registry.upgrade(graph, "f")
+    assert [(p.type, p.loc[:4], p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "f", "inputs"), "one_of_constant_graph_input_sources")]

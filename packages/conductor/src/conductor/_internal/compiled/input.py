@@ -42,17 +42,15 @@ class Edge:
     """What one edge reads from an output, as compiled: the input it leads to holds one per edge.
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
-    ``shout``, so it is ``Edge(Address("lines", "result"), (), None, Type(str), item=True)``. The edge from
-    ``shout.result`` reads the value one call of ``shout`` returned, ``Edge(Address("shout", "result"),
-    (Address("lines", "result"),), None, Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by
-    one item index.
+    ``shout``, so it is ``Edge(Address("lines", "result"), (), Type(str), item=True)``. The edge from ``shout.result``
+    reads the value one call of ``shout`` returned, ``Edge(Address("shout", "result"), (Address("lines", "result"),),
+    Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index.
 
     Attributes:
-        source: The output the edge reads. In a compiled graph's own inputs its node is the node's id. In the flat
-            graph it is the name of the function node (``"loud/shout"`` inside a subgraph).
+        source: The output the edge reads, as the graph record writes it, with the field of a record when the edge
+            reads one (``Address("split", "result", "email")``). In a compiled graph its node is the node's id. In
+            the flat graph it is the name of the function node (``"loud/shout"`` inside a subgraph).
         loops: The loops that node is inside, outermost first, each as the output that is the list looped over.
-        record_field: The field of a record that the edge reads (``email`` in ``split.result.email``); ``None``
-            when it reads the whole value.
         type: The type of the value the edge reads.
         item: Whether the output is a ``Series`` and the edge reads one item of it. The node the edge leads to
             is then inside the loop over this output, and an item is found by one more item index than
@@ -62,7 +60,6 @@ class Edge:
 
     source: Address
     loops: tuple[Address, ...]
-    record_field: str | None
     type: Type
     item: bool
     depth: int = dataclasses.field(init=False, compare=False, repr=False)
@@ -71,15 +68,10 @@ class Edge:
         object.__setattr__(self, "depth", len(self.loops))
 
     @property
-    def address(self) -> str:
-        """The address an edge names it by, ``node.output`` or ``node.output.field``."""
-        return str(Address.of_field(self.source.node, self.source.name, self.record_field))
-
-    @property
     def loops_of_value(self) -> tuple[Address, ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
         node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return (*self.loops, self.source) if self.item else self.loops
+        return (*self.loops, Address(self.source.node, self.source.output)) if self.item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -126,17 +118,17 @@ class MissingInput:
 @dataclass(frozen=True, slots=True)
 class GraphInput:
     """An input whose value the caller gives when a run starts: a graph input. In the example, ``lines.text``
-    is ``GraphInput(text, "lines.text")``.
+    is ``GraphInput(text, "text")``.
 
     Attributes:
         field: The input, as its node declares it.
-        address: The key a run keeps the caller's value under, ``node.input``.
+        name: The graph input's name, which the caller gives the value by and a run keeps it under.
         sources: Empty: no edge leads to the input.
         loops: Empty: the value is made in no loop.
     """
 
     field: Field
-    address: str
+    name: str
     sources: ClassVar[tuple[Edge, ...]] = ()
     loops: ClassVar[tuple[Address, ...]] = ()
 

@@ -79,8 +79,9 @@ def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None
 
 def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent, dict[str, Any], str]:
     """A graph with a node that waits on ``gate`` beside a node that asks a question: the registry, the graph, the
-    gate, its inputs and the waiting id of the question. With ``items``, the graph also loops over three items, so
-    that an item limit of 1 stops the run."""
+    gate, its inputs and the waiting id of the question. ``busy`` is called before ``confirm`` asks, as nodes no edge
+    orders are called in the order of their ids. With ``items``, the graph also loops over three items, so that an
+    item limit of 1 stops the run."""
     registry, gate = NodeRegistry(), ThreadEvent()
 
     @registry.node("busy", title="Busy", description="For a test.")
@@ -88,8 +89,8 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent,
         gate.wait(5)
         return text
 
-    @registry.node("approve", title="Approve", description="For a test.", asks=True)
-    def approve(text: str) -> bool:
+    @registry.node("confirm", title="Confirm", description="For a test.", asks=True)
+    def confirm(question: str) -> bool:
         raise Ask("Go on?")
 
     @registry.node("after", title="After", description="For a test.")
@@ -104,9 +105,10 @@ def asking(items: bool = False) -> tuple[NodeRegistry, GraphRecord, ThreadEvent,
     def each(i: int) -> int:
         return i
 
-    nodes: list[Any] = [busy, approve, after, three, each] if items else [busy, approve, after]
-    graph = make_graph(*nodes, edges=[("approve.result", "after.ok"), *([("three.result", "each.i")] if items else [])])
-    inputs: dict[str, Any] = {"busy.text": "x", "approve.text": "y", **({"three.n": 3} if items else {})}
+    nodes: list[Any] = [busy, confirm, after, three, each] if items else [busy, confirm, after]
+    edges = [("confirm.result", "after.ok"), *([("three.result", "each.i")] if items else [])]
+    graph = make_graph(*nodes, edges=edges, outputs={"busy": "busy.result", "after": "after.result", **({"each": "each.result"} if items else {})})
+    inputs: dict[str, Any] = {"text": "x", "question": "y", **({"n": 3} if items else {})}
     gate.set()
     (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
     gate.clear()
@@ -120,8 +122,8 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str
     registry, gates, calls = NodeRegistry(), {name: ThreadEvent() for name in ("first", "second", "per_item_called")}, []
 
     @registry.node("items", title="Items", description="For a test.")
-    def items(text: str) -> Series[str]:
-        return text.split(",")
+    def items(csv: str) -> Series[str]:
+        return csv.split(",")
 
     @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
@@ -129,7 +131,7 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str
         return text
 
     @registry.node("approve", title="Approve", description="For a test.", asks=True)
-    def approve(text: str) -> bool:
+    def approve(question: str) -> bool:
         raise Ask("Go on?")
 
     @registry.node("per_item", title="Per item", description="For a test.")
@@ -139,5 +141,6 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str
         gates["second"].wait(5)
         return item
 
-    graph = make_graph(items, busy, approve, per_item, edges=[("items.result", "per_item.item"), ("approve.result", "per_item.ok")])
+    graph = make_graph(items, busy, approve, per_item, edges=[("items.result", "per_item.item"), ("approve.result", "per_item.ok")],
+                       outputs={"busy": "busy.result", "per_item": "per_item.result"})
     return registry, graph, gates, calls

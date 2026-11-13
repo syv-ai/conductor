@@ -12,10 +12,9 @@ type is held to (a yes or no is not a number); no module outside the gate builds
 The doors, with the module each is in:
 
     door                                                    module, then its problem codes
-    a graph record, from JSON or a mapping, and the         record
-        values make_graph writes into one                   invalid_record, invalid_value; and, in graph.problems,
-                                                            invalid_node_id, duplicate_node_id, repeated_edge,
-                                                            edge_names_missing_node
+    a graph record, from JSON or from what make_graph and   record
+        registry.upgrade write, and the values make_graph   invalid_record, invalid_value
+        writes into one
     a default a node declares                               declared
                                                             NodeDeclarationError default_invalid
     a constant or default written in a record, and a        constants
@@ -23,7 +22,7 @@ The doors, with the module each is in:
     what a compute_added_inputs or compute_outputs hook     hook
         returns                                             parameter_name_invalid, compute_hook_failed
     a caller's graph inputs, max_items, timeout and         inputs
-        checkpoint_every                                    not_offered, input_given_twice, missing_input,
+        checkpoint_every                                    not_offered, missing_input,
                                                             invalid_input, invalid_input_make_a_series,
                                                             invalid_max_items, invalid_timeout,
                                                             invalid_checkpoint_every
@@ -56,13 +55,7 @@ from .edge import EdgeDoor, demands_more
 from .hook import read_hook_fields
 from .inputs import InputsDoor, check_limits
 from .raised import AskDoor, undeclared_ask
-from .record import (
-    read_keyed_record,
-    read_record,
-    record_from_parts,
-    record_values,
-    values_by_input,
-)
+from .record import read_record, record_values
 from .refused import RefusedError
 from .returned import (
     AskedValueDoor,
@@ -78,6 +71,6 @@ from .rules import numbers_refuse_bools, output_validator_of, validator_of
 __all__ = [
     "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
     "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
-    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_keyed_record", "read_record", "record_from_parts", "record_values", "values_by_input",
+    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_record", "record_values",
     "undeclared_ask", "validator_of",
 ]

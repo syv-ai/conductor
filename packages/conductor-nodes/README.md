@@ -16,7 +16,7 @@ registry = NodeRegistry()
 registry.add_subregistry(conductor_nodes.text.registry)
 
 graph = Graph.compile(make_graph(conductor_nodes.text.split, conductor_nodes.text.uppercase), registry)
-print(graph.run(text="a\nb").outputs)  # {'text-uppercase.result': ['A', 'B']}
+print(graph.run(text="a\nb").outputs)  # {'result': ['A', 'B']}
 ```
 
 | Module | Category | Nodes |
@@ -61,11 +61,11 @@ contacts = Graph.compile(make_graph(read_contacts, split, greet, collect, edges=
     ("series-split.result.name", "greet.name"),
     ("series-split.result", "table-collect.records"),
     ("greet.result", "table-collect.greeting"),
-], constants={"table-collect.columns": ["greeting"]}), registry)
-print(contacts.run(csv="name\nIda\nBo\n").outputs["table-collect.result"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
+], constants={"table-collect.columns": ["greeting"]}, outputs={"contacts": "table-collect.result"}), registry)
+print(contacts.run(csv="name\nIda\nBo\n").outputs["contacts"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 
-- `series-split.result.name` is one field of each record. `greet` takes one name, so it runs once per contact.
+- `series-split.result.name` is one field of each record. `table-collect` works out its output when the graph is compiled, from `columns`, so `make_graph` is told the graph returns it: `outputs={"contacts": "table-collect.result"}`. `greet` takes one name, so it runs once per contact.
 - `table-collect` collects the loop: it is called once, with every record and every greeting. Each name in `columns` is an input taking one value per record, `None` where a record got none.
 - Each name in `constant_columns` is an input taking one value from outside the loop, an outer value, written on every record: the file's name on each line.
 - The two are a pair. A value returned per record goes in `columns`; a value returned once goes in `constant_columns`. A node that runs once wired into a name in `columns` has one value for all the records, and the run fails with `columns_not_aligned`, which names `constant_columns` for a column that has one value.

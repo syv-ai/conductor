@@ -157,7 +157,7 @@ def _parse_sections(text: str) -> dict[str, str]:
 
     A section runs from its heading to the next heading with as many ``#`` or fewer. So a ``###`` section inside a
     ``##`` section ends at the next ``###`` heading or where the ``##`` section ends. Of two headings with one slug
-    (``duplicate_node_id`` is a problem of a graph and of a declaration), the first is kept.
+    (a code of both a problem and a declaration fault would have two), the first is kept.
     """
     matches = list(_HEADING.finditer(text))
     out: dict[str, str] = {}

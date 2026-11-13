@@ -109,8 +109,7 @@ class Run[C]:
 
     Attributes:
         graph: The graph the run runs on.
-        inputs: The caller's inputs as checked, by address (``"upper.text"``) whether they were given by name or by
-            address.
+        inputs: The caller's inputs as checked, by the graph input's name (``"text"``).
         max_items: The most items any one Series a node works through may hold before the run stops as
             ``stopped``; ``None`` for no ceiling.
         state: How the run stands: ``Going`` (``ready`` before the first leg, then ``running``, ``waiting`` or
@@ -342,10 +341,7 @@ class Run[C]:
         Inputs are given as ``graph.with_inputs`` takes them, and checked the
         same way.
         """
-        changed = {**inputs, **by_name}
-        named = self.graph._inputs_door.addresses(changed)
-        given = {graph_input.name: self.inputs[address] for address, graph_input in self.graph._input_fields.items() if address not in named}
-        return self.graph.with_inputs({**given, **changed}, max_items=max_items if max_items is not None else self.max_items, previous=self)
+        return self.graph.with_inputs({**self.inputs, **inputs, **by_name}, max_items=max_items if max_items is not None else self.max_items, previous=self)
 
     def forget(self, *node_ids: str) -> Run[C]:
         """A run of the same inputs that has forgotten these nodes' work, ready to ``resume`` or ``stream``.
@@ -465,7 +461,7 @@ class Run[C]:
 
     @property
     def outputs(self) -> dict[str, Any]:
-        """The graph's outputs (``graph.outputs``), by address, once the run is complete; ``results`` reads a run in any state."""
+        """The graph's outputs (``graph.outputs``), by name, once the run is complete; ``results`` reads a run in any state."""
         match self.state:
             case Going(status="complete"):
                 pass
@@ -473,10 +469,10 @@ class Run[C]:
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
-        return outputs_of(self._flat, self._outcomes, self.inputs)
+        return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
-        """Returns ``run.outputs`` as JSON text, by address: ``{"join.result":"A!+B!+C!"}`` for the README graph.
+        """Returns ``run.outputs`` as JSON text, by name: ``{"result":"A!+B!+C!"}`` for the README graph.
 
         Each value is written by its output's type, as in a saved run: a table as its columns, ``inf`` and
         ``nan`` as text, a host type by its own schema.

@@ -70,7 +70,19 @@ for _definition in (contacts, csv, tags, people, records, send, report, count, d
 
 
 def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), REGISTRY)
+    """The one problem of the graph of ``nodes`` (id to node) wired by ``edges`` (``"node.output[.field]"``,
+    ``"node.input"``); each required input of a node no edge leads into is a graph input."""
+    inputs: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
+    for source, target in edges:
+        node_id, output, *field = source.split(".", 2)
+        target_id, name = target.split(".")
+        inputs[target_id].setdefault(name, {"sources": []})["sources"].append({"node": node_id, "output": output, **({"field": field[0]} if field else {})})
+    for node_id, definition in nodes.items():
+        if not inputs[node_id]:
+            required = [field.name for field in REGISTRY[definition].describe().inputs if field.required]
+            inputs[node_id] = {name: {"graph_input": f"{node_id}_{name}"} for name in required}
+    record = {"nodes": {node_id: {"node": definition, "inputs": inputs[node_id]} for node_id, definition in nodes.items()}}
+    graph = Graph.compile(GraphRecord.model_validate(record), REGISTRY)
     (found,) = graph.problems
     return found
 
@@ -130,7 +142,7 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "csv"}, {"id": "lines", "node": "lines"}, {"id": "send", "node": "send"}], "edges": [["read.result", "lines.table"], ["lines.result.email", "send.to"]]}), registry)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"read": {"node": "csv", "inputs": {"path": {"graph_input": "path"}}}, "lines": {"node": "lines", "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}}}, "send": {"node": "send", "inputs": {"to": {"sources": [{"node": "lines", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "send", "output": "result"}}}), registry)
     assert graph.is_runnable and graph.runs_on["send"].series == "lines.result"
 
 
@@ -159,7 +171,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(amounts)
-    (found,) = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a", "node": "amounts"}, {"id": "r", "node": "report"}], "edges": [["a.result", "r.table"]]}), registry).problems
+    (found,) = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "amounts", "inputs": {"path": {"graph_input": "path"}}}, "r": {"node": "report", "inputs": {"table": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "r", "output": "result"}}}), registry).problems
     assert found.type == "type_mismatch" and "variant" not in found.ctx and found.ctx["got"] == "Table[name: str, amount: str]"
 
 
@@ -167,21 +179,19 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
 
 
 def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
-    found = problem({"upload": "documents", "list": "questions", "ask": "ask"}, [("list.result", "ask.question"), ("upload.result", "ask.document")])
+    """The wire suggested is from the list of the node compiled first, by id, so it makes no cycle."""
+    found = problem({"docs": "documents", "list": "questions", "ask": "ask"}, [("list.result", "ask.question"), ("docs.result", "ask.document")])
     assert (found.type, found.loc) == ("series_not_nested", ("ask",))
-    assert found.ctx == {"node_id": "ask", "series": ["list.result", "upload.result"], "inputs": ["question", "document"], "wire_from": "upload.result", "wire_into": "list"}
+    assert found.ctx == {"node_id": "ask", "series": ["list.result", "docs.result"], "inputs": ["question", "document"], "wire_from": "docs.result", "wire_into": "list"}
     assert found.msg == (
-        "'ask' reads items of list.result, upload.result, and neither is inside the loop over the other, so nothing says which items go together. "
-        "Wire 'upload.result' into 'list' to put one inside the other, or give one of them whole to a Series input."
+        "'ask' reads items of list.result, docs.result, and neither is inside the loop over the other, so nothing says which items go together. "
+        "Wire 'docs.result' into 'list' to put one inside the other, or give one of them whole to a Series input."
     )
 
 
 def test_the_wire_it_names_nests_them():
-    graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "upload", "node": "documents"}, {"id": "list", "node": "questions"}, {"id": "ask", "node": "ask"}],
-        "edges": [["list.result", "ask.question"], ["upload.result", "ask.document"], ["upload.result", "list.about"]],
-    }), REGISTRY)
-    assert graph.is_runnable and graph.runs_on["ask"].series == "list.result" and graph.runs_on["list"].series == "upload.result"
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"docs": {"node": "documents", "inputs": {"folder": {"graph_input": "folder"}}}, "list": {"node": "questions", "inputs": {"about": {"sources": [{"node": "docs", "output": "result"}]}}}, "ask": {"node": "ask", "inputs": {"question": {"sources": [{"node": "list", "output": "result"}]}, "document": {"sources": [{"node": "docs", "output": "result"}]}}}}, "outputs": {"result": {"node": "ask", "output": "result"}}}), REGISTRY)
+    assert graph.is_runnable and graph.runs_on["ask"].series == "list.result" and graph.runs_on["list"].series == "docs.result"
 
 
 # -- the row type of a table type ---------------------------------------------------------------------------
@@ -201,5 +211,5 @@ def test_a_hook_reads_the_row_type_of_the_table_arriving():
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(look)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "read", "node": "contacts"}, {"id": "look", "node": "look"}], "edges": [["read.result", "look.table"]]}), registry)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"read": {"node": "contacts", "inputs": {"path": {"graph_input": "path"}}}, "look": {"node": "look", "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}}}}, "outputs": {"result": {"node": "look", "output": "result"}}}), registry)
     assert graph.is_runnable and seen == [(Contact,)]

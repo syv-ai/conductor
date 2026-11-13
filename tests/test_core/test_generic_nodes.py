@@ -14,11 +14,11 @@ from conductor import (
     SKIPPED,
     Ask,
     Graph,
-    GraphRecord,
     NodeDeclarationError,
     Param,
     Series,
     Table,
+    make_graph,
     node,
 )
 
@@ -98,8 +98,9 @@ def upper(text: str) -> str:
 
 def _compiled(*definitions: Any, edges: list[list[str]], constants: dict[str, dict[str, Any]] | None = None) -> Any:
     """Each definition as a node named by its id, wired by ``edges``; ``constants`` are given per node id."""
-    nodes = [{"id": d.id, "node": d.id, "constants": (constants or {}).get(d.id, {})} for d in definitions]
-    return Graph.compile(GraphRecord.model_validate({"nodes": nodes, "edges": edges}), registry_of(*definitions))
+    given = {f"{node_id}.{name}": value for node_id, named in (constants or {}).items() for name, value in named.items()}
+    record = make_graph(*definitions, edges=[(source, target) for source, target in edges], constants=given)
+    return Graph.compile(record, registry_of(*definitions))
 
 
 def _types(graph: Any, node_id: str) -> dict[str, tuple[bool, str]]:
@@ -112,14 +113,14 @@ def test_a_type_variable_is_what_arrives_on_the_edge_in_every_input_and_in_the_r
     graph = _compiled(text, decision, upper, edges=[["text.result", "decision.value"], ["decision.if_true", "upper.text"]])
     assert graph.problems == []
     assert _types(graph, "decision") == {"value": (False, "str"), "when": (False, "bool"), "if_true": (False, "str"), "if_false": (False, "str")}
-    assert graph.run().outputs == {"upper.result": "A"}
+    assert graph.run().outputs == {"result": "A"}
 
 
 def test_only_an_edge_binds_a_type_variable_so_a_constant_and_a_graph_input_read_as_any() -> None:
     with_constant = _compiled(keep, edges=[], constants={"keep": {"value": 3}})
     assert _types(with_constant, "keep") == {"value": (False, "Any"), "result": (False, "Any")}
-    assert with_constant.run().outputs == {"keep.result": 3}
-    assert Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "keep", "node": "keep"}]}), registry_of(keep)).run(value="x").outputs == {"keep.result": "x"}
+    assert with_constant.run().outputs == {"result": 3}
+    assert Graph.compile(make_graph(keep), registry_of(keep)).run(value="x").outputs == {"result": "x"}
 
 
 def test_an_output_is_checked_against_the_type_the_edge_bound() -> None:
@@ -145,12 +146,12 @@ def test_the_choices_of_an_ask_are_checked_against_the_type_the_edge_bound() -> 
 def test_a_series_wired_to_a_type_variable_is_looped_over_and_binds_the_item_type() -> None:
     graph = _compiled(texts, keep, edges=[["texts.result", "keep.value"]])
     assert _types(graph, "keep")["value"] == (False, "str")
-    assert graph.runs_on["keep"].series == "texts.result" and graph.run().outputs == {"keep.result": ["a", "b"]}
+    assert graph.runs_on["keep"].series == "texts.result" and graph.run().outputs == {"result": ["a", "b"]}
 
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
     from_table = _compiled(rows, split, edges=[["rows.result", "split.value"]])
-    assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs["split.result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
+    assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs["result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
     from_list = _compiled(keep, split, edges=[["keep.result", "split.value"]], constants={"keep": {"value": [1, 2]}})
     assert _types(from_list, "split")["result"] == (True, "Any")
     graph = _compiled(text, split, edges=[["text.result", "split.value"]])
@@ -160,7 +161,7 @@ def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
 def test_a_table_of_unknown_columns_binds_any() -> None:
     graph = _compiled(anything, split, upper, edges=[["anything.result", "split.value"], ["split.result.name", "upper.text"]])
     assert graph.problems == [] and _types(graph, "split")["result"] == (True, "Any")
-    assert graph.run().outputs == {"upper.result": ["A"]}
+    assert graph.run().outputs == {"result": ["A"]}
 
 
 def test_a_variable_beside_none_binds_the_arriving_type_without_its_none() -> None:
@@ -232,7 +233,7 @@ def test_a_variable_on_no_input_and_a_constrained_one_are_refused_where_the_node
 def test_a_generic_dataclass_of_outputs_returns_one_branch_at_run_time() -> None:
     graph = _compiled(text, decision, upper, edges=[["text.result", "decision.value"], ["decision.if_false", "upper.text"]])
     run = graph.run()
-    assert run.status == "complete" and run.results["decision"] == {"if_true": "a", "if_false": None} and run.outputs == {"upper.result": None}
+    assert run.status == "complete" and run.results["decision"] == {"if_true": "a", "if_false": None} and run.outputs == {"result": None}
 
 
 def test_a_generic_definition_describes_any_and_its_compiled_node_the_bound_types() -> None:

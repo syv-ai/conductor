@@ -300,7 +300,7 @@ class NodeRegistry[C]:
             case SubgraphDefinition():
                 pass
         if definition.id not in self._graph_descriptions:
-            record = GraphRecord(nodes=[NodeRecord(id="node", node=definition.id, version=definition.version)])
+            record = GraphRecord(nodes={"node": NodeRecord(node=definition.id, version=definition.version)})
             described = compile_graph(record, self, self._context_type, CompiledGraph).describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
                 SubgraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
@@ -312,23 +312,19 @@ class NodeRegistry[C]:
     def upgrade(self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
 
-        Runs each newer version's ``Upgrade`` in order and sets the version.
-        Each step first moves what the record holds on the inputs it renames
-        (constants, defaults and the edges into them), then rewrites
-        what is typed into the node, constants and defaults as one map: a key
-        that was a default stays one, and every other key the rewrite returns
-        is a value, fixed as the author's. An edge into an input the step
-        neither keeps nor renames goes, as what was typed into it goes unless
-        the rewrite returns it. Every edge out of a renamed output,
-        or out of a column of it, reads the new name. A node already at ``to``
-        returns the record as it is. The record returned is not loaded here:
-        load it to show the author what the newer version makes of it.
+        Runs each newer version's ``Upgrade`` in order and sets the version. Each step first moves what the record
+        gives each input it renames (a constant, a graph input or the edges into it) to the new name, then rewrites
+        what is typed into the node, its constants and its graph inputs' defaults, as one map: a key that was a graph
+        input's default stays one, and every other key the rewrite returns is a constant, fixed as the author's. The
+        edges into an input the step neither keeps nor renames go. Every edge and graph output from a renamed output,
+        or from a field of it, reads the new name. A
+        node already at ``to`` returns the record as it is. The record returned is not compiled here: compile it to
+        show the author what the newer version makes of it.
 
-        What a rewrite returns is written as JSON, as ``make_graph`` writes a
-        value typed in. Of two nodes with one id, the first is moved. A node
-        the record does not have, a node whose id is not a name
-        (``invalid_node_id``), a node this registry does not, a version it can't move to and a rewrite returning a value
-        with no JSON form (``invalid_value``) are each an ``InvalidCallError``.
+        What a rewrite returns is written as JSON, as ``make_graph`` writes a value typed in. A node the record does
+        not have, a node this registry does not, a version it can't move to, a rewrite returning a value with no
+        JSON form (``invalid_value``) and a rewrite giving a value to an input that edges lead into
+        (``invalid_record``) are each an ``InvalidCallError``.
         """
         return upgraded(self._nodes, record, node_id, to=to)
 

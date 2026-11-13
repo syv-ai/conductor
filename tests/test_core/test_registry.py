@@ -20,7 +20,6 @@ from conductor import (
     Graph,
     GraphRecord,
     NodeDeclarationError,
-    NodeRecord,
     NodeRegistry,
     Param,
     Series,
@@ -140,7 +139,7 @@ def test_declaring_an_id_the_registry_has_is_a_duplicate_even_when_replaces_name
 
 
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
-    inner = GraphRecord(nodes=[NodeRecord(id="a", node="upper")])
+    inner = GraphRecord.model_validate({"nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "a", "output": "result"}}})
     registry = NodeRegistry()
     registry.add(subgraph("g", description="For a test.", title="First")(inner))
 
@@ -412,7 +411,7 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
     registry.add(_node("kept"), _node("dropped"))
     narrowed = registry.filter(lambda definition: definition.id == "kept")
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="d", node="dropped")]), narrowed)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "dropped"}}, "outputs": {}}), narrowed)
 
     assert [problem.type for problem in graph.problems] == ["unknown_node"]
 
@@ -706,9 +705,9 @@ def test_a_subgraph_given_json_text_reads_it_as_a_graph_record_and_refuses_an_un
     from conductor import InvalidCallError, subgraph
 
     with pytest.raises(InvalidCallError) as refused:
-        subgraph("e", title="E", description="For a test.")(json.dumps({"nodes": [{"id": "a", "node": "x", "vaules": {}}]}))
-    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", 0, "vaules"))]
-    assert subgraph("e", title="E", description="For a test.")('{"nodes": [{"id": "a", "node": "x"}]}').graph == GraphRecord(nodes=[NodeRecord(id="a", node="x")])
+        subgraph("e", title="E", description="For a test.")(json.dumps({"nodes": {"a": {"node": "x", "vaules": {}}}}))
+    assert [(p.type, p.loc) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a", "vaules"))]
+    assert subgraph("e", title="E", description="For a test.")('{"nodes": {"a": {"node": "x"}}}').graph == GraphRecord.model_validate({"nodes": {"a": {"node": "x"}}})
 
 
 def test_an_infinite_default_writes_as_text():
@@ -736,7 +735,7 @@ def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_de
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
     assert listed.kind == "subgraph" and not hasattr(shout, "describe")
     assert not {"policy", "takes_added_inputs", "computes_outputs"} & listed.model_dump(mode="json").keys()
-    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["upper.result"]
+    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
 
 
 def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(monkeypatch: MonkeyPatch) -> None:
@@ -748,7 +747,7 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(mon
     def shout(text: str) -> str:
         return text.upper()
 
-    registry.add(subgraph("loud", title="Loud", description="For a test.")(GraphRecord(nodes=[NodeRecord(id="s", node="shout")])))
+    registry.add(subgraph("loud", title="Loud", description="For a test.")(GraphRecord.model_validate({"nodes": {"s": {"node": "shout", "inputs": {"words": {"graph_input": "words"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}})))
     compiled_records = []
     compile_graph = registry_module.compile_graph
     monkeypatch.setattr(registry_module, "compile_graph", lambda record, *rest: compiled_records.append(record) or compile_graph(record, *rest))

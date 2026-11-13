@@ -16,7 +16,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask, Asked
-from conductor._internal.base import SKIPPED
+from conductor._internal.base import SKIPPED, Address
 from conductor._internal.compiled import (
     GraphDescription,
     GraphInputDescription,
@@ -50,7 +50,13 @@ from conductor._internal.problem import (
     ProblemCatalogue,
     ProblemKind,
 )
-from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.record import (
+    GraphRecord,
+    NodeRecord,
+    RecordConstant,
+    RecordEdges,
+    RecordGraphInput,
+)
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import (
     CallCount,
@@ -95,6 +101,10 @@ __all__ = [
     # A graph
     "GraphRecord",
     "NodeRecord",
+    "RecordConstant",
+    "RecordGraphInput",
+    "RecordEdges",
+    "Address",
     "make_graph",
     "Graph",
     # A run

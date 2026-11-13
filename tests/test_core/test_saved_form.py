@@ -6,6 +6,7 @@ import datetime
 import json
 import math
 import random
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -17,7 +18,6 @@ from conductor import (
     Graph,
     GraphRecord,
     InvalidCallError,
-    NodeRecord,
     NodeRegistry,
     Run,
     Series,
@@ -112,28 +112,53 @@ def float_or_text(text: str) -> float | str:
 def _registry() -> NodeRegistry:
     registry = NodeRegistry()
     registry.add(lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text)
-    inner = GraphRecord(nodes=[NodeRecord(id="q", node="ask"), NodeRecord(id="m", node="maybe")], edges=[("q.result", "m.text")])
+    inner = GraphRecord.model_validate({
+        "nodes": {"q": {"node": "ask", "inputs": {"text": {"graph_input": "text"}}}, "m": {"node": "maybe", "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}}}},
+        "outputs": {"result": {"node": "m", "output": "result"}},
+    })
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     return registry
+
+
+def _record(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]] = (), outputs: Mapping[str, str] | None = None) -> GraphRecord:
+    """The record of ``nodes`` (node id to node definition id) joined by ``edges`` (``("node.output", "node.input")``
+    or ``("node.output.field", "node.input")``).
+
+    The ``text`` of each node no edge leads into is the graph input named by the node's id. ``outputs`` maps each
+    graph output's name to the output it is (``"gate.short"``); with none, the ``result`` of each node no edge
+    leaves is the graph output named by the node's id.
+    """
+    entries: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
+    for source, target in edges:
+        target_node, name = target.split(".")
+        entries[target_node].setdefault(name, {"sources": []})["sources"].append(dict(zip(("node", "output", "field"), source.split(".", 2), strict=False)))
+    for node_id, named in entries.items():
+        if not named:
+            named["text"] = {"graph_input": node_id}
+    if outputs is None:
+        outputs = {node_id: f"{node_id}.result" for node_id in nodes if node_id not in {source.split(".")[0] for source, _ in edges}}
+    declared = {name: dict(zip(("node", "output"), place.split("."), strict=True)) for name, place in outputs.items()}
+    return GraphRecord.model_validate({"nodes": {node_id: {"node": definition_id, "inputs": entries[node_id]} for node_id, definition_id in nodes.items()}, "outputs": declared})
 
 
 def _everything() -> Any:
     """A graph with a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph
     and tables."""
-    return Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id=n, node=kind) for n, kind in (
-            ("lines", "lines"), ("gate", "gate"), ("maybe", "maybe"), ("letters", "letters"), ("ask", "ask"), ("frame", "frame"),
-            ("typed", "typed-frame"), ("reading", "reading"), ("long", "join"), ("e", "inner"),
-        )],
-        edges=[
+    return Graph.compile(_record(
+        {
+            "lines": "lines", "gate": "gate", "maybe": "maybe", "letters": "letters", "ask": "ask", "frame": "frame",
+            "typed": "typed-frame", "reading": "reading", "long": "join", "e": "inner",
+        },
+        [
             ("lines.result.text", "gate.text"), ("lines.result.text", "maybe.text"), ("lines.result.text", "letters.text"),
             ("lines.result.text", "ask.text"), ("gate.long", "long.texts"), ("lines.result.text", "e.text"),
         ],
+        {name: f"{name}.result" for name in ("maybe", "letters", "ask", "frame", "typed", "reading", "long", "e")} | {"short": "gate.short"},
     ), _registry())
 
 
 def _inputs(text: str) -> dict[str, str]:
-    return {"lines.text": text, "frame.text": "p,q", "typed.text": "x", "reading.text": "x"}
+    return {"lines": text, "frame": "p,q", "typed": "x", "reading": "x"}
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -219,7 +244,7 @@ def test_a_run_stopped_at_the_item_limit_reads_back_and_resumes_to_the_full_resu
 def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_outcomes() -> None:
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc")))
-    again = Run.from_json(first.to_json(), graph).with_inputs({"lines.text": "a,ccc,dd"})
+    again = Run.from_json(first.to_json(), graph).with_inputs({"lines": "a,ccc,dd"})
     restored = Run.from_json(again.to_json(), graph)  # saved before resume(): the previous run's outcomes are in it
 
     assert restored.to_json() == again.to_json()
@@ -232,7 +257,7 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
     another error."""
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
-    waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()  # it waits on "ab"; its outcomes for "bb" and "b" are kept as reusable
+    waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()  # it waits on "ab"; its outcomes for "bb" and "b" are kept as reusable
     saved = json.loads(waiting.to_json())
     assert waiting.status == "waiting" and saved["reusable"] and saved["outcomes"]
     random.seed(7)
@@ -264,8 +289,8 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")]), _registry())
-    run = graph.run({"lines.text": "ab", "reading.text": "inf", "loose.text": "x", "float-or-text.text": "x", "typed-frame.text": "x", "frame.text": "p"})
+    graph = Graph.compile(_record({n: n for n in ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")}), _registry())
+    run = graph.run({"lines": "ab", "reading": "inf", "loose": "x", "float-or-text": "x", "typed-frame": "x", "frame": "p"})
     json.loads(run.to_json(), parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}"))
 
     results = Run.from_json(run.to_json(), graph).results
@@ -290,8 +315,8 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
     (lambda s: s["outcomes"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]), "outcomes.letters"),
     (lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?", "inputs": {}}), "outcomes.ask"),
     (lambda s: s["outcomes"].__setitem__("nowhere", {"states": [], "outputs": {}}), "outcomes.nowhere"),
-    (lambda s: s["inputs"].__setitem__("nowhere.text", "x"), "inputs.nowhere.text"),
-    (lambda s: s["inputs"].__setitem__("lines.text", 7), "inputs.lines.text"),
+    (lambda s: s["inputs"].__setitem__("nowhere", "x"), "inputs.nowhere"),
+    (lambda s: s["inputs"].__setitem__("lines", 7), "inputs.lines"),
     (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][0]["values"].append("more"), "outcomes.frame.outputs.result.0"),
     (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1].__setitem__("name", "part"), "outcomes.frame.outputs.result.0"),
     (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1]["values"].__setitem__(0, "soon"), "outcomes.frame.outputs.result.0"),
@@ -320,7 +345,7 @@ def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_o
 
     registry = NodeRegistry()
     registry.add(odd)
-    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x")
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry).run(text="x")
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -336,19 +361,17 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
 
     registry = _registry()
     registry.add(rows)
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id=n, node=n) for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")], edges=[("lines.result.text", "letters.text")],
-    ), registry)
-    run = graph.run({"lines.text": "ab,xa", "reading.text": "inf", "loose.text": "x", "typed-frame.text": "x", "rows.text": "x"})
+    graph = Graph.compile(_record({n: n for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")}, [("lines.result.text", "letters.text")]), registry)
+    run = graph.run({"lines": "ab,xa", "reading": "inf", "loose": "x", "typed-frame": "x", "rows": "x"})
 
     written = run.outputs_to_json()
 
     assert json.loads(written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")) == {
-        "letters.result": [["a", "b"], [None, "a"]],  # an item on a branch not chosen is None
-        "reading.result": {"value": "NaN", "note": "Infinity"},  # a model writes a float that isn't finite as the run does
-        "loose.result": {"nan": "NaN", "when": "2026-01-01", "text": "x"},
-        "typed-frame.result": {"columns": [{"name": "text", "type": "str", "values": ["a", "b"]}, {"name": "size", "type": "float", "values": [1.5, "Infinity"]}]},
-        "rows.result": [{"text": "a", "size": "Infinity"}],  # a series of records is its records, however the run keeps it
+        "letters": [["a", "b"], [None, "a"]],  # an item on a branch not chosen is None
+        "reading": {"value": "NaN", "note": "Infinity"},  # a model writes a float that isn't finite as the run does
+        "loose": {"nan": "NaN", "when": "2026-01-01", "text": "x"},
+        "typed-frame": {"columns": [{"name": "text", "type": "str", "values": ["a", "b"]}, {"name": "size", "type": "float", "values": [1.5, "Infinity"]}]},
+        "rows": [{"text": "a", "size": "Infinity"}],  # a series of records is its records, however the run keeps it
     }
 
 
@@ -365,9 +388,9 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     registry = NodeRegistry()
     registry.add(odd)
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="odd")]), registry).run(text="x").outputs_to_json()
+        Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry).run(text="x").outputs_to_json()
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "o.result"), "o.result")
+    assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "result"), "result")
 
 
 def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit() -> None:
@@ -410,7 +433,7 @@ def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
 def test_every_field_a_run_sets_in_its_saved_run_is_a_key_of_the_json_and_reads_back() -> None:
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
-    waiting = first.with_inputs({"lines.text": "a,ccc,ab,xax"}).resume()
+    waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()
     saved = saved_run(waiting, codec_of(waiting.graph))
     written = json.loads(waiting.to_json())
 
@@ -434,8 +457,8 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -
 
     registry = NodeRegistry()
     registry.add(listed, letters)
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="listed", node="listed"), NodeRecord(id="letters", node="letters")]), registry)
-    run = graph.run({"listed.text": "ax", "letters.text": "ax"})
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"listed": {"node": "listed", "inputs": {"text": {"graph_input": "listed_text"}}}, "letters": {"node": "letters", "inputs": {"text": {"graph_input": "letters_text"}}}}, "outputs": {"letters_result": {"node": "letters", "output": "result"}, "listed_result": {"node": "listed", "output": "result"}}}), registry)
+    run = graph.run(listed_text="ax", letters_text="ax")
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["outcomes"]["listed"]
     assert Run.from_json(json.dumps(saved), graph).to_json() == run.to_json()

@@ -16,7 +16,6 @@ from conductor import (
     Graph,
     GraphRecord,
     InvalidCallError,
-    NodeRecord,
     Problem,
     Run,
     host_type,
@@ -114,12 +113,12 @@ def _edge(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def take(x: hint) -> str:  # type: ignore[valid-type]
         return "ok"
 
-    record = GraphRecord(nodes=[NodeRecord(id="a", node="give"), NodeRecord(id="b", node="take")], edges=[("a.result", "b.x")])
+    record = GraphRecord.model_validate({"nodes": {"a": {"node": "give"}, "b": {"node": "take", "inputs": {"x": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "b", "output": "result"}}})
     return [Graph.compile(record, registry_of(give, take)).run().state.cause]
 
 
 def _giving(definition: Any) -> list[Problem]:
-    return [Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node=definition.id)]), registry_of(definition)).run().state.cause]
+    return [Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": definition.id}}}), registry_of(definition)).run().state.cause]
 
 
 def _one_output(hint: Any, good: Any, bad: Any) -> list[Problem]:
@@ -165,7 +164,7 @@ def _saved_output(hint: Any, good: Any, bad: Any) -> list[Problem]:
         return good
 
     definition = node("give", title="Give", description="For a test.")(give)
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="give")]), registry_of(definition))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "give"}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(definition))
     saved = graph.run().to_json().replace(f'"result":[{_json(good)}]', f'"result":[{_json(bad)}]')
     assert _json(bad) in saved
     return _refused(lambda: Run.from_json(saved, graph))
@@ -177,7 +176,7 @@ def _saved_input(hint: Any, good: Any, bad: Any) -> list[Problem]:
         return "ok"
 
     graph = Graph.compile(make_graph(take), registry_of(take))
-    saved = graph.run(x=good).to_json().replace(f'"take.x":{_json(good)}', f'"take.x":{_json(bad)}')
+    saved = graph.run(x=good).to_json().replace(f'"x":{_json(good)}', f'"x":{_json(bad)}')
     assert _json(bad) in saved
     return _refused(lambda: Run.from_json(saved, graph))
 

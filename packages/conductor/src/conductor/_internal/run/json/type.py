@@ -135,7 +135,7 @@ class SavedRun[OutcomesT, ReusableT]:
     The finished run of the README graph ``lines -> shout -> join`` on ``"a\nb\nc"`` is saved as::
 
         {"graph": "<16 hex characters>", "state": {"status": "complete"}, "max_items": null,
-         "inputs": {"lines.text": "a\nb\nc"},
+         "inputs": {"text": "a\nb\nc"},
          "outcomes": {"lines": {"states": ["done"], "outputs": {"result": [["a", "b", "c"]]}},
                       "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
                       "join": {"states": ["done"], "outputs": {"result": ["A!+B!+C!"]}}},
@@ -159,7 +159,7 @@ class SavedRun[OutcomesT, ReusableT]:
             anything else is read.
         state: The run's ``state``: its status and, when it ended early, the problem that ended it.
         max_items: The run's item limit.
-        inputs: The graph inputs the caller gave, by address.
+        inputs: The graph inputs the caller gave, by name.
         outcomes: By node, the outcomes of each node that has any.
         reusable: By node, the outcomes of the previous run that this run may still reuse.
         code: By node, the code fingerprint of the node definition that its outcomes and its reusable outcomes
@@ -195,7 +195,7 @@ def steps_to_value(loc: Sequence[str | int]) -> list[str | int]:
     inside the value, since a step inside it may be a key of the value's own dict.
 
     ``("outcomes", "g", "outputs", "result", 0, "counts", "ida")`` gives ``["outcomes", "g", "outputs", "result",
-    0]``: the value of ``g.result`` on call 0 is ``{"counts": {"ida": ...}}``. ``("inputs", "lines.text")`` and
+    0]``: the value of ``g.result`` on call 0 is ``{"counts": {"ida": ...}}``. ``("inputs", "text")`` and
     ``("outcomes", "g", "states", 0)`` are kept whole. The steps are walked through the classes above: a value is
     wherever they declare a type other than one of them, a dict or a list, such as ``Any``.
     """

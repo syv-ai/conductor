@@ -24,8 +24,7 @@ class Graph[C](CompiledGraph):
     Attributes:
         record: The graph record it was compiled from.
         problems: Everything wrong with it; empty for a graph that runs.
-        inputs: The open inputs of its first nodes, by name (``node.input`` where two share a name): what a
-            caller fills.
+        inputs: The graph inputs its record declares, by name: what a caller gives.
     """
 
     @staticmethod
@@ -47,8 +46,8 @@ class Graph[C](CompiledGraph):
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
         Args:
-            inputs: The inputs by name (``graph.inputs``) or by address (``node.input``), for names Python can't
-                take as keywords (``{"a.text": ...}``).
+            inputs: The inputs by name (``graph.inputs``), for a name Python can't take as a keyword
+                (``{"class": ...}``).
             max_items: The most items any one Series a node works through may hold before the run stops.
             previous: A run of this graph, or of an earlier version of it, that lends its work as ``run.again``
                 does: a node with the same id, version, code, fields and scope is not called where it receives

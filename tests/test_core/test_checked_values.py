@@ -20,6 +20,7 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
+    Address,
     Ask,
     Graph,
     GraphRecord,
@@ -27,6 +28,7 @@ from conductor import (
     NodeRecord,
     Param,
     Policy,
+    RecordEdges,
     Run,
     Series,
     Table,
@@ -49,7 +51,8 @@ def _returning(returned: Any, return_type: Any) -> Any:
         return returned
 
     definition = node("give", title="Give", description="For a test.")(give)
-    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="give")]), registry_of(definition)).run()
+    outputs = {name: Address("g", name) for name in definition.outputs}
+    return Graph.compile(GraphRecord(nodes={"g": NodeRecord(node="give")}, outputs=outputs), registry_of(definition)).run()
 
 
 def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
@@ -61,7 +64,8 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
     definition = node("give", title="Give", description="For a test.")(give)
     (name,) = sink.inputs
     return Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="a", node="give"), NodeRecord(id="b", node=sink.id)], edges=[("a.result", f"b.{name}")],
+        nodes={"a": NodeRecord(node="give"), "b": NodeRecord(node=sink.id, inputs={name: RecordEdges(sources=[Address("a", "result")])})},
+        outputs={output: Address("b", output) for output in sink.outputs},
     ), registry_of(definition, sink)).run()
 
 
@@ -127,7 +131,7 @@ def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
     def square() -> Square:
         raise Ask("Which square?")
 
-    waiting = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="square")]), registry_of(square)).run()
+    waiting = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "square"}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(square)).run()
     with pytest.raises(InvalidCallError) as refused:
         waiting.answer(waiting.waiting[0].id, {"side": 2})
 
@@ -180,7 +184,7 @@ def _computed(returned: Any) -> Any:
     def computed() -> Any:
         return returned
 
-    return Graph.compile(GraphRecord(nodes=[NodeRecord(id="c", node="computed")]), registry_of(computed)).run()
+    return Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "computed"}}, "outputs": {"name": {"node": "c", "output": "name"}, "age": {"node": "c", "output": "age"}}}), registry_of(computed)).run()
 
 
 def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
@@ -285,7 +289,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_giv
     on_edge = _feeding(yes_no, Table, total)
     assert (on_edge.state.cause.type, on_edge.state.cause.loc, on_edge.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
     with pytest.raises(InvalidCallError) as given:
-        Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="total")]), registry_of(total)).run(lines=yes_no)
+        Graph.compile(GraphRecord.model_validate({"nodes": {"t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}}}), registry_of(total)).run(lines=yes_no)
     assert [p.type for p in given.value.errors()] == ["invalid_input"]
 
 
@@ -305,7 +309,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
 
     given = pl.DataFrame({"level": [1], "score": [3]}).with_columns(pl.lit(True).alias(column))
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(GraphRecord(nodes=[NodeRecord(id="c", node="count_rows")]), registry_of(count_rows)).run(rows=given)
+        Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "count_rows", "inputs": {"rows": {"graph_input": "rows"}}}}, "outputs": {"result": {"node": "c", "output": "result"}}}), registry_of(count_rows)).run(rows=given)
     assert [(p.type, p.ctx.get("column")) for p in refused.value.errors()] == [("invalid_input", column)]
 
 
@@ -359,9 +363,7 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_item():
     def at_least_five(n: Annotated[int, Param(ge=5)]) -> int:
         return n
 
-    run = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="a", node="numbers"), NodeRecord(id="b", node="at_least_five")], edges=[("a.result", "b.n")],
-    ), registry_of(numbers, at_least_five)).run()
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "numbers"}, "b": {"node": "at_least_five", "inputs": {"n": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "b", "output": "result"}}}), registry_of(numbers, at_least_five)).run()
 
     assert (run.state.cause.type, run.state.cause.loc) == ("invalid_edge_value", ("b", 1))
     assert [(e["type"], e["msg"]) for e in run.state.cause.ctx["errors"]] == [("greater_than_equal", "Input should be greater than or equal to 5")]
@@ -417,9 +419,7 @@ def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatc
     def total(rows: Table[Amounts]) -> int:
         return int(rows["result"].sum())
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="a", node="texts"), NodeRecord(id="b", node="total")], edges=[("a.result", "b.rows")],
-    ), registry_of(texts, total))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "texts"}, "b": {"node": "total", "inputs": {"rows": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "b", "output": "result"}}}), registry_of(texts, total))
 
     [problem] = graph.problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == ("type_mismatch", ("b", "rows"), "Table[result: str]", "Table[result: int]")
@@ -505,7 +505,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
     def tally(scores: dict[str, int], people: list[ByPerson]) -> str:
         return "ok"
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="tally")]), registry_of(tally))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"t": {"node": "tally", "inputs": {"scores": {"graph_input": "scores"}, "people": {"graph_input": "people"}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}), registry_of(tally))
 
     for given, loc in (({"scores": {SECRET: "x"}, "people": []}, ()), ({"scores": {}, "people": [{"counts": {}}, {"counts": {SECRET: "x"}}]}, (1, "counts"))):
         with pytest.raises(InvalidCallError) as refused:
@@ -546,7 +546,7 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_delays_no_other_call()
         assert _SlowOutput.check_began.wait(timeout=10)
         return 1
 
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="s", node="slow"), NodeRecord(id="o", node="other")]), registry_of(slow, other))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "slow"}, "o": {"node": "other"}}, "outputs": {"o_result": {"node": "o", "output": "result"}, "s_result": {"node": "s", "output": "result"}}}), registry_of(slow, other))
 
     async def go() -> str:
         async for event in graph.with_inputs().stream():
@@ -658,7 +658,7 @@ def test_a_skipped_input_skips_the_call_also_when_an_input_before_it_names_a_fie
             return len(values)
     edges = [("give.result.name", "both.values"), ("decide.no", "both.one")]
     graph = Graph.compile(make_graph(_decide, items, both, edges=edges), registry_of(_decide, items, both))
-    run = graph.run({"decide.text": "ok"})
+    run = graph.run(text="ok")
     assert (run.status, json.loads(run.to_json())["outcomes"]["both"]["states"]) == ("complete", ["skipped"])
 
 
@@ -702,7 +702,7 @@ def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_c
     give = _giving(returned, declared)
     edges = [("words.result", f"{reader.id}.word"), ("give.result.name", f"{reader.id}.{input_name}"), (f"{reader.id}.result", "all-of.values")]
     graph = Graph.compile(make_graph(_words, give, reader, _all_of, edges=edges), registry_of(_words, give, reader, _all_of))
-    run = graph.run({"words.text": "a b"})
+    run = graph.run(text="a b")
     assert (run.status, run.state.cause.type, run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "name")
     for read in (run, Run.from_json(run.to_json(), graph)):
         assert read.results["words"] == {"result": ["a", "b"]}
@@ -732,7 +732,7 @@ def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuse
     ``NodeDeclarationError``."""
     registry = registry_of(_text_a, _same, _first_of)
     wired = Graph.compile(make_graph(_text_a, _same, edges=[("text-a.result", "same.value")]), registry)
-    assert wired.problems == [] and wired.run().outputs == {"same.result": "a"}  # an edge gives the value, so the default is never used
+    assert wired.problems == [] and wired.run().outputs == {"result": "a"}  # an edge gives the value, so the default is never used
     unwired = Graph.compile(make_graph(_text_a, _first_of, edges=[("text-a.result", "first-of.first")]), registry)
     assert [(found.type, found.loc, found.ctx["variant"], found.ctx["type"]) for found in unwired.problems] == [
         ("invalid_value", ("first-of", "second"), "bound_default", "str"),

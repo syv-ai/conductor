@@ -6,18 +6,23 @@ is called once. An output from outside a loop that a node inside it reads is an 
 In ``documents -> upper -> count``, ``upper`` is called once per document and ``count`` once, with every result.
 """
 
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
 
 import pytest
 from conductor import (
     SKIPPED,
+    FunctionDefinition,
     Graph,
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
     Param,
+    RecordGraphInput,
     Series,
+    SubgraphDefinition,
     Table,
     host_type,
     node,
@@ -165,11 +170,42 @@ for _definition in (
     REGISTRY.add(_definition)
 
 
-def compile_graph(nodes: dict[str, str | dict], edges: list[tuple[str, str]], registry: NodeRegistry = REGISTRY):
-    """The compiled graph of ``nodes`` (node id to node definition id, or to the rest of its node record) and
-    ``edges``."""
-    records = [{"id": i, **({"node": n} if isinstance(n, str) else n)} for i, n in nodes.items()]
-    return Graph.compile(GraphRecord.model_validate({"nodes": records, "edges": [list(edge) for edge in edges]}), registry)
+def _ports_of(definition_id: str, registry: NodeRegistry) -> tuple[list[str], list[str]]:
+    """The inputs and outputs of the node definition ``definition_id``: a subgraph's are those its record declares."""
+    match registry[definition_id] if definition_id in registry else None:
+        case FunctionDefinition() as definition:
+            return list(definition.inputs), list(definition.outputs)
+        case SubgraphDefinition() as definition:
+            inputs = [entry.graph_input for node in definition.graph.nodes.values() for entry in node.inputs.values() if isinstance(entry, RecordGraphInput)]
+            return list(dict.fromkeys(inputs)), list(definition.graph.outputs)
+        case _:
+            return [], []
+
+
+def record_of(nodes: Mapping[str, str | dict], edges: Sequence[tuple[str, str]], registry: NodeRegistry = REGISTRY) -> GraphRecord:
+    """The record of ``nodes`` (node id to node definition id, or to the rest of its node record) and ``edges``
+    (``("node.output", "node.input")``, or ``("node.output.field", "node.input")`` for one field of a record).
+
+    Each input of a node no edge leads into that has no entry is a graph input of the input's name. Each output of a
+    node no edge leaves is a graph output of the output's name, or of ``"node-output"`` where two would share one.
+    """
+    records = {node_id: {"node": n, "inputs": {}} if isinstance(n, str) else {**n, "inputs": dict(n.get("inputs", {}))} for node_id, n in nodes.items()}
+    for source, target in edges:
+        target_node, name = target.split(".")
+        records[target_node]["inputs"].setdefault(name, {"sources": []})["sources"].append(dict(zip(("node", "output", "field"), source.split(".", 2), strict=False)))
+    led_into, led_out = {target.split(".")[0] for _, target in edges}, {source.split(".")[0] for source, _ in edges}
+    for node_id, record in records.items():
+        if node_id not in led_into:
+            record["inputs"] |= {name: {"graph_input": name} for name in _ports_of(record["node"], registry)[0] if name not in record["inputs"]}
+    leaves = [(node_id, output) for node_id, record in records.items() if node_id not in led_out for output in _ports_of(record["node"], registry)[1]]
+    shared = Counter(output for _, output in leaves)
+    outputs = {output if shared[output] == 1 else f"{node_id}-{output}": {"node": node_id, "output": output} for node_id, output in leaves}
+    return GraphRecord.model_validate({"nodes": records, "outputs": outputs})
+
+
+def compile_graph(nodes: Mapping[str, str | dict], edges: Sequence[tuple[str, str]], registry: NodeRegistry = REGISTRY):
+    """The compiled graph of ``record_of(nodes, edges, registry)``."""
+    return Graph.compile(record_of(nodes, edges, registry), registry)
 
 
 def input_sources(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
@@ -250,7 +286,7 @@ def test_a_series_input_gets_the_one_value_of_a_source_that_runs_once_as_a_serie
 
 
 def test_a_list_constant_on_an_input_of_one_value_is_an_invalid_value():
-    graph = compile_graph({"u": {"node": "upper", "constants": {"text": ["a", "b"]}}}, [])
+    graph = compile_graph({"u": {"node": "upper", "inputs": {"text": {"constant": ["a", "b"]}}}}, [])
     assert problems(graph) == [("invalid_value", ("u", "text"))]
 
 
@@ -373,9 +409,14 @@ def test_edges_from_two_branches_into_one_input_from_different_loops_are_refused
 # -- the graph's inputs ----------------------------------------------------------------------------
 
 
-def test_an_unwired_input_is_a_graph_input_on_a_first_node_and_a_problem_on_a_later_one():
-    graph = compile_graph({"u": "upper", "p": "pair"}, [("u.result", "p.a")])
-    assert list(graph.inputs) == ["text"] and problems(graph) == [("unbound_on_later_node", ("p", "b"))]
+def test_an_input_is_a_graph_input_only_where_its_entry_says_so_and_one_with_no_entry_is_a_problem_on_any_node():
+    record = GraphRecord.model_validate({"nodes": {
+        "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+        "p": {"node": "pair", "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}}},
+        "v": {"node": "upper"},
+    }})
+    graph = Graph.compile(record, REGISTRY)
+    assert list(graph.inputs) == ["text"] and problems(graph) == [("input_has_no_value", ("p", "b")), ("input_has_no_value", ("v", "text"))]
 
 
 def test_a_graph_input_of_a_series_is_given_whole_and_starts_no_loop():
@@ -402,36 +443,36 @@ def _with_subgraph(inner_nodes: dict[str, str], inner_edges: list[tuple[str, str
     """A registry of this file's node definitions and the subgraph ``inner`` of ``inner_nodes`` and ``inner_edges``."""
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
-    record = GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in inner_nodes.items()], "edges": [list(edge) for edge in inner_edges]})
-    registry.add(subgraph("inner", title="Inner", description="A subgraph.")(record))
+    registry.add(subgraph("inner", title="Inner", description="A subgraph.")(record_of(inner_nodes, inner_edges)))
     return registry
 
 
-def test_a_subgraph_is_one_node_with_the_inputs_and_outputs_of_its_inner_nodes():
+def test_a_subgraph_is_one_node_with_the_inputs_and_outputs_its_record_declares():
     registry = _with_subgraph({"u": "upper", "v": "upper"}, [("u.result", "v.text")])
-    graph = compile_graph({"d": "documents", "e": "inner", "c": "count"}, [("d.result", "e.text"), ("e.v.result", "c.items")], registry)
+    graph = compile_graph({"d": "documents", "e": "inner", "c": "count"}, [("d.result", "e.text"), ("e.result", "c.items")], registry)
     assert graph.is_runnable and list(graph._nodes) == ["d", "e", "c"]
     described = graph.describe().nodes["e"]
-    assert [i.field.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["v.result"]
+    assert [i.field.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["result"]
     assert graph.runs_on["e"].series == "d.result" and input_sources(graph, "c") == {"items": ("collected", "d.result")}
 
 
 def test_an_output_inside_a_loop_of_a_subgraph_is_offered_as_a_series():
     registry = _with_subgraph({"d": "documents", "u": "upper"}, [("d.result", "u.text")])
-    graph = compile_graph({"e": "inner", "c": "count"}, [("e.u.result", "c.items")], registry)
+    graph = compile_graph({"e": "inner", "c": "count"}, [("e.result", "c.items")], registry)
     assert graph.is_runnable and graph.describe().nodes["e"].outputs[0].is_series
     assert input_sources(graph, "c") == {"items": ("collected", "e.d.result")}
 
 
-def test_the_unwired_inputs_of_a_first_subgraph_node_are_graph_inputs_of_the_outer_graph():
+def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_any_nodes_are():
     registry = _with_subgraph({"p": "pair"}, [])
-    graph = compile_graph({"e": "inner"}, [], registry)
-    assert list(graph.inputs) == ["a", "b"] and graph.inputs["a"].address == "e.a"
+    record = GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"a": {"graph_input": "first"}, "b": {"graph_input": "second"}}}}})
+    graph = Graph.compile(record, registry)
+    assert list(graph.inputs) == ["first", "second"] and graph.inputs["first"].field.type == "str"
 
 
 def test_a_subgraphs_problems_are_the_outer_graphs_with_the_subgraph_nodes_id_in_front():
     registry = _with_subgraph({"p": "pair", "u": "upper"}, [("u.result", "p.a")])
-    assert problems(compile_graph({"e": "inner"}, [], registry)) == [("unbound_on_later_node", ("e", "p", "b"))]
+    assert problems(compile_graph({"e": "inner"}, [], registry)) == [("input_has_no_value", ("e", "p", "b"))]
 
 
 def test_the_graph_fingerprint_changes_with_its_subgraphs():

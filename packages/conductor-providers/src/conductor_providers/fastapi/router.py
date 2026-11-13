@@ -5,6 +5,7 @@ answered; the worker resumes the runs.
 """
 
 from collections.abc import AsyncIterable, Callable, Coroutine
+from json import JSONDecoder
 from operator import attrgetter
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
@@ -39,8 +40,8 @@ class StartRun(BaseModel):
 
     Attributes:
         graph: The graph, as its stored record; loaded on the caller's registry, so a node it lacks is a 422.
-        inputs: Values for the graph's open inputs, each by its name in ``graph.inputs`` or its address
-            ``node.input``, checked as ``graph.with_inputs`` checks them.
+        inputs: Values for the graph's inputs, each by its name in ``graph.inputs``, checked as
+            ``graph.with_inputs`` checks them.
     """
 
     graph: GraphRecord
@@ -111,7 +112,7 @@ class RunView(Outcome):
         waiting: What waits for a person, as of when the run last stopped running; each ``id`` is what
             ``POST /runs/{id}/answers`` takes. When the worker raised while resuming the run, what waits in the
             run's last checkpoint.
-        outputs: The graph's outputs by address once the run is complete, each as its type writes it (a table as its
+        outputs: The graph's outputs by name once the run is complete, each as its type writes it (a table as its
             columns); ``None`` until then.
         progress: How many calls of each node have an outcome, and how many there will be, as ``run.progress``
             says it: as of the last checkpoint while the run is running.
@@ -166,6 +167,30 @@ class _RefusingRoute(APIRoute):
                 raise _refusal(409, error.problems) from None
 
         return refusing
+
+
+def _graph_text(body: bytes) -> str:
+    """The text of the ``graph`` member of a ``StartRun`` body, as the caller wrote it.
+
+    FastAPI has read the body into ``StartRun`` already, keeping the last of two equal keys. Conductor reads the
+    graph record from its own text, so a key written twice in it (two nodes with one id) is refused there.
+    """
+    text, decoder = body.decode(), JSONDecoder()
+    at = _past_space(text, text.index("{") + 1)
+    while True:
+        key, at = decoder.raw_decode(text, at)
+        at = _past_space(text, text.index(":", at) + 1)
+        _, end = decoder.raw_decode(text, at)
+        if key == "graph":
+            return text[at:end]
+        at = _past_space(text, text.index(",", end) + 1)
+
+
+def _past_space(text: str, at: int) -> int:
+    """The index of the first character at or after ``at`` that is not JSON's white space."""
+    while text[at] in " \t\n\r":
+        at += 1
+    return at
 
 
 def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
@@ -307,28 +332,28 @@ def run_router(
         return nodes_for(who).describe()
 
     @router.post("/compile")
-    def compile_graph(graph: GraphRecord, who: Annotated[C, Depends(caller)]) -> GraphDescription:
+    async def compile_graph(graph: GraphRecord, request: Request, who: Annotated[C, Depends(caller)]) -> GraphDescription:
         """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
         and every problem. Nothing is run or stored."""
-        return Graph.compile(graph, nodes_for(who)).describe()
+        return Graph.compile(await request.body(), nodes_for(who)).describe()
 
     @router.post("/runs", status_code=202)
-    async def start_run(body: StartRun, who: Annotated[C, Depends(caller)]) -> Started:
+    async def start_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Started:
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
-        return Started(id=await worker.begin(body.graph, body.inputs, who))
+        return Started(id=await worker.begin(_graph_text(await request.body()), body.inputs, who))
 
     @router.post("/estimate")
-    async def estimate_run(body: StartRun, who: Annotated[C, Depends(caller)]) -> Progress:
+    async def estimate_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Progress:
         """How many calls a run of the graph on these inputs will make: the nodes whose ``Policy`` says
         ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
         call that costs something."""
-        return await worker.estimate(body.graph, body.inputs, who)
+        return await worker.estimate(_graph_text(await request.body()), body.inputs, who)
 
     if published is not None:
         @router.post("/graphs/{name}/runs", status_code=202)
         async def start_published(
             graph: Annotated[GraphRecord, Depends(published)],
-            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's open inputs, each by its name or its address `node.input`.")],
+            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")],
             who: Annotated[C, Depends(caller)],
         ) -> Started:
             """Start a graph you offer by name, on inputs alone."""
@@ -337,7 +362,7 @@ def run_router(
         @router.post("/graphs/{name}/estimate")
         async def estimate_published(
             graph: Annotated[GraphRecord, Depends(published)],
-            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's open inputs, each by its name or its address `node.input`.")],
+            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")],
             who: Annotated[C, Depends(caller)],
         ) -> Progress:
             """How many calls a run of a graph you offer by name will make on these inputs, as ``POST /estimate``."""
@@ -379,7 +404,7 @@ def run_router(
     @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
     async def run_again(
         run: Annotated[RunAsRead, Depends(stored)],
-        inputs: Annotated[dict[str, Any], Body(description="The inputs to change, each by its name or its address `node.input`; the rest stay as the run had them.")],
+        inputs: Annotated[dict[str, Any], Body(description="The inputs to change, each by its name; the rest stay as the run had them.")],
         who: Annotated[C, Depends(caller)],
     ) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it

@@ -1,7 +1,7 @@
 """What a host is shown of a run's outputs: ``run.results`` and ``run.outputs``, read whatever the run's status.
 
 For the README graph after ``graph.run(text="a\\nb")``, ``run.results["shout"]["result"]`` is ``["A!", "B!"]`` and
-``run.outputs`` is ``{"join.result": "A!+B!"}``. A host reads an output the way a node wired to it would, with the
+``run.outputs`` is ``{"result": "A!+B!"}``. A host reads an output the way a node wired to it would, with the
 inputs ``display_inputs_of`` gives (``flat.py``), by a ``DisplayReader``, which reads a value that is not
 there yet as ``None``.
 """
@@ -34,10 +34,13 @@ def results_of(
     return {n: {o: reader.display_value(display_inputs_of(*flat.nodes[n].source_of(o))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
 
 
-def outputs_of(flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> dict[str, Any]:
-    """``run.outputs`` of a complete run: the graph outputs, by address."""
+def outputs_of(
+    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[str, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
+    it is. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {address: reader.display_value(display_inputs_of(*source)) for address, source in flat.outputs.items()}
+    return {name: reader.display_value(display_inputs_of(*flat.nodes[edge.source.node].source_of(edge.source.output))) for name, edge in graph._outputs.items()}
 
 
 class DisplayReader(ResultReader):

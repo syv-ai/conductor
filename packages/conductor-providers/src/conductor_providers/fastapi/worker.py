@@ -160,12 +160,12 @@ class Worker(Generic[C]):
             raise NoSuchRunError
         return RunAsRead.of(row)
 
-    async def begin(self, graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> str:
+    async def begin(self, graph: GraphRecord | str, inputs: Mapping[str, Any], who: C) -> str:
         """Start a run: store it and make its first resume call in the background.
 
         Args:
-            graph: The graph to run.
-            inputs: Values for the graph's open inputs, by name or by address.
+            graph: The graph to run, or its record's JSON text.
+            inputs: Values for the graph's open inputs, by name.
             who: The caller who starts it, on whose nodes the graph is loaded.
 
         Returns:
@@ -176,9 +176,9 @@ class Worker(Generic[C]):
         """
         nodes = self._nodes_for(who)
         run = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items))
-        return await self._create(graph.model_dump_json(), who, run)
+        return await self._create(run.graph.record.model_dump_json(), who, run)
 
-    async def estimate(self, graph: GraphRecord, inputs: Mapping[str, Any], who: C) -> Progress:
+    async def estimate(self, graph: GraphRecord | str, inputs: Mapping[str, Any], who: C) -> Progress:
         """How many calls a run of ``graph`` on ``inputs`` will make, from one call of ``resume()`` that calls only
         the nodes that cost nothing; nothing is stored.
 
@@ -186,8 +186,8 @@ class Worker(Generic[C]):
         ``max_items``.
 
         Args:
-            graph: The graph to run.
-            inputs: Values for the graph's open inputs, by name or by address.
+            graph: The graph to run, or its record's JSON text.
+            inputs: Values for the graph's open inputs, by name.
             who: The caller, on whose nodes the graph is loaded.
 
         Returns:
@@ -210,7 +210,7 @@ class Worker(Generic[C]):
 
         Args:
             run: The run to start from, as read.
-            inputs: The inputs to change, by name or by address; the rest stay as ``run`` had them.
+            inputs: The inputs to change, by name; the rest stay as ``run`` had them.
             who: The caller who starts the new run, on whose own nodes it is loaded.
 
         Returns:

@@ -1,8 +1,10 @@
 # Writing nodes for others
 
-This page is for you if you write nodes that other people use in their graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host (the application that runs graphs) compiling and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one. The blocks run in order as one script. `run.results` is every node's outputs, by node id and then output name; `run.outputs` is the graph's outputs, those of the nodes no edge leaves, by address `node.output`.
+This page is for you if you write nodes that other people use in their graphs: a package of nodes, or the nodes your own editor offers. The [first page](https://github.com/syv-ai/conductor#readme) shows a host (the application that runs graphs) compiling and running a graph. Here every example builds its own small graph with `make_graph`, so you can see what a node does in one. The blocks run in order as one script. `run.results` is every node's outputs, by node id and then output name; `run.outputs` is the graph's outputs, by the names the graph declares for them.
 
-`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` gives one a value the caller may change. Every key is an address, `"node.input"`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge or a key of `constants` or `defaults` that is no address, a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a default on an input that isn't a graph input (a caller gives only the inputs with no edge on the nodes no edge leads into; a required input with no edge on any other node is `unbound_on_later_node`), an edge between types that don't fit.
+`make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` makes one a graph input with a value the caller may change. Every key is a place, `"node.input"`.
+
+A graph declares what it takes and returns, as a function declares its parameters and its return value, and `make_graph` declares it for a plain graph: its inputs are the open inputs of the nodes no edge leads into, each named by its input, and its outputs are the outputs of the nodes no edge leaves, each named by its output. Where two would share a name, name them with `inputs={"name": "node.input"}` and `outputs={"name": "node.output"}`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge or a key that is not `"node.name"`, two ports of one name (`ports_share_a_name`), a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a required input that gets nothing (`input_has_no_value`), an edge between types that don't fit.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -49,7 +51,10 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 `Param` also takes pydantic's limits: `ge`, `gt`, `le`, `lt`, `multiple_of`, `min_length`, `max_length` and `pattern`. `Param` is the one way to write them on an input or an output: pydantic's own `Field(...)` in a node's hint is refused when the node is declared (`pydantic_field_in_hint`), with the `Param` to write. A type that has its limits is still a type, so `PositiveInt`, `constr(min_length=1)` and `Annotated[int, annotated_types.Gt(0)]` work as hints, and `Field(...)` stays the way to write the fields of your own pydantic model. The limits are checked on every constant and default in a graph record and on every value a caller gives:
 
 ```python
-drawn = {"nodes": [{"id": "repeat", "node": "repeat", "constants": {"times": 20}}]}  # as an editor saves it
+drawn = {  # as an editor saves it
+    "nodes": {"repeat": {"node": "repeat", "inputs": {"text": {"graph_input": "text"}, "times": {"constant": 20}}}},
+    "outputs": {"result": {"node": "repeat", "output": "result"}},
+}
 graph = Graph.compile(GraphRecord.model_validate(drawn), host)
 
 for problem in graph.problems:
@@ -152,7 +157,7 @@ def reachable(contacts: Table[Contact]) -> Table[Contact]:
 
 
 run = Graph.compile(make_graph(contacts, reachable), tables).run(csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n")
-print(run.outputs["reachable.result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
+print(run.outputs["result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
 ```
 
 The CSV had a `phone` column, and `Contact` doesn't name one, so it was cut: a `Table[Contact]` has exactly the columns `Contact` names, wherever the table comes from. A column that is missing is refused, and a column may have a `None` only if its type says `| None`, as `email` does. A node that passes on columns it doesn't know declares a bare `Table`.
@@ -208,7 +213,7 @@ def report(temperature: Temperature) -> str:
     return f"{temperature.degrees} degrees"
 
 
-print(Graph.compile(make_graph(measure, report), tables).run().outputs)  # {'report.result': '21.5 degrees'}
+print(Graph.compile(make_graph(measure, report), tables).run().outputs)  # {'result': '21.5 degrees'}
 ```
 
 `accepts` only lets the edge be drawn. Your class reads the value itself, so it has to be able to: here `from_attributes` does it.
@@ -250,7 +255,7 @@ def count(texts: Series[str]) -> int:
 letter = make_graph(open_letter, tag, count, edges=[("open.lines", "tag.line"), ("open.sender", "tag.sender"), ("tag.result", "count.texts")])
 run = Graph.compile(letter, registry).run(text="Ida\nhello\nsee you")
 print(run.results["tag"]["result"])  # ['Ida: hello', 'Ida: see you']
-print(run.outputs)                   # {'count.result': 2}
+print(run.outputs)                   # {'result': 2}
 ```
 
 - `open` returns the lines as a `Series`, and `tag` takes one line, so `tag` runs once per line: it is inside the loop over `open.lines`. Every node downstream of `tag` would run once per line too.
@@ -339,7 +344,7 @@ def keep[T](value: T) -> T:
 
 graph = Graph.compile(make_graph(route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]), registry)
 print(graph.describe().nodes["keep"].outputs[0].type)  # int
-print(graph.run(amount=5000).outputs)                  # {'notify.result': 'told the manager about 5000'}
+print(graph.run(amount=5000).outputs)                  # {'result': 'told the manager about 5000'}
 ```
 
 `route.large` is an `int`, so in this graph `keep` takes an `int` and returns one, and `notify.amount` may be wired to it. In a graph where a text arrives, `keep` returns a text. What the node returns is checked against the type that arrived. `None` is taken only by a hint that says so: where a `str | None` arrives, `value: T` is a `str` input and the node isn't called for a `None`, and a node that passes `None` on writes `value: T | None`.
@@ -366,7 +371,7 @@ def greet_contact(name: str) -> str:
 
 
 graph = Graph.compile(make_graph(address_book, each, greet_contact, edges=[("address-book.result", "each.value"), ("each.result.name", "greet-contact.name")]), registry)
-print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'greet-contact.result': ['Hello Ida', 'Hello Bo']}
+print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'result': ['Hello Ida', 'Hello Bo']}
 ```
 
 A `Table[Contact]` arrived, so `T` is `Contact` and the edge may name its field, `each.result.name`. Wired to a `list[int]`, the same node returns a `Series[int]`.
@@ -401,12 +406,15 @@ def cells(line: str, names: list[str]) -> dict[str, str]:
     return dict(zip(names, line.split(",")))
 
 
-graph = Graph.compile(make_graph(cells, constants={"cells.names": ["name", "city"]}), registry)
-print(graph.outputs)                           # ['cells.name', 'cells.city']
-print(graph.run(line="Ida,Aarhus").outputs)    # {'cells.name': 'Ida', 'cells.city': 'Aarhus'}
+graph = Graph.compile(
+    make_graph(cells, constants={"cells.names": ["name", "city"]}, outputs={"name": "cells.name", "city": "cells.city"}),
+    registry,
+)
+print(graph.outputs)                           # ['city', 'name']
+print(graph.run(line="Ida,Aarhus").outputs)    # {'city': 'Aarhus', 'name': 'Ida'}
 ```
 
-The hook is called when the graph is compiled, with the constant of `names`, so that input must be a constant in the graph record: no edge or caller can give it. The node returns its outputs as a dict by name. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises is a problem on the node, `compute_hook_failed`, with your message if you raise a `NodeError`.
+The hook is called when the graph is compiled, with the constant of `names`, so that input must be a constant in the graph record: no edge or caller can give it. The node returns its outputs as a dict by name. Since the outputs are known only once the graph is compiled, `make_graph` declares no graph output on them by itself: `outputs=` names the ones the graph returns. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises is a problem on the node, `compute_hook_failed`, with your message if you raise a `NodeError`.
 
 Reach for a hook only for names a constant decides. A type that follows what arrives is a type variable.
 
@@ -459,7 +467,7 @@ run = Run.from_json(stored, graph)  # in another process, with the same graph co
 print([question.name for question in waiting.questions])  # ['approved', 'owner', 'note']
 
 run = run.answer(waiting, {"approved": True, "owner": "ida"}).resume()
-print(run.outputs)  # {'review.approved': True, 'review.owner': 'ida', 'review.note': None}
+print(run.outputs)  # {'approved': True, 'note': None, 'owner': 'ida'}
 ```
 
 The node isn't called again for that call: the answer is its outputs. `note` has a default, so the answer may leave it out. An answer that doesn't fit its question is refused before anything runs. An `Ask` that doesn't fit your outputs, say a default your type refuses, fails the node as `invalid_ask`.
@@ -491,11 +499,11 @@ def pay(bill: Bill, ok: Annotated[bool, Asked(approval)]) -> str:
 
 
 graph = Graph.compile(make_graph(pay), registry)
-print(graph.run(bill={"number": "B-1", "amount": 100}).outputs)  # {'pay.result': 'paid B-1'}
+print(graph.run(bill={"number": "B-1", "amount": 100}).outputs)  # {'result': 'paid B-1'}
 
 run = graph.run(bill={"number": "B-2", "amount": 900})
 print([(question.name, question.type) for question in run.waiting[0].questions])  # [('ok', 'bool')]
-print(run.answer(run.waiting[0], False).resume().outputs)  # {'pay.result': 'held B-2'}
+print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
 ```
 
 `pay` is called once, with `ok` a real `bool`: the function's return value, or the person's answer. The function's parameters are the node's, by name (its inputs, and its context when it takes one), and it returns the parameter's type, which is what the person answers; `pay(bill, ok=True)` is the unit test. No edge reaches `ok`, so it is not an input; `describe()` shows it as `asked`. A node has one such parameter, and doesn't also say `asks=True`. Its waiting id is the node's, as for any question, made from all the node's inputs: a change to any of them asks again.
@@ -606,7 +614,7 @@ ida = AppContext(caller=Caller("Ida"))
 print(sign(ida, "Done"))  # Done, Ida
 
 signed = Graph.compile(make_graph(sign), signing).run(text="Done", context=ida)
-print(signed.outputs)  # {'sign.result': 'Done, Ida'}
+print(signed.outputs)  # {'result': 'Done, Ida'}
 ```
 
 `ctx` is not an input: no edge reaches it and no caller fills it, and a call whose inputs are the same as before reuses its outcome whatever the context is. Pass `context=` again to each `run.resume`, `run.stream` and `run.again`. A graph compiled against `signing` is a `Graph[AppContext]`, so a type checker refuses a `context=` of another class; the run refuses one too, as `invalid_context`, and refuses a run with no context when a node takes it (`context_missing`).
@@ -648,10 +656,10 @@ def greet(person: str, greeting: str = "Hello") -> str:
 
 
 saved = make_graph(greet_v1, constants={"greet.name": "Ida"})
-print(Graph.compile(saved, registry).run().outputs)  # {'greet.result': 'Hello Ida'}: it still runs version 1
+print(Graph.compile(saved, registry).run().outputs)  # {'result': 'Hello Ida'}: it still runs version 1
 
 moved = registry.upgrade(saved, "greet")
-print(moved.nodes[0].version, moved.nodes[0].constants)  # 2 {'person': 'Ida'}
+print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person': RecordConstant(constant='Ida')}
 ```
 
 Compiling never upgrades. A host calls `registry.upgrade` and shows the author the result. `@node(..., deprecation=Deprecation(header=..., description=..., alternative=...))` tells an editor a version is going away, and which node id to use instead.

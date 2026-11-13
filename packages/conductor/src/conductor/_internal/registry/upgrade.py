@@ -1,62 +1,37 @@
 """Moving one node of a graph record to a newer version of its definition: ``registry.upgrade(record, "split")``.
 
 ``split`` at version 1 takes ``sep``; version 2 takes ``separator`` and says ``Upgrade(renamed_inputs={"sep":
-"separator"})``. Upgrading a record whose ``split`` is at version 1 moves its constant, default and edges from ``sep``
-to ``separator`` and sets the version to 2.
+"separator"})``. Upgrading a record whose ``split`` is at version 1 moves what ``sep`` gets (its constant, its graph
+input or the edges into it) to ``separator`` and sets the version to 2.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
-from conductor._internal.base import Address
-from conductor._internal.gate import RefusedError, read_keyed_record, record_values
+from conductor._internal.gate import RefusedError, read_record, record_values
 from conductor._internal.node import NodeDefinition, declared_inputs
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
 from conductor._internal.record import GraphRecord
 
 
-def _with_keys_renamed[V](by_name: Mapping[str, V], renames: Mapping[str, str]) -> dict[str, V]:
-    """``by_name`` with each key a step renames under its new name."""
-    return {renames.get(name, name): value for name, value in by_name.items()}
-
-
-def _renamed_output(address: Address, node_id: str, renames: Mapping[str, str]) -> Address:
-    """``address``, the source of an edge, with its output renamed when it is on ``node_id`` and the step renames it.
-
-    A field of a record after the output (``result.email``) moves with it; a subgraph's output is named by an inner
-    address (``tail.result``), which ``Address.output_and_field`` reads.
-    """
-    named = address.output_and_field(renames) if address.node == node_id else None
-    if named is None:
-        return address
-    output, record_field = named
-    return Address.of_field(node_id, renames[output], record_field)
-
-
-def _renamed_input(address: Address, node_id: str, renames: Mapping[str, str]) -> Address:
-    """``address``, the target of an edge, with its input renamed when it is on ``node_id`` and the step renames that
-    exact input: an input has no field, and a subgraph may have both the inputs ``a`` and ``a.b``."""
-    return Address(node_id, renames[address.name]) if address.node == node_id and address.name in renames else address
-
-
 def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | bytes, node_id: str, *, to: int | None) -> GraphRecord:
     """``record`` with the node ``node_id`` moved to version ``to`` of its definition in ``nodes``, the newest when
-    ``to`` is ``None``: what ``registry.upgrade`` returns, and its docstring says how."""
+    ``to`` is ``None``: what ``registry.upgrade`` returns, and its docstring says how.
+
+    The record is changed as the plain data of its JSON and read again by the record door, so what a step writes is
+    held to the record's rules: a rewrite that gives a value to an input that edges lead into gives that input two
+    entries, and the door refuses it.
+    """
     try:
-        keyed = read_keyed_record(record)
+        graph = read_record(record)
     except RefusedError as refused:
         raise InvalidCallError(refused.problems) from None
-    graph = keyed.record
-    node_record = keyed.nodes.get(node_id)
+    node_record = graph.nodes.get(node_id)
     if node_record is None:
-        # The record door leaves out a node whose id is not a name and gives it the problem invalid_node_id at the
-        # id. That is the only problem it gives at a bare id that is not in keyed.nodes, so upgrade reports it.
-        id_problems = [id_problem for id_problem in keyed.problems if id_problem.loc == (node_id,)]
-        if id_problems:
-            raise InvalidCallError(id_problems)
-        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=list(keyed.nodes))])
+        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=sorted(graph.nodes))])
     if node_record.node not in nodes:
         raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(nodes))])
     newest = nodes[node_record.node]
@@ -70,23 +45,37 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
         )])
     version_chain = newest.version_of(target).version_chain
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
-    constants, defaults = dict(node_record.constants), dict(node_record.defaults)
-    edges = [(Address.parse(source_text), Address.parse_input(target_text)) for source_text, target_text in graph.edges]
+    data: dict[str, Any] = graph.model_dump(mode="json")
+    nodes_data: dict[str, dict[str, Any]] = data["nodes"]
     for step, older in reversed(steps):
         upgrade = step.upgrade
-        constants, defaults = _with_keys_renamed(constants, upgrade.renamed_inputs), _with_keys_renamed(defaults, upgrade.renamed_inputs)
+        gone = declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()
+        inputs = {
+            upgrade.renamed_inputs.get(name, name): entry for name, entry in nodes_data[node_id].get("inputs", {}).items()
+            if not (name in gone and "sources" in entry)
+        }
         if upgrade.rewrite is not None:
+            values = {name: entry.get("constant", entry.get("default")) for name, entry in inputs.items() if "constant" in entry or "default" in entry}
             try:
-                rewritten = record_values(node_id, upgrade.rewrite({**defaults, **constants}))
+                rewritten = record_values(node_id, upgrade.rewrite(values))
             except RefusedError as refused:
                 raise InvalidCallError(refused.problems) from None
-            defaults = {name: value for name, value in rewritten.items() if name in defaults and name not in constants}
-            constants = {name: value for name, value in rewritten.items() if name not in defaults}
-        gone = {Address(node_id, name) for name in declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()}
-        edges = [
-            (_renamed_output(source, node_id, upgrade.renamed_outputs), _renamed_input(target_, node_id, upgrade.renamed_inputs))
-            for source, target_ in edges
-            if target_ not in gone
-        ]
-    moved = node_record.model_copy(update={"version": target, "constants": constants, "defaults": defaults})
-    return GraphRecord(nodes=[moved if n is node_record else n for n in graph.nodes], edges=[(str(source), str(target_)) for source, target_ in edges])
+            inputs = {name: {key: value for key, value in entry.items() if key not in ("constant", "default")} for name, entry in inputs.items() if "constant" not in entry}
+            for name, value in rewritten.items():
+                entry = inputs.get(name, {})
+                inputs[name] = {**entry, "default" if "graph_input" in entry else "constant": value}
+        nodes_data[node_id] = {**nodes_data[node_id], "inputs": inputs}
+        for source in _sources_in(data):
+            if source["node"] == node_id:
+                source["output"] = upgrade.renamed_outputs.get(source["output"], source["output"])
+    nodes_data[node_id]["version"] = target
+    try:
+        return read_record(data)
+    except RefusedError as refused:
+        raise InvalidCallError(refused.problems) from None
+
+
+def _sources_in(data: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Every output a graph record's plain data names: each edge's source, and each graph output."""
+    edges = [source for node in data["nodes"].values() for entry in node.get("inputs", {}).values() for source in entry.get("sources", ())]
+    return [*edges, *data["outputs"].values()]

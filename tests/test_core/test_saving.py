@@ -22,12 +22,14 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
+    Address,
     Ask,
     Graph,
     GraphRecord,
     InvalidCallError,
     NodeRecord,
     NotCalled,
+    RecordGraphInput,
     Series,
     Table,
     host_type,
@@ -127,12 +129,18 @@ def _waiting_after(definition: Any, *, per_item: bool = False) -> Any:
         seen.append(value)
         return checked
 
-    nodes = [NodeRecord(id="m", node=definition.id), NodeRecord(id="c", node="check"), NodeRecord(id="s", node="seen")]
-    edges = [("m.result", "c.value"), ("m.result", "s.value"), ("c.result", "s.checked")]
+    def sources(node_id: str) -> dict[str, Any]:
+        return {"sources": [{"node": node_id, "output": "result"}]}
+
+    nodes: dict[str, Any] = {
+        "m": {"node": definition.id, "inputs": {"text": sources("split") if per_item else {"graph_input": "text"}}},
+        "c": {"node": "check", "inputs": {"value": sources("m")}},
+        "s": {"node": "seen", "inputs": {"value": sources("m"), "checked": sources("c")}},
+    }
     if per_item:
-        nodes.insert(0, NodeRecord(id="split", node="split"))
-        edges.append(("split.result", "m.text"))
-    graph = Graph.compile(GraphRecord(nodes=nodes, edges=edges), registry_of(split, definition, check, see))
+        nodes["split"] = {"node": "split", "inputs": {"text": {"graph_input": "text"}}}
+    record = GraphRecord.model_validate({"nodes": nodes, "outputs": {"result": {"node": "s", "output": "result"}}})
+    graph = Graph.compile(record, registry_of(split, definition, check, see))
     return graph, seen
 
 
@@ -211,7 +219,7 @@ def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
     def maybe_readings(text: str) -> Series[int] | None:
         return None
 
-    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="m", node="maybe-readings")]), registry_of(maybe_readings)).run(text="x")
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "maybe-readings", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry_of(maybe_readings)).run(text="x")
 
     assert run.status == "complete"
     assert _round_trip(run).results["m"]["result"] is None
@@ -233,9 +241,9 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_declared_a
     def point(text: str) -> Point:
         return Point(xy=(math.inf, math.inf))
 
-    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("pair", "point")])
+    record = make_graph(pair, point, edges=[], inputs={"text": ["pair.text", "point.text"]}, outputs={"pair": "pair.result", "point": "point.result"})
     graph = Graph.compile(record, registry_of(pair, point))
-    results = _round_trip(graph.run({"pair.text": "x", "point.text": "x"})).results
+    results = _round_trip(graph.run(text="x")).results
 
     assert math.isnan(results["pair"]["result"]["a"][0]) and results["pair"]["result"]["a"][1] == 1.5
     assert results["point"]["result"].xy == (math.inf, "Infinity")
@@ -266,9 +274,9 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
         return {"v": math.nan}
 
     names = ("loose", "mapping", "anything", "maybe-mapping")
-    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in names])
+    record = make_graph(loose, mapping, anything, maybe_mapping, edges=[], inputs={"text": [f"{n}.text" for n in names]}, outputs={n: f"{n}.result" for n in names})
     graph = Graph.compile(record, registry_of(loose, mapping, anything, maybe_mapping))
-    run = graph.run({f"{n}.text": "x" for n in names})
+    run = graph.run(text="x")
     _strict(run.to_json())
     results = _round_trip(run).results
 
@@ -291,7 +299,7 @@ def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text
     read_back = _round_trip(graph.run(k=1))
 
     assert read_back.results["up"]["result"] == ["NaN", "NaN", 1.5]
-    assert read_back.forget("down").resume().outputs["down.result"] == ["str", "str", "float"]
+    assert read_back.forget("down").resume().outputs["result"] == ["str", "str", "float"]
 
 
 @host_type("point", title="Point")
@@ -343,10 +351,7 @@ def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_s
         received.append(rows)
         return checked
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="e", node="everything"), NodeRecord(id="c", node="check-table"), NodeRecord(id="t", node="take")],
-        edges=[("e.result", "c.rows"), ("e.result", "t.rows"), ("c.result", "t.checked")],
-    ), registry_of(everything, check_table, take))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "everything", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "check-table", "inputs": {"rows": {"sources": [{"node": "e", "output": "result"}]}}}, "t": {"node": "take", "inputs": {"rows": {"sources": [{"node": "e", "output": "result"}]}, "checked": {"sources": [{"node": "c", "output": "result"}]}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}), registry_of(everything, check_table, take))
     paused = graph.run(text="x")
     before = paused.results["e"]["result"]
 
@@ -391,9 +396,7 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
     def ages(text: str) -> Table[Age]:
         return pl.DataFrame({"age": [30, 40, 50]})
 
-    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="n", node="names"), NodeRecord(id="a", node="ages")]), registry_of(names, ages)).run(
-        {"n.text": "x", "a.text": "y"},
-    )
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"n": {"node": "names", "inputs": {"text": {"graph_input": "n_text"}}}, "a": {"node": "ages", "inputs": {"text": {"graph_input": "a_text"}}}}, "outputs": {"a_result": {"node": "a", "output": "result"}, "n_result": {"node": "n", "output": "result"}}}), registry_of(names, ages)).run(n_text="x", a_text="y")
 
     read_back = _round_trip(run)
 
@@ -430,7 +433,7 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
     def opaque(text: str) -> _Opaque:
         return _Opaque()
 
-    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="o", node="opaque")]), registry_of(opaque)).run(text="x")
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "opaque", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry_of(opaque)).run(text="x")
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -444,13 +447,13 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
     def take(value: Any) -> str:
         return "ok"
 
-    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="t", node="take")]), registry_of(take)).run(value=_Opaque())
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"t": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}), registry_of(take)).run(value=_Opaque())
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
 
     (problem,) = refused.value.errors()
-    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "t.value")
+    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "value")
 
 
 def test_saving_a_table_column_json_cannot_write_raises_naming_the_output():
@@ -461,7 +464,7 @@ def test_saving_a_table_column_json_cannot_write_raises_naming_the_output():
     def blob(text: str) -> Table[Blob]:
         return pl.DataFrame({"data": [b"\xff\xfe"]})
 
-    run = Graph.compile(GraphRecord(nodes=[NodeRecord(id="b", node="blob")]), registry_of(blob)).run(text="x")
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "blob", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "b", "output": "result"}}}), registry_of(blob)).run(text="x")
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -558,9 +561,7 @@ def _saved_table() -> tuple[Any, dict[str, Any]]:
     def count(table: Table[Name]) -> int:
         return table.height
 
-    graph = Graph.compile(GraphRecord(
-        nodes=[NodeRecord(id="n", node="names"), NodeRecord(id="c", node="count")], edges=[("n.result", "c.table")],
-    ), registry_of(names, count))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"n": {"node": "names", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "count", "inputs": {"table": {"sources": [{"node": "n", "output": "result"}]}}}}, "outputs": {"result": {"node": "c", "output": "result"}}}), registry_of(names, count))
     return graph, json.loads(graph.run(text="ida,bo").to_json())
 
 
@@ -572,16 +573,17 @@ def test_a_malformed_table_is_refused():
 
 
 def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_display_only():
-    from conductor import NodeRecord as _Node
-
     @node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:
         return text.upper()
 
-    record = GraphRecord(nodes=[_Node(id="s", node="shout", defaults={"text": "a"})])
+    def with_default(default: str, **display: Any) -> GraphRecord:
+        node_record = NodeRecord(node="shout", inputs={"text": RecordGraphInput(graph_input="text", default=default)}, display=display)
+        return GraphRecord(nodes={"s": node_record}, outputs={"result": Address("s", "result")})
+
+    record = with_default("a")
     saved = Graph.compile(record, registry_of(shout)).run().to_json()
-    edited = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "b"}),)})
-    moved = record.model_copy(update={"nodes": (_Node(id="s", node="shout", defaults={"text": "a"}, display={"x": 1}),)})
+    edited, moved = with_default("b"), with_default("a", x=1)
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(edited, registry_of(shout)))
@@ -599,14 +601,14 @@ def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
     def quiet(text: str) -> str:
         return text.lower()
 
-    def with_inner(*nodes: NodeRecord) -> Any:
-        return registry_of(shout, quiet, subgraph("inner", title="Inner", description="For a test.")(GraphRecord(nodes=list(nodes))))
+    def with_inner(definition: Any) -> Any:
+        return registry_of(shout, quiet, subgraph("inner", title="Inner", description="For a test.")(make_graph(definition)))
 
-    outer = GraphRecord(nodes=[NodeRecord(id="e", node="inner")])
-    saved = Graph.compile(outer, with_inner(NodeRecord(id="x", node="shout"))).run(text="a").to_json()
+    outer = GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}}})
+    saved = Graph.compile(outer, with_inner(shout)).run(text="a").to_json()
 
     with pytest.raises(InvalidCallError) as refused:
-        Run.from_json(saved, Graph.compile(outer, with_inner(NodeRecord(id="x", node="quiet"))))
+        Run.from_json(saved, Graph.compile(outer, with_inner(quiet)))
     assert [p.type for p in refused.value.errors()] == ["saved_run_of_another_graph"]
 
 
@@ -673,15 +675,7 @@ def column_order(sheet: Table, answers: Series[str]) -> str:
 @pytest.mark.parametrize("reorder", [_jsonb, lambda text: _shuffled(text, 1), lambda text: _shuffled(text, 7)], ids=["jsonb", "shuffle-1", "shuffle-7"])
 def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_back_and_resume(reorder: Any) -> None:
     registry = registry_of(sheet, sheet_rows, ok_row, column_order)
-    record = {
-        "nodes": [
-            {"id": "s", "node": "sheet", "constants": {"options": {"bb": 2, "a": 1, "ccc": 3}}},
-            {"id": "r", "node": "sheet_rows"},
-            {"id": "q", "node": "ok_row"},
-            {"id": "o", "node": "column_order"},
-        ],
-        "edges": [["s.result", "r.sheet"], ["r.result.zeta", "q.zeta"], ["r.result.alpha", "q.alpha"], ["s.result", "o.sheet"], ["q.result", "o.answers"]],
-    }
+    record = {"nodes": {"s": {"node": "sheet", "inputs": {"options": {"constant": {"bb": 2, "a": 1, "ccc": 3}}, "text": {"graph_input": "text"}}}, "r": {"node": "sheet_rows", "inputs": {"sheet": {"sources": [{"node": "s", "output": "result"}]}}}, "q": {"node": "ok_row", "inputs": {"zeta": {"sources": [{"node": "r", "output": "result", "field": "zeta"}]}, "alpha": {"sources": [{"node": "r", "output": "result", "field": "alpha"}]}}}, "o": {"node": "column_order", "inputs": {"sheet": {"sources": [{"node": "s", "output": "result"}]}, "answers": {"sources": [{"node": "q", "output": "result"}]}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}
     graph = Graph.compile(GraphRecord.model_validate(record), registry)
     first = graph.run(text="ccc,a,bb")
     ids = [w.id for w in first.waiting]  # what a host stores when the run waits
@@ -743,9 +737,9 @@ def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_fie
     def readings(x: int) -> Series[Reading]:
         return [Reading(value=-math.inf, note=-math.inf, d={}), Reading(value=1, note=1, d={"s": "NaN"})]
 
-    record = GraphRecord(nodes=[NodeRecord(id=n, node=n) for n in ("reading", "readings")])
+    record = make_graph(reading, readings, edges=[], inputs={"x": ["reading.x", "readings.x"]}, outputs={"reading": "reading.result", "readings": "readings.result"})
     graph = Graph.compile(record, registry_of(reading, readings))
-    run = graph.run({"reading.x": 1, "readings.x": 1})
+    run = graph.run(x=1)
     _strict(run.to_json())
     back = _round_trip(run)
 
@@ -765,7 +759,7 @@ def test_a_float_that_is_not_finite_given_by_a_caller_reads_back_by_the_type_of_
     _strict(run.to_json())
     back = _round_trip(run)
 
-    assert back.inputs == {"given.options": {"a": "NaN", "b": ["Infinity"]}, "given.level": "-Infinity", "given.ratio": math.inf}
+    assert back.inputs == {"options": {"a": "NaN", "b": ["Infinity"]}, "level": "-Infinity", "ratio": math.inf}
 
 
 def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_error():
@@ -846,10 +840,7 @@ def ok_word(word: str) -> bool:
 )
 def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(where: str, damaged: Any) -> None:
     graph = Graph.compile(
-        GraphRecord.model_validate({
-            "nodes": [{"id": "split", "node": "split"}, {"id": "upper", "node": "upper_word"}, {"id": "ok", "node": "ok_word"}],
-            "edges": [["split.result", "upper.word"], ["upper.result", "ok.word"]],
-        }), registry_of(split, upper_word, ok_word)
+        GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"graph_input": "text"}}}, "upper": {"node": "upper_word", "inputs": {"word": {"sources": [{"node": "split", "output": "result"}]}}}, "ok": {"node": "ok_word", "inputs": {"word": {"sources": [{"node": "upper", "output": "result"}]}}}}, "outputs": {"result": {"node": "ok", "output": "result"}}}), registry_of(split, upper_word, ok_word)
     )
     run = graph.run(text="a,b")
     assert run.status == "waiting"
@@ -875,10 +866,7 @@ def confirm(email: str) -> bool:
 
 def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the_same_not_called():
     graph = Graph.compile(
-        GraphRecord.model_validate({
-            "nodes": [{"id": "a", "node": "addresses"}, {"id": "s", "node": "short_or_skipped"}, {"id": "c", "node": "confirm"}],
-            "edges": [["a.result", "s.email"], ["s.result", "c.email"]],
-        }), registry_of(addresses, short_or_skipped, confirm)
+        GraphRecord.model_validate({"nodes": {"a": {"node": "addresses", "inputs": {"text": {"graph_input": "text"}}}, "s": {"node": "short_or_skipped", "inputs": {"email": {"sources": [{"node": "a", "output": "result"}]}}}, "c": {"node": "confirm", "inputs": {"email": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "c", "output": "result"}}}), registry_of(addresses, short_or_skipped, confirm)
     )
     run = graph.run(text="ab,,long,cd")
     assert run.status == "waiting"

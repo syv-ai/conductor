@@ -6,16 +6,17 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-Compiled, it is ``<Graph of 3 nodes, runnable>``. Its ``inputs`` has one graph input, ``text`` (``lines.text``),
-its ``outputs`` are ``["join.result"]``, and ``runs_on["shout"]`` says ``shout`` is called once per item of
+Its record declares the graph input ``text`` on ``lines.text`` and the graph output ``result``, the output of
+``join``. Compiled, it is ``<Graph of 3 nodes, runnable>``. Its ``inputs`` has the one graph input, ``text``, its
+``outputs`` are ``["result"]``, and ``runs_on["shout"]`` says ``shout`` is called once per item of
 ``lines.result``. ``Graph``, the class a host uses, is a ``CompiledGraph`` that can also start a run.
 
-A subgraph used as a node is one node of the graph. Its inputs and outputs are those of the subgraph's own
-compiled graph, which is compiled once, on its own, and none of its nodes is copied into this graph's nodes. An
-edge names one of its outputs (``loud.shout.result``), never a node inside it. The nodes of a compiled graph are
-in ``node.py``.
+A subgraph used as a node is one node of the graph. Its inputs and outputs are the graph inputs and outputs its
+own record declares, compiled once, on its own, and none of its nodes is copied into this graph's nodes. An edge
+names one of its outputs (``loud.result``), never a node inside it. The nodes of a compiled graph are in
+``node.py``.
 
-The names with an underscore (``_nodes``, ``_input_fields``, ``_inputs_door``, ...) are what the engine reads:
+The names with an underscore (``_nodes``, ``_inputs``, ``_inputs_door``, ...) are what the engine reads:
 the compiler, a subgraph node and a run. They keep the underscore because ``Graph`` is a ``CompiledGraph``, and a
 host that holds a ``Graph`` must not see them.
 """
@@ -43,28 +44,12 @@ from .describe import (
     input_source_of,
     runs_on,
 )
+from .input import Edge
 from .node import (
     CompiledNode,
     CompiledSubgraphNode,
     RequiredBranch,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class InputField:
-    """A graph input, as a run reads the caller's value for it. In the example,
-    ``InputField("text", "lines.text", field)`` with the field ``text: str``.
-
-    Attributes:
-        name: Its key in ``graph.inputs``: the input's own name, or its address when two graph inputs share a name.
-        address: The key a run keeps the caller's value under, ``node.input``.
-        field: The input. Its default is the value used when the caller gives none: the graph record's default,
-            else the node's, and ``REQUIRED`` when the caller must give one.
-    """
-
-    name: str
-    address: str
-    field: Field
 
 
 @dataclass(frozen=True, eq=False)
@@ -79,14 +64,15 @@ class CompiledGraph:
 
     record: GraphRecord
     problems: list[Problem]
-    inputs: dict[str, GraphInputDescription]
     #: Each node that was compiled, by id, each after the nodes upstream of it. A node with a problem on one of its
     #: inputs is here too, with ``MissingInput`` for that input; a graph with problems never runs.
     _nodes: dict[str, CompiledNode]
-    #: Each graph input as a run reads it, by address.
-    _input_fields: dict[str, InputField]
-    #: For each node id, the nodes that an edge from it leads to.
-    _downstream: dict[str, list[CompiledNode]]
+    #: Each graph input, by name, as the caller gives a value for it: its type, and the value used when the caller
+    #: gives none (``REQUIRED`` when the caller must give one).
+    _inputs: dict[str, Field]
+    #: Each graph output, by name, as what an edge from it reads: ``{"result": Edge(Address("join", "result"), ...)}``.
+    #: A graph output whose source the graph cannot read is left out, and the graph has the problem.
+    _outputs: dict[str, Edge]
     #: The class the registry names with ``context_type``, which every node's ``Context[X]`` was checked against;
     #: the ``context=`` of a run is an instance of it. ``None`` when the registry names none.
     _context_type: type | None
@@ -103,10 +89,14 @@ class CompiledGraph:
         return not self.problems
 
     @property
+    def inputs(self) -> dict[str, GraphInputDescription]:
+        """The graph inputs, by name: what a caller gives a value for. In the example, ``text``."""
+        return {name: GraphInputDescription(field=field.description) for name, field in self._inputs.items()}
+
+    @property
     def outputs(self) -> list[str]:
-        """The graph outputs, as addresses: every output of every node that no edge leaves. In the example,
-        ``["join.result"]``."""
-        return list(self._output_addresses)
+        """The names of the graph outputs the record declares, sorted. In the example, ``["result"]``."""
+        return sorted(self.record.outputs)
 
     @property
     def runs_on(self) -> dict[str, RunsOn]:
@@ -145,13 +135,13 @@ class CompiledGraph:
         for graph_problem in self.problems:
             problems_of.setdefault(graph_problem.loc[:1], []).append(graph_problem)
         nodes: dict[str, GraphNodeDescription] = {}
-        for record in self.record.nodes:
-            own = problems_of.get((record.id,), [])
-            compiled_node = self._nodes.get(record.id)
+        for node_id, record in sorted(self.record.nodes.items()):
+            own = problems_of.get((node_id,), [])
+            compiled_node = self._nodes.get(node_id)
             if compiled_node is None:
-                nodes[record.id] = GraphNodeDescription(node=record.node, version=record.version, found=False, problems=own)
+                nodes[node_id] = GraphNodeDescription(node=record.node, version=record.version, found=False, problems=own)
                 continue
-            nodes[record.id] = GraphNodeDescription(
+            nodes[node_id] = GraphNodeDescription(
                 node=record.node, version=record.version, found=True, problems=own, runs=runs_on(compiled_node.loops),
                 inputs=[NodeInputDescription(field=node_input.field.description, source=input_source_of(compiled_node.loops, node_input)) for node_input in compiled_node.inputs.values()],
                 outputs=compiled_node.described_outputs(),
@@ -160,48 +150,29 @@ class CompiledGraph:
 
     # -- what a subgraph node that uses this graph reads ------------------------
 
-    @functools.cached_property
-    def _inputs_as_a_node(self) -> dict[str, Field]:
-        """The graph inputs as the inputs of a subgraph node that uses this graph, by their names in ``inputs``.
-
-        Example: the subgraph ``strip -> shout`` used as the node ``loud`` has the input ``line``, with the type
-        and default of ``strip.line``.
-        """
-        return {graph_input.name: Field(graph_input.name, graph_input.field.hint, graph_input.field.default) for graph_input in self._input_fields.values()}
-
-    @functools.cached_property
-    def _output_addresses(self) -> dict[str, Address]:
-        """The graph outputs by the text a host reads them by: ``{"join.result": Address("join", "result")}`` in the
-        example. A subgraph node that uses this graph names its outputs by this text."""
-        addresses = [Address(p.id, o) for p in self._nodes.values() if not self._downstream[p.id] for o in p.outputs]
-        return {str(address): address for address in addresses}
-
-    @functools.cached_property
-    def _outputs_as_a_node(self) -> dict[str, Field]:
-        """The graph outputs as the outputs of a subgraph node that uses this graph, by their addresses here
-        (``shout.result``), each as the node here declares it.
+    def _output_field(self, output: str) -> Field:
+        """The graph output ``output`` as the output of a subgraph node that uses this graph: the field of the node's
+        output it is, under the graph output's name.
 
         An exclusive group is named by the node here (``route.length``), so the groups of two nodes stay apart.
         """
-        outputs: dict[str, Field] = {}
-        for text, address in self._output_addresses.items():
-            field = self._nodes[address.node].outputs[address.name]
-            group = field.param.exclusive_group
-            hint = Annotated[field.hint, Param(exclusive_group=str(Address(address.node, group)))] if group else field.hint
-            outputs[text] = Field(text, hint, field.default)
-        return outputs
+        source = self._outputs[output].source
+        field = self._nodes[source.node].outputs[source.output]
+        group = field.param.exclusive_group
+        hint = Annotated[field.hint, Param(exclusive_group=f"{source.node}.{group}")] if group else field.hint
+        return Field(output, hint, field.default)
 
     def _loops_around(self, output: str) -> tuple[Address, ...]:
-        """Returns the loops inside this graph that the graph output ``output`` (``"shout.result"``) has one value per
-        item of, outermost first."""
-        address = self._output_addresses[output]
-        return self._nodes[address.node].loops_around(address.name)
+        """Returns the loops inside this graph that the graph output ``output`` has one value per item of, outermost
+        first."""
+        source = self._outputs[output].source
+        return self._nodes[source.node].loops_around(source.output)
 
     def _branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches inside this graph that must be chosen for the graph output ``output`` to have a
         value."""
-        address = self._output_addresses[output]
-        return self._nodes[address.node].branches_required_for(address.name)
+        source = self._outputs[output].source
+        return self._nodes[source.node].branches_required_for(source.output)
 
     # -- what a run uses --------------------------------------------------------
 
@@ -251,4 +222,4 @@ class CompiledGraph:
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:
         """Reads the graph inputs of each call that makes a run: built when the first run is made."""
-        return InputsDoor({address: (graph_input.name, graph_input.field) for address, graph_input in self._input_fields.items()})
+        return InputsDoor(self._inputs)

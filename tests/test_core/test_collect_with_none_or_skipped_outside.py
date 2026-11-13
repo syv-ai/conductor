@@ -15,11 +15,26 @@ was skipped.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any
 
 import pytest
-from conductor import SKIPPED, Ask, Graph, GraphRecord, NodeRegistry, Param, Run, Series, make_graph
+from conductor import (
+    SKIPPED,
+    Ask,
+    FunctionDefinition,
+    Graph,
+    GraphRecord,
+    NodeDefinition,
+    NodeRegistry,
+    Param,
+    RecordGraphInput,
+    Run,
+    Series,
+    SubgraphDefinition,
+    make_graph,
+)
 
 REGISTRY = NodeRegistry()
 
@@ -155,10 +170,51 @@ REGISTRY.subgraph("pair-then-items-then-up", title="Pair then items then up", de
 )
 
 
-def ran(nodes: dict[str, str], edges: list[tuple[str, str]], **inputs: str) -> Any:
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": i, "node": n} for i, n in nodes.items()], "edges": [list(edge) for edge in edges]}), REGISTRY)
+def _inputs_of(definition: NodeDefinition) -> list[str]:
+    match definition:
+        case FunctionDefinition():
+            return list(definition.inputs)
+        case SubgraphDefinition():
+            return [entry.graph_input for node in definition.graph.nodes.values() for entry in node.inputs.values() if isinstance(entry, RecordGraphInput)]
+
+
+def _outputs_of(definition: NodeDefinition) -> list[str]:
+    match definition:
+        case FunctionDefinition():
+            return list(definition.outputs)
+        case SubgraphDefinition():
+            return list(definition.graph.outputs)
+
+
+def record_of(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], names: Sequence[str], inputs: Mapping[str, str] | None = None) -> GraphRecord:
+    """The record of ``nodes`` (registry id by node id) and ``edges`` (``("node.output", "node.input")``).
+
+    Each name in ``names`` is a graph input fed to every input of that name no edge leads into; ``inputs`` names a
+    graph input fed to one input (``{"first": "e.go"}``). Each output of a node no edge leaves is a graph output,
+    named ``"node-output"``.
+    """
+    entries: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
+    for source, target in edges:
+        source_node, output = source.split(".")
+        target_node, name = target.split(".")
+        entries[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
+    for name, place in (inputs or {}).items():
+        node_id, input_name = place.split(".")
+        entries[node_id][input_name] = {"graph_input": name}
+    for node_id, registry_id in nodes.items():
+        for name in _inputs_of(REGISTRY[registry_id]):
+            if name in names and name not in entries[node_id]:
+                entries[node_id][name] = {"graph_input": name}
+    led_out = {source.split(".")[0] for source, _ in edges}
+    outputs = {f"{node_id}-{output}": {"node": node_id, "output": output} for node_id, registry_id in nodes.items() if node_id not in led_out for output in _outputs_of(REGISTRY[registry_id])}
+    return GraphRecord.model_validate({"nodes": {node_id: {"node": nodes[node_id], "inputs": entries[node_id]} for node_id in nodes}, "outputs": outputs})
+
+
+def ran(nodes: dict[str, str], edges: list[tuple[str, str]], inputs: Mapping[str, str] | None = None, **values: str) -> Any:
+    """A complete run of ``record_of(nodes, edges, values, inputs)`` given ``values``."""
+    graph = Graph.compile(record_of(nodes, edges, list(values), inputs), REGISTRY)
     assert not graph.problems, graph.problems
-    run = graph.run(**inputs)
+    run = graph.run(**values)
     assert run.status == "complete"
     return run
 
@@ -188,7 +244,7 @@ def test_a_none_outside_the_loop_on_the_branch_not_chosen_does_not_decide_the_co
 
 @pytest.mark.parametrize(("kind", "text", "n"), [("no-value", "a b", 2), ("no-value", "", 0), ("x", "a b", 2), ("skip", "a b", "skipped"), ("skip", "", "skipped")])
 def test_a_subgraph_in_the_loop_that_takes_none_from_outside_gives_each_item_a_value(kind: str, text: str, n: Any) -> None:
-    run = ran({"s": "items", "t": "outside-value", "e": "pair-then-up-or-none", "n": "count"}, [("s.result", "e.a"), ("t.result", "e.b"), ("e.up-or-none.result", "n.values")], kind=kind, text=text)
+    run = ran({"s": "items", "t": "outside-value", "e": "pair-then-up-or-none", "n": "count"}, [("s.result", "e.a"), ("t.result", "e.b"), ("e.result", "n.values")], kind=kind, text=text)
     assert outcome_of(run, "n") == n
 
 
@@ -263,7 +319,7 @@ OTHER_SERIES = (
 
 @pytest.mark.parametrize("other", ["x y", "x skip", "no-value x", "skip skip", ""])
 def test_a_node_in_a_loop_that_collects_another_loop_gets_it_as_one_value_from_outside(other: str) -> None:
-    run = ran(*OTHER_SERIES, **{"r.text": "ab cd", "z.text": other})
+    run = ran(*OTHER_SERIES, inputs={"words": "r.text", "other": "z.text"}, words="ab cd", other=other)
     collected_text = "".join(word.upper() for word in other.split() if word not in ("no-value", "skip"))
     assert run.results["j"]["result"] == [[f"{char}{collected_text}" for char in word] for word in ("ab", "cd")]
     assert run.results["n"]["result"] == [2, 2]
@@ -286,23 +342,25 @@ def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_b
         ("s.result", "a.a"), ("e.yes", "a.b"), ("f.yes", "a.c"), ("s.result", "b.a"), ("e.no", "b.b"), ("f.no", "b.c"),
         ("a.result", "p.a"), ("b.result", "p.a"), ("p.result", "n.values"),
     ]
-    assert outcome_of(ran(nodes, edges, **{"e.go": first, "f.go": second, "text": text}), "n") == n
+    assert outcome_of(ran(nodes, edges, inputs={"first": "e.go", "second": "f.go"}, first=first, second=second, text=text), "n") == n
 
 
 @pytest.mark.parametrize(("ways", "n"), [(["yes"] * 40, 2), (["yes", "no"] * 20, 2), ([*["yes"] * 20, "skip", *["no"] * 19], "skipped")])
 def test_forty_stages_of_alternatives_in_the_loop_are_decided_node_by_node_not_path_by_path(ways: list[str], n: Any) -> None:
     """Forty stages, each of two nodes on opposite branches of a branch node outside the loop, each wired to both
     nodes of the stage before: about a million million paths lead through, and eighty nodes are decided."""
-    nodes: list[dict[str, Any]] = [{"id": "s", "node": "items", "constants": {"text": "p q"}}]
-    edges: list[tuple[str, str]] = []
+    def sources(*places: str) -> dict[str, Any]:
+        return {"sources": [dict(zip(("node", "output"), place.split("."), strict=True)) for place in places]}
+
+    nodes: dict[str, Any] = {"s": {"node": "items", "inputs": {"text": {"constant": "p q"}}}}
     before = ["s.result"]
     for stage, way in enumerate(ways):
-        nodes += [{"id": f"t{stage}", "node": "outside-value", "constants": {"kind": way}}, {"id": f"w{stage}", "node": "decide"}]
-        nodes += [{"id": f"x{stage}", "node": "pair"}, {"id": f"y{stage}", "node": "pair"}]
-        edges += [(f"t{stage}.result", f"w{stage}.go"), (f"w{stage}.yes", f"x{stage}.b"), (f"w{stage}.no", f"y{stage}.b")]
-        edges += [(source, f"{node_id}{stage}.a") for source in before for node_id in "xy"]
+        nodes[f"t{stage}"] = {"node": "outside-value", "inputs": {"kind": {"constant": way}}}
+        nodes[f"w{stage}"] = {"node": "decide", "inputs": {"go": sources(f"t{stage}.result")}}
+        nodes[f"x{stage}"] = {"node": "pair", "inputs": {"a": sources(*before), "b": sources(f"w{stage}.yes")}}
+        nodes[f"y{stage}"] = {"node": "pair", "inputs": {"a": sources(*before), "b": sources(f"w{stage}.no")}}
         before = [f"x{stage}.result", f"y{stage}.result"]
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [*nodes, {"id": "n", "node": "count"}], "edges": [list(edge) for edge in [*edges, *((source, "n.values") for source in before)]]}), REGISTRY)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {**nodes, "n": {"node": "count", "inputs": {"values": sources(*before)}}}}), REGISTRY)
     assert not graph.problems, graph.problems
     assert outcome_of(graph.run(), "n") == n
 
@@ -340,7 +398,7 @@ def test_a_list_of_one_none_from_outside_the_loop_is_taken_only_where_its_items_
 ])
 def test_a_series_returned_or_not_inside_a_subgraph_is_collected_as_with_the_same_nodes_flat(kind: str, counter: str, n: Any) -> None:
     flat = ran({"t": "outside-value", "w": "items", "u": "up", "n": counter}, [("t.result", "w.text"), ("w.result", "u.a"), ("u.result", "n.values")], kind=kind)
-    in_subgraph = ran({"t": "outside-value", "e": "items-then-up", "n": counter}, [("t.result", "e.text"), ("e.up.result", "n.values")], kind=kind)
+    in_subgraph = ran({"t": "outside-value", "e": "items-then-up", "n": counter}, [("t.result", "e.text"), ("e.result", "n.values")], kind=kind)
     assert (outcome_of(flat, "n"), outcome_of(in_subgraph, "n")) == (n, n)
 
 
@@ -365,7 +423,7 @@ def test_a_subgraph_in_the_loop_whose_series_depends_on_outside_decides_the_oute
     )
     in_subgraph = ran(
         {"s": "items", "t": "outside-value", "e": "pair-then-items-then-up", "j": "join", "n": "count"},
-        [("s.result", "e.a"), ("t.result", "e.b"), ("e.up.result", "j.values"), ("j.result", "n.values")],
+        [("s.result", "e.a"), ("t.result", "e.b"), ("e.result", "j.values"), ("j.result", "n.values")],
         kind=kind, text="a b",
     )
     assert (outcome_of(flat, "n"), outcome_of(in_subgraph, "n")) == (n, n)
@@ -377,38 +435,32 @@ def both(a: Series[str], b: Series[str]) -> str:
 
 
 REGISTRY.subgraph("summary-and-letters", title="Summary and letters", description="A text in capitals beside its letters in capitals.")(
-    make_graph(up, chars, maybe, both, edges=[("chars.result", "maybe.a"), ("up.result", "both.a"), ("maybe.result", "both.b")])
+    make_graph(up, chars, maybe, both, edges=[("chars.result", "maybe.a"), ("up.result", "both.a"), ("maybe.result", "both.b")], inputs={"text": ["up.a", "chars.a"]})
 )
 
 
 def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_in_a_subgraph() -> None:
     """A document's summary beside the document's letters: the node is called once per document, for the letters it
     collects, so its other ``Series`` input, wired to the summary, gets that document's summary, never every one."""
-    flat = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "items"}, {"id": "u", "node": "up"}, {"id": "c", "node": "chars"}, {"id": "x", "node": "maybe"}, {"id": "j", "node": "both"}],
-        "edges": [["s.result", "u.a"], ["s.result", "c.a"], ["c.result", "x.a"], ["u.result", "j.a"], ["x.result", "j.b"]],
-    }), REGISTRY)
-    in_subgraph = Graph.compile(GraphRecord.model_validate({
-        "nodes": [{"id": "s", "node": "items"}, {"id": "e", "node": "summary-and-letters"}],
-        "edges": [["s.result", "e.up.a"], ["s.result", "e.chars.a"]],
-    }), REGISTRY)
+    flat = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}}, "u": {"node": "up", "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}}}, "c": {"node": "chars", "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}}}, "x": {"node": "maybe", "inputs": {"a": {"sources": [{"node": "c", "output": "result"}]}}}, "j": {"node": "both", "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}, "b": {"sources": [{"node": "x", "output": "result"}]}}}}}), REGISTRY)
+    in_subgraph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}}, "e": {"node": "summary-and-letters", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}}}), REGISTRY)
     assert not flat.problems and not in_subgraph.problems
     feed = {field.field.name: (field.source.mode, field.source.series) for field in flat.describe().nodes["j"].inputs}
     assert feed == {"a": ("collected", None), "b": ("collected", "c.result")}
-    assert flat.run(text="ab c").results["j"]["result"] == in_subgraph.run(text="ab c").results["e"]["both.result"] == ["AB:AB", "C:C"]
+    assert flat.run(text="ab c").results["j"]["result"] == in_subgraph.run(text="ab c").results["e"]["result"] == ["AB:AB", "C:C"]
 
 
 
 def shown(nodes: dict[str, str], edges: list[tuple[str, str]], node_id: str, output: str = "result", **inputs: str) -> tuple[Any, Any, Any]:
     """An output in ``run.results``, in ``run.outputs``, and in the results of the run read back with ``Run.from_json``."""
     run = ran(nodes, edges, **inputs)
-    return run.results[node_id][output], run.outputs.get(f"{node_id}.{output}", "not a graph output"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
+    return run.results[node_id][output], run.outputs.get(f"{node_id}-{output}", "not a graph output"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
 
 
 @pytest.mark.parametrize(("kind", "result"), [("no-value", None), ("skip", None), ("", []), ("a b", ["A", "B"])])
 def test_a_per_item_output_is_shown_as_a_collect_would_get_it_flat_or_in_a_subgraph(kind: str, result: Any) -> None:
     flat = shown({"t": "outside-value", "w": "items", "u": "up"}, [("t.result", "w.text"), ("w.result", "u.a")], "u", kind=kind)
-    in_subgraph = shown({"t": "outside-value", "e": "items-then-up"}, [("t.result", "e.text")], "e", "up.result", kind=kind)
+    in_subgraph = shown({"t": "outside-value", "e": "items-then-up"}, [("t.result", "e.text")], "e", kind=kind)
     assert flat == in_subgraph == (result, result, result)
 
 
@@ -430,7 +482,7 @@ def approve(a: str) -> str:
 
 
 def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_read_back() -> None:
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "s", "node": "items"}, {"id": "q", "node": "approve"}], "edges": [["s.result", "q.a"]]}), REGISTRY)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "items", "inputs": {"text": {"graph_input": "text"}}}, "q": {"node": "approve", "inputs": {"a": {"sources": [{"node": "s", "output": "result"}]}}}}}), REGISTRY)
     waiting = graph.run(text="a b")
     assert waiting.results["q"]["result"] == [None, None]
     one = waiting.answer(waiting.waiting[0].id, "yes").resume()
@@ -442,19 +494,19 @@ def test_a_subgraph_in_a_loop_shows_a_list_per_item_and_none_where_its_series_wa
     flat = ran({"s": "items", "m": "maybe", "w": "items", "u": "up"}, [("s.result", "m.a"), ("m.result", "w.text"), ("w.result", "u.a")], text="ab no-value cd")
     in_subgraph = ran({"s": "items", "m": "maybe", "e": "items-then-up"}, [("s.result", "m.a"), ("m.result", "e.text")], text="ab no-value cd")
     assert flat.results["u"]["result"] == [["AB"], None, ["CD"]]  # a list for each item and None for the item whose series was never returned
-    assert in_subgraph.results["e"]["up.result"] == [["AB"], None, ["CD"]] == in_subgraph.outputs["e.up.result"]
+    assert in_subgraph.results["e"]["result"] == [["AB"], None, ["CD"]] == in_subgraph.outputs["e-result"]
     never = ran({"t": "outside-value", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="no-value")
-    assert never.results["e"]["up.result"] is None and never.outputs["e.up.result"] is None and never.outputs_to_json() == '{"e.up.result":null}'
+    assert never.results["e"]["result"] is None and never.outputs["e-result"] is None and never.outputs_to_json() == '{"e-result":null}'
 
 
 REGISTRY.subgraph("words-up-and-letters", title="Words and letters", description="Each word in capitals, and each letter of each word.")(
-    make_graph(items, up, chars, maybe, edges=[("items.result", "up.a"), ("items.result", "chars.a"), ("chars.result", "maybe.a")])
+    make_graph(items, up, chars, maybe, edges=[("items.result", "up.a"), ("items.result", "chars.a"), ("chars.result", "maybe.a")], outputs={"words": "up.result", "letters": "maybe.result"})
 )
 
 
 def test_two_series_inputs_wired_to_a_subgraphs_per_word_and_per_letter_outputs_are_called_per_word() -> None:
     """The letters are a list per word, so the node is called once per word with that word's letters, and the
     other input gets that word's one value as a list of one."""
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "e", "node": "words-up-and-letters"}, {"id": "n", "node": "both"}], "edges": [["e.up.result", "n.a"], ["e.maybe.result", "n.b"]]}), REGISTRY)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "words-up-and-letters", "inputs": {"text": {"graph_input": "text"}}}, "n": {"node": "both", "inputs": {"a": {"sources": [{"node": "e", "output": "words"}]}, "b": {"sources": [{"node": "e", "output": "letters"}]}}}}}), REGISTRY)
     assert not graph.problems
     assert graph.run(text="ab cd").results["n"]["result"] == ["AB:AB", "CD:CD"]

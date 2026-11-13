@@ -117,7 +117,7 @@ class RunCodec(NamedTuple):
     """Pydantic's validator and serializer for the saved runs of one graph, with the types they were built from.
 
     Attributes:
-        inputs: The type of each graph input, by address.
+        inputs: The type of each graph input, by name.
         outputs: The outputs of each function node, by the node's name in a saved run (``"shout"``, ``"loud/shout"``).
         asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run.
         shareable: The ``(node, output)`` pairs whose value may be a table that another output also has, in the
@@ -140,7 +140,7 @@ def run_codec(
     """Builds the codec of one graph.
 
     For the README graph ``lines -> shout -> join``, the validator accepts only a saved run whose ``graph`` is
-    the graph's fingerprint, whose ``inputs`` has the one key ``lines.text`` with a ``str``, and whose
+    the graph's fingerprint, whose ``inputs`` has the one key ``text`` with a ``str``, and whose
     ``outcomes``, ``reusable`` and ``code`` have no key but ``lines``, ``shout`` and ``join``. Under ``shout``,
     ``outputs`` has the one key ``result``, a list of ``str | None``.
 
@@ -154,7 +154,7 @@ def run_codec(
 
     Args:
         fingerprint: The graph's fingerprint.
-        inputs: The type of each graph input, by address.
+        inputs: The type of each graph input, by name.
         outputs: The outputs of each function node, by the node's name in a saved run.
         asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run: its
             answers under the run's ``answers`` are read by its type, and no other node may have any.
@@ -268,7 +268,7 @@ def codec_of(graph: CompiledGraph) -> RunCodec:
         flat = flat_graph_of(graph)
         codec = _CODECS[graph] = run_codec(
             graph.fingerprint,
-            inputs={address: graph_input.field.whole for address, graph_input in graph._input_fields.items()},
+            inputs={name: field.whole for name, field in graph._inputs.items()},
             outputs={node.name: node.compiled_node.outputs for node in flat.function_nodes.values()},
             asked={node.name: asked.field for node in flat.function_nodes.values() if (asked := node.compiled_node.definition.asked) is not None},
             nodes=list(flat.function_nodes),

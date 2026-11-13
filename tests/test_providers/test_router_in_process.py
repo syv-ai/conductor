@@ -20,7 +20,6 @@ from conductor import (  # noqa: E402
     Ask,
     Context,
     GraphRecord,
-    NodeRecord,
     NodeRegistry,
     Policy,
     Problem,
@@ -65,7 +64,7 @@ def _doubling() -> tuple[NodeRegistry, NodeRegistry, dict[str, Any]]:
     def double(x: int) -> int:
         return 2 * x
 
-    return full, bare, GraphRecord(nodes=[NodeRecord(id="d", node="double")]).model_dump(mode="json")
+    return full, bare, GraphRecord.model_validate({"nodes": {"d": {"node": "double", "inputs": {"x": {"graph_input": "x"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}).model_dump(mode="json")
 
 
 # -- the caller -----------------------------------------------------------------------------------
@@ -84,7 +83,7 @@ async def test_again_by_another_caller_who_may_see_the_run_is_checked_on_that_ca
         assert [problem["type"] for problem in again.json()["detail"]] == ["unknown_node"]
         mine = await client.post(f"/runs/{run_id}/again", json={"x": 2})
         assert mine.status_code == 202
-        assert (await store.ended(mine.json()["id"])).outputs == {"d.result": 4}
+        assert (await store.ended(mine.json()["id"])).outputs == {"result": 4}
 
 
 def _maybe_caller(x_user: Annotated[str | None, Header()] = None) -> str | None:
@@ -126,7 +125,7 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
         started = await client.post("/runs", json={"graph": make_graph(whoami).model_dump(mode="json"), "inputs": {"text": "hi"}}, headers={"x-user": "bo"})
         await store.ended(started.json()["id"])
         row = (await client.get(f"/runs/{started.json()['id']}", headers={"x-user": "bo"})).json()
-        assert (row["status"], row["outputs"]) == ("complete", {"whoami.result": "bo"})
+        assert (row["status"], row["outputs"]) == ("complete", {"result": "bo"})
         assert seen == [_Member("bo")]
 
 
@@ -148,7 +147,7 @@ async def test_a_router_with_no_caller_lets_every_request_see_every_run() -> Non
 
     async with _serving(app) as client:
         run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 2}})).json()["id"]
-        assert (await store.ended(run_id)).outputs == {"d.result": 4}
+        assert (await store.ended(run_id)).outputs == {"result": 4}
         assert (await client.get(f"/runs/{run_id}", headers={"x-user": "bo"})).status_code == 200
 
 
@@ -188,7 +187,7 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
         assert (await client.get(f"/runs/{run_id}")).json() == waiting.model_dump(mode="json")
         answered = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
         assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
-        assert (await store.ended(run_id)).outputs == {"busy.result": "x", "after.result": True}
+        assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
 
 
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_next_resume_call() -> None:
@@ -200,7 +199,7 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
         return text
 
     @registry.node("approve", title="Approve", description="For a test.", asks=True)
-    def approve(text: str) -> bool:
+    def approve(question: str) -> bool:
         asked.set()
         raise Ask("Go on?")
 
@@ -208,12 +207,11 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
     def then(text: str) -> str:
         return text.upper()
 
-    nodes = [NodeRecord(id=name, node=name) for name in ("approve", "busy", "then")]
-    graph = GraphRecord(nodes=nodes, edges=[("busy.result", "then.text")]).model_dump(mode="json")
+    graph = make_graph(approve, busy, then, edges=[("busy.result", "then.text")], outputs={"then": "then.result", "approve": "approve.result"}).model_dump(mode="json")
     store = MemoryStore()
 
     async with _serving(_app(store=store, registry=registry)) as client:
-        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"busy.text": "x", "approve.text": "y"}})).json()["id"]
+        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "x", "question": "y"}})).json()["id"]
         await asyncio.to_thread(asked.wait, 5)
         assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
         gate.set()
@@ -222,7 +220,7 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
 
         answered = await client.post(f"/runs/{run_id}/answers", json={cancelled.waiting[0].id: True})
         assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
-        assert (await store.ended(run_id)).outputs == {"then.result": "X", "approve.result": True}
+        assert (await store.ended(run_id)).outputs == {"then": "X", "approve": True}
 
 
 async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_own() -> None:
@@ -335,6 +333,26 @@ async def test_estimate_refuses_inputs_the_graph_refuses() -> None:
         refused = await client.post("/estimate", json={"graph": graph, "inputs": {}})
 
     assert refused.status_code == 422 and [problem["type"] for problem in refused.json()["detail"]] == ["missing_input"]
+
+
+async def test_a_graph_that_writes_one_node_id_twice_is_refused_by_every_route_that_reads_a_graph() -> None:
+    registry, _, _ = _uploads()
+    store = MemoryStore()
+    node = '{"node": "review", "inputs": {"file": {"graph_input": "file"}}}'
+    graph = f'{{"nodes": {{"review": {node}, "review": {node}}}}}'
+    as_json = {"content-type": "application/json"}
+
+    async with _serving(_app(store=store, registry=registry)) as client:
+        answers = [
+            await client.post("/compile", content=graph, headers=as_json),
+            await client.post("/runs", content=f'{{"graph": {graph}, "inputs": {{"file": "a"}}}}', headers=as_json),
+            await client.post("/estimate", content=f'{{"graph": {graph}, "inputs": {{"file": "a"}}}}', headers=as_json),
+        ]
+
+    for answer in answers:
+        assert answer.status_code == 422, answer.text
+        assert [(problem["type"], problem["ctx"]["error"]) for problem in answer.json()["detail"]] == [("invalid_record", "repeated_key")]
+    assert store.rows == {}
 
 
 async def test_a_run_read_once_it_stopped_has_its_progress() -> None:

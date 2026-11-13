@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 from annotated_types import Ge
 from conductor import (
+    Address,
     Choice,
     Deprecation,
     ExternalError,
@@ -25,6 +26,9 @@ from conductor import (
     NodeRegistry,
     Param,
     Policy,
+    RecordConstant,
+    RecordEdges,
+    RecordGraphInput,
     Run,
     Series,
     Table,
@@ -50,8 +54,13 @@ def compiled_graph(*definitions, record=None, constants=None):
     return Graph.compile(record if record is not None else make_graph(*definitions, constants=constants or {}), registry_of(*definitions))
 
 
-def node_record(node_id, definition_id, **record):
-    return NodeRecord(id=node_id, node=definition_id, **record)
+def node_record(definition_id, *, version=1, constants=None, graph_inputs=(), sources=None):
+    """One node of a graph record: ``constants`` by input, each of ``graph_inputs`` a graph input of its own name, and
+    ``sources`` mapping an input to the ``(node, output)`` its edge comes from."""
+    inputs: dict[str, Any] = {name: RecordConstant(constant=value) for name, value in (constants or {}).items()}
+    inputs |= {name: RecordGraphInput(graph_input=name) for name in graph_inputs}
+    inputs |= {name: RecordEdges(sources=(Address(*source),)) for name, source in (sources or {}).items()}
+    return NodeRecord(node=definition_id, version=version, inputs=inputs)
 
 
 def codes(graph):
@@ -111,7 +120,7 @@ def test_a_node_id_must_have_something_in_it_and_no_mark_an_address_or_waiting_i
 
 def test_node_given_a_record_in_place_of_a_function_raises_pythons_own_error_that_it_is_not_callable():
     with pytest.raises(TypeError, match="is not a callable object"):
-        node("enrich", title="Enrich", description="For a test.")(GraphRecord(nodes=[]))  # type: ignore[arg-type]
+        node("enrich", title="Enrich", description="For a test.")(GraphRecord.model_validate({"nodes": {}}))  # type: ignore[arg-type]
 
 
 
@@ -132,15 +141,16 @@ def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_
         assert f"('x') has an empty {empty}" in str(raised.value)
 
 
-def test_a_node_id_in_a_record_with_a_tilde_is_invalid_node_id():
+def test_a_node_id_in_a_record_with_a_tilde_is_refused_at_the_record_door():
     registry = NodeRegistry()
 
     @registry.node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": [{"id": "a~b", "node": "upper"}]}), registry)
-    assert [(p.type, p.loc) for p in graph.problems] == [("invalid_node_id", ("a~b",))]
+    with pytest.raises(InvalidCallError) as refused:
+        Graph.compile(json.dumps({"nodes": {"a~b": {"node": "upper"}}}), registry)
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a~b", "[key]"), "value_error")]
 
 
 def test_an_async_function_is_refused():
@@ -212,7 +222,7 @@ def test_a_dict_returned_is_one_output_and_only_a_loose_dataclass_is_refused():
 
     for one in (summary, anything):
         assert list(declared(one).outputs) == ["result"], one
-    assert compiled_graph(declared(summary)).run(labels=["a", "b", "a"]).outputs == {"x.result": {"a": 2, "b": 1}}
+    assert compiled_graph(declared(summary)).run(labels=["a", "b", "a"]).outputs == {"result": {"a": 2, "b": 1}}
 
     @dataclass
     class Loose:
@@ -342,7 +352,7 @@ def test_an_input_or_output_that_may_be_none_is_described_by_its_type_without_no
     assert [(i.name, i.type, i.is_series) for i in f.describe().inputs] == [("many", "Text", True), ("one", "Text", False)]
     output = field_of(f, "result", "outputs")
     assert output.type == "Text" and {"type": "null"} in output.json_schema["anyOf"]
-    assert compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"many": [None], "one": None})])).run().results["f"] == {"result": None}
+    assert compiled_graph(f, constants={"f.many": [None], "f.one": None}).run().results["f"] == {"result": None}
 
 
 def test_a_none_default_on_an_optional_type_is_not_required_and_arrives_as_none():
@@ -362,7 +372,7 @@ def test_a_series_that_may_be_none_takes_none_given_as_a_constant_or_left_out_bu
     graph = compiled_graph(f)
     assert graph.run().results["f"]["result"] == "None"
     assert graph.run(xs=None).results["f"]["result"] == "None"
-    assert compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"xs": None})])).run().results["f"]["result"] == "None"
+    assert compiled_graph(f, constants={"f.xs": None}).run().results["f"]["result"] == "None"
     assert graph.run(xs=[1, 2]).results["f"]["result"] == "[1, 2]"
     with pytest.raises(InvalidCallError):
         graph.run(xs=[1, None])
@@ -376,7 +386,7 @@ def test_a_series_that_may_not_be_none_refuses_none_and_a_default_of_none():
     with pytest.raises(InvalidCallError) as refused:
         compiled_graph(f).run(xs=None)
     assert [p.type for p in refused.value.errors()] == ["invalid_input"]
-    assert codes(compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"xs": None})]))) == ["invalid_value"]
+    assert codes(compiled_graph(f, constants={"f.xs": None})) == ["invalid_value"]
 
     def g(xs: Series[int] = None) -> int:  # type: ignore[assignment]
         return 0
@@ -410,10 +420,10 @@ def test_a_constant_of_a_series_input_is_checked_item_by_item_at_compile_and_arr
         return f"{type(xs).__name__}:{sum(xs)}"
 
     def with_constant(values):
-        return compiled_graph(total, record=GraphRecord(nodes=[node_record("t", "total", constants={"xs": values})]))
+        return compiled_graph(total, constants={"total.xs": values})
 
     assert codes(with_constant([1, -1])) == ["invalid_value"]
-    assert with_constant([1, 2]).run().results["t"]["result"] == "list:3"
+    assert with_constant([1, 2]).run().results["total"]["result"] == "list:3"
 
 
 def test_a_subclass_of_a_builtin_is_checked_as_the_builtin_then_converted_to_the_subclass():
@@ -442,7 +452,7 @@ def test_a_subclass_output_fits_an_input_of_its_parent_type_and_not_the_other_wa
         return t
 
     assert compiled_graph(make, on_str).run(x="a").results["on_str"]["result"] == "Text"
-    mistyped = GraphRecord(nodes=[node_record("plain", "plain"), node_record("on_text", "on_text")], edges=[("plain.result", "on_text.t")])
+    mistyped = make_graph(plain, on_text, edges=[("plain.result", "on_text.t")])
     assert codes(compiled_graph(plain, on_text, record=mistyped)) == ["type_mismatch"]
 
 
@@ -459,11 +469,12 @@ def test_each_plain_type_carries_its_own_value():
     def when(day: datetime.date) -> datetime.date:
         return day + datetime.timedelta(days=1)
 
-    graph = compiled_graph(flags, flip, when, record=GraphRecord(
-        nodes=[node_record("f", "flags"), node_record("n", "flip"), node_record("w", "when")],
-        edges=[("f.result", "n.on")],
-    ))
-    run = graph.run({"on": True, "f.day": datetime.date(2026, 1, 1), "w.day": datetime.date(2026, 1, 1)})
+    graph = compiled_graph(flags, flip, when, record=GraphRecord(nodes={
+        "f": node_record("flags", graph_inputs=("on", "day")),
+        "n": node_record("flip", sources={"on": ("f", "result")}),
+        "w": node_record("when", graph_inputs=("day",)),
+    }))
+    run = graph.run(on=True, day=datetime.date(2026, 1, 1))
     assert run.results["n"]["result"] is False
     assert run.results["w"]["result"] == datetime.date(2026, 1, 2)
 
@@ -634,7 +645,7 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
     with pytest.raises(KeyError, match="'v' has no version 4; it has 3, 2, 1"):
         v3.version_of(4)
     for saved, body in ((1, "one"), (3, "three")):
-        graph = compiled_graph(v3, record=GraphRecord(nodes=[node_record("n", "v", version=saved)]))
+        graph = compiled_graph(v3, record=GraphRecord(nodes={"n": node_record("v", version=saved, graph_inputs=("x",))}))
         assert graph.run(x="a").results["n"]["result"] == body
 
 
@@ -686,7 +697,7 @@ def test_a_subgraph_may_be_declared_at_a_version_of_its_own():
     inner = subgraph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,)
     assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "subgraph"
-    graph = compiled_graph(read, inner, record=GraphRecord(nodes=[node_record("e", "inner", version=3)]))
+    graph = compiled_graph(read, inner, record=GraphRecord(nodes={"e": node_record("inner", version=3, graph_inputs=("text",))}))
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 
 
@@ -732,9 +743,9 @@ def test_a_hook_gets_the_constant_or_else_the_declared_default():
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
-    assert compiled_graph(fan, record=GraphRecord(nodes=[node_record("fan", "fan")])).describe().nodes["fan"].outputs[1].name == "o1"
+    assert compiled_graph(fan).describe().nodes["fan"].outputs[1].name == "o1"
     assert seen == [2]
-    compiled_graph(fan, record=GraphRecord(nodes=[node_record("fan", "fan", constants={"n": 3})]))
+    compiled_graph(fan, constants={"fan.n": 3})
     assert seen == [2, 3]
 
 
@@ -768,7 +779,7 @@ def test_an_added_inputs_hook_reads_only_a_constant_or_default_never_an_edge():
     def joiner(n: int = 2, **parts: Any) -> str:
         return ",".join(parts.values())
 
-    compiled_graph(number, joiner, record=GraphRecord(nodes=[node_record("u", "number"), node_record("j", "joiner")], edges=[("u.result", "j.n")]))
+    compiled_graph(number, joiner, record=make_graph(number, joiner, edges=[("number.result", "joiner.n")]))
     assert seen == [2]
 
 
@@ -782,7 +793,7 @@ def test_each_version_has_its_own_hooks():
         return {"second": x}
 
     for saved, name in ((1, "first"), (2, "second")):
-        graph = compiled_graph(h2, record=GraphRecord(nodes=[node_record("n", "h", version=saved)]))
+        graph = compiled_graph(h2, record=GraphRecord(nodes={"n": node_record("h", version=saved, graph_inputs=("x",))}))
         assert graph.run(x="a").results["n"] == {name: "a"}
 
 
@@ -813,9 +824,8 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
     def double(n: int) -> int:
         return n * 2
 
-    graph = compiled_graph(lengths, first, double, record=GraphRecord(
-        nodes=[node_record("lengths", "lengths"), node_record("first", "first"), node_record("double", "double")],
-        edges=[("lengths.result", "first.items"), ("first.result", "double.n")],
+    graph = compiled_graph(lengths, first, double, record=make_graph(
+        lengths, first, double, edges=[("lengths.result", "first.items"), ("first.result", "double.n")],
     ))
     assert graph.problems == [] and graph.describe().nodes["first"].outputs[0].type == "int"
     assert graph.runs_on["first"].msg == "once"
@@ -833,8 +843,8 @@ def test_a_hook_gets_any_for_an_unwired_any_input_even_with_a_constant():
     def f(x: Any) -> dict:
         return {"result": 1}
 
-    compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f")]))
-    compiled_graph(f, record=GraphRecord(nodes=[node_record("f", "f", constants={"x": "typed"})]))
+    compiled_graph(f)
+    compiled_graph(f, constants={"f.x": "typed"})
     assert seen == [Any, Any]
 
 
@@ -865,8 +875,10 @@ def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
     def adds(**kwargs: Any) -> str:
         return ""
 
-    for kind, definition in (("outs", outs), ("adds", adds)):
-        graph = compiled_graph(definition, echo, record=GraphRecord(nodes=[node_record("n", kind), node_record("r", "echo")], edges=[("n.result", "r.v")]))
+    for kind, definition, graph_inputs in (("outs", outs, ("x",)), ("adds", adds, ())):
+        graph = compiled_graph(definition, echo, record=GraphRecord(nodes={
+            "n": node_record(kind, graph_inputs=graph_inputs), "r": node_record("echo", sources={"v": ("n", "result")}),
+        }))
         assert [(p.type, p.loc) for p in graph.problems] == [("compute_hook_failed", ("n",))], kind  # the node downstream has no problem of its own
         assert graph.problems[0].ctx["error"] == "ValueError"
 
@@ -884,7 +896,9 @@ def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothi
     def outs(x: str) -> dict:
         return {}
 
-    graph = compiled_graph(echo, outs, record=GraphRecord(nodes=[node_record("e", "echo"), node_record("n", "outs")], edges=[("e.nothing", "n.x")]))
+    graph = compiled_graph(echo, outs, record=GraphRecord(nodes={
+        "e": node_record("echo", graph_inputs=("v",)), "n": node_record("outs", sources={"x": ("e", "nothing")}),
+    }))
     assert codes(graph) == ["unknown_output"] and arrived == [Any]
     assert [o.type for o in graph.describe().nodes["n"].outputs] == ["Any"]
 
@@ -991,7 +1005,7 @@ def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignore
     assert declared(noted).inputs["x"].type.bare is int
     graph = compiled_graph(
         declared(limited),
-        record=GraphRecord(nodes=[node_record("l", "x", constants={"x": -1})]),
+        record=GraphRecord(nodes={"l": node_record("x", constants={"x": -1})}),
     )
     assert codes(graph) == ["invalid_value"]
 
@@ -1032,7 +1046,7 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
                 validator_of(field.whole).validate_python(wrong)
     graph = Graph.compile(make_graph(words, length, total, edges=[("words.result", "length.text"), ("length.result", "total.n")]), registry)
     assert graph.problems == []
-    assert graph.run(text="ab c").outputs == {"total.result": 3}
+    assert graph.run(text="ab c").outputs == {"result": 3}
 
 
 def test_a_param_on_a_tables_column_limits_what_the_node_returns():
@@ -1043,8 +1057,8 @@ def test_a_param_on_a_tables_column_limits_what_the_node_returns():
     def rows(text: str) -> Table[Row]:
         return pl.DataFrame({"n": [-1]})
 
-    assert Graph.compile(GraphRecord(nodes=[node_record("r", "rows")]), registry_of(rows)).problems == []
-    run = Graph.compile(GraphRecord(nodes=[node_record("r", "rows")]), registry_of(rows)).run(text="x")
+    assert Graph.compile(GraphRecord(nodes={"r": node_record("rows", graph_inputs=("text",))}), registry_of(rows)).problems == []
+    run = Graph.compile(GraphRecord(nodes={"r": node_record("rows", graph_inputs=("text",))}), registry_of(rows)).run(text="x")
     assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
 
 
@@ -1069,7 +1083,7 @@ def test_a_value_from_an_edge_is_checked_against_the_inputs_choices_as_against_i
         return colour
 
     graph = Graph.compile(make_graph(give, pick), registry)
-    assert graph.run(text="red").outputs == {"pick.result": "red"}
+    assert graph.run(text="red").outputs == {"result": "red"}
     run = graph.run(text="green")
     assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
 
@@ -1088,7 +1102,7 @@ def test_a_params_choices_limit_a_field_of_a_dataclass_input_as_its_limits_do():
         return order.colour
 
     graph = Graph.compile(make_graph(take), registry)
-    assert graph.run(order={"colour": "red", "n": 1}).outputs == {"take.result": "red"}
+    assert graph.run(order={"colour": "red", "n": 1}).outputs == {"result": "red"}
     for wrong in ({"colour": "green", "n": 1}, {"colour": "red", "n": -1}):
         with pytest.raises(InvalidCallError) as raised:
             graph.run(order=wrong)
@@ -1110,7 +1124,7 @@ def test_a_bare_series_is_many_values_of_anything():
         return len(xs)
 
     assert [(i.is_series, i.type) for i in count.describe().inputs] == [(True, "Any")]
-    assert compiled_graph(count, record=GraphRecord(nodes=[node_record("c", "count", constants={"xs": [1, "a"]})])).run().results["c"]["result"] == 2
+    assert compiled_graph(count, constants={"count.xs": [1, "a"]}).run().results["count"]["result"] == 2
 
 
 def test_a_series_that_may_be_none_is_still_many_values():
@@ -1201,7 +1215,7 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     registry.add(size, rate)
     with pytest.raises(InvalidCallError):
         Graph.compile(make_graph(size), registry).run(name="XL")
-    assert Graph.compile(make_graph(size), registry).run(name="M").outputs == {"size.result": "M"}
+    assert Graph.compile(make_graph(size), registry).run(name="M").outputs == {"result": "M"}
     asked = Graph.compile(make_graph(rate), registry).run(text="x").waiting[0].questions[0]
     assert asked.choices == [{"id": "low", "title": "Lav"}, {"id": "high", "title": "Høj"}]
     for wrong in ((Choice("low", "Lav"),), ("low", "low", "high"), (1, 2)):
@@ -1229,9 +1243,9 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
 
     registry = NodeRegistry()
     registry.add(glue)
-    graph = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", constants={"text": "t"})]), registry)
-    assert graph.problems == [] and graph.run().outputs == {"g.result": "txx"}
-    (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", constants={"text": "t", "names": "boom"})]), registry).problems
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "glue", "inputs": {"text": {"constant": "t"}}}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry)
+    assert graph.problems == [] and graph.run().outputs == {"result": "txx"}
+    (problem,) = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "glue", "inputs": {"text": {"constant": "t"}, "names": {"constant": "boom"}}}}}), registry).problems
     assert (problem.type, problem.ctx["error"], problem.ctx["error_ctx"], problem.msg) == (
         "compute_hook_failed", "no_column", {"names": "boom"}, "The node could not work out its inputs and outputs: No such column. Check the node's constants and what is wired to it.",
     )
@@ -1248,7 +1262,7 @@ def test_a_hooks_own_ctx_is_kept_whole_beside_the_reason_and_the_code(ctx: dict[
     def glue(names: str, **columns: str) -> str:
         return names
 
-    (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", constants={"names": "a"})]), registry_of(glue)).problems
+    (problem,) = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}}, "outputs": {}}), registry_of(glue)).problems
     assert problem.ctx == {"reason": "No such column.", "error": "no_column", **({"error_ctx": ctx} if ctx else {})}
 
 
@@ -1261,7 +1275,7 @@ def test_a_hooks_error_without_a_code_of_its_own_says_the_code_its_class_gives_e
     def glue(names: str, **columns: str) -> str:
         return names
 
-    (problem,) = Graph.compile(GraphRecord(nodes=[NodeRecord(id="g", node="glue", constants={"names": "a"})]), registry_of(glue)).problems
+    (problem,) = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "glue", "inputs": {"names": {"constant": "a"}}}}, "outputs": {}}), registry_of(glue)).problems
     assert (raised.code, problem.ctx["error"]) == (code, code)
 
 
@@ -1273,9 +1287,9 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
     registry = NodeRegistry()
     registry.add(ask_model)
     fixed = Graph.compile(make_graph(ask_model, constants={"ask-model.model": "big"}), registry)
-    assert list(fixed.inputs) == ["prompt"] and fixed.run(prompt="hi").outputs == {"ask-model.result": "big:hi"}
+    assert list(fixed.inputs) == ["prompt"] and fixed.run(prompt="hi").outputs == {"result": "big:hi"}
     open_to_caller = Graph.compile(make_graph(ask_model), registry)
-    assert list(open_to_caller.inputs) == ["prompt", "model"] and open_to_caller.run(prompt="hi").outputs == {"ask-model.result": "small:hi"}
+    assert list(open_to_caller.inputs) == ["prompt", "model"] and open_to_caller.run(prompt="hi").outputs == {"result": "small:hi"}
 
 
 @pytest.mark.parametrize(
