@@ -2,7 +2,7 @@
 
 ## Validation is the wall
 
-Validate untyped outside data once, with pydantic, at its door in `_internal/gate/` (JSON loaded, values a caller gives a run, what a node returns, a person's answer), never build a validator or check a value again anywhere else, and wrap only the door call in a caller's `try`, catching its `RefusedError`.
+Validate untyped outside data once, with pydantic, at its door in `_internal/gate/` (JSON loaded, values a caller gives a run, what a node returns, a person's answer), never build a validator or check a value again anywhere else, and wrap only the door call in a caller's `try`, catching its `InvalidCallError`.
 
 Why: "Think of conductor as a fortress and the validation is our wall … Everyone that passes through that gate is frisked thoroughly … So there's no reason to stop them and ask everytime we see them."
 
