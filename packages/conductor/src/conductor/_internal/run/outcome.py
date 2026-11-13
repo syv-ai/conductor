@@ -9,11 +9,11 @@ The example graph, the README's first::
 ``graph.run(text="a\\nb\\nc")`` calls ``lines`` once, ``shout`` three times and ``join`` once. Each call has
 item indexes: one index per loop the node is inside. The three calls of ``shout`` have ``(0,)``, ``(1,)`` and
 ``(2,)``; ``lines`` and ``join`` are inside no loop, so their one call has ``()``. An **outcome** is what a run
-keeps of one call. A run keeps its outcomes in a dict by node name and then by item indexes::
+keeps of one call. A run keeps its outcomes in a dict by node path and then by item indexes::
 
-    {"lines": {():   Done({"result": ["a", "b", "c"]})},
-     "shout": {(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"}), (2,): Done({"result": "C!"})},
-     "join":  {():   Done({"result": "A!+B!+C!"})}}
+    {("lines",): {():   Done({"result": ["a", "b", "c"]})},
+     ("shout",): {(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"}), (2,): Done({"result": "C!"})},
+     ("join",):  {():   Done({"result": "A!+B!+C!"})}}
 
 A call has at most one outcome, and an outcome is never changed once it is written. There are five kinds, a
 class each. The examples add one small node to the graph above.
