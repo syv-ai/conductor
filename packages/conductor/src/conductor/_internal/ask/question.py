@@ -1,8 +1,8 @@
-"""What a call asked: ``Question``, kept with the call's outcome and saved with the run; ``Answer``, a person's answer
-to an ``Asked`` parameter; and whether an answer must give a question.
+"""What a call asked: ``Question``, kept with the call's outcome and saved with the run; and whether an answer must
+give a question.
 
 ``approve(line: str) -> bool`` raising ``Ask("approve b?")`` keeps ``Question(prompt="approve b?", inputs={"line":
-"b"})``. ``field_questions`` makes the question about each field an answer fills from the field's type, before an
+"b"})``. ``field_questions`` makes the question about each output an answer fills from the output's type, before an
 ``Ask`` sets anything.
 """
 
@@ -56,29 +56,11 @@ class Question:
     overrides: Mapping[str, QuestionOverrides] = dataclasses.field(default_factory=dict)
 
 
-@dataclass(frozen=True, slots=True)
-class Answer:
-    """A person's answer to the question of an ``Asked`` parameter, kept by the run until the node is called with it.
-
-    ``run.answer(waiting, True)`` for ``approve`` keeps ``Answer(question, "ok", True)``, and the next ``resume()``
-    calls ``approve`` with ``ok=True``. The call's outcome is then ``Answered``, with that question.
-
-    Attributes:
-        question: What the person was asked.
-        parameter: The name of the parameter the answer fills.
-        value: The answer, read by the parameter's type.
-    """
-
-    question: Question
-    parameter: str
-    value: Any
-
-
 def field_questions(fields: Mapping[str, Field]) -> dict[str, FieldDescription]:
     """The question about each field an answer fills, as the field's type sets it, before an ``Ask`` sets anything.
 
     Args:
-        fields: The fields the answer fills, by name: a node's outputs, or its ``Asked`` parameter.
+        fields: The node's outputs, which the answer fills, by name.
 
     Returns:
         A question per field, by name, under the field's own label; a field of a returned dataclass with a default

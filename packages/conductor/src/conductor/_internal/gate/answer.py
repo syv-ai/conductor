@@ -1,9 +1,7 @@
-"""The answer door: a person's answer to a call that waits, read into the fields it fills.
+"""The answer door: a person's answer to a call that waits, read into the node's outputs.
 
 Example: ``approve(line: str) -> bool`` raises ``Ask("Approve b?")``. ``run.answer(waiting_id, True)`` gives the
-door ``True``, and it returns ``{"result": True}``, the outputs the call then has. For a node with an ``Asked``
-parameter, ``ok: Annotated[bool, Asked(approval)]``, the field is the parameter: the door returns ``{"ok": True}``,
-and the node is then called with ``ok=True``. ``"yes"`` is refused with
+door ``True``, and it returns ``{"result": True}``, the outputs the call then has. ``"yes"`` is refused with
 ``invalid_answer``, "Input should be a valid boolean": an answer is read strictly, as its JSON text would be, so a
 yes or no is ``true`` or ``false``, never a text that spells one.
 
@@ -35,8 +33,7 @@ from .rules import output_validator_of
 
 
 class AnswerDoor:
-    """Reads a person's answer to a waiting call of one node into the fields it fills: the node's outputs, or its
-    ``Asked`` parameter. Built once per node.
+    """Reads a person's answer to a waiting call of one node into the node's outputs. Built once per node.
 
     Raises (when called):
         RefusedError: With an ``invalid_answer`` for every fault, quoting nothing of the answer: the answer is not
@@ -45,22 +42,22 @@ class AnswerDoor:
             or two of an exclusive group.
     """
 
-    def __init__(self, fields: Mapping[str, Field], questions: Mapping[str, FieldDescription]) -> None:
+    def __init__(self, outputs: Mapping[str, Field], questions: Mapping[str, FieldDescription]) -> None:
         """Builds the door for a node.
 
         Args:
-            fields: The fields the answer fills, by name.
-            questions: The question about each field as its type sets it (``field_questions``), by name.
+            outputs: The node's outputs, which the answer fills, by name.
+            questions: The question about each output as its type sets it (``field_questions``), by name.
         """
-        self._fields = fields
+        self._outputs = outputs
         self._questions = questions
 
     def __call__(self, answer: Any, overrides: Mapping[str, QuestionOverrides], *, loc: Loc, waiting_id: str) -> dict[str, Any]:
-        """Returns the fields the answer fills, by name, read from ``answer``.
+        """Returns the outputs the answer fills, by name, read from ``answer``.
 
         Args:
             answer: The answer: a value for one question, a mapping by question name for several.
-            overrides: What the ``Ask`` set on each question, by field name.
+            overrides: What the ``Ask`` set on each question, by output name.
             loc: Where the call that waits is, for the problems.
             waiting_id: The waiting id the answer was given for, for the problems.
 
@@ -73,9 +70,9 @@ class AnswerDoor:
         return read
 
     def _read(self, answer: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
-        """The fields read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
+        """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer."""
-        outputs = self._fields
+        outputs = self._outputs
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
