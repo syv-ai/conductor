@@ -1689,6 +1689,39 @@ def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit
     assert edited.with_inputs(items=texts, previous=second).resume().results == second.results and calls == []
 
 
+def test_an_edited_node_in_the_middle_is_called_again_with_the_nodes_it_feeds_and_the_nodes_above_it_are_not():
+    calls: list[str] = []
+
+    @node("split", title="Split", description="For a test.")
+    def split(text: str) -> Series[str]:
+        calls.append("split")
+        return text.split()
+
+    @node("tag", title="Tag", description="For a test.")
+    def tag(text: str, mark: str) -> str:
+        calls.append(f"tag {text}")
+        return text + mark
+
+    @node("shout", title="Shout", description="For a test.")
+    def shout(text: str) -> str:
+        calls.append(f"shout {text}")
+        return text.upper()
+
+    registry = registry_of(split, tag, shout)
+
+    def drawn(mark: str) -> Any:
+        return Graph.compile(_record(
+            {"w": split, "t": tag, "s": shout}, [("w.result", "t.text"), ("t.result", "s.text")], constants={"t.mark": mark},
+        ), registry)
+
+    first = drawn("!").run(text="a b")
+    calls.clear()
+
+    second = drawn("?").with_inputs(text="a b", previous=first).resume()
+
+    assert second.results["s"]["result"] == ["A?", "B?"] and calls == ["tag a", "tag b", "shout a?", "shout b?"]
+
+
 def test_again_and_with_inputs_take_inputs_by_name_in_a_mapping_as_graph_run_does():
     @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
