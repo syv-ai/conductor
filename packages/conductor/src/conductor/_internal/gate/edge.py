@@ -18,7 +18,7 @@ from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 from conductor._internal.types import Type
 
 from .refused import RefusedError
@@ -76,5 +76,5 @@ class EdgeDoor:
                 read[name] = validate(value, strict=False)
             except ValidationError as error:
                 refused = whole.refusal(error)
-                raise RefusedError([problem.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+                raise RefusedError([run_problems.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
         return read

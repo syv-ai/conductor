@@ -40,7 +40,7 @@ from typing import Any
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
-from .catalogue import external_failed, failed
+from .run_problems import external_failed, failed
 from .type import Problem
 
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."

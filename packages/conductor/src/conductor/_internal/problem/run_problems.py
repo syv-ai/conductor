@@ -1,12 +1,16 @@
-"""The kinds of problem a run ends early on, its ``run.state`` cause: the section "Why a run stopped" of ``PROBLEMS``."""
+"""The kinds of problem a run ends early on, its ``run.state`` cause: the section "Why a run stopped" of ``PROBLEMS``.
+
+A module that reports one imports this module and calls the kind: ``run_problems.timeout(*loc, seconds=30.0)``.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from .catalogue import PROBLEMS
+from .type import ProblemCatalogue
 
-PROBLEMS.section(
+#: The kinds of this section of the problems page.
+RUN_PROBLEMS = ProblemCatalogue(
     "Why a run stopped",
     "The `cause` of an `EndedEarly` `run.state`, and the `problem` of a `node_failed` event. For a call that failed, "
     '`loc` is the node\'s id and the call\'s item indexes: `("shout", 1)`; inside a subgraph, the subgraph node\'s id '
@@ -14,7 +18,7 @@ PROBLEMS.section(
 )
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def ask_not_declared(*loc: str | int) -> str:
     """A node raised ``Ask`` in its own function, and its ``@node`` does not say ``asks=True``.
 
@@ -35,7 +39,7 @@ def ask_not_declared(*loc: str | int) -> str:
     return "The node asked a person, but its @node does not say asks=True. Add asks=True, or ask through an Asked parameter."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def execution_failed(*loc: str | int, error: str) -> str:
     """A node raised an exception that is not a ``NodeError``.
 
@@ -57,7 +61,7 @@ def execution_failed(*loc: str | int, error: str) -> str:
     return "The node raised an exception; its developer finds it in the conductor log."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def external_failed(*loc: str | int, error: str | None = None) -> str:
     """A node raised an exception its ``Policy(retry_on=)`` names, on every attempt.
 
@@ -80,7 +84,7 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
     return "An outside service did not answer."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def failed(*loc: str | int) -> str:
     """A node raised a ``NodeError`` that gives no code of its own.
 
@@ -103,7 +107,7 @@ def failed(*loc: str | int) -> str:
     return "The node reported a failure."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def invalid_ask(*loc: str | int, reason: str) -> str:
     """A node raised an ``Ask`` whose choices or default are not values of the type its answer is read by.
 
@@ -126,7 +130,7 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
     return f"The node asked a question with choices or a default the answer's type does not take: {reason.rstrip('.')}. Fix the node's Ask."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def invalid_asked_value(*loc: str | int, name: str, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
     """The function of an ``Asked`` parameter returned a value the parameter's type refuses.
 
@@ -155,7 +159,7 @@ def invalid_asked_value(*loc: str | int, name: str, reason: str, errors: list[di
     return f"The node's Asked function for '{name}' returned a value that is not what the parameter declares: {reason.rstrip('.')}. Fix what it returns."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def invalid_edge_value(
     *loc: str | int, name: str, reason: str, record_field: str | None = None, errors: list[dict[str, Any]] | None = None, column: str | None = None,
 ) -> str:
@@ -193,7 +197,7 @@ def invalid_edge_value(
     )
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def invalid_output(*loc: str | int, reason: str, name: str | None = None, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
     """A node returned a value its return type does not declare.
 
@@ -217,7 +221,7 @@ def invalid_output(*loc: str | int, reason: str, name: str | None = None, errors
     return f"The node returned a value that is not what it declares: {reason.rstrip('.')}. Fix what the node returns."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     """A series has more items than the run's ``max_items``, so the run stopped before calling any node for them.
 
@@ -236,7 +240,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     return f"{series} has {items} items, more than this run's max_items of {max_items}; raise max_items and resume the run."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noqa: A002  the ctx key a host reads
     """A node asked a person, and one of its arguments cannot be written as JSON to show them.
 
@@ -262,7 +266,7 @@ def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noq
     )
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def run_cancelled() -> str:
     """The ``cancel`` event given to ``run.stream`` was set.
 
@@ -283,7 +287,7 @@ def run_cancelled() -> str:
     return "The run was cancelled. Resume it to carry on, or start a new run."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def run_timed_out(*, timeout: float) -> str:
     """A call of ``run``, ``resume`` or ``stream`` took longer than the ``timeout`` it was given.
 
@@ -304,7 +308,7 @@ def run_timed_out(*, timeout: float) -> str:
     return "The run took too long and was stopped; run.resume() goes on from where it stopped."
 
 
-@PROBLEMS.problem()
+@RUN_PROBLEMS.problem()
 def timeout(*loc: str | int, seconds: float) -> str:
     """A node's call took longer than its ``Policy(attempt_timeout=)``.
 

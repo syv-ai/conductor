@@ -179,3 +179,24 @@ def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> N
             filled = kind.sentence.format(**{key: "x" for key in kind.ctx_type.__annotations__})
 
             assert "{" not in filled and "}" not in filled, kind.code
+
+
+def test_joined_sections_keep_their_order_titles_and_texts_and_refuse_a_kind_two_of_them_declare() -> None:
+    """Each kind keeps the title of the section it is declared in, so it cannot be printed under another."""
+    hall, study = ProblemCatalogue("Hall", "Met in the hall."), ProblemCatalogue("Study", "Met in the study.")
+
+    def door_locked(*loc: str | int) -> str:
+        return "The door is locked; ask for the key."
+
+    def shelf_full(*loc: str | int) -> str:
+        return "The shelf is full; use another."
+
+    hall.problem()(door_locked)
+    study.problem()(shelf_full)
+    house = ProblemCatalogue.joined(hall, study)
+
+    assert ([(kind.code, kind.section) for kind in house], house.sections) == (
+        [("door_locked", "Hall"), ("shelf_full", "Study")], {"Hall": "Met in the hall.", "Study": "Met in the study."},
+    )
+    with pytest.raises(TypeError, match="door_locked: 'door_locked' has a kind declared before it"):
+        ProblemCatalogue.joined(hall, hall)

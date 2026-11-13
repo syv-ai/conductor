@@ -15,8 +15,7 @@ from pydantic import MISSING
 from conductor._internal.base import Address
 from conductor._internal.gate import RefusedError, read_record, record_values
 from conductor._internal.node import NodeDefinition, declared_inputs
-from conductor._internal.problem import InvalidCallError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
 
@@ -34,15 +33,15 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
         raise InvalidCallError(refused.problems) from None
     node_record = graph.nodes.get(node_id)
     if node_record is None:
-        raise InvalidCallError([problem.node_not_in_graph(node_id, nodes=sorted(graph.nodes))])
+        raise InvalidCallError([call_problems.node_not_in_graph(node_id, nodes=sorted(graph.nodes))])
     if node_record.node not in nodes:
-        raise InvalidCallError([problem.unknown_node(node_id, node=node_record.node, choices=sorted(nodes))])
+        raise InvalidCallError([compile_problems.unknown_node(node_id, node=node_record.node, choices=sorted(nodes))])
     newest = nodes[node_record.node]
     target = newest.version if to is None else to
     if target == node_record.version:
         return graph
     if target < node_record.version or target not in newest.versions or node_record.version not in newest.versions:
-        raise InvalidCallError([problem.cannot_move_to_version(
+        raise InvalidCallError([call_problems.cannot_move_to_version(
             node_id,
             node=node_record.node, version=node_record.version, target=target, versions=sorted(newest.versions),
         )])

@@ -1,4 +1,7 @@
-"""The kinds of problem compiling a graph reports, in ``graph.problems``: the section "Compiling a graph" of ``PROBLEMS``."""
+"""The kinds of problem compiling a graph reports, in ``graph.problems``: the section "Compiling a graph" of ``PROBLEMS``.
+
+A module that reports one imports this module and calls the kind: ``compile_problems.cycle(node_id)``.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +9,10 @@ from typing import Any, Literal
 
 from conductor._internal.base import comma_separated
 
-from .catalogue import PROBLEMS
+from .type import ProblemCatalogue
 
-PROBLEMS.section(
+#: The kinds of this section of the problems page.
+COMPILE_PROBLEMS = ProblemCatalogue(
     "Compiling a graph",
     "In `graph.problems`; compiling never raises for them, and a graph with problems does not run. `loc` is "
     "`(node_id,)` or `(node_id, input)`, and `()` for a problem of the graph's declared outputs. For a node inside a "
@@ -16,7 +20,7 @@ PROBLEMS.section(
 )
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def alternatives_from_different_loops(node_id: str, field: str, /, *, series: list[str | None]) -> str:
     """Two edges into one input come from branches whose values are inside different loops.
 
@@ -46,7 +50,7 @@ def alternatives_from_different_loops(node_id: str, field: str, /, *, series: li
     )
 
 
-@PROBLEMS.problem(of_a_hook=True)
+@COMPILE_PROBLEMS.problem(of_a_hook=True)
 def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dict[str, Any] | None = None) -> str:
     """A node's ``compute_...`` hook raised, or returned something compiling cannot use.
 
@@ -69,7 +73,7 @@ def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dic
     return f"The node could not work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired to it."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context_type: str) -> str:
     """A node takes the run's context as a class that the registry's ``context_type`` is not.
 
@@ -95,7 +99,7 @@ def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context
     return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} is not a {needs}; ask for {context_type}, a base of it or a Protocol it satisfies."
 
 
-@PROBLEMS.problem("context_does_not_fit", variant="lacks")
+@COMPILE_PROBLEMS.problem("context_does_not_fit", variant="lacks")
 def context_does_not_fit_lacks(node_id: str, parameter: str, /, *, needs: str, context_type: str, lacks: list[str]) -> str:
     """A node takes the run's context as a ``Protocol`` whose members the registry's ``context_type`` does not all have.
 
@@ -126,7 +130,7 @@ def context_does_not_fit_lacks(node_id: str, parameter: str, /, *, needs: str, c
     return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} lacks {comma_separated(lacks)}; give {context_type} what the node reads, or change what it asks for."
 
 
-@PROBLEMS.problem("context_does_not_fit", variant="no_context_type")
+@COMPILE_PROBLEMS.problem("context_does_not_fit", variant="no_context_type")
 def context_does_not_fit_no_context_type(node_id: str, parameter: str, /, *, needs: str) -> str:
     """A node takes the run's context, and the registry names no ``context_type``.
 
@@ -147,7 +151,7 @@ def context_does_not_fit_no_context_type(node_id: str, parameter: str, /, *, nee
     return f"'{node_id}' takes the run's context as a {needs}, and the registry names no context class; name one with NodeRegistry(context_type=...)."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def cycle(*loc: str | int) -> str:
     """A node is on a cycle of edges.
 
@@ -166,7 +170,7 @@ def cycle(*loc: str | int) -> str:
     return "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> str:
     """A graph output names a node the record does not have, or an output its node does not have.
 
@@ -188,7 +192,7 @@ def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> s
     return f"The graph output '{output}' is '{source}', whose node is not in the graph; name an output of a node it has."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: str) -> str:
     """An edge comes from a node the graph record does not have.
 
@@ -208,7 +212,7 @@ def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: 
     return f"The edge from '{source}' to '{target}' names '{missing}', which is not a node of the graph; add that node or remove the edge."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def subgraph_contains_itself(*loc: str | int, node: str) -> str:
     """A subgraph contains itself, directly or through another subgraph.
 
@@ -230,7 +234,7 @@ def subgraph_contains_itself(*loc: str | int, node: str) -> str:
     return f"The subgraph '{node}' contains itself; remove the node that leads back to it."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def hook_needs_value(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook reads an input that has no constant in the graph record.
 
@@ -249,7 +253,7 @@ def hook_needs_value(node_id: str, field: str, /) -> str:
     return f"'{field}' needs a constant: the node works out its inputs and outputs from it when the graph is compiled."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
     """A constant in the graph record, or a graph input's default, is not a value of its input's type.
 
@@ -273,7 +277,7 @@ def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict
     return f"The value the graph record gives '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
-@PROBLEMS.problem("invalid_value", variant="bound_default")
+@COMPILE_PROBLEMS.problem("invalid_value", variant="bound_default")
 def invalid_value_bound_default(node_id: str, field: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]) -> str:
     """An input's or output's type is a type variable, the edges into the node bind it, and the default the node
     declares is not a value of the type it is bound to.
@@ -303,7 +307,7 @@ def invalid_value_bound_default(node_id: str, field: str, /, *, type: str, reaso
     return f"The default of '{field}' is not a value of {type}, the type the edges into '{node_id}' give it: {reason.rstrip('.')}. Give a default of that type, or none."
 
 
-@PROBLEMS.problem(of_a_hook=True)
+@COMPILE_PROBLEMS.problem(of_a_hook=True)
 def parameter_name_invalid(node_id: str, field: str, /) -> str:
     """A node's ``compute_...`` hook returns an input or output name that cannot be one.
 
@@ -332,7 +336,7 @@ def parameter_name_invalid(node_id: str, field: str, /) -> str:
     return f"'{field}' cannot be an input or output name: a name is not empty and has no '.', '/', '@' or '~'; change the node's hook."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
     """Two ``Series`` inputs of a node read branches that never both have a value for the same item.
 
@@ -362,7 +366,7 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
     )
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) -> str:
     """A node reads one item of each of two series, and neither series is returned inside the loop over the other.
 
@@ -390,7 +394,7 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) 
     )
 
 
-@PROBLEMS.problem("series_not_nested", variant="inside_subgraph")
+@COMPILE_PROBLEMS.problem("series_not_nested", variant="inside_subgraph")
 def loops_not_nested_inside_subgraph(node_id: str, /, *, series: list[str], inputs: list[str], subgraphs: list[str]) -> str:
     """As ``series_not_nested``, where the node that returns one of the two series is inside a subgraph.
 
@@ -420,7 +424,7 @@ def loops_not_nested_inside_subgraph(node_id: str, /, *, series: list[str], inpu
     )
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[str]) -> str:
     """More than one edge into an input can give it a value for the same call.
 
@@ -446,7 +450,7 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
     )
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expected: str) -> str:
     """An edge's source gives a type its target does not take.
 
@@ -472,7 +476,7 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
     )
 
 
-@PROBLEMS.problem("type_mismatch", variant="make_a_series")
+@COMPILE_PROBLEMS.problem("type_mismatch", variant="make_a_series")
 def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """A whole table or list is wired into an input that takes one value.
 
@@ -501,7 +505,7 @@ def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got
     )
 
 
-@PROBLEMS.problem("type_mismatch", variant="add_column")
+@COMPILE_PROBLEMS.problem("type_mismatch", variant="add_column")
 def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: str, expected: str, column: str, column_type: str, has: list[str]) -> str:
     """A table is wired into a ``Table[R]`` input that needs a column the table does not have.
 
@@ -540,7 +544,7 @@ def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: s
     )
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def input_has_no_value(node_id: str, field: str, /) -> str:
     """An input with no default gets nothing in the graph record: no edge, no constant and no graph input.
 
@@ -557,7 +561,7 @@ def input_has_no_value(node_id: str, field: str, /) -> str:
     return f"'{field}' gets no value: wire an edge into it, give it a constant, or make it a graph input."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) -> str:
     """Two inputs that name one graph input take different types, or the record gives them different defaults.
 
@@ -579,7 +583,7 @@ def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) 
     return f"'{field}' and another input both take the graph input '{graph_input}' with different types or defaults; give each its own graph input."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
     """A constant or an edge is for an input the node does not have.
 
@@ -599,7 +603,7 @@ def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
     return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
     """A node of the graph record names a node definition the registry does not have.
 
@@ -618,7 +622,7 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
     return f"There is no node '{node}'; the nodes are {comma_separated(choices)}."
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def unknown_output(*loc: str | int, source: str, outputs: list[str], record_field: str | None = None) -> str:
     """An edge's source is an output, or a field of one, that its node does not have.
 
@@ -640,7 +644,7 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
     return f"'{source}' is not an output of that node; it has {comma_separated(outputs)}."
 
 
-@PROBLEMS.problem("unknown_output", variant="make_a_series")
+@COMPILE_PROBLEMS.problem("unknown_output", variant="make_a_series")
 def unknown_output_make_a_series(*loc: str | int, source: str, outputs: list[str], record_field: str, whole: Literal["table", "list"], fields: list[str]) -> str:
     """An edge's source names a field of a whole table or list.
 
@@ -667,7 +671,7 @@ def unknown_output_make_a_series(*loc: str | int, source: str, outputs: list[str
     )
 
 
-@PROBLEMS.problem()
+@COMPILE_PROBLEMS.problem()
 def unknown_version(*loc: str | int, node: str, version: int, newest: int) -> str:
     """A node of the graph record names a version its node definition does not have.
 

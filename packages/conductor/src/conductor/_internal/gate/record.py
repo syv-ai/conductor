@@ -21,7 +21,7 @@ from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import call_problems, compile_problems
 from conductor._internal.record import GraphRecord
 from conductor._internal.series import set_has_no_order
 from conductor._internal.types import kind_of_value
@@ -40,7 +40,7 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     if len(read) != len(pairs):
         keys = [key for key, _ in pairs]
         reason = f"the key {next(key for i, key in enumerate(keys) if key in keys[:i])!r} is written twice in one object"
-        raise RefusedError([problem.invalid_record("record", where="the record", reason=reason, error="repeated_key")])
+        raise RefusedError([call_problems.invalid_record("record", where="the record", reason=reason, error="repeated_key")])
     return read
 
 
@@ -58,7 +58,7 @@ def read_json(text: str | bytes) -> Any:
     try:
         return json.loads(text, object_pairs_hook=_each_key_once)
     except ValueError as not_json:
-        raise RefusedError([problem.invalid_record("record", where="the record", reason=f"it is not JSON: {not_json}", error="json_invalid")]) from None
+        raise RefusedError([call_problems.invalid_record("record", where="the record", reason=f"it is not JSON: {not_json}", error="json_invalid")]) from None
 
 
 def read_record(record: GraphRecord | str | bytes | Mapping[str, Any], *, written_by: str | None = None) -> GraphRecord:
@@ -83,7 +83,7 @@ def read_record(record: GraphRecord | str | bytes | Mapping[str, Any], *, writte
         return GraphRecord.model_validate(data)
     except ValidationError as invalid:
         raise RefusedError(
-            problem.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"], error=error["type"], written_by=written_by)
+            call_problems.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"], error=error["type"], written_by=written_by)
             for error in invalid.errors()
         ) from None
 
@@ -102,13 +102,13 @@ def record_values(node_id: str, values: Mapping[str, Any]) -> dict[str, JsonValu
     for name, value in values.items():
         if _holds_a_set(value):
             error = set_has_no_order()
-            problems.append(problem.invalid_value(node_id, name, reason=error.message(), errors=[{"type": error.type, "loc": [], "msg": error.message()}]))
+            problems.append(compile_problems.invalid_value(node_id, name, reason=error.message(), errors=[{"type": error.type, "loc": [], "msg": error.message()}]))
             continue
         try:
             written[name] = plain_json(value)
         except PydanticSerializationError:
             reason = "a value written in a graph record is saved with it as JSON" + kind_of_value(value).typed_in_advice
-            problems.append(problem.invalid_value(node_id, name, reason=reason))
+            problems.append(compile_problems.invalid_value(node_id, name, reason=reason))
     if problems:
         raise RefusedError(problems)
     return written

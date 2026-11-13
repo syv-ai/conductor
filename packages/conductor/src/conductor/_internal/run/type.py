@@ -32,8 +32,7 @@ from conductor._internal.base import (
     parse_loc_text,
 )
 from conductor._internal.gate import RefusedError, check_limits
-from conductor._internal.problem import InvalidCallError, Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .arguments import ResultReader
 from .events import (
@@ -283,21 +282,21 @@ class Run[C]:
             try:
                 loc, nodes, item_indexes = parse_loc_text(place)
             except ValueError:  # a place in it isn't a number
-                problems.append(problem.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
+                problems.append(call_problems.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
                 continue
             node = self._flat.function_nodes.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
             found = self._outcomes[node.name].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
-                problems.append(problem.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
+                problems.append(call_problems.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
             if fingerprint and question_fingerprint(compiled_node, found) != fingerprint:
                 current = waiting_record(compiled_node, outcome_loc(node, item_indexes), found).id
-                problems.append(problem.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
+                problems.append(call_problems.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, item_indexes) in answered:
-                problems.append(problem.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
+                problems.append(call_problems.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
                 continue
             try:
                 read = compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=unit_id)
@@ -353,7 +352,7 @@ class Run[C]:
         """
         unknown = [n for n in node_ids if n not in self.graph._nodes]
         if unknown:
-            raise InvalidCallError([problem.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
+            raise InvalidCallError([call_problems.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
         for path in [path for path in fresh._reusable if path[0] in node_ids]:  # a subgraph's id forgets every node inside it
             del fresh._reusable[path]
@@ -466,9 +465,9 @@ class Run[C]:
             case Going(status="complete"):
                 pass
             case Going(status=status):
-                raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason="")])
+                raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
-                raise InvalidCallError([problem.run_not_complete("outputs", status=status, reason=cause.msg)])
+                raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason=cause.msg)])
         return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:

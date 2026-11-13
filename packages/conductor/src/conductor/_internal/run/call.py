@@ -18,7 +18,7 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
 from conductor._internal.gate import RefusedError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 from conductor._internal.types import untyped_as_json
 
 from .flat import FlatFunctionNode
@@ -77,5 +77,5 @@ def jsonable(arguments: dict[str, Any]) -> Any:
             try:
                 plain_json(value, fallback=untyped_as_json)
             except (TypeError, ValueError, PydanticSerializationError) as unwritable:
-                raise RefusedError([problem.question_unwritable(reason=str(unwritable), input=name)]) from None
+                raise RefusedError([run_problems.question_unwritable(reason=str(unwritable), input=name)]) from None
         raise error

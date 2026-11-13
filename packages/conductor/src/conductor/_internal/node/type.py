@@ -21,7 +21,7 @@ from conductor._internal.base import qualified_name
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
 from conductor._internal.gate import AskedValueDoor, RefusedError, ReturnShape
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 from conductor._internal.record import GraphRecord
 
 from .describe import FunctionNodeDescription, SubgraphDescription
@@ -114,7 +114,7 @@ class AskedParameter:
             try:
                 return node_function(*context, **arguments)
             except Ask:
-                raise RefusedError([problem.ask_not_declared()]) from None
+                raise RefusedError([run_problems.ask_not_declared()]) from None
 
         return filled
 

@@ -34,7 +34,7 @@ from pydantic_core import (
 
 from conductor._internal.base import SKIPPED, comma_separated
 from conductor._internal.field import Field
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 
 from .refused import RefusedError
 from .rules import exact_classes, output_schema_of, output_validator_of
@@ -139,13 +139,13 @@ class AskedValueDoor:
         except ValidationError as error:
             field = self._field
             refused = field.whole.refusal(error)
-            raise RefusedError([problem.invalid_asked_value(name=field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+            raise RefusedError([run_problems.invalid_asked_value(name=field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 
 
 def _no_outputs(returned: Any) -> dict[str, Any]:
     """The outputs of a node declared ``-> None``: none, when it returned ``None``."""
     if returned is not None:
-        raise RefusedError([problem.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
+        raise RefusedError([run_problems.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
     return {}
 
 
@@ -223,11 +223,11 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Refuse
     first = error.errors()[0]
     ctx = first.get("ctx", {})
     if first["type"] == "alternatives_both_given":
-        return RefusedError([problem.invalid_output(reason=first["msg"], name=ctx["second"])])
+        return RefusedError([run_problems.invalid_output(reason=first["msg"], name=ctx["second"])])
     if first["type"] in ("output_missing", "output_unknown"):
-        return RefusedError([problem.invalid_output(reason=first["msg"], name=ctx["name"])])
+        return RefusedError([run_problems.invalid_output(reason=first["msg"], name=ctx["name"])])
     if not first["loc"]:
-        return RefusedError([problem.invalid_output(reason=first["msg"])])
+        return RefusedError([run_problems.invalid_output(reason=first["msg"])])
     name = str(first["loc"][0])
     return _refused_output(outputs[name], error, under=(name,))
 
@@ -236,7 +236,7 @@ def _refused_output(field: Field, error: ValidationError, under: tuple[str, ...]
     """The ``invalid_output`` of a value the type of the output ``field`` refused; ``error`` and ``under`` are as
     ``Type.refusal`` takes them."""
     refused = field.whole.refusal(error, under)
-    return RefusedError([problem.invalid_output(reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column)])
+    return RefusedError([run_problems.invalid_output(reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column)])
 
 
 def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:

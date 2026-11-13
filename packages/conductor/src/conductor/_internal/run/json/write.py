@@ -15,8 +15,7 @@ from pydantic_core import PydanticSerializationError
 from conductor._internal.ask import Answer, Question
 from conductor._internal.base import SKIPPED, Address, node_path_text
 from conductor._internal.field import Field
-from conductor._internal.problem import InvalidCallError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
 from ..flat import FlatFunctionNode
@@ -63,7 +62,7 @@ def run_to_json(run: Run) -> str:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
         where = first_unwritable_value(saved)
-        raise InvalidCallError([problem.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
+        raise InvalidCallError([call_problems.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
 
 
 def outputs_to_json(run: Run) -> str:
@@ -86,7 +85,7 @@ def outputs_to_json(run: Run) -> str:
         try:
             written[text] = Type(hint).to_json(value)
         except PydanticSerializationError:
-            raise InvalidCallError([problem.run_unwritable("outputs", text, where=text, reason="a value has no JSON form")]) from None
+            raise InvalidCallError([call_problems.run_unwritable("outputs", text, where=text, reason="a value has no JSON form")]) from None
     return pydantic_core.to_json(written).decode()
 
 

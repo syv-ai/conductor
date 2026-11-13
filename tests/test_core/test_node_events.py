@@ -23,8 +23,7 @@ from conductor import (
     subgraph,
 )
 from conductor._internal.base import ItemIndexes
-from conductor._internal.problem import Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import Problem, run_problems
 from conductor._internal.run import node_events as node_events_module
 from conductor._internal.run.events import EventBase, NodeWaiting
 from conductor._internal.run.node_events import NodeEvents
@@ -143,7 +142,7 @@ class Told:
         return taken
 
     def _timed_out(self, name: str, item_indexes: ItemIndexes) -> Problem:
-        return problem.external_failed(name, *item_indexes, error="TimeoutError")  # the loc of a node of the graph itself
+        return run_problems.external_failed(name, *item_indexes, error="TimeoutError")  # the loc of a node of the graph itself
 
 
 def _one_line(event: EventBase) -> str:

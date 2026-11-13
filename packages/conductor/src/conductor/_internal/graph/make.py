@@ -23,8 +23,7 @@ from conductor._internal.node import (
     SubgraphDefinition,
     read_by_hooks,
 )
-from conductor._internal.problem import InvalidCallError, Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
 
@@ -120,10 +119,10 @@ def _place(text: str, where: tuple[str | int, ...], ids: Sequence[str], problems
     """
     parts = tuple(text.split(".", 2 if field else 1))
     if len(parts) < 2 or not all(parts):
-        problems.append(problem.not_a_place(*where, text=text))
+        problems.append(call_problems.not_a_place(*where, text=text))
         return None
     if parts[0] not in ids:
-        problems.append(problem.node_not_in_graph(parts[0], nodes=list(ids)))
+        problems.append(call_problems.node_not_in_graph(parts[0], nodes=list(ids)))
         return None
     return parts
 
@@ -165,7 +164,7 @@ def _graph_inputs(
         if count > 1 or name in named:
             places = [f"{node_id}.{input_name}" for node_id, input_name in automatic if input_name == name]
             places += [f"{node_id}.{input_name}" for (node_id, input_name), given in graph_input_of.items() if given == name]
-            problems.append(problem.graph_inputs_share_a_name("inputs", name, name=name, inputs=places))
+            problems.append(call_problems.graph_inputs_share_a_name("inputs", name, name=name, inputs=places))
     return {**graph_input_of, **{(node_id, name): name for node_id, name in automatic}}
 
 
@@ -184,7 +183,7 @@ def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str
     for name, count in counts.items():
         if count > 1 or name in declared:
             places = [f"{node_id}.{output}" for node_id, output in leaves if output == name] + ([str(declared[name])] if name in declared else [])
-            problems.append(problem.graph_outputs_share_a_name("outputs", name, name=name, outputs=places))
+            problems.append(call_problems.graph_outputs_share_a_name("outputs", name, name=name, outputs=places))
     return {**declared, **{output: Address(node_id, output) for node_id, output in leaves if counts[output] == 1 and output not in declared}}
 
 
@@ -228,7 +227,7 @@ def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problem
             node_id = f"{definition.id}-{numbered[definition.id]}"
         if node_id in by_id:
             reason = f"the id {node_id!r} is given to two nodes"
-            problems.append(problem.invalid_record("record", "nodes", node_id, where=f"nodes.{node_id}", reason=reason, error="repeated_key", written_by="make_graph's arguments"))
+            problems.append(call_problems.invalid_record("record", "nodes", node_id, where=f"nodes.{node_id}", reason=reason, error="repeated_key", written_by="make_graph's arguments"))
         taken.add(node_id)
         by_id[node_id] = definition
     return by_id
@@ -247,7 +246,7 @@ def _chain_edges(definitions: Mapping[str, NodeDefinition], filled: set[tuple[st
             case _:  # a subgraph's types are known only when it is compiled, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:
-            problems.append(problem.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
+            problems.append(call_problems.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
         else:
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
     return edges

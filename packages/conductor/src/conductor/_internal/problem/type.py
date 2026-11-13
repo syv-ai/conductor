@@ -88,7 +88,7 @@ class ProblemKind[**Params]:
             other problem of a compiled graph is fixed in the graph.
         sentence: The message with a replacement field ``{key}`` in place of each ``ctx`` value.
         ctx_type: The keys of ``ctx`` and their types, as a ``TypedDict``. A key that may be left out is not required.
-        section: The title of the catalogue's section the kind is declared in; empty when the catalogue has none.
+        section: The title of the catalogue the kind is declared on; empty when it has none.
     """
 
     def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, of_a_hook: bool, section: str) -> None:
@@ -162,22 +162,38 @@ class ProblemCatalogue:
     """The kinds of problem one package reports, in the order they are declared.
 
     A host that writes its own messages iterates it: each kind has its ``code``, its ``sentence`` and its
-    ``ctx_type``.
+    ``ctx_type``. A catalogue with a title is a section of the problems page, which prints the title as a heading
+    and the text under it, then the kinds; ``ProblemCatalogue.joined`` makes one catalogue of several sections.
 
     Attributes:
-        sections: The text of each section, by title, in the order they are started.
+        sections: The text of each section, by title, in the order of its kinds; empty for a catalogue with no title.
     """
 
-    def __init__(self) -> None:
-        self._kinds: dict[tuple[str, str | None], ProblemKind[...]] = {}
-        self.sections: dict[str, str] = {}
+    def __init__(self, title: str = "", text: str = "") -> None:
+        """Makes an empty catalogue.
 
-    def section(self, title: str, text: str) -> None:
-        """Starts a section: the kinds declared after it belong to ``title``, and ``text`` says what they have in common.
-
-        The problems page prints each section as a heading with its text, then its kinds.
+        Args:
+            title: The heading of its section on the problems page; empty for a catalogue printed under a heading
+                of the page's own.
+            text: What its kinds have in common: where they are met, and what their ``loc`` is.
         """
-        self.sections[title] = text
+        self._title = title
+        self._kinds: dict[tuple[str, str | None], ProblemKind[...]] = {}
+        self.sections: dict[str, str] = {title: text} if title else {}
+
+    @classmethod
+    def joined(cls, *sections: ProblemCatalogue) -> ProblemCatalogue:
+        """One catalogue of the kinds of ``sections``, in their order, each kind in the section it is declared in.
+
+        Raises:
+            TypeError: Two sections declare a kind with one code and variant.
+        """
+        catalogue = cls()
+        for section in sections:
+            catalogue.sections |= section.sections
+            for kind in section:
+                catalogue._add(kind)
+        return catalogue
 
     def problem[**Params](self, code: str | None = None, *, variant: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
         """Makes the function under it a kind of problem, and returns the kind, which is called to make a problem.
@@ -216,18 +232,26 @@ class ProblemCatalogue:
                 a ``variant`` for a code not declared before it.
         """
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
-            name = write_message.__name__
-            kind_code = code or name
-            if (kind_code, variant) in self._kinds:
-                taken = f"the variant {variant!r}" if variant else "a kind"
-                raise TypeError(f"{name}: '{kind_code}' has {taken} declared before it; give this kind a variant of its own")
-            if variant and (kind_code, None) not in self._kinds:
-                raise TypeError(f"{name}: a variant is a second message under a code, and '{kind_code}' is not declared before it")
-            kind = ProblemKind(write_message, kind_code, variant, of_a_hook, next(reversed(self.sections), ""))
-            self._kinds[kind_code, variant] = kind
+            kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook, self._title)
+            self._add(kind)
             return kind
 
         return declared
+
+    def _add(self, kind: ProblemKind[...]) -> None:
+        """Adds ``kind``, the one kind of its code with no variant or a variant the code has no other kind of.
+
+        Raises:
+            TypeError: The catalogue has a kind of the code and variant, or ``kind`` is a variant of a code it has no
+                kind of.
+        """
+        name = kind._message.__name__
+        if (kind.code, kind.variant) in self._kinds:
+            taken = f"the variant {kind.variant!r}" if kind.variant else "a kind"
+            raise TypeError(f"{name}: '{kind.code}' has {taken} declared before it; give this kind a variant of its own")
+        if kind.variant and (kind.code, None) not in self._kinds:
+            raise TypeError(f"{name}: a variant is a second message under a code, and '{kind.code}' is not declared before it")
+        self._kinds[kind.code, kind.variant] = kind
 
     def __iter__(self) -> Iterator[ProblemKind[...]]:
         return iter(self._kinds.values())

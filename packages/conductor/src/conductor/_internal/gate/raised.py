@@ -22,7 +22,7 @@ from pydantic_core import PydanticCustomError
 from conductor._internal.ask import NOTHING_SET, Ask, Question, QuestionOverrides
 from conductor._internal.base import REQUIRED, comma_separated
 from conductor._internal.field import Field
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 from conductor._internal.types import Choice
 
 from .answer import answer_value, read_as_answer
@@ -75,15 +75,15 @@ class AskDoor:
         outputs = self._outputs
         if len(outputs) == 1:
             if argument == "choices" and isinstance(given, Mapping):
-                raise RefusedError([problem.invalid_ask(reason="the node asks one question, so it is answered with a value, and choices= is a list")])
+                raise RefusedError([run_problems.invalid_ask(reason="the node asks one question, so it is answered with a value, and choices= is a list")])
             return {next(iter(outputs)): given}
         if not isinstance(given, Mapping):
             reason = f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too"
-            raise RefusedError([problem.invalid_ask(reason=reason)])
+            raise RefusedError([run_problems.invalid_ask(reason=reason)])
         for name in given:
             if name not in outputs:
                 reason = f"the {argument} names '{name}', which is not an output; the outputs are {comma_separated(outputs)}"
-                raise RefusedError([problem.invalid_ask(reason=reason)])
+                raise RefusedError([run_problems.invalid_ask(reason=reason)])
         return dict(given)
 
 
@@ -94,7 +94,7 @@ def undeclared_ask(ask: Ask, inputs: dict[str, Any]) -> Question:
     Raises:
         RefusedError: Always, with ``ask_not_declared``.
     """
-    raise RefusedError([problem.ask_not_declared()])
+    raise RefusedError([run_problems.ask_not_declared()])
 
 
 def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
@@ -107,14 +107,14 @@ def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
             (``invalid_ask``).
     """
     if not choices:
-        raise RefusedError([problem.invalid_ask(reason=f"'{field.name}' is offered no choices")])
+        raise RefusedError([run_problems.invalid_ask(reason=f"'{field.name}' is offered no choices")])
     given = [choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in choices]
     try:
         shown = [{"id": field.type.to_json(read_as_answer(field.type, choice.id)), **choice.model_dump(mode="json", exclude={"id"})} for choice in given]
     except PydanticCustomError as refused:
-        raise RefusedError([problem.invalid_ask(reason=f"a choice for '{field.name}' is not what it returns: {refused.message()}")]) from None
+        raise RefusedError([run_problems.invalid_ask(reason=f"a choice for '{field.name}' is not what it returns: {refused.message()}")]) from None
     if len({repr(choice["id"]) for choice in shown}) != len(shown):
-        raise RefusedError([problem.invalid_ask(reason=f"a choice for '{field.name}' is offered twice")])
+        raise RefusedError([run_problems.invalid_ask(reason=f"a choice for '{field.name}' is offered twice")])
     return shown
 
 
@@ -132,5 +132,5 @@ def _proposed(field: Field, default: Any, choices: list[dict[str, Any]] | None) 
     try:
         written: JsonValue = field.whole.to_json(answer_value(field, default, choices))
     except PydanticCustomError as refused:
-        raise RefusedError([problem.invalid_ask(reason=f"the default for '{field.name}' is not an answer it takes: {refused.message()}")]) from None
+        raise RefusedError([run_problems.invalid_ask(reason=f"the default for '{field.name}' is not an answer it takes: {refused.message()}")]) from None
     return written

@@ -21,8 +21,7 @@ from pydantic_core.core_schema import TypedDictField
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
-from conductor._internal.problem import Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import Problem, call_problems
 
 from .refused import RefusedError
 from .rules import schema_of
@@ -78,7 +77,7 @@ class InputsDoor:
         for fault in error.errors():
             key = fault["loc"][0]
             if fault["type"] in ("extra_forbidden", "invalid_key"):
-                names.append(problem.not_offered("inputs", key, name=str(key), inputs=list(self._inputs)))
+                names.append(call_problems.not_offered("inputs", key, name=str(key), inputs=list(self._inputs)))
             else:
                 first_faults.setdefault(str(key), fault)
         return names + [self._input_problem(name, given, error, first_faults[name]) for name in self._inputs if name in first_faults]
@@ -89,12 +88,12 @@ class InputsDoor:
         field = self._inputs[name]
         key, *inside = first["loc"]
         if first["type"] == "missing" and not inside:  # the input itself, not a field inside its value
-            return problem.missing_input("inputs", name, name=name)
+            return call_problems.missing_input("inputs", name, name=name)
         refused = field.whole.refusal(error, under=(key,))
         value = given[name]
         if not field.is_series and type(value) is list and all(not error["loc"] for error in refused.errors):
-            return problem.invalid_input_make_a_series("inputs", name, name=name, expected=field.whole.id, length=len(value))  # the one mistake whose fix is in the graph
-        return problem.invalid_input("inputs", name, name=name, reason=refused.reason, errors=refused.errors, column=refused.column)
+            return call_problems.invalid_input_make_a_series("inputs", name, name=name, expected=field.whole.id, length=len(value))  # the one mistake whose fix is in the graph
+        return call_problems.invalid_input("inputs", name, name=name, reason=refused.reason, errors=refused.errors, column=refused.column)
 
 
 def _input_schema(field: Field) -> TypedDictField:
@@ -116,9 +115,9 @@ _LIMITS = SchemaValidator(core_schema.typed_dict_schema({
 
 #: The problem of each limit, by its name.
 _LIMIT_PROBLEMS = {
-    "max_items": lambda value: problem.invalid_max_items("max_items", max_items=value),
-    "timeout": lambda value: problem.invalid_timeout("timeout", timeout=value),
-    "checkpoint_every": lambda value: problem.invalid_checkpoint_every("checkpoint_every", checkpoint_every=value),
+    "max_items": lambda value: call_problems.invalid_max_items("max_items", max_items=value),
+    "timeout": lambda value: call_problems.invalid_timeout("timeout", timeout=value),
+    "checkpoint_every": lambda value: call_problems.invalid_checkpoint_every("checkpoint_every", checkpoint_every=value),
 }
 
 

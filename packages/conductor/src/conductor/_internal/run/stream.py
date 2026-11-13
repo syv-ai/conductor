@@ -13,7 +13,7 @@ from threading import Event as ThreadEvent
 from threading import Thread
 from typing import Any
 
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 
 from .events import Event, EventBase
 from .state import RUNNING, EndedEarly, RunState, deadline
@@ -38,7 +38,7 @@ async def stream(
 
     def stop() -> RunState | None:
         if cancelled.is_set() or (cancel is not None and cancel.is_set()):
-            return EndedEarly("cancelled", problem.run_cancelled())
+            return EndedEarly("cancelled", run_problems.run_cancelled())
         if hand_back is not None and hand_back.is_set():
             return RUNNING  # the leg stops and the run goes on elsewhere
         return check_deadline() if check_deadline is not None else None

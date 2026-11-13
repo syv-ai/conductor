@@ -16,7 +16,7 @@ from pydantic import JsonValue, ValidationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.field import Field
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import compile_problems
 from conductor._internal.types import Type
 
 from .refused import RefusedError
@@ -34,7 +34,7 @@ def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
         return validator_of(field.whole).validate_python(value)
     except ValidationError as error:
         refused = field.whole.refusal(error)
-        raise RefusedError([problem.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+        raise RefusedError([compile_problems.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 
 
 def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Field:
@@ -58,4 +58,4 @@ def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Fie
         return Field(field.name, hint, validator_of(whole).validate_python(field.default))
     except ValidationError as error:
         refused = whole.refusal(error)
-        raise RefusedError([problem.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None
+        raise RefusedError([compile_problems.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None

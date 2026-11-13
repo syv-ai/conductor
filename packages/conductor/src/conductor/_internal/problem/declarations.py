@@ -25,9 +25,7 @@ from typing import Any, Literal
 from .type import ProblemCatalogue
 
 #: Every kind of problem a declaration can have.
-DECLARATION_PROBLEMS = ProblemCatalogue()
-
-DECLARATION_PROBLEMS.section(
+DECLARATION_PROBLEMS = ProblemCatalogue(
     "Declaring a node",
     "Raised as `NodeDeclarationError` when the module that declares the node or the type is imported. `error.code` is "
     "the code and `error.problem` the problem, whose message is written for the node's developer; the error's text puts "

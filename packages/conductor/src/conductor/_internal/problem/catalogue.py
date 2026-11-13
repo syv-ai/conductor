@@ -1,11 +1,12 @@
 """Every kind of problem conductor's core reports, one function each, in ``PROBLEMS``.
 
-The kinds are declared in three modules, one per section of the problems page, and each module starts its section,
-so a kind is in the section of the module it is declared in: ``compiling.py`` (in ``graph.problems``),
-``refused.py`` (raised as ``InvalidCallError``) and ``stopped.py`` (why a run ended early). A module that reports
-one reads it here, ``from conductor._internal.problem import catalogue as problem``, and calls ``problem.cycle(node_id)``.
+The kinds are declared in three modules, one per section of the problems page, each with the catalogue of its
+section: ``compile_problems.py`` (``COMPILE_PROBLEMS``, in ``graph.problems``), ``call_problems.py``
+(``CALL_PROBLEMS``, raised as ``InvalidCallError``) and ``run_problems.py`` (``RUN_PROBLEMS``, why a run ended
+early). ``PROBLEMS`` joins the three, in the page's order. A module that reports a kind imports the module that
+declares it and calls the kind: ``compile_problems.cycle(node_id)``.
 
-A kind is a function under ``@PROBLEMS.problem()``. Its name is the problem's code. Its positional-only parameters
+A kind is a function under ``@COMPILE_PROBLEMS.problem()``, or the catalogue of its section. Its name is the problem's code. Its positional-only parameters
 (before the ``/``) and its ``*loc`` are the parts of ``loc``, and a named one is a key of ``ctx`` too; its keyword-only
 parameters are the other keys of ``ctx``.
 It returns the message. Calling it makes the problem::
@@ -16,7 +17,7 @@ It returns the message. Calling it makes the problem::
 
 A type checker checks every call against the function's signature; ``ProblemCatalogue.problem`` in ``type.py`` gives
 the rules for the signature in full. A few kinds name their code in the decorator,
-``@PROBLEMS.problem("type_mismatch", variant="make_a_series")``: a second message under that code, for one particular
+``@COMPILE_PROBLEMS.problem("type_mismatch", variant="make_a_series")``: a second message under that code, for one particular
 mistake, and the problem's ``ctx.variant`` says which. ``of_a_hook=True`` marks a problem in a node's ``compute_...``
 hook, which the node's developer fixes rather than the graph's author; ``check_registry`` reports those as its own.
 
@@ -31,12 +32,10 @@ ended on. Its last line calls its section's helper, and a test checks it gives p
 
 from __future__ import annotations
 
+from .call_problems import CALL_PROBLEMS
+from .compile_problems import COMPILE_PROBLEMS
+from .run_problems import RUN_PROBLEMS
 from .type import ProblemCatalogue
 
 #: Every kind of problem conductor's core reports.
-PROBLEMS: ProblemCatalogue = ProblemCatalogue()
-
-# The sections, in the page's order. Each declares its kinds on PROBLEMS, so it is imported after PROBLEMS is made.
-from .compiling import *  # noqa: E402, F403
-from .refused import *  # noqa: E402, F403
-from .stopped import *  # noqa: E402, F403
+PROBLEMS = ProblemCatalogue.joined(COMPILE_PROBLEMS, CALL_PROBLEMS, RUN_PROBLEMS)

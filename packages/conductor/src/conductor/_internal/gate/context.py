@@ -16,7 +16,7 @@ from typing import Any
 
 from conductor._internal.base import NodePath
 from conductor._internal.context import ContextParameter
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import call_problems
 
 from .refused import RefusedError
 
@@ -38,7 +38,7 @@ class ContextDoor:
                 its ``Context`` parameter.
         """
         self._context_type = context_type
-        self._missing = [problem.context_missing(*node_path, parameter.name, parameter=parameter.name, needs=parameter.cls.__name__) for node_path, parameter in takers]
+        self._missing = [call_problems.context_missing(*node_path, parameter.name, parameter=parameter.name, needs=parameter.cls.__name__) for node_path, parameter in takers]
 
     def __call__(self, context: Any) -> Any:
         """Returns ``context`` as the host passed it, ``None`` included when no node takes it.
@@ -51,7 +51,7 @@ class ContextDoor:
                 raise RefusedError(self._missing)
             return None
         if self._context_type is None:
-            raise RefusedError([problem.invalid_context_no_context_type("context", got=type(context).__name__)])
+            raise RefusedError([call_problems.invalid_context_no_context_type("context", got=type(context).__name__)])
         if not isinstance(context, self._context_type):
-            raise RefusedError([problem.invalid_context("context", expected=self._context_type.__name__, got=type(context).__name__)])
+            raise RefusedError([call_problems.invalid_context("context", expected=self._context_type.__name__, got=type(context).__name__)])
         return context

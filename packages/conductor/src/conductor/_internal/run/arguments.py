@@ -38,7 +38,7 @@ from typing import Any, Final, Literal
 from conductor._internal.base import SKIPPED, ItemIndexes
 from conductor._internal.compiled import Edge
 from conductor._internal.gate import RefusedError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import run_problems
 from conductor._internal.series import places_of_none, without_places
 from conductor._internal.types import NoSuchFieldError, field_of
 
@@ -110,7 +110,7 @@ class ResultReader:
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
                 if fault is None:
                     reason = f"it has no field '{missing.field}'"
-                    fault = RefusedError([problem.invalid_edge_value(name=name, reason=reason, record_field=missing.field)])
+                    fault = RefusedError([run_problems.invalid_edge_value(name=name, reason=reason, record_field=missing.field)])
                 continue
             if value is SKIPPED:
                 return Skipped(node.compiled_node.outputs_when_skipped)

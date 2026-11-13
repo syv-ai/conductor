@@ -15,8 +15,7 @@ from typing import ClassVar, Literal
 
 from pydantic import ConfigDict
 
-from conductor._internal.problem import Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import Problem, run_problems
 
 #: The status of a run nothing has ended early: not started, being run by ``resume()``, waiting for a person, or complete.
 GoingStatus = Literal["ready", "running", "complete", "waiting"]
@@ -67,4 +66,4 @@ def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     if timeout is None:
         return None
     end = time.monotonic() + timeout
-    return lambda: EndedEarly("timed_out", problem.run_timed_out(timeout=timeout)) if time.monotonic() > end else None
+    return lambda: EndedEarly("timed_out", run_problems.run_timed_out(timeout=timeout)) if time.monotonic() > end else None

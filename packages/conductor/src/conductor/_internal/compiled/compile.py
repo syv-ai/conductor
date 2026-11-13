@@ -60,8 +60,7 @@ from conductor._internal.node import (
     SubgraphDefinition,
     read_by_hooks,
 )
-from conductor._internal.problem import NodeError, Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import NodeError, Problem, compile_problems
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.types import Type
 
@@ -204,7 +203,7 @@ class _Compiler:
             source = self.nodes.get(address.node)
             if address.node not in self.record.nodes or (source is not None and address.output not in source.outputs):
                 found = [str(Address(address.node, output)) for output in source.outputs] if source is not None else []
-                self.problems.append(problem.graph_output_not_found(output=name, source=str(address), outputs=found))
+                self.problems.append(compile_problems.graph_output_not_found(output=name, source=str(address), outputs=found))
             elif source is not None:
                 field = source.outputs[address.output]
                 outputs[name] = Edge(address, source.loops_around(address.output), field.type, item=field.is_series)
@@ -216,10 +215,10 @@ class _Compiler:
         try:
             newest = self.definitions[record.node]
         except KeyError:
-            self.problems.append(problem.unknown_node(node_id, node=record.node, choices=sorted(definition.id for definition in self.definitions)))
+            self.problems.append(compile_problems.unknown_node(node_id, node=record.node, choices=sorted(definition.id for definition in self.definitions)))
             return None
         if record.version not in newest.versions:
-            self.problems.append(problem.unknown_version(node_id, node=record.node, version=record.version, newest=newest.version))
+            self.problems.append(compile_problems.unknown_version(node_id, node=record.node, version=record.version, newest=newest.version))
             return None
         return newest.version_of(record.version)
 
@@ -247,7 +246,7 @@ class _Compiler:
                 if on_cycles is None:
                     stuck = {n for n in order if waiting[n]}
                     on_cycles = [n for n in order if n in stuck and _reaches(n, n, downstream, stuck)]  # on a cycle, not only downstream of one
-                    self.problems += [problem.cycle(n) for n in on_cycles]
+                    self.problems += [compile_problems.cycle(n) for n in on_cycles]
                 first = next(n for n in on_cycles if waiting[n] > 0)
                 waiting[first] = 0
                 ready.append(position[first])
@@ -283,7 +282,7 @@ class _Compiler:
             added = made
             taken = sorted(added.keys() & (fields.keys() | ({definition.context.name} if definition.context is not None else set())))
             if taken:
-                self.problems.append(problem.compute_hook_failed(node_id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
+                self.problems.append(compile_problems.compute_hook_failed(node_id, reason=f"it adds {taken[0]!r}, which the node already declares", error="added_input_taken"))
                 return
             fields.update(added)
             constants.update(self._constants_of(node_id, record, added))
@@ -311,14 +310,14 @@ class _Compiler:
         """
         needs = context.cls.__name__
         if self.context_type is None:
-            self.problems.append(problem.context_does_not_fit_no_context_type(node_id, context.name, needs=needs))
+            self.problems.append(compile_problems.context_does_not_fit_no_context_type(node_id, context.name, needs=needs))
             return
         context_type = self.context_type.__name__
         if not is_protocol(context.cls):
             if not issubclass(self.context_type, context.cls):
-                self.problems.append(problem.context_does_not_fit(node_id, context.name, needs=needs, context_type=context_type))
+                self.problems.append(compile_problems.context_does_not_fit(node_id, context.name, needs=needs, context_type=context_type))
         elif lacks := what_the_context_lacks(self.context_type, context.cls):
-            self.problems.append(problem.context_does_not_fit_lacks(node_id, context.name, needs=needs, context_type=context_type, lacks=lacks))
+            self.problems.append(compile_problems.context_does_not_fit_lacks(node_id, context.name, needs=needs, context_type=context_type, lacks=lacks))
 
     def _compile_subgraph_node(self, node_id: str, record: NodeRecord, definition: SubgraphDefinition, edges: Mapping[str, tuple[Address, ...]]) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
@@ -335,7 +334,7 @@ class _Compiler:
         of a graph with problems are not known.
         """
         if definition.id in self.inside_subgraphs:
-            self.problems.append(problem.subgraph_contains_itself(node_id, node=definition.id))
+            self.problems.append(compile_problems.subgraph_contains_itself(node_id, node=definition.id))
             return
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
@@ -378,7 +377,7 @@ class _Compiler:
             generic: Whether an input's type has a type variable, which the edges then bind.
         """
         for name in sorted(record.inputs.keys() - fields.keys()):
-            self.problems.append(problem.unknown_input(node_id, name, inputs=list(fields)))
+            self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(fields)))
         sources = {name: self._sources(node_id, name, edges[name]) for name in fields if name in edges}
         bound = None
         refused_defaults: set[str] = set()
@@ -399,7 +398,7 @@ class _Compiler:
             entry = record.inputs.get(name)
             if entry is None:
                 if field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
-                    self.problems.append(problem.input_has_no_value(node_id, name))
+                    self.problems.append(compile_problems.input_has_no_value(node_id, name))
                     inputs[name] = MissingInput(field)
                 else:
                     inputs[name] = ConstantInput(field, field.default)
@@ -419,7 +418,7 @@ class _Compiler:
                 inputs[name] = _constant_input(field, constants[name])
             elif entry.graph_input is not MISSING:
                 if name in constant_at_compile:  # a hook reads it before any caller gives it
-                    self.problems.append(problem.hook_needs_value(node_id, name))
+                    self.problems.append(compile_problems.hook_needs_value(node_id, name))
                     inputs[name] = MissingInput(field)
                 else:  # with the record's default, or none: then the caller must give one
                     inputs[name] = self._graph_input(node_id, field, entry.graph_input, constants.get(name, REQUIRED))
@@ -442,11 +441,11 @@ class _Compiler:
                 reading = next(n for n, p in inputs.items() if p.loops == loops)
                 subgraphs = list(dict.fromkeys(port.node for port in series if isinstance(self.nodes[port.node], CompiledSubgraphNode)))
                 if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph
-                    self.problems.append(problem.loops_not_nested_inside_subgraph(
+                    self.problems.append(compile_problems.loops_not_nested_inside_subgraph(
                         node_id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
                     ))
                 else:
-                    self.problems.append(problem.series_not_nested(
+                    self.problems.append(compile_problems.series_not_nested(
                         node_id, series=[str(s) for s in series], inputs=[reading, name],
                     ))
                 inputs[name] = MissingInput(node_input.field)
@@ -474,7 +473,7 @@ class _Compiler:
         if found is None or (found.default is REQUIRED and found.hint == field.hint):
             self.graph_inputs[name] = Field(name, field.hint, default if found is None or default is not REQUIRED else found.default)
         elif found.hint != field.hint or (default is not REQUIRED and Field(name, field.hint, default).default_json != found.default_json):
-            self.problems.append(problem.graph_input_used_two_ways(node_id, field.name, graph_input=name))
+            self.problems.append(compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name))
             return MissingInput(field)
         return GraphInput(field, name)
 
@@ -524,7 +523,7 @@ class _Compiler:
                 case "value":
                     value = constants.get(name, definition.inputs[name].default)  # @node made sure the parameter names a declared input
                     if value is REQUIRED:
-                        self.problems.append(problem.hook_needs_value(node_id, name))
+                        self.problems.append(compile_problems.hook_needs_value(node_id, name))
                         return None
                     if value is _INVALID:
                         return None  # the problem invalid_value says why
@@ -532,11 +531,11 @@ class _Compiler:
         try:
             returned = hook(**kwargs)
         except NodeError as error:  # the hook raised a NodeError: keep its message, code and ctx
-            self.problems.append(problem.compute_hook_failed(node_id, reason=error.message, error=error.code, error_ctx=dict(error.ctx) or None))
+            self.problems.append(compile_problems.compute_hook_failed(node_id, reason=error.message, error=error.code, error_ctx=dict(error.ctx) or None))
             return None
         except Exception as error:  # noqa: BLE001  any other exception of the hook is a problem of this node
             _logger.error("the %s hook of node %r failed", kind, node_id, exc_info=error)
-            self.problems.append(problem.compute_hook_failed(node_id, reason=str(error), error=type(error).__name__))
+            self.problems.append(compile_problems.compute_hook_failed(node_id, reason=str(error), error=type(error).__name__))
             return None
         try:
             return read_hook_fields(node_id, kind, returned)
@@ -558,7 +557,7 @@ class _Compiler:
         sources: list[Edge] = []
         for address in addresses:
             if address.node not in self.record.nodes:
-                self.problems.append(problem.edge_names_missing_node(node_id, name, missing=address.node, source=str(address), target=f"{node_id}.{name}"))
+                self.problems.append(compile_problems.edge_names_missing_node(node_id, name, missing=address.node, source=str(address), target=f"{node_id}.{name}"))
                 return None
             source = self._source(address, node_id, name)
             if source is None:
@@ -593,18 +592,18 @@ class _Compiler:
             return None
         outputs = [str(Address(address.node, output)) for output in source.outputs]
         if address.output not in source.outputs:
-            self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=outputs))
+            self.problems.append(compile_problems.unknown_output(node_id, name, source=str(address), outputs=outputs))
             return None
         field = source.outputs[address.output]
         if address.field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
-            self.problems.append(problem.unknown_output_make_a_series(
+            self.problems.append(compile_problems.unknown_output_make_a_series(
                 node_id, name, source=str(address), outputs=outputs, record_field=address.field, whole=parts[0], fields=parts[1],
             ))
             return None
         read_type = field.type if address.field is None else _field_type(field.type, address.field)
         if read_type is None:
             fields = [str(Address(address.node, address.output, f)) for f in field.type.fields]
-            self.problems.append(problem.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=address.field))
+            self.problems.append(compile_problems.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=address.field))
             return None
         return Edge(address, source.loops_around(address.output), read_type, item=field.is_series)
 
@@ -647,11 +646,11 @@ class _Compiler:
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(problem.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
+                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [str(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
-                self.problems.append(problem.alternatives_from_different_loops(node_id, name, series=series))
+                self.problems.append(compile_problems.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
         aligned = [  # the collecting inputs whose edges come from inside a loop
             (name, [self._branches_required_for(s) for s in sources]) for name, sources in readable.items()
@@ -660,7 +659,7 @@ class _Compiler:
         for i, (a, branches_a) in enumerate(aligned):
             for b, branches_b in aligned[i + 1:]:
                 if all(_never_together(x, y) for x in branches_a for y in branches_b):
-                    self.problems.append(problem.lists_from_different_loops(node_id, inputs=[a, b]))
+                    self.problems.append(compile_problems.lists_from_different_loops(node_id, inputs=[a, b]))
                     refused.update((a, b))
         return refused
 
@@ -795,10 +794,10 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
         missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
-            return problem.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
+            return compile_problems.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
     elif parts and not field.is_series:
-        return problem.type_mismatch_make_a_series(node_id, field.name, source=address, got=got, expected=expected, whole=parts[0], fields=parts[1])
-    return problem.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
+        return compile_problems.type_mismatch_make_a_series(node_id, field.name, source=address, got=got, expected=expected, whole=parts[0], fields=parts[1])
+    return compile_problems.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
 
 
 def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:

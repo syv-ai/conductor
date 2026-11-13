@@ -72,8 +72,7 @@ from typing import Any, Literal
 from conductor._internal.ask import Answer, Ask
 from conductor._internal.base import Address, ItemIndexes, NodePath
 from conductor._internal.gate import RefusedError
-from conductor._internal.problem import ExternalError, NodeError, Problem
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import ExternalError, NodeError, Problem, run_problems
 
 from .call import call, jsonable
 from .events import EventBase
@@ -735,7 +734,7 @@ class Scheduler:
                 self._make_attempt(attempt)
         elif self.attempts.get((node, item_indexes)) == attempt.number and (node, item_indexes) in self.running:
             del self.running[(node, item_indexes)]
-            self._record(node, item_indexes, problem.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
+            self._record(node, item_indexes, run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
     def _outcome(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
@@ -777,8 +776,8 @@ class Scheduler:
             return refused.model_copy(update={"loc": loc})
         _logger.error("node %r failed for item %r", node.name, item_indexes, exc_info=error)
         if isinstance(error, node.policy.retry_on):
-            return problem.external_failed(*loc, error=type(error).__name__)
-        return problem.execution_failed(*loc, error=type(error).__name__)
+            return run_problems.external_failed(*loc, error=type(error).__name__)
+        return run_problems.execution_failed(*loc, error=type(error).__name__)
 
     # -- 3. Reusing answers in item order -------------------------------------------------------------------------
 
@@ -866,7 +865,7 @@ class Scheduler:
             named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
             series = str(Address(named.compiled_node.id, series_output))
-            self.end(EndedEarly("stopped", problem.item_limit(*loc, series=series, items=items, max_items=item_limit)))
+            self.end(EndedEarly("stopped", run_problems.item_limit(*loc, series=series, items=items, max_items=item_limit)))
 
     def _checkpoint(self, checkpoints: _Checkpoints) -> None:
         """Hand the host a copy of the run now, with its outcomes in item order, and set when the next is due."""

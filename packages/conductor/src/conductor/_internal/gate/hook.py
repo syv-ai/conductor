@@ -16,8 +16,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from conductor._internal.base import REQUIRED, Name
 from conductor._internal.field import Field
-from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.problem import catalogue as problem
+from conductor._internal.problem import NodeDeclarationError, compile_problems
 
 from .declared import declared_field
 from .refused import RefusedError
@@ -39,12 +38,12 @@ def read_hook_fields(node_id: str, kind: str, returned: Any) -> dict[str, Field]
     except ValidationError as invalid:
         if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
             reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
-            raise RefusedError([problem.compute_hook_failed(node_id, reason=reason, error="not_a_mapping")]) from None
-        raise RefusedError(problem.parameter_name_invalid(node_id, str(fault["loc"][0])) for fault in invalid.errors()) from None
+            raise RefusedError([compile_problems.compute_hook_failed(node_id, reason=reason, error="not_a_mapping")]) from None
+        raise RefusedError(compile_problems.parameter_name_invalid(node_id, str(fault["loc"][0])) for fault in invalid.errors()) from None
     try:
         return {name: declared_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
     except NodeDeclarationError as error:  # a type conductor does not support is the hook's failure
-        raise RefusedError([problem.compute_hook_failed(node_id, reason=error.message, error=error.code)]) from None
+        raise RefusedError([compile_problems.compute_hook_failed(node_id, reason=error.message, error=error.code)]) from None
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:
