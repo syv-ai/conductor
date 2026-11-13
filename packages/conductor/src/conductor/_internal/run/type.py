@@ -65,6 +65,7 @@ from .waiting import (
     Waiting,
     question_fingerprint,
     read_waiting_id,
+    received,
     waiting_record,
     write_waiting_id,
 )
@@ -297,6 +298,7 @@ class Run[C]:
                 raise TypeError("run.answer takes a waiting call and its answer, or a mapping of waiting ids to answers")
         problems: list[Problem] = []
         answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
+        arguments_for = self._reader.arguments_for
         for waiting_id, one in given.items():
             try:
                 loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=self.status)
@@ -310,7 +312,7 @@ class Run[C]:
                 problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self.status, moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
-            asked = question_fingerprint(compiled_node, found)
+            asked = question_fingerprint(compiled_node, received(node, item_indexes, arguments_for))
             if fingerprint is not None and asked != fingerprint:
                 current = write_waiting_id(outcome_loc(node, item_indexes), asked)
                 problems.append(call_problems.answer_stale(*loc, waiting_id=waiting_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
@@ -319,12 +321,12 @@ class Run[C]:
                 problems.append(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason="the call is answered twice"))
                 continue
             try:
-                read = compiled_node.answer_door(one, found.question, loc=loc, waiting_id=waiting_id)
+                read = compiled_node.answer_door(one, found.choices, found.defaults, loc=loc, waiting_id=waiting_id)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
-            answered[(node, item_indexes)] = Answered(read, found.question)
+            answered[(node, item_indexes)] = Answered(read)
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_outcomes=True)
@@ -340,8 +342,9 @@ class Run[C]:
         node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
         if node is None:
             return None
+        arguments_for = self._reader.arguments_for
         for item_indexes, outcome in self._outcomes[nodes].items():
-            if type(outcome) is Unanswered and question_fingerprint(node.compiled_node, outcome) == fingerprint:
+            if type(outcome) is Unanswered and question_fingerprint(node.compiled_node, received(node, item_indexes, arguments_for)) == fingerprint:
                 return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
         return None
 
@@ -388,7 +391,8 @@ class Run[C]:
     def waiting(self) -> list[Waiting]:
         """Every call waiting for a person, in node then item order; those inside a subgraph where its
         node stands."""
-        return [waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome) for node, item_indexes, outcome in self._waiting_outcomes()]
+        arguments_for = self._reader.arguments_for
+        return [waiting_record(node, item_indexes, outcome, arguments_for) for node, item_indexes, outcome in self._waiting_outcomes()]
 
     def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
         """Every call waiting for a person, with its node and item indexes, in node then item order."""

@@ -21,9 +21,9 @@ class each. The examples add one small node to the graph above.
 - **done** (``Done``): the function was called and returned. Every outcome above is done.
 - **unanswered** (``Unanswered``): the function asked a person a question, by raising ``Ask``, and no answer has come
   yet. A node ``approve(line: str) -> bool``, wired to ``lines.result``, raises ``Ask("Approve longer?")`` for
-  the line ``"longer"``. Its call for that line is ``Unanswered(question=...)``.
+  the line ``"longer"``. Its call for that line is ``Unanswered("Approve longer?")``.
 - **answered** (``Answered``): the function asked a person, and the person answered. The answer is the call's
-  outputs: when the person answers ``False``, the call of ``approve`` is ``Answered({"result": False}, ...)``.
+  outputs: when the person answers ``False``, the call of ``approve`` is ``Answered({"result": False})``.
 - **skipped** (``Skipped``): the function was not called, because the node is downstream of a branch that was
   not chosen. A **branch** is one of several outputs, declared with the same ``Param(exclusive_group=...)``, of
   which a node gives a value to exactly one per call and ``SKIPPED`` to the others. A node ``route(line)`` with
@@ -51,11 +51,15 @@ class says which with ``has_outputs``, so code that needs an output asks ``outco
 
 from __future__ import annotations
 
+import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, ClassVar, Literal, final
 
-from conductor._internal.ask import Question
+from pydantic import JsonValue, SerializeAsAny
+
+from conductor._internal.types import Choice
 
 
 class NotReady(Enum):
@@ -97,16 +101,17 @@ class Done:
 @final
 @dataclass(frozen=True, slots=True)
 class Answered:
-    """The function asked a person a question, and the person answered: ``Answered({"result": False}, question)``.
+    """The function asked a person a question, and the person answered: ``Answered({"result": False})``.
+
+    It is a class of its own, not ``Done``, because a run going on from this one reuses answers in the order of the
+    calls (``NotReady.NOT_ITS_TURN``): two calls that got the same arguments may have been answered differently.
 
     Attributes:
         outputs: The call's outputs by name, read from the person's answer: ``{"result": False}``.
-        question: What the person was asked.
         has_outputs: ``True``.
     """
 
     outputs: dict[str, Any]
-    question: Question
     has_outputs: ClassVar[Literal[True]] = True
 
 
@@ -156,14 +161,24 @@ class NoneInput:
 class Unanswered:
     """The function asked a person a question, by raising ``Ask``, and no answer has come yet.
 
-    There are no outputs yet, so a call that needs one of them is not ready.
+    It keeps what the ``Ask`` said, as the ``Ask`` door read it, and is saved with the run. ``Ask("Who?",
+    choices=["ida", "bo"])`` raised by ``assign(ticket: str) -> str`` is ``Unanswered("Who?", {"result":
+    (Choice("ida"), Choice("bo"))})``. What the call received is not kept: a host is shown it read again from the
+    outcomes the call reads (``run.waiting``). There are no outputs yet, so a call that needs one of them is not
+    ready.
 
     Attributes:
-        question: What the person is asked.
+        prompt: What the person reads.
+        choices: The choices the ``Ask`` offered, by output name, each id read by the output's type in its JSON form
+            (``read_choices``); an output it set none on is not named.
+        defaults: The answer the ``Ask`` proposed, by output name, in its JSON form; an output it proposed none for is
+            not named.
         has_outputs: ``False``.
     """
 
-    question: Question
+    prompt: str
+    choices: Mapping[str, tuple[SerializeAsAny[Choice], ...]] = dataclasses.field(default_factory=dict)
+    defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
     has_outputs: ClassVar[Literal[False]] = False
 
 

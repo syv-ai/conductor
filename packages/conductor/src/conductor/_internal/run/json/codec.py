@@ -201,7 +201,7 @@ def _inside(hint: Any, step: str | int) -> Any:
 
 def _fields_of(hint: Any) -> dict[str, Any] | None:
     """Returns the hint of each field of ``hint`` by name when it is a pydantic model or a dataclass (a codec's
-    class, or ``Question`` inside one), else ``None``."""
+    class, or ``Unanswered`` inside one), else ``None``."""
     if isinstance(hint, type) and issubclass(hint, BaseModel):
         return {name: field.annotation for name, field in hint.model_fields.items()}
     if isinstance(hint, type) and is_dataclass(hint):

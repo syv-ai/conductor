@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, cast
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.ask import Question
 from conductor._internal.base import SKIPPED, NodePath, place_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
@@ -24,6 +23,7 @@ from ..progress import all_item_indexes, has_every_outcome
 from ..reuse import ReusableOutcomes
 from .codec import saved_type
 from .type import (
+    SAVED_ANSWERED,
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
@@ -38,13 +38,10 @@ if TYPE_CHECKING:
 
 #: What ``states`` says for an outcome of each class; an outcome of any other class, and a call with no outcome,
 #: is written as ``None``.
-_STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
+_STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED_ANSWERED, Skipped: SAVED_SKIPPED}
 
 #: The outcome classes whose outputs are written: what a function returned, or what a person answered.
 _HAS_OUTPUTS = (Done, Answered)
-
-#: The classes whose question is written: a call answered, or waiting.
-_HAS_QUESTION = (Answered, Unanswered)
 
 
 def run_to_json(run: Run) -> str:
@@ -151,7 +148,7 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     values_by_output: dict[str, list[Any]] = {}
     skipped: dict[str, list[int]] = {}
     skipped_items: dict[str, dict[int, list[int]]] = {}
-    questions: dict[int, Question] = {}
+    questions: dict[int, Unanswered] = {}
     not_called_because: dict[int, str] = {}
     if not classes.isdisjoint(_HAS_OUTPUTS):
         if classes.issubset(_HAS_OUTPUTS):  # speed only: every call has outputs, as in a node that is complete
@@ -177,11 +174,8 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
                             skipped_items.setdefault(name, {})[call_number] = skipped_indexes
     else:
         values_by_output = {name: [None] * len(outcomes) for name in outputs}
-    if not classes.isdisjoint(_HAS_QUESTION):
-        questions = {
-            call_number: outcome.question for call_number, outcome in enumerate(outcomes)
-            if isinstance(outcome, _HAS_QUESTION)
-        }
+    if Unanswered in classes:
+        questions = {call_number: outcome for call_number, outcome in enumerate(outcomes) if type(outcome) is Unanswered}
     if NoneInput in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
     return saved_class.model_construct(

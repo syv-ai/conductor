@@ -25,6 +25,7 @@ from conductor import (
 from conductor._internal.base import ItemIndexes, NodePath, place_text
 from conductor._internal.problem import Problem, run_problems
 from conductor._internal.run import node_events as node_events_module
+from conductor._internal.run.arguments import ResultReader
 from conductor._internal.run.events import EventBase, NodeWaiting
 from conductor._internal.run.node_events import NodeEvents
 from conductor._internal.run.outcome import Outcome
@@ -98,7 +99,7 @@ class Told:
         self.nodes = {place_text(path): node for path, node in run._flat.function_nodes.items()}
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
-        self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths)
+        self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths, ResultReader(self.finished_run, run.inputs).arguments_for)
 
     def start(self, name: str) -> None:
         """A call of the node is about to be made."""

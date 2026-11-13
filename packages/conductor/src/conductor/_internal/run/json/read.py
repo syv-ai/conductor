@@ -29,6 +29,7 @@ from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
 from .codec import where_in
 from .type import (
+    SAVED_ANSWERED,
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
@@ -134,20 +135,16 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
                 for index in indexes:
                     values_by_output[name][call_number][index] = SKIPPED
         outputs_by_call = [{name: values[call_number] for name, values in values_by_output.items()} for call_number in range(len(states))]
-        done, skipped = SAVED_DONE, SAVED_SKIPPED
+        done, answered, skipped = SAVED_DONE, SAVED_ANSWERED, SAVED_SKIPPED
         skipped_outcome = Skipped(outputs_when_skipped(outputs))
         outcomes: list[Outcome | None] = [
-            Done(of_call) if state == done else skipped_outcome if state == skipped else None
+            Done(of_call) if state == done else Answered(of_call) if state == answered else skipped_outcome if state == skipped else None
             for state, of_call in zip(states, outputs_by_call, strict=True)
         ]
-        for call_number, question in saved.questions.items():
-            outcome = outcomes[call_number]
-            if states[call_number] is None:
-                outcomes[call_number] = Unanswered(question)
-            elif type(outcome) is Done:
-                outcomes[call_number] = Answered(outcome.outputs, question)
-            else:
+        for call_number, waiting in saved.questions.items():
+            if states[call_number] is not None:
                 raise LookupError(call_number)
+            outcomes[call_number] = waiting
         for call_number, input_name in saved.not_called_because.items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)

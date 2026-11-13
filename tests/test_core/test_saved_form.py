@@ -210,7 +210,7 @@ def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() ->
     assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"3": [0, 2]}}
     assert saved["outcomes"]["ask"] == {
         "states": [None, "done", "done", "done", "done"], "outputs": {"result": [None, "bb", "ccc", "xax", "b"]},
-        "questions": {"0": {"prompt": "What of a?", "inputs": {"text": "a"}}},
+        "questions": {"0": {"prompt": "What of a?"}},
     }
     assert saved["outcomes"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside a subgraph, as any node
     assert saved["outcomes"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # m takes the waiting call's output, so it has no outcome either
@@ -302,7 +302,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
     (lambda s: s["outcomes"]["gate"]["outputs"].__setitem__("other", []), "outcomes.gate.outputs.other"),
     (lambda s: s["outcomes"]["gate"]["skipped"]["long"].append(99), "outcomes.gate"),
     (lambda s: s["outcomes"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]), "outcomes.letters"),
-    (lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?", "inputs": {}}), "outcomes.ask"),
+    (lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?"}), "outcomes.ask"),
     (lambda s: s["outcomes"].__setitem__("nowhere", {"states": [], "outputs": {}}), "outcomes.nowhere"),
     (lambda s: s["inputs"].__setitem__("nowhere", "x"), "inputs.nowhere"),
     (lambda s: s["inputs"].__setitem__("lines", 7), "inputs.lines"),

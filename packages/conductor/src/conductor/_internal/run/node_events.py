@@ -43,7 +43,7 @@ import operator
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
-from typing import assert_never
+from typing import Any, Literal, assert_never
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.problem import Problem
@@ -59,7 +59,7 @@ from .events import (
     NodeWaiting,
 )
 from .flat import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
-from .outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
+from .outcome import Answered, Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
 from .progress import call_count, calls_expected, has_every_outcome
 from .waiting import waiting_record
 
@@ -77,6 +77,7 @@ class NodeEvents:
         emit: The listener: it is called with each event.
         nodes: Every function node of the graph and of its subgraphs, in topological order.
         outcomes: The run's outcomes, by node path and item indexes. The scheduler writes them; they are only read here.
+        arguments_for: Reads the arguments of a call from the run's outcomes.
         started: The nodes that have had ``NodeStart``, in this call or an earlier one.
         complete: The nodes that have had ``NodeComplete`` or ``NodeSkipped``, in this call or an earlier one.
         skipped: The nodes that had ``NodeSkipped`` in this call.
@@ -92,6 +93,7 @@ class NodeEvents:
         nodes: list[FlatFunctionNode],
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         finished: frozenset[NodePath],
+        arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
     ) -> None:
         """
         Args:
@@ -99,8 +101,9 @@ class NodeEvents:
             nodes: Every function node, in topological order.
             outcomes: The run's outcomes, by node path and item indexes.
             finished: The node paths of the nodes that were complete when the run was last resumed.
+            arguments_for: Reads the arguments of a call from the run's outcomes, for what a waiting call received.
         """
-        self.emit, self.nodes, self.outcomes = emit, nodes, outcomes
+        self.emit, self.nodes, self.outcomes, self.arguments_for = emit, nodes, outcomes, arguments_for
         with_outcomes: set[FlatFunctionNode] = {node for node in nodes if outcomes[node.node_path]}
         self.started: set[FlatNode] = set(with_outcomes)
         for node in with_outcomes:
@@ -139,7 +142,7 @@ class NodeEvents:
         if type(outcome) is not Skipped:
             self.call_starts(node)
         if type(outcome) is Unanswered:
-            self.emit(NodeWaiting(waiting=waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome)))
+            self.emit(NodeWaiting(waiting=waiting_record(node, item_indexes, outcome, self.arguments_for)))
         if node.loops:
             self._progress(node)
 

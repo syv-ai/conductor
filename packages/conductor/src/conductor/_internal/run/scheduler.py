@@ -300,7 +300,7 @@ class Scheduler:
 
         # 5. Telling a listener.
         #: Makes the events about each node. None when nobody listens.
-        self.node_events = NodeEvents(emit, nodes, outcomes, finished) if emit is not None else None
+        self.node_events = NodeEvents(emit, nodes, outcomes, finished, self.arguments_for) if emit is not None else None
 
     def run(self) -> tuple[RunState, frozenset[NodePath]]:
         """Call every node that is ready, until none is and no attempt is on a thread, or until ``end`` is called.
@@ -730,11 +730,11 @@ class Scheduler:
     def _outcome(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | Problem | None
     ) -> Outcome | Problem | None:
-        """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with the
-        question when the function raised ``Ask``, or the problem the call failed with.
+        """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with what the
+        ``Ask`` said when the function raised one, or the problem the call failed with.
 
-        A ``Unanswered`` outcome has the call's arguments as JSON, to show the person. Arguments with no JSON form,
-        and an ``Ask`` that does not fit the node's outputs, are problems. While only the nodes that cost nothing
+        A person who is asked is shown what the call received, as JSON, so arguments with no JSON form are a problem,
+        and so is an ``Ask`` that does not fit the node's outputs. While only the nodes that cost nothing
         are called, a call that raised has no outcome (``None``): the next ``resume()`` that calls every node
         calls it again, and it fails or asks then.
         """
@@ -744,10 +744,12 @@ class Scheduler:
             return None
         if isinstance(error, Ask):
             try:
-                return Unanswered(node.compiled_node.ask_door(error, jsonable(arguments)))
-            except InvalidCallError as refused:  # the Ask door, or arguments with no JSON form
+                jsonable(arguments)  # a person is shown what the call received with the question (run.waiting)
+                choices, defaults = node.compiled_node.ask_door(error)
+            except InvalidCallError as refused:  # arguments with no JSON form, or the Ask door
                 (problem,) = refused.problems
                 return self._failure(node, item_indexes, problem)
+            return Unanswered(error.prompt, choices, defaults)
         return self._failure(node, item_indexes, error)
 
     def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem) -> Problem:

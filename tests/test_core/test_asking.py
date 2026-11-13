@@ -127,13 +127,13 @@ def test_a_node_that_returns_nothing_is_answered_with_none_to_go_on():
     assert run.answer("q", None).resume().status == "complete"
 
 
-def test_an_ask_that_sets_nothing_saves_only_its_prompt_and_inputs():
+def test_an_ask_that_sets_nothing_saves_only_its_prompt():
     @node("plain", title="Plain", description="For a test.", asks=True)
     def plain(text: str) -> str:
         raise Ask("?")
 
     _, run = _once(plain, text="x")
-    assert '"questions":{"0":{"prompt":"?","inputs":{"text":"x"}}}' in run.to_json()
+    assert '"questions":{"0":{"prompt":"?"}}' in run.to_json()
 
 
 def test_a_bool_is_a_yes_or_no_and_a_word_for_it_is_refused():
@@ -783,9 +783,11 @@ def test_a_waiting_id_is_the_same_when_a_store_gives_the_saved_inputs_back_with_
     def check(data: dict[str, int]) -> bool:
         raise Ask("Right?")
 
-    graph, run = _once(check, data={"a": 1, "b": 2})
+    record = {"nodes": {"q": {"node": "check", "inputs": {"data": {"graph_input": "data"}}}}, "outputs": _outputs_of(check)}
+    graph = Graph.compile(GraphRecord.model_validate(record), registry_of(check))
+    run = graph.run(data={"a": 1, "b": 2})
     saved = json.loads(run.to_json())
-    saved["outcomes"]["q"]["questions"]["0"]["inputs"]["data"] = {"b": 2, "a": 1}
+    saved["inputs"]["data"] = {"b": 2, "a": 1}
     loaded = Run.from_json(json.dumps(saved), graph)
     assert [w.id for w in loaded.waiting] == [w.id for w in run.waiting]
     assert loaded.answer(run.waiting[0].id, True).resume().outputs == {"result": True}
@@ -1210,6 +1212,15 @@ def test_two_identical_invoices_answered_differently_keep_their_answers_when_one
     again = graph.with_inputs(text="C:100,A:900,A:900", previous=run).resume()
     assert again.outputs == {"result": "paid C; paid A; held A"}
     assert calls_made == [("approval", "C"), ("pay", "C", True)]
+
+
+def test_a_saved_run_keeps_two_identical_invoices_answered_differently_apart():
+    graph = _approve_then_pay()
+    run = graph.run(text="A:900,A:900")
+    first, second = run.waiting
+    saved = Run.from_json(run.answer({first.id: True, second.id: False}).resume().to_json(), graph)
+    again = graph.with_inputs(text="C:100,A:900,A:900", previous=saved).resume()
+    assert again.outputs == {"result": "paid C; paid A; held A"}
 
 
 def test_an_answer_given_and_not_yet_resumed_is_reused_by_a_run_of_changed_inputs():

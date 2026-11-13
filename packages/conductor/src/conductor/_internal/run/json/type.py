@@ -11,9 +11,9 @@ from typing import Annotated, Any, ClassVar, Literal, get_args
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
 
-from conductor._internal.ask import Question
 from conductor._internal.base import NON_FINITE_FLOATS
 
+from ..outcome import Unanswered
 from ..state import EndedEarly, Going
 
 #: Every class here refuses a key it does not declare, and writes ``inf`` and ``nan`` as text. A key whose value is
@@ -21,10 +21,10 @@ from ..state import EndedEarly, Going
 #: value of a key.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
-#: What a saved run writes for one call: ``"done"`` when the call has outputs, ``"skipped"`` when it was skipped.
-#: Any other call is written as ``null``.
-SavedOutcomeState = Literal["done", "skipped"]
-SAVED_DONE, SAVED_SKIPPED = get_args(SavedOutcomeState)
+#: What a saved run writes for one call: ``"done"`` when its function returned, ``"answered"`` when a person answered
+#: it, ``"skipped"`` when it was skipped. Any other call is written as ``null``.
+SavedOutcomeState = Literal["done", "answered", "skipped"]
+SAVED_DONE, SAVED_ANSWERED, SAVED_SKIPPED = get_args(SavedOutcomeState)
 
 
 class SavedOutcomes(BaseModel):
@@ -53,10 +53,11 @@ class SavedOutcomes(BaseModel):
     A key after ``outputs`` that is empty is left out of the JSON.
 
     Attributes:
-        states: For each call, ``"done"`` when it has outputs (its function returned, or a person answered),
+        states: For each call, ``"done"`` when its function returned, ``"answered"`` when a person answered it,
             ``"skipped"`` when it was skipped, else ``None``.
         outputs: By output name, the value of the output for each call; ``None`` for a call that has no outputs.
-        questions: By call number, the question the call asked a person; the call is waiting unless it is done.
+        questions: By call number, what the ``Ask`` of a call waiting for a person said: its prompt, and the
+            choices and defaults it set.
         not_called_because: By call number, the input that got ``None`` and does not accept it, so that the
             call was not made.
         skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for the output.
@@ -66,7 +67,7 @@ class SavedOutcomes(BaseModel):
     model_config = _SAVED
     states: list[SavedOutcomeState | None]
     outputs: dict[str, list[Any]]
-    questions: dict[NonNegativeInt, Question] = PydanticField(default_factory=dict)
+    questions: dict[NonNegativeInt, Unanswered] = PydanticField(default_factory=dict)
     not_called_because: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
     skipped: dict[str, list[NonNegativeInt]] = PydanticField(default_factory=dict)
     skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] = PydanticField(default_factory=dict)

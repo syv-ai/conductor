@@ -22,13 +22,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from conductor._internal.ask import Ask, Question, answer_required
+from pydantic import JsonValue
+
+from conductor._internal.ask import Ask, answer_required
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
 from conductor._internal.series import Series
-from conductor._internal.types import Type
+from conductor._internal.types import Choice, Type
 
 from .input import Input
 
@@ -163,9 +165,9 @@ class CompiledFunctionNode(_CompiledNodeBase):
         }
 
     @functools.cached_property
-    def ask_door(self) -> Callable[[Ask, dict[str, Any]], Question]:
-        """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and keeps it as the
-        call's question; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
+    def ask_door(self) -> Callable[[Ask], tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
+        """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and reads its choices
+        and default by output name; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
         the node first asks.
 
         Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For

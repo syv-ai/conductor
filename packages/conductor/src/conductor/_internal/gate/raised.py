@@ -1,8 +1,8 @@
 """The door for what a node raises: an ``Ask``'s choices and default, checked when it is raised.
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
-The door returns the call's ``Question``, whose choices for ``result`` are the two as the output's type
-reads them (``read_choices`` with the gate's validator of the output), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``InvalidCallError``
+The door returns the choices and defaults the call keeps by output name, the choices for ``result`` the two as the
+output's type reads them (``read_choices`` with the gate's validator of the output), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``InvalidCallError``
 with ``invalid_ask``: a choice is what an answer picks, so each is read strictly from its JSON form, and ``1`` is
 not a ``str``.
 A default is held to every rule an answer is, the ``Ask``'s own choices included.
@@ -19,7 +19,7 @@ from typing import Any
 from pydantic import JsonValue
 from pydantic_core import PydanticCustomError
 
-from conductor._internal.ask import Ask, Question
+from conductor._internal.ask import Ask
 from conductor._internal.base import REQUIRED, comma_separated
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
@@ -30,8 +30,8 @@ from .rules import output_validator_of
 
 
 class AskDoor:
-    """Checks an ``Ask`` raised for a node against the node's outputs, which its answer fills, and keeps it as the
-    call's question. Built once per node.
+    """Checks an ``Ask`` raised for a node against the node's outputs, which its answer fills, and reads its choices
+    and default by output name. Built once per node.
 
     Raises (when called):
         InvalidCallError: The ``Ask``'s choices or default don't fit the outputs (``invalid_ask``, whose ``reason``
@@ -42,13 +42,15 @@ class AskDoor:
         """Builds the door for a node with ``outputs``, by name."""
         self._outputs = outputs
 
-    def __call__(self, ask: Ask, inputs: dict[str, Any]) -> Question:
-        """Returns the question the call keeps until it is answered: the ``Ask``'s prompt, what the node received,
-        and what the ``Ask`` set on each output's question.
+    def __call__(self, ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
+        """Returns what the ``Ask`` set on each output's question, which the call keeps until it is answered.
 
         Args:
             ask: What the node raised.
-            inputs: What the node received, as JSON.
+
+        Returns:
+            The choices the ``Ask`` offered, by output name, each id read by the output's type in its JSON form; and
+            the answer it proposed, by output name, in its JSON form. An output it set nothing on is not named.
 
         Raises:
             InvalidCallError: See the class.
@@ -66,7 +68,7 @@ class AskDoor:
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
-        return Question(ask.prompt, inputs, choices, defaults)
+        return choices, defaults
 
     def _by_output(self, given: Any, argument: str) -> dict[str, Any]:
         """One ``Ask`` argument by output name: a lone output's as itself, several outputs' from the mapping given.
@@ -90,7 +92,7 @@ class AskDoor:
         return dict(given)
 
 
-def undeclared_ask(ask: Ask, inputs: dict[str, Any]) -> Question:
+def undeclared_ask(ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
     """The ``Ask`` door of a node that does not say it asks (no ``asks=True``): it refuses
     every ``Ask``.
 
