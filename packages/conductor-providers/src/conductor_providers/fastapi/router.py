@@ -44,7 +44,7 @@ class StartRun(BaseModel):
     """The body of ``POST /runs``: a graph to run and the values it starts on.
 
     Attributes:
-        graph: The graph, as its stored record; loaded on the caller's registry, so a node it lacks is a 422.
+        graph: The graph, as its stored record; compiled on the caller's registry, so a node it lacks is a 422.
         inputs: Values for the graph's inputs, each by its name in ``graph.inputs``, checked as
             ``graph.with_inputs`` checks them.
     """

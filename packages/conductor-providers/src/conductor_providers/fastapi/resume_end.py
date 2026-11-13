@@ -179,7 +179,7 @@ def end_of(run_end: RunEnd, held: Outcome) -> ResumeEnd:
             written.
 
     Returns:
-        The end with that run: the run as JSON and its outcome (``Outcome.of``). Or ``Raised``, for a run that
+        The end with that run: the run as JSON and its outcome (``Outcome.of_stopped``). Or ``Raised``, for a run that
         can't be written.
     """
     run = run_end.run
