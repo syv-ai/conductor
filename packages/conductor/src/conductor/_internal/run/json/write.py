@@ -13,7 +13,7 @@ import pydantic_core
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.ask import Answer, Question
-from conductor._internal.base import SKIPPED, Address, node_path_text
+from conductor._internal.base import SKIPPED, node_path_text, parse_node_path, place_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
@@ -286,9 +286,9 @@ def first_unwritable_value(saved: SavedRun) -> str:
     """
     alone: list[tuple[str, Any]] = [(name, {"inputs": {name}}) for name in saved.inputs]
     for name, outcomes in saved.outcomes.items():
-        alone.extend((str(Address(name, output)), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
+        alone.extend((place_text((*parse_node_path(name), output)), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
     for name, reusable in saved.reusable.items():
-        alone.extend((str(Address(name, output)), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
+        alone.extend((place_text((*parse_node_path(name), output)), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
     for where, include in alone:
         try:
             saved.model_dump_json(include=include)

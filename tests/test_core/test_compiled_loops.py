@@ -395,7 +395,7 @@ def test_an_input_is_a_graph_input_only_where_its_entry_says_so_and_one_with_no_
 
 def test_a_graph_input_of_a_series_is_given_whole_and_starts_no_loop():
     graph = compile_graph({"c": "count"}, [])
-    assert graph.is_runnable and graph.inputs["items"].field.is_series and graph.runs_on["c"].mode == "once"
+    assert graph.is_runnable and graph.inputs["items"].is_series and graph.runs_on["c"].mode == "once"
     assert input_sources(graph, "c") == {"items": ("graph_input", None)}
 
 
@@ -434,14 +434,14 @@ def test_an_output_inside_a_loop_of_a_subgraph_is_offered_as_a_series():
     registry = _with_subgraph({"d": "documents", "u": "upper"}, [("d.result", "u.text")])
     graph = compile_graph({"e": "inner", "c": "count"}, [("e.result", "c.items")], registry)
     assert graph.is_runnable and graph.describe().nodes["e"].outputs[0].is_series
-    assert input_sources(graph, "c") == {"items": ("collected", "e.d.result")}
+    assert input_sources(graph, "c") == {"items": ("collected", "e/d.result")}
 
 
 def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_any_nodes_are():
     registry = _with_subgraph({"p": "pair"}, [])
     record = GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"a": {"graph_input": "first"}, "b": {"graph_input": "second"}}}}})
     graph = Graph.compile(record, registry)
-    assert list(graph.inputs) == ["first", "second"] and graph.inputs["first"].field.type == "str"
+    assert list(graph.inputs) == ["first", "second"] and graph.inputs["first"].type == "str"
 
 
 def test_a_subgraphs_problems_are_the_outer_graphs_with_the_subgraph_nodes_id_in_front():

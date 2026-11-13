@@ -31,7 +31,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, ClassVar, final
 
-from conductor._internal.base import Address
+from conductor._internal.base import Address, Path
 from conductor._internal.field import Field
 from conductor._internal.types import Type
 
@@ -43,14 +43,14 @@ class Edge:
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
     ``shout``, so it is ``Edge(Address("lines", "result"), (), Type(str), item=True)``. The edge from ``shout.result``
-    reads the value one call of ``shout`` returned, ``Edge(Address("shout", "result"), (Address("lines", "result"),),
+    reads the value one call of ``shout`` returned, ``Edge(Address("shout", "result"), (("lines", "result"),),
     Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index.
 
     Attributes:
         source: The output the edge reads, as the graph record writes it, with the field of a record when the edge
             reads one (``Address("split", "result", "email")``). In a compiled graph its node is the node's id. In
             the flat graph it is the name of the function node (``"loud/shout"`` inside a subgraph).
-        loops: The loops that node is inside, outermost first, each as the output that is the list looped over.
+        loops: The loops that node is inside, outermost first, each as the path of the list looped over.
         type: The type of the value the edge reads.
         item: Whether the output is a ``Series`` and the edge reads one item of it. The node the edge leads to
             is then inside the loop over this output, and an item is found by one more item index than
@@ -59,7 +59,7 @@ class Edge:
     """
 
     source: Address
-    loops: tuple[Address, ...]
+    loops: tuple[Path, ...]
     type: Type
     item: bool
     depth: int = dataclasses.field(init=False, compare=False, repr=False)
@@ -68,10 +68,10 @@ class Edge:
         object.__setattr__(self, "depth", len(self.loops))
 
     @property
-    def loops_of_value(self) -> tuple[Address, ...]:
+    def loops_of_value(self) -> tuple[Path, ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
         node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return (*self.loops, Address(self.source.node, self.source.output)) if self.item else self.loops
+        return (*self.loops, (self.source.node, self.source.output)) if self.item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -93,7 +93,7 @@ class ConstantInput:
     field: Field
     value: Any
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[Address, ...]] = ()
+    loops: ClassVar[tuple[Path, ...]] = ()
 
 
 @final
@@ -111,7 +111,7 @@ class MissingInput:
 
     field: Field
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[Address, ...]] = ()
+    loops: ClassVar[tuple[Path, ...]] = ()
 
 
 @final
@@ -130,7 +130,7 @@ class GraphInput:
     field: Field
     name: str
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[Address, ...]] = ()
+    loops: ClassVar[tuple[Path, ...]] = ()
 
 
 @final
@@ -155,7 +155,7 @@ class EdgeInput:
 
     field: Field
     sources: tuple[Edge, ...]
-    loops: tuple[Address, ...]
+    loops: tuple[Path, ...]
     as_list: bool = False
 
 
@@ -176,8 +176,8 @@ class CollectingInput:
     """
 
     field: Field
-    series: Address
-    loops: tuple[Address, ...]
+    series: Path
+    loops: tuple[Path, ...]
     sources: tuple[Edge, ...]
 
 

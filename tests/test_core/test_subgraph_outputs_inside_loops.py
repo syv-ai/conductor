@@ -109,7 +109,7 @@ def test_the_output_is_described_as_a_series_of_series() -> None:
     assert (described.is_series, described.type, described.json_schema) == (True, "Series[str]", {"type": "array", "items": {"type": "string"}})
     in_palette = next(entry for entry in REGISTRY.describe().nodes if entry.id == "shout-lines").outputs[0]
     assert in_palette == described
-    assert graph.runs_on["show"].series == "shout-lines.documents.result"  # show is called once per document
+    assert graph.runs_on["show"].series == "shout-lines/documents.result"  # show is called once per document
 
 
 def test_an_input_of_one_value_outside_is_called_once_per_line_of_each_document() -> None:
@@ -191,5 +191,5 @@ def test_a_node_taking_items_of_a_list_inside_a_subgraph_and_of_one_outside_is_r
     edges = [("titled.title", "lines.document"), ("lines.result", "pair.b"), ("titled.quiet", "pair.a")]
     refused = Graph.compile(make_graph(REGISTRY["titled"], lines, pair, edges=edges), REGISTRY).problems[0]
     assert (refused.type, refused.ctx["variant"], refused.ctx["subgraphs"]) == ("series_not_nested", "inside_subgraph", ["titled"])
-    assert sorted(refused.ctx["series"]) == ["lines.result", "titled.lines.result"]
+    assert sorted(refused.ctx["series"]) == ["lines.result", "titled/lines.result"]
     assert "wire '" not in refused.msg and "Give one of them whole to a Series input" in refused.msg

@@ -1415,7 +1415,7 @@ def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records
 
     described = {field.name: field.default for field in t.describe().inputs}
     record = make_graph(t, defaults={"t.rows": [{"n": 3}], "t.when": datetime.date(2026, 1, 3)})
-    offered = {name: given.field.default for name, given in Graph.compile(record, registry_of(t)).inputs.items()}
+    offered = {name: given.default for name, given in Graph.compile(record, registry_of(t)).inputs.items()}
 
     assert described == {"rows": {"columns": [{"name": "n", "type": "int", "values": [1, 2]}]}, "when": "2026-01-02"}
     assert offered == {"rows": {"columns": [{"name": "n", "type": "int", "values": [3]}]}, "when": "2026-01-03"}

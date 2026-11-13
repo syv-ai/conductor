@@ -45,7 +45,7 @@ from conductor._internal.base import (
     Address,
     ItemIndexes,
     Loc,
-    NodePath,
+    Path,
     node_path_text,
 )
 from conductor._internal.compiled import (
@@ -92,7 +92,7 @@ class CollectingArgument:
     Attributes:
         input: The compiled input whose field the call reads by: the node's own, or for a graph input of a
             subgraph the subgraph node's input it is read as.
-        series: The list whose loop it collects, by the name of the function node that returns it.
+        series: The list whose loop it collects: the function node that returns it, and the output.
         depth: How many loops that node is inside.
         edges: What each edge into it reads for one item, as the flat graph names it.
         loop_body: The function nodes inside the loop that the value depends on, each after the nodes upstream
@@ -100,7 +100,7 @@ class CollectingArgument:
     """
 
     input: CollectingInput
-    series: Address
+    series: tuple[FlatFunctionNode, str]
     depth: int
     edges: tuple[Edge, ...]
     loop_body: tuple[FlatFunctionNode, ...]
@@ -125,7 +125,7 @@ class _FlatNodeBase:
     """
 
     parent: FlatSubgraph | None
-    node_path: NodePath
+    node_path: Path
     name: str
     loops: tuple[tuple[FlatFunctionNode, str], ...]
 
@@ -204,23 +204,21 @@ class FlatSubgraph(_FlatNodeBase):
         compiled_node: The node as the outer graph compiled it.
         inner_nodes: The nodes of the subgraph as flat nodes, by their id in the subgraph. Empty until they are
             made, which is right after this node is.
-        sources: Every output of every node inside, by its address in the subgraph, as the function node that
-            returns it and the output's name there: ``"shout.result"`` is ``(loud/shout, "result")``. Made with
-            ``inner_nodes``.
     """
 
     compiled_node: CompiledSubgraphNode
     inner_nodes: dict[str, FlatNode] = dataclasses.field(default_factory=dict[str, "FlatNode"])
-    sources: dict[str, tuple[FlatFunctionNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatFunctionNode", str]])
 
     def source_of(self, output: str) -> tuple[FlatFunctionNode, str]:
-        """Returns the function node inside the subgraph that returns ``output``, and the output's name there.
+        """Returns the function node inside the subgraph that returns the graph output ``output``, and the output's
+        name there.
 
-        ``output`` is an address inside the subgraph. In the example, ``loud.source_of("shout.result")`` is
-        ``(loud/shout, "result")``. When the node inside is itself a subgraph, the answer is a function node
-        inside that one.
+        In the example, where ``loud``'s record declares the graph output ``result`` as ``shout.result``,
+        ``loud.source_of("result")`` is ``(loud/shout, "result")``. When the node inside is itself a subgraph, the
+        answer is a function node inside that one.
         """
-        return self.sources[output]
+        source = self.compiled_node.inner._outputs[output].source
+        return self.inner_nodes[source.node].source_of(source.output)
 
 
 #: A node of the flat graph: a function, or a subgraph.
@@ -286,10 +284,10 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeArgument
     """
     node_inputs = node.display_inputs.get(output)
     if node_inputs is None:
-        source = Edge(Address(node.name, output), _loops_by_name(node.loops), node.compiled_node.outputs[output].type, item=False)
+        source = Edge(Address(node.name, output), _loop_paths(node.loops), node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
         per_loop = [
-            _collecting_argument(CollectingInput(_DISPLAY_FIELD, Address(series_node.name, series), _loops_by_name(series_node.loops), (source,)), (series_node, series), (source,), functions)
+            _collecting_argument(CollectingInput(_DISPLAY_FIELD, (*series_node.node_path, series), _loop_paths(series_node.loops), (source,)), (series_node, series), (source,), functions)
             for series_node, series in node.loops
         ]
         node_inputs = node.display_inputs[output] = tuple(per_loop) or (EdgeArgument(EdgeInput(_DISPLAY_FIELD, (source,), source.loops), (source,)),)
@@ -363,18 +361,17 @@ def _add_flat_nodes(
         inputs = {
             name: _flat_input(node_path, node_input, graph, outer_inputs, nodes_by_id, functions) for name, node_input in compiled_node.inputs.items()
         }
-        loops = (*outer_loops, *[nodes_by_id[loop.node].source_of(loop.output) for loop in compiled_node.loops])
+        loops = (*outer_loops, *[_source_at(loop, nodes_by_id) for loop in compiled_node.loops])
         if isinstance(compiled_node, CompiledSubgraphNode):
             subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, name=node_path_text(node_path), loops=loops)
             subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, inputs, functions, nodes_by_name)
-            subgraph.sources = _sources_inside(subgraph.inner_nodes, compiled_node.inner)
             nodes_by_id[compiled_node.id] = nodes_by_name[subgraph.name] = subgraph
             continue
         constants: dict[str, Any] = {}
         graph_inputs: list[tuple[str, str]] = []
         edge_arguments: dict[str, EdgeArgument | CollectingArgument] = {}
         upstream: dict[FlatFunctionNode, int] = {}
-        collecting: dict[Address, list[tuple[str, bool]]] = {}
+        collecting: dict[tuple[FlatFunctionNode, str], list[tuple[str, bool]]] = {}
         for name, node_input in inputs.items():
             constants[name] = None
             read: list[tuple[str, int]]  # the node each value read comes from, and how many loops it is inside
@@ -390,8 +387,8 @@ def _add_flat_nodes(
                     read = [(edge.source.node, edge.depth) for edge in edges]
                     depth = max(len(edge.loops_of_value) for edge in edges)
                 case CollectingArgument(input=collecting_input, series=series, edges=edges, depth=depth):
-                    read = [(series.node, depth), *[(edge.source.node, edge.depth) for edge in edges]]
-                    looped_over = (functions[series.node], series.output)
+                    looped_over = series
+                    read = [(series[0].name, depth), *[(edge.source.node, edge.depth) for edge in edges]]
                     # what a node inside the loop reads from outside it can say that no item will have a value
                     read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
@@ -417,32 +414,27 @@ def _add_flat_nodes(
     return nodes_by_id
 
 
-def _sources_inside(inner_nodes: dict[str, FlatNode], inner: CompiledGraph) -> dict[str, tuple[FlatFunctionNode, str]]:
-    """Every graph output of a subgraph by its name, and every output of each node inside it by its address there,
-    as the function node that returns it and the output's name there.
+def _source_at(path: Path, nodes_by_id: Mapping[str, FlatNode]) -> tuple[FlatFunctionNode, str]:
+    """Returns the function node that returns the output at ``path``, from the graph whose flat nodes are
+    ``nodes_by_id``, and the output's name there.
 
-    In the example, ``loud``'s are ``{"result": (loud/shout, "result"), "strip.result": (loud/strip, "result"),
-    "shout.result": (loud/shout, "result")}``: an edge outside reads a graph output, and a loop inside the subgraph
-    is named by the address of its list there. A subgraph inside adds each of its own under its id:
-    ``"inner.shout.result"``. A graph output's name has no dot, so it is never one of the addresses.
+    ``("lines", "result")`` is ``(lines, "result")``. A loop inside a subgraph is named by a longer path, through the
+    subgraph node: ``("loud", "split", "result")`` is ``(loud/split, "result")``.
     """
-    sources: dict[str, tuple[FlatFunctionNode, str]] = {}
-    for node_id, node in inner_nodes.items():
-        match node:
-            case FlatFunctionNode():
-                sources.update({str(Address(node_id, output)): (node, output) for output in node.compiled_node.outputs})
-            case FlatSubgraph():
-                sources.update({f"{node_id}.{name}": source for name, source in node.sources.items()})
-    return {**{name: inner_nodes[edge.source.node].source_of(edge.source.output) for name, edge in inner._outputs.items()}, **sources}
+    node = nodes_by_id[path[0]]
+    for node_id in path[1:-1]:  # every node on the way but the last is a subgraph
+        node = typing.cast("FlatSubgraph", node).inner_nodes[node_id]
+    return node.source_of(path[-1])
 
 
-def _loops_by_name(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[Address, ...]:
-    """Returns ``loops`` as an edge of the flat graph names them: each list by the name of its function node."""
-    return tuple([Address(series_node.name, output) for series_node, output in loops])
+def _loop_paths(loops: tuple[tuple[FlatFunctionNode, str], ...]) -> tuple[Path, ...]:
+    """Returns ``loops`` as an edge of the flat graph names them: each list by its function node's path and the
+    output, ``("loud", "split", "result")``."""
+    return tuple([(*series_node.node_path, output) for series_node, output in loops])
 
 
 def _flat_input(
-    node_path: NodePath, node_input: Input, graph: CompiledGraph, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeArgument | CollectingArgument] | None,
+    node_path: Path, node_input: Input, graph: CompiledGraph, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeArgument | CollectingArgument] | None,
     nodes_by_id: Mapping[str, FlatNode], functions: Mapping[str, FlatFunctionNode],
 ) -> ConstantInput | GraphInput | EdgeArgument | CollectingArgument:
     """Returns how a call reads the input that its own graph compiled as ``node_input``: a constant or a graph input
@@ -466,7 +458,7 @@ def _flat_input(
         source_node, output = nodes_by_id[edge.source.node].source_of(edge.source.output)
         if starts_loop and edge.item:
             source_node.looped_outputs.setdefault(output, (nodes_by_id[edge.source.node], edge.source.output))
-        return Edge(Address(source_node.name, output, edge.source.field), _loops_by_name(source_node.loops), edge.type, item=edge.item)
+        return Edge(Address(source_node.name, output, edge.source.field), _loop_paths(source_node.loops), edge.type, item=edge.item)
 
     match node_input:
         case ConstantInput():
@@ -478,7 +470,7 @@ def _flat_input(
         case EdgeInput(sources=sources, as_list=as_list):
             return EdgeArgument(node_input, tuple([flat_edge(edge, not as_list) for edge in sources]))
         case CollectingInput(series=series, sources=sources):
-            looped_over = nodes_by_id[series.node].source_of(series.output)
+            looped_over = _source_at(series, nodes_by_id)
             return _collecting_argument(node_input, looped_over, tuple([flat_edge(edge, False) for edge in sources]), functions)
         case _:
             assert_never(node_input)
@@ -498,7 +490,7 @@ def _collecting_argument(
     """
     series_node, output = looped_over
     loop_body = _loop_body_of(looped_over, [functions[edge.source.node] for edge in edges])
-    return CollectingArgument(node_input, Address(series_node.name, output), len(series_node.loops), edges, loop_body)
+    return CollectingArgument(node_input, looped_over, len(series_node.loops), edges, loop_body)
 
 
 def _loop_body_of(series: tuple[FlatFunctionNode, str], sources: list[FlatFunctionNode]) -> tuple[FlatFunctionNode, ...]:

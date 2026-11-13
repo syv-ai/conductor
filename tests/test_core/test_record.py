@@ -295,7 +295,7 @@ def test_graph_inputs_and_graph_outputs_are_the_ones_the_record_declares():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "text", "inputs": {"value": {"graph_input": "value"}}}, "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}}}, "c": {"node": "both", "inputs": {"no": {"constant": "!"}, "yes": {"graph_input": "yes"}}}}, "outputs": {"b_result": {"node": "b", "output": "result"}, "c_result": {"node": "c", "output": "result"}}}), REGISTRY)
 
     assert graph.problems == []
-    assert {name: i.field.required for name, i in graph.inputs.items()} == {"value": True, "yes": True}
+    assert {name: i.required for name, i in graph.inputs.items()} == {"value": True, "yes": True}
     assert graph.outputs == ["b_result", "c_result"]
     assert graph.run(value="v", yes="y").outputs == {"b_result": "V", "c_result": "y!"}
 
@@ -310,7 +310,7 @@ def test_an_optional_input_with_no_entry_gets_the_nodes_default_and_is_no_graph_
 def test_a_constant_is_not_a_graph_input_and_a_default_is_a_graph_input_with_that_default():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "both", "inputs": {"yes": {"constant": "y"}, "no": {"graph_input": "no", "default": "n"}}}}, "outputs": {"result": {"node": "b", "output": "result"}}}), REGISTRY)
 
-    assert list(graph.inputs) == ["no"] and not graph.inputs["no"].field.required and graph.inputs["no"].field.default == "n"
+    assert list(graph.inputs) == ["no"] and not graph.inputs["no"].required and graph.inputs["no"].default == "n"
     assert graph.run().outputs == {"result": "yn"}
     assert graph.run(no="!").outputs == {"result": "y!"}
 
@@ -339,7 +339,7 @@ def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required
     }, "outputs": {"a_result": {"node": "a", "output": "result"}, "b_result": {"node": "b", "output": "result"}}}), REGISTRY)
 
     assert graph.problems == []
-    assert {name: (i.field.required, i.field.default) for name, i in graph.inputs.items()} == {"x": (True, None)}
+    assert {name: (i.required, i.default) for name, i in graph.inputs.items()} == {"x": (True, None)}
     assert graph.run(x="q").outputs == {"a_result": "q", "b_result": "Q"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run()

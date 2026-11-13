@@ -327,8 +327,8 @@ def test_a_single_value_as_the_constant_of_a_series_input_is_refused_not_wrapped
 
 def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
     described = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "styled", "inputs": {"mode": {"graph_input": "mode"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), REGISTRY).inputs["mode"]
-    assert described.field.title == "Mode" and described.field.type == "str" and described.field.required is True
-    assert described.field.choices == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
+    assert described.title == "Mode" and described.type == "str" and described.required is True
+    assert described.choices == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
 
 
 def test_graph_inputs_come_in_the_order_of_the_nodes_by_id_and_never_by_name():
@@ -492,7 +492,7 @@ def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
 def test_a_subgraph_node_offers_its_inner_graph_input_and_output_as_its_own():
     assert enrich.title == "Enrich"
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), REGISTRY)
-    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].field.title == "Text"
+    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].title == "Text"
     run = graph.run(text="hi")
     assert graph.outputs == ["result"] and run.outputs == {"result": "HI."} and run.results["e"] == {"result": "HI."}
 
@@ -510,9 +510,9 @@ def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
 
 def test_a_graph_input_on_a_subgraph_node_is_required_unless_the_record_gives_it_a_default():
     """The subgraph's own default for the input plays no part: the graph input's default is the outer record's."""
-    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].field.required is True
-    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text", "default": "x"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].field.required is False
-    assert Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), REGISTRY).inputs["text"].field.required is True
+    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].required is True
+    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text", "default": "x"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].required is False
+    assert Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), REGISTRY).inputs["text"].required is True
 
 
 def test_a_subgraph_inside_a_subgraph_is_one_node_from_outside():
@@ -931,7 +931,7 @@ def test_a_bool_output_into_a_float_input_is_a_type_mismatch_and_a_union_is_name
 def test_a_graph_input_has_its_field_and_writes_as_json():
     import json
 
-    from conductor import GraphInputDescription, NodeRegistry, make_graph, node
+    from conductor import FieldDescription, NodeRegistry, make_graph, node
 
     @node("u", title="U", description="For a test.")
     def u(t: str, n: int = 1) -> str:
@@ -940,9 +940,9 @@ def test_a_graph_input_has_its_field_and_writes_as_json():
     registry = NodeRegistry()
     registry.add(u)
     graph = Graph.compile(make_graph(u, defaults={"u.n": 1}), registry)
-    assert isinstance(graph.inputs["t"], GraphInputDescription) and graph.describe().inputs == graph.inputs
-    assert json.loads(json.dumps({name: i.field.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
-    assert (graph.inputs["t"].field.name, graph.inputs["t"].field.required) == ("t", True)
+    assert isinstance(graph.inputs["t"], FieldDescription) and graph.describe().inputs == graph.inputs
+    assert json.loads(json.dumps({name: i.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
+    assert (graph.inputs["t"].name, graph.inputs["t"].required) == ("t", True)
 
 
 def test_a_bool_as_a_constant_or_a_graph_input_is_refused_for_a_float_input():

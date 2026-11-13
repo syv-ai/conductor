@@ -124,10 +124,10 @@ def beside(loud: str, keen: str) -> str:
 
 graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]), registry)
 print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
-print(graph.runs_on["beside"].msg)                             # per item of per-word.split.result
+print(graph.runs_on["beside"].msg)                             # per item of per-word/split.result
 ```
 
-The loop is named by the series inside the subgraph that is looped over, `per-word.split.result`. Two outputs
+The loop is named by the path of the series inside the subgraph that is looped over, `per-word/split.result`: the node `split` inside `per-word`, and its output. Two outputs
 returned in the same loop inside line up outside, item by item, as here. Two returned in different loops inside don't: a node
 that takes one item of each is refused with `series_not_nested`, as it is for two series drawn in one graph that are not one inside the other. Each
 output's description (`graph.describe()`) lists its `loops`, so an editor can tell which outputs line up.
@@ -158,7 +158,7 @@ run = graph.run(text="a,b;c")
 
 print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
 print(run.results["join"]["result"])            # ['A B', 'C']
-print(graph.runs_on["join"].msg)                # per item of per-line.documents.result
+print(graph.runs_on["join"].msg)                # per item of per-line/documents.result
 print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
 ```
 

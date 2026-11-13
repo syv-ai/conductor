@@ -44,7 +44,7 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 
-from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
+from conductor._internal.base import SKIPPED, ItemIndexes, Path
 from conductor._internal.problem import Problem
 
 from .events import (
@@ -90,7 +90,7 @@ class NodeEvents:
         emit: Callable[[EventBase], None],
         nodes: list[FlatFunctionNode],
         outcomes: dict[str, dict[ItemIndexes, Outcome]],
-        finished: frozenset[NodePath],
+        finished: frozenset[Path],
     ) -> None:
         """
         Args:

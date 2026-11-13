@@ -27,9 +27,9 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import Address, Loc, NodePath, json_hash, plural
+from conductor._internal.base import Loc, Path, json_hash, place_text, plural
 from conductor._internal.context import ContextParameter
-from conductor._internal.field import Field
+from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
@@ -37,7 +37,6 @@ from conductor._internal.types import Param
 
 from .describe import (
     GraphDescription,
-    GraphInputDescription,
     GraphNodeDescription,
     NodeInputDescription,
     RunsOn,
@@ -89,9 +88,9 @@ class CompiledGraph:
         return not self.problems
 
     @property
-    def inputs(self) -> dict[str, GraphInputDescription]:
+    def inputs(self) -> dict[str, FieldDescription]:
         """The graph inputs, by name: what a caller gives a value for. In the example, ``text``."""
-        return {name: GraphInputDescription(field=field.description) for name, field in self._inputs.items()}
+        return {name: field.description for name, field in self._inputs.items()}
 
     @property
     def outputs(self) -> list[str]:
@@ -159,10 +158,10 @@ class CompiledGraph:
         source = self._outputs[output].source
         field = self._nodes[source.node].outputs[source.output]
         group = field.param.exclusive_group
-        hint = Annotated[field.hint, Param(exclusive_group=f"{source.node}.{group}")] if group else field.hint
+        hint = Annotated[field.hint, Param(exclusive_group=place_text((source.node, group)))] if group else field.hint
         return Field(output, hint, field.default)
 
-    def _loops_around(self, output: str) -> tuple[Address, ...]:
+    def _loops_around(self, output: str) -> tuple[Path, ...]:
         """Returns the loops inside this graph that the graph output ``output`` has one value per item of, outermost
         first."""
         source = self._outputs[output].source
@@ -195,10 +194,10 @@ class CompiledGraph:
         ``context_type`` and every node that takes the context, those inside subgraphs too."""
         return ContextDoor(self._context_type, self._nodes_taking_context())
 
-    def _nodes_taking_context(self) -> list[tuple[NodePath, ContextParameter]]:
+    def _nodes_taking_context(self) -> list[tuple[Path, ContextParameter]]:
         """Every function node of the graph and of its subgraphs that takes the run's context, as its node path
         (``("loud", "shout")``) and its ``Context`` parameter, in the order a run tries them."""
-        takers: list[tuple[NodePath, ContextParameter]] = []
+        takers: list[tuple[Path, ContextParameter]] = []
         for compiled_node in self._nodes.values():
             if isinstance(compiled_node, CompiledSubgraphNode):
                 takers += [((compiled_node.id, *path), parameter) for path, parameter in compiled_node.inner._nodes_taking_context()]

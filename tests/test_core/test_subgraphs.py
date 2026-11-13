@@ -424,7 +424,7 @@ def test_a_subgraph_that_contains_itself_is_refused_at_the_node_that_closes_the_
 
 def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     deep = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")], outputs={"n": "n.result", "x": "x.result"})
-    assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e.w.result", "e.c.result")  # each loop is named by its series inside
+    assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e/w.result", "e/c.result")  # each loop is named by its series inside
     described = {inner: compile_graph({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
     assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
     assert [output.loops for output in described.values()] == [["w.result"], ["w.result", "c.result"], ["w.result", "c.result"]]
@@ -504,7 +504,7 @@ def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node(
     graph = compile_graph({"w": "words", "e": "greet-inner"}, [("w.result", "e.text")], constants={"e.greeting": "hej"})
     assert graph.run(text="ab cd").results["e"]["result"] == ["hej ab", "hej cd"]
     first = compile_graph({"e": "greet-inner"}, defaults={"e.greeting": "hi"})
-    assert first.inputs["greeting"].field.default == "hi"
+    assert first.inputs["greeting"].default == "hi"
     assert first.run(text="ab").outputs == {"result": "hi ab"}  # the subgraph node's default, offered to the caller
     assert first.run(text="ab", greeting="yo").outputs == {"result": "yo ab"}
     assert inside_a_loop("greet-inner").run(text="ab").results["e"]["result"] == ["hello ab"]  # the default greet-inner's record gives greeting
@@ -812,7 +812,7 @@ def test_a_previous_run_of_another_graph_is_reused_inside_a_subgraph_whose_nodes
     ("nodes", "edges", "series"),
     [
         ({"w": "words", "t": "letters", "h": "height"}, [("w.result", "t.text"), ("t.result", "h.table")], "w.result"),
-        ({"e": "letters-per-word-inner", "h": "height"}, [("e.result", "h.table")], "e.w.result"),
+        ({"e": "letters-per-word-inner", "h": "height"}, [("e.result", "h.table")], "e/w.result"),
         ({"s": "sheets", "h": "height"}, [("s.result", "h.table")], "s.result"),
     ],
     ids=["in one graph", "returned inside a subgraph", "returned as a Series of tables"],

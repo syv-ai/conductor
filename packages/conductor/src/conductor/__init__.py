@@ -19,7 +19,6 @@ from conductor._internal.ask import Ask, Asked
 from conductor._internal.base import SKIPPED, Address
 from conductor._internal.compiled import (
     GraphDescription,
-    GraphInputDescription,
     InputSource,
     RunsOn,
 )
@@ -118,7 +117,6 @@ __all__ = [
     "RegistryDescription",
     "TypeDescription",
     "GraphDescription",
-    "GraphInputDescription",
     "RunsOn",
     "InputSource",
     # Errors

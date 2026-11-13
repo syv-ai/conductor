@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, assert_never
 
-from conductor._internal.base import Address, ConductorModel
+from conductor._internal.base import ConductorModel, Path, place_text
 from conductor._internal.field import FieldDescription
 from conductor._internal.problem import Problem
 
@@ -107,41 +107,30 @@ class GraphNodeDescription(ConductorModel):
     outputs: list[FieldDescription] = []
 
 
-class GraphInputDescription(ConductorModel):
-    """A graph input: a value the caller gives when a run starts, by name, which the graph record declares on the
-    inputs it feeds. The values of ``graph.inputs`` are these. In the example, ``text``.
-
-    Attributes:
-        field: The graph input. Its ``default`` is the value used when the caller gives none (the graph record's
-            default, else the input's own), as JSON, and it is ``required`` when there is none.
-    """
-
-    field: FieldDescription
-
-
 class GraphDescription(ConductorModel):
     """A compiled graph as an editor draws it.
 
     Attributes:
         nodes: Each node of the graph record, by id.
-        inputs: The graph inputs, by name.
+        inputs: The graph inputs, by name, each as the field a caller gives a value for: its ``default`` is the
+            record's, as JSON, and it is ``required`` when the record gives none.
         outputs: The names of the graph outputs (``["result"]``).
         problems: Every problem of the graph, those on nodes included.
     """
 
     nodes: dict[str, GraphNodeDescription]
-    inputs: dict[str, GraphInputDescription]
+    inputs: dict[str, FieldDescription]
     outputs: list[str]
     problems: list[Problem]
 
 
-def runs_on(loops: tuple[Address, ...]) -> RunsOn:
+def runs_on(loops: tuple[Path, ...]) -> RunsOn:
     """Returns whether a node inside ``loops`` is called once or once per item: ``per_item`` of the list of the
     innermost loop, or ``once`` when ``loops`` is empty."""
-    return RunsOn(mode="per_item", series=str(loops[-1]), msg=f"per item of {loops[-1]}") if loops else RunsOn(mode="once", msg="once")
+    return RunsOn(mode="per_item", series=place_text(loops[-1]), msg=f"per item of {place_text(loops[-1])}") if loops else RunsOn(mode="once", msg="once")
 
 
-def input_source_of(loops: tuple[Address, ...], node_input: Input) -> InputSource:
+def input_source_of(loops: tuple[Path, ...], node_input: Input) -> InputSource:
     """Returns how an input with ``node_input`` gets its value on each call, for a node inside ``loops``.
 
     In ``lines -> shout -> join``: ``shout.line`` is an ``item`` of ``lines.result``, ``shout.mark`` is a
@@ -157,16 +146,16 @@ def input_source_of(loops: tuple[Address, ...], node_input: Input) -> InputSourc
         case MissingInput():
             return InputSource(mode="missing", msg="no value: a problem of the graph says why")
         case CollectingInput(series=series):
-            return InputSource(mode="collected", series=str(series), msg=f"every item of {series}")
+            return InputSource(mode="collected", series=place_text(series), msg=f"every item of {place_text(series)}")
         case EdgeInput(as_list=True):
             return InputSource(mode="collected", msg="the one value, as a Series of one")
         case EdgeInput(loops=value_loops):
             if value_loops != loops:  # the value's node is inside fewer loops than this node: the same value for every item
                 if value_loops:
-                    return InputSource(mode="outer_value", series=str(value_loops[-1]), msg=f"the value of the item of {value_loops[-1]}")
+                    return InputSource(mode="outer_value", series=place_text(value_loops[-1]), msg=f"the value of the item of {place_text(value_loops[-1])}")
                 return InputSource(mode="outer_value", msg="one value, the same for every item")
             if value_loops:
-                return InputSource(mode="item", series=str(value_loops[-1]), msg=f"per item of {value_loops[-1]}")
+                return InputSource(mode="item", series=place_text(value_loops[-1]), msg=f"per item of {place_text(value_loops[-1])}")
             return InputSource(mode="one_value", msg="one value")
         case _:
             assert_never(node_input)

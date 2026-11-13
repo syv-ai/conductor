@@ -36,10 +36,12 @@ from typing import Annotated
 from pydantic import AfterValidator, Field
 from pydantic_core import PydanticCustomError
 
-#: The ids that name one node: the id of each subgraph node it is inside, outermost first, and its own id last.
-#: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``; ``("lines",)`` is a node of the
-#: graph itself.
-NodePath = tuple[str, ...]
+#: The names on the way to a place in a graph, outermost first: the id of each subgraph node it is inside, the node's
+#: own id, and for an output or an exclusive group of the node, its name. ``("loud", "shout")`` is the node ``shout``
+#: inside the subgraph node ``loud``, and ``("loud", "shout", "result")`` its output ``result``; ``("lines",)`` is a node
+#: of the graph itself, and ``("lines", "result")`` its output. Compiling names each loop by the path of the list it
+#: loops over, and each branch by the path of the node that chooses it.
+Path = tuple[str, ...]
 
 #: Which call of a node: one index per loop the node is inside, outermost first. In a graph that loops over pages
 #: and then over the lines of each page, ``(0, 2)`` is line 2 of page 0. A node inside no loop has ``()``.
@@ -125,7 +127,7 @@ def loc_text(loc: Loc) -> str:
     return "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
 
 
-def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
+def parse_loc_text(text: str) -> tuple[Loc, Path, ItemIndexes]:
     """Read the text of a loc back, and also split it into its node path and its item indexes.
 
     ``parse_loc_text("loud@1/shout")`` returns ``(("loud", 1, "shout"), ("loud", "shout"), (1,))``.
@@ -144,7 +146,7 @@ def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
     return tuple(loc), tuple(node_ids), tuple(item_indexes)
 
 
-def node_path_text(path: NodePath) -> str:
+def node_path_text(path: Path) -> str:
     """A node path as text, joined by ``/``: ``node_path_text(("loud", "shout"))`` returns ``"loud/shout"``.
 
     A run keeps each node's outcomes, one per call, under this text, and a saved run writes them under it.
@@ -152,6 +154,13 @@ def node_path_text(path: NodePath) -> str:
     return "/".join(path)
 
 
-def parse_node_path(name: str) -> NodePath:
+def place_text(path: Path) -> str:
+    """The path of an output or an exclusive group as text, for a person to read: the node's path as text, a dot,
+    then the name. ``place_text(("lines", "result"))`` returns ``"lines.result"``, and ``place_text(("loud", "shout",
+    "result"))`` returns ``"loud/shout.result"``."""
+    return f"{node_path_text(path[:-1])}.{path[-1]}"
+
+
+def parse_node_path(name: str) -> Path:
     """The node path that ``node_path_text`` wrote as ``name``: ``parse_node_path("loud/shout")`` returns ``("loud", "shout")``."""
     return tuple(name.split("/"))

@@ -12,12 +12,13 @@ from .address import (
     ItemIndexes,
     Loc,
     Name,
-    NodePath,
+    Path,
     is_name,
     loc_text,
     node_path_text,
     parse_loc_text,
     parse_node_path,
+    place_text,
 )
 from .hashing import json_hash, short_hash
 from .json import NON_FINITE_FLOATS, plain_json, validate_as_json

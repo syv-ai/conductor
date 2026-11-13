@@ -1598,8 +1598,8 @@ def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_a
                    edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner),
                    inputs={"text": ["e.text", "split.text"], "sep": ["e.sep", "split.sep"]}, outputs={"split": "split.result", "upper": "u2.result"})
 
-    assert {k: v.msg for k, v in compiled.runs_on.items()} == {"e": "once", "split": "once", "u2": "per item of e.split.result"}
-    assert compiled.describe().nodes["u2"].inputs[0].source.series == "e.split.result"
+    assert {k: v.msg for k, v in compiled.runs_on.items()} == {"e": "once", "split": "once", "u2": "per item of e/split.result"}
+    assert compiled.describe().nodes["u2"].inputs[0].source.series == "e/split.result"
 
 
 def test_the_exclusive_groups_of_a_subgraph_name_the_outputs_it_offers():

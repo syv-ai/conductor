@@ -8,7 +8,6 @@ Code outside this package imports from here only. ``compile.py`` has ``compile_g
 from .compile import compile_graph
 from .describe import (
     GraphDescription,
-    GraphInputDescription,
     InputSource,
     RunsOn,
 )

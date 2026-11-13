@@ -42,7 +42,7 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import MISSING
 
-from conductor._internal.base import REQUIRED, Address
+from conductor._internal.base import REQUIRED, Address, Path, place_text
 from conductor._internal.field import Field
 from conductor._internal.gate import (
     RefusedError,
@@ -131,7 +131,7 @@ class _InputPlans:
     """
 
     inputs: dict[str, Input]
-    loops: tuple[Address, ...]
+    loops: tuple[Path, ...]
     required_branches: frozenset[RequiredBranch]
     bound: Mapping[TypeVar, Any] | None
 
@@ -419,14 +419,14 @@ class _Compiler:
             if loops[: len(node_input.loops)] != node_input.loops:  # not the node's outermost loops: items of two different lists are never paired
                 series = [loops[-1], node_input.loops[-1]]
                 reading = next(n for n, p in inputs.items() if p.loops == loops)
-                subgraphs = list(dict.fromkeys(port.node for port in series if isinstance(self.nodes[port.node], CompiledSubgraphNode)))
+                subgraphs = list(dict.fromkeys(path[0] for path in series if isinstance(self.nodes[path[0]], CompiledSubgraphNode)))
                 if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph
                     self.problems.append(compile_problems.loops_not_nested_inside_subgraph(
-                        node_id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
+                        node_id, series=[place_text(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
                     ))
                 else:
                     self.problems.append(compile_problems.series_not_nested(
-                        node_id, series=[str(s) for s in series], inputs=[reading, name],
+                        node_id, series=[place_text(s) for s in series], inputs=[reading, name],
                     ))
                 inputs[name] = MissingInput(node_input.field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
@@ -629,7 +629,7 @@ class _Compiler:
                 self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
-                series = [str(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
+                series = [place_text(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
                 self.problems.append(compile_problems.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
         aligned = [  # the collecting inputs whose edges come from inside a loop
@@ -684,7 +684,7 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     return collects, field.whole if not collects else field.type if record is None else record
 
 
-def _edge_input(field: Field, sources: list[Edge], deepest: tuple[Address, ...], loops: tuple[Address, ...], *, collects: bool) -> EdgeInput | CollectingInput:
+def _edge_input(field: Field, sources: list[Edge], deepest: tuple[Path, ...], loops: tuple[Path, ...], *, collects: bool) -> EdgeInput | CollectingInput:
     """Returns the compiled input of an input whose edges read ``sources``, for a node inside ``loops``.
 
     In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what

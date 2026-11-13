@@ -70,7 +70,7 @@ from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.ask import Answer, Ask
-from conductor._internal.base import Address, ItemIndexes, NodePath
+from conductor._internal.base import ItemIndexes, Path, place_text
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import ExternalError, NodeError, Problem, run_problems
 
@@ -199,9 +199,9 @@ class Scheduler:
         nodes: list[FlatFunctionNode],
         threads: int,
         outcomes: dict[str, dict[ItemIndexes, Outcome]],
-        reusable: dict[NodePath, ReusableOutcomes],
+        reusable: dict[Path, ReusableOutcomes],
         answers: dict[str, dict[ItemIndexes, Answer]],
-        finished: frozenset[NodePath],
+        finished: frozenset[Path],
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None,
@@ -304,7 +304,7 @@ class Scheduler:
         #: Makes the events about each node. None when nobody listens.
         self.node_events = NodeEvents(emit, nodes, outcomes, finished) if emit is not None else None
 
-    def run(self) -> tuple[RunState, frozenset[NodePath]]:
+    def run(self) -> tuple[RunState, frozenset[Path]]:
         """Call every node that is ready, until none is and no attempt is on a thread, or until ``end`` is called.
 
         Returns:
@@ -864,7 +864,7 @@ class Scheduler:
         if self.going:
             named, series_output = node.looped_outputs[output]
             loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
-            series = str(Address(named.compiled_node.id, series_output))
+            series = place_text((named.compiled_node.id, series_output))
             self.end(EndedEarly("stopped", run_problems.item_limit(*loc, series=series, items=items, max_items=item_limit)))
 
     def _checkpoint(self, checkpoints: _Checkpoints) -> None:

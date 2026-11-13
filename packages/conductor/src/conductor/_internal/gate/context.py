@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from conductor._internal.base import NodePath
+from conductor._internal.base import Path
 from conductor._internal.context import ContextParameter
 from conductor._internal.problem import call_problems
 
@@ -29,7 +29,7 @@ class ContextDoor:
             and a node takes it (``context_missing``, one problem per such node).
     """
 
-    def __init__(self, context_type: type | None, takers: Iterable[tuple[NodePath, ContextParameter]]) -> None:
+    def __init__(self, context_type: type | None, takers: Iterable[tuple[Path, ContextParameter]]) -> None:
         """Builds the door for a graph compiled against a registry that names ``context_type``.
 
         Args:

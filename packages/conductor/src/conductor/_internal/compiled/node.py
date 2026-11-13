@@ -7,7 +7,7 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=(Address("lines", "result"),)``,
+``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=(("lines", "result"),)``,
 a compiled input for each of ``line`` (one item of ``lines.result``) and ``mark`` (the constant ``"!"``), and the
 output ``result: str``. A compiled node has nothing from a run in it: it is made once and used by every run.
 """
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import Ask, Question, field_questions
-from conductor._internal.base import SKIPPED, Address, short_hash
+from conductor._internal.base import SKIPPED, Path, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
@@ -41,18 +41,19 @@ class RequiredBranch(NamedTuple):
 
     Example: ``route`` returns one of its outputs ``long`` and ``short`` per call, and ``shout`` is wired to
     ``route.long``. ``shout`` is called only where ``route`` chose ``long``:
-    ``RequiredBranch("route", "length", "long", depth=0)``. Two edges into one input are allowed when what they
+    ``RequiredBranch(("route",), "length", "long", depth=0)``. Two edges into one input are allowed when what they
     read needs different outputs of one group, since a call then gets a value from at most one of them.
 
     Attributes:
-        node_id: The id of the node that chooses, in the graph being compiled.
+        node: The path of the node that chooses, from the graph being compiled: ``("route",)``, or ``("e", "route")``
+            for a node inside the subgraph node ``e``.
         group: The exclusive group of the outputs it chooses between.
         output: The output of the group that must be the chosen one.
         depth: How many loops the node that chooses is inside: a node inside the loop over ``lines.result``
             chooses once per line.
     """
 
-    node_id: str
+    node: Path
     group: str
     output: str
     depth: int
@@ -64,7 +65,7 @@ class _CompiledNodeBase:
 
     Attributes:
         id: The node's id in the graph record.
-        loops: The loops the node is inside, outermost first, each named by the output it loops over.
+        loops: The loops the node is inside, outermost first, each named by the path of the output it loops over.
         inputs: The compiled input of each input, by name. Each one's ``field`` is the input as compiled: it includes
             the inputs a ``compute_added_inputs`` hook added, and a type variable is replaced by the type its edges
             read.
@@ -74,7 +75,7 @@ class _CompiledNodeBase:
     """
 
     id: str
-    loops: tuple[Address, ...]
+    loops: tuple[Path, ...]
     inputs: dict[str, Input]
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
@@ -85,7 +86,7 @@ class _CompiledNodeBase:
         keys first."""
         return all(node_input.field.type.hashes_plainly for node_input in self.inputs.values())
 
-    def loops_around(self, output: str) -> tuple[Address, ...]:
+    def loops_around(self, output: str) -> tuple[Path, ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: for a function node, the
         loops the node is inside. In the example, ``shout.loops_around("result")`` is the loop over
         ``lines.result``."""
@@ -95,7 +96,7 @@ class _CompiledNodeBase:
         """Returns the branches that must be chosen for ``output`` to have a value: those the node needs to be
         called, and ``output`` itself when it is in an exclusive group."""
         group = self.outputs[output].param.exclusive_group
-        return self.required_branches | {RequiredBranch(self.id, group, output, len(self.loops))} if group else self.required_branches
+        return self.required_branches | {RequiredBranch((self.id,), group, output, len(self.loops))} if group else self.required_branches
 
     def described_outputs(self) -> list[FieldDescription]:
         """Returns each output as an editor shows it."""
@@ -130,7 +131,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         functions: list[Callable[..., Any]] = [definition.function, *([definition.asked.function] if definition.asked else [])]
         code = [_code_text(inspect.unwrap(function).__code__) for function in functions]
         # as text: the id of a call waiting for a person's answer and a saved run contain the hash, so no repr may change it
-        loops = tuple([str(series) for series in self.loops])
+        loops = tuple([place_text(series) for series in self.loops])
         written = repr((definition.id, definition.version, code[0] if len(code) == 1 else code, fields, loops))
         return short_hash(written.encode(), 8)
 
@@ -210,17 +211,17 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     definition: SubgraphDefinition
     inner: CompiledGraph
 
-    def loops_around(self, output: str) -> tuple[Address, ...]:
+    def loops_around(self, output: str) -> tuple[Path, ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: the loops this node is
         inside, then the loops inside the subgraph.
 
         Example: ``e`` above is called once, and ``loops_around("shouted")`` is
-        ``(e.documents.result, e.lines.result)``. A loop inside is named by this node's id and the address of
+        ``(("e", "documents", "result"), ("e", "lines", "result"))``. A loop inside is named by this node's id and the path of
         the list inside, so two outputs returned in the same loop inside name the same loop, and a node outside
         that reads both is called once per item with the two values of that item.
         """
         inside = self.inner._loops_around(output)
-        return (*self.loops, *[Address(self.id, str(loop)) for loop in inside])
+        return (*self.loops, *[(self.id, *loop) for loop in inside])
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value: those this node needs to be
@@ -228,15 +229,14 @@ class CompiledSubgraphNode(_CompiledNodeBase):
 
         Example: the subgraph ``e`` is ``route -> shout`` and ``route -> whisper``, one on each output of
         ``route``, and its record declares the graph outputs ``loud`` (``shout.result``) and ``quiet``
-        (``whisper.result``). ``branches_required_for("loud")`` is ``RequiredBranch("e", "route.length",
-        "route.long", 0)`` and that of ``quiet`` names ``route.short``, so one input outside may be
-        wired to both, as it may with the same nodes drawn in the outer graph. A branch inside is named by this
-        node's id, with the group and the output as addresses inside the subgraph.
+        (``whisper.result``). ``branches_required_for("loud")`` is ``RequiredBranch(("e", "route"), "length", "long",
+        0)`` and that of ``quiet`` names ``short``, so one input outside may be wired to both, as it may with the same
+        nodes drawn in the outer graph. A branch inside is named by the path of its node, from this graph.
         """
         inside = self.inner._branches_required_for(output)
         depth = len(self.loops)
         return self.required_branches | {
-            RequiredBranch(self.id, f"{branch.node_id}.{branch.group}", str(Address(branch.node_id, branch.output)), depth + branch.depth)
+            RequiredBranch((self.id, *branch.node), branch.group, branch.output, depth + branch.depth)
             for branch in inside
         }
 
@@ -251,13 +251,13 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         described = []
         series_of: Any = Series  # typed Any: the type checker cannot follow ``Series[...]`` built at run time
         for name, field in self.outputs.items():
-            loops = [loop.output for loop in self.loops_around(name)[len(self.loops) :]]
+            loops = [place_text(loop[1:]) for loop in self.loops_around(name)[len(self.loops) :]]
             if not loops:
                 described.append(field.description)
                 continue
             if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
                 source = self.inner._outputs[name].source
-                loops.append(str(Address(source.node, source.output)))
+                loops.append(place_text((source.node, source.output)))
             item: Any = field.type.hint
             for _ in loops[1:]:
                 item = series_of[item]
