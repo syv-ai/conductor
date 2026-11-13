@@ -154,7 +154,7 @@ def test_a_literal_offers_its_values_and_an_answer_outside_them_is_refused():
 
     _, run = _once(urgency, name="x")
     (question,) = run.waiting[0].questions
-    assert question.choices == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
+    assert question.choices == (Choice("low", "low"), Choice("high", "high"))
     assert _refused(lambda: run.answer("q", "urgent"))[0].type == "invalid_answer"
     assert run.answer("q", "high").resume().outputs == {"result": "high"}
 
@@ -165,7 +165,7 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
         raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B."), "bo"])
 
     _, run = _once(assign, ticket="T-1")
-    assert run.waiting[0].questions[0].choices == [{"id": "ida", "title": "Ida B."}, {"id": "bo", "title": "bo"}]
+    assert run.waiting[0].questions[0].choices == (Choice("ida", "Ida B."), Choice("bo", "bo"))
     (fault,) = _refused(lambda: run.answer("q", "carl"))
     assert fault.msg == "That is not a valid answer: the answer is not one of the choices"
     assert run.answer("q", "bo").resume().outputs == {"result": "bo"}
@@ -181,8 +181,22 @@ def test_a_hosts_own_choice_carries_its_fields_to_the_question():
         raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
 
     _, run = _once(assign, ticket="T-1")
-    assert run.waiting[0].questions[0].choices == [{"id": "ida", "title": "Ida B.", "team": "sales"}]
+    assert run.waiting[0].questions[0].choices == (Person("ida", "Ida B.", team="sales"),)
     assert run.answer("q", "ida").resume().outputs == {"result": "ida"}
+
+
+def test_a_hosts_own_choice_keeps_its_fields_in_a_description_and_a_saved_question_read_back():
+    @node("assign", title="Assign", description="For a test.", asks=True)
+    def assign(ticket: str, team: Annotated[str, Param(choices=[Person("sales", "Sales", team="north")])] = "sales") -> str:
+        raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
+
+    described = assign.describe().inputs[1]
+    assert described.choices == (Person("sales", "Sales", team="north"),)
+    assert type(described).model_validate_json(described.model_dump_json()).choices[0].model_dump() == {"id": "sales", "title": "Sales", "team": "north"}
+    graph, run = _once(assign, ticket="T-1")
+    loaded = Run.from_json(run.to_json(), graph)
+    assert [choice.model_dump() for choice in loaded.waiting[0].questions[0].choices] == [{"id": "ida", "title": "Ida B.", "team": "sales"}]
+    assert loaded.answer("q", "ida").resume().outputs == {"result": "ida"}
 
 
 def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type():
@@ -396,7 +410,7 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"constant": "Ida,Bo"}}}, "q": {"node": "colours", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}}}, "j": {"node": "join", "inputs": {"texts": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "j", "output": "result"}}}), registry_of(split, colours, upper, join))
     run = Run.from_json(graph.run().to_json(), graph)
     (question,) = run.waiting[0].questions
-    assert (question.is_series, question.default, [c["id"] for c in question.choices]) == (True, ["red"], ["red", "green", "blue"])
+    assert (question.is_series, question.default, [c.id for c in question.choices]) == (True, ["red"], ["red", "green", "blue"])
     faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == ["That is not a valid answer: a choice is picked twice", "That is not a valid answer: Input should be 'red', 'green' or 'blue'"]
     answered = Run.from_json(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json(), graph)
@@ -412,7 +426,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
 
     _, run = _once(people, team="sales")
     (question,) = run.waiting[0].questions
-    assert (question.is_series, [c["title"] for c in question.choices]) == (True, ["Ida B.", "Bo K.", "Carl"])
+    assert (question.is_series, [c.title for c in question.choices]) == (True, ["Ida B.", "Bo K.", "Carl"])
     assert _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg == "That is not a valid answer: the answer is not one of the choices"
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
@@ -914,7 +928,7 @@ def test_a_declared_choice_is_answered_by_the_id_its_question_shows() -> None:
         (waiting,) = run.waiting
         shown = waiting.questions[0].choices
         assert shown is not None
-        assert run.answer(waiting, shown[0]["id"]).resume().outputs == {"result": read}
+        assert run.answer(waiting, shown[0].id).resume().outputs == {"result": read}
 
 
 def test_an_ask_pickled_as_another_process_raises_it_still_proposes_no_default() -> None:

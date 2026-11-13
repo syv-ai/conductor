@@ -436,7 +436,7 @@ def assign(ticket: str) -> str:
 
 
 run = Graph.compile(make_graph(assign), registry).run(ticket="T-1")
-print(run.waiting[0].questions[0].choices)  # [{'id': 'ida', 'title': 'ida'}, {'id': 'bo', 'title': 'bo'}]
+print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='bo', title='bo'))
 ```
 
 A node with several outputs is answered by output name, so `choices` and `default` go by output name too, naming only the outputs they are for. A `Choice(id, title)` gives a choice a title of its own:

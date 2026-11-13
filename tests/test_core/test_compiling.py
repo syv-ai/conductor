@@ -328,7 +328,7 @@ def test_a_single_value_as_the_constant_of_a_series_input_is_refused_not_wrapped
 def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
     described = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "styled", "inputs": {"mode": {"graph_input": "mode"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), REGISTRY).inputs["mode"]
     assert described.title == "Mode" and described.type == "str" and described.required is True
-    assert described.choices == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
+    assert described.choices == (Choice("a", "A"), Choice("b", "B"))
 
 
 def test_graph_inputs_come_in_the_order_of_the_nodes_by_id_and_never_by_name():

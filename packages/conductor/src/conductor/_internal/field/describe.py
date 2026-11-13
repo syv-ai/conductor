@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ConfigDict, JsonValue
+from pydantic import ConfigDict, JsonValue, SerializeAsAny
 from pydantic import Field as PydanticField
 
 from conductor._internal.base import ConductorModel
+from conductor._internal.types import Choice
 
 
 class FieldDescription(ConductorModel):
@@ -25,8 +26,8 @@ class FieldDescription(ConductorModel):
         json_schema: The JSON schema of one value, written as ``schema``; a table's columns are in it.
         required: Whether nothing defaults it.
         default: The default as JSON; ``None`` when ``required``.
-        choices: The values it takes when it names them, each ``{"id", "title"}`` with whatever a host's ``Choice``
-            subclass adds: from a ``Literal``, ``Param(choices=)`` or, on a question, the ``Ask``.
+        choices: The values it takes when it names them, each a ``Choice`` with every field a host gave it: from a
+            ``Literal``, ``Param(choices=)`` or, on a question, the ``Ask``.
         widget: The control a person edits it with, as JSON.
         exclusive_group: The group of alternative outputs it belongs to.
         loops: For an output of a subgraph returned inside loops: the lists looped over, outermost first,
@@ -46,7 +47,7 @@ class FieldDescription(ConductorModel):
     json_schema: dict[str, Any] = PydanticField(alias="schema")
     required: bool
     default: JsonValue = None
-    choices: list[dict[str, Any]] | None = None
+    choices: tuple[SerializeAsAny[Choice], ...] | None = None
     widget: dict[str, Any] | None = None
     exclusive_group: str | None = None
     loops: list[str] = []

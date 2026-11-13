@@ -1,8 +1,8 @@
 """The door for what a node raises: an ``Ask``'s choices and default, checked when it is raised.
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
-The door returns the call's ``Question``, whose overrides for ``result`` are the two choices as records, each id in
-its JSON form. Given ``choices=[1, 2]`` it raises ``RefusedError`` with ``invalid_ask``: a choice is what an answer
+The door returns the call's ``Question``, whose overrides for ``result`` are the two choices, each id in its JSON
+form. Given ``choices=[1, 2]`` it raises ``RefusedError`` with ``invalid_ask``: a choice is what an answer
 picks, so each is read as an answer is, and ``1`` is not a ``str``. An ``Ask`` raised by the function of an
 ``Asked`` parameter is checked against that parameter in the same way. A default is held to every rule an answer is,
 the ``Ask``'s own choices included.
@@ -97,8 +97,8 @@ def undeclared_ask(ask: Ask, inputs: dict[str, Any]) -> Question:
     raise RefusedError([run_problems.ask_not_declared()])
 
 
-def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
-    """The choices an ``Ask`` offers for one output, as records with their ids in JSON form.
+def _offered(field: Field, choices: list[Any]) -> tuple[Choice, ...]:
+    """The choices an ``Ask`` offers for one output, with their ids in JSON form.
 
     A choice is what an answer picks, so its id is read as an answer is; a ``Series``' ids each as one item.
 
@@ -110,15 +110,15 @@ def _offered(field: Field, choices: list[Any]) -> list[dict[str, Any]]:
         raise RefusedError([run_problems.invalid_ask(reason=f"'{field.name}' is offered no choices")])
     given = [choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in choices]
     try:
-        shown = [{"id": field.type.to_json(read_as_answer(field.type, choice.id)), **choice.model_dump(mode="json", exclude={"id"})} for choice in given]
+        shown = tuple(choice.model_copy(update={"id": field.type.to_json(read_as_answer(field.type, choice.id))}) for choice in given)
     except PydanticCustomError as refused:
         raise RefusedError([run_problems.invalid_ask(reason=f"a choice for '{field.name}' is not what it returns: {refused.message()}")]) from None
-    if len({repr(choice["id"]) for choice in shown}) != len(shown):
+    if len({repr(choice.id) for choice in shown}) != len(shown):
         raise RefusedError([run_problems.invalid_ask(reason=f"a choice for '{field.name}' is offered twice")])
     return shown
 
 
-def _proposed(field: Field, default: Any, choices: list[dict[str, Any]] | None) -> JsonValue:
+def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) -> JsonValue:
     """The default an ``Ask`` proposes for one output, in JSON form, held to the rules an answer is.
 
     Args:

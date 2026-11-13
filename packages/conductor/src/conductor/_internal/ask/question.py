@@ -14,21 +14,22 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, TypedDict
 
-from pydantic import JsonValue
+from pydantic import JsonValue, SerializeAsAny
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.types import Choice
 
 
 class QuestionOverrides(TypedDict, total=False):
-    """What an ``Ask`` sets on one output's question, as JSON; a key is present only when the ``Ask`` set it.
+    """What an ``Ask`` sets on one output's question; a key is present only when the ``Ask`` set it.
 
     Attributes:
-        choices: The choices offered, each its ``{"id", "title", ...}`` record with the id in its JSON form.
+        choices: The choices offered, as the output's type reads them (``Type.read_choices``).
         default: The proposed answer in its JSON form.
     """
 
-    choices: list[dict[str, Any]]
+    choices: tuple[SerializeAsAny[Choice], ...]
     default: JsonValue
 
 

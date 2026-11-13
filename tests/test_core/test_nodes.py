@@ -573,7 +573,7 @@ def test_a_param_with_a_widget_describes_with_one_title_on_the_field():
 
     described = f.describe().inputs[0]
     assert (described.title, described.description, described.type) == ("Language", "Which one", "str")
-    assert described.widget == {"type": "dropdown"} and described.choices == [{"id": "en", "title": "English"}, {"id": "da", "title": "Dansk"}]
+    assert described.widget == {"type": "dropdown"} and described.choices == (Choice("en", "English"), Choice("da", "Dansk"))
 
 
 def test_a_param_with_a_title_alone_is_an_input_with_no_control():
@@ -1187,7 +1187,7 @@ def test_a_literal_inputs_choices_are_in_its_record_and_a_widget_draws_them():
         return level
 
     described = priority.describe().inputs[0]
-    assert described.choices == [{"id": "low", "title": "low"}, {"id": "high", "title": "high"}]
+    assert described.choices == (Choice("low", "low"), Choice("high", "high"))
     assert described.widget == {"type": "dropdown"}
 
 
@@ -1208,15 +1208,15 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
     def rate(text: str) -> Annotated[Literal["low", "high"], Param(choices=titled)]:
         raise Ask("How urgent?")
 
-    assert priority.describe().inputs[0].choices == [{"id": "low", "title": "Lav"}, {"id": "high", "title": "Høj"}]
-    assert size.describe().inputs[0].choices == [{"id": "S", "title": "S"}, {"id": "M", "title": "M"}]
+    assert priority.describe().inputs[0].choices == (Choice("low", "Lav"), Choice("high", "Høj"))
+    assert size.describe().inputs[0].choices == (Choice("S", "S"), Choice("M", "M"))
     registry = NodeRegistry()
     registry.add(size, rate)
     with pytest.raises(InvalidCallError):
         Graph.compile(make_graph(size), registry).run(name="XL")
     assert Graph.compile(make_graph(size), registry).run(name="M").outputs == {"result": "M"}
     asked = Graph.compile(make_graph(rate), registry).run(text="x").waiting[0].questions[0]
-    assert asked.choices == [{"id": "low", "title": "Lav"}, {"id": "high", "title": "Høj"}]
+    assert asked.choices == (Choice("low", "Lav"), Choice("high", "Høj"))
     for wrong in ((Choice("low", "Lav"),), ("low", "low", "high"), (1, 2)):
         with pytest.raises(NodeDeclarationError) as raised:
 
@@ -1333,9 +1333,9 @@ def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_memb
     def a_day(day: Annotated[datetime.date, Param(choices=["2024-01-02"])]) -> str:
         return day.isoformat()
 
-    assert [c["id"] for c in by_value.describe().inputs[0].choices or ()] == ["red"]
-    assert [c["id"] for c in by_member.describe().inputs[0].choices or ()] == ["red"]
-    assert a_day.describe().inputs[0].choices == [{"id": "2024-01-02", "title": "2024-01-02"}]
+    assert [c.id for c in by_value.describe().inputs[0].choices or ()] == ["red"]
+    assert [c.id for c in by_member.describe().inputs[0].choices or ()] == ["red"]
+    assert a_day.describe().inputs[0].choices == (Choice("2024-01-02", "2024-01-02"),)
 
 
 @pytest.mark.parametrize("given", [

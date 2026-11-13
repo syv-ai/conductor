@@ -28,7 +28,7 @@ from conductor._internal.ask import QuestionOverrides, answer_required
 from conductor._internal.base import SKIPPED, Loc, comma_separated, validate_as_json
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.problem import call_problems
-from conductor._internal.types import Type, untyped_as_json
+from conductor._internal.types import Choice, Type, untyped_as_json
 
 from .refused import RefusedError
 from .rules import output_validator_of
@@ -113,16 +113,16 @@ class AnswerDoor:
         return read, faults
 
 
-def answer_value(field: Field, value: Any, choices: list[dict[str, Any]] | None) -> Any:
+def answer_value(field: Field, value: Any, choices: tuple[Choice, ...] | None) -> Any:
     """Reads one question's answer into the form a run keeps, held to ``choices``.
 
-    ``answer_value(field, "bo", [{"id": "ida", ...}, {"id": "bo", ...}])`` for a field ``str`` is ``"bo"``;
+    ``answer_value(field, "bo", (Choice("ida", "Ida B."), Choice("bo", "Bo K.")))`` for a field ``str`` is ``"bo"``;
     ``"al"`` is not one of the choices. A ``Series`` output picks several, each once.
 
     Args:
         field: The field the question is about.
         value: The answer to it.
-        choices: The choices it is limited to, each its record with the id in its JSON form; ``None`` for none.
+        choices: The choices it is limited to, each id in its JSON form; ``None`` for none.
 
     Raises:
         PydanticCustomError: The answer is not a value of the field's type, not one of the choices, or, for a
@@ -132,7 +132,7 @@ def answer_value(field: Field, value: Any, choices: list[dict[str, Any]] | None)
     if choices is not None:
         picked: Any = field.whole.to_json(read)
         picks = picked if field.is_series else [picked]
-        ids = [choice["id"] for choice in choices]
+        ids = [choice.id for choice in choices]
         if any(item not in ids for item in picks):
             raise PydanticCustomError("not_a_choice", "the answer is not one of the choices")
         if len({repr(item) for item in picks}) != len(picks):

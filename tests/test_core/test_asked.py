@@ -179,7 +179,7 @@ def test_the_asks_choices_and_default_are_checked_against_the_parameters_type():
 
     run = Graph.compile(make_graph(assign), registry_of(assign)).run(ticket="T-1")
     (question,) = run.waiting[0].questions
-    assert [choice["id"] for choice in question.choices] == ["ida", "bo"] and question.default == "ida"
+    assert [choice.id for choice in question.choices] == ["ida", "bo"] and question.default == "ida"
     (problem,) = _refused(lambda: run.answer(run.waiting[0], "al"))
     assert problem.type == "invalid_answer"
     assert run.answer(run.waiting[0], "bo").resume().outputs == {"result": "T-1 to bo"}
@@ -286,7 +286,7 @@ def test_the_asking_function_takes_the_nodes_context_by_its_name():
         return f"{ticket} to {owner}"
 
     run = Graph.compile(make_graph(assign), registry).run(ticket="T-1", context=Team(("ida", "bo")))
-    assert [choice["id"] for choice in run.waiting[0].questions[0].choices] == ["ida", "bo"]
+    assert [choice.id for choice in run.waiting[0].questions[0].choices] == ["ida", "bo"]
 
 
 def test_no_edge_or_constant_reaches_an_asked_parameter():
