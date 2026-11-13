@@ -10,8 +10,8 @@ The example used in this file. ``loud`` is the subgraph ``strip -> shout``, used
     join(texts: Series[str]) -> str     # wired to loud.shout.result: called once, with ["A!", "B!"]
 
 The compiled graph has three nodes: ``lines``, ``loud`` and ``join``. A subgraph is never called: only the
-functions inside it are. So a run works on the flat graph, which ``flat_graph_of(graph)`` makes once per graph. It
-has the four function nodes ``lines``, ``loud/strip``, ``loud/shout`` and ``join`` (each a
+functions inside it are. So a run works on the flat graph, which the compiled graph makes the first time it is
+asked for it (``graph._flat``) and keeps. It has the four function nodes ``lines``, ``loud/strip``, ``loud/shout`` and ``join`` (each a
 ``FlatFunctionNode``), and ``loud`` (a ``FlatSubgraph``), which has no outcomes of its own.
 
 In the flat graph every edge and every loop names a function node:
@@ -25,7 +25,7 @@ In the flat graph every edge and every loop names a function node:
 
 A call reads an input that edges lead to through an ``EdgeArgument`` (one value per call) or a
 ``CollectingArgument`` (one value per item of a loop, as a list). Each has the compiled input, for its field, and
-the edges as the flat graph names them; ``ResultReader`` (``arguments.py``) reads it from the run's outcomes, which a
+the edges as the flat graph names them; ``ResultReader`` (``run/arguments.py``) reads it from the run's outcomes, which a
 run keeps by each function node's path.
 
 A flat node has nothing from a run in it: it is made once and shared by every run of the graph.
@@ -38,8 +38,7 @@ import functools
 import typing
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, assert_never
-from weakref import WeakKeyDictionary
+from typing import TYPE_CHECKING, Any, assert_never
 
 from conductor._internal.base import (
     REQUIRED,
@@ -48,11 +47,13 @@ from conductor._internal.base import (
     NodePath,
     place_text,
 )
-from conductor._internal.compiled import (
+from conductor._internal.field import Field
+from conductor._internal.gate import EdgeDoor, demands_more
+from conductor._internal.node import Policy
+from conductor._internal.series import Series
+
+from .input import (
     CollectingInput,
-    CompiledFunctionNode,
-    CompiledGraph,
-    CompiledSubgraphNode,
     ConstantInput,
     Edge,
     EdgeInput,
@@ -60,10 +61,10 @@ from conductor._internal.compiled import (
     Input,
     MissingInput,
 )
-from conductor._internal.field import Field
-from conductor._internal.gate import EdgeDoor, demands_more
-from conductor._internal.node import Policy
-from conductor._internal.series import Series
+from .node import CompiledFunctionNode, CompiledSubgraphNode
+
+if TYPE_CHECKING:
+    from .type import CompiledGraph
 
 
 @typing.final
@@ -291,7 +292,8 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeArgument
 
 @dataclass(frozen=True, eq=False)
 class FlatGraph:
-    """The flat graph of one compiled graph: what every run of it works on. ``flat_graph_of(graph)`` makes it once.
+    """The flat graph of one compiled graph: what every run of it works on. ``FlatGraph.of(graph)`` makes it, and
+    the compiled graph keeps it (``graph._flat``).
 
     Attributes:
         function_nodes: Every function node of the graph and of its subgraphs, at any depth, by node path
@@ -308,22 +310,16 @@ class FlatGraph:
         ``concurrency`` of every function node called on a thread."""
         return sum(node.policy.concurrency for node in self.function_nodes.values() if node.policy.threaded)
 
-
-_FLAT_GRAPHS: WeakKeyDictionary[CompiledGraph, FlatGraph] = WeakKeyDictionary()
-
-
-def flat_graph_of(graph: CompiledGraph) -> FlatGraph:
-    """Returns the flat graph of ``graph``, made the first time a run of it is made and kept as long as the graph."""
-    flat = _FLAT_GRAPHS.get(graph)
-    if flat is None:
+    @classmethod
+    def of(cls, graph: CompiledGraph) -> FlatGraph:
+        """Returns the flat graph of ``graph``, a graph with no problems."""
         functions: dict[NodePath, FlatFunctionNode] = {}
         nodes: dict[NodePath, FlatNode] = {}
         _add_flat_nodes(graph, None, None, functions, nodes)
         for node in functions.values():
             for upstream_node, shared_indexes in node.upstream.items():
                 upstream_node.downstream.append((node, shared_indexes))
-        flat = _FLAT_GRAPHS[graph] = FlatGraph(functions, nodes)
-    return flat
+        return cls(functions, nodes)
 
 
 def _add_flat_nodes(

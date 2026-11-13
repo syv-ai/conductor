@@ -16,7 +16,7 @@ own record declares, compiled once, on its own, and none of its nodes is copied 
 names one of its outputs (``loud.result``), never a node inside it. The nodes of a compiled graph are in
 ``node.py``.
 
-The names with an underscore (``_nodes``, ``_inputs``, ``_inputs_door``, ...) are what the engine reads:
+The names with an underscore (``_nodes``, ``_inputs``, ``_flat``, ``_inputs_door``, ...) are what the engine reads:
 the compiler, a subgraph node and a run. They keep the underscore because ``Graph`` is a ``CompiledGraph``, and a
 host that holds a ``Graph`` must not see them.
 """
@@ -43,6 +43,7 @@ from .describe import (
     input_source_of,
     runs_on,
 )
+from .flat import FlatGraph
 from .input import Edge
 from .node import (
     CompiledNode,
@@ -199,6 +200,12 @@ class CompiledGraph:
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
         return json_hash([own, subgraph_fingerprints], 8, keys_sorted=True)
+
+    @functools.cached_property
+    def _flat(self) -> FlatGraph:
+        """The flat graph every run of this graph works on (``flat.py``): made when the first run is made, and kept
+        with the graph."""
+        return FlatGraph.of(self)
 
     @functools.cached_property
     def _context_door(self) -> ContextDoor:

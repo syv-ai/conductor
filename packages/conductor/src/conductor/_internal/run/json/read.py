@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.compiled import (
     CompiledGraph,
+    FlatGraph,
     outputs_when_not_called,
     outputs_when_skipped,
 )
@@ -22,7 +23,6 @@ from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
-from ..flat import FlatGraph, flat_graph_of
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
@@ -66,7 +66,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             raise InvalidCallError([call_problems.saved_run_of_another_graph("saved_run", saved=first["input"], graph=graph.fingerprint)]) from None
         reason = value_free_errors(error)[0]["msg"]
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where_in(codec, first["loc"]), reason=reason)]) from None
-    flat = flat_graph_of(graph)
+    flat = graph._flat
     in_call_order: dict[NodePath, list[Outcome | None]] = {}
     reused: dict[NodePath, ReusableOutcomes] = {}
     try:
@@ -99,7 +99,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
     # outcomes that other code produced are never reused
     reusable = {path: of_node for path, of_node in reused.items() if path not in code_changed}
     return run_type(
-        graph, read.inputs, read.max_items, outcomes, reusable, _flat=flat, state=read.state, _code_changed=code_changed,
+        graph, read.inputs, read.max_items, outcomes, reusable, state=read.state, _code_changed=code_changed,
         _finished_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
 

@@ -26,7 +26,6 @@ from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.types import Type, union_of
 
-from ..flat import flat_graph_of
 from .type import SavedOutcomes, SavedReusable, SavedRun
 
 
@@ -219,7 +218,7 @@ def codec_of(graph: CompiledGraph) -> type[SavedRun]:
     """The model the runs of ``graph`` are read from JSON and written as JSON by, built once per graph."""
     codec = _CODECS.get(graph)
     if codec is None:
-        flat = flat_graph_of(graph)
+        flat = graph._flat
         codec = _CODECS[graph] = run_codec(
             graph.fingerprint,
             inputs={name: field.whole for name, field in graph._inputs.items()},

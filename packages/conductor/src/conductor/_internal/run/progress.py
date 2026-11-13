@@ -29,8 +29,8 @@ from collections.abc import Iterable
 from typing import Any
 
 from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes, NodePath, place_text
+from conductor._internal.compiled import FlatFunctionNode, FlatGraph, FlatSubgraph
 
-from .flat import FlatFunctionNode, FlatGraph, FlatSubgraph
 from .outcome import Outcome, Unanswered
 
 

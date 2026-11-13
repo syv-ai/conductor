@@ -210,9 +210,11 @@ def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_
     registry = _registry(frozenset({"words"}))
     graph = Graph.compile(_record(case.nodes, case.edges, registry), registry)
     run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
-    # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a flat graph of its
-    # own with a copy of the node, so the graph's flat graph stays whole.
-    series = dataclasses.replace(run._flat.function_nodes[("w",)], downstream=[])
-    broken = dataclasses.replace(run._flat, function_nodes={**run._flat.function_nodes, ("w",): series}, nodes={**run._flat.nodes, ("w",): series})
+    # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a copy of the graph
+    # with a flat graph of its own, holding a copy of the node, so the graph's flat graph stays whole.
+    flat = graph._flat
+    series = dataclasses.replace(flat.function_nodes[("w",)], downstream=[])
+    broken = dataclasses.replace(graph)
+    object.__setattr__(broken, "_flat", dataclasses.replace(flat, function_nodes={**flat.function_nodes, ("w",): series}, nodes={**flat.nodes, ("w",): series}))
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
-        dataclasses.replace(run, _flat=broken).resume()
+        dataclasses.replace(run, graph=broken).resume()

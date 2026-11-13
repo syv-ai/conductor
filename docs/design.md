@@ -302,4 +302,4 @@ except InvalidCallError as refused:
 
 ## Where to start reading
 
-Start at `packages/conductor/src/conductor/__init__.py`, then read `_internal/` from `base`, `types` and `field` up through `record`, `compiled` (`input`, then `type`), `run` (`flat`, `outcome`, `json`, `scheduler`, `arguments`, then `type`) and `graph`. The providers' `router.py` and `store.py` come after, and `conductor-nodes` last.
+Start at `packages/conductor/src/conductor/__init__.py`, then read `_internal/` from `base`, `types` and `field` up through `record`, `compiled` (`input`, `type`, then `flat`), `run` (`outcome`, `json`, `scheduler`, `arguments`, then `type`) and `graph`. The providers' `router.py` and `store.py` come after, and `conductor-nodes` last.
