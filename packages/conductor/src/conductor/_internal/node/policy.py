@@ -29,9 +29,9 @@ class Policy(ConductorModel):
     world, not only its inputs: ``run.again`` calls it for every item.
     ``costs_nothing=True`` is for a node whose call costs nothing and touches
     nothing outside the run (one that hands on an upload's files, splits a
-    table, or returns a list given to it): ``run.estimate()`` calls only such
-    nodes, so a host learns how many calls the costly nodes will have
-    (``run.progress``) before any of them is made.
+    table, or returns a list given to it): ``run.resume(only_costs_nothing=True)``
+    calls only such nodes, so a host learns how many calls the costly nodes will
+    have (``run.progress``) before any of them is made.
 
     It is also what an editor reads of a node's policy: as JSON it leaves ``retry_on`` out, since a class has no
     JSON form. Its values are read strictly: a whole number is no yes or no and no text that spells one.
@@ -43,7 +43,7 @@ class Policy(ConductorModel):
         attempt_timeout: The seconds one attempt may take; finite and above 0, or ``None`` for no clock.
         retry_on: The exception classes of the node's own client that are tried again like an ``ExternalError``.
         reuse_when_inputs_match: Whether ``run.again`` reuses a result when a call receives what it received before.
-        costs_nothing: Whether a call costs nothing, so ``run.estimate()`` makes it. A node
+        costs_nothing: Whether a call costs nothing, so ``run.resume(only_costs_nothing=True)`` makes it. A node
             that takes the run's context is refused it.
     """
 

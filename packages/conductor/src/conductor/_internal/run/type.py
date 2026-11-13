@@ -16,6 +16,7 @@ the calls of the nodes inside. A place at any depth of subgraphs is one path of 
 from __future__ import annotations
 
 import dataclasses
+import functools
 from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass
@@ -156,7 +157,7 @@ class Run[C]:
         check_limits(max_items=max_items)
         return dataclasses.replace(self, max_items=max_items)
 
-    def resume(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
+    def resume(self, *, context: C | None = None, timeout: float | None = None, only_costs_nothing: bool = False) -> Run[C]:
         """Go on: call every node that is ready, until the run is complete, waits for a person, fails, reaches its
         item limit or its ``timeout``, and return the run as it then is.
 
@@ -165,44 +166,38 @@ class Run[C]:
         on threads are waited for, as long as their ``attempt_timeout``, and kept: so ``resume`` can return later
         than ``timeout``, and a call that returned is never made again.
 
+        With ``only_costs_nothing=True`` only the nodes whose ``Policy`` says ``costs_nothing`` are called, so that
+        ``run.progress`` says how many calls each costly node will have before any of them is made. For
+        ``files -> summarize`` where only ``files`` costs nothing,
+        ``graph.with_inputs(names=["a.pdf", "b.pdf"]).resume(only_costs_nothing=True)`` calls ``files`` alone,
+        and its ``progress.nodes["summarize"].total`` is 2. The run is ``ready`` afterwards, unless every node costs
+        nothing (then it is ``complete``), a series has more items than ``max_items`` (``stopped``), or one of
+        those calls fails or asks a person (``failed`` or ``waiting``). The next ``resume()`` makes none of those
+        calls again.
+
+        Args:
+            context: The run's context, given to every node that takes ``Context[...]``.
+            timeout: The seconds after which no more calls start; ``None`` for no limit.
+            only_costs_nothing: Whether to call only the nodes whose ``Policy`` says ``costs_nothing``.
+
+        Returns:
+            The run after those calls.
+
         Raises:
             InvalidCallError: ``timeout`` is not a number of seconds above 0 (``invalid_timeout``); ``context`` is not an instance of
                 the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
                 (``context_missing``).
         """
         check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._context_door(context), None, deadline(timeout))
-
-    def estimate(self, *, context: C | None = None, timeout: float | None = None) -> Run[C]:
-        """Call only the nodes whose ``Policy`` says ``costs_nothing``, so that ``run.progress`` says how many calls
-        each costly node will have before any of them is made.
-
-        ``graph.with_inputs(csv=csv).estimate().progress`` counts the calls of every node. The nodes are called as
-        far as they are ready, and the run is ``ready`` afterwards, unless every node costs nothing (then it is
-        ``complete``) or a series has more items than ``max_items`` (then it is ``stopped``). A call that fails or
-        asks a person does so as in ``resume()``: the run is ``failed`` or ``waiting``. The next ``resume()`` makes
-        none of the calls again, and a stream of it says nothing of the nodes that were complete.
-
-        Args:
-            context: The run's context, as ``resume`` takes it.
-            timeout: The seconds after which no more calls start, as ``resume`` takes it.
-
-        Returns:
-            The run after those calls.
-
-        Raises:
-            InvalidCallError: As ``resume`` does.
-        """
-        check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._context_door(context), None, deadline(timeout), only_costs_nothing=True)
+        return self._run_scheduler(self.graph._context_door(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
 
     def stream(
-        self, *, context: C | None = None, timeout: float | None = None, cancel: AsyncioEvent | None = None,
-        hand_back: AsyncioEvent | None = None, checkpoint_every: float | None = None,
+        self, *, context: C | None = None, timeout: float | None = None, only_costs_nothing: bool = False,
+        cancel: AsyncioEvent | None = None, hand_back: AsyncioEvent | None = None, checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
         """``resume``, with an event for each thing that happens: ``async for event in run.stream(context=...): ...``.
 
-        It takes ``context`` and ``timeout`` as ``resume`` does. The nodes are called on a thread of their own, so a
+        It takes ``context``, ``timeout`` and ``only_costs_nothing`` as ``resume`` does. The nodes are called on a thread of their own, so a
         slow node never blocks the event loop. The last event is ``RunEnd``, whose ``run`` is the run as it then is.
 
         - Setting ``cancel`` stops before the next call, as does leaving the loop early once the stream is closed.
@@ -220,7 +215,8 @@ class Run[C]:
                 above 0 (``invalid_checkpoint_every``), at this call, before any event.
         """
         check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
-        return stream(self._run_scheduler, self.graph._context_door(context), timeout, cancel, hand_back, checkpoint_every)
+        run_scheduler = functools.partial(self._run_scheduler, only_costs_nothing=only_costs_nothing)
+        return stream(run_scheduler, self.graph._context_door(context), timeout, cancel, hand_back, checkpoint_every)
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], LastResume] | None,
@@ -233,11 +229,11 @@ class Run[C]:
 
         Args:
             context: The run's context, passed to each node that takes it.
-            emit: Called with each event, for ``stream``; ``None`` for ``resume`` and ``estimate``.
+            emit: Called with each event, for ``stream``; ``None`` for ``resume``.
             stop: Asked before each call whether the run must stop now, and why.
             checkpoint_every: The least number of seconds between two checkpoints; ``None`` for none.
-            only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called, for
-                ``estimate``: every call of another node is not ready.
+            only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called: every
+                call of another node is not ready.
 
         Returns:
             The copy, as the scheduler left it.
@@ -426,8 +422,8 @@ class Run[C]:
 
         It is read from the run's outcomes each time, so a run read back with ``Run.from_json`` has the same.
         For the README graph before any call, ``run.progress.nodes["approve"].total`` is ``None``: how many
-        invoices there are is known once ``read`` has returned. ``run.estimate()`` calls ``read`` first when its
-        ``Policy`` says ``costs_nothing``.
+        invoices there are is known once ``read`` has returned. ``run.resume(only_costs_nothing=True)`` calls ``read``
+        first when its ``Policy`` says ``costs_nothing``.
         """
         return progress_of(self._blueprint, self._outcomes)
 
@@ -529,7 +525,8 @@ def _only_costs_nothing(
     arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
 ) -> Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
     """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready: what
-    ``estimate`` hands the scheduler, so that it calls ``lines`` and never ``shout`` when only ``lines`` costs nothing."""
+    ``resume(only_costs_nothing=True)`` hands the scheduler, so that it calls ``lines`` and never ``shout`` when only
+    ``lines`` costs nothing."""
 
     def restricted(node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY

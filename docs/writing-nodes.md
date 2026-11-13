@@ -571,14 +571,14 @@ def summarize(name: str) -> str:
 
 
 ready = Graph.compile(make_graph(files, summarize), registry).with_inputs(names=["a.pdf", "b.pdf", "c.pdf"])
-estimated = ready.estimate()
+estimated = ready.resume(only_costs_nothing=True)
 
 print(estimated.status)                       # ready
 print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 known=3 total=3
 print(estimated.resume().progress.finished)   # 4
 ```
 
-`run.estimate()` calls only the marked nodes, as `resume()` calls every node, with its `context` and `timeout`; the run is `ready` afterwards. The next `resume()` calls the rest and makes none of those calls again. A marked node that raises `Ask` or fails does so as in `resume()`: the run is `waiting` or `failed`, and the next `resume()` calls a failed call again. A node that takes the run's context is refused `costs_nothing=True` ([`costs_nothing_takes_context`](problems.md#costs_nothing_takes_context)): it uses the host's objects, so its call is not free.
+`run.resume(only_costs_nothing=True)` calls only the marked nodes, with the same `context` and `timeout` as any `resume()`, and `run.stream(only_costs_nothing=True)` does the same with its events; the run is `ready` afterwards. The next `resume()` calls the rest and makes none of those calls again. A marked node that raises `Ask` or fails does so as in `resume()`: the run is `waiting` or `failed`, and the next `resume()` calls a failed call again. A node that takes the run's context is refused `costs_nothing=True` ([`costs_nothing_takes_context`](problems.md#costs_nothing_takes_context)): it uses the host's objects, so its call is not free.
 
 `run.progress` is read from the run's outcomes each time, for the run and for each node: how many calls are `finished` (they have an outcome that is not waiting), how many are `waiting` for a person, how many are `known` so far, and the `total`. The `total` is `None` while it depends on a node that has not been called yet, such as a language model that finds the invoices in a document; `known` is then the least the total can be, and it only grows.
 

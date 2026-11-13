@@ -17,8 +17,8 @@ Before any call, ``graph.with_inputs(text="a\\nb\\nc").progress`` is::
 
 How many calls ``shout`` has depends on how many lines ``lines`` returns, so its ``total`` is ``None``. Once
 ``lines`` has returned three lines, ``shout`` has ``known=3, total=3``, and the run ``known=5, total=5``. If
-``lines`` costs nothing to call, ``run.estimate()`` calls it first, so a host has the totals before any call
-that costs something.
+``lines`` costs nothing to call, ``run.resume(only_costs_nothing=True)`` calls it first, so a host has the
+totals before any call that costs something.
 
 Nothing here is saved or counted as the run goes: every count is read from the run's outcomes when
 ``run.progress`` is read. So a run read back with ``Run.from_json`` in another process has the same progress.
