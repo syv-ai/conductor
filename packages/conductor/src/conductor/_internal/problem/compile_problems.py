@@ -32,7 +32,8 @@ def alternatives_from_different_loops(node_id: str, field: str, /, *, series: li
     Args:
         node_id: The node.
         field: The input.
-        series: The series each edge's values are items of, by address; ``None`` for an edge from a node inside no
+        series: The series each edge's values are items of, as its node's path and output (``lines.result``,
+            ``e/words.result`` for a node inside the subgraph node ``e``); ``None`` for an edge from a node inside no
             loop.
 
     Example:
@@ -377,7 +378,7 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) 
 
     Args:
         node_id: The node.
-        series: The two series, by address.
+        series: The two series, each as its node's path and output: ``names.result``.
         inputs: The two inputs that read them.
 
     Example:
@@ -403,8 +404,8 @@ def loops_not_nested_inside_subgraph(node_id: str, /, *, series: list[str], inpu
 
     Args:
         node_id: The node.
-        series: The two series, by address; a series inside a subgraph is named by the subgraph node's id and its
-            address inside: ``e.words.result``.
+        series: The two series, each as its node's path and output; a series inside a subgraph is named by the path
+            of the node inside, from this graph: ``e/words.result``.
         inputs: The two inputs that read them.
         subgraphs: The ids of the subgraph nodes the series are inside.
 
