@@ -31,7 +31,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, ClassVar, final
 
-from conductor._internal.base import Address, Path
+from conductor._internal.base import Path, place_text
 from conductor._internal.field import Field
 from conductor._internal.types import Type
 
@@ -42,14 +42,16 @@ class Edge:
     """What one edge reads from an output, as compiled: the input it leads to holds one per edge.
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
-    ``shout``, so it is ``Edge(Address("lines", "result"), (), Type(str), item=True)``. The edge from ``shout.result``
-    reads the value one call of ``shout`` returned, ``Edge(Address("shout", "result"), (("lines", "result"),),
-    Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index.
+    ``shout``, so it is ``Edge(("lines", "result"), None, (), Type(str), item=True)``. The edge from ``shout.result``
+    reads the value one call of ``shout`` returned, ``Edge(("shout", "result"), None, (("lines", "result"),),
+    Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index. An edge from the
+    field ``email`` of the record ``split.result`` is ``Edge(("split", "result"), "email", ...)``.
 
     Attributes:
-        source: The output the edge reads, as the graph record writes it, with the field of a record when the edge
-            reads one (``Address("split", "result", "email")``). In a compiled graph its node is the node's id. In
-            the flat graph it is the name of the function node (``"loud/shout"`` inside a subgraph).
+        source: The path of the output the edge reads. In a compiled graph it is the node's id and the output; in
+            the flat graph, the function node's path and the output there (``("loud", "shout", "result")`` for
+            ``shout`` inside the subgraph node ``loud``).
+        field: The field of the record the output returns that the edge reads; ``None`` for the whole output.
         loops: The loops that node is inside, outermost first, each as the path of the list looped over.
         type: The type of the value the edge reads.
         item: Whether the output is a ``Series`` and the edge reads one item of it. The node the edge leads to
@@ -58,7 +60,8 @@ class Edge:
         depth: How many loops the node is inside: the number of item indexes that say which call of it.
     """
 
-    source: Address
+    source: Path
+    field: str | None
     loops: tuple[Path, ...]
     type: Type
     item: bool
@@ -67,11 +70,16 @@ class Edge:
     def __post_init__(self) -> None:
         object.__setattr__(self, "depth", len(self.loops))
 
+    def __str__(self) -> str:
+        """The edge's source as a person reads it: ``"lines.result"``, ``"read.result.email"``,
+        ``"loud/shout.result"``."""
+        return place_text(self.source) if self.field is None else f"{place_text(self.source)}.{self.field}"
+
     @property
     def loops_of_value(self) -> tuple[Path, ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
         node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return (*self.loops, (self.source.node, self.source.output)) if self.item else self.loops
+        return (*self.loops, self.source) if self.item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------

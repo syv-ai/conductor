@@ -77,8 +77,8 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for text, value in run.outputs.items():
-        source = run.graph._outputs[text].source
-        function, output = run._flat.nodes[source.node].source_of(source.output)
+        node_id, graph_output = run.graph._outputs[text].source
+        function, output = run._flat.nodes[node_id].source_of(graph_output)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None

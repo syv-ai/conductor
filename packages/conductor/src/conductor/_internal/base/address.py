@@ -9,8 +9,10 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
         shout(line: str) -> str
     join(texts: Series[str]) -> str   # wired to loud.shout.result, the output of loud's inner node shout
 
-- A **node path** names a node: its id, after the id of each subgraph node it is inside. The inner node ``shout``
-  is ``("loud", "shout")``, written ``"loud/shout"``; ``lines`` is ``("lines",)``, written ``"lines"``.
+- A **path** names a node: its id, after the id of each subgraph node it is inside. The inner node ``shout`` is
+  ``("loud", "shout")``, written ``"loud/shout"``; ``lines`` is ``("lines",)``, written ``"lines"``. Followed by a
+  name, it names that output or exclusive group of the node: ``("loud", "shout", "result")``, written
+  ``"loud/shout.result"``.
 - **Item indexes** say which call of a node: one index per loop the node is inside, outermost first. The call of
   ``loud/shout`` for the line ``" "`` has the item indexes ``(1,)``.
 - A **loc** names one call: the node path and the item indexes in one tuple. Each index is written after the id
@@ -18,22 +20,23 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   written ``"loud@1/shout"``: the loop over ``lines.result`` is in the outer graph, where the node inside it is
   ``loud``, so the index follows ``"loud"``. A host is given a loc when it
   is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
-- An **address** names one output of a node, or one field of the record an output returns: ``Address("lines",
-  "result")``, written ``"lines.result"``. A graph record writes where each edge comes from as one; compiling names a
-  loop by the address of the list it loops over.
+- An **address** names one output of a node of a graph record, or one field of the record an output returns:
+  ``Address("lines", "result")``, written ``"lines.result"``. A graph record writes where each edge comes from as
+  one. Inside the engine a place is a **path** (``Path``): a node's path, then an output's name. Compiling names a loop
+  and an edge's source by the path of the output, ``("loud", "shout", "result")`` deep inside a subgraph.
 
 Because these are written with ``.``, ``/``, ``@`` and ``~`` (``~`` comes before the fingerprint of a waiting
 call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output contains one of them (``is_name``).
-``Name`` and the fields of ``Address`` hold a graph record to that rule where it is read.
+``Name`` holds every name in a graph record to that rule, and an ``Address`` checks its parts when it is made.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Annotated
 
-from pydantic import AfterValidator, Field
+from pydantic import AfterValidator, ConfigDict, Field
+from pydantic.dataclasses import dataclass
 from pydantic_core import PydanticCustomError
 
 #: The names on the way to a place in a graph, outermost first: the id of each subgraph node it is inside, the node's
@@ -92,20 +95,18 @@ def _a_field(text: str | None) -> str | None:
 #: refused (``is_name``).
 Name = Annotated[str, AfterValidator(_a_name)]
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, config=ConfigDict(extra="forbid"))
 class Address:
-    """One output of a node, or one field of the record an output returns: where an edge comes from.
+    """One output of a node of a graph, or one field of the record an output returns: where an edge comes from.
 
     A graph record writes it as ``{"node": "lines", "output": "result"}``, and a field as ``{"node": "read",
     "output": "result", "field": "email"}``. A subgraph node's outputs are the graph outputs its graph record
-    declares, each a name like any other output's.
-
-    Compiling names each loop by the address of the list it loops over, and the run's flat graph names a node by
-    its node path as text (``Address("loud/shout", "result")``). As text, for a person to read, the parts are
-    joined by dots: ``"lines.result"``, ``"read.result.email"``.
+    declares, each a name like any other output's. Every part is checked when an address is made, from Python as
+    from JSON: ``Address("loud/shout", "result")`` raises, as a node id is a name. A place deeper in a graph is a
+    ``Path``. As text, for a person to read, the parts are joined by dots: ``"lines.result"``, ``"read.result.email"``.
 
     Attributes:
-        node: The node's id; in the flat graph, its node path as text.
+        node: The node's id.
         output: The output's name.
         field: The field of the record the output returns; ``None`` for the whole output.
     """

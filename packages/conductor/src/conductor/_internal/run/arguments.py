@@ -35,7 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Final, Literal
 
-from conductor._internal.base import SKIPPED, ItemIndexes
+from conductor._internal.base import SKIPPED, ItemIndexes, node_path_text
 from conductor._internal.compiled import Edge
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import run_problems
@@ -181,19 +181,19 @@ class ResultReader:
         Raises:
             NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
         """
-        depth = edge.depth
-        outcome = self.outcomes[edge.source.node].get(item_indexes[:depth])
+        depth, node_name, output = edge.depth, node_path_text(edge.source[:-1]), edge.source[-1]
+        outcome = self.outcomes[node_name].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
-                would_be = self.for_any_item[edge.source.node]
+                would_be = self.for_any_item[node_name]
                 if isinstance(would_be, dict):
                     return MAY_HAVE_VALUE
-                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[edge.source.output]
+                return would_be if would_be is NotReady.NOT_READY else would_be.outputs[output]
             return NotReady.NOT_READY
-        value = outcome.outputs[edge.source.output]
+        value = outcome.outputs[output]
         if value is None or value is SKIPPED:
             return value
-        record_field = edge.source.field
+        record_field = edge.field
         if not edge.item:
             return value if record_field is None else field_of(value, record_field)
         try:  # ``value`` is a stored Series: one item of it, or one field of that item
@@ -229,7 +229,7 @@ class ResultReader:
             return series
         edges = argument.edges
         if len(edges) == 1 and edges[0].item:  # the input collects the list itself: its items, or one field of each
-            record_field = edges[0].source.field
+            record_field = edges[0].field
             if record_field is not None:
                 return series.field_as_list(record_field)
             return series.as_table_input() if argument.input.field.whole.record is not None else series.as_list()

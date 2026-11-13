@@ -256,8 +256,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
                 described.append(field.description)
                 continue
             if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
-                source = self.inner._outputs[name].source
-                loops.append(place_text((source.node, source.output)))
+                loops.append(place_text(self.inner._outputs[name].source))
             item: Any = field.type.hint
             for _ in loops[1:]:
                 item = series_of[item]

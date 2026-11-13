@@ -1131,3 +1131,12 @@ def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_
 
     assert record.nodes["both"].inputs == {"yes": InputEntry(sources=(Address("hello", "result"),)), "no": InputEntry(graph_input="no")}
     assert list(graph.inputs) == ["name", "no"] and graph.run(name="ida", no="!").outputs == {"result": "hello ida!"}
+
+
+def test_an_address_is_an_output_of_a_node_by_its_id_and_a_path_cannot_be_written_in_one():
+    from pydantic import ValidationError
+
+    assert str(Address("read", "result", "email")) == "read.result.email"
+    with pytest.raises(ValidationError) as refused:
+        Address("loud/shout", "result")
+    assert [error["type"] for error in refused.value.errors()] == ["not_a_name"]

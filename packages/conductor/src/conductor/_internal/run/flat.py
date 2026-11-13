@@ -42,7 +42,6 @@ from weakref import WeakKeyDictionary
 
 from conductor._internal.base import (
     REQUIRED,
-    Address,
     ItemIndexes,
     Loc,
     Path,
@@ -217,8 +216,8 @@ class FlatSubgraph(_FlatNodeBase):
         ``loud.source_of("result")`` is ``(loud/shout, "result")``. When the node inside is itself a subgraph, the
         answer is a function node inside that one.
         """
-        source = self.compiled_node.inner._outputs[output].source
-        return self.inner_nodes[source.node].source_of(source.output)
+        node_id, inner_output = self.compiled_node.inner._outputs[output].source
+        return self.inner_nodes[node_id].source_of(inner_output)
 
 
 #: A node of the flat graph: a function, or a subgraph.
@@ -284,7 +283,7 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeArgument
     """
     node_inputs = node.display_inputs.get(output)
     if node_inputs is None:
-        source = Edge(Address(node.name, output), _loop_paths(node.loops), node.compiled_node.outputs[output].type, item=False)
+        source = Edge((*node.node_path, output), None, _loop_paths(node.loops), node.compiled_node.outputs[output].type, item=False)
         functions = {source_node.name: source_node for source_node in (node, *(series_node for series_node, _ in node.loops))}
         per_loop = [
             _collecting_argument(CollectingInput(_DISPLAY_FIELD, (*series_node.node_path, series), _loop_paths(series_node.loops), (source,)), (series_node, series), (source,), functions)
@@ -384,11 +383,11 @@ def _add_flat_nodes(
                     graph_inputs.append((name, graph_input))
                     continue
                 case EdgeArgument(edges=edges):
-                    read = [(edge.source.node, edge.depth) for edge in edges]
+                    read = [(node_path_text(edge.source[:-1]), edge.depth) for edge in edges]
                     depth = max(len(edge.loops_of_value) for edge in edges)
                 case CollectingArgument(input=collecting_input, series=series, edges=edges, depth=depth):
                     looped_over = series
-                    read = [(series[0].name, depth), *[(edge.source.node, edge.depth) for edge in edges]]
+                    read = [(series[0].name, depth), *[(node_path_text(edge.source[:-1]), edge.depth) for edge in edges]]
                     # what a node inside the loop reads from outside it can say that no item will have a value
                     read_inside = [read for inner in node_input.loop_body for read in inner.upstream.items()]
                     outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
@@ -455,10 +454,11 @@ def _flat_input(
     """
 
     def flat_edge(edge: Edge, starts_loop: bool) -> Edge:
-        source_node, output = nodes_by_id[edge.source.node].source_of(edge.source.output)
+        node_id, compiled_output = edge.source
+        source_node, output = nodes_by_id[node_id].source_of(compiled_output)
         if starts_loop and edge.item:
-            source_node.looped_outputs.setdefault(output, (nodes_by_id[edge.source.node], edge.source.output))
-        return Edge(Address(source_node.name, output, edge.source.field), _loop_paths(source_node.loops), edge.type, item=edge.item)
+            source_node.looped_outputs.setdefault(output, (nodes_by_id[node_id], compiled_output))
+        return Edge((*source_node.node_path, output), edge.field, _loop_paths(source_node.loops), edge.type, item=edge.item)
 
     match node_input:
         case ConstantInput():
@@ -489,7 +489,7 @@ def _collecting_argument(
         functions: The function nodes the edges name, by name.
     """
     series_node, output = looped_over
-    loop_body = _loop_body_of(looped_over, [functions[edge.source.node] for edge in edges])
+    loop_body = _loop_body_of(looped_over, [functions[node_path_text(edge.source[:-1])] for edge in edges])
     return CollectingArgument(node_input, looped_over, len(series_node.loops), edges, loop_body)
 
 

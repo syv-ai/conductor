@@ -69,7 +69,7 @@ class CompiledGraph:
     #: Each graph input, by name, as the caller gives a value for it: its type, and the value used when the caller
     #: gives none (``REQUIRED`` when the caller must give one).
     _inputs: dict[str, Field]
-    #: Each graph output, by name, as what an edge from it reads: ``{"result": Edge(Address("join", "result"), ...)}``.
+    #: Each graph output, by name, as what an edge from it reads: ``{"result": Edge(("join", "result"), None, ...)}``.
     #: A graph output whose source the graph cannot read is left out, and the graph has the problem.
     _outputs: dict[str, Edge]
     #: The class the registry names with ``context_type``, which every node's ``Context[X]`` was checked against;
@@ -155,23 +155,23 @@ class CompiledGraph:
 
         An exclusive group is named by the node here (``route.length``), so the groups of two nodes stay apart.
         """
-        source = self._outputs[output].source
-        field = self._nodes[source.node].outputs[source.output]
+        node_id, inner_output = self._outputs[output].source
+        field = self._nodes[node_id].outputs[inner_output]
         group = field.param.exclusive_group
-        hint = Annotated[field.hint, Param(exclusive_group=place_text((source.node, group)))] if group else field.hint
+        hint = Annotated[field.hint, Param(exclusive_group=place_text((node_id, group)))] if group else field.hint
         return Field(output, hint, field.default)
 
     def _loops_around(self, output: str) -> tuple[Path, ...]:
         """Returns the loops inside this graph that the graph output ``output`` has one value per item of, outermost
         first."""
-        source = self._outputs[output].source
-        return self._nodes[source.node].loops_around(source.output)
+        node_id, inner_output = self._outputs[output].source
+        return self._nodes[node_id].loops_around(inner_output)
 
     def _branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches inside this graph that must be chosen for the graph output ``output`` to have a
         value."""
-        source = self._outputs[output].source
-        return self._nodes[source.node].branches_required_for(source.output)
+        node_id, inner_output = self._outputs[output].source
+        return self._nodes[node_id].branches_required_for(inner_output)
 
     # -- what a run uses --------------------------------------------------------
 

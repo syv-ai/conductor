@@ -40,7 +40,7 @@ def outputs_of(
     """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
     it is. ``flat`` is ``graph``'s flat graph."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {name: reader.display_value(display_inputs_of(*flat.nodes[edge.source.node].source_of(edge.source.output))) for name, edge in graph._outputs.items()}
+    return {name: reader.display_value(display_inputs_of(*flat.nodes[edge.source[0]].source_of(edge.source[1]))) for name, edge in graph._outputs.items()}
 
 
 class DisplayReader(ResultReader):

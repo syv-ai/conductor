@@ -204,7 +204,7 @@ class _Compiler:
                 self.problems.append(compile_problems.graph_output_not_found(output=name, source=str(address), outputs=found))
             elif source is not None:
                 field = source.outputs[address.output]
-                outputs[name] = Edge(address, source.loops_around(address.output), field.type, item=field.is_series)
+                outputs[name] = Edge((address.node, address.output), None, source.loops_around(address.output), field.type, item=field.is_series)
         return outputs
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
@@ -585,18 +585,20 @@ class _Compiler:
             fields = [str(Address(address.node, address.output, f)) for f in field.type.fields]
             self.problems.append(compile_problems.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=address.field))
             return None
-        return Edge(address, source.loops_around(address.output), read_type, item=field.is_series)
+        return Edge((address.node, address.output), address.field, source.loops_around(address.output), read_type, item=field.is_series)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index among the node ids, then
         by its output's index in that node."""
-        return self.position[edge.source.node], list(self.nodes[edge.source.node].outputs).index(edge.source.output), str(edge.source)
+        node_id, output = edge.source
+        return self.position[node_id], list(self.nodes[node_id].outputs).index(output), str(edge)
 
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
         """The branches that must be chosen for the output ``edge`` reads to have a value."""
-        return self.nodes[edge.source.node].branches_required_for(edge.source.output)
+        node_id, output = edge.source
+        return self.nodes[node_id].branches_required_for(output)
 
     def _inputs_with_conflicting_edges(
         self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
@@ -626,7 +628,7 @@ class _Compiler:
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
+                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [place_text(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
@@ -766,7 +768,7 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
     one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
     that column added.
     """
-    address, expected = str(source.source), field.whole.id
+    address, expected = str(source), field.whole.id
     got = f"Series[{source.type.text}]" if source.item else source.type.text
     parts = _taken_apart(source.type)
     if field.whole.record is not None:
