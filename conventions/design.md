@@ -8,7 +8,7 @@ Why: "DRY doesn't mean abstract away any repeat code, it is literally 'Every pie
 
 ```python
 digest = blake2b(dumps(value, sort_keys=True).encode()).hexdigest()   # bad: a fourth recipe
-digest = json_hash(value, 8, keys_sorted=True)                        # good: the one way
+digest = json_hash(value, 8)                                          # good: the one way
 ```
 
 ## No mirrors
