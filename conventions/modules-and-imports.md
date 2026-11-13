@@ -29,8 +29,8 @@ Keep reading and writing JSON apart from the class it is about (a run's JSON for
 Why: "Why is there a `from_json` in _internal/gate/answer.py? We said that IO should be consolidated."
 
 ```python
-def from_json(text: str) -> Answer: ...         # bad: in gate/answer.py
-def read_as_answer(value: Any) -> Answer: ...   # good: the door reads a value
+def from_json(text: str) -> dict[str, Any]: ...         # bad: in gate/answer.py
+def read_as_answer(value: Any) -> dict[str, Any]: ...   # good: the door reads a value
 ```
 
 ## Classes are imported by name

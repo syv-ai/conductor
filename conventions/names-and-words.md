@@ -54,8 +54,8 @@ Why: "In general, the docstrings are a mess. Use Google's format consistently in
 def read_answer(waiting, answer):
     """Reads it."""                                       # bad
 
-def read_answer(waiting: Waiting, answer: Any) -> Answer:
-    """Reads a person's answer into the fields it fills.
+def read_answer(waiting: Waiting, answer: Any) -> dict[str, Any]:
+    """Reads a person's answer into the outputs of the node that asked.
 
     Args:
         waiting: The call waiting for the answer.
