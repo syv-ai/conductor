@@ -173,7 +173,6 @@ class FunctionDefinition[**P, R](_Version):
         hook_parameters: Each hook's parameters, by the hook's name (``compute_added_inputs``, ``compute_outputs``)
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
-        generic: Whether an input's type holds a type variable, which a graph binds from its edges as it loads.
         asks: Whether a call may wait for a person: the function may raise ``Ask``, as ``@node(asks=True)``
             declares, and the answer is then its outputs. An ``Ask`` raised from any other node fails its call
             (``ask_not_declared``).
@@ -188,7 +187,6 @@ class FunctionDefinition[**P, R](_Version):
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
     context: ContextParameter | None = None
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
-    generic: bool = False
     asks: bool = False
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:

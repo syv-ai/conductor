@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import MISSING
+from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED, Address, NodePath, place_text
 from conductor._internal.field import Field
@@ -113,7 +114,7 @@ def compile_graph[GraphT: CompiledGraph](
 
 #: Stands in for a constant or default of the graph record that its input's type rejected, while a node is
 #: compiled. The input gets ``MissingInput``, and the problem ``invalid_value`` says why.
-_INVALID: Any = object()
+_INVALID: Any = sentinel("_INVALID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,7 +284,7 @@ class _Compiler:
                 return
             fields.update(added)
             constants.update(self._constants_of(node_id, record, added))
-        planned = self._plan_inputs(node_id, record, fields, constants, read_by_hooks(definition), edges, generic=definition.generic)
+        planned = self._plan_inputs(node_id, record, fields, constants, read_by_hooks(definition), edges)
         bound = planned.bound
         outputs: dict[str, Field] | None = dict(definition.outputs)
         if bound is not None:
@@ -332,7 +333,7 @@ class _Compiler:
 
     def _plan_inputs(
         self, node_id: str, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
-        edges: Mapping[str, tuple[Address, ...]], *, generic: bool = False,
+        edges: Mapping[str, tuple[Address, ...]],
     ) -> _InputPlans:
         """Makes the compiled input of every input of a node, and works out which loops the node is inside.
 
@@ -353,14 +354,13 @@ class _Compiler:
             constant_at_compile: The inputs a hook reads when the graph is compiled. Their value must be known
                 then, so they never become graph inputs.
             edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
-            generic: Whether an input's type has a type variable, which the edges then bind.
         """
         for name in sorted(record.inputs.keys() - fields.keys()):
             self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(fields)))
         sources = {name: self._sources(node_id, name, edges[name]) for name in fields if name in edges}
         bound = None
         refused_defaults: set[str] = set()
-        if generic:  # the compiled node's fields have no type variables left
+        if any(field.whole.variables for field in fields.values()):  # the compiled node's fields have no type variables left
             bound = _bound(fields, sources)
             fields, refused = _bind(node_id, fields, bound)
             for name, problems in refused.items():

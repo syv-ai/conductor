@@ -170,7 +170,7 @@ def node(
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
-                generic=any(field.whole.variables for field in inputs.values()), asks=asks,
+                asks=asks,
             )
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces, definition)

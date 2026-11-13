@@ -6,7 +6,7 @@ ordinary types.
 
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -242,3 +242,15 @@ def test_a_generic_definition_describes_any_and_its_compiled_node_the_bound_type
     assert decision.describe().inputs[0].type_variables == ["T"]
     compiled_node = _compiled(text, decision, edges=[["text.result", "decision.value"]]).describe().nodes["decision"]
     assert [node_input.field.type_variables for node_input in compiled_node.inputs] == [[], []] and [output.type_variables for output in compiled_node.outputs] == [[], []]
+
+
+def test_an_input_a_hook_adds_with_a_type_variable_is_bound_by_its_edge() -> None:
+    variable = TypeVar("variable")
+
+    @node("echo", title="Echo", description="For a test.", compute_added_inputs=lambda: {"value": variable})
+    def echo(**added: Any) -> str:
+        return repr(added["value"])
+
+    graph = _compiled(text, echo, edges=[["text.result", "echo.value"]])
+    assert [(node_input.field.type, node_input.field.type_variables) for node_input in graph.describe().nodes["echo"].inputs] == [("str", [])]
+    assert graph.run().outputs == {"result": "'a'"}
