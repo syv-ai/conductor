@@ -450,6 +450,28 @@ def test_make_graph_without_edges_refuses_nodes_it_cannot_chain_and_says_to_pass
     assert refused.value.errors()[0].ctx == {"node_id": "hello", "before": "count", "inputs": [], "outputs": ["result"]}
 
 
+def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says_it_needs_a_constant():
+    def width_outputs(width: int) -> dict[str, Any]:
+        return {"result": str}
+
+    @node("pad", title="Pad", description="For a test.", compute_outputs=width_outputs)
+    def pad(text: str, width: int) -> dict[str, Any]:
+        return {"result": text.ljust(width)}
+
+    @node("blank", title="Blank", description="For a test.", compute_outputs=width_outputs)
+    def blank(width: int) -> dict[str, Any]:
+        return {"result": " " * width}
+
+    record = make_graph(_hello, pad)
+
+    assert record.nodes["pad"].inputs == {"text": InputEntry(sources=(Address("hello", "result"),))}
+    graph = Graph.compile(record, registry_of(_hello, pad))
+    assert list(graph.inputs) == ["name"] and [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("pad", "width"))]
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_hello, blank)
+    assert [(p.type, p.loc, p.ctx["inputs"]) for p in refused.value.errors()] == [("not_a_chain", ("blank",), [])]
+
+
 def test_make_graph_refuses_a_place_on_a_node_it_was_not_given():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, constants={"nobody.name": "x"})

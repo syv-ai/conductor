@@ -136,7 +136,8 @@ What changes in how you work, before the name-by-name tables:
   writes a record from Python and compiles nothing: it raises one error listing what it can't write
   (a value for a node it wasn't given, a value with no JSON form, a place that is not `node.name`
   (`not_a_place`), two graph inputs or outputs of one name (`graph_inputs_share_a_name`,
-  `graph_outputs_share_a_name`), what the record refuses (`invalid_record`), a chain it can't draw), and an input a
+  `graph_outputs_share_a_name`), what the record refuses (`invalid_record`), a chain it can't draw; a chain never wires
+  an input a hook reads, which takes a constant), and an input a
   node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
   `Graph.compile(record, registry).problems`. A record's constants, defaults and
   `display` are JSON values; `make_graph` writes each constant and default as its JSON, a float that isn't

@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import REQUIRED, Address
+from conductor._internal.base import Address
 from conductor._internal.gate import RefusedError, read_record, record_values
 from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
@@ -45,8 +45,9 @@ def make_graph(
     every call, and a default makes the input a graph input, with that value when the caller gives none. Each value is
     written in the record as its JSON reads back.
 
-    With no ``edges`` the nodes form a chain: the one required input of each node that no constant or default fills
-    gets an edge from the one output of the node before it. With ``edges``, those are every edge of the graph.
+    With no ``edges`` the nodes form a chain: the one required input of each node that no hook reads and no constant
+    or default fills gets an edge from the one output of the node before it. An input a hook reads takes a constant.
+    With ``edges``, those are every edge of the graph.
     Nothing is matched by name.
 
     The record declares the graph's inputs and outputs. Each required input that gets nothing (no edge, no constant)
@@ -212,7 +213,7 @@ def _chain_edges(definitions: Mapping[str, NodeDefinition], filled: set[tuple[st
         match before, after:
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)
-                open_inputs = [name for name, field in after.inputs.items() if field.default is REQUIRED and (after_id, name) not in filled]
+                open_inputs = [name for name in after.required_inputs if (after_id, name) not in filled]
             case _:  # a subgraph's types are known only when it is compiled, so a chain can't be drawn through it
                 outputs, open_inputs = [], []
         if len(outputs) != 1 or len(open_inputs) != 1:
