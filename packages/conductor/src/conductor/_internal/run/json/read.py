@@ -15,7 +15,6 @@ from pydantic import ValidationError
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.compiled import (
     CompiledGraph,
-    FlatGraph,
     outputs_when_not_called,
     outputs_when_skipped,
 )
@@ -23,20 +22,22 @@ from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
+from ..flat import FlatGraph
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
-from .codec import codec_of, where_in
+from .codec import where_in
 from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
     SameAs,
     SavedOutcomes,
     SavedReusable,
+    SavedRun,
 )
 
 
-def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: CompiledGraph) -> R:
+def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: CompiledGraph, flat: FlatGraph, codec: type[SavedRun]) -> R:
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
     For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the
@@ -51,13 +52,14 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
         saved: The JSON text.
         graph: The graph the run was made on.
+        flat: The graph's flat graph.
+        codec: The graph's codec.
 
     Raises:
         InvalidCallError: ``saved`` was written for another graph (``saved_run_of_another_graph``), or is not a
             saved run of this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the output
             and the call number, and which quotes no value).
     """
-    codec = codec_of(graph)
     try:
         read = codec.model_validate_json(saved)
     except ValidationError as error:
@@ -66,7 +68,6 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             raise InvalidCallError([call_problems.saved_run_of_another_graph("saved_run", saved=first["input"], graph=graph.fingerprint)]) from None
         reason = value_free_errors(error)[0]["msg"]
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where_in(codec, first["loc"]), reason=reason)]) from None
-    flat = graph._flat
     in_call_order: dict[NodePath, list[Outcome | None]] = {}
     reused: dict[NodePath, ReusableOutcomes] = {}
     try:

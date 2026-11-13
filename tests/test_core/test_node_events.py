@@ -95,7 +95,7 @@ class Told:
         run = graph.run(inputs)
         self.finished_run: dict[NodePath, dict[ItemIndexes, Outcome]] = run._outcomes
         self.outcomes = {path: dict(outcomes) if place_text(path) in finished else {} for path, outcomes in self.finished_run.items()}
-        self.nodes = {place_text(path): node for path, node in graph._flat.function_nodes.items()}
+        self.nodes = {place_text(path): node for path, node in run._flat.function_nodes.items()}
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
         self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths)

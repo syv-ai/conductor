@@ -36,12 +36,13 @@ from collections.abc import Mapping
 from typing import Any, Final, Literal
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.compiled import CollectingArgument, Edge, EdgeInput, FlatFunctionNode
+from conductor._internal.compiled import Edge, EdgeInput
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
+from .flat import CollectingArgument, FlatFunctionNode
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
 

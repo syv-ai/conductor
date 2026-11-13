@@ -1,6 +1,6 @@
 """A run of a graph: its graph inputs and the outcome of every call.
 
-Code outside this package imports from here. ``type.py`` has ``Run``; ``outcome.py`` the outcome of one call;
+Code outside this package imports from here. ``type.py`` has ``Run``; ``flat.py`` the flat graph every run of a graph works on, which ``Graph`` keeps; ``outcome.py`` the outcome of one call;
 ``arguments.py`` works out the arguments of one call; ``scheduler.py`` is ``Scheduler``, which calls every node
 that is ready when ``run.resume()`` or ``run.stream()`` is called; ``call.py`` is one call of a node's function;
 ``node_events.py`` works out the events about each node, and ``events.py`` has the event classes ``run.stream()``
@@ -23,6 +23,8 @@ from .events import (
     RunEnd,
     RunStart,
 )
+from .flat import FlatGraph
+from .json import SavedRun, codec_of
 from .progress import CallCount, Progress
 from .state import EndedEarly, Going, RunState, RunStatus
 from .type import (

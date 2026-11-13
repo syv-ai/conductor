@@ -29,7 +29,6 @@ from conductor._internal.base import (
     NodePath,
     parse_loc_text,
 )
-from conductor._internal.compiled import FlatFunctionNode, FlatGraph, outcome_loc
 from conductor._internal.gate import RefusedError, check_limits
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
@@ -41,6 +40,7 @@ from .events import (
     RunEnd,
     RunStart,
 )
+from .flat import FlatFunctionNode, FlatGraph, outcome_loc
 from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
@@ -124,6 +124,11 @@ class Run[C]:
     _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes whose every call was finished when the run was last resumed, so a later resume doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
+
+    @property
+    def _flat(self) -> FlatGraph:
+        """The flat graph of the run's graph: the function nodes the run calls."""
+        return self.graph._flat
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
@@ -245,7 +250,7 @@ class Run[C]:
                 def checkpoint(state: RunState) -> None:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
 
-        flat = self.graph._flat
+        flat = self._flat
         run.state, run._finished_nodes = Scheduler(
             nodes=list(flat.function_nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
             finished=run._finished_nodes,
@@ -302,7 +307,7 @@ class Run[C]:
             except ValueError:  # a place in it isn't a number
                 problems.append(call_problems.not_waiting(waiting_id.partition("@")[0], waiting_id=waiting_id, status=self.status))
                 continue
-            node = self.graph._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
+            node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
             found = self._outcomes[nodes].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
@@ -377,7 +382,7 @@ class Run[C]:
         """
         work: dict[NodePath, ReusableOutcomes] = {}
         reader = self._reader
-        for node in self.graph._flat.function_nodes.values():
+        for node in self._flat.function_nodes.values():
             if not node.policy.reuse_when_inputs_match or node.node_path in self._code_changed:
                 continue
             compiled_node = node.compiled_node
@@ -405,7 +410,7 @@ class Run[C]:
                 of_node.by_fingerprint.setdefault(fingerprint, done)
             for asked, answers in unused.answers.items():
                 of_node.answers.setdefault(asked, []).extend(answers)
-        ours, theirs = self.graph._flat.function_nodes, into.function_nodes
+        ours, theirs = self._flat.function_nodes, into.function_nodes
         return {
             path: of_node for path, of_node in work.items()
             if (of_node.by_fingerprint or of_node.answers) and (there := theirs.get(path)) is not None
@@ -433,7 +438,7 @@ class Run[C]:
 
     def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
         """Every call waiting for a person, with its node and item indexes, in node then item order."""
-        for node in self.graph._flat.function_nodes.values():
+        for node in self._flat.function_nodes.values():
             for item_indexes, outcome in self._outcomes[node.node_path].items():
                 if type(outcome) is Unanswered:
                     yield node, item_indexes, outcome
@@ -449,7 +454,7 @@ class Run[C]:
         invoices there are is known once ``read`` has returned. ``run.estimate()`` calls ``read`` first when its
         ``Policy`` says ``costs_nothing``.
         """
-        return progress_of(self.graph._flat, self._outcomes)
+        return progress_of(self._flat, self._outcomes)
 
     @property
     def not_called(self) -> list[NotCalled]:
@@ -457,7 +462,7 @@ class Run[C]:
         inside a subgraph where its node stands."""
         return [
             NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
-            for node in self.graph._flat.function_nodes.values() for item_indexes, outcome in self._outcomes[node.node_path].items() if type(outcome) is NoneInput
+            for node in self._flat.function_nodes.values() for item_indexes, outcome in self._outcomes[node.node_path].items() if type(outcome) is NoneInput
         ]
 
     @property
@@ -470,7 +475,7 @@ class Run[C]:
         ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
         made, or no item of it could have a value.
         """
-        return results_of(self.graph, self._outcomes, self.inputs)
+        return results_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -482,7 +487,7 @@ class Run[C]:
                 raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason="")])
             case EndedEarly(status=status, cause=cause):
                 raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason=cause.msg)])
-        return outputs_of(self.graph, self._outcomes, self.inputs)
+        return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by name: ``{"result":"A!+B!+C!"}`` for the README graph.
@@ -520,7 +525,7 @@ class Run[C]:
         """
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        return run_from_json(Run, saved, graph)
+        return run_from_json(Run, saved, graph, graph._flat, graph._codec)
 
     def to_json(self) -> str:
         """Returns the whole run as JSON text: its inputs, its state, every node's outcomes, and the outcomes

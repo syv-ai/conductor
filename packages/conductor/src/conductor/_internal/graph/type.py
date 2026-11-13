@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
@@ -12,7 +13,7 @@ from conductor._internal.gate import read_json as read_json_text
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import Run, make_run
+from conductor._internal.run import FlatGraph, Run, SavedRun, codec_of, make_run
 
 
 def read_json(text: str | bytes) -> Any:
@@ -56,6 +57,18 @@ class Graph[C](CompiledGraph):
             return compile_graph(record, registry, registry.context_type, Graph)
         except RefusedError as refused:
             raise InvalidCallError(refused.problems) from None
+
+    @functools.cached_property
+    def _flat(self) -> FlatGraph:
+        """The flat graph every run of this graph works on: built on the first run and kept. A first run on two threads
+        at once may build two equal flat graphs; one is kept."""
+        return FlatGraph.of(self)
+
+    @functools.cached_property
+    def _codec(self) -> type[SavedRun]:
+        """The model this graph's runs are read from JSON and written as JSON by: built the first time a run is
+        saved or read, and kept."""
+        return codec_of(self, self._flat)
 
     def with_inputs(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,

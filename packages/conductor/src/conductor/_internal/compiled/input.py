@@ -21,7 +21,7 @@ Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of t
 input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
 loops. A loop is named by the list it loops over: the node path of the node that returns the list, and the output's
-name. A source names a node of the compiled graph by its id; the run's flat graph (``flat.py``) makes the
+name. A source names a node of the compiled graph by its id; the run's flat graph (``run/flat.py``) makes the
 arguments a call reads from these, naming function nodes by their paths (``("loud", "shout")`` for ``shout`` inside
 ``loud``).
 """

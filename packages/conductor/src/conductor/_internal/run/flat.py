@@ -10,8 +10,8 @@ The example used in this file. ``loud`` is the subgraph ``strip -> shout``, used
     join(texts: Series[str]) -> str     # wired to loud.shout.result: called once, with ["A!", "B!"]
 
 The compiled graph has three nodes: ``lines``, ``loud`` and ``join``. A subgraph is never called: only the
-functions inside it are. So a run works on the flat graph, which the compiled graph makes the first time it is
-asked for it (``graph._flat``) and keeps. It has the four function nodes ``lines``, ``loud/strip``, ``loud/shout`` and ``join`` (each a
+functions inside it are. So a run works on the flat graph, which is built on the first run of the graph and kept by
+the ``Graph`` (``graph._flat``). It has the four function nodes ``lines``, ``loud/strip``, ``loud/shout`` and ``join`` (each a
 ``FlatFunctionNode``), and ``loud`` (a ``FlatSubgraph``), which has no outcomes of its own.
 
 In the flat graph every edge and every loop names a function node:
@@ -25,7 +25,7 @@ In the flat graph every edge and every loop names a function node:
 
 A call reads an input that edges lead to through an ``EdgeInput`` (one value per call) or a ``CollectingArgument``
 (one value per item of a loop, as a list), whose edges and loops the flat graph names as above: ``join.texts`` reads
-``result`` of ``("loud", "shout")``. ``ResultReader`` (``run/arguments.py``) reads it from the run's outcomes, which a
+``result`` of ``("loud", "shout")``. ``ResultReader`` (``arguments.py``) reads it from the run's outcomes, which a
 run keeps by each function node's path.
 
 A flat node has nothing from a run in it: it is made once and shared by every run of the graph.
@@ -38,7 +38,7 @@ import functools
 import typing
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import Any, assert_never
 
 from conductor._internal.base import (
     REQUIRED,
@@ -47,13 +47,11 @@ from conductor._internal.base import (
     NodePath,
     place_text,
 )
-from conductor._internal.field import Field
-from conductor._internal.gate import EdgeDoor, demands_more
-from conductor._internal.node import Policy
-from conductor._internal.series import Series
-
-from .input import (
+from conductor._internal.compiled import (
     CollectingInput,
+    CompiledFunctionNode,
+    CompiledGraph,
+    CompiledSubgraphNode,
     ConstantInput,
     Edge,
     EdgeInput,
@@ -61,10 +59,10 @@ from .input import (
     Input,
     MissingInput,
 )
-from .node import CompiledFunctionNode, CompiledSubgraphNode
-
-if TYPE_CHECKING:
-    from .type import CompiledGraph
+from conductor._internal.field import Field
+from conductor._internal.gate import EdgeDoor, demands_more
+from conductor._internal.node import Policy
+from conductor._internal.series import Series
 
 
 @typing.final
@@ -274,8 +272,9 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeInput | 
 
 @dataclass(frozen=True, eq=False)
 class FlatGraph:
-    """The flat graph of one compiled graph: what every run of it works on. ``FlatGraph.of(graph)`` makes it, and
-    the compiled graph keeps it (``graph._flat``).
+    """The flat graph of one compiled graph: what every run of it works on. ``FlatGraph.of(graph)`` builds it on the
+    graph's first run, and the ``Graph`` keeps it (``graph._flat``). A first run on two threads at once may build two
+    equal flat graphs; one is kept.
 
     Attributes:
         function_nodes: Every function node of the graph and of its subgraphs, at any depth, by node path

@@ -45,7 +45,6 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.compiled import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from conductor._internal.problem import Problem
 
 from .events import (
@@ -58,6 +57,7 @@ from .events import (
     NodeStart,
     NodeWaiting,
 )
+from .flat import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from .outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from .progress import call_count, calls_expected, has_every_outcome
 from .waiting import waiting_record

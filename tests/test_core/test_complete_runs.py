@@ -3,7 +3,6 @@ calls nothing and changes nothing."""
 
 from __future__ import annotations
 
-import dataclasses
 import threading
 import time
 from collections import Counter
@@ -26,6 +25,7 @@ from conductor import (
     node,
     subgraph,
 )
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import calls_without_outcome
 
@@ -205,16 +205,12 @@ def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skippe
     assert "t" not in calls_without_outcome(run)  # skipped, whichever node returned first
 
 
-def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run() -> None:
+def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run(monkeypatch: MonkeyPatch) -> None:
     case = GRAPHS["collecting an empty series"]
     registry = _registry(frozenset({"words"}))
     graph = Graph.compile(_record(case.nodes, case.edges, registry), registry)
     run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
-    # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a copy of the graph
-    # with a flat graph of its own, holding a copy of the node, so the graph's flat graph stays whole.
-    flat = graph._flat
-    series = dataclasses.replace(flat.function_nodes[("w",)], downstream=[])
-    broken = dataclasses.replace(graph)
-    object.__setattr__(broken, "_flat", dataclasses.replace(flat, function_nodes={**flat.function_nodes, ("w",): series}, nodes={**flat.nodes, ("w",): series}))
+    # a bug in the engine, made by hand for this graph alone: the series makes no downstream node ready
+    monkeypatch.setattr(run._flat.function_nodes[("w",)], "downstream", [])
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
-        dataclasses.replace(run, graph=broken).resume()
+        run.resume()

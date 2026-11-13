@@ -14,7 +14,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import is_dataclass
 from types import GenericAlias, MappingProxyType, NoneType, UnionType
 from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
-from weakref import WeakKeyDictionary
 
 from pydantic import BaseModel, GetCoreSchemaHandler, NonNegativeInt, create_model
 from pydantic import Field as PydanticField
@@ -26,6 +25,7 @@ from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.types import Type, union_of
 
+from ..flat import FlatGraph
 from .type import SavedOutcomes, SavedReusable, SavedRun
 
 
@@ -209,20 +209,17 @@ def _fields_of(hint: Any) -> dict[str, Any] | None:
     return None
 
 
-#: Each compiled graph's codec, built the first time one of its runs is read or written. Held weakly, so a graph
-#: nobody holds is freed with its codec.
-_CODECS: WeakKeyDictionary[CompiledGraph, type[SavedRun]] = WeakKeyDictionary()
+def codec_of(graph: CompiledGraph, flat: FlatGraph) -> type[SavedRun]:
+    """The model the runs of ``graph`` are read from JSON and written as JSON by. Built the first time one of its runs
+    is read or written, and kept by the ``Graph`` (``graph._codec``).
 
-
-def codec_of(graph: CompiledGraph) -> type[SavedRun]:
-    """The model the runs of ``graph`` are read from JSON and written as JSON by, built once per graph."""
-    codec = _CODECS.get(graph)
-    if codec is None:
-        flat = graph._flat
-        codec = _CODECS[graph] = run_codec(
-            graph.fingerprint,
-            inputs={name: field.whole for name, field in graph._inputs.items()},
-            outputs={place_text(path): node.compiled_node.outputs for path, node in flat.function_nodes.items()},
-            nodes=[place_text(path) for path in flat.function_nodes],
-        )
-    return codec
+    Args:
+        graph: The graph.
+        flat: Its flat graph.
+    """
+    return run_codec(
+        graph.fingerprint,
+        inputs={name: field.whole for name, field in graph._inputs.items()},
+        outputs={place_text(path): node.compiled_node.outputs for path, node in flat.function_nodes.items()},
+        nodes=[place_text(path) for path in flat.function_nodes],
+    )
