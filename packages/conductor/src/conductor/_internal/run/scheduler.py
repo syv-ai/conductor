@@ -15,7 +15,7 @@ A run of it has five calls. A call is a node and item indexes: ``lines ()``, ``s
 after. The scheduler then calls ``shout`` with those arguments and writes what it returns as the outcome
 ``outcomes["shout"][(1,)] = Done({"result": "B!"})``. Outcomes are the only thing it changes in a run.
 
-``Scheduler`` has five jobs. Its methods are in this order.
+``Scheduler``'s jobs follow, and its methods are in the same order.
 
 1. **Choosing the next call.** ``run`` first tries every call that has no outcome, node by node in topological
    order (``_try_every_call``). When no node is called on a thread that is the whole run: each call is made

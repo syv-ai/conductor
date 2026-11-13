@@ -20,7 +20,7 @@ from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, cast, overload
+from typing import TYPE_CHECKING, Any, assert_never, cast, overload
 
 from conductor._internal.ask import Answer
 from conductor._internal.base import (
@@ -46,6 +46,7 @@ from .flat import FlatFunctionNode, FlatGraph, flat_graph_of, outcome_loc
 from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
+    Done,
     NoneInput,
     Outcome,
     Skipped,
@@ -106,7 +107,7 @@ class Run[C]:
         inputs: The caller's inputs as checked, by the graph input's name (``"text"``).
         max_items: The most items any one Series a node works through may hold before the run stops as
             ``stopped``; ``None`` for no ceiling.
-        state: How the run stands: ``Going`` (``ready`` before the first leg, then ``running``, ``waiting`` or
+        state: How the run stands: ``Going`` (``ready`` before it is first resumed, then ``running``, ``waiting`` or
             ``complete``), or ``EndedEarly`` (``failed``, ``stopped`` at the item ceiling, ``cancelled`` or
             ``timed_out``) with the ``Problem`` that caused it.
     """
@@ -114,9 +115,9 @@ class Run[C]:
     graph: Graph[C]
     inputs: dict[str, Any]
     max_items: int | None
-    #: Each function's units by instance, in instance order, by the function's name: ``_outcomes["w"]`` for a node of
-    #: the graph itself, ``_outcomes["e/ask"]`` for one inside ``e``. Only a leg records out of that order, and it puts
-    #: the units back in it before it hands the run on.
+    #: Each function node's outcomes by item indexes, in item order, by the node's name: ``_outcomes["w"]`` for a node
+    #: of the graph itself, ``_outcomes["e/ask"]`` for one inside ``e``. Only the scheduler writes out of that order,
+    #: and it sorts them again before it hands the run on.
     _outcomes: dict[str, dict[ItemIndexes, Outcome]]
     #: What each node may take from the run this one went on from.
     _reusable: dict[NodePath, ReusableOutcomes]
@@ -225,11 +226,21 @@ class Run[C]:
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
         checkpoint_every: float | None = None, only_costs_nothing: bool = False,
     ) -> Run[C]:
-        """One leg over a copy of this run, which is handed back as the leg left it.
+        """Runs the scheduler on a copy of this run and returns the copy with the outcomes and the state it wrote.
 
-        The leg is given what it changes and reads (the copy's units and earlier work, the graph's functions
-        where they stand, and what a node comes to for an item), and says how it ended. What a listener hears of
-        the run itself (that it started, a checkpoint of it, how it ended) is said here, where the run is.
+        The scheduler emits the events about each node. The events about the run itself (that it started, a
+        checkpoint of it, how it ended) are emitted here, since they carry the run.
+
+        Args:
+            context: The run's context, passed to each node that takes it.
+            emit: Called with each event, for ``stream``; ``None`` for ``resume`` and ``estimate``.
+            stop: Asked before each call whether the run must stop now, and with which state.
+            checkpoint_every: The least number of seconds between two checkpoints; ``None`` for none.
+            only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called, for
+                ``estimate``.
+
+        Returns:
+            The copy, as the scheduler left it.
         """
         run = self._copy()
         checkpoint: Callable[[RunState], None] | None = None
@@ -253,7 +264,7 @@ class Run[C]:
             run._answers = {
                 name: left for name, of_node in run._answers.items() if (left := {i: a for i, a in of_node.items() if i not in outcomes_of[name]})
             }
-        if emit is not None:  # a leg handed back left its run running: the run didn't end, and the host stores it as it stands
+        if emit is not None:  # a run handed back is still running: it did not end, and the host stores it to go on elsewhere
             emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
         return run
 
@@ -349,20 +360,18 @@ class Run[C]:
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run[C]:
         """A run of these changed inputs, the rest as before, ready to ``resume`` or ``stream``.
 
-        It carries this run's work, and what this run carried and didn't use
-        for a node that hasn't finished (a finished node's is dropped, so a
-        save stays its size over edits): a unit that receives what an earlier
-        unit of its node received takes that unit's outcome, an answer or a
-        question still waiting included, and the node is not called for it.
-        Inputs are given as ``graph.with_inputs`` takes them, and checked the
-        same way.
+        It carries this run's outcomes, and those this run carried from the previous run and did not use for a
+        node that hasn't finished (a finished node's are dropped, so a save stays its size over edits): a call that
+        receives what a call of its node received before takes that call's outcome, an answer or a question still
+        waiting included, and the node is not called for it. Inputs are given as ``graph.with_inputs`` takes them,
+        and checked the same way.
         """
         return self.graph.with_inputs({**self.inputs, **inputs, **by_name}, max_items=max_items if max_items is not None else self.max_items, previous=self)
 
     def forget(self, *node_ids: str) -> Run[C]:
         """A run of the same inputs that has forgotten these nodes' work, ready to ``resume`` or ``stream``.
 
-        Every other unit is carried as ``with_inputs`` carries it, so only the
+        Every other outcome is carried as ``with_inputs`` carries it, so only the
         forgotten nodes are called again, and a node below them that then
         receives what it received before is not. A host forgets a node whose
         access it must check again.
@@ -377,10 +386,10 @@ class Run[C]:
 
     def _reusable_outcomes(self, into: FlatGraph) -> dict[NodePath, ReusableOutcomes]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
-        instance order, then the earlier work this run held and didn't take.
+        item order, then the outcomes this run carried from the previous run and did not take.
 
         ``into`` is the flat graph of the graph the new run is of, this run's or another's. Only the nodes it has
-        as they are here (by ``code_fingerprint``) are kept: the others' units could never be taken there, and kept
+        as they are here (by ``code_fingerprint``) are kept: the others' outcomes could never be taken there, and kept
         they would only make its save larger.
         """
         work: dict[NodePath, ReusableOutcomes] = {}
@@ -391,18 +400,23 @@ class Run[C]:
             compiled_node = node.compiled_node
             of_node = work[node.node_path] = ReusableOutcomes()
             for item_indexes, outcome in self._outcomes[node.name].items():
-                if type(outcome) is Skipped or type(outcome) is NoneInput:
-                    continue
-                arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))  # the unit was called, so what it reads is settled and it received a call's arguments
-                fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
+                match outcome:
+                    case Skipped() | NoneInput():  # the node was not called for the item, so there is nothing to reuse
+                        continue
+                    case Done() | Answered() | Unanswered():  # the node was called, so its arguments are settled
+                        arguments = cast("dict[str, Any]", reader.arguments_for(node, item_indexes))
+                        fingerprint = arguments_fingerprint(compiled_node.code_fingerprint, arguments, plain=compiled_node.plain_inputs)
+                    case _:
+                        assert_never(outcome)
                 if fingerprint is None:
                     continue
-                if type(outcome) is Answered or type(outcome) is Unanswered:
-                    of_node.answers.setdefault((fingerprint, outer_items_fingerprint(self._outcomes, node, item_indexes)), []).append(outcome)
-                else:
-                    of_node.by_item_indexes[item_indexes] = (fingerprint, outcome)
-                    of_node.by_fingerprint.setdefault(fingerprint, outcome)
-        for path, unused in self._reusable.items():  # the earlier work this run held and no unit of it took
+                match outcome:
+                    case Done():
+                        of_node.by_item_indexes[item_indexes] = (fingerprint, outcome)
+                        of_node.by_fingerprint.setdefault(fingerprint, outcome)
+                    case Answered() | Unanswered():
+                        of_node.answers.setdefault((fingerprint, outer_items_fingerprint(self._outcomes, node, item_indexes)), []).append(outcome)
+        for path, unused in self._reusable.items():  # the outcomes this run carried from the previous run and did not take
             of_node = work.setdefault(path, ReusableOutcomes())
             for fingerprint, done in unused.by_fingerprint.items():
                 of_node.by_fingerprint.setdefault(fingerprint, done)
@@ -430,12 +444,12 @@ class Run[C]:
 
     @property
     def waiting(self) -> list[Waiting]:
-        """Every unit waiting for a person, in node then item order; those inside a subgraph where its
+        """Every call waiting for a person, in node then item order; those inside a subgraph where its
         node stands."""
         return [waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome) for node, item_indexes, outcome in self._waiting_outcomes()]
 
     def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
-        """Every unit waiting for a person, with its node and instance, in node then instance order."""
+        """Every call waiting for a person, with its node and item indexes, in node then item order."""
         for node in self._flat.function_nodes.values():
             for item_indexes, outcome in self._outcomes[node.name].items():
                 if type(outcome) is Unanswered:
@@ -503,7 +517,7 @@ class Run[C]:
 
     @property
     def _reader(self) -> ResultReader:
-        """Reads what this run's units hold for one item: what a call of a node receives there."""
+        """Reads this run's outcomes for one item: what a call of a node receives there."""
         return ResultReader(self._outcomes, self.inputs)
 
     # -- JSON -------------------------------------------------------------------
@@ -536,11 +550,12 @@ class Run[C]:
         return run_to_json(self)
 
     def _copy(self, *, share_outcomes: bool = False) -> Run[C]:
-        """A copy to change: its own units to record into and its own earlier work to take from; or with
-        ``share_outcomes`` this run's units of every node, for a caller that replaces whole nodes and takes nothing.
+        """A copy to change: its own outcomes to write into and its own outcomes of the previous run to take from;
+        or with ``share_outcomes`` this run's dicts of outcomes, for a caller that replaces whole nodes and takes
+        nothing.
 
         Args:
-            share_outcomes: Whether the copy holds this run's own dict of units for each node.
+            share_outcomes: Whether the copy shares this run's dict of outcomes for each node.
         """
         if share_outcomes:
             outcomes, previous = dict(self._outcomes), dict(self._reusable)

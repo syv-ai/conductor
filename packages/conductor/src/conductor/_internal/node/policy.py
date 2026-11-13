@@ -16,14 +16,14 @@ class Policy(ConductorModel):
     """How the engine calls a node, set by its author: ``@node("fetch", policy=Policy(retries=3))``.
 
     ``concurrency`` calls are made at once, on threads; with 1 and no
-    ``attempt_timeout`` the node is called in order, on the leg's own thread.
+    ``attempt_timeout`` the node is called in order, on the scheduler's thread.
     A call that raises ``ExternalError``, or one of the ``retry_on`` classes
     of the node's own client, is tried ``retries`` more times, waiting from
     ``retry_delay`` seconds (the reference has the schedule); anything else
     fails at once, since repeating a computation repeats its failure. A
     ``NodeError`` other than ``ExternalError``, an output its type refuses
     and an ``Ask`` are never tried again, whatever ``retry_on`` names. An
-    attempt that runs past ``attempt_timeout`` fails the unit, finally: its
+    attempt that runs past ``attempt_timeout`` fails the call, finally: its
     thread can't be stopped, and a second call beside it would repeat its
     effect. ``reuse_when_inputs_match=False`` is for a node that reads the
     world, not only its inputs: ``run.again`` calls it for every item.

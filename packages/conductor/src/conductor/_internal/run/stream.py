@@ -39,12 +39,12 @@ async def stream(
         if cancelled.is_set() or (cancel is not None and cancel.is_set()):
             return EndedEarly("cancelled", run_problems.run_cancelled())
         if hand_back is not None and hand_back.is_set():
-            return RUNNING  # the leg stops and the run goes on elsewhere
+            return RUNNING  # the scheduler stops here and another process goes on with the run
         return check_deadline() if check_deadline is not None else None
 
     failed: list[BaseException] = []
 
-    def leg() -> None:
+    def call_scheduler() -> None:
         try:
             run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
         except BaseException as error:  # the engine's own defect reaches the caller
@@ -52,7 +52,7 @@ async def stream(
         finally:
             _hand_over(loop, events, None)
 
-    thread = Thread(target=leg, name="conductor-scheduler", daemon=True)
+    thread = Thread(target=call_scheduler, name="conductor-scheduler", daemon=True)
     thread.start()
     try:
         while (event := await events.get()) is not None:
@@ -64,7 +64,7 @@ async def stream(
 
 
 def _hand_over(loop: AbstractEventLoop, events: Queue[Any], event: Any) -> None:
-    """Put an event on the listener's queue from the leg's thread; a listener whose loop has closed is gone, and hears nothing."""
+    """Put an event on the listener's queue from the scheduler's thread; a listener whose loop has closed is gone, and hears nothing."""
     try:
         loop.call_soon_threadsafe(events.put_nowait, event)
     except RuntimeError:
