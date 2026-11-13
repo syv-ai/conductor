@@ -138,6 +138,15 @@ def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
     assert [(p.type, p.ctx["reason"]) for p in refused.value.errors()] == [("invalid_answer", "its type's own check gave a dict, not a Square")]
 
 
+def test_an_asks_choice_is_checked_against_its_types_own_class_as_an_answer_is():
+    @node("square", title="Square", description="For a test.", asks=True)
+    def square() -> Square:
+        raise Ask("Which square?", choices=[{"side": 2}])
+
+    run = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "square"}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(square)).run()
+    assert (run.state.cause.type, run.state.cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: its type's own check gave a dict, not a Square")
+
+
 def test_a_type_whose_own_check_does_not_give_the_type_fails_the_node_naming_the_type():
     run = _returning(Shape(side=2), Square)
 

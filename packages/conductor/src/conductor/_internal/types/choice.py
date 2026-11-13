@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
-from pydantic import ConfigDict, TypeAdapter, ValidationError
-from pydantic_core import PydanticCustomError, PydanticSerializationError, to_json
+from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic_core import PydanticCustomError, PydanticSerializationError, SchemaValidator, to_json
 
-from conductor._internal.base import ConductorModel, plain_json, validate_as_json
+from conductor._internal.base import ConductorModel, validate_as_json
 from conductor._internal.problem import value_free_errors
 
 
@@ -16,7 +16,8 @@ class Choice(ConductorModel):
     """One option a person may pick: ``Choice("ida", "Ida B.")``.
 
     A host gives it more fields to carry more about an option, as keywords or on a subclass of its own; they reach
-    the question, and a dropdown, as written, and a saved run or a description reads them back.
+    the question, and a dropdown, as written, and a saved run or a description reads them back. A keyword it does
+    not declare is kept, never refused, so a misspelt one is kept too.
 
     Attributes:
         id: The value an answer picking it holds.
@@ -40,17 +41,20 @@ class Choice(ConductorModel):
         super().__init__(**fields)
 
 
-def read_choices(given: Iterable[Any], reader: TypeAdapter[Any]) -> tuple[Choice, ...]:
-    """Reads the choices of a type: each id read by ``reader`` as an answer picking it is read, from its JSON form
-    (``validate_as_json``), and kept in its JSON form.
+def read_choices(given: Iterable[Any], reader: SchemaValidator | TypeAdapter[Any], write: Callable[[Any], JsonValue]) -> tuple[Choice, ...]:
+    """Reads the choices of a type: each id read by ``reader`` strictly from its JSON form (``validate_as_json``)
+    and written back in its JSON form by ``write``.
 
-    ``read_choices([1, Choice(2, "Two")], TypeAdapter(float))`` is ``(Choice(1.0, "1"), Choice(2.0, "Two"))``: a bare
-    value is titled by its text, and a ``Choice`` keeps its class and every field it has. Two ids are the same choice
-    when their JSON is.
+    ``read_choices([1, Choice(2, "Two")], adapter, write)`` with the adapter and writer of ``float`` is
+    ``(Choice(1.0, "1"), Choice(2.0, "Two"))``: a bare value is titled by its text, and a ``Choice`` keeps its class
+    and every field it has. Two ids are the same choice when their JSON is. Who reads decides the rules: ``Param``
+    reads by its limited type, the ``Ask`` door by the gate's validator of the output, which holds every value to
+    the gate's rules (a yes or no is not a number).
 
     Args:
         given: The choices as a developer or a node gave them, each a value or a ``Choice``.
-        reader: Pydantic's adapter of the type the choices are values of.
+        reader: The validator of the type the choices are values of.
+        write: Writes a value ``reader`` gave in its JSON form.
 
     Raises:
         PydanticCustomError: An id has no JSON form (``no_json_form``) or is not a value of the type
@@ -59,7 +63,7 @@ def read_choices(given: Iterable[Any], reader: TypeAdapter[Any]) -> tuple[Choice
     """
     choices = [choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in given]
     try:
-        read = tuple(choice.model_copy(update={"id": plain_json(reader.dump_python(validate_as_json(reader, choice.id), mode="json"))}) for choice in choices)
+        read = tuple(choice.model_copy(update={"id": write(validate_as_json(reader, choice.id))}) for choice in choices)
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "one has no JSON form") from None
     except ValidationError as refused:

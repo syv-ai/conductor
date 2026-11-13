@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from pydantic import Field as PydanticField
-from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, TypeAdapter
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue, TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import CoreSchema, PydanticCustomError, core_schema, to_json
 
@@ -113,8 +113,12 @@ class Param:
         if self.choices is None:
             return limited
         reader = TypeAdapter(limited_hint)
+
+        def as_json(value: Any) -> JsonValue:
+            return plain_json(reader.dump_python(value, mode="json"))
+
         try:
-            ids = [choice.id for choice in read_choices(self.choices, reader)]
+            ids = [choice.id for choice in read_choices(self.choices, reader, as_json)]
         except PydanticCustomError as refused:
             match refused.type:
                 case "no_json_form":
@@ -130,7 +134,7 @@ class Param:
             return limited
 
         def one_of_the_choices(value: Any) -> Any:
-            if value is not None and plain_json(reader.dump_python(value, mode="json")) not in ids:
+            if value is not None and as_json(value) not in ids:
                 raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
             return value
 

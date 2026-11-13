@@ -25,7 +25,7 @@ class QuestionOverrides(TypedDict, total=False):
     """What an ``Ask`` sets on one output's question; a key is present only when the ``Ask`` set it.
 
     Attributes:
-        choices: The choices offered, as the output's type reads them (``Type.read_choices``).
+        choices: The choices offered, each id read by the output's type in its JSON form (``read_choices``).
         default: The proposed answer in its JSON form.
     """
 

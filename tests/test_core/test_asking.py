@@ -921,6 +921,15 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
     assert run.state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid integer"
 
 
+def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_answer_is() -> None:
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick() -> Literal[1, 2]:
+        raise Ask("?", choices=[True])
+
+    cause = _once(pick)[1].state.cause
+    assert (cause.type, cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: a yes or no is not a number; give a number")
+
+
 def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:
     from pydantic import BaseModel
 

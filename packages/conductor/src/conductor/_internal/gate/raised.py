@@ -2,7 +2,7 @@
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
 The door returns the call's ``Question``, whose overrides for ``result`` are the two choices as the output's type
-reads them (``Type.read_choices``), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``RefusedError``
+reads them (``read_choices`` with the gate's validator of the output), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``RefusedError``
 with ``invalid_ask``: a choice is what an answer picks, so each is read strictly from its JSON form, and ``1`` is
 not a ``str``.
 An ``Ask`` raised by the function of an ``Asked`` parameter is checked against that parameter in the same way. A
@@ -24,10 +24,11 @@ from conductor._internal.ask import NOTHING_SET, Ask, Question, QuestionOverride
 from conductor._internal.base import REQUIRED, comma_separated
 from conductor._internal.field import Field
 from conductor._internal.problem import run_problems
-from conductor._internal.types import Choice
+from conductor._internal.types import Choice, read_choices
 
 from .answer import answer_value
 from .refused import RefusedError
+from .rules import output_validator_of
 
 
 class AskDoor:
@@ -60,8 +61,9 @@ class AskDoor:
         overrides: dict[str, QuestionOverrides] = {}
         if ask.choices is not None:
             for name, choices in self._by_output(ask.choices, "choices").items():
-                try:  # a Series' choices are its items', so each id is read as one item
-                    overrides[name] = {"choices": outputs[name].type.read_choices(choices)}
+                value_type = outputs[name].type  # a Series' choices are its items', so each id is read as one item
+                try:
+                    overrides[name] = {"choices": read_choices(choices, output_validator_of(value_type), value_type.to_json)}
                 except PydanticCustomError as refused:
                     raise RefusedError([run_problems.invalid_ask(reason=f"the choices for '{name}' are refused: {refused.message()}")]) from None
         if ask.default is not REQUIRED:
