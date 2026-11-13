@@ -33,7 +33,9 @@ arguments when some call of ``shout`` may be made.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Final, Literal, assert_never
+from typing import Any, Literal, assert_never
+
+from typing_extensions import sentinel
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import Edge, EdgeInput
@@ -44,15 +46,9 @@ from conductor._internal.types import NoSuchFieldError, field_of
 from .flat import CollectingArgument, FlatFunctionNode
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
-
-class _MayHaveValue:
-    def __repr__(self) -> str:
-        return "MAY_HAVE_VALUE"
-
-
 #: What a read returns in place of a value when it is asked for any item of a loop and some item may have a
 #: value. When no item can have one, the read returns what every item would read: ``SKIPPED`` or ``None``.
-MAY_HAVE_VALUE: Final = _MayHaveValue()
+MAY_HAVE_VALUE = sentinel("MAY_HAVE_VALUE")
 
 
 class ResultReader:
