@@ -505,7 +505,7 @@ print([(question.name, question.type) for question in run.waiting[0].questions])
 print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
 ```
 
-`pay` is called once, with `ok` a real `bool`, and `pay(bill, ok=True)` is its unit test. To offer the two as one entry in a palette, make the graph a node: `registry.subgraph("approve_and_pay", title="Approve and pay", description="...")(approve_and_pay)`. Its waiting call is then `approve_and_pay/approval~...` (with `@` and an index for each item it runs for), and an answer is reused, as any answer is, when a later run gives `approval` the same bill.
+`pay` is called once, with `ok` a real `bool`, and `pay(bill, ok=True)` is its unit test. To offer the two as one entry in a palette, make the graph a node: `registry.subgraph("approve_and_pay", title="Approve and pay", description="...")(approve_and_pay)`. The question then shows on `approval`, inside the subgraph, not on the subgraph's node: its waiting call is `approve_and_pay/approval~...` (with `@` and an index for each item it runs for), and an answer is reused, as any answer is, when a later run gives `approval` the same bill.
 
 ## When something fails
 
