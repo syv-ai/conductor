@@ -44,41 +44,48 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return read
 
 
-def read_record(record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:
-    """Returns ``record`` as a ``GraphRecord``: a ``GraphRecord`` as it is; JSON text, or the plain data ``make_graph``
-    and ``registry.upgrade`` write, read into one.
+def read_json(text: str | bytes) -> Any:
+    """Returns JSON text as plain data, with every object's keys seen before they become a dict: the one way a graph
+    record's text is read, and a body that holds one.
 
-    The text is read with every object's keys seen before they become a dict, so two nodes with one id, or one input
-    written twice, are refused, where a JSON reader that builds a dict would keep the last.
+    ``read_json('{"nodes": {"a": {"node": "upper"}, "a": {"node": "count"}}}')`` is refused: a dict would keep the
+    second node ``a`` and lose the first without a word.
+
+    Raises:
+        RefusedError: The text is not JSON (``json_invalid``), or writes a key twice in one object (``repeated_key``):
+            one ``invalid_record`` problem at ``("record",)``.
+    """
+    try:
+        return json.loads(text, object_pairs_hook=_each_key_once)
+    except ValueError as not_json:
+        raise RefusedError([problem.invalid_record("record", where="the record", reason=f"it is not JSON: {not_json}", error="json_invalid")]) from None
+
+
+def read_record(record: GraphRecord | str | bytes | Mapping[str, Any], *, written_by: str | None = None) -> GraphRecord:
+    """Returns ``record`` as a ``GraphRecord``: a ``GraphRecord`` as it is; JSON text (read by ``read_json``), or the
+    plain data ``make_graph`` and ``registry.upgrade`` write, read into one.
+
+    Args:
+        record: The record.
+        written_by: What wrote it when it is not JSON a host sent, for the refusal to say what to fix:
+            ``make_graph``'s arguments, or a node's ``Upgrade``.
 
     Raises:
         RefusedError: The text is not JSON or writes a key twice in one object, or the record is not a record's
             shape (a key a record does not have, an id or input that is not a name, an input given more than one of
-            a constant, a default and sources, a source listed twice): one ``invalid_record`` problem per fault, each
-            at ``("record", *where)``.
+            a constant, a graph input and sources, a source listed twice, a field on a graph output): one
+            ``invalid_record`` problem per fault, each at ``("record", *where)``.
     """
     if isinstance(record, GraphRecord):
         return record
-    if isinstance(record, (str, bytes)):
-        try:
-            record = json.loads(record, object_pairs_hook=_each_key_once)
-        except ValueError as not_json:
-            raise RefusedError([problem.invalid_record("record", where="the record", reason=f"it is not JSON: {not_json}", error="json_invalid")]) from None
+    data = read_json(record) if isinstance(record, (str, bytes)) else record
     try:
-        return GraphRecord.model_validate(record)
+        return GraphRecord.model_validate(data)
     except ValidationError as invalid:
-        raise _refusal(invalid) from None
-
-
-def _refusal(invalid: ValidationError) -> RefusedError:
-    """One ``invalid_record`` problem for each fault pydantic found in a graph record."""
-    return RefusedError(
-        problem.invalid_record(
-            "record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record",
-            reason=error["msg"].removeprefix("Value error, "), error=error["type"],  # a validator's own sentence, without pydantic's prefix
-        )
-        for error in invalid.errors()
-    )
+        raise RefusedError(
+            problem.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"], error=error["type"], written_by=written_by)
+            for error in invalid.errors()
+        ) from None
 
 
 def record_values(node_id: str, values: Mapping[str, Any]) -> dict[str, JsonValue]:

@@ -7,23 +7,26 @@ input or the edges into it) to ``separator`` and sets the version to 2.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
+from pydantic import MISSING
+
+from conductor._internal.base import Address
 from conductor._internal.gate import RefusedError, read_record, record_values
 from conductor._internal.node import NodeDefinition, declared_inputs
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.record import GraphRecord
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
 
 def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | bytes, node_id: str, *, to: int | None) -> GraphRecord:
     """``record`` with the node ``node_id`` moved to version ``to`` of its definition in ``nodes``, the newest when
     ``to`` is ``None``: what ``registry.upgrade`` returns, and its docstring says how.
 
-    The record is changed as the plain data of its JSON and read again by the record door, so what a step writes is
-    held to the record's rules: a rewrite that gives a value to an input that edges lead into gives that input two
-    entries, and the door refuses it.
+    Each step's record is read again by the record door, so what a step writes is held to the record's rules: a
+    rewrite that gives a value to an input that edges lead into gives that input a constant beside its sources, and
+    the door refuses it, naming the step.
     """
     try:
         graph = read_record(record)
@@ -45,37 +48,63 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
         )])
     version_chain = newest.version_of(target).version_chain
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
-    data: dict[str, Any] = graph.model_dump(mode="json")
-    nodes_data: dict[str, dict[str, Any]] = data["nodes"]
     for step, older in reversed(steps):
         upgrade = step.upgrade
         gone = declared_inputs(older).keys() - declared_inputs(step).keys() - upgrade.renamed_inputs.keys()
         inputs = {
-            upgrade.renamed_inputs.get(name, name): entry for name, entry in nodes_data[node_id].get("inputs", {}).items()
-            if not (name in gone and "sources" in entry)
+            upgrade.renamed_inputs.get(name, name): entry for name, entry in graph.nodes[node_id].inputs.items()
+            if not (name in gone and entry.sources is not MISSING)
         }
         if upgrade.rewrite is not None:
-            values = {name: entry.get("constant", entry.get("default")) for name, entry in inputs.items() if "constant" in entry or "default" in entry}
-            try:
-                rewritten = record_values(node_id, upgrade.rewrite(values))
-            except RefusedError as refused:
-                raise InvalidCallError(refused.problems) from None
-            inputs = {name: {key: value for key, value in entry.items() if key not in ("constant", "default")} for name, entry in inputs.items() if "constant" not in entry}
-            for name, value in rewritten.items():
-                entry = inputs.get(name, {})
-                inputs[name] = {**entry, "default" if "graph_input" in entry else "constant": value}
-        nodes_data[node_id] = {**nodes_data[node_id], "inputs": inputs}
-        for source in _sources_in(data):
-            if source["node"] == node_id:
-                source["output"] = upgrade.renamed_outputs.get(source["output"], source["output"])
-    nodes_data[node_id]["version"] = target
+            inputs = _rewritten(node_id, inputs, upgrade.rewrite)
+        records = {
+            other: NodeRecord.model_construct(
+                node=node.node, version=step.version if other == node_id else node.version, display=node.display,
+                inputs={name: _renamed(entry, node_id, upgrade.renamed_outputs) for name, entry in (inputs if other == node_id else node.inputs).items()},
+            )
+            for other, node in graph.nodes.items()
+        }
+        outputs = {name: _renamed_source(address, node_id, upgrade.renamed_outputs) for name, address in graph.outputs.items()}
+        try:  # unchecked until here: the door checks what the step wrote
+            graph = read_record(GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"), written_by=f"the Upgrade of '{node_record.node}' to version {step.version}")
+        except RefusedError as refused:
+            raise InvalidCallError(refused.problems) from None
+    return graph
+
+
+def _rewritten(node_id: str, inputs: Mapping[str, InputEntry], rewrite: Callable[[dict[str, Any]], Mapping[str, Any]]) -> dict[str, InputEntry]:
+    """``inputs`` after an ``Upgrade``'s ``rewrite``: it is given the node's constants and its graph inputs' defaults as
+    one map, and what it returns is written as JSON. A graph input's default stays one; every other value returned is a
+    constant. A constant it does not return goes, and so does a default.
+
+    Raises:
+        InvalidCallError: A value it returns has no JSON form (``invalid_value``).
+    """
+    values = {name: entry.default if entry.constant is MISSING else entry.constant for name, entry in inputs.items() if entry.constant is not MISSING or entry.default is not MISSING}
     try:
-        return read_record(data)
+        written = record_values(node_id, rewrite(values))
     except RefusedError as refused:
         raise InvalidCallError(refused.problems) from None
+    kept = {
+        name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)
+        for name, entry in inputs.items() if entry.constant is MISSING
+    }
+    for name, value in written.items():
+        entry = kept.get(name)
+        if entry is not None and entry.graph_input is not MISSING:
+            kept[name] = InputEntry.model_construct(graph_input=entry.graph_input, default=value)
+        else:  # beside sources, an entry of two kinds the door refuses
+            kept[name] = InputEntry.model_construct(constant=value, sources=MISSING if entry is None else entry.sources)
+    return kept
 
 
-def _sources_in(data: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Every output a graph record's plain data names: each edge's source, and each graph output."""
-    edges = [source for node in data["nodes"].values() for entry in node.get("inputs", {}).values() for source in entry.get("sources", ())]
-    return [*edges, *data["outputs"].values()]
+def _renamed(entry: InputEntry, node_id: str, renames: Mapping[str, str]) -> InputEntry:
+    """``entry`` with each of its sources that is an output of ``node_id`` the step renames read under the new name."""
+    if entry.sources is MISSING:
+        return entry
+    return InputEntry.model_construct(constant=entry.constant, sources=tuple(_renamed_source(source, node_id, renames) for source in entry.sources))
+
+
+def _renamed_source(source: Address, node_id: str, renames: Mapping[str, str]) -> Address:
+    """``source`` read under the new name of its output, when it is an output of ``node_id`` that a step renames."""
+    return Address(source.node, renames[source.output], source.field) if source.node == node_id and source.output in renames else source

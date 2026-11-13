@@ -17,13 +17,12 @@ from conductor import (
     Deprecation,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeError,
     NodeRecord,
     Param,
     Problem,
-    RecordConstant,
-    RecordGraphInput,
     Series,
     Table,
     host_type,
@@ -235,12 +234,12 @@ def test_a_half_finished_graph_record_compiles_with_its_problems():
 
 def test_a_records_nodes_are_keyed_by_their_ids():
     record = GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "u", "output": "result"}}})
-    assert list(record.nodes) == ["u"] and record.nodes["u"] == NodeRecord(node="upper", inputs={"text": RecordGraphInput(graph_input="text")})
+    assert list(record.nodes) == ["u"] and record.nodes["u"] == NodeRecord(node="upper", inputs={"text": InputEntry(graph_input="text")})
 
 
 def test_what_a_host_saves_reads_back_as_it_was_written():
     saved = [
-        NodeRecord(node="upper", version=2, inputs={"text": RecordConstant(constant="x")}, display={"x": 3}),
+        NodeRecord(node="upper", version=2, inputs={"text": InputEntry(constant="x")}, display={"x": 3}),
         GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "t": {"node": "tail", "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}),
         Problem(type="cycle", loc=("a",), msg="The node is part of a cycle, so the graph cannot run.", ctx={}),
         Deprecation(header="Gone", alternative="Use upper."),
@@ -328,7 +327,7 @@ def test_a_single_value_as_the_constant_of_a_series_input_is_refused_not_wrapped
 
 def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
     described = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "styled", "inputs": {"mode": {"graph_input": "mode"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), REGISTRY).inputs["mode"]
-    assert described.field.title == "Mode" and described.field.type == "str" and described.field.required is False
+    assert described.field.title == "Mode" and described.field.type == "str" and described.field.required is True
     assert described.field.choices == [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
 
 
@@ -509,8 +508,10 @@ def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
     assert graph.run().outputs == {"result": "inside"}
 
 
-def test_an_inner_input_with_a_default_is_offered_as_not_required():
-    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].field.required is False
+def test_a_graph_input_on_a_subgraph_node_is_required_unless_the_record_gives_it_a_default():
+    """The subgraph's own default for the input plays no part: the graph input's default is the outer record's."""
+    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].field.required is True
+    assert Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted", "inputs": {"text": {"graph_input": "text", "default": "x"}}}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY).inputs["text"].field.required is False
     assert Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), REGISTRY).inputs["text"].field.required is True
 
 
@@ -567,7 +568,10 @@ def formula(formula: str, **values: float) -> float:
 gone_inside = subgraph("gone_inside", title="Gone inside", description="For a test.")(GraphRecord.model_validate({"nodes": {"x": {"node": "gone"}}, "outputs": {}}))
 around = subgraph("around", title="Around", description="For a test.")(GraphRecord.model_validate({"nodes": {"b": {"node": "gone_inside"}}, "outputs": {}}))
 invalid_inside = subgraph("invalid_inside", title="Invalid inside", description="For a test.")(GraphRecord.model_validate({"nodes": {"n": {"node": "nonempty", "inputs": {"text": {"constant": ""}}}}, "outputs": {"result": {"node": "n", "output": "result"}}}))
-unfed_inside = subgraph("unfed_inside", title="Unfed inside", description="For a test.")(make_graph(upper, pair, edges=[("upper.result", "pair.a")]))
+unfed_inside = subgraph("unfed_inside", title="Unfed inside", description="For a test.")(GraphRecord.model_validate({"nodes": {
+    "upper": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+    "pair": {"node": "pair", "inputs": {"a": {"sources": [{"node": "upper", "output": "result"}]}}},
+}, "outputs": {"result": {"node": "pair", "output": "result"}}}))
 BROKEN = registry_of(upper, pair, nonempty, formula, gone_inside, around, invalid_inside, unfed_inside)
 
 
@@ -619,7 +623,7 @@ def test_an_invalid_constant_inside_a_subgraph_makes_the_outer_graph_not_runnabl
 
 
 def test_a_subgraph_whose_inner_node_has_a_required_input_with_no_entry_is_input_has_no_value():
-    [problem] = Graph.compile(GraphRecord.model_validate({"nodes": {"u": {"node": "unfed_inside"}}, "outputs": {}}), BROKEN).problems
+    [problem] = Graph.compile(GraphRecord.model_validate({"nodes": {"u": {"node": "unfed_inside", "inputs": {"text": {"constant": "x"}}}}, "outputs": {}}), BROKEN).problems
     assert (problem.type, problem.loc) == ("input_has_no_value", ("u", "pair", "b"))
 
 
@@ -752,8 +756,8 @@ def test_an_inner_nodes_error_is_reported_at_its_node_path_with_the_ctx_its_auth
 def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich"}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "e/upper", "output": "result"}]}}}}}), OUTSIDE)
-    problem = refused.value.errors()[0]
-    assert (problem.type, problem.loc[:5], problem.loc[-1], problem.ctx["error"]) == ("invalid_record", ("record", "nodes", "u", "inputs", "text"), "node", "value_error")
+    [problem] = refused.value.errors()
+    assert (problem.type, problem.loc, problem.ctx["error"]) == ("invalid_record", ("record", "nodes", "u", "inputs", "text", "sources", 0, "node"), "not_a_name")
 
 
 def test_an_edge_from_a_missing_node_into_a_subgraph_node_is_a_problem_at_the_input_it_offers():
@@ -935,7 +939,7 @@ def test_a_graph_input_has_its_field_and_writes_as_json():
 
     registry = NodeRegistry()
     registry.add(u)
-    graph = Graph.compile(make_graph(u), registry)
+    graph = Graph.compile(make_graph(u, defaults={"u.n": 1}), registry)
     assert isinstance(graph.inputs["t"], GraphInputDescription) and graph.describe().inputs == graph.inputs
     assert json.loads(json.dumps({name: i.field.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
     assert (graph.inputs["t"].field.name, graph.inputs["t"].field.required) == ("t", True)

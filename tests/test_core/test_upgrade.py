@@ -14,14 +14,12 @@ from conductor import (
     Address,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
     NodeRegistry,
     Param,
-    RecordConstant,
-    RecordEdges,
-    RecordGraphInput,
     Upgrade,
     host_type,
     node,
@@ -81,8 +79,8 @@ def _registry() -> NodeRegistry:
 def _graph(version: int = 1) -> GraphRecord:
     return GraphRecord(
         nodes={
-            "r": NodeRecord(node="rename", version=version, inputs={"name": RecordConstant(constant="Ada Lovelace")} if version == 1 else {}),
-            "e": NodeRecord(node="echo", inputs={"text": RecordEdges(sources=(Address("r", "result" if version < 3 else "text"),))}),
+            "r": NodeRecord(node="rename", version=version, inputs={"name": InputEntry(constant="Ada Lovelace")} if version == 1 else {}),
+            "e": NodeRecord(node="echo", inputs={"text": InputEntry(sources=(Address("r", "result" if version < 3 else "text"),))}),
         },
         outputs={"result": Address("e", "result")},
     )
@@ -298,7 +296,7 @@ def test_upgrading_a_subgraph_sets_only_its_version():
     its inputs as saved, and compiling says whether that version accepts them."""
 
     def inner_graph(inner_id: str) -> GraphRecord:
-        return GraphRecord(nodes={inner_id: NodeRecord(node="echo", inputs={"text": RecordGraphInput(graph_input="text")})})
+        return GraphRecord(nodes={inner_id: NodeRecord(node="echo", inputs={"text": InputEntry(graph_input="text")})})
 
     first = subgraph("inner_graph", title="Sub", description="d")(inner_graph("inner"))
     registry = registry_of(echo, subgraph("inner_graph", title="Sub", description="d", replaces=first)(inner_graph("renamed")))
@@ -459,4 +457,8 @@ def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
 
     with pytest.raises(InvalidCallError) as refused:
         registry.upgrade(graph, "f")
-    assert [(p.type, p.loc[:4], p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "f", "inputs"), "one_of_constant_graph_input_sources")]
+    [problem] = refused.value.errors()
+    assert (problem.type, problem.loc, problem.ctx["error"], problem.ctx["written_by"]) == (
+        "invalid_record", ("record", "nodes", "f", "inputs", "text"), "one_of_constant_graph_input_sources", "the Upgrade of 'fed' to version 2",
+    )
+    assert problem.msg.endswith("Fix the Upgrade of 'fed' to version 2.")

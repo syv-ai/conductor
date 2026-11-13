@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from pydantic import AfterValidator, Field
+from pydantic_core import PydanticCustomError
 
 #: The ids that name one node: the id of each subgraph node it is inside, outermost first, and its own id last.
 #: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``; ``("lines",)`` is a node of the
@@ -65,10 +66,10 @@ def _a_name(text: str) -> str:
     """Returns ``text`` when it is a name (``is_name``).
 
     Raises:
-        ValueError: It is not one.
+        PydanticCustomError: It is not one (``not_a_name``).
     """
     if not is_name(text):
-        raise ValueError(f"{text!r} is not a name: it is not empty and has none of '.', '/', '@' and '~'")
+        raise PydanticCustomError("not_a_name", "'{text}' is not a name: a name is not empty and has none of '.', '/', '@' and '~'", {"text": text})
     return text
 
 
@@ -77,10 +78,10 @@ def _a_field(text: str | None) -> str | None:
     field's name may have dots of its own: ``"Amount in USD."``.
 
     Raises:
-        ValueError: It is empty or starts with a dot.
+        PydanticCustomError: It is empty or starts with a dot (``not_a_field``).
     """
     if text is not None and (not text or text.startswith(".")):
-        raise ValueError(f"{text!r} is not the name of a field: it is not empty and does not start with '.'")
+        raise PydanticCustomError("not_a_field", "'{text}' is not the name of a field: it is not empty and does not start with '.'", {"text": text})
     return text
 
 

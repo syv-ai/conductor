@@ -10,8 +10,10 @@ import asyncio
 import datetime
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from threading import Event, Timer
+from types import MappingProxyType
 from typing import Annotated, Any, Literal, Optional, TypedDict
 
 import polars as pl
@@ -22,13 +24,12 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeRecord,
     NotCalled,
     Param,
     Policy,
-    RecordEdges,
-    RecordGraphInput,
     Run,
     RunsOn,
     Series,
@@ -162,7 +163,7 @@ SPLIT_CONTACTS = ("c.result", "r.table")
 
 
 def record_of(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY,
-              inputs: dict[str, str | list[str]] | None = None, outputs: dict[str, str] | None = None) -> GraphRecord:
+              inputs: Mapping[str, str | list[str]] = MappingProxyType({}), outputs: Mapping[str, str] = MappingProxyType({})) -> GraphRecord:
     """``make_graph`` of ``nodes`` (``{"id", "node", "constants"?}``, each node's definition from ``registry``),
     ``edges`` (``(output, input)``) and the graph's ``inputs`` and ``outputs`` where a test names them."""
     return make_graph(
@@ -245,8 +246,9 @@ def test_an_optional_table_input_gets_none_from_the_caller_from_a_return_and_fro
     def always_none(y: int) -> int | None:
         return None
 
+    from_the_caller = graph({"id": "c", "node": "count-rows"}, registry=registry_of(count_rows), inputs={"t": "c.t"})
     alone = graph({"id": "c", "node": "count-rows"}, registry=registry_of(count_rows))
-    assert alone.run(t=None).outputs == alone.run().outputs == {"result": -1}
+    assert from_the_caller.run(t=None).outputs == alone.run().outputs == {"result": -1}
 
     from_a_node = graph({"id": "m", "node": "maybe-table"}, {"id": "c", "node": "count-rows"}, edges=(("m.result", "c.t"),), registry=registry_of(maybe_table, count_rows))
     assert from_a_node.run(x=-1).outputs == {"result": -1} and from_a_node.run(x=3).outputs == {"result": 1}
@@ -606,12 +608,12 @@ def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_e
     reg = registry_of(docs, lines, count, width, as_table, total)
     compiled = Graph.compile(GraphRecord(
         nodes={
-            "d": NodeRecord(node="docs", inputs={"text": RecordGraphInput(graph_input="text")}),
-            "l": NodeRecord(node="lines", inputs={"text": RecordEdges(sources=[Address("d", "result")])}),
-            "c": NodeRecord(node="count", inputs={"items": RecordEdges(sources=[Address("l", "result")])}),
-            "t": NodeRecord(node="total", inputs={"ns": RecordEdges(sources=[Address("c", "result")])}),
-            "a": NodeRecord(node="as_table", inputs={"text": RecordEdges(sources=[Address("d", "result")])}),
-            "w": NodeRecord(node="width", inputs={"table": RecordEdges(sources=[Address("a", "result")])}),
+            "d": NodeRecord(node="docs", inputs={"text": InputEntry(graph_input="text")}),
+            "l": NodeRecord(node="lines", inputs={"text": InputEntry(sources=[Address("d", "result")])}),
+            "c": NodeRecord(node="count", inputs={"items": InputEntry(sources=[Address("l", "result")])}),
+            "t": NodeRecord(node="total", inputs={"ns": InputEntry(sources=[Address("c", "result")])}),
+            "a": NodeRecord(node="as_table", inputs={"text": InputEntry(sources=[Address("d", "result")])}),
+            "w": NodeRecord(node="width", inputs={"table": InputEntry(sources=[Address("a", "result")])}),
         },
     ), reg)
     run = compiled.run(text="a,b;-;c;")
@@ -849,7 +851,7 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     assert source_of("j") == {"texts": "every item of s.result"}
     assert source_of("p") == {"a": "per item of s.result", "b": "a constant"}
     assert source_of("k") == {"a": "one value, the same for every item", "b": "per item of s.result"}
-    assert source_of("s") == {"text": "the graph input", "sep": "the graph input"}
+    assert source_of("s") == {"text": "the graph input", "sep": "a constant"}  # sep has only its default
 
 
 # -- no items, and skips upstream of a loop ----------------------------------------------------
@@ -1630,7 +1632,12 @@ def test_two_branching_nodes_inside_one_subgraph_each_choose_their_own_branch():
 
 def test_a_subgraph_node_wired_from_upstream_needs_every_other_input_wired_too():
     inner = as_subgraph("pairer", {"id": "p", "node": "pair"})
-    compiled = graph({"id": "u", "node": "upper"}, {"id": "e", "node": "pairer"}, edges=(("u.result", "e.a"),), registry=registry_of(upper, pair, inner))
+    record = GraphRecord.model_validate({
+        "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                  "e": {"node": "pairer", "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}}}},
+        "outputs": {"p": {"node": "e", "output": "result"}},
+    })
+    compiled = Graph.compile(record, registry_of(upper, pair, inner))
 
     assert [(p.type, p.loc) for p in compiled.problems] == [("input_has_no_value", ("e", "b"))]
 

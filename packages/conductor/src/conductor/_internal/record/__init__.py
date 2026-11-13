@@ -15,13 +15,13 @@ A graph record is its nodes by id and its outputs by name::
     }
 
 A node names the node definition it uses (``node``) and its version (``version``, 1 when left out). Each input it
-lists gets exactly one of three:
+lists gets an ``InputEntry``, exactly one of three:
 
-- a constant (``RecordConstant``), the value the input has on every call in every run: no caller can change it;
-- a graph input (``RecordGraphInput``), the value the caller gives when a run starts, under the graph input's name,
-  with a default for when the caller gives none;
-- the edges into it (``RecordEdges``), each the output it comes from (an ``Address``), or one field of the record
-  an output returns: ``{"node": "read", "output": "result", "field": "email"}``.
+- a constant, the value the input has on every call in every run: no caller can change it;
+- a graph input, the value the caller gives when a run starts, under the graph input's name, with a default for
+  when the caller gives none;
+- the sources of the edges into it, each the output it comes from (an ``Address``), or one field of the record an
+  output returns: ``{"node": "read", "output": "result", "field": "email"}``.
 
 An input the record leaves out gets the node's own default. ``display`` is the host's own: conductor stores it and
 never reads it. An empty field of a node is left out when the record is saved, so a bare node is ``{"node":
@@ -36,6 +36,6 @@ input the node does not have, a graph input given two types) is a problem of tha
 """
 
 from .graph import GraphRecord
-from .node import NodeRecord, RecordConstant, RecordEdges, RecordGraphInput
+from .node import InputEntry, NodeRecord
 
-__all__ = ["GraphRecord", "NodeRecord", "RecordConstant", "RecordEdges", "RecordGraphInput"]
+__all__ = ["GraphRecord", "InputEntry", "NodeRecord"]

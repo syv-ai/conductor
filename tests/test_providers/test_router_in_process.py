@@ -355,6 +355,42 @@ async def test_a_graph_that_writes_one_node_id_twice_is_refused_by_every_route_t
     assert store.rows == {}
 
 
+async def test_a_run_body_that_writes_graph_twice_is_refused_and_nothing_is_stored() -> None:
+    registry, good, _ = _uploads()
+    store = MemoryStore()
+    bad = '{"nodes": {"review": {"inputs": {}}}}'
+    body = f'{{"graph": {bad}, "graph": {json.dumps(good)}, "inputs": {{"files": ["a"]}}}}'
+
+    async with _serving(_app(store=store, registry=registry)) as client:
+        answer = await client.post("/runs", content=body, headers={"content-type": "application/json"})
+
+    assert answer.status_code == 422, answer.text
+    assert [(problem["type"], problem["ctx"]["error"]) for problem in answer.json()["detail"]] == [("invalid_record", "repeated_key")]
+    assert store.rows == {}
+
+
+@pytest.mark.parametrize(
+    ("graph", "error"),
+    [
+        ('{"nodes": {"review": {"inputs": {"file": {"graph_input": "file"}}}}}', "missing"),
+        ('{"nodes": {"review": {"node": "review"}, "review": {"node": "review"}}}', "repeated_key"),
+    ],
+    ids=["a_node_with_no_node", "a_node_id_written_twice"],
+)
+async def test_a_run_of_a_graph_record_of_the_wrong_shape_is_refused_with_conductors_problems_never_fastapis(graph: str, error: str) -> None:
+    registry, _, _ = _uploads()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=registry)) as client:
+        answer = await client.post("/runs", content=f'{{"graph": {graph}, "inputs": {{}}}}', headers={"content-type": "application/json"})
+
+    assert answer.status_code == 422, answer.text
+    detail = answer.json()["detail"]
+    assert [(problem["type"], problem["ctx"]["error"]) for problem in detail] == [("invalid_record", error)]
+    assert all(problem["loc"][0] == "record" for problem in detail)
+    assert store.rows == {}
+
+
 async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
     registry, graph, _ = _uploads()
     store = MemoryStore()

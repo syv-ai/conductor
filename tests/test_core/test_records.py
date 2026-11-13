@@ -10,11 +10,10 @@ from conductor import (
     Address,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
-    RecordEdges,
-    RecordGraphInput,
     Run,
     Series,
     Table,
@@ -79,10 +78,10 @@ def mails(found: Series[str | None]) -> int:
 def _graph(source: Any = contacts) -> Any:
     reads = {"greet": ("name", "name"), "one": ("contact", None), "every": ("found", None), "names": ("found", "name"), "mails": ("found", "email")}
     readers = {
-        node_id: NodeRecord(node=node_id, inputs={name: RecordEdges(sources=[Address("c", "result", field)])}) for node_id, (name, field) in reads.items()
+        node_id: NodeRecord(node=node_id, inputs={name: InputEntry(sources=[Address("c", "result", field)])}) for node_id, (name, field) in reads.items()
     }
     return Graph.compile(GraphRecord(
-        nodes={"c": NodeRecord(node=source.id, inputs={"text": RecordGraphInput(graph_input="text")}), **readers},
+        nodes={"c": NodeRecord(node=source.id, inputs={"text": InputEntry(graph_input="text")}), **readers},
         outputs={node_id: Address(node_id, "result") for node_id in reads},
     ), registry_of(source, greet, one, every, names, mails))
 

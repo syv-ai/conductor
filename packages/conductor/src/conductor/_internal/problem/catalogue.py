@@ -195,13 +195,35 @@ def cycle(*loc: str | int) -> str:
 
 
 @PROBLEMS.problem()
+def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> str:
+    """A graph output names a node the record does not have, or an output its node does not have.
+
+    The problem is the graph's, at no node: ``loc`` is empty and ``ctx.output`` names the graph output. Name an
+    output of a node the graph has.
+
+    Args:
+        output: The graph output's name.
+        source: The output it names, ``node.output``.
+        outputs: The outputs its node has, each ``node.output``; empty when the record has no such node.
+
+    Example:
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}
+        }, "outputs": {"result": {"node": "u", "output": "shout"}}})
+    """
+    if outputs:
+        return f"The graph output '{output}' is '{source}', which its node does not have; it has {comma_separated(outputs)}."
+    return f"The graph output '{output}' is '{source}', and the graph has no node '{source.partition('.')[0]}'."
+
+
+@PROBLEMS.problem()
 def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: str) -> str:
-    """An edge, or a graph output, comes from a node the graph record does not have.
+    """An edge comes from a node the graph record does not have.
 
     Add the node, or remove the edge.
 
     Args:
-        loc: The node the edge leads into, and the input; ``"outputs"`` and the name, for a graph output.
+        loc: The node the edge leads into, and the input.
         missing: The id of the node that is not in the graph record.
         source: The edge's source, as an address.
         target: The input the edge leads into, as ``node.input``.
@@ -257,7 +279,7 @@ def hook_needs_value(node_id: str, field: str, /) -> str:
 
 @PROBLEMS.problem()
 def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
-    """A constant in the graph record is not a value of its input's type.
+    """A constant in the graph record, or a graph input's default, is not a value of its input's type.
 
     ``reason`` says what the type refused, without quoting the value: a problem may be shown to anyone. ``errors`` is
     pydantic's list of what it refused, each a ``type``, ``loc`` and ``msg`` without the value, so a host can key on
@@ -276,7 +298,7 @@ def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict
             "c": {"node": "count", "inputs": {"n": {"constant": "many"}}}
         }, "outputs": {"result": {"node": "c", "output": "result"}}})
     """
-    return f"The constant of '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
+    return f"The value the graph record gives '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
 @PROBLEMS.problem("invalid_value", variant="bound_default")
@@ -567,8 +589,9 @@ def input_has_no_value(node_id: str, field: str, /) -> str:
 def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) -> str:
     """Two inputs that name one graph input take different types, or the record gives them different defaults.
 
-    A caller gives a graph input one value, so every input it feeds must read that value alike. Give the inputs
-    graph inputs of their own, or give them one default.
+    A caller gives a graph input one value, read by one type, so every input it feeds must take that type. Its default
+    is the record's, written on any of them (and the same wherever it is written twice); an input's own default plays
+    no part. Give the inputs graph inputs of their own, or make them agree.
 
     Args:
         node_id: The node of the second input.
@@ -581,7 +604,7 @@ def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) 
             "c": {"node": "count", "inputs": {"n": {"graph_input": "x"}}},
         }})
     """
-    return f"'{field}' and another input both take the graph input '{graph_input}', with another type or default; give each its own graph input."
+    return f"'{field}' and another input both take the graph input '{graph_input}' with different types or defaults; give each its own graph input."
 
 
 @PROBLEMS.problem()
@@ -882,7 +905,7 @@ def invalid_max_items(*loc: str | int, max_items: int) -> str:
 
 
 @PROBLEMS.problem()
-def invalid_record(*loc: str | int, where: str, reason: str, error: str) -> str:
+def invalid_record(*loc: str | int, where: str, reason: str, error: str, written_by: str | None = None) -> str:
     """What was given as a graph record is not one: its JSON does not have a graph record's shape.
 
     Fix the JSON: ``ctx.where`` says where it stops being a graph record. A graph record of the right shape is always
@@ -894,11 +917,13 @@ def invalid_record(*loc: str | int, where: str, reason: str, error: str) -> str:
         where: The same steps as one text, joined by dots; ``the record`` for the graph record as a whole.
         reason: What is wrong there.
         error: The type of pydantic's error, such as ``extra_forbidden``.
+        written_by: What wrote the record when it was not its JSON: ``make_graph``'s arguments, or a node's
+            ``Upgrade``.
 
     Example:
-        refused(lambda: Graph.compile('{"nodes": [{"id": "u", "type": "upper"}]}', registry))
+        refused(lambda: Graph.compile('{"nodes": {"u": {"type": "upper"}}}', registry))
     """
-    return f"The record is not a graph record at '{where}': {reason.rstrip('.')}. Fix the record's JSON."
+    return f"The record is not a graph record at '{where}': {reason.rstrip('.')}. Fix {written_by or "the record's JSON"}."
 
 
 @PROBLEMS.problem()
@@ -964,7 +989,7 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
         outputs: The outputs of ``before``.
 
     Example:
-        refused(lambda: make_graph(upper, greet, outputs={"result": "greet.result"}))
+        refused(lambda: make_graph(upper, greet, outputs={"shouted": "upper.result"}))
     """
     return (
         f"'{node_id}' can't follow '{before}' without edges: make_graph wires a node's one required input (it has {comma_separated(inputs)}) "
@@ -973,24 +998,60 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
 
 
 @PROBLEMS.problem()
-def ports_share_a_name(*loc: str | int, name: str, places: list[str]) -> str:
-    """``make_graph`` would name two graph inputs, or two graph outputs, alike.
+def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> str:
+    """``make_graph`` would make two inputs graph inputs of one name, though nothing says they take one value.
 
-    Given no ``inputs=``, ``make_graph`` makes each open input of a node no edge leads into a graph input of the
-    input's name; given no ``outputs=``, it makes each output of a node no edge leaves a graph output of the output's
-    name. Two of the same name are two different values, so name them: ``inputs={"name": "greet.name", "who":
-    "greet-2.name"}``, or ``outputs={...}`` the same way. One graph input may feed several inputs:
+    ``make_graph`` makes each required input that gets nothing (no edge, no constant) a graph input of the input's
+    name, and each key of ``defaults`` too. Two inputs of one name would then share the caller's one value, so it
+    asks: give them names with ``inputs={"name": "greet.name", "who": "greet-2.name"}``, or say they share one with
     ``inputs={"text": ["a.text", "b.text"]}``.
 
     Args:
-        loc: ``"inputs"`` or ``"outputs"``, and the name.
+        loc: ``"inputs"`` and the name.
         name: The name.
-        places: Where each is, ``node.input`` or ``node.output``.
+        inputs: The inputs, each ``node.input``.
 
     Example:
-        refused(lambda: make_graph(upper, upper, edges=[]))
+        refused(lambda: make_graph(upper, upper, edges=[], outputs={"a": "upper-1.result", "b": "upper-2.result"}))
     """
-    return f"Two graph ports would both be named '{name}' ({comma_separated(places)}); name them with make_graph's inputs= or outputs=."
+    return f"Two inputs would both be the graph input '{name}' ({comma_separated(inputs)}); name them, or join them, with make_graph's inputs=."
+
+
+@PROBLEMS.problem()
+def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -> str:
+    """``make_graph`` would make two outputs graph outputs of one name.
+
+    ``make_graph`` makes each output of a node no edge leaves a graph output of the output's name. Two of one name are
+    two values, so name them with ``outputs={"long": "a.result", "short": "b.result"}``.
+
+    Args:
+        loc: ``"outputs"`` and the name.
+        name: The name.
+        outputs: The outputs, each ``node.output``.
+
+    Example:
+        refused(lambda: make_graph(upper, words, edges=[], inputs={"a": "upper.text", "b": "words.text"}))
+    """
+    return f"Two outputs would both be the graph output '{name}' ({comma_separated(outputs)}); name them with make_graph's outputs=."
+
+
+@PROBLEMS.problem()
+def not_a_place(*loc: str | int, text: str) -> str:
+    """``make_graph`` is given a place in the graph that is not ``"node.name"``.
+
+    An edge's two ends, a key of ``constants`` or ``defaults``, and a place in ``inputs`` or ``outputs`` are each a
+    node's id and a name, joined by a dot; an edge's source may add a field of the record its output returns
+    (``"read.result.email"``).
+
+    Args:
+        loc: The argument and where in it: ``("edges", 1, 0)`` for the source of the second edge, ``("constants",
+            key)``.
+        text: The text given.
+
+    Example:
+        refused(lambda: make_graph(upper, constants={"upper": "a"}))
+    """
+    return f"{text!r} is not a place in the graph; write 'node.name' in make_graph's arguments."
 
 
 @PROBLEMS.problem()

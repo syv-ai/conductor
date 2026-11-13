@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "Address", "Ask", "Asked", "CallCount", "Choice", "Context", "DECLARATION_PROBLEMS", "Deprecation", "EndedEarly", "ExternalError", "FieldDescription", "FunctionDefinition", "FunctionNodeDescription", "Going", "Graph", "GraphDescription", "GraphInputDescription", "GraphRecord", "InputSource", "InvalidCallError", "NodeDeclarationError",
-        "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "NotCalled", "PROBLEMS", "Param", "Policy", "Problem", "ProblemCatalogue", "ProblemKind", "Progress", "RecordConstant", "RecordEdges", "RecordGraphInput", "RegistryDescription", "Run", "RunState", "RunStatus", "RunsOn",
-        "SKIPPED", "Series", "SubgraphDefinition", "SubgraphDescription", "Table", "TypeDescription", "Upgrade", "Waiting", "host_type", "make_graph", "node", "subgraph",
+        "Address", "Ask", "Asked", "CallCount", "Choice", "Context", "DECLARATION_PROBLEMS", "Deprecation", "EndedEarly", "ExternalError", "FieldDescription", "FunctionDefinition", "FunctionNodeDescription", "Going", "Graph", "GraphDescription", "GraphInputDescription", "GraphRecord", "InputEntry", "InputSource", "InvalidCallError", "NodeDeclarationError",
+        "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "NotCalled", "PROBLEMS", "Param", "Policy", "Problem", "ProblemCatalogue", "ProblemKind", "Progress", "RegistryDescription", "Run", "RunState", "RunStatus", "RunsOn",
+        "SKIPPED", "Series", "SubgraphDefinition", "SubgraphDescription", "Table", "TypeDescription", "Upgrade", "Waiting", "host_type", "make_graph", "node", "read_json", "subgraph",
     ],
     "conductor.widgets": [
         "DatePicker", "Dropdown", "FileUpload", "ListInput", "NumberInput", "Slider", "Switch",

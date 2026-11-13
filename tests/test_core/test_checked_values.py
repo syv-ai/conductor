@@ -24,11 +24,11 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeRecord,
     Param,
     Policy,
-    RecordEdges,
     Run,
     Series,
     Table,
@@ -64,7 +64,7 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
     definition = node("give", title="Give", description="For a test.")(give)
     (name,) = sink.inputs
     return Graph.compile(GraphRecord(
-        nodes={"a": NodeRecord(node="give"), "b": NodeRecord(node=sink.id, inputs={name: RecordEdges(sources=[Address("a", "result")])})},
+        nodes={"a": NodeRecord(node="give"), "b": NodeRecord(node=sink.id, inputs={name: InputEntry(sources=[Address("a", "result")])})},
         outputs={output: Address("b", output) for output in sink.outputs},
     ), registry_of(definition, sink)).run()
 

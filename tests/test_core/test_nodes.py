@@ -19,6 +19,7 @@ from conductor import (
     ExternalError,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
@@ -26,9 +27,6 @@ from conductor import (
     NodeRegistry,
     Param,
     Policy,
-    RecordConstant,
-    RecordEdges,
-    RecordGraphInput,
     Run,
     Series,
     Table,
@@ -57,9 +55,9 @@ def compiled_graph(*definitions, record=None, constants=None):
 def node_record(definition_id, *, version=1, constants=None, graph_inputs=(), sources=None):
     """One node of a graph record: ``constants`` by input, each of ``graph_inputs`` a graph input of its own name, and
     ``sources`` mapping an input to the ``(node, output)`` its edge comes from."""
-    inputs: dict[str, Any] = {name: RecordConstant(constant=value) for name, value in (constants or {}).items()}
-    inputs |= {name: RecordGraphInput(graph_input=name) for name in graph_inputs}
-    inputs |= {name: RecordEdges(sources=(Address(*source),)) for name, source in (sources or {}).items()}
+    inputs: dict[str, Any] = {name: InputEntry(constant=value) for name, value in (constants or {}).items()}
+    inputs |= {name: InputEntry(graph_input=name) for name in graph_inputs}
+    inputs |= {name: InputEntry(sources=(Address(*source),)) for name, source in (sources or {}).items()}
     return NodeRecord(node=definition_id, version=version, inputs=inputs)
 
 
@@ -150,7 +148,7 @@ def test_a_node_id_in_a_record_with_a_tilde_is_refused_at_the_record_door():
 
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {"a~b": {"node": "upper"}}}), registry)
-    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a~b", "[key]"), "value_error")]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a~b", "[key]"), "not_a_name")]
 
 
 def test_an_async_function_is_refused():
@@ -369,7 +367,8 @@ def test_a_series_that_may_be_none_takes_none_given_as_a_constant_or_left_out_bu
     def f(xs: Series[int] | None = None) -> str:
         return repr(xs)
 
-    graph = compiled_graph(f)
+    graph = Graph.compile(make_graph(f, defaults={"f.xs": None}), registry_of(f))
+    assert compiled_graph(f).run().results["f"]["result"] == "None"
     assert graph.run().results["f"]["result"] == "None"
     assert graph.run(xs=None).results["f"]["result"] == "None"
     assert compiled_graph(f, constants={"f.xs": None}).run().results["f"]["result"] == "None"
@@ -401,7 +400,7 @@ def test_none_on_an_input_that_takes_none_is_not_checked_against_its_limits():
     def f(x: Annotated[str | None, Param(max_length=2)] = "ab") -> str:
         return repr(x)
 
-    graph = compiled_graph(f)
+    graph = Graph.compile(make_graph(f, defaults={"f.x": "ab"}), registry_of(f))
     assert graph.run(x=None).results["f"]["result"] == "None"
     assert graph.run(x="ok").results["f"]["result"] == "'ok'"
 
@@ -1288,8 +1287,10 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
     registry.add(ask_model)
     fixed = Graph.compile(make_graph(ask_model, constants={"ask-model.model": "big"}), registry)
     assert list(fixed.inputs) == ["prompt"] and fixed.run(prompt="hi").outputs == {"result": "big:hi"}
-    open_to_caller = Graph.compile(make_graph(ask_model), registry)
+    open_to_caller = Graph.compile(make_graph(ask_model, defaults={"ask-model.model": "small"}), registry)
     assert list(open_to_caller.inputs) == ["prompt", "model"] and open_to_caller.run(prompt="hi").outputs == {"result": "small:hi"}
+    assert open_to_caller.run(prompt="hi", model="big").outputs == {"result": "big:hi"}
+    assert list(Graph.compile(make_graph(ask_model), registry).inputs) == ["prompt"]
 
 
 @pytest.mark.parametrize(
@@ -1404,7 +1405,7 @@ def test_a_default_with_no_json_form_is_refused_where_the_node_is_declared(defau
     assert raised.value.code == "default_invalid"
 
 
-def test_a_default_is_described_and_offered_by_a_compiled_graph_as_its_json():
+def test_a_default_is_described_as_its_json_and_a_graph_input_offers_the_records_default_as_its_json():
     class Row(TypedDict):
         n: int
 
@@ -1413,8 +1414,8 @@ def test_a_default_is_described_and_offered_by_a_compiled_graph_as_its_json():
         return len(rows)
 
     described = {field.name: field.default for field in t.describe().inputs}
-    offered = {name: given.field.default for name, given in Graph.compile(make_graph(t), registry_of(t)).inputs.items()}
+    record = make_graph(t, defaults={"t.rows": [{"n": 3}], "t.when": datetime.date(2026, 1, 3)})
+    offered = {name: given.field.default for name, given in Graph.compile(record, registry_of(t)).inputs.items()}
 
-    table = {"columns": [{"name": "n", "type": "int", "values": [1, 2]}]}
-    assert described == {"rows": table, "when": "2026-01-02"}
-    assert offered == {"rows": table, "when": "2026-01-02"}
+    assert described == {"rows": {"columns": [{"name": "n", "type": "int", "values": [1, 2]}]}, "when": "2026-01-02"}
+    assert offered == {"rows": {"columns": [{"name": "n", "type": "int", "values": [3]}]}, "when": "2026-01-03"}

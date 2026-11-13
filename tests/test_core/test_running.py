@@ -734,7 +734,7 @@ def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run
     def source(tag: int = 0) -> Series[Line]:
         return [Line(text=str(n)) for n in range(100)]
 
-    graph = Graph.compile(make_graph(source, echo), registry_of(source, echo))
+    graph = Graph.compile(make_graph(source, echo, defaults={"source.tag": 0}), registry_of(source, echo))
     prepared = graph.run(tag=0).with_inputs(tag=1)
 
     async def go() -> Any:

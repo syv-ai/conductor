@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import Graph, GraphRecord, InvalidCallError, NodeRegistry, Progress, Run
+from conductor import Graph, InvalidCallError, NodeRegistry, Progress, Run
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -160,12 +160,12 @@ class Worker(Generic[C]):
             raise NoSuchRunError
         return RunAsRead.of(row)
 
-    async def begin(self, graph: GraphRecord | str, inputs: Mapping[str, Any], who: C) -> str:
+    async def begin(self, graph: Any, inputs: Mapping[str, Any], who: C) -> str:
         """Start a run: store it and make its first resume call in the background.
 
         Args:
-            graph: The graph to run, or its record's JSON text.
-            inputs: Values for the graph's open inputs, by name.
+            graph: The graph record, as a ``GraphRecord`` or as the plain data a caller sent.
+            inputs: Values for the graph's inputs, by name.
             who: The caller who starts it, on whose nodes the graph is loaded.
 
         Returns:
@@ -178,7 +178,7 @@ class Worker(Generic[C]):
         run = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items))
         return await self._create(run.graph.record.model_dump_json(), who, run)
 
-    async def estimate(self, graph: GraphRecord | str, inputs: Mapping[str, Any], who: C) -> Progress:
+    async def estimate(self, graph: Any, inputs: Mapping[str, Any], who: C) -> Progress:
         """How many calls a run of ``graph`` on ``inputs`` will make, from one call of ``resume()`` that calls only
         the nodes that cost nothing; nothing is stored.
 
@@ -186,8 +186,8 @@ class Worker(Generic[C]):
         ``max_items``.
 
         Args:
-            graph: The graph to run, or its record's JSON text.
-            inputs: Values for the graph's open inputs, by name.
+            graph: The graph record, as a ``GraphRecord`` or as the plain data a caller sent.
+            inputs: Values for the graph's inputs, by name.
             who: The caller, on whose nodes the graph is loaded.
 
         Returns:

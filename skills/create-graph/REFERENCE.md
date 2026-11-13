@@ -5,7 +5,7 @@ One module, on three text nodes declared at the top. Events, errors and serving 
 ```python
 from typing import Annotated
 
-from conductor import Address, Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, RecordConstant, RecordEdges, Run, Series, node
+from conductor import Address, Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, InputEntry, Run, Series, node
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -22,7 +22,7 @@ def uppercase(text: str) -> str:
 
 
 # compiling never raises for a bad graph; key on each Problem's type
-broken = Graph.compile(GraphRecord(nodes={"loud": NodeRecord(node="text-uppercase", inputs={"text": RecordEdges(sources=(Address("ghost", "result"),))})}), registry)
+broken = Graph.compile(GraphRecord(nodes={"loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Address("ghost", "result"),))})}), registry)
 assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
 
 
@@ -33,8 +33,8 @@ def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]
 
 registry.add(approve)
 asking = Graph.compile(GraphRecord(nodes={
-    "drafts": NodeRecord(node="text-split", inputs={"text": RecordConstant(constant="first,second")}),
-    "approve": NodeRecord(node="approve", inputs={"proposal": RecordEdges(sources=(Address("drafts", "result"),))}),
+    "drafts": NodeRecord(node="text-split", inputs={"text": InputEntry(constant="first,second")}),
+    "approve": NodeRecord(node="approve", inputs={"proposal": InputEntry(sources=(Address("drafts", "result"),))}),
 }), registry)
 
 first = asking.run()

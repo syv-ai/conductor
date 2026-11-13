@@ -600,7 +600,7 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
         counted.append("called")
         return ",".join(rows["name"])
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "read-rows", "inputs": {"text": {"graph_input": "text"}}}, "t": {"node": "threshold", "inputs": {"min": {"graph_input": "min"}}}, "f": {"node": "older-than", "inputs": {"rows": {"sources": [{"node": "r", "output": "result"}]}, "min": {"sources": [{"node": "t", "output": "result"}]}}}, "n": {"node": "names", "inputs": {"rows": {"sources": [{"node": "f", "output": "result"}]}}}}, "outputs": {"result": {"node": "n", "output": "result"}}}), registry_of(read_rows, threshold, older_than, names))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "read-rows", "inputs": {"text": {"graph_input": "text"}}}, "t": {"node": "threshold", "inputs": {"min": {"graph_input": "min", "default": threshold_default}}}, "f": {"node": "older-than", "inputs": {"rows": {"sources": [{"node": "r", "output": "result"}]}, "min": {"sources": [{"node": "t", "output": "result"}]}}}, "n": {"node": "names", "inputs": {"rows": {"sources": [{"node": "f", "output": "result"}]}}}}, "outputs": {"result": {"node": "n", "output": "result"}}}), registry_of(read_rows, threshold, older_than, names))
     return graph, filtered, counted
 
 
@@ -711,7 +711,7 @@ def _csv_mails() -> tuple[Any, list[str]]:
         sent.append(email)
         return f"{body} {email}"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "read-people", "inputs": {"text": {"graph_input": "text"}}}, "p": {"node": "people", "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}}}, "b": {"node": "body", "inputs": {"body": {"graph_input": "body"}}}, "m": {"node": "send-body", "inputs": {"email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}, "body": {"sources": [{"node": "b", "output": "result"}]}}}}}), registry_of(read_people, people, body_text, send_body))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "read-people", "inputs": {"text": {"graph_input": "text"}}}, "p": {"node": "people", "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}}}, "b": {"node": "body", "inputs": {"body": {"graph_input": "body", "default": "hej"}}}, "m": {"node": "send-body", "inputs": {"email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}, "body": {"sources": [{"node": "b", "output": "result"}]}}}}}), registry_of(read_people, people, body_text, send_body))
     return graph, sent
 
 

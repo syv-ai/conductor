@@ -5,7 +5,6 @@ answered; the worker resumes the runs.
 """
 
 from collections.abc import AsyncIterable, Callable, Coroutine
-from json import JSONDecoder
 from operator import attrgetter
 from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
 
@@ -19,11 +18,12 @@ from conductor import (
     Progress,
     RegistryDescription,
     RunStatus,
+    read_json,
 )
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, StrictInt, TypeAdapter
+from pydantic import BaseModel, PlainValidator, StrictInt, TypeAdapter
 
 from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
@@ -35,6 +35,11 @@ C = TypeVar("C")
 X = TypeVar("X")
 
 
+#: A graph record as a caller sent it: read by conductor's record door when the graph is compiled, so every fault in
+#: it is refused in conductor's words; the schema says it is a ``GraphRecord``.
+GraphAsSent = Annotated[Any, PlainValidator(lambda sent: sent, json_schema_input_type=GraphRecord)]
+
+
 class StartRun(BaseModel):
     """The body of ``POST /runs``: a graph to run and the values it starts on.
 
@@ -44,7 +49,7 @@ class StartRun(BaseModel):
             ``graph.with_inputs`` checks them.
     """
 
-    graph: GraphRecord
+    graph: GraphAsSent
     inputs: dict[str, Any] = {}
 
 
@@ -167,30 +172,6 @@ class _RefusingRoute(APIRoute):
                 raise _refusal(409, error.problems) from None
 
         return refusing
-
-
-def _graph_text(body: bytes) -> str:
-    """The text of the ``graph`` member of a ``StartRun`` body, as the caller wrote it.
-
-    FastAPI has read the body into ``StartRun`` already, keeping the last of two equal keys. Conductor reads the
-    graph record from its own text, so a key written twice in it (two nodes with one id) is refused there.
-    """
-    text, decoder = body.decode(), JSONDecoder()
-    start = _past_space(text, text.index("{") + 1)
-    while True:
-        key, start = decoder.raw_decode(text, start)
-        start = _past_space(text, text.index(":", start) + 1)
-        _, end = decoder.raw_decode(text, start)
-        if key == "graph":
-            return text[start:end]
-        start = _past_space(text, text.index(",", end) + 1)
-
-
-def _past_space(text: str, index: int) -> int:
-    """The index of the first character at or after ``index`` that is not JSON's white space."""
-    while text[index] in " \t\n\r":
-        index += 1
-    return index
 
 
 def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
@@ -332,22 +313,24 @@ def run_router(
         return nodes_for(who).describe()
 
     @router.post("/compile")
-    async def compile_graph(graph: GraphRecord, request: Request, who: Annotated[C, Depends(caller)]) -> GraphDescription:
+    async def compile_graph(graph: Annotated[GraphAsSent, Body()], request: Request, who: Annotated[C, Depends(caller)]) -> GraphDescription:
         """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
         and every problem. Nothing is run or stored."""
-        return Graph.compile(await request.body(), nodes_for(who)).describe()
+        return Graph.compile(await request.body(), nodes_for(who)).describe()  # the record door reads the body's text
 
     @router.post("/runs", status_code=202)
     async def start_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Started:
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
-        return Started(id=await worker.begin(_graph_text(await request.body()), body.inputs, who))
+        sent = StartRun.model_validate(read_json(await request.body()))  # FastAPI's ``body`` would keep the last of two equal keys
+        return Started(id=await worker.begin(sent.graph, sent.inputs, who))
 
     @router.post("/estimate")
     async def estimate_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Progress:
         """How many calls a run of the graph on these inputs will make: the nodes whose ``Policy`` says
         ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
         call that costs something."""
-        return await worker.estimate(_graph_text(await request.body()), body.inputs, who)
+        sent = StartRun.model_validate(read_json(await request.body()))  # FastAPI's ``body`` would keep the last of two equal keys
+        return await worker.estimate(sent.graph, sent.inputs, who)
 
     if published is not None:
         @router.post("/graphs/{name}/runs", status_code=202)

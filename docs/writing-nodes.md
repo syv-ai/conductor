@@ -4,7 +4,7 @@ This page is for you if you write nodes that other people use in their graphs: a
 
 `make_graph(a, b)` writes a graph record from Python. Each node goes under its own id, `upper-1` and `upper-2` when one is used twice. With no `edges`, the nodes form a chain: each takes its one required input from the one output of the node before it. `edges=[("a.result", "b.text")]` names the edges instead; an output of one value is named `result`. `constants={"a.text": "hi"}` gives an input a constant, a value it has on every call of every run, and `defaults=` makes one a graph input with a value the caller may change. Every key is a place, `"node.input"`.
 
-A graph declares what it takes and returns, as a function declares its parameters and its return value, and `make_graph` declares it for a plain graph: its inputs are the open inputs of the nodes no edge leads into, each named by its input, and its outputs are the outputs of the nodes no edge leaves, each named by its output. Where two would share a name, name them with `inputs={"name": "node.input"}` and `outputs={"name": "node.output"}`. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, an edge or a key that is not `"node.name"`, two ports of one name (`ports_share_a_name`), a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a required input that gets nothing (`input_has_no_value`), an edge between types that don't fit.
+A graph declares what it takes and returns, as a function declares its parameters and its return value, and `make_graph` declares it: each required input that gets nothing (no edge, no constant), on any node, is a graph input named by the input, and each output of a node no edge leaves is a graph output named by the output. An optional input that gets nothing takes its own default. `inputs={"name": "node.input"}` and `outputs={"name": "node.output"}` name some of them otherwise, on top of that, as for two that would share a name. `make_graph` only writes the record. It raises for what it can't write: a value for a node it wasn't given, a value with no JSON form, a place that is not `"node.name"` (`not_a_place`), two graph inputs or two graph outputs of one name (`graph_inputs_share_a_name`, `graph_outputs_share_a_name`), a chain it can't draw. Everything else is found when the record is compiled, in `Graph.compile(record, registry).problems`: an input a node doesn't have, a value of the wrong type, a required input that gets nothing (`input_has_no_value`), an edge between types that don't fit.
 
 The rules in full are in the reference: `python -m conductor.about`.
 
@@ -659,7 +659,7 @@ saved = make_graph(greet_v1, constants={"greet.name": "Ida"})
 print(Graph.compile(saved, registry).run().outputs)  # {'result': 'Hello Ida'}: it still runs version 1
 
 moved = registry.upgrade(saved, "greet")
-print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person': RecordConstant(constant='Ida')}
+print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person': InputEntry(constant='Ida')}
 ```
 
 Compiling never upgrades. A host calls `registry.upgrade` and shows the author the result. `@node(..., deprecation=Deprecation(header=..., description=..., alternative=...))` tells an editor a version is going away, and which node id to use instead.

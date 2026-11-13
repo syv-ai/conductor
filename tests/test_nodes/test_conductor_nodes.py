@@ -57,7 +57,7 @@ def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input
 
 
 def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is_skipped() -> None:
-    graph = Graph.compile(make_graph(control.decision, text.uppercase, edges=[("control-decide.if_true", "text-uppercase.text")]), conductor_nodes.registry)
+    graph = Graph.compile(make_graph(control.decision, text.uppercase, edges=[("control-decide.if_true", "text-uppercase.text")], defaults={"control-decide.when": True}), conductor_nodes.registry)
 
     assert graph.exclusive_groups == {"control-decide": {"when": ["if_true", "if_false"]}}
     chosen = graph.run(value="hi", when=True)
@@ -93,7 +93,7 @@ def test_a_replacement_that_names_a_group_the_pattern_lacks_is_its_own_error_not
 
 
 def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> None:
-    graph = Graph.compile(make_graph(text.split), conductor_nodes.registry)
+    graph = Graph.compile(make_graph(text.split, defaults={"text-split.separator": "\n"}), conductor_nodes.registry)
 
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text="a,b", separator="")

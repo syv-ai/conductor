@@ -47,7 +47,7 @@ print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
 print(run.outputs)                     # {'result': 'A!+B!+C!'}
 ```
 
-`lines` returns three texts. `shout` takes one, so it was called three times. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python, and declares what the graph takes and returns: `text`, the input of the first node, and `result`, the output of the last. An editor writes the same thing as JSON, as the rest of this page shows.
+`lines` returns three texts. `shout` takes one, so it was called three times. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python, and declares what the graph takes and returns: `text`, the one required input nothing in the graph gives a value, and `result`, the output of the node no edge leaves. An editor writes the same thing as JSON, as the rest of this page shows.
 
 ## One or many
 

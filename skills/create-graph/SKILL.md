@@ -8,7 +8,7 @@ description: Writes a conductor graph record (GraphRecord, make_graph), compiles
 A graph is data, a `GraphRecord`: its nodes by id, each naming the node definition it uses and what each of its inputs gets, and the graph's outputs by name. `Graph.compile` compiles it against a registry into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Address, Graph, GraphRecord, NodeRecord, NodeRegistry, RecordConstant, RecordEdges, RecordGraphInput, Series
+from conductor import Address, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, Series
 
 registry = NodeRegistry(category="text")
 
@@ -30,11 +30,11 @@ def join(parts: Series[str], separator: str = "") -> str:
 
 record = GraphRecord(
     nodes={
-        "words": NodeRecord(node="text-split", inputs={"text": RecordGraphInput(graph_input="text")}),
-        "loud": NodeRecord(node="text-uppercase", inputs={"text": RecordEdges(sources=(Address("words", "result"),))}),
+        "words": NodeRecord(node="text-split", inputs={"text": InputEntry(graph_input="text")}),
+        "loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Address("words", "result"),))}),
         "joined": NodeRecord(node="text-join", inputs={
-            "parts": RecordEdges(sources=(Address("loud", "result"),)),
-            "separator": RecordConstant(constant=" + "),
+            "parts": InputEntry(sources=(Address("loud", "result"),)),
+            "separator": InputEntry(constant=" + "),
         }),
     },
     outputs={"result": Address("joined", "result")},
@@ -52,7 +52,7 @@ assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
 assert graph.runs_on["joined"].mode == "once"         # parts is Series[str]: one call
 ```
 
-The same record as JSON is `{"nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}}, "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}}, ...}, "outputs": {"result": {"node": "joined", "output": "result"}}}`, what an editor writes and a host stores. A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph input is there only where an input's entry names it, and a graph output only in `outputs`. From Python, `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes a record too: with no `edges` the nodes form a chain, each node's one required input with no constant wired to the one output of the node before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice. It declares the ports of a plain graph: the open inputs of the nodes no edge leads into, named by the input, and the outputs of the nodes no edge leaves, named by the output; where two would share a name it raises `ports_share_a_name`, and `inputs={"text": ["a.text", "b.text"]}` or `outputs={"result": "join.result"}` names them.
+The same record as JSON is `{"nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}}, "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}}, ...}, "outputs": {"result": {"node": "joined", "output": "result"}}}`, what an editor writes and a host stores. A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph input is there only where an input's entry names it, and a graph output only in `outputs`. From Python, `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes a record too: with no `edges` the nodes form a chain, each node's one required input with no constant wired to the one output of the node before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice. It declares the graph's inputs and outputs: each required input that gets nothing (no edge, no constant), on any node, named by the input, and each output of a node no edge leaves, named by the output; an optional input that gets nothing takes its own default. `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both) and `outputs={"long": "join.result"}` name some of them otherwise, on top of that. Two that would share a name raise `graph_inputs_share_a_name` or `graph_outputs_share_a_name`; a text that is not `"node.name"` raises `not_a_place`.
 
 Each input the record lists gets exactly one of a `constant` (the same on every call), a `graph_input` (the caller's value, with an optional `default`) or `sources` (the edges into it); an input left out takes its declared default, and a required one left out is `input_has_no_value`. The types decide one or many: a `Series[X]` output wired to an input of one `X` runs that node once per item, and everything after it; a `Series` or `Table` input collects them again; an outer value, from a node outside the loop, is the same on every call. A list or a table is one value, so a list given as a graph input or a constant at an input of one value is refused (`invalid_input`, `invalid_value`): a node that returns a `Series`, such as `series-split` in `syv-conductor-nodes`, makes the items. A source may name one field of a record, `{"node": "series-split", "output": "result", "field": "email"}` (`"series-split.result.email"` in `make_graph`). Several sources of one input must be branches of one decision (`several_edges_into_one_input`). A single output is named `result`. A node id, an input, an output and a graph port are names: not empty, with no `.`, `/`, `@` or `~` (`invalid_record`).
 

@@ -1,12 +1,13 @@
-"""``NodeRecord``: one node of a graph record, ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``, and what
-each of its inputs gets: ``RecordConstant``, ``RecordGraphInput`` or ``RecordEdges``."""
+"""``NodeRecord``: one node of a graph record, ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``, and
+``InputEntry``, what each of its inputs gets."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
-from pydantic import MISSING, AfterValidator, ConfigDict, Discriminator, Field, JsonValue, Tag
+from pydantic import MISSING, AfterValidator, ConfigDict, Field, JsonValue, model_validator
+from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import Address, ConductorModel, Name
 
@@ -19,69 +20,54 @@ def _empty(value: Mapping[str, Any]) -> bool:
 JSON_ONLY = ConfigDict(allow_inf_nan=False)
 
 
-class RecordConstant(ConductorModel):
-    """An input with the same value on every call in every run, ``{"constant": "?"}``: no caller can change it."""
-
-    model_config = ConductorModel.model_config | JSON_ONLY
-
-    constant: JsonValue
-
-
-class RecordGraphInput(ConductorModel):
-    """An input whose value the caller gives when a run starts, under the name of a graph input:
-    ``{"graph_input": "text"}``, or with the value used when the caller gives none, ``{"graph_input": "mark",
-    "default": "!"}``. Several inputs may name one graph input, and each then gets the caller's one value.
-
-    Attributes:
-        graph_input: The graph input's name: the keyword a caller gives the value by, ``graph.run(text="a b")``.
-        default: The value when the caller gives none; left out, the input's own default, and the caller must
-            give a value when the input has none.
-    """
-
-    model_config = ConductorModel.model_config | JSON_ONLY
-
-    graph_input: Name
-    default: JsonValue | MISSING = MISSING
-
-
 def _sorted_once(sources: tuple[Address, ...]) -> tuple[Address, ...]:
     """Returns ``sources`` sorted, so two records that list one input's sources in another order are equal and
     save alike.
 
     Raises:
-        ValueError: A source is listed twice.
+        PydanticCustomError: There is no source (``no_sources``), or one is listed twice (``repeated_source``).
     """
+    if not sources:
+        raise PydanticCustomError("no_sources", "an input's sources list at least one output")
     if len(set(sources)) != len(sources):
         twice = next(str(source) for i, source in enumerate(sources) if source in sources[:i])
-        raise ValueError(f"{twice} is listed twice")
+        raise PydanticCustomError("repeated_source", "{source} is listed twice", {"source": twice})
     return tuple(sorted(sources, key=lambda source: (source.node, source.output, source.field or "")))
 
 
-class RecordEdges(ConductorModel):
-    """The edges into an input: the output each comes from, ``{"sources": [{"node": "lines", "output": "result"}]}``.
+class InputEntry(ConductorModel):
+    """What one input of a node gets in a graph record: exactly one of a constant, a graph input or sources.
 
-    Several edges into one input are alternatives, from opposite branches of one decision, so nothing depends on
-    their order: they are kept sorted.
+    - ``{"constant": "?"}``: the same value on every call in every run; no caller can change it.
+    - ``{"graph_input": "text"}``: the value the caller gives when a run starts, ``graph.run(text="a b")``. With
+      ``"default"``, the value when the caller gives none; without, the caller must give one. Several inputs may name
+      one graph input, and each then gets the caller's one value.
+    - ``{"sources": [{"node": "lines", "output": "result"}]}``: the outputs the edges into the input come from.
+      Several are alternatives, from opposite branches of one decision, so they are kept sorted.
+
+    Attributes:
+        constant: The constant.
+        graph_input: The graph input's name.
+        default: The graph input's default.
+        sources: The outputs the edges come from.
     """
 
-    sources: Annotated[tuple[Address, ...], Field(min_length=1), AfterValidator(_sorted_once)]
+    model_config = ConductorModel.model_config | JSON_ONLY
 
+    constant: JsonValue | MISSING = MISSING
+    graph_input: Name | MISSING = MISSING
+    default: JsonValue | MISSING = MISSING
+    sources: Annotated[tuple[Address, ...], AfterValidator(_sorted_once)] | MISSING = MISSING
 
-def _entry_kind(entry: Any) -> str | None:
-    """The kind of an input's entry, by the one key it has of ``"constant"``, ``"graph_input"`` and ``"sources"``: read
-    from the JSON object, or from the class of an entry built in Python. ``None`` when the object has none of them,
-    or more than one."""
-    match entry:
-        case Mapping():
-            keys = entry.keys() & {"constant", "graph_input", "sources"}
-            return next(iter(keys)) if len(keys) == 1 else None
-        case RecordConstant():
-            return "constant"
-        case RecordGraphInput():
-            return "graph_input"
-        case RecordEdges():
-            return "sources"
-    return None
+    @model_validator(mode="after")
+    def _one_kind(self) -> Self:
+        """Refuses an entry with more or less than one of a constant, a graph input and sources
+        (``one_of_constant_graph_input_sources``), or a default without a graph input (``default_without_graph_input``)."""
+        if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
+            raise PydanticCustomError("one_of_constant_graph_input_sources", "an input gets exactly one of a constant, a graph input or sources")
+        if self.default is not MISSING and self.graph_input is MISSING:
+            raise PydanticCustomError("default_without_graph_input", "a default is the default of a graph input; give the input a graph_input")
+        return self
 
 
 class NodeRecord(ConductorModel):
@@ -97,17 +83,7 @@ class NodeRecord(ConductorModel):
     node: str
     #: Left out of the saved record when it is 1, as is each field below when empty.
     version: int = Field(default=1, exclude_if=lambda version: version == 1)
-    #: What each input gets, by the input's name: exactly one of a constant, a graph input or the edges into it.
-    inputs: Mapping[
-        Name,
-        Annotated[
-            Annotated[RecordConstant, Tag("constant")] | Annotated[RecordGraphInput, Tag("graph_input")] | Annotated[RecordEdges, Tag("sources")],
-            Discriminator(
-                _entry_kind,
-                custom_error_type="one_of_constant_graph_input_sources",
-                custom_error_message="an input gets exactly one of a constant, a graph input or sources",
-            ),
-        ],
-    ] = Field(default_factory=dict, exclude_if=_empty)
+    #: What each input gets, by the input's name.
+    inputs: Mapping[Name, InputEntry] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own: position, size, titles a person edited. Stored and never read here.
     display: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)

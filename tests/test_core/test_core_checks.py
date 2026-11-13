@@ -18,13 +18,13 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeDeclarationError,
     NodeRegistry,
     NotCalled,
     Param,
     Policy,
-    RecordEdges,
     Run,
     Series,
     Table,
@@ -222,7 +222,7 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
         return long or short
 
     reg = registry_of(split, route, upper, join, pick, mail)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep"}}}, "r": {"node": "route", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "L": {"node": "upper", "inputs": {"text": {"sources": [{"node": "r", "output": "long"}]}}}, "J": {"node": "join", "inputs": {"texts": {"sources": [{"node": "L", "output": "result"}]}}}, "both": {"node": "join", "inputs": {"texts": {"sources": [{"node": "L", "output": "result"}, {"node": "r", "output": "short"}]}}}}, "outputs": {"J_result": {"node": "J", "output": "result"}, "both_result": {"node": "both", "output": "result"}}}), reg)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep", "default": ","}}}, "r": {"node": "route", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "L": {"node": "upper", "inputs": {"text": {"sources": [{"node": "r", "output": "long"}]}}}, "J": {"node": "join", "inputs": {"texts": {"sources": [{"node": "L", "output": "result"}]}}}, "both": {"node": "join", "inputs": {"texts": {"sources": [{"node": "L", "output": "result"}, {"node": "r", "output": "short"}]}}}}, "outputs": {"J_result": {"node": "J", "output": "result"}, "both_result": {"node": "both", "output": "result"}}}), reg)
     run = graph.run(text="abcd,ab,xyzzy")
     assert run.results["L"]["result"] == ["ABCD", None, "XYZZY"]
     assert run.results["J"]["result"] == "ABCD+XYZZY"
@@ -242,7 +242,7 @@ def test_one_value_is_collected_as_a_series_of_one_and_a_list_given_for_one_valu
 
 
 def test_max_items():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep"}}}, "m": {"node": "mail", "inputs": {"email": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep", "default": ","}}}, "m": {"node": "mail", "inputs": {"email": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry)
     (run, called) = calls(lambda: graph.run(text=",".join(f"x{i}" for i in range(50)), max_items=10))
     assert run.status == "stopped" and run.state.cause.type == "item_limit" and called == []
     assert run.state.cause.ctx == {"series": "s.result", "items": 50, "max_items": 10}
@@ -289,7 +289,7 @@ def test_upgrade_renames():
     stored = GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "g": {"node": "greet", "inputs": {"name": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "g", "output": "result"}}})
     assert Graph.compile(stored, reg).run(text="ida").outputs == {"result": "hello IDA"}
     moved = reg.upgrade(stored, "g")
-    assert moved.nodes["g"].inputs == {"who": RecordEdges(sources=(Address("u", "result"),))}
+    assert moved.nodes["g"].inputs == {"who": InputEntry(sources=(Address("u", "result"),))}
     assert Graph.compile(moved, reg).run(text="ida").outputs == {"result": "hello IDA!"}
 
 
@@ -312,7 +312,7 @@ def test_ask_forms_and_several():
         raise Ask(f"Keep {name}?")
 
     reg = registry_of(split, review, tags, pick, join)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep"}}}, "r": {"node": "review", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "t": {"node": "tags", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "p": {"node": "pick", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "j": {"node": "join", "inputs": {"texts": {"sources": [{"node": "t", "output": "result"}]}}}}, "outputs": {"p_result": {"node": "p", "output": "result"}, "approved": {"node": "r", "output": "approved"}, "note": {"node": "r", "output": "note"}, "j_result": {"node": "j", "output": "result"}}}), reg)
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep", "default": ","}}}, "r": {"node": "review", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "t": {"node": "tags", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "p": {"node": "pick", "inputs": {"name": {"sources": [{"node": "s", "output": "result"}]}}}, "j": {"node": "join", "inputs": {"texts": {"sources": [{"node": "t", "output": "result"}]}}}}, "outputs": {"p_result": {"node": "p", "output": "result"}, "approved": {"node": "r", "output": "approved"}, "note": {"node": "r", "output": "note"}, "j_result": {"node": "j", "output": "result"}}}), reg)
     run = graph.run(text="Ida,Bo")
     by = {place(w): w for w in run.waiting}
     approved, note = by["r@0"].questions
@@ -354,7 +354,7 @@ def test_concurrency():
         t.sleep(0.05)
         return text
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep"}}}, "w": {"node": "slow", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "w", "output": "result"}}}), registry_of(split, slow))
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}, "sep": {"graph_input": "sep", "default": ","}}}, "w": {"node": "slow", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "w", "output": "result"}}}), registry_of(split, slow))
     start = t.monotonic()
     run = graph.run(text=",".join("abcdefgh"))
     assert t.monotonic() - start < 0.2 and len(seen) > 1 and run.results["w"]["result"] == list("abcdefgh")

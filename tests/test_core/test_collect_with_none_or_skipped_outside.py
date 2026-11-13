@@ -169,7 +169,7 @@ REGISTRY.subgraph("pair-then-items-then-up", title="Pair then items then up", de
 def ran(nodes: dict[str, str], edges: list[tuple[str, str]], inputs: Mapping[str, str | Sequence[str]] | None = None, outputs: Mapping[str, str] | None = None, **values: str) -> Any:
     """A complete run, given ``values``, of ``make_graph`` of ``nodes`` (registry id by node id) joined by exactly
     ``edges``, with these graph ``inputs`` and ``outputs``."""
-    record = make_graph(*((node_id, REGISTRY[registry_id]) for node_id, registry_id in nodes.items()), edges=edges, inputs=inputs, outputs=outputs)
+    record = make_graph(*((node_id, REGISTRY[registry_id]) for node_id, registry_id in nodes.items()), edges=edges, inputs=inputs or {}, outputs=outputs or {})
     graph = Graph.compile(record, REGISTRY)
     assert not graph.problems, graph.problems
     run = graph.run(**values)

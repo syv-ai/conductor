@@ -80,7 +80,7 @@ REGISTRY.subgraph("wrapped", title="Wrapped", description="A subgraph whose one 
 
 def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: str) -> Any:
     """The ``result`` of the node ``node_id`` after a run of the graph of ``nodes`` and ``edges`` on ``text``."""
-    graph = Graph.compile(make_graph(*nodes, edges=edges, outputs={"result": f"{node_id}.result"}), REGISTRY)
+    graph = Graph.compile(make_graph(*nodes, edges=edges, outputs={"shown": f"{node_id}.result"}), REGISTRY)
     assert not graph.problems, graph.problems
     run = graph.run(text=text)
     assert run.status == "complete"

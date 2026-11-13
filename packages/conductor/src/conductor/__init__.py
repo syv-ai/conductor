@@ -25,7 +25,7 @@ from conductor._internal.compiled import (
 )
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
-from conductor._internal.graph import Graph, make_graph
+from conductor._internal.graph import Graph, make_graph, read_json
 from conductor._internal.node import (
     Deprecation,
     FunctionDefinition,
@@ -50,13 +50,7 @@ from conductor._internal.problem import (
     ProblemCatalogue,
     ProblemKind,
 )
-from conductor._internal.record import (
-    GraphRecord,
-    NodeRecord,
-    RecordConstant,
-    RecordEdges,
-    RecordGraphInput,
-)
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import (
     CallCount,
@@ -101,12 +95,11 @@ __all__ = [
     # A graph
     "GraphRecord",
     "NodeRecord",
-    "RecordConstant",
-    "RecordGraphInput",
-    "RecordEdges",
+    "InputEntry",
     "Address",
     "make_graph",
     "Graph",
+    "read_json",
     # A run
     "Run",
     "Waiting",

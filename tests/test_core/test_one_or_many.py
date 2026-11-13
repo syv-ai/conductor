@@ -101,8 +101,8 @@ def record_of(
         *((n[0], reg[n[1]]) for n in nodes),
         edges=list(edges),
         constants={f"{n[0]}.{name}": value for n in nodes for name, value in (n[2] if len(n) == 3 else {}).items()},
-        inputs=inputs,
-        outputs=outputs,
+        inputs=inputs or {},
+        outputs=outputs or {},
     )
 
 

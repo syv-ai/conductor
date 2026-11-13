@@ -21,12 +21,17 @@ What changes in how you work, before the name-by-name tables:
   may name one; a graph output is named in `outputs`. A subgraph's inputs and outputs are those names, so an edge
   reads `loud.result`, never a node inside. The record keeps no order of its nodes: where order matters, nodes go
   by id. A key written twice in the JSON (two nodes with one id), a name with `.`, `/`, `@` or `~`, a source listed
-  twice and an input given two kinds are refused at the door (`invalid_record`). `graph.inputs`, `run.inputs`,
-  `graph.outputs` and `run.outputs` are keyed by the declared names. `make_graph` declares the ports of a plain
-  graph itself and takes `inputs=` and `outputs=` where two would share a name (`ports_share_a_name`); a node given
-  as `(id, definition)` gets that id. New public
-  names: `RecordConstant`, `RecordGraphInput`, `RecordEdges`, `Address`. New codes: `input_has_no_value`,
-  `graph_input_used_two_ways`, `ports_share_a_name`.
+  twice, an empty list of sources, an input given no kind or two, a `default` without a `graph_input` and a field on
+  a graph output are refused at the door (`invalid_record`, with the fault in `ctx.error`). A graph input's default
+  is the record's: an entry with no `default` is required. `graph.inputs`, `run.inputs`, `graph.outputs` and
+  `run.outputs` are keyed by the declared names. `make_graph` declares the graph's inputs and outputs itself: each
+  required input that gets nothing, on any node, and each key of `defaults` is a graph input of the input's name,
+  and each output of a node no edge leaves a graph output of the output's name; `inputs=` and `outputs=` name some
+  of them otherwise, on top of that, and two of one name are refused (`graph_inputs_share_a_name`,
+  `graph_outputs_share_a_name`). A node given as `(id, definition)` gets that id. `Graph.compile` takes a
+  `GraphRecord`, its JSON text or that JSON as data, and `read_json(text)` reads JSON text with every key seen. New
+  public names: `InputEntry`, `Address`, `read_json`. New codes: `input_has_no_value`, `graph_input_used_two_ways`,
+  `graph_output_not_found`, `graph_inputs_share_a_name`, `graph_outputs_share_a_name`, `not_a_place`.
 - **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
   without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
   pause. A parameter can be the question instead: `ok: Annotated[bool, Asked(approval)]`, filled by a
@@ -128,7 +133,8 @@ What changes in how you work, before the name-by-name tables:
   (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, constants=, defaults=, inputs=, outputs=)`
   writes a record from Python and compiles nothing: it raises one error listing what it can't write
   (a value for a node it wasn't given, a value with no JSON form, a place that is not `node.name`
-  (`invalid_record`), two graph ports of one name (`ports_share_a_name`), a chain it can't draw), and an input a
+  (`not_a_place`), two graph inputs or outputs of one name (`graph_inputs_share_a_name`,
+  `graph_outputs_share_a_name`), what the record refuses (`invalid_record`), a chain it can't draw), and an input a
   node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
   `Graph.compile(record, registry).problems`. A record's constants, defaults and
   `display` are JSON values; `make_graph` writes each constant and default as its JSON, a float that isn't

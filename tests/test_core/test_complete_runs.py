@@ -7,7 +7,9 @@ import dataclasses
 import threading
 import time
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Annotated, Any, NamedTuple
 
 import pytest
@@ -98,7 +100,7 @@ class Case(NamedTuple):
     nodes: dict[str, str]
     edges: list[tuple[str, str]]
     text: str
-    inputs: dict[str, list[str]] | None = None
+    inputs: Mapping[str, list[str]] = MappingProxyType({})
 
 
 #: Each graph by what it is.
@@ -158,13 +160,13 @@ def _run(name: str, threaded: frozenset[str]) -> Any:
     return _ran(case.nodes, case.edges, case.text, threaded, case.inputs)
 
 
-def _record(nodes: dict[str, str], edges: list[tuple[str, str]], registry: NodeRegistry, inputs: dict[str, list[str]] | None = None) -> GraphRecord:
-    """``make_graph`` of ``nodes`` (each a definition id in ``registry``, by node id) and ``edges``, with no graph
-    outputs, every node's result read from the run's results."""
-    return make_graph(*((node_id, registry[name]) for node_id, name in nodes.items()), edges=edges, inputs=inputs, outputs={})
+def _record(nodes: dict[str, str], edges: list[tuple[str, str]], registry: NodeRegistry, inputs: Mapping[str, list[str]] = MappingProxyType({})) -> GraphRecord:
+    """``make_graph`` of ``nodes`` (each a definition id in ``registry``, by node id) and ``edges``; every node's
+    result is read from the run's results."""
+    return make_graph(*((node_id, registry[name]) for node_id, name in nodes.items()), edges=edges, inputs=inputs)
 
 
-def _ran(nodes: dict[str, str], edges: list[tuple[str, str]], text: str, threaded: frozenset[str], inputs: dict[str, list[str]] | None = None) -> Any:
+def _ran(nodes: dict[str, str], edges: list[tuple[str, str]], text: str, threaded: frozenset[str], inputs: Mapping[str, list[str]] = MappingProxyType({})) -> Any:
     registry = _registry(threaded)
     graph = Graph.compile(_record(nodes, edges, registry, inputs), registry)
     assert not graph.problems, graph.problems

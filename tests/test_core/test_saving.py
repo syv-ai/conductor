@@ -26,10 +26,10 @@ from conductor import (
     Ask,
     Graph,
     GraphRecord,
+    InputEntry,
     InvalidCallError,
     NodeRecord,
     NotCalled,
-    RecordGraphInput,
     Series,
     Table,
     host_type,
@@ -578,7 +578,7 @@ def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_displa
         return text.upper()
 
     def with_default(default: str, **display: Any) -> GraphRecord:
-        node_record = NodeRecord(node="shout", inputs={"text": RecordGraphInput(graph_input="text", default=default)}, display=display)
+        node_record = NodeRecord(node="shout", inputs={"text": InputEntry(graph_input="text", default=default)}, display=display)
         return GraphRecord(nodes={"s": node_record}, outputs={"result": Address("s", "result")})
 
     record = with_default("a")

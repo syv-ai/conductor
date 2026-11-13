@@ -257,7 +257,10 @@ def side_by_side(*nodes: tuple[str, str]) -> dict[str, Any]:
 #: Each subgraph's graph record, by the node definition id it is registered under.
 INNER = {
     "shout-inner": chain(("up", "upper"), ("ex", "exclaim")),
-    "greet-inner": chain(("g", "greet"), inputs=("text", "greeting")),
+    "greet-inner": {
+        "nodes": {"g": {"node": "greet", "inputs": {"text": {"graph_input": "text"}, "greeting": {"graph_input": "greeting", "default": "hello"}}}},
+        "outputs": {"result": {"node": "g", "output": "result"}},
+    },
     "asking-inner": chain(("up", "upper"), ("q", "ask")),
     "fetch-inner": chain(("f", "fetch"), ("up", "upper")),
     "flaky-inner": chain(("f", "flaky")),
@@ -320,7 +323,7 @@ def compile_graph(
     exactly ``edges``, with these ``constants``, ``defaults``, graph ``inputs`` and ``outputs``."""
     record = make_graph(
         *((node_id, REGISTRY[definition_id]) for node_id, definition_id in nodes.items()),
-        edges=list(edges), constants=constants or {}, defaults=defaults or {}, inputs=inputs, outputs=outputs,
+        edges=list(edges), constants=constants or {}, defaults=defaults or {}, inputs=inputs or {}, outputs=outputs or {},
     )
     return Graph.compile(record, REGISTRY)
 
@@ -388,8 +391,15 @@ def test_an_edge_reads_a_subgraph_output_by_its_declared_name():
 
 
 def test_an_unwired_required_input_of_a_subgraph_node_is_a_problem_as_on_any_node():
-    graph = compile_graph({"w": "words", "e": "greet-inner", "x": "shout-inner"}, [("w.result", "e.greeting")], inputs={"text": ["w.text", "x.text"]}, outputs={"e": "e.result", "x": "x.result"})
-    assert problems(graph) == [("input_has_no_value", ("e", "text"))]
+    record = {  # written out: make_graph would make the open e.text a graph input
+        "nodes": {
+            "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+            "e": {"node": "greet-inner", "inputs": {"greeting": _sources("w", "result")}},
+            "x": {"node": "shout-inner", "inputs": {"text": {"graph_input": "text"}}},
+        },
+        "outputs": {"e": {"node": "e", "output": "result"}, "x": {"node": "x", "output": "result"}},
+    }
+    assert problems(Graph.compile(record, REGISTRY)) == [("input_has_no_value", ("e", "text"))]
 
 
 def test_an_inner_input_a_hook_reads_is_set_inside_and_not_offered():
@@ -497,7 +507,7 @@ def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node(
     assert first.inputs["greeting"].field.default == "hi"
     assert first.run(text="ab").outputs == {"result": "hi ab"}  # the subgraph node's default, offered to the caller
     assert first.run(text="ab", greeting="yo").outputs == {"result": "yo ab"}
-    assert inside_a_loop("greet-inner").run(text="ab").results["e"]["result"] == ["hello ab"]  # the inner node's own default
+    assert inside_a_loop("greet-inner").run(text="ab").results["e"]["result"] == ["hello ab"]  # the default greet-inner's record gives greeting
     wired = compile_graph({"w": "words", "g": "upper", "e": "greet-inner"}, [("w.result", "e.text"), ("w.result", "g.text"), ("g.result", "e.greeting")])
     assert wired.run(text="ab cd").results["e"]["result"] == ["AB ab", "CD cd"]
 

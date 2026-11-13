@@ -1,8 +1,8 @@
-"""The constants door: a constant or default written in a graph record, read by its input's type when the graph is
-compiled; and a default a node declares, read again by the type an edge binds its type variable to.
+"""The constants door: a constant or a graph input's default written in a graph record, read by its input's type
+when the graph is compiled; and a default a node declares, read again by the type an edge binds its type variable to.
 
-Example: ``shout(line: str, mark: str = "!")`` with ``{"id": "shout", "node": "shout", "constants": {"mark": "?"}}``
-gets ``"?"`` on every call. ``{"constants": {"mark": 3}}`` is refused with ``invalid_value`` at ``("shout", "mark")``,
+Example: ``shout(line: str, mark: str = "!")`` with ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}`` gets
+``"?"`` on every call. ``{"mark": {"constant": 3}}`` is refused with ``invalid_value`` at ``("shout", "mark")``,
 which says what the type refused and quotes nothing of the value. A record holds JSON, so a value is read as its
 JSON reads: ``"2026-01-02"`` is a ``date`` for an input that takes one.
 """
@@ -24,7 +24,7 @@ from .rules import validator_of
 
 
 def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
-    """Returns ``value``, the constant or default the graph record gives the input ``field`` of the node ``node_id``,
+    """Returns ``value``, the constant or graph input's default the graph record gives the input ``field`` of the node ``node_id``,
     read by the input's type.
 
     Raises:

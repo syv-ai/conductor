@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Annotated
 
 from pydantic import AfterValidator
+from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import Address, ConductorModel, Name
 
@@ -17,10 +18,10 @@ def _whole_output(address: Address) -> Address:
     """Returns ``address`` when it names a whole output.
 
     Raises:
-        ValueError: It names one field of an output: a graph output is a whole output.
+        PydanticCustomError: It names one field of an output (``output_has_field``): a graph output is a whole output.
     """
     if address.field is not None:
-        raise ValueError("a graph output is a whole output; give a node the field through an edge")
+        raise PydanticCustomError("output_has_field", "a graph output is a whole output; give a node the field through an edge")
     return address
 
 
@@ -28,7 +29,7 @@ class GraphRecord(ConductorModel):
     """A graph as a host stores it: its nodes by id, each with what its inputs get, and the graph's outputs.
 
     A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph
-    input is an input of a node whose entry names it (``RecordGraphInput``), and a graph output is an output of a
+    input is an input of a node whose entry names it (``InputEntry(graph_input=...)``), and a graph output is an output of a
     node, by name. Used as a subgraph, these are the node's inputs and outputs. What a host keeps about the whole
     graph (its name, a viewport) it stores beside the record. The record keeps no order of its nodes: where order
     matters, nodes are taken by id.

@@ -445,7 +445,13 @@ def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_
 
 
 def test_a_subgraphs_problems_are_the_outer_graphs_with_the_subgraph_nodes_id_in_front():
-    registry = _with_subgraph({"p": "pair", "u": "upper"}, [("u.result", "p.a")])
+    registry = NodeRegistry()
+    registry.add_subregistry(REGISTRY)
+    inner = {  # written out: make_graph would make the open p.b a graph input
+        "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "p": {"node": "pair", "inputs": {"a": {"sources": [{"node": "u", "output": "result"}]}}}},
+        "outputs": {"result": {"node": "p", "output": "result"}},
+    }
+    registry.add(subgraph("inner", title="Inner", description="A subgraph.")(GraphRecord.model_validate(inner)))
     assert problems(compile_graph({"e": "inner"}, [], registry)) == [("input_has_no_value", ("e", "p", "b"))]
 
 

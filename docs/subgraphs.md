@@ -100,7 +100,7 @@ print(both.run(loud="a", keen="b").outputs)  # {'keen': 'b!', 'loud': 'A'}
 ```
 
 `upper` and `exclaim` both take `text` and both return `result`, so `make_graph` is told what the graph calls them, as
-it would raise `ports_share_a_name` otherwise.
+it would raise `graph_inputs_share_a_name` and `graph_outputs_share_a_name` otherwise.
 
 A node outside gets a subgraph's output as it would get the same node's output if that node were drawn in the outer graph. Below, `upper`
 and `exclaim` each run once per word inside the subgraph. A node wired to both is called once per word, with

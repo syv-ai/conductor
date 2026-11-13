@@ -62,13 +62,7 @@ from conductor._internal.node import (
 )
 from conductor._internal.problem import NodeError, Problem
 from conductor._internal.problem import catalogue as problem
-from conductor._internal.record import (
-    GraphRecord,
-    NodeRecord,
-    RecordConstant,
-    RecordEdges,
-    RecordGraphInput,
-)
+from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.types import Type
 
 from .input import (
@@ -101,7 +95,7 @@ class Definitions(Protocol):
 
 
 def compile_graph[GraphT: CompiledGraph](
-    record: GraphRecord | str | bytes, definitions: Definitions, context_type: type | None, graph_type: type[GraphT],
+    record: GraphRecord | str | bytes | Mapping[str, Any], definitions: Definitions, context_type: type | None, graph_type: type[GraphT],
 ) -> GraphT:
     """Compiles ``record`` and returns it as a ``graph_type``. Every compiled graph a host gets is made here.
 
@@ -177,7 +171,7 @@ class _Compiler:
         self.record = GraphRecord()
         self.position: dict[str, int] = {}
 
-    def compile[GraphT: CompiledGraph](self, record: GraphRecord | str | bytes, graph_type: type[GraphT]) -> GraphT:
+    def compile[GraphT: CompiledGraph](self, record: GraphRecord | str | bytes | Mapping[str, Any], graph_type: type[GraphT]) -> GraphT:
         """Returns ``record`` compiled, as a ``graph_type``.
 
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
@@ -196,12 +190,25 @@ class _Compiler:
                     self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
+        return graph_type(self.record, self.problems, self.nodes, self.graph_inputs, self._graph_outputs(), self.context_type)
+
+    def _graph_outputs(self) -> dict[str, Edge]:
+        """Returns each graph output the record declares, by name, as what an edge from it reads.
+
+        A graph output whose node the record lacks, or whose node has no such output, gets the problem
+        ``graph_output_not_found``, at no node; one whose node was not compiled is left out, as a problem of its own
+        says why.
+        """
         outputs: dict[str, Edge] = {}
         for name, address in sorted(self.record.outputs.items()):
-            source = self._sources("outputs", name, (address,))
-            if source is not None:
-                outputs[name] = source[0]
-        return graph_type(self.record, self.problems, self.nodes, self.graph_inputs, outputs, self.context_type)
+            source = self.nodes.get(address.node)
+            if address.node not in self.record.nodes or (source is not None and address.output not in source.outputs):
+                found = [str(Address(address.node, output)) for output in source.outputs] if source is not None else []
+                self.problems.append(problem.graph_output_not_found(output=name, source=str(address), outputs=found))
+            elif source is not None:
+                field = source.outputs[address.output]
+                outputs[name] = Edge(address, source.loops_around(address.output), field.type, item=field.is_series)
+        return outputs
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition a node of the record names, at the record's version; ``None``, with a
@@ -389,31 +396,33 @@ class _Compiler:
             if name in refused_defaults:
                 inputs[name] = MissingInput(field)
                 continue
-            match record.inputs.get(name):
-                case RecordEdges():
-                    edge_sources = sources[name]
-                    if edge_sources is None:
-                        inputs[name] = MissingInput(field)
-                        continue
-                    collects, expected = _collects_and_expected_type(field, edge_sources)
-                    if self._edges_fit(node_id, field, expected, edge_sources):
-                        readable[name] = edge_sources
-                        if collects:
-                            collecting.add(name)
-                    else:
-                        inputs[name] = MissingInput(field)
-                case RecordConstant():
-                    inputs[name] = _constant_input(field, constants[name])
-                case RecordGraphInput() if name in constant_at_compile:  # a hook reads it before any caller gives it
-                    self.problems.append(problem.hook_needs_value(node_id, name))
-                    inputs[name] = MissingInput(field)
-                case RecordGraphInput(graph_input=graph_input):
-                    inputs[name] = self._graph_input(node_id, field, graph_input, constants.get(name, field.default))
-                case None if field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
+            entry = record.inputs.get(name)
+            if entry is None:
+                if field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
                     self.problems.append(problem.input_has_no_value(node_id, name))
                     inputs[name] = MissingInput(field)
-                case None:
+                else:
                     inputs[name] = ConstantInput(field, field.default)
+            elif entry.sources is not MISSING:
+                edge_sources = sources[name]
+                if edge_sources is None:
+                    inputs[name] = MissingInput(field)
+                    continue
+                collects, expected = _collects_and_expected_type(field, edge_sources)
+                if self._edges_fit(node_id, field, expected, edge_sources):
+                    readable[name] = edge_sources
+                    if collects:
+                        collecting.add(name)
+                else:
+                    inputs[name] = MissingInput(field)
+            elif entry.constant is not MISSING:
+                inputs[name] = _constant_input(field, constants[name])
+            elif entry.graph_input is not MISSING:
+                if name in constant_at_compile:  # a hook reads it before any caller gives it
+                    self.problems.append(problem.hook_needs_value(node_id, name))
+                    inputs[name] = MissingInput(field)
+                else:  # with the record's default, or none: then the caller must give one
+                    inputs[name] = self._graph_input(node_id, field, entry.graph_input, constants.get(name, REQUIRED))
         for name in self._inputs_with_conflicting_edges(node_id, fields, readable, collecting):
             del readable[name]
             inputs[name] = MissingInput(fields[name])
@@ -448,21 +457,23 @@ class _Compiler:
         input ``name``, and adds the graph input to ``graph_inputs``.
 
         Example: ``strip.line`` and ``shout.line`` both name the graph input ``line``, so a caller's ``line="a"`` is
-        the value of both. The two must take one type and have one default; else the graph has the problem
-        ``graph_input_used_two_ways`` and the second gets no value.
+        the value of both. The two must take one type, and the record's defaults for it must agree; else the graph
+        has the problem ``graph_input_used_two_ways`` and the second gets no value. The input's own default plays no
+        part: a graph input the record gives no default is required.
 
         Args:
             node_id: The node.
             field: The input.
             name: The graph input's name.
-            default: The value when the caller gives none: the record's, else the input's own; ``_INVALID`` when the
-                input's type refused the record's.
+            default: The record's default, read by the input's type; ``REQUIRED`` when the record gives none, and
+                ``_INVALID`` when the input's type refused it.
         """
         if default is _INVALID:
             return MissingInput(field)
-        caller_field = Field(name, field.hint, default)
-        found = self.graph_inputs.setdefault(name, caller_field)
-        if found is not caller_field and (found.hint != caller_field.hint or found.default_json != caller_field.default_json):
+        found = self.graph_inputs.get(name)
+        if found is None or (found.default is REQUIRED and found.hint == field.hint):
+            self.graph_inputs[name] = Field(name, field.hint, default if found is None or default is not REQUIRED else found.default)
+        elif found.hint != field.hint or (default is not REQUIRED and Field(name, field.hint, default).default_json != found.default_json):
             self.problems.append(problem.graph_input_used_two_ways(node_id, field.name, graph_input=name))
             return MissingInput(field)
         return GraphInput(field, name)
@@ -473,13 +484,14 @@ class _Compiler:
         the problem ``invalid_value`` and the input gets ``_INVALID``."""
         constants: dict[str, Any] = {}
         for name, field in fields.items():
-            match record.inputs.get(name):
-                case RecordConstant(constant=value) | RecordGraphInput(default=value) if value is not MISSING:
-                    try:
-                        constants[name] = read_constant(node_id, field, value)
-                    except RefusedError as refused:
-                        self.problems += refused.problems
-                        constants[name] = _INVALID
+            entry = record.inputs.get(name)
+            value = MISSING if entry is None else entry.default if entry.constant is MISSING else entry.constant
+            if value is not MISSING:
+                try:
+                    constants[name] = read_constant(node_id, field, value)
+                except RefusedError as refused:
+                    self.problems += refused.problems
+                    constants[name] = _INVALID
         return constants
 
     def _hook(
@@ -674,12 +686,7 @@ class _Compiler:
 def _edges_into(record: NodeRecord) -> dict[str, tuple[Address, ...]]:
     """The outputs the edges into each input of a node come from, by input name: in the example, ``shout``'s are
     ``{"line": (Address("lines", "result"),)}``. An input with a constant or a default is not in it."""
-    edges: dict[str, tuple[Address, ...]] = {}
-    for name, entry in record.inputs.items():
-        match entry:
-            case RecordEdges(sources=sources):
-                edges[name] = sources
-    return edges
+    return {name: entry.sources for name, entry in record.inputs.items() if entry.sources is not MISSING}
 
 
 def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:
