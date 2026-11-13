@@ -27,8 +27,7 @@ from pydantic.errors import PydanticSchemaGenerationError
 from pydantic_core import core_schema
 
 from conductor._internal.base import qualified_name
-from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 
 #: The id and title of each class conductor itself names. ``Series`` and ``Table`` name themselves in their own
 #: packages, and every other class a field has is declared with ``@host_type``.
@@ -98,23 +97,23 @@ def host_type[C: type](id: str, *, title: str, accepts: list[type] | tuple[type,
         stored = TypeDeclaration(id=id, title=title, accepts=tuple(accepts) if isinstance(accepts, list) else accepts)
     except ValidationError as error:
         faults = "; ".join(f"{fault['loc'][0]}: {fault['msg']}" for fault in error.errors())
-        raise NodeDeclarationError(declaration.type_declaration_invalid(id=id, faults=faults)) from None
+        raise NodeDeclarationError(declaration_problems.type_declaration_invalid(id=id, faults=faults)) from None
 
     def declare(cls: C) -> C:
         if not isinstance(cls, type) or typing.is_typeddict(cls):
-            raise NodeDeclarationError(declaration.type_declaration_not_on_a_class(id=id, given=repr(cls)))
+            raise NodeDeclarationError(declaration_problems.type_declaration_not_on_a_class(id=id, given=repr(cls)))
         try:
             TypeAdapter(cls)
         except PydanticSchemaGenerationError:
             parent = next((base for base in cls.__mro__[1:-1] if base in NAMES), None)
             if parent is None:
-                raise NodeDeclarationError(declaration.type_not_carried_declared(id=id, cls=cls.__qualname__)) from None
+                raise NodeDeclarationError(declaration_problems.type_not_carried_declared(id=id, cls=cls.__qualname__)) from None
             validated_as_parent = classmethod(lambda made, source, handler: core_schema.no_info_after_validator_function(made, handler(parent)))
             cls.__get_pydantic_core_schema__ = validated_as_parent  # type: ignore[attr-defined]  # the hook pydantic looks for on a class
         try:
             cls.__conductor_type__ = stored  # type: ignore[attr-defined]  # read back by declaration_of
         except TypeError:  # a class written in C, such as int
-            raise NodeDeclarationError(declaration.type_declaration_not_writable(id=id, cls=cls.__qualname__)) from None
+            raise NodeDeclarationError(declaration_problems.type_declaration_not_writable(id=id, cls=cls.__qualname__)) from None
         return cls
 
     return declare
@@ -131,7 +130,7 @@ def declaration_of(cls: type) -> TypeDeclaration:
     declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
     if declared is None:
         parent = next((base for base in cls.__mro__[1:] if "__conductor_type__" in vars(base)), None)
-        raise NodeDeclarationError(declaration.type_not_named(cls=qualified_name(cls), parent=parent.__qualname__ if parent else None))
+        raise NodeDeclarationError(declaration_problems.type_not_named(cls=qualified_name(cls), parent=parent.__qualname__ if parent else None))
     return declared
 
 

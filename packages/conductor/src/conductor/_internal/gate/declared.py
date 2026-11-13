@@ -17,8 +17,7 @@ from pydantic import ValidationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.field import Field
-from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 
 from .rules import validator_of
 
@@ -44,5 +43,5 @@ def declared_field(name: str, hint: Any, default: Any) -> Field:
         read = validator_of(whole).validate_python(default)
     except ValidationError as error:
         reason = whole.refusal(error).reason
-        raise NodeDeclarationError(declaration.default_invalid(default=repr(default), type=whole.id, reason=reason), name) from None
+        raise NodeDeclarationError(declaration_problems.default_invalid(default=repr(default), type=whole.id, reason=reason), name) from None
     return Field(name, hint, read)

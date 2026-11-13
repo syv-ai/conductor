@@ -27,8 +27,11 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import NON_FINITE_FLOATS, plain_json, qualified_name
-from conductor._internal.problem import NodeDeclarationError, value_free_errors
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import (
+    NodeDeclarationError,
+    declaration_problems,
+    value_free_errors,
+)
 
 from .choice import Choice
 from .fit import fit
@@ -286,9 +289,9 @@ class Type:
         bare, param, others = self._parts
         pydantic_fields = [other for other in others if isinstance(other, FieldInfo)]  # Annotated[int, Field(ge=0)], here or on an item of a list
         if any(field.discriminator is not None for field in pydantic_fields):
-            raise NodeDeclarationError(declaration.pydantic_discriminator_in_hint())
+            raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
         if pydantic_fields:
-            raise NodeDeclarationError(declaration.pydantic_field_in_hint())
+            raise NodeDeclarationError(declaration_problems.pydantic_field_in_hint())
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
@@ -300,9 +303,9 @@ class Type:
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
             adapter = TypeAdapter(read) if len(options) == 1 and is_record(options[0]) else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan=NON_FINITE_FLOATS))
         except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
-            raise NodeDeclarationError(declaration.bound_invalid_value(limits=repr(param.limits), type=self.id, error=str(error))) from None
+            raise NodeDeclarationError(declaration_problems.bound_invalid_value(limits=repr(param.limits), type=self.id, error=str(error))) from None
         except PydanticSchemaGenerationError:
-            raise NodeDeclarationError(declaration.type_not_carried(type=self.id)) from None
+            raise NodeDeclarationError(declaration_problems.type_not_carried(type=self.id)) from None
         return read, adapter
 
     @property

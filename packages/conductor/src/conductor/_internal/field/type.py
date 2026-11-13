@@ -11,8 +11,7 @@ from pydantic import JsonValue
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
-from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.types import (
     Param,
     Type,
@@ -77,12 +76,12 @@ class Field:
             whole.returned_schema  # noqa: B018  a Series of records may be kept as a table, whose row type fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
             if self.default is None and not whole.optional:
-                raise NodeDeclarationError(declaration.default_none_not_taken())
+                raise NodeDeclarationError(declaration_problems.default_none_not_taken())
             if self.default is not REQUIRED and self.default is not SKIPPED and self.default is not None:
                 try:
                     keep("default_json", whole.to_json(self.default))
                 except (PydanticSerializationError, UnicodeDecodeError) as error:
-                    raise NodeDeclarationError(declaration.default_invalid(default=repr(self.default), type=whole.id, reason=str(error))) from None
+                    raise NodeDeclarationError(declaration_problems.default_invalid(default=repr(self.default), type=whole.id, reason=str(error))) from None
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
         if self.param.widget is not None:
@@ -126,10 +125,10 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         bare, of_item, others = split_hint((get_args(items) or (Any,))[0])
         beside_param = (*beside_param, *others)
         if Type(bare).item is not None:
-            raise NodeDeclarationError(declaration.nested_series())
+            raise NodeDeclarationError(declaration_problems.nested_series())
         param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
     if any(isinstance(metadata, Widget) for metadata in beside_param):  # pydantic would pass it by, and the field would show no control
-        raise NodeDeclarationError(declaration.widget_outside_param())
+        raise NodeDeclarationError(declaration_problems.widget_outside_param())
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)

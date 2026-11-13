@@ -65,8 +65,7 @@ from conductor._internal.node import (
     where_declared,
     with_defaults,
 )
-from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.types import Type
 
@@ -233,8 +232,8 @@ class NodeRegistry[C]:
         """
         if subregistry._context_type not in (None, self._context_type):
             if self._context_type is None:
-                raise NodeDeclarationError(declaration.context_type_on_subregistry_only(subregistry_type=subregistry._context_type.__name__))
-            raise NodeDeclarationError(declaration.context_type_differs(subregistry_type=subregistry._context_type.__name__, registry_type=self._context_type.__name__))
+                raise NodeDeclarationError(declaration_problems.context_type_on_subregistry_only(subregistry_type=subregistry._context_type.__name__))
+            raise NodeDeclarationError(declaration_problems.context_type_differs(subregistry_type=subregistry._context_type.__name__, registry_type=self._context_type.__name__))
         named = (*self._named_types, *(dtype for dtype in subregistry._named_types if dtype not in self._named_types))
         added = tuple(subregistry)
         self._set_contents(self._nodes_with(added), named)
@@ -252,7 +251,7 @@ class NodeRegistry[C]:
         for definition in definitions:
             held = nodes.get(definition.id)
             if held is not None:
-                raise NodeDeclarationError(declaration.duplicate_node_id(id=definition.id, first=where_declared(held), second=where_declared(definition)))
+                raise NodeDeclarationError(declaration_problems.duplicate_node_id(id=definition.id, first=where_declared(held), second=where_declared(definition)))
             nodes[definition.id] = with_defaults(definition, tags=self._tags, category=self._category, extra=self._extra)
         return nodes
 
@@ -335,7 +334,7 @@ def _by_id(types: Iterable[type]) -> dict[str, type]:
     for held in types:
         existing = by_id.setdefault(Type(held).id, held)
         if existing is not held:
-            raise NodeDeclarationError(declaration.duplicate_type_id(id=Type(held).id, first=qualified_name(existing), second=qualified_name(held)))
+            raise NodeDeclarationError(declaration_problems.duplicate_type_id(id=Type(held).id, first=qualified_name(existing), second=qualified_name(held)))
     return by_id
 
 

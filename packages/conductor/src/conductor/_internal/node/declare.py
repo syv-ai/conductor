@@ -78,8 +78,7 @@ from conductor._internal.gate import (
     declared_field,
     read_record,
 )
-from conductor._internal.problem import InvalidCallError, NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import InvalidCallError, NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Type, split_hint
 
@@ -155,17 +154,17 @@ def node(
     def make[**P, R](target: NodeFunction[P, R], /) -> FunctionDefinition[P, R]:
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
-                raise NodeDeclarationError(declaration.async_run())
+                raise NodeDeclarationError(declaration_problems.async_run())
             inputs, context, outputs, returns, asked = _read_signature(target, compute_outputs is not None)
             if asks and asked is not None:
-                raise NodeDeclarationError(declaration.asked_and_asks(), asked.field.name)
+                raise NodeDeclarationError(declaration_problems.asked_and_asks(), asked.field.name)
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
-                raise NodeDeclarationError(declaration.compute_added_inputs_without_var_keyword())
+                raise NodeDeclarationError(declaration_problems.compute_added_inputs_without_var_keyword())
             if context is not None and policy is not None and policy.costs_nothing:
-                raise NodeDeclarationError(declaration.costs_nothing_takes_context(), context.name)
+                raise NodeDeclarationError(declaration_problems.costs_nothing_takes_context(), context.name)
             if compute_added_inputs is None and takes_kwargs:
-                raise NodeDeclarationError(declaration.var_keyword_without_hook())
+                raise NodeDeclarationError(declaration_problems.var_keyword_without_hook())
             hooks: dict[HookName, Callable[..., Any] | None] = {"compute_added_inputs": compute_added_inputs, "compute_outputs": compute_outputs}
             hook_parameters = {
                 kind: _check_hook(hook, kind, inputs, adds_inputs=compute_added_inputs is not None)
@@ -253,16 +252,16 @@ def _version_number(
             ``upgrade`` and ``version`` don't fit together.
     """
     if not is_name(id):
-        raise NodeDeclarationError(declaration.invalid_node_id(declared_with=declared_with, id=id))
+        raise NodeDeclarationError(declaration_problems.invalid_node_id(declared_with=declared_with, id=id))
     if not title.strip() or not description.strip():
-        raise NodeDeclarationError(declaration.empty_title_or_description(declared_with=declared_with, id=id, empty="title" if not title.strip() else "description"))
+        raise NodeDeclarationError(declaration_problems.empty_title_or_description(declared_with=declared_with, id=id, empty="title" if not title.strip() else "description"))
     if upgrade is not None and replaces is None:
-        raise NodeDeclarationError(declaration.upgrade_without_replaces(declared_with=declared_with, id=id))
+        raise NodeDeclarationError(declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id))
     if replaces is not None and replaces.id != id:
-        raise NodeDeclarationError(declaration.replaces_another_node(declared_with=declared_with, id=id, replaces=repr(replaces)))
+        raise NodeDeclarationError(declaration_problems.replaces_another_node(declared_with=declared_with, id=id, replaces=repr(replaces)))
     number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
     if replaces is not None and number <= replaces.version:
-        raise NodeDeclarationError(declaration.version_not_after(declared_with=declared_with, id=id, version=number, replaced=replaces.version))
+        raise NodeDeclarationError(declaration_problems.version_not_after(declared_with=declared_with, id=id, version=number, replaced=replaces.version))
     return number
 
 
@@ -290,29 +289,29 @@ def _read_signature(
         if position == 0 and name in hints and is_context(hints[name]) and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
             needs = typing.get_args(hints[name])[0]
             if not isinstance(needs, type):
-                raise NodeDeclarationError(declaration.context_not_a_class(), name)
+                raise NodeDeclarationError(declaration_problems.context_not_a_class(), name)
             context = ContextParameter(name, needs)
             continue
         if parameter.kind is parameter.VAR_KEYWORD:
             continue
         if parameter.kind in (parameter.VAR_POSITIONAL, parameter.POSITIONAL_ONLY):
-            raise NodeDeclarationError(declaration.parameter_not_by_name(), name)
+            raise NodeDeclarationError(declaration_problems.parameter_not_by_name(), name)
         if name not in hints:
-            raise NodeDeclarationError(declaration.input_without_type(), name)
+            raise NodeDeclarationError(declaration_problems.input_without_type(), name)
         hint, asked_metadata = _without_asked(hints[name], name)
         if asked_metadata is not None:
             if asked is not None:
-                raise NodeDeclarationError(declaration.asked_twice(), name)
+                raise NodeDeclarationError(declaration_problems.asked_twice(), name)
             if parameter.default is not Parameter.empty:
-                raise NodeDeclarationError(declaration.asked_with_default(), name)
+                raise NodeDeclarationError(declaration_problems.asked_with_default(), name)
             asked = (name, hint, asked_metadata)
             continue
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
         inputs[name] = declared_field(name, hint, default)
         if inputs[name].param.exclusive_group is not None:
-            raise NodeDeclarationError(declaration.exclusive_group_on_input(), name)
+            raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), name)
     if "return" not in hints:
-        raise NodeDeclarationError(declaration.output_without_type())
+        raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
     _refuse_asked(returns, None)
     outputs: dict[str, Field] = {}
@@ -324,7 +323,7 @@ def _read_signature(
         kind = NoOutputs()
     elif isinstance(outputs_class, type) and dataclasses.is_dataclass(outputs_class):
         if not outputs_class.__dataclass_params__.frozen:  # type: ignore[attr-defined]
-            raise NodeDeclarationError(declaration.outputs_not_frozen())
+            raise NodeDeclarationError(declaration_problems.outputs_not_frozen())
         given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(outputs_class, include_extras=True)
         for name, hint in own.items():
@@ -337,9 +336,9 @@ def _read_signature(
     for field in (*inputs.values(), *outputs.values()):
         for variable in field.whole.variables:
             if variable.__constraints__:
-                raise NodeDeclarationError(declaration.type_variable_constrained(variable=variable.__name__), field.name)
+                raise NodeDeclarationError(declaration_problems.type_variable_constrained(variable=variable.__name__), field.name)
             if variable not in on_inputs:
-                raise NodeDeclarationError(declaration.type_variable_only_in_return(variable=variable.__name__), field.name)
+                raise NodeDeclarationError(declaration_problems.type_variable_only_in_return(variable=variable.__name__), field.name)
     if asked is None:
         return inputs, context, outputs, kind, None
     name, hint, asked_metadata = asked
@@ -360,7 +359,7 @@ def _without_asked(hint: Any, name: str) -> tuple[Any, Asked | None]:
     if typing.get_origin(hint) is Annotated:
         found = [metadata for metadata in hint.__metadata__ if isinstance(metadata, Asked)]
         if len(found) > 1:
-            raise NodeDeclarationError(declaration.asked_twice(), name)
+            raise NodeDeclarationError(declaration_problems.asked_twice(), name)
         if found:
             (asked_metadata,) = found
             kept = tuple(metadata for metadata in hint.__metadata__ if not isinstance(metadata, Asked))
@@ -377,7 +376,7 @@ def _refuse_asked(hint: Any, name: str | None) -> None:
         NodeDeclarationError: ``asked_not_on_a_parameter``, naming the field when there is a name.
     """
     if any(isinstance(m, Asked) for m in split_hint(hint)[2]):
-        raise NodeDeclarationError(declaration.asked_not_on_a_parameter(), *([name] if name else []))
+        raise NodeDeclarationError(declaration_problems.asked_not_on_a_parameter(), *([name] if name else []))
 
 
 def _asked_parameter(
@@ -403,18 +402,18 @@ def _asked_parameter(
     asking = asked_metadata.function
     name = field.name
     if inspect.iscoroutinefunction(asking) or inspect.isasyncgenfunction(asking):
-        raise NodeDeclarationError(declaration.async_run(), name)
+        raise NodeDeclarationError(declaration_problems.async_run(), name)
     may_name = [*inputs, *([context.name] if context is not None else [])]
     taken: list[str] = []
     for parameter in inspect.signature(asking).parameters.values():
         if parameter.name not in may_name or parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
-            raise NodeDeclarationError(declaration.asking_function_parameter_unknown(parameter=parameter.name, parameters=may_name), name)
+            raise NodeDeclarationError(declaration_problems.asking_function_parameter_unknown(parameter=parameter.name, parameters=may_name), name)
         taken.append(parameter.name)
     returns = typing.get_type_hints(asking).get("return", Parameter.empty)
     declared = typing.get_type_hints(function)[name]
     if returns != declared:
         written = "nothing declared" if returns is Parameter.empty else Type(returns).id
-        raise NodeDeclarationError(declaration.asking_function_returns_another_type(returns=written, type=field.whole.id), name)
+        raise NodeDeclarationError(declaration_problems.asking_function_returns_another_type(returns=written, type=field.whole.id), name)
     context_name = context.name if context is not None and context.name in taken else None
     return AskedParameter(field, asking, tuple(n for n in taken if n != context_name), context_name, AskedValueDoor(field))
 
@@ -449,17 +448,17 @@ def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, F
     for name, parameter in inspect.signature(hook).parameters.items():
         arriving = parameter.annotation in (type, "type")
         if arriving and kind == "compute_added_inputs":
-            raise NodeDeclarationError(declaration.arriving_on_compute_added_inputs(parameter=name))
+            raise NodeDeclarationError(declaration_problems.arriving_on_compute_added_inputs(parameter=name))
         if parameter.kind is parameter.VAR_KEYWORD:
             if not (arriving and adds_inputs):
-                raise NodeDeclarationError(declaration.hook_parameter_var_keyword(hook=kind, parameter=name))
+                raise NodeDeclarationError(declaration_problems.hook_parameter_var_keyword(hook=kind, parameter=name))
             parameters[name] = "added_arriving_types"
         elif parameter.kind is not parameter.POSITIONAL_OR_KEYWORD and parameter.kind is not parameter.KEYWORD_ONLY:
-            raise NodeDeclarationError(declaration.hook_parameter_not_by_name(hook=kind, parameter=name))
+            raise NodeDeclarationError(declaration_problems.hook_parameter_not_by_name(hook=kind, parameter=name))
         elif arriving:
             parameters[name] = "arriving_type"
         elif name not in inputs:
-            raise NodeDeclarationError(declaration.hook_parameter_unknown(hook=kind, parameter=name, inputs=sorted(inputs)))
+            raise NodeDeclarationError(declaration_problems.hook_parameter_unknown(hook=kind, parameter=name, inputs=sorted(inputs)))
         else:
             parameters[name] = "value"
     return parameters
@@ -482,4 +481,4 @@ def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: FunctionDefinitio
     if upgrade.rewrite is None:
         unexplained |= gone_inputs - set(upgrade.renamed_inputs)
     if unexplained:
-        raise NodeDeclarationError(declaration.upgrade_missing(gone=sorted(unexplained)))
+        raise NodeDeclarationError(declaration_problems.upgrade_missing(gone=sorted(unexplained)))

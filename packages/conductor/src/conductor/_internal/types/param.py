@@ -23,8 +23,11 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import validate_as_json
-from conductor._internal.problem import NodeDeclarationError, value_free_errors
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import (
+    NodeDeclarationError,
+    declaration_problems,
+    value_free_errors,
+)
 from conductor.widgets import Widget
 
 from .choice import Choice
@@ -116,22 +119,22 @@ class Param:
         unheld = sorted(self.limits.keys() - held)
         if unheld and functions <= len(unheld):
             written = source.__name__ if isinstance(source, type) else str(source)  # as its developer wrote it
-            raise NodeDeclarationError(declaration.bound_invalid(unheld=unheld, type=written))
+            raise NodeDeclarationError(declaration_problems.bound_invalid(unheld=unheld, type=written))
         if self.choices is None:
             return limited
         try:
             ids = read_choice_ids(self.choices, limited_hint)
         except PydanticSerializationError:
-            raise NodeDeclarationError(declaration.choices_invalid_no_json_form()) from None
+            raise NodeDeclarationError(declaration_problems.choices_invalid_no_json_form()) from None
         except ValidationError as refused:
             reason = value_free_errors(refused)[0]["msg"]
-            raise NodeDeclarationError(declaration.choices_invalid_not_a_value(reason=reason)) from None
+            raise NodeDeclarationError(declaration_problems.choices_invalid_not_a_value(reason=reason)) from None
         literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]
         distinct = {repr(i) for i in ids}
         if not ids or len(distinct) != len(ids):
-            raise NodeDeclarationError(declaration.choices_invalid())
+            raise NodeDeclarationError(declaration_problems.choices_invalid())
         if literal and distinct != {repr(value) for value in literal}:
-            raise NodeDeclarationError(declaration.choices_invalid_on_a_literal(values=literal))
+            raise NodeDeclarationError(declaration_problems.choices_invalid_on_a_literal(values=literal))
         if literal:  # a Literal's choices title its values
             return limited
 

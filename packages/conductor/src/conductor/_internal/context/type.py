@@ -43,8 +43,7 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 from typing_extensions import get_protocol_members
 
-from conductor._internal.problem import NodeDeclarationError
-from conductor._internal.problem import declarations as declaration
+from conductor._internal.problem import NodeDeclarationError, declaration_problems
 
 _T = TypeVar("_T")
 
@@ -60,7 +59,7 @@ class _Context:
         Raises:
             NodeDeclarationError: Always (``context_misplaced``).
         """
-        raise NodeDeclarationError(declaration.context_misplaced())
+        raise NodeDeclarationError(declaration_problems.context_misplaced())
 
 #: ``Context[X]``: the type of a node's first parameter that is the run's context, the object the host passes as
 #: ``context=``. To a type checker the parameter is an ``X``.
