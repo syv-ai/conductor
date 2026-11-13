@@ -500,6 +500,17 @@ def test_a_subgraph_runs_once_or_per_item_as_its_nodes_do_in_one_graph():
     assert two.run(text="x").outputs == {"result": "X!!"}
 
 
+def test_two_uses_of_one_subgraph_keep_their_own_outcomes_when_one_is_called_once_and_one_per_item():
+    """``shout-inner`` is compiled once and used twice; each use has its own calls, also after a save."""
+    graph = compile_graph(
+        {"w": "words", "a": "shout-inner", "b": "shout-inner"}, [("w.result", "b.text")],
+        inputs={"once": "a.text", "text": "w.text"}, outputs={"a": "a.result", "b": "b.result"},
+    )
+    run = graph.run(once="xy", text="ab cd")
+    assert run.outputs == {"a": "XY!", "b": ["AB!", "CD!"]}
+    assert Run.from_json(run.to_json(), graph).results == run.results
+
+
 def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node():
     graph = compile_graph({"w": "words", "e": "greet-inner"}, [("w.result", "e.text")], constants={"e.greeting": "hej"})
     assert graph.run(text="ab cd").results["e"]["result"] == ["hej ab", "hej cd"]

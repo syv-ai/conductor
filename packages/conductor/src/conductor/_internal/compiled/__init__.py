@@ -13,7 +13,6 @@ from .describe import (
 )
 from .flat import (
     CollectingArgument,
-    EdgeArgument,
     FlatFunctionNode,
     FlatGraph,
     FlatNode,

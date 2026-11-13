@@ -16,7 +16,7 @@ from conductor._internal.compiled import (
     CollectingArgument,
     CompiledGraph,
     Edge,
-    EdgeArgument,
+    EdgeInput,
     display_inputs_of,
 )
 from conductor._internal.series import StoredSeries
@@ -80,7 +80,7 @@ class DisplayReader(ResultReader):
         except NoSuchFieldError:
             return None
 
-    def display_value(self, node_inputs: tuple[EdgeArgument | CollectingArgument, ...], item_indexes: ItemIndexes = ()) -> Any:
+    def display_value(self, node_inputs: tuple[EdgeInput | CollectingArgument, ...], item_indexes: ItemIndexes = ()) -> Any:
         """One output of a node as ``run.results`` shows it.
 
         Example: ``documents -> lines -> shout`` with three documents, the second empty, so ``lines`` was

@@ -36,7 +36,7 @@ from collections.abc import Mapping
 from typing import Any, Final, Literal
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.compiled import CollectingArgument, Edge, EdgeArgument, FlatFunctionNode
+from conductor._internal.compiled import CollectingArgument, Edge, EdgeInput, FlatFunctionNode
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
@@ -115,7 +115,7 @@ class ResultReader:
                 return Skipped(node.compiled_node.outputs_when_skipped)
             if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node
                 ready = False
-            elif value is None and none_input is None and not argument.input.field.whole.optional:
+            elif value is None and none_input is None and not argument.field.whole.optional:
                 none_input = name
             arguments[name] = value
         if not ready:
@@ -126,20 +126,20 @@ class ResultReader:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_argument(self, argument: EdgeArgument | CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def read_argument(self, argument: EdgeInput | CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what ``argument`` reads for the call at ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``,
         ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
         if type(argument) is CollectingArgument:
             return self.collect(argument, item_indexes)
-        if argument.input.as_list:
+        if argument.as_list:
             return self.read_as_list(argument, item_indexes)
-        return self.read_edges(argument.edges, item_indexes)
+        return self.read_edges(argument.sources, item_indexes)
 
-    def read_as_list(self, argument: EdgeArgument, item_indexes: ItemIndexes) -> Any:
+    def read_as_list(self, argument: EdgeInput, item_indexes: ItemIndexes) -> Any:
         """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
         ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
-        value = self.read_edges(argument.edges, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not argument.input.field.accepts_none_items):
+        value = self.read_edges(argument.sources, item_indexes)
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not argument.field.accepts_none_items):
             return value
         return [value]
 
@@ -219,19 +219,20 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        depth = argument.depth
+        collecting = argument.input
+        depth = len(collecting.loops)
         if len(item_indexes) < depth:
             return self._edges_for_any_item(argument, item_indexes)
         item_indexes = item_indexes[:depth]
         series = self._list_looped_over(argument, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
-        edges = argument.edges
+        edges = collecting.sources
         if len(edges) == 1 and edges[0].item:  # the input collects the list itself: its items, or one field of each
             record_field = edges[0].record_field
             if record_field is not None:
                 return series.field_as_list(record_field)
-            return series.as_table_input() if argument.input.field.whole.record is not None else series.as_list()
+            return series.as_table_input() if collecting.field.whole.record is not None else series.as_list()
         items = []
         for index in range(len(series)):
             value = self.read_edges(edges, (*item_indexes, index))
@@ -265,7 +266,7 @@ class ResultReader:
             value = any_item._edges_for_any_item(argument, item_indexes)
             if value is not MAY_HAVE_VALUE:
                 return value
-        series_node, output = argument.series
+        series_node, output = argument.input.series
         outcome = self.outcomes[series_node].get(item_indexes)
         return outcome.outputs[output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
@@ -273,8 +274,8 @@ class ResultReader:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
         the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
         keeps as an item (``Series[str | None]``) counts as a value."""
-        value = self.read_edges(argument.edges, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not argument.input.field.accepts_none_items):
+        value = self.read_edges(argument.input.sources, item_indexes)
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not argument.field.accepts_none_items):
             return value
         return MAY_HAVE_VALUE
 
