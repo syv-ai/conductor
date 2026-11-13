@@ -2,13 +2,13 @@
 
 ## One rule, one place
 
-Write each rule, grammar, format or fact once and call it from every other site; this is about knowledge, not about every repeated line.
+Write each rule, grammar, format or fact once and call it from every other site; this is about knowledge, not about every repeated line. A text's reader takes only what its writer writes, and a rule that holds for one kind of node is one function for every kind, not a second copy with an exemption.
 
 Why: "DRY doesn't mean abstract away any repeat code, it is literally 'Every piece of knowledge must have a single, unambiguous, authoritative representation within a system.'"
 
 ```python
-digest = blake2b(dumps(value, sort_keys=True).encode()).hexdigest()   # bad: a fourth recipe
-digest = json_hash(value, 8)                                          # good: the one way
+gone = set(older.input_names) - set(newer.input_names)   # bad: in upgrade.py, while declare.py skips a subgraph
+gone = gone_inputs(older, newer)                          # good: the declaration and the upgrade call one rule
 ```
 
 ## No mirrors

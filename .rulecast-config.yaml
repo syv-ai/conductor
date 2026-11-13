@@ -18,7 +18,6 @@ repos:
         stages: [touch]
         context:
           - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
-          - "@conventions/types-and-models.md#fail-loud"
 
       - id: touch/gate
         name: The doors where outside values enter
@@ -49,12 +48,12 @@ repos:
           - "@conventions/modules-and-imports.md#json-in-and-out-is-one-concept"
 
       - id: touch/engine-paths
-        name: The engine's hot paths
-        files: '^packages/conductor/src/conductor/_internal/(run|compiled|graph|registry)/'
+        name: The engine's rules and hot paths
+        files: '^packages/conductor/src/conductor/_internal/(run|compiled|graph|registry|node)/'
         stages: [touch]
         context:
+          - "@conventions/design.md#one-rule-one-place"
           - "@conventions/design.md#look-up-dont-scan"
-          - "@conventions/design.md#readability-over-speed"
 
       - id: touch/shown-to-people
         name: Text a person sees
@@ -666,6 +665,35 @@ repos:
                     return node
               expect: { new: [4], preexisting: [3] }
 
+      - id: validation/json-read-catches-value-error
+        name: A JSON read catches ValueError
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: except_clause
+              has: { regex: '^(json\.)?JSONDecodeError$', stopBy: end, any: [ { kind: identifier }, { kind: attribute } ] }
+        message: "{{file}}:{{line}} catches JSONDecodeError, but json.loads also raises plain ValueErrors (a number of more than 4,300 digits, bytes that are not UTF-8), which then get past it. Catch ValueError."
+        context:
+          - "@conventions/validation.md#validation-is-the-wall"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/gate/record.py
+              code: |
+                try:
+                    return json.loads(text)
+                except JSONDecodeError as not_json:
+                    raise InvalidCallError([]) from None
+              expect: { lines: [3] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/gate/record.py
+              code: |
+                try:
+                    return json.loads(text)
+                except ValueError as not_json:
+                    raise InvalidCallError([]) from None
+
       # ---------------------------------------------------------------- modules
       - id: modules/kind-test-chain
         name: No chain of type tests over a concept's kinds
@@ -699,41 +727,86 @@ repos:
                     pass
 
       # ---------------------------------------------------------------- design
-      - id: design/no-speed-only-shortcut
-        name: No shortcut kept for speed alone
+      - id: design/no-build-then-drop
+        name: Nothing is built only to be dropped when empty
         files: '^packages/[^/]+/src/.*\.py$'
         detect:
-          regex:
-            pattern: '#:?\s*(?<said>speed only|for speed)\b'
-            flags: i
-        severity: warning
-        message: "{{file}}:{{line}} keeps code \"{{said}}\". Readability wins over speed: remove the shortcut, unless a run would otherwise be slower than conductor's last release, and then say so in the commit message."
+          ast-grep:
+            language: python
+            rule:
+              kind: if_statement
+              inside: { kind: block, inside: { kind: for_statement } }
+              follows:
+                kind: expression_statement
+                has: { kind: assignment, all: [ { has: { field: left, kind: identifier, pattern: $V } }, { has: { field: right, kind: call } } ] }
+              has:
+                field: condition
+                any:
+                  - pattern: $V
+                  - pattern: $V.$A
+                  - pattern: len($V)
+                  - pattern: $V is not None
+              all:
+                - has:
+                    field: consequence
+                    has: { nthChild: 1, kind: expression_statement, has: { kind: assignment, has: { field: right, pattern: $V } } }
+        message: "{{file}}:{{line}} builds a value for every item and keeps it only when it is not empty. Ask the source which items have something, and build only those."
         context:
-          - "@conventions/design.md#readability-over-speed"
+          - "@conventions/design.md#look-up-dont-scan"
         examples:
           bad:
-            - path: packages/conductor/src/conductor/_internal/run/json/codec.py
+            - path: packages/conductor/src/conductor/_internal/run/json/write.py
               code: |
-                if shareable:  # speed only: the extra pass is skipped when no output can be a shared table
-                    pass
+                for path, node in function_nodes.items():
+                    of_node = saved_reusable(node, run._reusable, path)
+                    if of_node.fingerprints:
+                        reusable[names[path]] = of_node
+              expect: { lines: [3] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/json/write.py
+              code: |
+                for path, node in function_nodes.items():
+                    if path in run._reusable.done:
+                        reusable[names[path]] = saved_reusable(node, run._reusable, path)
+                for name in names:
+                    text = name.strip()
+                    if text:
+                        print(text)
+
+      - id: design/text-read-in-one-spelling
+        name: Text read by hand is checked against its writer
+        files: '^packages/conductor/src/.*\.py$'
+        scope: container
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: function_definition
+              all:
+                - has: { stopBy: end, pattern: int($X) }
+                - has: { stopBy: end, any: [ { pattern: $T.split($$$) }, { pattern: $T.partition($$$) } ] }
+              not:
+                has: { stopBy: end, kind: call, has: { field: function, regex: '(^|\.)(write|format)_\w+$' } }
+        message: "{{file}}:{{line}} reads text by hand with int(), which also takes \" 1\", \"01\", \"+1\" and \"1_0\", so one thing gets several spellings. Write what was read back with the function that writes this text, and refuse the text when it differs."
+        context:
+          - "@conventions/design.md#one-rule-one-place"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/waiting.py
+              code: |
+                def read_waiting_id(waiting_id):
+                    place, _, fingerprint = waiting_id.partition("~")
+                    return [int(index) for index in place.split("@")[1:]]
               expect: { lines: [1] }
           good:
-            - path: packages/conductor/src/conductor/_internal/run/json/codec.py
+            - path: packages/conductor/src/conductor/_internal/run/waiting.py
               code: |
-                """Speed of a run is measured by the bench, not here."""
-                schema = with_shared_tables(schema)
-          baseline:
-            - path: packages/conductor/src/conductor/_internal/run/json/codec.py
-              before: |
-                def codec():
-                    x = 1  # speed only: one pass
-                    return x
-              after: |
-                def codec():
-                    y = 0
-                    x = 1  # speed only: one pass
-                    return x  # for speed
-              expect: { new: [4], preexisting: [3] }
+                def read_waiting_id(waiting_id):
+                    place, _, fingerprint = waiting_id.partition("~")
+                    loc = [int(index) for index in place.split("@")[1:]]
+                    if write_waiting_id(loc, fingerprint) != waiting_id:
+                        raise InvalidCallError([])
+                    return loc
 
       # ---------------------------------------------------------------- tests
       - id: tests/no-private-reads
