@@ -93,7 +93,11 @@ class GraphNodeDescription(ConductorModel):
             or ``outputs``.
         problems: The problems on this node. A compiled node can have some too: an input that gets no value
             because of a problem has the source ``missing``.
-        runs: Whether it is called once or once per item; ``None`` when it was not compiled.
+        runs: Whether it is called once or once per item. ``None`` when it was not compiled (``found`` false): its
+            definition or version is not in the registry, its id is not a name, a hook failed, or it is a subgraph
+            that contains itself or has problems of its own. Whether an edge from a list puts a node inside a loop
+            depends on the type of the input it reaches (``Series[str]`` collects it, ``str`` loops over it), and
+            those types are what such a node lacks.
         inputs: Its inputs as compiled; empty when it was not compiled.
         outputs: Its outputs as compiled; empty when it was not compiled.
     """

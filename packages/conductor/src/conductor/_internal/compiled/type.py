@@ -8,7 +8,7 @@ The example graph used in this file::
 
 Its record declares the graph input ``text`` on ``lines.text`` and the graph output ``result``, the output of
 ``join``. Compiled, it is ``<Graph of 3 nodes, runnable>``. Its ``inputs`` has the one graph input, ``text``, its
-``outputs`` are ``["result"]``, and ``runs_on["shout"]`` says ``shout`` is called once per item of
+``outputs`` are ``["result"]``, and ``describe().nodes["shout"].runs`` says ``shout`` is called once per item of
 ``lines.result``. ``Graph``, the class a host uses, is a ``CompiledGraph`` that can also start a run.
 
 A subgraph used as a node is one node of the graph. Its inputs and outputs are the graph inputs and outputs its
@@ -39,7 +39,6 @@ from .describe import (
     GraphDescription,
     GraphNodeDescription,
     NodeInputDescription,
-    RunsOn,
     input_source_of,
     runs_on,
 )
@@ -96,23 +95,6 @@ class CompiledGraph:
     def outputs(self) -> list[str]:
         """The names of the graph outputs the record declares, sorted. In the example, ``["result"]``."""
         return sorted(self.record.outputs)
-
-    @property
-    def runs_on(self) -> dict[str, RunsOn]:
-        """For each node id, whether the node is called ``once`` or ``per_item`` of the list of the innermost loop
-        it is inside. In the example, ``shout`` is ``per_item`` of ``lines.result``."""
-        return {compiled_node.id: runs_on(compiled_node.loops) for compiled_node in self._nodes.values()}
-
-    @property
-    def exclusive_groups(self) -> dict[str, dict[str, list[str]]]:
-        """The outputs in each exclusive group, by node id and then group name, for a host to show which
-        output each call chose."""
-        found: dict[str, dict[str, list[str]]] = {}
-        for compiled_node in self._nodes.values():
-            for name, field in compiled_node.outputs.items():
-                if field.param.exclusive_group:
-                    found.setdefault(compiled_node.id, {}).setdefault(field.param.exclusive_group, []).append(name)
-        return found
 
     def describe(self) -> GraphDescription:
         """Returns the graph as an editor draws it: every node of the record, with its inputs and outputs and

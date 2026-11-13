@@ -51,10 +51,10 @@ exclaim)` declared `text`, the input of `upper`, and `result`, the output of `ex
 graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]), registry)
 
 print(graph.run(text="hi there").outputs)  # {'result': 'HI! THERE!'}
-print(graph.runs_on["shout"].msg)              # per item of split.result
+print(graph.describe().nodes["shout"].runs)  # mode='per_item' series='split.result' msg='per item of split.result'
 ```
 
-`runs_on[...].msg` says in words how often a node runs. The subgraph node is inside the loop over `split.result`, so its inner nodes
+A node's `runs` says how often it runs, and its `msg` says it in words. The subgraph node is inside the loop over `split.result`, so its inner nodes
 are called once per word. Using a graph as a subgraph changes nothing about how its nodes behave: they run as they
 would if you drew them in the outer graph. Each inner node is called by its own `Policy` (retries, timeouts and how many calls
 run at once), so a node with `concurrency=2` has two calls at once however many items the outer graph has. A cancel, and the `timeout` of
@@ -124,7 +124,7 @@ def beside(loud: str, keen: str) -> str:
 
 graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]), registry)
 print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
-print(graph.runs_on["beside"].msg)                             # per item of per-word/split.result
+print(graph.describe().nodes["beside"].runs)  # mode='per_item' series='per-word/split.result' msg='per item of per-word/split.result'
 ```
 
 The loop is named by the path of the series inside the subgraph that is looped over, `per-word/split.result`: the node `split` inside `per-word`, and its output. Two outputs
@@ -158,7 +158,7 @@ run = graph.run(text="a,b;c")
 
 print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
 print(run.results["join"]["result"])            # ['A B', 'C']
-print(graph.runs_on["join"].msg)                # per item of per-line/documents.result
+print(graph.describe().nodes["join"].runs)    # mode='per_item' series='per-line/documents.result' msg='per item of per-line/documents.result'
 print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
 ```
 
@@ -250,7 +250,7 @@ graph that wires the wrong table to it gets a `type_mismatch`. So give a subgrap
 
 ## Where something is inside
 
-`run.results`, `graph.runs_on` and `graph.describe()` show the subgraph as one node. Its outputs in `run.results` are its graph's outputs, by
+`run.results` and `graph.describe()` show the subgraph as one node. Its outputs in `run.results` are its graph's outputs, by
 name, each what the inner node behind it returned; the subgraph node is never called itself. Everything that happens inside it is reported with a `loc` that starts with
 the subgraph node's id and, inside a loop, its item index, outermost first.
 

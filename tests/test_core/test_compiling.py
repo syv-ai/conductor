@@ -265,7 +265,7 @@ def test_compiling_one_record_twice_gives_the_same_graph():
     assert first.problems == second.problems and first.describe() == second.describe()
     good = {"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "t": {"node": "tail", "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}
     first, second = Graph.compile(GraphRecord.model_validate(good), REGISTRY), Graph.compile(GraphRecord.model_validate(good), REGISTRY)
-    assert first.runs_on == second.runs_on and list(first.inputs) == list(second.inputs) and first.outputs == second.outputs
+    assert first.describe() == second.describe() and list(first.inputs) == list(second.inputs) and first.outputs == second.outputs
 
 
 # -- constants ------------------------------------------------------------------------------------
@@ -518,7 +518,7 @@ def test_a_constant_on_a_subgraph_node_reaches_the_inner_input_it_offers():
 
 def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted"}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY)
-    assert graph.problems == [] and graph.inputs == {} and {k: v.mode for k, v in graph.runs_on.items()} == {"d": "once"}
+    assert graph.problems == [] and graph.inputs == {} and {k: v.runs.mode for k, v in graph.describe().nodes.items()} == {"d": "once"}
     assert graph.run().outputs == {"result": "inside"}
 
 
@@ -707,7 +707,7 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
     assert _described(graph, "u") == (True, "once", {"text": "missing"}, ["result"], ["type_mismatch"])
     assert _described(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
     assert _described(graph, "j") == (True, "once", {"texts": "collected"}, ["result"], [])
-    assert list(graph.runs_on) == ["f", "u", "t", "j"] and not graph.is_runnable
+    assert graph.describe().nodes["f"].found and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
     assert [p.type for p in refused.value.problems] == ["type_mismatch"]

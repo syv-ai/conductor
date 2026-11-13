@@ -132,11 +132,11 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     run = ran(PER, files=FILES)
     assert CALLS == {"read": 11, "review": 11}
     assert run.outputs == {"result": [f"rev(K{i})" for i in range(11)]}
-    assert run.graph.runs_on["review"].series == "upload.result"
+    assert run.graph.describe().nodes["review"].runs.series == "upload.result"
 
     run = ran(PER, files=FILES[:1])
     assert CALLS == {"read": 1, "review": 1} and run.outputs == {"result": ["rev(K0)"]}  # a list of one
-    assert run.graph.runs_on["review"].series == "upload.result"
+    assert run.graph.describe().nodes["review"].runs.series == "upload.result"
     assert ran(PER, files=[]).outputs == {"result": []} and CALLS == {}
 
 
@@ -226,7 +226,7 @@ def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
     run = graph.run(text="a,b")
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = Run.from_json(run.to_json(), graph)
-    assert saved.graph is graph and saved.graph.runs_on["q"].mode == "per_item"
+    assert saved.graph is graph and saved.graph.describe().nodes["q"].runs.mode == "per_item"
     done = saved.answer({w.id: w.loc[1:] == (1,) for w in saved.waiting}).resume()
     assert done.outputs == {"result": [False, True]}
 

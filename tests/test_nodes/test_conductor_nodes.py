@@ -51,15 +51,15 @@ def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
     ], constants={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}), conductor_nodes.registry)
 
-    assert graph.runs_on["regex-extract"].msg == "per item of text-split.result"
-    assert graph.runs_on["text-join"].msg == "per item of text-split.result"
+    assert graph.describe().nodes["regex-extract"].runs.msg == "per item of text-split.result"
+    assert graph.describe().nodes["text-join"].runs.msg == "per item of text-split.result"
     assert graph.run(text="a1,b2 3,c").outputs == {"result": ["1", "2, 3", ""]}
 
 
 def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is_skipped() -> None:
     graph = Graph.compile(make_graph(control.decision, text.uppercase, edges=[("control-decide.if_true", "text-uppercase.text")], defaults={"control-decide.when": True}), conductor_nodes.registry)
 
-    assert graph.exclusive_groups == {"control-decide": {"when": ["if_true", "if_false"]}}
+    assert {output.name: output.exclusive_group for output in graph.describe().nodes["control-decide"].outputs} == {"if_true": "when", "if_false": "when"}
     chosen = graph.run(value="hi", when=True)
     assert chosen.outputs == {"result": "HI"} and chosen.results["control-decide"] == {"if_true": "hi", "if_false": None}
     assert graph.run(value="hi", when=False).outputs == {"result": None}

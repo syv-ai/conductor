@@ -195,19 +195,19 @@ def problems(graph) -> list[tuple[str, tuple]]:
 def test_a_series_wired_to_an_input_of_one_value_starts_a_loop_that_its_downstream_nodes_are_inside():
     graph = compile_graph({"d": "documents", "u": "upper", "v": "upper"}, [("d.result", "u.text"), ("u.result", "v.text")])
     assert graph.is_runnable
-    assert {n: (r.mode, r.series) for n, r in graph.runs_on.items()} == {"d": ("once", None), "u": ("per_item", "d.result"), "v": ("per_item", "d.result")}
+    assert {n: (d.runs.mode, d.runs.series) for n, d in graph.describe().nodes.items()} == {"d": ("once", None), "u": ("per_item", "d.result"), "v": ("per_item", "d.result")}
     assert input_sources(graph, "u") == {"text": ("item", "d.result")}
 
 
 def test_a_node_inside_a_loop_gets_an_output_from_outside_it_as_an_outer_value():
     graph = compile_graph({"d": "documents", "u": "upper", "p": "pair"}, [("d.result", "p.a"), ("u.result", "p.b")])
-    assert graph.runs_on["p"].series == "d.result"
+    assert graph.describe().nodes["p"].runs.series == "d.result"
     assert input_sources(graph, "p") == {"a": ("item", "d.result"), "b": ("outer_value", None)}
 
 
 def test_a_series_input_collects_the_loop_and_its_node_is_called_once_outside_it():
     graph = compile_graph({"d": "documents", "u": "upper", "c": "count"}, [("d.result", "u.text"), ("u.result", "c.items")])
-    assert graph.runs_on["c"].mode == "once"
+    assert graph.describe().nodes["c"].runs.mode == "once"
     assert input_sources(graph, "c") == {"items": ("collected", "d.result")}
 
 
@@ -217,13 +217,13 @@ def test_nested_loops_are_collected_one_level_at_a_time():
         [("d.result", "l.document"), ("l.result", "u.text"), ("u.result", "c.items"), ("c.result", "t.counts")],
     )
     assert graph.is_runnable
-    assert {n: r.series for n, r in graph.runs_on.items()} == {"d": None, "l": "d.result", "u": "l.result", "c": "d.result", "t": None}
+    assert {n: d.runs.series for n, d in graph.describe().nodes.items()} == {"d": None, "l": "d.result", "u": "l.result", "c": "d.result", "t": None}
     assert input_sources(graph, "c") == {"items": ("collected", "l.result")} and input_sources(graph, "t") == {"counts": ("collected", "d.result")}
 
 
 def test_a_series_wired_to_a_series_input_is_collected_like_the_outputs_of_its_own_loop():
     graph = compile_graph({"d": "documents", "u": "upper", "b": "both"}, [("d.result", "u.text"), ("d.result", "b.first"), ("u.result", "b.second")])
-    assert graph.is_runnable and graph.runs_on["b"].mode == "once"
+    assert graph.is_runnable and graph.describe().nodes["b"].runs.mode == "once"
     assert input_sources(graph, "b") == {"first": ("collected", "d.result"), "second": ("collected", "d.result")}
 
 
@@ -248,12 +248,12 @@ def test_a_node_wired_to_the_items_of_two_series_that_are_not_nested_is_refused(
 
 def test_two_nodes_wired_to_one_series_are_inside_the_same_loop():
     graph = compile_graph({"d": "documents", "u": "upper", "v": "upper", "p": "pair"}, [("d.result", "u.text"), ("d.result", "v.text"), ("u.result", "p.a"), ("v.result", "p.b")])
-    assert graph.is_runnable and graph.runs_on["p"].series == "d.result"
+    assert graph.is_runnable and graph.describe().nodes["p"].runs.series == "d.result"
 
 
 def test_a_series_input_gets_the_one_value_of_a_source_that_runs_once_as_a_series_of_one():
     graph = compile_graph({"u": "upper", "c": "count"}, [("u.result", "c.items")])
-    assert graph.is_runnable and graph.runs_on["c"].mode == "once"
+    assert graph.is_runnable and graph.describe().nodes["c"].runs.mode == "once"
     assert input_sources(graph, "c") == {"items": ("collected", None)}
 
 
@@ -272,7 +272,7 @@ def test_a_series_of_the_wrong_item_type_is_a_type_mismatch_between_the_two_seri
 
 def test_a_table_is_passed_whole_and_starts_no_loop():
     graph = compile_graph({"c": "contacts", "n": "names"}, [("c.result", "n.table")])
-    assert graph.is_runnable and graph.runs_on["n"].mode == "once" and input_sources(graph, "n") == {"table": ("one_value", None)}
+    assert graph.is_runnable and graph.describe().nodes["n"].runs.mode == "once" and input_sources(graph, "n") == {"table": ("one_value", None)}
 
 
 def test_a_table_fits_a_table_input_by_its_columns_and_the_mismatch_names_both():
@@ -289,7 +289,7 @@ def test_a_table_on_an_input_of_one_text_is_a_type_mismatch():
 
 def test_an_input_of_any_type_takes_a_table_as_the_one_value_it_is():
     graph = compile_graph({"c": "contacts", "a": "anything"}, [("c.result", "a.value")])
-    assert graph.is_runnable and graph.runs_on["a"].mode == "once"
+    assert graph.is_runnable and graph.describe().nodes["a"].runs.mode == "once"
 
 
 def test_a_table_input_collects_records_in_step_with_a_series_input_from_the_same_loop():
@@ -298,7 +298,7 @@ def test_a_table_input_collects_records_in_step_with_a_series_input_from_the_sam
         [("c.result", "r.table"), ("r.result.email", "s.email"), ("r.result", "k.records"), ("s.result", "k.sent")],
     )
     assert graph.is_runnable
-    assert graph.runs_on["s"].series == "r.result" and graph.runs_on["k"].mode == "once"
+    assert graph.describe().nodes["s"].runs.series == "r.result" and graph.describe().nodes["k"].runs.mode == "once"
     assert input_sources(graph, "k") == {"records": ("collected", "r.result"), "sent": ("collected", "r.result")}
 
 
@@ -306,7 +306,7 @@ def test_a_table_input_collects_records_in_step_with_a_series_input_from_the_sam
 def test_a_table_input_of_any_columns_collects_a_series_whose_items_can_be_records(source: str):
     graph = compile_graph({"c": "contacts", "s": source, "h": "height"}, [*([("c.result", "s.table")] if source == "rows" else []), ("s.result", "h.table")],
                           outputs={"height": "h.result"})
-    assert graph.is_runnable and graph.runs_on["h"].mode == "once" and input_sources(graph, "h") == {"table": ("collected", "s.result")}
+    assert graph.is_runnable and graph.describe().nodes["h"].runs.mode == "once" and input_sources(graph, "h") == {"table": ("collected", "s.result")}
 
 
 @pytest.mark.parametrize(
@@ -328,7 +328,7 @@ def test_a_table_input_of_any_columns_refuses_values_that_are_not_records(nodes:
 def test_a_table_input_wired_to_a_series_of_tables_starts_a_loop_over_the_tables():
     graph = compile_graph({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")], outputs={"height": "h.result", "names": "n.result"})
     assert graph.is_runnable
-    assert {n: (graph.runs_on[n].mode, graph.runs_on[n].series, input_sources(graph, n)["table"]) for n in ("h", "n")} == {
+    assert {n: (graph.describe().nodes[n].runs.mode, graph.describe().nodes[n].runs.series, input_sources(graph, n)["table"]) for n in ("h", "n")} == {
         "h": ("per_item", "s.result", ("item", "s.result")), "n": ("per_item", "s.result", ("item", "s.result")),
     }
 
@@ -337,7 +337,7 @@ def test_a_table_returned_per_item_is_read_per_item_and_a_series_of_tables_input
     graph = compile_graph({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")],
                           outputs={"height": "h.result", "stacked": "k.result"})
     assert graph.is_runnable
-    assert (graph.runs_on["h"].mode, graph.runs_on["h"].series, graph.runs_on["k"].mode) == ("per_item", "d.result", "once")
+    assert (graph.describe().nodes["h"].runs.mode, graph.describe().nodes["h"].runs.series, graph.describe().nodes["k"].runs.mode) == ("per_item", "d.result", "once")
     assert input_sources(graph, "k") == {"tables": ("collected", "d.result")}
     whole = compile_graph({"s": "sheets", "k": "stacked"}, [("s.result", "k.tables")])
     assert whole.is_runnable and input_sources(whole, "k") == {"tables": ("collected", "s.result")}
@@ -347,7 +347,7 @@ def test_an_output_of_any_type_wired_to_a_table_input_is_one_value_or_collected_
     once = compile_graph({"a": "anything", "h": "height"}, [("a.result", "h.table")])
     assert once.is_runnable and input_sources(once, "h") == {"table": ("one_value", None)}
     per_item = compile_graph({"d": "documents", "a": "anything", "h": "height"}, [("d.result", "a.value"), ("a.result", "h.table")])
-    assert per_item.is_runnable and per_item.runs_on["h"].mode == "once" and input_sources(per_item, "h") == {"table": ("collected", "d.result")}
+    assert per_item.is_runnable and per_item.describe().nodes["h"].runs.mode == "once" and input_sources(per_item, "h") == {"table": ("collected", "d.result")}
     items = compile_graph({"u": "unknowns", "h": "height"}, [("u.result", "h.table")])
     assert items.is_runnable and input_sources(items, "h") == {"table": ("collected", "u.result")}
 
@@ -395,7 +395,7 @@ def test_an_input_is_a_graph_input_only_where_its_entry_says_so_and_one_with_no_
 
 def test_a_graph_input_of_a_series_is_given_whole_and_starts_no_loop():
     graph = compile_graph({"c": "count"}, [])
-    assert graph.is_runnable and graph.inputs["items"].is_series and graph.runs_on["c"].mode == "once"
+    assert graph.is_runnable and graph.inputs["items"].is_series and graph.describe().nodes["c"].runs.mode == "once"
     assert input_sources(graph, "c") == {"items": ("graph_input", None)}
 
 
@@ -427,7 +427,7 @@ def test_a_subgraph_is_one_node_with_the_inputs_and_outputs_its_record_declares(
     assert graph.is_runnable and list(graph._nodes) == ["d", "e", "c"]
     described = graph.describe().nodes["e"]
     assert [i.field.name for i in described.inputs] == ["text"] and [o.name for o in described.outputs] == ["result"]
-    assert graph.runs_on["e"].series == "d.result" and input_sources(graph, "c") == {"items": ("collected", "d.result")}
+    assert graph.describe().nodes["e"].runs.series == "d.result" and input_sources(graph, "c") == {"items": ("collected", "d.result")}
 
 
 def test_an_output_inside_a_loop_of_a_subgraph_is_offered_as_a_series():

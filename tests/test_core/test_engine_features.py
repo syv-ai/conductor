@@ -565,7 +565,7 @@ def test_two_series_on_opposite_branches_refused():
     assert [p.type for p in graph.problems] == ["lists_from_different_loops"], graph.problems
     record["nodes"]["p"]["node"] = "pair-optional"
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
-    assert not graph.problems and graph.exclusive_groups == {"d": {"answer": ["yes", "no"]}}
+    assert not graph.problems and {output.name: output.exclusive_group for output in graph.describe().nodes["d"].outputs} == {"yes": "answer", "no": "answer"}
     assert graph.run(text="yes,no").outputs == {"result": "['YES', None]|[None, 'no']"}
     try:
         @node("bad", title="Bad", description="For a test.")

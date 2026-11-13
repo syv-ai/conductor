@@ -8,7 +8,7 @@ description: Writes a conductor graph record (GraphRecord, make_graph), compiles
 A graph is data, a `GraphRecord`: its nodes by id, each naming the node definition it uses and what each of its inputs gets, and the graph's outputs by name. `Graph.compile` compiles it against a registry into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Address, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, Series
+from conductor import Address, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, RunsOn, Series
 
 registry = NodeRegistry(category="text")
 
@@ -49,7 +49,7 @@ run = graph.run(text="red,green")
 assert run.outputs == {"result": "RED + GREEN"}       # the graph outputs, by name
 results = run.results                                  # {node_id: {output: value}}; a node run per item gives a list
 assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
-assert graph.runs_on["joined"].mode == "once"         # parts is Series[str]: one call
+assert graph.describe().nodes["joined"].runs == RunsOn(mode="once", msg="once")  # parts is Series[str]: one call
 ```
 
 The same record as JSON is `{"nodes": {"words": {"node": "text-split", "inputs": {"text": {"graph_input": "text"}}}, "loud": {"node": "text-uppercase", "inputs": {"text": {"sources": [{"node": "words", "output": "result"}]}}}, ...}, "outputs": {"result": {"node": "joined", "output": "result"}}}`, what an editor writes and a host stores. A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph input is there only where an input's entry names it, and a graph output only in `outputs`. From Python, `make_graph(split, uppercase, join, constants={"text-join.separator": " + "})` writes a record too: with no `edges` the nodes form a chain, each node's one required input with no constant wired to the one output of the node before it; with `edges=[...]` those are every edge, and nothing is matched by name. A node's id there is its own id, `-1`, `-2` when used twice. It declares the graph's inputs and outputs: each required input that gets nothing (no edge, no constant), on any node, named by the input, and each output of a node no edge leaves, named by the output; an optional input that gets nothing takes its own default. `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both) and `outputs={"long": "join.result"}` name some of them otherwise, on top of that. Two that would share a name raise `graph_inputs_share_a_name` or `graph_outputs_share_a_name`; a text that is not `"node.name"` raises `not_a_place`.
@@ -82,4 +82,4 @@ Each input the record lists gets exactly one of a `constant` (the same on every 
 | `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, and `run.cause` for why it ended early |
 | `graph.run` in a server's event loop | `async for event in run.stream()`: the nodes are called on a thread of their own |
 
-To debug, read `problems`, then print every event of `run.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` starts with the node. `graph.runs_on` says how often each node runs.
+To debug, read `problems`, then print every event of `run.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` starts with the node. `graph.describe()` says how often each node runs.

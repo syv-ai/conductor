@@ -103,7 +103,7 @@ print(graph.run(text="a b").outputs)  # {'result': 'A+B'}
 - **An item limit before spending.** `max_items=` is an optional limit on the length of any one series a loop runs over, checked when the series is returned, before any call for its items. Over it the run is `stopped`, and `run.with_max_items(100).resume()` goes on under a higher one, calling nothing again.
 
 ```python
-print({node_id: runs.msg for node_id, runs in graph.runs_on.items()})  # {'words': 'once', 'upper': 'per item of words.result', 'join': 'once'}
+print(graph.describe().nodes["upper"].runs)  # mode='per_item' series='words.result' msg='per item of words.result'
 
 
 @registry.node("greet", title="Greet", description="Greets a person by name.")
