@@ -471,8 +471,7 @@ def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_th
     (problem,) = graph.problems
     assert (problem.type, problem.loc) == ("series_not_nested", ("llm",))
     assert problem.ctx["inputs"] == ["prompt", "text"]
-    # the record keeps no node order, so the wire suggested goes from the list whose node's id sorts first
-    assert (problem.ctx["wire_from"], problem.ctx["wire_into"]) == ("text-list.result", "upload")
+    assert set(problem.ctx["series"]) == {"text-list.result", "upload.result"}
 
 
 def test_scenario_14b_the_summary_of_several_takes_one_document_as_a_series_of_one():

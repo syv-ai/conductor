@@ -369,20 +369,18 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
 
 
 @PROBLEMS.problem()
-def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str], wire_from: str, wire_into: str) -> str:
+def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) -> str:
     """A node reads one item of each of two series, and neither series is returned inside the loop over the other.
 
     In the example ``g`` would be called once per name and once per greeting, and nothing says which name goes with
-    which greeting. ``ctx.wire_from`` and ``ctx.wire_into`` name an edge that fixes it: wire an item of the first
-    series into the node that returns the second, so that node is called once per item of the first. Or give one of
-    the series whole to a ``Series`` input, so it arrives as one list.
+    which greeting. Wire an item of one series into the node that returns the other, so that node is called once per
+    item of the first and returns its series inside that loop. Or give one of the series whole to a ``Series`` input,
+    so it arrives as one list.
 
     Args:
         node_id: The node.
         series: The two series, by address.
         inputs: The two inputs that read them.
-        wire_from: The address of the output to wire into ``wire_into``.
-        wire_into: The id of the node that returns the other series.
 
     Example:
         problems({"nodes": {
@@ -394,7 +392,7 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str], 
     return (
         f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
         "so nothing says which items go together. "
-        f"Wire '{wire_from}' into '{wire_into}' to put one inside the other, or give one of them whole to a Series input."
+        "Wire an item of one into the node that returns the other, or give one of them whole to a Series input."
     )
 
 

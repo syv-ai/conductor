@@ -27,7 +27,7 @@ from conductor._internal.record import GraphRecord, RecordGraphInput
 
 
 def make_graph(
-    *nodes: NodeDefinition,
+    *nodes: NodeDefinition | tuple[str, NodeDefinition],
     edges: Sequence[tuple[str, str]] | None = None,
     constants: Mapping[str, Any] = MappingProxyType({}),
     defaults: Mapping[str, Any] = MappingProxyType({}),
@@ -40,9 +40,11 @@ def make_graph(
         make_graph(lines, shout, edges=[("lines.result", "shout.line")])
         make_graph(lines, shout, join, constants={"shout.mark": "?"})
         make_graph(read, send, edges=[("read.result.email", "send.to")])     # the field email of read's record
+        make_graph(("a", shout), ("b", shout), edges=[("a.result", "b.line")])
 
-    A node's id in the graph is its definition's id; a definition used more than once is ``shout-1``, ``shout-2``, and
-    so on, skipping an id another node already has. An edge is ``(output, input)``, each written ``"node.name"``, and
+    A node's id in the graph is the id given with it, ``("a", shout)``, or else its definition's id; a definition
+    used more than once with no id given is ``shout-1``, ``shout-2``, and so on, skipping an id another node already
+    has. An edge is ``(output, input)``, each written ``"node.name"``, and
     an output may be followed by one field of the record it returns. ``constants`` and ``defaults`` are keyed by
     ``"node.input"``: a constant is the input's value on every call, and a default makes the input a graph input,
     with that value when the caller gives none. Each value is written in the record as its JSON reads back.
@@ -66,13 +68,13 @@ def make_graph(
     Raises:
         InvalidCallError: Listing every fault in writing the record itself: a place naming a node not given
             (``node_not_in_graph``), a value with no JSON form or holding a set (``invalid_value``), a place that is
-            not ``"node.name"``, a name the record refuses, an input given a value and an edge, or an edge written
-            twice (``invalid_record``), two graph inputs or outputs of one name (``ports_share_a_name``), and a chain
+            not ``"node.name"``, a name the record refuses, an input given a value and an edge, an edge written
+            twice, or one id given to two nodes (``invalid_record``), two graph inputs or outputs of one name (``ports_share_a_name``), and a chain
             that can't be drawn (``not_a_chain``).
     """
-    ids = _ids_of(nodes)
-    definitions = dict(zip(ids, nodes, strict=True))
     problems: list[Problem] = []
+    definitions = _by_id(nodes, problems)
+    ids = list(definitions)
     entries: dict[str, dict[str, dict[str, Any]]] = {node_id: {} for node_id in ids}
     for key, value in _values_by_place("constants", constants, ids, problems).items():
         entries[key[0]][key[1]] = {"constant": value}
@@ -80,7 +82,7 @@ def make_graph(
     for (node_id, name), value in given_defaults.items():
         entries[node_id][name] = {**entries[node_id].get(name, {}), "graph_input": name, "default": value}  # beside a constant, the door refuses it
     if edges is None:
-        edges = _chain_edges(ids, nodes, entries, problems)
+        edges = _chain_edges(ids, list(definitions.values()), entries, problems)
     for i, (source_text, target_text) in enumerate(edges):
         source, target = _place(source_text, ("edges", i, 0), ids, problems, field=True), _place(target_text, ("edges", i, 1), ids, problems)
         if source is not None and target is not None:
@@ -178,20 +180,25 @@ def _named_once(kind: str, places: Sequence[tuple[str, str]], problems: list[Pro
     return {name: node_id for node_id, name in places if counts[name] == 1}
 
 
-def _ids_of(nodes: Sequence[NodeDefinition]) -> list[str]:
-    """Each node's id in the graph: its definition's, numbered ``-1``, ``-2`` for one used more than once."""
-    used = Counter(definition.id for definition in nodes)
-    taken = {definition.id for definition in nodes if used[definition.id] == 1}
+def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problems: list[Problem]) -> dict[str, NodeDefinition]:
+    """Each node's definition by its id in the graph: the id given with it, or its definition's, numbered ``-1``,
+    ``-2`` for a definition used more than once with no id given. One id given to two nodes goes to ``problems``."""
+    given = [node[0] for node in nodes if isinstance(node, tuple)]
+    bare = Counter(node.id for node in nodes if not isinstance(node, tuple))
+    taken = {*given, *(definition_id for definition_id, count in bare.items() if count == 1)}
     numbered: Counter[str] = Counter()
-    ids: list[str] = []
-    for definition in nodes:
-        node_id = definition.id
-        while used[definition.id] > 1 and (node_id == definition.id or node_id in taken):
+    by_id: dict[str, NodeDefinition] = {}
+    for node in nodes:
+        node_id, definition = node if isinstance(node, tuple) else (node.id, node)
+        while not isinstance(node, tuple) and bare[definition.id] > 1 and (node_id == definition.id or node_id in taken):
             numbered[definition.id] += 1
             node_id = f"{definition.id}-{numbered[definition.id]}"
+        if node_id in by_id:
+            reason = f"the id {node_id!r} is given to two nodes"
+            problems.append(problem.invalid_record("record", "nodes", node_id, where=f"nodes.{node_id}", reason=reason, error="repeated_key"))
         taken.add(node_id)
-        ids.append(node_id)
-    return ids
+        by_id[node_id] = definition
+    return by_id
 
 
 def _chain_edges(ids: Sequence[str], nodes: Sequence[NodeDefinition], entries: Mapping[str, Mapping[str, Any]], problems: list[Problem]) -> list[tuple[str, str]]:

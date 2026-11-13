@@ -8,20 +8,19 @@ import threading
 import time
 from collections import Counter
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    FunctionDefinition,
     Graph,
     GraphRecord,
     NodeRegistry,
     Param,
     Policy,
-    RecordGraphInput,
     Series,
+    make_graph,
     node,
     subgraph,
 )
@@ -92,30 +91,40 @@ def ask(text: str) -> str:
 
 FUNCTIONS = (lines, words, upper, join, decide, tag, beside, pieces, ask)
 
-#: Each graph by what it is: its nodes by id, its edges, and the text every first node of it is given.
-GRAPHS: dict[str, tuple[dict[str, str], list[tuple[str, str]], str]] = {
-    "a chain": ({"a": "upper", "b": "upper"}, [("a.result", "b.text")], "x"),
-    "collecting an empty series": ({"w": "words", "u": "upper", "j": "join"}, [("w.result", "u.text"), ("u.result", "j.items")], ""),
-    "collecting per line, one line with no words": (
+class Case(NamedTuple):
+    """A graph: its nodes by id, its edges, the text every graph input of it is given, and the graph inputs where
+    two first nodes have an input of one name."""
+
+    nodes: dict[str, str]
+    edges: list[tuple[str, str]]
+    text: str
+    inputs: dict[str, list[str]] | None = None
+
+
+#: Each graph by what it is.
+GRAPHS: dict[str, Case] = {
+    "a chain": Case({"a": "upper", "b": "upper"}, [("a.result", "b.text")], "x"),
+    "collecting an empty series": Case({"w": "words", "u": "upper", "j": "join"}, [("w.result", "u.text"), ("u.result", "j.items")], ""),
+    "collecting per line, one line with no words": Case(
         {"l": "lines", "w": "words", "u": "upper", "j": "join"}, [("l.result", "w.text"), ("w.result", "u.text"), ("u.result", "j.items")], "a b;;c",
     ),
-    "collecting per line, the only line with no words": (
+    "collecting per line, the only line with no words": Case(
         {"l": "lines", "w": "words", "u": "upper", "j": "join"}, [("l.result", "w.text"), ("w.result", "u.text"), ("u.result", "j.items")], "",
     ),
-    "a branch upstream of collecting per line, one line with no words": (
+    "a branch upstream of collecting per line, one line with no words": Case(
         {"d": "decide", "l": "lines", "w": "words", "t": "tag", "j": "join"},
-        [("l.result", "w.text"), ("w.result", "t.text"), ("d.yes", "t.mark"), ("t.result", "j.items")], "a b;;c",
+        [("l.result", "w.text"), ("w.result", "t.text"), ("d.yes", "t.mark"), ("t.result", "j.items")], "a b;;c", {"text": ["d.text", "l.text"]},
     ),
-    "a branch not chosen upstream of collecting per line, one line with no words": (
+    "a branch not chosen upstream of collecting per line, one line with no words": Case(
         {"d": "decide", "l": "lines", "w": "words", "t": "tag", "j": "join"},
-        [("l.result", "w.text"), ("w.result", "t.text"), ("d.yes", "t.mark"), ("t.result", "j.items")], "no;;no",
+        [("l.result", "w.text"), ("w.result", "t.text"), ("d.yes", "t.mark"), ("t.result", "j.items")], "no;;no", {"text": ["d.text", "l.text"]},
     ),
-    "every item's value collected and given to each item": (
+    "every item's value collected and given to each item": Case(
         {"w": "words", "u": "upper", "b": "beside"}, [("w.result", "u.text"), ("w.result", "b.text"), ("u.result", "b.items")], "a b c",
     ),
-    "a subgraph whose inner Series has no items, per line": ({"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"),
-    "a subgraph per line, a node inside it reading nothing": ({"l": "lines", "e": "shout-and-stamp"}, [("l.result", "e.text")], "a;b"),
-    "a subgraph that collects an empty series": ({"e": "join-words", "u": "upper"}, [("e.result", "u.text")], ""),
+    "a subgraph whose inner Series has no items, per line": Case({"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"),
+    "a subgraph per line, a node inside it reading nothing": Case({"l": "lines", "e": "shout-and-stamp"}, [("l.result", "e.text")], "a;b"),
+    "a subgraph that collects an empty series": Case({"e": "join-words", "u": "upper"}, [("e.result", "u.text")], ""),
 }
 
 #: The nodes called on threads; every other is called on the thread that called the run.
@@ -145,30 +154,19 @@ def _registry(threaded: frozenset[str]) -> NodeRegistry:
 
 
 def _run(name: str, threaded: frozenset[str]) -> Any:
-    return _ran(*GRAPHS[name], threaded)
+    case = GRAPHS[name]
+    return _ran(case.nodes, case.edges, case.text, threaded, case.inputs)
 
 
-def _record(nodes: dict[str, str], edges: list[tuple[str, str]], registry: NodeRegistry) -> GraphRecord:
-    """The graph record of ``nodes`` and ``edges``, each edge ``(output, input)`` written ``"node.name"``. Every input
-    of a node no edge leads into is the graph input of the input's name, so every first node is given the text."""
-    inputs: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
-    for source, target in edges:
-        source_node, output = source.split(".")
-        target_node, name = target.split(".")
-        inputs[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
-    for node_id, node_name in nodes.items():
-        if not inputs[node_id]:
-            definition = registry[node_name]
-            names = definition.inputs if isinstance(definition, FunctionDefinition) else {
-                entry.graph_input for inner in definition.graph.nodes.values() for entry in inner.inputs.values() if isinstance(entry, RecordGraphInput)
-            }
-            inputs[node_id] = {name: {"graph_input": name} for name in names}
-    return GraphRecord.model_validate({"nodes": {node_id: {"node": node_name, "inputs": inputs[node_id]} for node_id, node_name in nodes.items()}})
+def _record(nodes: dict[str, str], edges: list[tuple[str, str]], registry: NodeRegistry, inputs: dict[str, list[str]] | None = None) -> GraphRecord:
+    """``make_graph`` of ``nodes`` (each a definition id in ``registry``, by node id) and ``edges``, with no graph
+    outputs, every node's result read from the run's results."""
+    return make_graph(*((node_id, registry[name]) for node_id, name in nodes.items()), edges=edges, inputs=inputs, outputs={})
 
 
-def _ran(nodes: dict[str, str], edges: list[tuple[str, str]], text: str, threaded: frozenset[str]) -> Any:
+def _ran(nodes: dict[str, str], edges: list[tuple[str, str]], text: str, threaded: frozenset[str], inputs: dict[str, list[str]] | None = None) -> Any:
     registry = _registry(threaded)
-    graph = Graph.compile(_record(nodes, edges, registry), registry)
+    graph = Graph.compile(_record(nodes, edges, registry, inputs), registry)
     assert not graph.problems, graph.problems
     return graph.run(dict.fromkeys(graph.inputs, text))
 
@@ -200,15 +198,15 @@ def test_a_node_collecting_an_empty_series_gets_an_empty_list_when_the_node_retu
 @pytest.mark.parametrize("threaded", [frozenset(), frozenset({"decide", "pieces"})], ids=["no threads", "the decision and the Series on threads"])
 def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skipped_per_item_while_other_calls_wait(threaded: frozenset[str]) -> None:
     nodes = {"d": "decide", "w": "pieces", "q": "ask", "t": "tag"}
-    run = _ran(nodes, [("w.result", "q.text"), ("d.yes", "t.text"), ("q.result", "t.mark")], "no a b", threaded)
+    run = _ran(nodes, [("w.result", "q.text"), ("d.yes", "t.text"), ("q.result", "t.mark")], "no a b", threaded, {"text": ["d.text", "w.text"]})
     assert run.status == "waiting" and len(run.waiting) == 3
     assert "t" not in calls_without_outcome(run)  # skipped, whichever node returned first
 
 
 def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_a_complete_run() -> None:
-    nodes, edges, _ = GRAPHS["collecting an empty series"]
+    case = GRAPHS["collecting an empty series"]
     registry = _registry(frozenset({"words"}))
-    graph = Graph.compile(_record(nodes, edges, registry), registry)
+    graph = Graph.compile(_record(case.nodes, case.edges, registry), registry)
     run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
     # a bug in the engine, made by hand: the series makes no downstream node ready. The run gets a flat graph of its
     # own with a copy of the node, so the graph's flat graph stays whole.

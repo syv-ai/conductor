@@ -10,7 +10,6 @@ import asyncio
 import datetime
 import json
 import time
-from collections import Counter
 from dataclasses import dataclass
 from threading import Event, Timer
 from typing import Annotated, Any, Literal, Optional, TypedDict
@@ -21,7 +20,6 @@ from conductor import (
     SKIPPED,
     Address,
     Ask,
-    FunctionDefinition,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -163,55 +161,17 @@ CONTACTS = ({"id": "c", "node": "contacts"}, {"id": "r", "node": "records"})
 SPLIT_CONTACTS = ("c.result", "r.table")
 
 
-def _inputs_of(definition: Any) -> list[str]:
-    """The inputs of a node: a function's, or a subgraph's graph inputs."""
-    if isinstance(definition, FunctionDefinition):
-        return list(definition.inputs)
-    entries = [entry for inner in definition.graph.nodes.values() for entry in inner.inputs.values()]
-    return list(dict.fromkeys(entry.graph_input for entry in entries if isinstance(entry, RecordGraphInput)))
-
-
-def _outputs_of(definition: Any) -> list[str]:
-    """The outputs of a node: a function's, or a subgraph's graph outputs."""
-    return list(definition.outputs if isinstance(definition, FunctionDefinition) else definition.graph.outputs)
-
-
 def record_of(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY,
               inputs: dict[str, str | list[str]] | None = None, outputs: dict[str, str] | None = None) -> GraphRecord:
-    """The graph record of ``nodes`` (``{"id", "node", "constants"?}``) and ``edges`` (``(output, input)``, each
-    written ``"node.name"``, an output maybe followed by a field of its record).
-
-    With no ``inputs``, each input of a node no edge leads into that no constant fills is the graph input of the
-    input's name; inputs of one name on several nodes share it. ``inputs`` maps a graph input's name to the inputs it
-    feeds, each ``"node.input"``. With no ``outputs``, each output of a node no edge leaves is the graph output of the
-    output's name, where no other such output has that name. ``outputs`` maps a graph output's name to
-    ``"node.output"``.
-    """
-    entries: dict[str, dict[str, Any]] = {n["id"]: {name: {"constant": value} for name, value in n.get("constants", {}).items()} for n in nodes}
-    for source, target in edges:
-        node_id, name = target.split(".")
-        entries[node_id].setdefault(name, {"sources": []})["sources"].append(dict(zip(("node", "output", "field"), source.split(".", 2), strict=False)))
-    definitions = {n["id"]: registry[n["node"]] for n in nodes}
-    if inputs is None:
-        led_into = {target.split(".")[0] for _, target in edges}
-        inputs = {}
-        for node_id, definition in definitions.items():
-            for name in _inputs_of(definition) if node_id not in led_into else ():
-                if name not in entries[node_id]:
-                    inputs.setdefault(name, []).append(f"{node_id}.{name}")
-    for name, places in inputs.items():
-        for place in [places] if isinstance(places, str) else places:
-            node_id, input_name = place.split(".")
-            entries[node_id][input_name] = {"graph_input": name}
-    if outputs is None:
-        led_out = {source.split(".")[0] for source, _ in edges}
-        leaves = [(node_id, name) for node_id, definition in definitions.items() if node_id not in led_out for name in _outputs_of(definition)]
-        named = Counter(name for _, name in leaves)
-        outputs = {name: f"{node_id}.{name}" for node_id, name in leaves if named[name] == 1}
-    return GraphRecord.model_validate({
-        "nodes": {n["id"]: {"node": n["node"], "inputs": entries[n["id"]]} for n in nodes},
-        "outputs": {name: dict(zip(("node", "output"), place.split("."), strict=True)) for name, place in outputs.items()},
-    })
+    """``make_graph`` of ``nodes`` (``{"id", "node", "constants"?}``, each node's definition from ``registry``),
+    ``edges`` (``(output, input)``) and the graph's ``inputs`` and ``outputs`` where a test names them."""
+    return make_graph(
+        *((n["id"], registry[n["node"]]) for n in nodes),
+        edges=list(edges),
+        constants={f"{n['id']}.{name}": value for n in nodes for name, value in n.get("constants", {}).items()},
+        inputs=inputs,
+        outputs=outputs,
+    )
 
 
 def graph(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY, **ports: Any) -> Any:
@@ -230,8 +190,8 @@ def ran(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registr
     return run
 
 
-def problems(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY) -> list[str]:
-    return [p.type for p in graph(*nodes, edges=edges, registry=registry).problems]
+def problems(*nodes: dict[str, Any], edges: tuple[tuple[str, str], ...] = (), registry: Any = REGISTRY, **ports: Any) -> list[str]:
+    return [p.type for p in graph(*nodes, edges=edges, registry=registry, **ports).problems]
 
 
 def through_json(run: Any) -> Any:
@@ -701,7 +661,8 @@ def test_each_series_output_of_a_node_starts_its_own_loop_of_its_own_length():
         return Both(a=["x"], b=("y", "z"))  # any sequence will do
 
     run = ran({"id": "u", "node": "uneven"}, {"id": "ua", "node": "upper"}, {"id": "ub", "node": "upper"},
-              edges=(("u.a", "ua.text"), ("u.b", "ub.text")), registry=registry_of(uneven, upper), text="t")
+              edges=(("u.a", "ua.text"), ("u.b", "ub.text")), registry=registry_of(uneven, upper),
+              ports={"outputs": {"a": "ua.result", "b": "ub.result"}}, text="t")
     assert {k: v.msg for k, v in run.graph.runs_on.items()} == {"u": "once", "ua": "per item of u.a", "ub": "per item of u.b"}
     assert (run.results["u"]["a"], run.results["u"]["b"]) == (["x"], ["y", "z"])
     assert (run.results["ua"]["result"], run.results["ub"]["result"]) == (["X"], ["Y", "Z"])
@@ -759,7 +720,8 @@ def test_a_series_input_given_a_constant_list_or_its_default_gets_it_whole_in_on
         return "+".join(texts) or "nothing"
 
     reg = registry_of(join, join_or_nothing)
-    run = ran({"id": "typed", "node": "join", "constants": {"texts": ["a", "b"]}}, {"id": "absent", "node": "join-or-nothing"}, registry=reg)
+    run = ran({"id": "typed", "node": "join", "constants": {"texts": ["a", "b"]}}, {"id": "absent", "node": "join-or-nothing"}, registry=reg,
+              ports={"outputs": {"typed": "typed.result", "absent": "absent.result"}})
     assert {k: v.msg for k, v in run.graph.runs_on.items()} == {"typed": "once", "absent": "once"}
     assert run.results == {"typed": {"result": "a+b"}, "absent": {"result": "nothing"}}
 
@@ -873,7 +835,8 @@ def test_two_series_outputs_of_one_node_and_two_series_under_one_document_never_
 def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
     compiled = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, {"id": "p", "node": "pair", "constants": {"b": "x"}},
                    {"id": "k", "node": "pair"},
-                   edges=(("s.result", "u.text"), ("u.result", "j.texts"), ("u.result", "p.a"), ("j.result", "k.a"), ("u.result", "k.b")))
+                   edges=(("s.result", "u.text"), ("u.result", "j.texts"), ("u.result", "p.a"), ("j.result", "k.a"), ("u.result", "k.b")),
+                   outputs={"p": "p.result", "k": "k.result"})
     nodes = compiled.describe().nodes
 
     def source_of(node_id: str) -> dict[str, str]:
@@ -905,7 +868,7 @@ def test_a_node_in_a_loop_over_an_empty_series_never_starts_and_collecting_gets_
 
 def test_a_branch_not_chosen_skips_the_node_downstream():
     run = ran({"id": "g", "node": "decide"}, {"id": "y", "node": "upper"}, {"id": "n", "node": "upper"},
-              edges=(("g.yes", "y.text"), ("g.no", "n.text")), text="hey")
+              edges=(("g.yes", "y.text"), ("g.no", "n.text")), ports={"outputs": {"yes": "y.result", "no": "n.result"}}, text="hey")
     assert run.results["y"]["result"] == "HEY" and run.results["n"]["result"] is None
 
 
@@ -915,7 +878,8 @@ def test_a_failing_node_on_the_branch_not_chosen_is_never_called():
         raise ValueError("never")
 
     run = ran({"id": "g", "node": "decide"}, {"id": "y", "node": "upper"}, {"id": "n", "node": "always-fail"},
-              edges=(("g.yes", "y.text"), ("g.no", "n.text")), registry=registry_of(decide, upper, always_fail), text="hey")
+              edges=(("g.yes", "y.text"), ("g.no", "n.text")), registry=registry_of(decide, upper, always_fail),
+              ports={"outputs": {"yes": "y.result", "no": "n.result"}}, text="hey")
     assert run.results["y"]["result"] == "HEY"
 
 
@@ -1032,7 +996,7 @@ def test_a_branch_on_a_whole_series_skips_the_nodes_on_the_branch_not_chosen():
     run = ran({"id": "docs", "node": "split"}, {"id": "d", "node": "decide-list"}, {"id": "full", "node": "join"},
               {"id": "up", "node": "upper"}, {"id": "after", "node": "join"},
               edges=(("docs.result", "d.texts"), ("d.full", "full.texts"), ("d.empty", "up.text"), ("up.result", "after.texts")),
-              registry=registry_of(split, decide_list, join, upper), text="a,b")
+              registry=registry_of(split, decide_list, join, upper), ports={"outputs": {"full": "full.result", "after": "after.result"}}, text="a,b")
     assert run.results["full"]["result"] == "a+b"
     assert run.results["up"]["result"] is None and run.results["after"]["result"] is None
     assert CALLED == ["join ['a', 'b']"]
@@ -1106,7 +1070,8 @@ def test_a_sorted_table_is_split_in_its_sorted_order_and_a_none_email_is_not_sen
 
 def test_each_invoice_of_each_document_is_checked_and_a_skipped_check_is_none_for_that_invoice():
     run = ran(DOCS, READ, LINES, {"id": "check", "node": "check"}, {"id": "total", "node": "total"},
-              edges=(*READ_EDGES, ("lines.result.vendor", "check.vendor"), ("lines.result.amount", "total.amounts")), text="acme:10,unknown:5|beta:7")
+              edges=(*READ_EDGES, ("lines.result.vendor", "check.vendor"), ("lines.result.amount", "total.amounts")),
+              ports={"outputs": {"checks": "check.result", "totals": "total.result"}}, text="acme:10,unknown:5|beta:7")
     assert {k: v.msg for k, v in run.graph.runs_on.items()} == {
         "docs": "once", "read": "per item of docs.result", "lines": "per item of docs.result", "check": "per item of lines.result",
         "total": "per item of docs.result",
@@ -1268,7 +1233,7 @@ def test_an_item_skipped_on_one_series_input_is_left_out_of_every_series_input_o
 def test_two_edges_into_one_input_that_can_both_have_a_value_are_a_problem_never_first_wins():
     """``upper(a, b)`` would silently lose ``b``; two edges per item of one Series would cover each item twice."""
     assert problems({"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "u", "node": "upper"},
-                    edges=(("a.result", "u.text"), ("b.result", "u.text"))) == ["several_edges_into_one_input"]
+                    edges=(("a.result", "u.text"), ("b.result", "u.text")), inputs={"text": ["a.text", "b.text"]}) == ["several_edges_into_one_input"]
     compiled = graph({"id": "s", "node": "split"}, {"id": "a", "node": "upper"}, {"id": "b", "node": "upper"}, {"id": "m", "node": "upper"},
                    edges=(("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "m.text"), ("b.result", "m.text")))
     (problem,) = compiled.problems
@@ -1411,7 +1376,7 @@ def test_a_table_not_returned_on_the_branch_that_ran_is_none_as_from_a_single_so
 
 def test_two_tables_that_can_both_have_a_value_into_one_table_input_are_a_problem():
     assert problems({"id": "a", "node": "lines-of"}, {"id": "b", "node": "lines-of"}, {"id": "w", "node": "words"},
-                    edges=(("a.result", "w.table"), ("b.result", "w.table")), registry=ALTERNATIVES) == ["several_edges_into_one_input"]
+                    edges=(("a.result", "w.table"), ("b.result", "w.table")), registry=ALTERNATIVES, inputs={"text": ["a.text", "b.text"]}) == ["several_edges_into_one_input"]
 
 
 # -- a list node per document ------------------------------------------------------------------
@@ -1596,9 +1561,10 @@ def as_subgraph(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, st
 def test_two_series_into_one_subgraph_node_are_one_problem_with_the_outer_graphs_addresses():
     inner = as_subgraph("pairs", {"id": "p", "node": "pair"})
     compiled = graph({"id": "d1", "node": "split"}, {"id": "d2", "node": "split"}, {"id": "sub", "node": "pairs"},
-                   edges=(("d1.result", "sub.a"), ("d2.result", "sub.b")), registry=registry_of(split, pair, inner))
+                   edges=(("d1.result", "sub.a"), ("d2.result", "sub.b")), registry=registry_of(split, pair, inner),
+                   inputs={"text": ["d1.text", "d2.text"], "sep": ["d1.sep", "d2.sep"]})
     (problem,) = compiled.problems
-    assert (problem.type, problem.loc, problem.ctx) == ("series_not_nested", ("sub",), {"node_id": "sub", "series": ["d1.result", "d2.result"], "inputs": ["a", "b"], "wire_from": "d1.result", "wire_into": "d2"})
+    assert (problem.type, problem.loc, problem.ctx) == ("series_not_nested", ("sub",), {"node_id": "sub", "series": ["d1.result", "d2.result"], "inputs": ["a", "b"]})
     assert "sub/" not in problem.msg
 
 
@@ -1627,7 +1593,8 @@ def test_two_series_out_of_one_subgraph_are_a_problem_where_they_meet():
 def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_address():
     inner = as_subgraph("splitup", {"id": "split", "node": "split"}, {"id": "upper", "node": "upper"}, edges=(("split.result", "upper.text"),))
     compiled = graph({"id": "e", "node": "splitup"}, {"id": "split", "node": "split"}, {"id": "u2", "node": "upper"},
-                   edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner))
+                   edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner),
+                   inputs={"text": ["e.text", "split.text"], "sep": ["e.sep", "split.sep"]}, outputs={"split": "split.result", "upper": "u2.result"})
 
     assert {k: v.msg for k, v in compiled.runs_on.items()} == {"e": "once", "split": "once", "u2": "per item of e.split.result"}
     assert compiled.describe().nodes["u2"].inputs[0].source.series == "e.split.result"

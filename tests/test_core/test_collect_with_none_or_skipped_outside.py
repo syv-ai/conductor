@@ -23,16 +23,12 @@ import pytest
 from conductor import (
     SKIPPED,
     Ask,
-    FunctionDefinition,
     Graph,
     GraphRecord,
-    NodeDefinition,
     NodeRegistry,
     Param,
-    RecordGraphInput,
     Run,
     Series,
-    SubgraphDefinition,
     make_graph,
 )
 
@@ -170,49 +166,11 @@ REGISTRY.subgraph("pair-then-items-then-up", title="Pair then items then up", de
 )
 
 
-def _inputs_of(definition: NodeDefinition) -> list[str]:
-    match definition:
-        case FunctionDefinition():
-            return list(definition.inputs)
-        case SubgraphDefinition():
-            return [entry.graph_input for node in definition.graph.nodes.values() for entry in node.inputs.values() if isinstance(entry, RecordGraphInput)]
-
-
-def _outputs_of(definition: NodeDefinition) -> list[str]:
-    match definition:
-        case FunctionDefinition():
-            return list(definition.outputs)
-        case SubgraphDefinition():
-            return list(definition.graph.outputs)
-
-
-def record_of(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], names: Sequence[str], inputs: Mapping[str, str] | None = None) -> GraphRecord:
-    """The record of ``nodes`` (registry id by node id) and ``edges`` (``("node.output", "node.input")``).
-
-    Each name in ``names`` is a graph input fed to every input of that name no edge leads into; ``inputs`` names a
-    graph input fed to one input (``{"first": "e.go"}``). Each output of a node no edge leaves is a graph output,
-    named ``"node-output"``.
-    """
-    entries: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
-    for source, target in edges:
-        source_node, output = source.split(".")
-        target_node, name = target.split(".")
-        entries[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
-    for name, place in (inputs or {}).items():
-        node_id, input_name = place.split(".")
-        entries[node_id][input_name] = {"graph_input": name}
-    for node_id, registry_id in nodes.items():
-        for name in _inputs_of(REGISTRY[registry_id]):
-            if name in names and name not in entries[node_id]:
-                entries[node_id][name] = {"graph_input": name}
-    led_out = {source.split(".")[0] for source, _ in edges}
-    outputs = {f"{node_id}-{output}": {"node": node_id, "output": output} for node_id, registry_id in nodes.items() if node_id not in led_out for output in _outputs_of(REGISTRY[registry_id])}
-    return GraphRecord.model_validate({"nodes": {node_id: {"node": nodes[node_id], "inputs": entries[node_id]} for node_id in nodes}, "outputs": outputs})
-
-
-def ran(nodes: dict[str, str], edges: list[tuple[str, str]], inputs: Mapping[str, str] | None = None, **values: str) -> Any:
-    """A complete run of ``record_of(nodes, edges, values, inputs)`` given ``values``."""
-    graph = Graph.compile(record_of(nodes, edges, list(values), inputs), REGISTRY)
+def ran(nodes: dict[str, str], edges: list[tuple[str, str]], inputs: Mapping[str, str | Sequence[str]] | None = None, outputs: Mapping[str, str] | None = None, **values: str) -> Any:
+    """A complete run, given ``values``, of ``make_graph`` of ``nodes`` (registry id by node id) joined by exactly
+    ``edges``, with these graph ``inputs`` and ``outputs``."""
+    record = make_graph(*((node_id, REGISTRY[registry_id]) for node_id, registry_id in nodes.items()), edges=edges, inputs=inputs, outputs=outputs)
+    graph = Graph.compile(record, REGISTRY)
     assert not graph.problems, graph.problems
     run = graph.run(**values)
     assert run.status == "complete"
@@ -279,7 +237,7 @@ def test_a_series_input_whose_items_take_none_gets_a_none_per_item_for_a_none_ou
 
 def test_a_series_never_returned_is_none_for_the_whole_input_whatever_its_items_take() -> None:
     nodes = {"t": "outside-value", "s": "items", "u": "up", "n": "dashes-for-none", "o": "count-or-none"}
-    run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], kind="no-value")
+    run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], outputs={"n": "n.result", "o": "o.result"}, kind="no-value")
     assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("not called", "none")
 
 
@@ -342,7 +300,7 @@ def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_b
         ("s.result", "a.a"), ("e.yes", "a.b"), ("f.yes", "a.c"), ("s.result", "b.a"), ("e.no", "b.b"), ("f.no", "b.c"),
         ("a.result", "p.a"), ("b.result", "p.a"), ("p.result", "n.values"),
     ]
-    assert outcome_of(ran(nodes, edges, inputs={"first": "e.go", "second": "f.go"}, first=first, second=second, text=text), "n") == n
+    assert outcome_of(ran(nodes, edges, inputs={"first": "e.go", "second": "f.go", "text": "s.text"}, first=first, second=second, text=text), "n") == n
 
 
 @pytest.mark.parametrize(("ways", "n"), [(["yes"] * 40, 2), (["yes", "no"] * 20, 2), ([*["yes"] * 20, "skip", *["no"] * 19], "skipped")])
@@ -375,13 +333,13 @@ def test_a_series_never_returned_into_a_branch_node_skips_the_collect_as_no_bran
 
 def test_a_series_never_returned_is_none_for_the_collect_even_where_the_loop_body_takes_none() -> None:
     nodes = {"t": "outside-value", "s": "items", "u": "up-or-none", "n": "count", "o": "count-or-none"}
-    run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], kind="no-value")
+    run = ran(nodes, [("t.result", "s.text"), ("s.result", "u.a"), ("u.result", "n.values"), ("u.result", "o.values")], outputs={"n": "n.result", "o": "o.result"}, kind="no-value")
     assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("not called", "none")
 
 
 def test_one_none_wired_to_a_series_input_is_a_list_of_one_none_where_its_items_take_none() -> None:
     nodes = {"t": "outside-value", "n": "count", "o": "count-or-none", "k": "dashes-for-none"}
-    run = ran(nodes, [("t.result", "n.values"), ("t.result", "o.values"), ("t.result", "k.values")], kind="no-value")
+    run = ran(nodes, [("t.result", "n.values"), ("t.result", "o.values"), ("t.result", "k.values")], outputs={"n": "n.result", "o": "o.result", "k": "k.result"}, kind="no-value")
     assert (outcome_of(run, "n"), outcome_of(run, "o"), outcome_of(run, "k")) == ("not called", "none", "-")
     assert outcome_of(ran({"t": "outside-value", "k": "dashes-for-none"}, [("t.result", "k.values")], kind="skip"), "k") == "skipped"
 
@@ -409,9 +367,10 @@ def test_a_collect_reading_only_the_series_counts_its_items_and_one_reading_a_no
     ``None``, the collecting node that reads it is not called."""
     nodes = {"x": "say", "t": "outside-value", "l": "items-and-note", "p": "pair", "u": "up", "n": "count", "m": "count"}
     edges = [("x.result", "l.text"), ("t.result", "l.note"), ("l.items", "u.a"), ("u.result", "m.values"), ("l.items", "p.a"), ("l.note", "p.b"), ("p.result", "n.values")]
-    run = ran(nodes, edges, kind="no-value", text=text)
+    outputs = {"m": "m.result", "n": "n.result"}
+    run = ran(nodes, edges, outputs=outputs, kind="no-value", text=text)
     assert (outcome_of(run, "m"), outcome_of(run, "n")) == (len(text.split()), "not called")
-    assert outcome_of(ran(nodes, edges, kind="x", text=text), "n") == len(text.split())
+    assert outcome_of(ran(nodes, edges, outputs=outputs, kind="x", text=text), "n") == len(text.split())
 
 
 @pytest.mark.parametrize(("kind", "n"), [("no-value", "not called"), ("skip", "skipped"), ("v", 2)])
@@ -453,8 +412,8 @@ def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_
 
 def shown(nodes: dict[str, str], edges: list[tuple[str, str]], node_id: str, output: str = "result", **inputs: str) -> tuple[Any, Any, Any]:
     """An output in ``run.results``, in ``run.outputs``, and in the results of the run read back with ``Run.from_json``."""
-    run = ran(nodes, edges, **inputs)
-    return run.results[node_id][output], run.outputs.get(f"{node_id}-{output}", "not a graph output"), Run.from_json(run.to_json(), run.graph).results[node_id][output]
+    run = ran(nodes, edges, outputs={"shown": f"{node_id}.{output}"}, **inputs)
+    return run.results[node_id][output], run.outputs["shown"], Run.from_json(run.to_json(), run.graph).results[node_id][output]
 
 
 @pytest.mark.parametrize(("kind", "result"), [("no-value", None), ("skip", None), ("", []), ("a b", ["A", "B"])])
@@ -467,7 +426,7 @@ def test_a_per_item_output_is_shown_as_a_collect_would_get_it_flat_or_in_a_subgr
 @pytest.mark.parametrize(("kind", "result"), [("no-value", [None, None]), ("skip", None), ("x", ["a+x", "b+x"])])
 def test_a_per_item_output_decided_from_outside_is_none_per_item_or_one_none_when_skipped(kind: str, result: Any) -> None:
     nodes, edges = {"s": "items", "t": "outside-value", "p": "pair", "n": "count"}, [("s.result", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
-    assert shown(nodes, edges, "p", kind=kind, text="a b") == (result, "not a graph output", result)
+    assert shown(nodes, edges, "p", kind=kind, text="a b") == (result, result, result)
 
 
 def test_an_output_of_nested_loops_is_a_list_per_outer_item_or_none_when_never_returned() -> None:
@@ -494,9 +453,9 @@ def test_a_subgraph_in_a_loop_shows_a_list_per_item_and_none_where_its_series_wa
     flat = ran({"s": "items", "m": "maybe", "w": "items", "u": "up"}, [("s.result", "m.a"), ("m.result", "w.text"), ("w.result", "u.a")], text="ab no-value cd")
     in_subgraph = ran({"s": "items", "m": "maybe", "e": "items-then-up"}, [("s.result", "m.a"), ("m.result", "e.text")], text="ab no-value cd")
     assert flat.results["u"]["result"] == [["AB"], None, ["CD"]]  # a list for each item and None for the item whose series was never returned
-    assert in_subgraph.results["e"]["result"] == [["AB"], None, ["CD"]] == in_subgraph.outputs["e-result"]
+    assert in_subgraph.results["e"]["result"] == [["AB"], None, ["CD"]] == in_subgraph.outputs["result"]
     never = ran({"t": "outside-value", "s": "items", "e": "items-then-up"}, [("t.result", "s.text"), ("s.result", "e.text")], kind="no-value")
-    assert never.results["e"]["result"] is None and never.outputs["e-result"] is None and never.outputs_to_json() == '{"e-result":null}'
+    assert never.results["e"]["result"] is None and never.outputs["result"] is None and never.outputs_to_json() == '{"result":null}'
 
 
 REGISTRY.subgraph("words-up-and-letters", title="Words and letters", description="Each word in capitals, and each letter of each word.")(

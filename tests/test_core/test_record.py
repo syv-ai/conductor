@@ -992,3 +992,11 @@ def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_
         ("invalid_record", ("record", "nodes", "hello", "inputs", "name..x", "[key]")),  # an input's name has no dot
     ]
     assert all("'node.name'" in p.msg for p in refused.value.errors()[:2])
+
+
+def test_make_graph_takes_a_node_with_an_id_of_its_own_and_refuses_one_id_for_two_nodes():
+    record = make_graph(("first", _hello), ("second", _hello), edges=[("first.result", "second.name")])
+    assert list(record.nodes) == ["first", "second"] and record.nodes["second"].node == "hello"
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(("a", _hello), ("a", _hello), edges=[])
+    assert [(p.type, p.loc, p.ctx["error"]) for p in refused.value.errors()] == [("invalid_record", ("record", "nodes", "a"), "repeated_key")]

@@ -23,7 +23,8 @@ What changes in how you work, before the name-by-name tables:
   by id. A key written twice in the JSON (two nodes with one id), a name with `.`, `/`, `@` or `~`, a source listed
   twice and an input given two kinds are refused at the door (`invalid_record`). `graph.inputs`, `run.inputs`,
   `graph.outputs` and `run.outputs` are keyed by the declared names. `make_graph` declares the ports of a plain
-  graph itself and takes `inputs=` and `outputs=` where two would share a name (`ports_share_a_name`). New public
+  graph itself and takes `inputs=` and `outputs=` where two would share a name (`ports_share_a_name`); a node given
+  as `(id, definition)` gets that id. New public
   names: `RecordConstant`, `RecordGraphInput`, `RecordEdges`, `Address`. New codes: `input_has_no_value`,
   `graph_input_used_two_ways`, `ports_share_a_name`.
 - **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise

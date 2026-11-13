@@ -6,7 +6,6 @@ is called once. An output from outside a loop that a node inside it reads is an 
 In ``documents -> upper -> count``, ``upper`` is called once per document and ``count`` once, with every result.
 """
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, TypedDict
@@ -14,17 +13,15 @@ from typing import Annotated, Any, TypedDict
 import pytest
 from conductor import (
     SKIPPED,
-    FunctionDefinition,
     Graph,
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
     Param,
-    RecordGraphInput,
     Series,
-    SubgraphDefinition,
     Table,
     host_type,
+    make_graph,
     node,
     subgraph,
 )
@@ -170,42 +167,16 @@ for _definition in (
     REGISTRY.add(_definition)
 
 
-def _ports_of(definition_id: str, registry: NodeRegistry) -> tuple[list[str], list[str]]:
-    """The inputs and outputs of the node definition ``definition_id``: a subgraph's are those its record declares."""
-    match registry[definition_id] if definition_id in registry else None:
-        case FunctionDefinition() as definition:
-            return list(definition.inputs), list(definition.outputs)
-        case SubgraphDefinition() as definition:
-            inputs = [entry.graph_input for node in definition.graph.nodes.values() for entry in node.inputs.values() if isinstance(entry, RecordGraphInput)]
-            return list(dict.fromkeys(inputs)), list(definition.graph.outputs)
-        case _:
-            return [], []
+def record_of(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], registry: NodeRegistry = REGISTRY, **given: Any) -> GraphRecord:
+    """``make_graph`` of ``nodes`` (node id to node definition id in ``registry``) and ``edges``
+    (``("node.output", "node.input")``, or ``("node.output.field", "node.input")`` for one field of a record);
+    ``given`` are its ``constants``, ``inputs`` and ``outputs``."""
+    return make_graph(*((node_id, registry[name]) for node_id, name in nodes.items()), edges=list(edges), **given)
 
 
-def record_of(nodes: Mapping[str, str | dict], edges: Sequence[tuple[str, str]], registry: NodeRegistry = REGISTRY) -> GraphRecord:
-    """The record of ``nodes`` (node id to node definition id, or to the rest of its node record) and ``edges``
-    (``("node.output", "node.input")``, or ``("node.output.field", "node.input")`` for one field of a record).
-
-    Each input of a node no edge leads into that has no entry is a graph input of the input's name. Each output of a
-    node no edge leaves is a graph output of the output's name, or of ``"node-output"`` where two would share one.
-    """
-    records = {node_id: {"node": n, "inputs": {}} if isinstance(n, str) else {**n, "inputs": dict(n.get("inputs", {}))} for node_id, n in nodes.items()}
-    for source, target in edges:
-        target_node, name = target.split(".")
-        records[target_node]["inputs"].setdefault(name, {"sources": []})["sources"].append(dict(zip(("node", "output", "field"), source.split(".", 2), strict=False)))
-    led_into, led_out = {target.split(".")[0] for _, target in edges}, {source.split(".")[0] for source, _ in edges}
-    for node_id, record in records.items():
-        if node_id not in led_into:
-            record["inputs"] |= {name: {"graph_input": name} for name in _ports_of(record["node"], registry)[0] if name not in record["inputs"]}
-    leaves = [(node_id, output) for node_id, record in records.items() if node_id not in led_out for output in _ports_of(record["node"], registry)[1]]
-    shared = Counter(output for _, output in leaves)
-    outputs = {output if shared[output] == 1 else f"{node_id}-{output}": {"node": node_id, "output": output} for node_id, output in leaves}
-    return GraphRecord.model_validate({"nodes": records, "outputs": outputs})
-
-
-def compile_graph(nodes: Mapping[str, str | dict], edges: Sequence[tuple[str, str]], registry: NodeRegistry = REGISTRY):
-    """The compiled graph of ``record_of(nodes, edges, registry)``."""
-    return Graph.compile(record_of(nodes, edges, registry), registry)
+def compile_graph(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], registry: NodeRegistry = REGISTRY, **given: Any):
+    """The compiled graph of ``record_of(nodes, edges, registry, **given)``."""
+    return Graph.compile(record_of(nodes, edges, registry, **given), registry)
 
 
 def input_sources(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
@@ -260,6 +231,7 @@ def test_an_input_wired_to_the_outer_series_of_a_nested_loop_gets_its_item_as_an
     graph = compile_graph(
         {"d": "documents", "l": "lines", "c": "count", "p": "pair", "u": "upper"},
         [("d.result", "l.document"), ("l.result", "c.items"), ("l.result", "p.a"), ("d.result", "p.b")],
+        outputs={"count": "c.result", "pair": "p.result", "upper": "u.result"},
     )
     assert graph.is_runnable
     assert input_sources(graph, "p") == {"a": ("item", "l.result"), "b": ("outer_value", "d.result")}
@@ -269,7 +241,7 @@ def test_an_input_wired_to_the_outer_series_of_a_nested_loop_gets_its_item_as_an
 
 
 def test_a_node_wired_to_the_items_of_two_series_that_are_not_nested_is_refused():
-    graph = compile_graph({"a": "documents", "b": "documents", "p": "pair"}, [("a.result", "p.a"), ("b.result", "p.b")])
+    graph = compile_graph({"a": "documents", "b": "documents", "p": "pair"}, [("a.result", "p.a"), ("b.result", "p.b")], inputs={"folder": ["a.folder", "b.folder"]})
     assert problems(graph) == [("series_not_nested", ("p",))]
     assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
 
@@ -286,7 +258,7 @@ def test_a_series_input_gets_the_one_value_of_a_source_that_runs_once_as_a_serie
 
 
 def test_a_list_constant_on_an_input_of_one_value_is_an_invalid_value():
-    graph = compile_graph({"u": {"node": "upper", "inputs": {"text": {"constant": ["a", "b"]}}}}, [])
+    graph = compile_graph({"u": "upper"}, [], constants={"u.text": ["a", "b"]})
     assert problems(graph) == [("invalid_value", ("u", "text"))]
 
 
@@ -332,7 +304,8 @@ def test_a_table_input_collects_records_in_step_with_a_series_input_from_the_sam
 
 @pytest.mark.parametrize("source", ["rows", "mappings", "unknowns"], ids=["records of declared columns", "mappings", "items of any type"])
 def test_a_table_input_of_any_columns_collects_a_series_whose_items_can_be_records(source: str):
-    graph = compile_graph({"c": "contacts", "s": source, "h": "height"}, [*([("c.result", "s.table")] if source == "rows" else []), ("s.result", "h.table")])
+    graph = compile_graph({"c": "contacts", "s": source, "h": "height"}, [*([("c.result", "s.table")] if source == "rows" else []), ("s.result", "h.table")],
+                          outputs={"height": "h.result"})
     assert graph.is_runnable and graph.runs_on["h"].mode == "once" and input_sources(graph, "h") == {"table": ("collected", "s.result")}
 
 
@@ -353,7 +326,7 @@ def test_a_table_input_of_any_columns_refuses_values_that_are_not_records(nodes:
 
 
 def test_a_table_input_wired_to_a_series_of_tables_starts_a_loop_over_the_tables():
-    graph = compile_graph({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")])
+    graph = compile_graph({"s": "sheets", "h": "height", "n": "names"}, [("s.result", "h.table"), ("s.result", "n.table")], outputs={"height": "h.result", "names": "n.result"})
     assert graph.is_runnable
     assert {n: (graph.runs_on[n].mode, graph.runs_on[n].series, input_sources(graph, n)["table"]) for n in ("h", "n")} == {
         "h": ("per_item", "s.result", ("item", "s.result")), "n": ("per_item", "s.result", ("item", "s.result")),
@@ -361,7 +334,8 @@ def test_a_table_input_wired_to_a_series_of_tables_starts_a_loop_over_the_tables
 
 
 def test_a_table_returned_per_item_is_read_per_item_and_a_series_of_tables_input_collects_them():
-    graph = compile_graph({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")])
+    graph = compile_graph({"d": "documents", "t": "sheet", "h": "height", "k": "stacked"}, [("d.result", "t.text"), ("t.result", "h.table"), ("t.result", "k.tables")],
+                          outputs={"height": "h.result", "stacked": "k.result"})
     assert graph.is_runnable
     assert (graph.runs_on["h"].mode, graph.runs_on["h"].series, graph.runs_on["k"].mode) == ("per_item", "d.result", "once")
     assert input_sources(graph, "k") == {"tables": ("collected", "d.result")}

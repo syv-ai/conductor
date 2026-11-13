@@ -23,6 +23,7 @@ from conductor import (
     Series,
     Table,
     host_type,
+    make_graph,
     node,
     subgraph,
 )
@@ -120,31 +121,18 @@ def _registry() -> NodeRegistry:
     return registry
 
 
-def _record(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]] = (), outputs: Mapping[str, str] | None = None) -> GraphRecord:
-    """The record of ``nodes`` (node id to node definition id) joined by ``edges`` (``("node.output", "node.input")``
-    or ``("node.output.field", "node.input")``).
-
-    The ``text`` of each node no edge leads into is the graph input named by the node's id. ``outputs`` maps each
-    graph output's name to the output it is (``"gate.short"``); with none, the ``result`` of each node no edge
-    leaves is the graph output named by the node's id.
-    """
-    entries: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
-    for source, target in edges:
-        target_node, name = target.split(".")
-        entries[target_node].setdefault(name, {"sources": []})["sources"].append(dict(zip(("node", "output", "field"), source.split(".", 2), strict=False)))
-    for node_id, named in entries.items():
-        if not named:
-            named["text"] = {"graph_input": node_id}
-    if outputs is None:
-        outputs = {node_id: f"{node_id}.result" for node_id in nodes if node_id not in {source.split(".")[0] for source, _ in edges}}
-    declared = {name: dict(zip(("node", "output"), place.split("."), strict=True)) for name, place in outputs.items()}
-    return GraphRecord.model_validate({"nodes": {node_id: {"node": definition_id, "inputs": entries[node_id]} for node_id, definition_id in nodes.items()}, "outputs": declared})
+def _record(registry: NodeRegistry, nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], *, inputs: Mapping[str, str], outputs: Mapping[str, str]) -> GraphRecord:
+    """``make_graph`` of ``nodes`` (node id to the id of its definition in ``registry``), joined by exactly ``edges``,
+    with these graph ``inputs`` and ``outputs``."""
+    return make_graph(*((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()), edges=list(edges), inputs=inputs, outputs=outputs)
 
 
 def _everything() -> Any:
     """A graph with a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph
     and tables."""
+    registry = _registry()
     return Graph.compile(_record(
+        registry,
         {
             "lines": "lines", "gate": "gate", "maybe": "maybe", "letters": "letters", "ask": "ask", "frame": "frame",
             "typed": "typed-frame", "reading": "reading", "long": "join", "e": "inner",
@@ -153,8 +141,9 @@ def _everything() -> Any:
             ("lines.result.text", "gate.text"), ("lines.result.text", "maybe.text"), ("lines.result.text", "letters.text"),
             ("lines.result.text", "ask.text"), ("gate.long", "long.texts"), ("lines.result.text", "e.text"),
         ],
-        {name: f"{name}.result" for name in ("maybe", "letters", "ask", "frame", "typed", "reading", "long", "e")} | {"short": "gate.short"},
-    ), _registry())
+        inputs={name: f"{name}.text" for name in ("lines", "frame", "typed", "reading")},
+        outputs={name: f"{name}.result" for name in ("maybe", "letters", "ask", "frame", "typed", "reading", "long", "e")} | {"short": "gate.short"},
+    ), registry)
 
 
 def _inputs(text: str) -> dict[str, str]:
@@ -289,7 +278,9 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
-    graph = Graph.compile(_record({n: n for n in ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")}), _registry())
+    names = ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")
+    registry = _registry()
+    graph = Graph.compile(_record(registry, {n: n for n in names}, [], inputs={n: f"{n}.text" for n in names}, outputs={n: f"{n}.result" for n in names}), registry)
     run = graph.run({"lines": "ab", "reading": "inf", "loose": "x", "float-or-text": "x", "typed-frame": "x", "frame": "p"})
     json.loads(run.to_json(), parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}"))
 
@@ -361,7 +352,13 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
 
     registry = _registry()
     registry.add(rows)
-    graph = Graph.compile(_record({n: n for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")}, [("lines.result.text", "letters.text")]), registry)
+    graph = Graph.compile(_record(
+        registry,
+        {n: n for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")},
+        [("lines.result.text", "letters.text")],
+        inputs={n: f"{n}.text" for n in ("lines", "reading", "loose", "typed-frame", "rows")},
+        outputs={n: f"{n}.result" for n in ("letters", "reading", "loose", "typed-frame", "rows")},
+    ), registry)
     run = graph.run({"lines": "ab,xa", "reading": "inf", "loose": "x", "typed-frame": "x", "rows": "x"})
 
     written = run.outputs_to_json()

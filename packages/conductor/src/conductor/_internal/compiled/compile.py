@@ -430,18 +430,15 @@ class _Compiler:
         for name, node_input in inputs.items():
             if loops[: len(node_input.loops)] != node_input.loops:  # not the node's outermost loops: items of two different lists are never paired
                 series = [loops[-1], node_input.loops[-1]]
-                # the fix suggested: wire the list compiled first into the other node, which makes no cycle
-                outer, inner = sorted(series, key=lambda port: list(self.nodes).index(port.node))
                 reading = next(n for n, p in inputs.items() if p.loops == loops)
                 subgraphs = list(dict.fromkeys(port.node for port in series if isinstance(self.nodes[port.node], CompiledSubgraphNode)))
-                if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph: no wire to suggest
+                if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph
                     self.problems.append(problem.loops_not_nested_inside_subgraph(
                         node_id, series=[str(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
                     ))
                 else:
                     self.problems.append(problem.series_not_nested(
                         node_id, series=[str(s) for s in series], inputs=[reading, name],
-                        wire_from=str(outer), wire_into=inner.node,
                     ))
                 inputs[name] = MissingInput(node_input.field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)

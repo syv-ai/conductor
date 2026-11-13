@@ -3,7 +3,7 @@
 import typing
 from typing import Any, TypedDict
 
-from conductor import Graph, GraphRecord, NodeRegistry, Series, Table, node
+from conductor import Graph, GraphRecord, NodeRegistry, Series, Table, make_graph, node
 
 
 class Contact(TypedDict):
@@ -70,19 +70,9 @@ for _definition in (contacts, csv, tags, people, records, send, report, count, d
 
 
 def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
-    """The one problem of the graph of ``nodes`` (id to node) wired by ``edges`` (``"node.output[.field]"``,
-    ``"node.input"``); each required input of a node no edge leads into is a graph input."""
-    inputs: dict[str, dict[str, Any]] = {node_id: {} for node_id in nodes}
-    for source, target in edges:
-        node_id, output, *field = source.split(".", 2)
-        target_id, name = target.split(".")
-        inputs[target_id].setdefault(name, {"sources": []})["sources"].append({"node": node_id, "output": output, **({"field": field[0]} if field else {})})
-    for node_id, definition in nodes.items():
-        if not inputs[node_id]:
-            required = [field.name for field in REGISTRY[definition].describe().inputs if field.required]
-            inputs[node_id] = {name: {"graph_input": f"{node_id}_{name}"} for name in required}
-    record = {"nodes": {node_id: {"node": definition, "inputs": inputs[node_id]} for node_id, definition in nodes.items()}}
-    graph = Graph.compile(GraphRecord.model_validate(record), REGISTRY)
+    """The one problem of ``make_graph`` of ``nodes`` (id to node) wired by ``edges`` (``"node.output[.field]"``,
+    ``"node.input"``), with no graph outputs."""
+    graph = Graph.compile(make_graph(*((node_id, REGISTRY[name]) for node_id, name in nodes.items()), edges=edges, outputs={}), REGISTRY)
     (found,) = graph.problems
     return found
 
@@ -182,10 +172,10 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
     """The wire suggested is from the list of the node compiled first, by id, so it makes no cycle."""
     found = problem({"docs": "documents", "list": "questions", "ask": "ask"}, [("list.result", "ask.question"), ("docs.result", "ask.document")])
     assert (found.type, found.loc) == ("series_not_nested", ("ask",))
-    assert found.ctx == {"node_id": "ask", "series": ["list.result", "docs.result"], "inputs": ["question", "document"], "wire_from": "docs.result", "wire_into": "list"}
+    assert found.ctx == {"node_id": "ask", "series": ["list.result", "docs.result"], "inputs": ["question", "document"]}
     assert found.msg == (
         "'ask' reads items of list.result, docs.result, and neither is inside the loop over the other, so nothing says which items go together. "
-        "Wire 'docs.result' into 'list' to put one inside the other, or give one of them whole to a Series input."
+        "Wire an item of one into the node that returns the other, or give one of them whole to a Series input."
     )
 
 

@@ -26,7 +26,6 @@ from conductor import (
     SKIPPED,
     Ask,
     ExternalError,
-    FunctionDefinition,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -34,11 +33,10 @@ from conductor import (
     NodeRegistry,
     Param,
     Policy,
-    RecordGraphInput,
     Run,
     Series,
-    SubgraphDefinition,
     Table,
+    make_graph,
     node,
     subgraph,
 )
@@ -309,55 +307,32 @@ for _id, _record in INNER.items():
     REGISTRY.add(subgraph(_id, title=_id.capitalize(), description=f"The {_id} node.")(GraphRecord.model_validate(_record)))
 
 
-def _inputs_of(definition_id: str) -> list[str]:
-    match REGISTRY[definition_id] if definition_id in REGISTRY else None:
-        case FunctionDefinition() as definition:
-            return list(definition.inputs)
-        case SubgraphDefinition() as definition:
-            return list(dict.fromkeys(entry.graph_input for node in definition.graph.nodes.values() for entry in node.inputs.values() if isinstance(entry, RecordGraphInput)))
-        case _:
-            return []
+def compile_graph(
+    nodes: Mapping[str, str],
+    edges: Sequence[tuple[str, str]] = (),
+    *,
+    constants: Mapping[str, Any] | None = None,
+    defaults: Mapping[str, Any] | None = None,
+    inputs: Mapping[str, str] | None = None,
+    outputs: Mapping[str, str] | None = None,
+):
+    """The compiled ``make_graph`` of ``nodes`` (node id to the id of its definition in ``REGISTRY``), joined by
+    exactly ``edges``, with these ``constants``, ``defaults``, graph ``inputs`` and ``outputs``."""
+    record = make_graph(
+        *((node_id, REGISTRY[definition_id]) for node_id, definition_id in nodes.items()),
+        edges=list(edges), constants=constants or {}, defaults=defaults or {}, inputs=inputs, outputs=outputs,
+    )
+    return Graph.compile(record, REGISTRY)
 
 
-def _outputs_of(definition_id: str) -> list[str]:
-    match REGISTRY[definition_id] if definition_id in REGISTRY else None:
-        case FunctionDefinition() as definition:
-            return list(definition.outputs)
-        case SubgraphDefinition() as definition:
-            return list(definition.graph.outputs)
-        case _:
-            return []
-
-
-def compile_graph(nodes: Mapping[str, str | dict[str, Any]], edges: Sequence[tuple[str, str]] = (), inputs: Mapping[str, str] | None = None):
-    """The compiled graph of ``nodes`` (node id to node definition id, or to the rest of its node record) and
-    ``edges`` (``("node.output", "node.input")``).
-
-    With no ``inputs``, each input of a node no edge leads into that has no entry is a graph input of the input's
-    name; ``inputs`` names each graph input and the one input it feeds (``{"many": "many.text"}``). Each output of a
-    node no edge leaves is a graph output named ``"node-output"``.
-    """
-    records = {node_id: {"node": n, "inputs": {}} if isinstance(n, str) else {**n, "inputs": dict(n.get("inputs", {}))} for node_id, n in nodes.items()}
-    for source, target in edges:
-        (source_node, output), (target_node, name) = source.split("."), target.split(".")
-        records[target_node]["inputs"].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
-    if inputs is None:
-        led_into = {target.split(".")[0] for _, target in edges}
-        for node_id, record in records.items():
-            if node_id not in led_into:
-                record["inputs"] |= {name: {"graph_input": name} for name in _inputs_of(record["node"]) if name not in record["inputs"]}
-    else:
-        for name, place in inputs.items():
-            node_id, input_name = place.split(".")
-            records[node_id]["inputs"][input_name] = {"graph_input": name}
-    led_out = {source.split(".")[0] for source, _ in edges}
-    outputs = {f"{node_id}-{output}": {"node": node_id, "output": output} for node_id, record in records.items() if node_id not in led_out for output in _outputs_of(record["node"])}
-    return Graph.compile(GraphRecord.model_validate({"nodes": records, "outputs": outputs}), REGISTRY)
-
-
-def inner_nodes(inner: str) -> dict[str, dict[str, Any]]:
-    """The nodes of the subgraph ``inner``'s record with no graph inputs, to draw into another graph."""
-    return {node_id: {**record, "inputs": {name: entry for name, entry in record["inputs"].items() if "graph_input" not in entry}} for node_id, record in INNER[inner]["nodes"].items()}
+def inner_nodes(inner: str) -> tuple[dict[str, str], list[tuple[str, str]]]:
+    """The nodes of the subgraph ``inner``'s record and the edges between them, to draw into another graph."""
+    nodes = {node_id: record["node"] for node_id, record in INNER[inner]["nodes"].items()}
+    edges = [
+        (f"{source['node']}.{source['output']}", f"{node_id}.{name}")
+        for node_id, record in INNER[inner]["nodes"].items() for name, entry in record["inputs"].items() for source in entry.get("sources", ())
+    ]
+    return nodes, edges
 
 
 def inside_a_loop(inner: str, splitter: str = "words"):
@@ -372,7 +347,8 @@ def in_one_graph(inner: str, splitter: str = "words"):
     must behave as."""
     record = INNER[inner]
     first = next(node_id for node_id, node_record in record["nodes"].items() if "text" in node_record["inputs"] and "graph_input" in node_record["inputs"]["text"])
-    graph = compile_graph({"outer": splitter, **inner_nodes(inner)}, [("outer.result", f"{first}.text")])
+    nodes, edges = inner_nodes(inner)
+    graph = compile_graph({"outer": splitter, **nodes}, [("outer.result", f"{first}.text"), *edges])
     assert not graph.problems, graph.problems
     return graph
 
@@ -407,18 +383,18 @@ def test_a_subgraph_node_offers_the_inputs_and_outputs_its_record_declares():
 
 def test_an_edge_reads_a_subgraph_output_by_its_declared_name():
     graph = compile_graph({"e": "columns-inner", "u": "upper"}, [("e.a", "u.text")])
-    assert graph.is_runnable and graph.outputs == ["u-result"]
+    assert graph.is_runnable and graph.outputs == ["result"]
     assert problems(compile_graph({"e": "shout-inner", "u": "upper"}, [("e.ex", "u.text")])) == [("unknown_output", ("u", "text"))]
 
 
 def test_an_unwired_required_input_of_a_subgraph_node_is_a_problem_as_on_any_node():
-    graph = compile_graph({"w": "words", "e": "greet-inner", "x": "shout-inner"}, [("w.result", "e.greeting")])
+    graph = compile_graph({"w": "words", "e": "greet-inner", "x": "shout-inner"}, [("w.result", "e.greeting")], inputs={"text": ["w.text", "x.text"]}, outputs={"e": "e.result", "x": "x.result"})
     assert problems(graph) == [("input_has_no_value", ("e", "text"))]
 
 
 def test_an_inner_input_a_hook_reads_is_set_inside_and_not_offered():
     assert list(compile_graph({"e": "columns-inner"}).inputs) == ["text"]
-    with_constant = compile_graph({"e": {"node": "columns-inner", "inputs": {"names": {"constant": "a,b"}}}})
+    with_constant = compile_graph({"e": "columns-inner"}, constants={"e.names": "a,b"})
     assert problems(with_constant) == [("unknown_input", ("e", "names"))]
 
 
@@ -437,7 +413,7 @@ def test_a_subgraph_that_contains_itself_is_refused_at_the_node_that_closes_the_
 
 
 def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
-    deep = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")])
+    deep = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")], outputs={"n": "n.result", "x": "x.result"})
     assert deep.is_runnable and (deep.runs_on["n"].series, deep.runs_on["x"].series) == ("e.w.result", "e.c.result")  # each loop is named by its series inside
     described = {inner: compile_graph({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
     assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
@@ -459,7 +435,8 @@ def test_a_branch_inside_a_subgraph_is_a_branch_of_the_subgraph_node_named_by_it
 
 def test_two_outputs_on_opposite_branches_inside_a_subgraph_may_share_one_input_as_in_one_graph():
     inside = compile_graph({"w": "words", "e": "deciding-inner", "j": "exclaim", "n": "count"}, [("w.result", "e.text"), ("e.short", "j.text"), ("e.long", "j.text"), ("j.result", "n.items")])
-    one_graph = compile_graph({"w": "words", **inner_nodes("deciding-inner"), "j": "exclaim", "n": "count"}, [("w.result", "d.text"), ("s.result", "j.text"), ("l.result", "j.text"), ("j.result", "n.items")])
+    inner, inner_edges = inner_nodes("deciding-inner")
+    one_graph = compile_graph({"w": "words", **inner, "j": "exclaim", "n": "count"}, [("w.result", "d.text"), *inner_edges, ("s.result", "j.text"), ("l.result", "j.text"), ("j.result", "n.items")])
     assert problems(inside) == problems(one_graph) == []
     ran, ran_flat = inside.run(text="ab long cd"), one_graph.run(text="ab long cd")
     assert ran.results["j"] == ran_flat.results["j"] == {"result": ["ab!!", "LONG!", "cd!!"]}
@@ -474,14 +451,16 @@ def test_two_collected_branches_of_a_loop_inside_a_subgraph_cannot_share_one_inp
     collecting = [("n1.result", "g.value"), ("n2.result", "g.value")]
     nodes = {"n1": "count", "n2": "count", "g": "show"}
     inside = compile_graph({"e": "words-deciding-inner", **nodes}, [("e.short", "n1.items"), ("e.long", "n2.items"), *collecting])
-    one_graph = compile_graph({**inner_nodes("words-deciding-inner"), **nodes}, [("s.result", "n1.items"), ("l.result", "n2.items"), *collecting])
+    inner, inner_edges = inner_nodes("words-deciding-inner")
+    one_graph = compile_graph({**inner, **nodes}, [*inner_edges, ("s.result", "n1.items"), ("l.result", "n2.items"), *collecting])
     # n1 and n2 are each called whichever branch d chose for a word, so both have a value and g.value would get two
     assert problems(inside) == problems(one_graph) == [("several_edges_into_one_input", ("g", "value"))]
 
 
 def test_two_lists_collected_from_opposite_branches_inside_a_subgraph_are_refused_as_in_one_graph():
     inside = compile_graph({"w": "words", "e": "deciding-inner", "p": "pair"}, [("w.result", "e.text"), ("e.short", "p.first"), ("e.long", "p.second")])
-    one_graph = compile_graph({"w": "words", **inner_nodes("deciding-inner"), "p": "pair"}, [("w.result", "d.text"), ("s.result", "p.first"), ("l.result", "p.second")])
+    inner, inner_edges = inner_nodes("deciding-inner")
+    one_graph = compile_graph({"w": "words", **inner, "p": "pair"}, [("w.result", "d.text"), *inner_edges, ("s.result", "p.first"), ("l.result", "p.second")])
     # a word is short or long, so it is left out of one list; p takes one item of each, and no word is in both
     assert problems(inside) == problems(one_graph) == [("lists_from_different_loops", ("p",))]
 
@@ -501,23 +480,23 @@ def subgraph_of(node_id: str) -> str:
 
 def test_a_subgraph_runs_once_or_per_item_as_its_nodes_do_in_one_graph():
     run = compile_graph({"e": "shout-inner"}).run(text="ab")
-    assert run.status == "complete" and run.outputs == {"e-result": "AB!"}
+    assert run.status == "complete" and run.outputs == {"result": "AB!"}
     graph = inside_a_loop("shout-inner")
     assert graph.runs_on["e"].mode == "per_item"
     run = graph.run(text="ab cd")
     assert run.status == "complete" and run.results["e"] == {"result": ["AB!", "CD!"]}
     assert run.results["e"]["result"] == in_one_graph("shout-inner").run(text="ab cd").results["ex"]["result"]
     two = compile_graph({"a": "shout-inner", "b": "shout-inner"}, [("a.result", "b.text")])
-    assert two.run(text="x").outputs == {"b-result": "X!!"}
+    assert two.run(text="x").outputs == {"result": "X!!"}
 
 
 def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node():
-    graph = compile_graph({"w": "words", "e": {"node": "greet-inner", "inputs": {"greeting": {"constant": "hej"}}}}, [("w.result", "e.text")])
+    graph = compile_graph({"w": "words", "e": "greet-inner"}, [("w.result", "e.text")], constants={"e.greeting": "hej"})
     assert graph.run(text="ab cd").results["e"]["result"] == ["hej ab", "hej cd"]
-    first = compile_graph({"e": {"node": "greet-inner", "inputs": {"greeting": {"graph_input": "greeting", "default": "hi"}}}})
+    first = compile_graph({"e": "greet-inner"}, defaults={"e.greeting": "hi"})
     assert first.inputs["greeting"].field.default == "hi"
-    assert first.run(text="ab").outputs == {"e-result": "hi ab"}  # the subgraph node's default, offered to the caller
-    assert first.run(text="ab", greeting="yo").outputs == {"e-result": "yo ab"}
+    assert first.run(text="ab").outputs == {"result": "hi ab"}  # the subgraph node's default, offered to the caller
+    assert first.run(text="ab", greeting="yo").outputs == {"result": "yo ab"}
     assert inside_a_loop("greet-inner").run(text="ab").results["e"]["result"] == ["hello ab"]  # the inner node's own default
     wired = compile_graph({"w": "words", "g": "upper", "e": "greet-inner"}, [("w.result", "e.text"), ("w.result", "g.text"), ("g.result", "e.greeting")])
     assert wired.run(text="ab cd").results["e"]["result"] == ["AB ab", "CD cd"]
@@ -526,15 +505,15 @@ def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node(
 def test_an_output_two_loops_deep_is_the_same_nested_list_alone_and_inside_a_subgraph():
     alone = Graph.compile(GraphRecord.model_validate(INNER["deep-inner"]), REGISTRY).run(text="ab cd").outputs["result"]
     assert alone == [["A", "B"], ["C", "D"]]  # two loops deep: a list for each word, in item order
-    graph = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")])
+    graph = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")], outputs={"n": "n.result", "x": "x.result"})
     run = graph.run(text="ab cd")
     assert run.results["e"]["result"] == alone and run.results["n"]["result"] == [2, 2]  # count is called once per word
     assert run.results["x"]["result"] == [["A!", "B!"], ["C!", "D!"]]
-    assert compile_graph({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {"e-result": [["a", "b"], ["c", "d"]]}
+    assert compile_graph({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {"result": [["a", "b"], ["c", "d"]]}
 
 
 def test_a_branch_not_chosen_inside_a_subgraph_skips_the_nodes_downstream_as_in_one_graph():
-    graph = compile_graph({"w": "words", "e": subgraph_of("decide"), "s": "exclaim", "l": "upper"}, [("w.result", "e.text"), ("e.short", "s.text"), ("e.long", "l.text")])
+    graph = compile_graph({"w": "words", "e": subgraph_of("decide"), "s": "exclaim", "l": "upper"}, [("w.result", "e.text"), ("e.short", "s.text"), ("e.long", "l.text")], outputs={"s": "s.result", "l": "l.result"})
     run = graph.run(text="ab long")
     assert run.status == "complete" and run.results["s"]["result"] == ["ab!", None] and run.results["l"]["result"] == [None, "LONG"]
     assert run.results["e"] == {"short": ["ab", None], "long": [None, "long"]}
@@ -553,9 +532,9 @@ def test_an_item_whose_branch_was_not_chosen_outside_skips_the_inner_nodes_for_t
 def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is_wired_to():
     graph = compile_graph({"w": "words", "up": "upper", "e": "count-inner"}, [("w.result", "up.text"), ("up.result", "e.items")])
     assert graph.runs_on["e"].mode == "once"
-    assert graph.run(text="ab cd ef").outputs == {"e-result": 3}
+    assert graph.run(text="ab cd ef").outputs == {"result": 3}
     per_document = compile_graph({"s": "sentences", "w": "words", "e": "count-inner"}, [("s.result", "w.text"), ("w.result", "e.items")])
-    assert per_document.run(text="a b;c").outputs == {"e-result": [2, 1]}
+    assert per_document.run(text="a b;c").outputs == {"result": [2, 1]}
 
 
 def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
@@ -729,7 +708,7 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
 
 def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():
     graph = inside_a_loop("wrapping")
-    assert graph.outputs == ["e-result"]
+    assert graph.outputs == ["result"]
     run = graph.run(text="ab cd")
     ids = [w.id for w in run.waiting]
     assert ids[0].startswith("e@0/in/q~") and ids[1].startswith("e@1/in/q~") and run.waiting[1].loc == ("e", 1, "in", "q")
@@ -737,7 +716,7 @@ def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():
         run.answer("e@1/in/q~00000000", "x")
     assert refused.value.errors()[0].loc == ("e", 1, "in", "q")
     done = Run.from_json(run.answer({ids[1]: "two"}).resume().to_json(), graph).answer(ids[0], "one").resume()
-    assert done.status == "complete" and done.outputs == {"e-result": ["one", "two"]} and CALLS["upper"] == 2
+    assert done.status == "complete" and done.outputs == {"result": ["one", "two"]} and CALLS["upper"] == 2
 
 
 # -- reuse: again reuses inside a subgraph what it reuses in one graph -----------------------------
@@ -801,7 +780,7 @@ def test_reuse_reaches_a_subgraph_inside_a_subgraph_and_forget_forgets_every_inn
     graph = inside_a_loop("wrapping")
     run = graph.run(text="ab cd")
     done = run.answer({w.id: w.inputs["text"].lower() for w in run.waiting}).resume()
-    assert done.outputs == {"e-result": ["ab", "cd"]}
+    assert done.outputs == {"result": ["ab", "cd"]}
     CALLS.clear()
     longer = done.again(text="ab cd ef")
     assert longer.status == "waiting" and CALLS == {"words": 1, "upper": 1, "ask": 1}
@@ -875,7 +854,7 @@ def test_an_answer_inside_a_subgraph_shows_in_its_results_before_resume_as_in_on
 
 
 def test_a_run_stopped_at_the_item_limit_keeps_the_calls_on_threads_inside_a_subgraph_in_its_results():
-    graph = compile_graph({"e": "fetch-words-inner", "many": "words", "each": "upper"}, [("many.result", "each.text")], inputs={"few": "e.text", "many": "many.text"})
+    graph = compile_graph({"e": "fetch-words-inner", "many": "words", "each": "upper"}, [("many.result", "each.text")], inputs={"few": "e.text", "many": "many.text"}, outputs={"e": "e.result", "each": "each.result"})
     stopped = graph.run(few="a b", many="x y z", max_items=2)
     assert stopped.status == "stopped" and stopped.state.cause.loc == ("many",)
     assert stopped.results["e"] == {"result": ["a?", "b?"]} and reads_the_same_saved_and_read_back(stopped)
@@ -900,7 +879,7 @@ def test_every_checkpoint_inside_a_subgraph_reads_the_same_saved_and_read_back_w
 @pytest.mark.parametrize("inner", ["two-asks-inner", "three-asks-inner"])
 @pytest.mark.parametrize("per_item", [False, True], ids=["once", "per item"])
 def test_answers_given_at_once_to_subgraphs_side_by_side_inside_another_complete_the_outer_subgraph(inner: str, per_item: bool):
-    nodes: dict[str, str | dict[str, Any]] = {"w": "words", "e": inner} if per_item else {"e": inner}
+    nodes = {"w": "words", "e": inner} if per_item else {"e": inner}
     graph = compile_graph(nodes, [("w.result", f"e.{name}") for name in compile_graph({"e": inner}).inputs] if per_item else [])
     assert not graph.problems, graph.problems
     run = graph.run(dict.fromkeys(graph.inputs, "ab cd"))

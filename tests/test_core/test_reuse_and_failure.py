@@ -41,28 +41,14 @@ from pydantic import BaseModel, ValidationError
 from tests.test_core.nodes import place, registry_of
 
 
-def _record(nodes: Mapping[str, FunctionDefinition], edges: Sequence[tuple[str, str]] = (), constants: Mapping[str, Mapping[str, Any]] | None = None) -> GraphRecord:
-    """The record of ``nodes`` by id, joined by ``edges`` (``("node.output", "node.input")``), with ``constants`` by
-    node and input.
-
-    Each input of a node no edge leads into that has no constant is a graph input of the input's name, and each
-    output of a node no edge leaves is a graph output of the output's name.
-    """
-    entries: dict[str, dict[str, Any]] = {node_id: {name: {"constant": value} for name, value in (constants or {}).get(node_id, {}).items()} for node_id in nodes}
-    for source, target in edges:
-        (source_node, output), (target_node, name) = source.split("."), target.split(".")
-        entries[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
-    led_into, led_out = {target.split(".")[0] for _, target in edges}, {source.split(".")[0] for source, _ in edges}
-    for node_id, definition in nodes.items():
-        if node_id not in led_into:
-            entries[node_id] |= {name: {"graph_input": name} for name in definition.inputs if name not in entries[node_id]}
-    outputs = {name: {"node": node_id, "output": name} for node_id, definition in nodes.items() if node_id not in led_out for name in definition.outputs}
-    return GraphRecord.model_validate({"nodes": {node_id: {"node": definition.id, "inputs": entries[node_id]} for node_id, definition in nodes.items()}, "outputs": outputs})
+def _record(nodes: Mapping[str, FunctionDefinition], edges: Sequence[tuple[str, str]] = (), constants: Mapping[str, Any] | None = None) -> GraphRecord:
+    """``make_graph`` of ``nodes`` by id, joined by exactly ``edges``, with ``constants`` by ``"node.input"``."""
+    return make_graph(*nodes.items(), edges=list(edges), constants=constants or {})
 
 
 def _alone(definition: Any, **values: Any) -> Any:
     """A graph of one node, ``n``, with these constants."""
-    return Graph.compile(_record({"n": definition}, constants={"n": values}), registry_of(definition))
+    return Graph.compile(_record({"n": definition}, constants={f"n.{name}": value for name, value in values.items()}), registry_of(definition))
 
 
 @node("each", title="Each", description="For a test.")
@@ -300,7 +286,7 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     def join_two(a: str, b: str) -> str:
         return f"{a}+{b}"
 
-    record = _record({"n1": flaky_a, "n2": fast_b, "n3": join_two}, [("n1.result", "n3.a"), ("n2.result", "n3.b")], constants={"n1": {"text": "x"}, "n2": {"text": "y"}})
+    record = _record({"n1": flaky_a, "n2": fast_b, "n3": join_two}, [("n1.result", "n3.a"), ("n2.result", "n3.b")], constants={"n1.text": "x", "n2.text": "y"})
     graph = Graph.compile(record, registry_of(flaky_a, fast_b, join_two))
 
     assert graph.run().outputs == {"result": "A:x+B:y"}
@@ -1647,7 +1633,7 @@ def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit
 
     def drawn(prompt: str) -> Any:
         return Graph.compile(_record(
-            {"each": _each, "e": enrich, "s": summarize}, [("each.result", "e.text"), ("e.result", "s.text")], constants={"s": {"prompt": prompt}},
+            {"each": _each, "e": enrich, "s": summarize}, [("each.result", "e.text"), ("e.result", "s.text")], constants={"s.prompt": prompt},
         ), registry)
 
     texts = [f"t{i}" for i in range(300)]

@@ -27,6 +27,7 @@ from conductor import (
     Graph,
     GraphRecord,
     InvalidCallError,
+    NodeRegistry,
     NotCalled,
     Policy,
     Run,
@@ -59,19 +60,10 @@ def _numbers(count: int) -> str:
     return ",".join(str(i) for i in range(count))
 
 
-def _record(nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], constants: Mapping[str, Mapping[str, Any]]) -> GraphRecord:
-    """The record of ``nodes`` (node id to node definition id) joined by ``edges`` (``("node.output",
-    "node.input")``), with ``constants`` by node and input. The ``result`` of the one node no edge leaves is the
-    graph output ``result``."""
-    entries: dict[str, dict[str, Any]] = {node_id: {name: {"constant": value} for name, value in constants.get(node_id, {}).items()} for node_id in nodes}
-    for source, target in edges:
-        (source_node, output), (target_node, name) = source.split("."), target.split(".")
-        entries[target_node].setdefault(name, {"sources": []})["sources"].append({"node": source_node, "output": output})
-    (last,) = set(nodes) - {source.split(".")[0] for source, _ in edges}
-    return GraphRecord.model_validate({
-        "nodes": {node_id: {"node": definition_id, "inputs": entries[node_id]} for node_id, definition_id in nodes.items()},
-        "outputs": {"result": {"node": last, "output": "result"}},
-    })
+def _record(registry: NodeRegistry, nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], constants: Mapping[str, Any]) -> GraphRecord:
+    """``make_graph`` of ``nodes`` (node id to the id of its definition in ``registry``), joined by exactly ``edges``,
+    with ``constants`` by ``"node.input"``."""
+    return make_graph(*((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()), edges=list(edges), constants=constants)
 
 
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
@@ -306,7 +298,8 @@ def test_nodes_at_concurrency_one_are_all_called_on_the_callers_thread():
 
     nodes = {"s": "split", **{f"n{i}": "step" for i in range(100)}}
     edges = [("s.result", "n0.text")] + [(f"n{i - 1}.result", f"n{i}.text") for i in range(1, 100)]
-    graph = Graph.compile(_record(nodes, edges, {"s": {"text": _numbers(20)}}), registry_of(split, step))
+    registry = registry_of(split, step)
+    graph = Graph.compile(_record(registry, nodes, edges, {"s.text": _numbers(20)}), registry)
 
     assert graph.run().status == "complete"
     assert seen == {threading.get_ident()}
@@ -405,12 +398,14 @@ def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(item
         calls.append((left, right))
         return left + right
 
-    first, constants = ({}, {"s": {"text": "x"}}) if items is None else ({"split": "split"}, {"split": {"text": _numbers(items)}})
+    first, constants = ({}, {"s.text": "x"}) if items is None else ({"split": "split"}, {"split.text": _numbers(items)})
+    registry = registry_of(split, from_a_thread, left, right, both)
     graph = Graph.compile(_record(
+        registry,
         {**first, "s": "from-a-thread", "a": "left", "b": "right", "r": "both"},
         [*([] if items is None else [("split.result", "s.text")]), ("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "r.left"), ("b.result", "r.right")],
         constants,
-    ), registry_of(split, from_a_thread, left, right, both))
+    ), registry)
 
     run = graph.run()
 
@@ -441,14 +436,15 @@ def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume
         return "+".join(texts)
 
     if shape == "chain":
-        nodes, constants = {"f": "first", **{f"t{i}": "then" for i in range(5)}}, {"f": {"text": "x"}}
+        nodes, constants = {"f": "first", **{f"t{i}": "then" for i in range(5)}}, {"f.text": "x"}
         edges = [("f.result", "t0.text"), *((f"t{i}.result", f"t{i + 1}.text") for i in range(4))]
         expected, outputs = 6, {"result": "x!!!!!"}
     else:
-        nodes, constants = {"split": "split", "f": "first", "t": "then", "l": "last"}, {"split": {"text": _numbers(4)}}
+        nodes, constants = {"split": "split", "f": "first", "t": "then", "l": "last"}, {"split.text": _numbers(4)}
         edges = [("split.result", "f.text"), ("f.result", "t.text"), ("t.result", "l.texts")]
         expected, outputs = 9, {"result": "0!+1!+2!+3!"}
-    graph = Graph.compile(_record(nodes, edges, constants), registry_of(split, first, then, last))
+    registry = registry_of(split, first, then, last)
+    graph = Graph.compile(_record(registry, nodes, edges, constants), registry)
 
     run = graph.run()
 

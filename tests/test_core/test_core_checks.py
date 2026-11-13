@@ -213,7 +213,7 @@ def test_items_of_two_series_at_one_node_are_refused():
 
     graph = Graph.compile(GraphRecord.model_validate(record), registry_of(split, pair))
     assert [(p.type, p.ctx["series"]) for p in graph.problems] == [("series_not_nested", ["a.result", "b.result"])], graph.problems
-    assert "Wire 'a.result' into 'b'" in graph.problems[0].msg
+    assert "neither is inside the loop over the other" in graph.problems[0].msg
 
 
 def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
