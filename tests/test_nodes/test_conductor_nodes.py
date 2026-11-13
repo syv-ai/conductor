@@ -76,6 +76,7 @@ def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:
     ("math-divide", {"a": 1, "b": 0}, "division_by_zero"),
     ("math-max", {"values": []}, "no_numbers"),
     ("json-parse", {"text": "{not json"}, "not_json"),
+    ("json-parse", {"text": "1" * 5_000}, "not_json"),
     ("regex-match", {"text": "a", "pattern": "("}, "invalid_pattern"),
 ])
 def test_a_failure_says_what_went_wrong_in_a_code_of_its_own(node_id: str, values: dict[str, Any], code: str) -> None:

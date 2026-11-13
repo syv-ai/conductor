@@ -23,6 +23,8 @@ def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
         parsed: JsonValue = json.loads(text)
     except JSONDecodeError as error:
         raise NodeError(f"The text is not JSON: {error.msg}, at character {error.pos}.", code="not_json") from None
+    except ValueError as error:  # json.loads refuses a number of more than 4,300 digits with a plain ValueError
+        raise NodeError(f"The text is not JSON: {error}.", code="not_json") from None
     return parsed
 
 
