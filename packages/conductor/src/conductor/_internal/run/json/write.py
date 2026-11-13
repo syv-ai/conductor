@@ -1,6 +1,7 @@
 """Writes a run as JSON (``run_to_json``), and a complete run's graph outputs as JSON (``outputs_to_json``).
 
-``saved_run`` turns the run into the classes of ``type.py``, and the graph's codec writes those as text.
+``saved_run`` turns the run into an instance of its graph's codec, the subclass of ``SavedRun`` made for the graph,
+which writes itself as text.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from ..flat import FlatFunctionNode
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..reuse import ReusableOutcomes
-from .codec import RunCodec, codec_of, saved_list_type, saved_type
+from .codec import codec_of, saved_type
 from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
@@ -57,12 +58,11 @@ def run_to_json(run: Run) -> str:
     Raises:
         InvalidCallError: A value cannot be written as JSON (``run_unwritable``, naming the input or the output).
     """
-    codec = codec_of(run.graph)
-    saved = saved_run(run, codec)
+    saved = saved_run(run)
     try:
-        return codec.serializer.to_json(saved, exclude_defaults=True).decode()
+        return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
-        where = first_unwritable_value(codec.inputs, codec.outputs, saved)
+        where = first_unwritable_value(saved)
         raise InvalidCallError([problem.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
 
 
@@ -90,27 +90,28 @@ def outputs_to_json(run: Run) -> str:
     return pydantic_core.to_json(written).decode()
 
 
-def saved_run(run: Run, codec: RunCodec) -> SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]]:
-    """Returns ``run`` as the ``SavedRun`` that ``codec``, its graph's codec, writes as JSON.
+def saved_run(run: Run) -> SavedRun:
+    """Returns ``run`` as an instance of its graph's codec, which writes itself as JSON.
 
-    For the README run, ``saved_run(run, codec_of(run.graph)).outcomes["shout"]`` is
-    ``SavedOutcomes(states=["done", "done", "done"], outputs={"result": ["A!", "B!", "C!"]})``.
+    For the README run, ``saved_run(run).outcomes["shout"]`` has ``states=["done", "done", "done"]`` and
+    ``outputs={"result": ["A!", "B!", "C!"]}``, and is of the codec's class for ``shout``. Each part is of the
+    codec's own class, so the run is the one the codec reads back from its JSON.
 
     Only function nodes are saved, since only they are called. A node inside a subgraph is saved like any
     other, under its node path as text (``"loud/shout"``). A node with no outcome and nothing to reuse has no
     key at all.
     """
-    graph = run.graph
+    codec = codec_of(run.graph)
     function_nodes = run._flat.function_nodes
     outcomes = {
-        node.name: saved_outcomes(node.compiled_node.outputs, _outcomes_by_call_number(run, node))
+        node.name: saved_outcomes(codec.outcomes_classes[node.name], node.compiled_node.outputs, _outcomes_by_call_number(run, node))
         for node in function_nodes.values() if run._outcomes[node.name] or node.name in run._answers
     }
     reusable = {}
     for path, of_node in run._reusable.items():
         if of_node.by_fingerprint or of_node.answers:
             name = node_path_text(path)
-            reusable[name] = saved_reusable(function_nodes[name].compiled_node.outputs, of_node)
+            reusable[name] = saved_reusable(codec.reusable_classes[name], codec.outcomes_classes[name], function_nodes[name].compiled_node.outputs, of_node)
     code = {
         name: run._code_changed.get(node.node_path) or node.compiled_node.code_fingerprint
         for name, node in function_nodes.items() if name in outcomes or name in reusable
@@ -119,11 +120,11 @@ def saved_run(run: Run, codec: RunCodec) -> SavedRun[SavedOutcomes, SavedReusabl
         node.name: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
         for node in function_nodes.values() if node.name in run._answers
     }
-    return SavedRun(
-        graph=graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
+    return codec.model_construct(
+        graph=run.graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
         complete=[node.name for node in function_nodes.values() if node.node_path in run._finished_nodes],
-        tables_written_once=tables_written_once(codec.outputs, codec.shareable, outcomes) if codec.shareable else None,
-        answers=answers or None,
+        tables_written_once=tables_written_once(function_nodes.values(), outcomes),
+        answers=answers,
     )
 
 
@@ -143,13 +144,14 @@ def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome |
     return [outcomes.get(item_indexes) or answers.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
 
 
-def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer | None]) -> SavedOutcomes:
+def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field], outcomes: list[Outcome | Answer | None]) -> SavedOutcomes:
     """Returns the outcomes of one node as a saved run writes them: a list per output, with one entry per call.
 
     ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
-    ``SavedOutcomes(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, not_called_because={1: "line"})``.
+    ``saved_class(states=["done", None, "done"], outputs={"result": ["A!", None, "C!"]}, not_called_because={1: "line"})``.
 
     Args:
+        saved_class: The codec's class for the node's outcomes.
         outputs: The outputs of the node, by name.
         outcomes: The outcomes in call-number order; ``None`` for a call with no outcome, and an ``Answer`` for one
             with none that a person answered the node's ``Asked`` parameter for, whose question is written and whose
@@ -159,8 +161,8 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer
     values_by_output: dict[str, list[Any]] = {}
     skipped: dict[str, list[int]] = {}
     skipped_items: dict[str, dict[int, list[int]]] = {}
-    questions: dict[int, Question] | None = None
-    not_called_because: dict[int, str] | None = None
+    questions: dict[int, Question] = {}
+    not_called_because: dict[int, str] = {}
     if classes & _HAS_OUTPUTS:
         if classes <= _HAS_OUTPUTS:  # speed only: every call has outputs, as in a node that is complete
             with_outputs = cast("list[Done | Answered]", outcomes)
@@ -192,15 +194,13 @@ def saved_outcomes(outputs: Mapping[str, Field], outcomes: list[Outcome | Answer
         }
     if NoneInput in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
-    return SavedOutcomes(
+    return saved_class.model_construct(
         states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions,
-        not_called_because=not_called_because, skipped=skipped or None, skipped_items=skipped_items or None,
+        not_called_because=not_called_because, skipped=skipped, skipped_items=skipped_items,
     )
 
 
-def tables_written_once(
-    outputs: Mapping[str, Mapping[str, Field]], shareable: Iterable[tuple[str, str]], outcomes: Mapping[str, SavedOutcomes],
-) -> list[SameAs] | None:
+def tables_written_once(function_nodes: Iterable[FlatFunctionNode], outcomes: Mapping[str, SavedOutcomes]) -> list[SameAs]:
     """Finds the outputs that have the very same table object as an output before them, and writes each such table once.
 
     ``read.result`` is a table and ``split.result`` is a series of records made of that same table. The entry
@@ -208,32 +208,36 @@ def tables_written_once(
     ``[SameAs(output=("split", "result", 0), same_as=("read", "result", 0))]``.
 
     Args:
-        outputs: The outputs of each node, by the node's name in a saved run.
-        shareable: The ``(node, output)`` pairs whose type can have such a table, in the order they are saved.
+        function_nodes: Every function node of the run's graph, in the order they are saved.
         outcomes: The saved outcomes of each node, as ``saved_outcomes`` returned them. Changed in place.
 
     Returns:
-        One entry for each output replaced by ``None``, or ``None`` when there is none.
+        One entry for each output replaced by ``None``.
     """
     first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table, which stays alive in ``outcomes`` during this call
     same: list[SameAs] = []
-    for node, output in shareable:
-        of_node = outcomes.get(node)
+    for node in function_nodes:
+        of_node = outcomes.get(node.name)
         if of_node is None:
             continue
-        written_once, values = outputs[node][output].whole.written_once, of_node.outputs[output]
-        for call_number, stored in enumerate(values):
-            table = None if stored is None else written_once(stored)
-            if table is None:
+        for output, field in node.compiled_node.outputs.items():
+            if not field.whole.may_write_once:
                 continue
-            before = first.setdefault(id(table), (table, (node, output, call_number)))
-            if before[1] != (node, output, call_number) and before[0] is table:
-                values[call_number] = None
-                same.append(SameAs(output=(node, output, call_number), same_as=before[1]))
-    return same or None
+            values = of_node.outputs[output]
+            for call_number, stored in enumerate(values):
+                table = None if stored is None else field.whole.written_once(stored)
+                if table is None:
+                    continue
+                before = first.setdefault(id(table), (table, (node.name, output, call_number)))
+                if before[1] != (node.name, output, call_number) and before[0] is table:
+                    values[call_number] = None
+                    same.append(SameAs.model_construct(output=(node.name, output, call_number), same_as=before[1]))
+    return same
 
 
-def saved_reusable(outputs: Mapping[str, Field], reusable: ReusableOutcomes) -> SavedReusable[SavedOutcomes]:
+def saved_reusable(
+    saved_class: type[SavedReusable], outcomes_class: type[SavedOutcomes], outputs: Mapping[str, Field], reusable: ReusableOutcomes,
+) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run as a saved run writes them, each outcome once.
 
     ``SavedReusable`` shows the JSON. The order is: the outcomes known by the item indexes their call had, then
@@ -241,6 +245,8 @@ def saved_reusable(outputs: Mapping[str, Field], reusable: ReusableOutcomes) -> 
     questions.
 
     Args:
+        saved_class: The codec's class for the node's reusable outcomes.
+        outcomes_class: The codec's class for the node's outcomes.
         outputs: The outputs of the node, by name.
         reusable: The outcomes the node may reuse.
     """
@@ -259,36 +265,34 @@ def saved_reusable(outputs: Mapping[str, Field], reusable: ReusableOutcomes) -> 
                 outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint
             outcomes.append(outcome)
             fingerprints.append(fingerprint)
-    return SavedReusable(
-        outcomes=saved_outcomes(outputs, outcomes), fingerprints=fingerprints, item_indexes=item_indexes or None,
-        outer_item_fingerprints=outer_item_fingerprints or None,
+    return saved_class.model_construct(
+        outcomes=saved_outcomes(outcomes_class, outputs, outcomes), fingerprints=fingerprints, item_indexes=item_indexes,
+        outer_item_fingerprints=outer_item_fingerprints,
     )
 
 
-def first_unwritable_value(
-    inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], saved: SavedRun[SavedOutcomes, SavedReusable[SavedOutcomes]],
-) -> str:
+def first_unwritable_value(saved: SavedRun) -> str:
     """Returns where a run that could not be written has a value with no JSON form: ``"text"``, ``"loud/shout.result"``.
 
-    It writes each graph input and each output's list on its own and returns the first that fails. It is
-    called only after pydantic refused the whole run, so a run that can be written pays nothing for it.
+    It writes each graph input and each output's list on its own, through the graph's codec (``include=`` names the
+    one value), and returns the first that fails. It is called only after pydantic refused the whole run, so a run
+    that can be written pays nothing for it.
 
     Args:
-        inputs: The type of each graph input, by name.
-        outputs: The outputs of each function node, by the node's name in a saved run.
-        saved: The run that could not be written.
+        saved: The run as ``saved_run`` returned it.
 
     Returns:
-        The address of the graph input, or the node's name in a saved run and the output; ``"the run"`` when
+        The name of the graph input, or the node's name in a saved run and the output; ``"the run"`` when
         each is written alone.
     """
-    written_alone = {address: (inputs[address], value) for address, value in saved.inputs.items()}
-    by_node = [*saved.outcomes.items(), *((name, reusable.outcomes) for name, reusable in saved.reusable.items())]
-    for name, outcomes in by_node:
-        written_alone.update({str(Address(name, output)): (saved_list_type(outputs[name][output]), values) for output, values in outcomes.outputs.items()})
-    for where, (written_by, value) in written_alone.items():
+    alone: list[tuple[str, Any]] = [(name, {"inputs": {name}}) for name in saved.inputs]
+    for name, outcomes in saved.outcomes.items():
+        alone.extend((str(Address(name, output)), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
+    for name, reusable in saved.reusable.items():
+        alone.extend((str(Address(name, output)), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
+    for where, include in alone:
         try:
-            written_by.serializer.to_json(value)
+            saved.model_dump_json(include=include)
         except PydanticSerializationError:
             return where
     return "the run"

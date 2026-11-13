@@ -44,7 +44,7 @@ from .events import (
     RunStart,
 )
 from .flat import FlatFunctionNode, FlatGraph, flat_graph_of, outcome_loc
-from .json import codec_of, outputs_to_json, run_from_json, run_to_json
+from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
     NoneInput,
@@ -507,7 +507,7 @@ class Run[C]:
         """
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        return run_from_json(Run, saved, graph, codec_of(graph))
+        return run_from_json(Run, saved, graph)
 
     def to_json(self) -> str:
         """Returns the whole run as JSON text: its inputs, its state, every node's outcomes, and the outcomes

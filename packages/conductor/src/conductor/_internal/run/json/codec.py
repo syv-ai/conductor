@@ -1,64 +1,32 @@
-"""Builds, for one graph, pydantic's validator and serializer for its saved runs: the graph's codec.
+"""Builds, for one graph, the pydantic model its saved runs are read and written by: the graph's codec.
 
-The keys of a saved run are declared once, by the classes of ``type.py``. ``run_codec`` takes pydantic's
-schemas of those classes and puts in what only the graph knows: the names of its nodes, inputs and outputs, and
-the type of each value. How a saved run writes one value is declared here too: ``saved_type`` and
-``saved_list_type`` are the type of an output's value on one call and on all of a node's calls, ``saved_schema``
-the schema a value is written and read by.
+``type.py`` declares every key of a saved run, with what is true of every graph. ``run_codec`` makes a subclass of
+each of its classes for one graph, whose fields narrow those to what only the graph knows: the names of its nodes,
+inputs and outputs, and the type of each value.
+``saved_type`` is the type of an output's value on one call, and ``where_in`` names the place of an error in a
+saved run as text.
 """
 
 from __future__ import annotations
 
 import functools
-from collections.abc import Iterable, Mapping
-from types import MappingProxyType
-from typing import Any, NamedTuple
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import is_dataclass
+from types import GenericAlias, MappingProxyType, NoneType, UnionType
+from typing import Annotated, Any, Literal, Union, get_args, get_origin, get_type_hints
 from weakref import WeakKeyDictionary
 
-from pydantic import NonNegativeInt, TypeAdapter
-from pydantic_core import CoreConfig, CoreSchema, SchemaSerializer, SchemaValidator, core_schema
+from pydantic import BaseModel, GetCoreSchemaHandler, NonNegativeInt, create_model
+from pydantic import Field as PydanticField
+from pydantic_core import CoreSchema, core_schema
 
-from conductor._internal.base import NON_FINITE_FLOATS
-from conductor._internal.compiled import (
-    CompiledGraph,
-    outputs_when_not_called,
-    outputs_when_skipped,
-)
+from conductor._internal.compiled import CompiledGraph
 from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
-from conductor._internal.types import Type, list_of, union_of
+from conductor._internal.types import Type, union_of
 
 from ..flat import flat_graph_of
-from .read import (
-    outcomes_from_saved,
-    reusable_from_saved,
-    with_shared_tables,
-)
-from .type import (
-    SavedOutcomes,
-    SavedReusable,
-    SavedRun,
-)
-
-#: Pydantic's schema of each class of a saved run, which ``run_codec`` starts from.
-_OUTCOMES, _REUSABLE, _RUN = (TypeAdapter(saved_class).core_schema for saved_class in (SavedOutcomes, SavedReusable, SavedRun))
-
-#: The schema of one output's value under ``skipped`` (call numbers) and under ``skipped_items`` (by call number, indexes).
-_CALL_NUMBERS = TypeAdapter(list[NonNegativeInt]).core_schema
-_INDEXES_BY_CALL_NUMBER = TypeAdapter(dict[NonNegativeInt, list[NonNegativeInt]]).core_schema
-
-#: The schema of a call number as a key: a whole number of at least 0, written as text in JSON.
-_CALL_NUMBER = TypeAdapter(NonNegativeInt).core_schema
-
-
-#: ``saved_type`` and ``saved_list_type`` of each output, kept while the output's ``Field`` lives. A ``Type`` keeps
-#: pydantic's adapter for its hint, so a graph compiled again from the same node definitions reuses the adapters at
-#: its first save; a definition that is dropped takes its entries with it.
-_SAVED_TYPES: WeakKeyDictionary[Field, Type] = WeakKeyDictionary()
-_SAVED_LIST_TYPES: WeakKeyDictionary[Field, Type] = WeakKeyDictionary()
-
-#: ``saved_schema`` of each type, kept while the ``Type`` lives, as ``Type.schema`` itself is.
-_SAVED_SCHEMAS: WeakKeyDictionary[Type, CoreSchema] = WeakKeyDictionary()
+from .type import SavedOutcomes, SavedReusable, SavedRun
 
 
 def saved_type(output: Field) -> Type:
@@ -67,21 +35,42 @@ def saved_type(output: Field) -> Type:
     For ``shout.result``, a ``str``, it is ``Type(str | None)``: ``None`` where the call has no outputs. For a
     ``Series`` it is the form a run stores the list in (``SeriesItems``, or ``Records`` for a table), or ``None``.
     """
-    saved = _SAVED_TYPES.get(output)
-    if saved is None:
-        saved = _SAVED_TYPES[output] = Type(union_of((output.whole.stored_hint, type(None))))
-    return saved
+    return Type(union_of((output.whole.stored_hint, NoneType)))
 
 
-def saved_list_type(output: Field) -> Type:
-    """The type of ``output``'s values on all of a node's calls, as a saved run writes them: a list of ``saved_type``.
+class _SavedValue:
+    """The hint a saved run declares a value of one type by: a graph input, an output's value on one call, or a
+    person's answer. Pydantic reads the value by the type's own schema with ``numbers_refuse_bools`` put in. That rule
+    holds for a Python value; read from a saved run's JSON, an ``int`` or a ``float`` still reads ``true`` as 1.
 
-    For ``shout.result``, called once per line, it is ``Type(list[str | None])``.
+    ``inf`` is written as ``"Infinity"`` by the codec's config, which a ``float`` reads back as the float. A pydantic
+    model or a dataclass writes its fields by its own config, whatever schema it is inside, and by default writes
+    ``inf`` as ``null``, which a ``float`` field does not read back. So a type with one in it is written as
+    ``Type.to_json`` writes it: first as Python's JSON values, which keep the float, then as text by the codec's
+    config.
+
+    The class is a hint, not ``GetPydanticSchema`` in ``Annotated``: pydantic moves the definitions of a schema a hint
+    returns beside the whole schema, and leaves them in place for one that ``Annotated`` returns, where a reference
+    from elsewhere cannot reach them.
+
+    Attributes:
+        schema: The core schema pydantic reads and writes the value by.
     """
-    saved = _SAVED_LIST_TYPES.get(output)
-    if saved is None:
-        saved = _SAVED_LIST_TYPES[output] = Type(list_of(saved_type(output).hint))
-    return saved
+
+    __slots__ = ("schema",)
+
+    def __init__(self, value_type: Type) -> None:
+        schema = numbers_refuse_bools(value_type.schema)
+        if _holds_a_model(schema):
+            as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(value_type.serializer.to_python, mode="json"))
+            if schema["type"] == "definitions":  # what pydantic defined beside the type stays beside it
+                schema = core_schema.definitions_schema(core_schema.chain_schema([schema["schema"]], serialization=as_json), schema["definitions"])
+            else:
+                schema = core_schema.chain_schema([schema], serialization=as_json)
+        self.schema = schema
+
+    def __get_pydantic_core_schema__(self, _source: Any, _handler: GetCoreSchemaHandler) -> CoreSchema:
+        return self.schema
 
 
 def _holds_a_model(schema: Any) -> bool:
@@ -91,66 +80,47 @@ def _holds_a_model(schema: Any) -> bool:
     return isinstance(schema, list) and any(map(_holds_a_model, schema))
 
 
-def saved_schema(value_type: Type) -> CoreSchema:
-    """The schema a saved run writes and reads a value of ``value_type`` by: pydantic's own schema of the type.
+class _ExactKeys:
+    """The hint of a JSON object that must have every key of ``required``, may have the keys of ``optional``, and may
+    have no other key; each key's value is read by its own hint.
 
-    ``saved_schema(Type(list[float | None]))`` is ``Type(list[float | None]).schema``, and ``inf`` is written as
-    ``"Infinity"`` (``NON_FINITE_FLOATS``), which a ``float`` reads back as the float. A pydantic model or a
-    dataclass writes its fields by its own config, whatever schema it is inside, and by default writes ``inf`` as
-    ``null``, which a ``float`` field does not read back. So a type with one in it is written as ``Type.to_json``
-    writes it: first as Python's JSON values, which keep the float, then as text by the codec's config.
-    """
-    saved = _SAVED_SCHEMAS.get(value_type)
-    if saved is None:
-        saved = _SAVED_SCHEMAS[value_type] = value_type.schema
-        if _holds_a_model(saved):
-            as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(value_type.serializer.to_python, mode="json"))
-            if saved["type"] == "definitions":  # what pydantic defined beside the type stays beside it
-                saved = {**saved, "schema": {**saved["schema"], "serialization": as_json}}  # type: ignore[typeddict-unknown-key]
-            else:
-                saved = {**saved, "serialization": as_json}  # type: ignore[typeddict-unknown-key]
-            _SAVED_SCHEMAS[value_type] = saved
-    return saved
-
-
-class RunCodec(NamedTuple):
-    """Pydantic's validator and serializer for the saved runs of one graph, with the types they were built from.
+    ``_ExactKeys({}, {"lines": a, "shout": b})`` accepts ``{}`` and ``{"shout": ...}`` and refuses ``{"other": ...}``.
+    Pydantic is asked for the schema of each distinct hint once, and every key with that hint is given that schema:
+    a graph of 500 nodes has three such objects of 500 keys, nearly all with one hint.
 
     Attributes:
-        inputs: The type of each graph input, by name.
-        outputs: The outputs of each function node, by the node's name in a saved run (``"shout"``, ``"loud/shout"``).
-        asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run.
-        shareable: The ``(node, output)`` pairs whose value may be a table that another output also has, in the
-            order they are saved; writing looks only at these for a table to write once.
-        validator: Reads the JSON text of a saved run into a ``SavedRun``.
-        serializer: Writes a ``SavedRun`` as JSON text.
+        required: The hint of each key the object must have.
+        optional: The hint of each key the object may have.
     """
 
-    inputs: Mapping[str, Type]
-    outputs: Mapping[str, Mapping[str, Field]]
-    asked: Mapping[str, Field]
-    shareable: tuple[tuple[str, str], ...]
-    validator: SchemaValidator
-    serializer: SchemaSerializer
+    __slots__ = ("optional", "required")
+
+    def __init__(self, required: Mapping[str, Any], optional: Mapping[str, Any] = MappingProxyType({})) -> None:
+        self.required, self.optional = required, optional
+
+    def __get_pydantic_core_schema__(self, _source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        hints = {id(hint): hint for hint in (*self.required.values(), *self.optional.values())}  # each alive in required or optional
+        schemas = {key: handler.generate_schema(hint) for key, hint in hints.items()}
+        fields = {name: core_schema.typed_dict_field(schemas[id(hint)]) for name, hint in self.required.items()}
+        fields.update((name, core_schema.typed_dict_field(schemas[id(hint)], required=False)) for name, hint in self.optional.items())
+        return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
 
 
 def run_codec(
     fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], asked: Mapping[str, Field], nodes: Iterable[str],
-) -> RunCodec:
-    """Builds the codec of one graph.
+) -> type[SavedRun]:
+    """Builds the codec of one graph: a subclass of ``SavedRun`` whose fields have the graph's own keys and types.
 
-    For the README graph ``lines -> shout -> join``, the validator accepts only a saved run whose ``graph`` is
-    the graph's fingerprint, whose ``inputs`` has the one key ``text`` with a ``str``, and whose
-    ``outcomes``, ``reusable`` and ``code`` have no key but ``lines``, ``shout`` and ``join``. Under ``shout``,
-    ``outputs`` has the one key ``result``, a list of ``str | None``.
+    For the README graph ``lines -> shout -> join``, it reads only a saved run whose ``graph`` is the graph's
+    fingerprint, whose ``inputs`` has the one key ``text`` with a ``str``, and whose ``outcomes``,
+    ``reusable`` and ``code`` have no key but ``lines``, ``shout`` and ``join``. Under ``shout``, ``outputs`` has
+    the one key ``result``, a list of ``str | None``.
 
-    While it validates, the validator also turns each node's ``SavedOutcomes`` into a list of outcomes
-    (``outcomes_from_saved``) and each ``SavedReusable`` into a ``ReusableOutcomes`` (``reusable_from_saved``),
-    so a saved run is walked once.
-
-    The schema is put together from core schemas, not generated from a pydantic model made for the graph:
-    generating a model costs more than reading a small run. Nodes with the same outputs share one schema. A
-    graph builds its codec the first time one of its runs is saved or loaded.
+    Each node's outcomes are a subclass of ``SavedOutcomes`` with the node's outputs as the keys of ``outputs``,
+    ``skipped`` and ``skipped_items``, and its reusable outcomes a subclass of ``SavedReusable`` whose ``outcomes``
+    is that class; nodes whose outputs have the same names and types share both. The codec keeps them by node in
+    ``outcomes_classes`` and ``reusable_classes``, and a run is written with them, so a run written and the run read
+    back from it are of the same classes. Each class's name ends with the graph's fingerprint.
 
     Args:
         fingerprint: The graph's fingerprint.
@@ -160,109 +130,95 @@ def run_codec(
             answers under the run's ``answers`` are read by its type, and no other node may have any.
         nodes: The name in a saved run of every function node.
     """
-    shared: dict[str, CoreSchema] = {}
-    outcomes_schema, reusable_schema = _inline_definitions(_OUTCOMES, shared), _inline_definitions(_REUSABLE, shared)
-    # by what the schema of a node depends on: for each output its name, its type, whether it is a Series, and its value when not called
-    references: dict[tuple[tuple[str, Type, bool, Any], ...], tuple[CoreSchema, CoreSchema]] = {}
-    outcomes, reusable = {}, {}
+    # by what the classes of a node depend on: for each output its name, its type and whether it is a Series
+    of_same_outputs: dict[tuple[tuple[str, Type, bool], ...], tuple[type[SavedOutcomes], type[SavedReusable]]] = {}
+    outcomes_classes, reusable_classes = {}, {}
     for node, node_outputs in outputs.items():
-        skipped_outputs, not_called_outputs = outputs_when_skipped(node_outputs), outputs_when_not_called(node_outputs)
-        same_outputs = tuple((name, saved_list_type(output), output.is_series, not_called_outputs[name]) for name, output in node_outputs.items())
-        if same_outputs not in references:
-            outcomes_ref, reusable_ref = f"outcomes:{len(references)}", f"reusable:{len(references)}"
-            of_node = _with_field_schemas(
-                outcomes_schema,
-                outputs=_exact_keys_schema(
-                    {name: _inline_definitions(numbers_refuse_bools(saved_schema(saved_list_type(output))), shared) for name, output in node_outputs.items()},
-                ),
-                skipped=_exact_keys_schema({}, dict.fromkeys(node_outputs, _CALL_NUMBERS)),
-                skipped_items=_exact_keys_schema({}, {name: _INDEXES_BY_CALL_NUMBER for name, output in node_outputs.items() if output.is_series}),
-            )
-            shared[outcomes_ref] = core_schema.no_info_after_validator_function(
-                functools.partial(outcomes_from_saved, skipped_outputs, not_called_outputs), of_node, ref=outcomes_ref,
-            )
-            reusable_of_node = _with_field_schemas(reusable_schema, outcomes=core_schema.definition_reference_schema(outcomes_ref))
-            shared[reusable_ref] = core_schema.no_info_after_validator_function(reusable_from_saved, reusable_of_node, ref=reusable_ref)
-            references[same_outputs] = core_schema.definition_reference_schema(outcomes_ref), core_schema.definition_reference_schema(reusable_ref)
-        outcomes[node], reusable[node] = references[same_outputs]
-    run = _with_field_schemas(
-        _inline_definitions(_RUN, shared),
-        graph=core_schema.literal_schema([fingerprint]),
-        inputs=_exact_keys_schema({address: _inline_definitions(numbers_refuse_bools(saved_schema(of_input)), shared) for address, of_input in inputs.items()}),
-        outcomes=_exact_keys_schema({}, outcomes),
-        reusable=_exact_keys_schema({}, reusable),
-        code=_exact_keys_schema({}, dict.fromkeys(outcomes, core_schema.str_schema())),
-        answers=core_schema.nullable_schema(_exact_keys_schema({}, {
-            node: core_schema.dict_schema(_CALL_NUMBER, _inline_definitions(numbers_refuse_bools(saved_schema(field.whole)), shared))
-            for node, field in asked.items()
-        })),
-        complete=core_schema.list_schema(core_schema.literal_schema(names)) if (names := list(nodes)) else core_schema.list_schema(max_length=0),
-    )
-    shareable = tuple((node, name) for node, node_outputs in outputs.items() for name, output in node_outputs.items() if output.whole.may_write_once)
-    if shareable:  # speed only: the extra pass is skipped when no output can be a shared table
-        run = core_schema.no_info_after_validator_function(functools.partial(with_shared_tables, outputs), run)
-    # a tagged union of one, so that a saved run of another graph is refused by its "graph" key before anything else is read
-    schema = core_schema.definitions_schema(core_schema.tagged_union_schema({fingerprint: run}, discriminator="graph"), list(shared.values()))
-    config = CoreConfig(ser_json_inf_nan=NON_FINITE_FLOATS)
-    return RunCodec(inputs, outputs, asked, shareable, SchemaValidator(schema, config), SchemaSerializer(schema, config))
+        value_types = {name: saved_type(output) for name, output in node_outputs.items()}
+        same_outputs = tuple((name, value_types[name], output.is_series) for name, output in node_outputs.items())
+        if same_outputs not in of_same_outputs:
+            suffix = f"{len(of_same_outputs)}_{fingerprint}"
+            fields_of_node: dict[str, Any] = {  # hints of several kinds: pydantic's create_model takes any hint
+                "outputs": _ExactKeys({name: GenericAlias(list, (_SavedValue(value_type),)) for name, value_type in value_types.items()}),
+                "skipped": (_ExactKeys({}, dict.fromkeys(node_outputs, list[NonNegativeInt])), PydanticField(default_factory=dict)),
+                "skipped_items": (_ExactKeys({}, {name: dict[NonNegativeInt, list[NonNegativeInt]] for name, output in node_outputs.items() if output.is_series}), PydanticField(default_factory=dict)),
+            }
+            of_node = create_model(f"SavedOutcomes_{suffix}", __base__=SavedOutcomes, **fields_of_node)
+            of_same_outputs[same_outputs] = of_node, create_model(f"SavedReusable_{suffix}", __base__=SavedReusable, outcomes=of_node)
+        outcomes_classes[node], reusable_classes[node] = of_same_outputs[same_outputs]
+    names = tuple(nodes)
+    fields_of_run: dict[str, Any] = {  # as fields_of_node
+        "graph": Literal[fingerprint],
+        "inputs": _ExactKeys({name: _SavedValue(of_input) for name, of_input in inputs.items()}),
+        "outcomes": _ExactKeys({}, outcomes_classes),
+        "reusable": _ExactKeys({}, reusable_classes),
+        "code": _ExactKeys({}, dict.fromkeys(outcomes_classes, str)),
+        "complete": list[Literal[names]] if names else Annotated[list[str], PydanticField(max_length=0)],  # type: ignore[valid-type]  # a Literal of the node names, known once the graph is compiled
+        "answers": (_ExactKeys({}, {node: GenericAlias(dict, (NonNegativeInt, _SavedValue(field.whole))) for node, field in asked.items()}), PydanticField(default_factory=dict)),
+    }
+    namespace = {"outcomes_classes": outcomes_classes, "reusable_classes": reusable_classes}
+    return create_model(f"SavedRun_{fingerprint}", __base__=SavedRun, __namespace__=namespace, **fields_of_run)
 
 
-def _with_field_schemas(saved_class_schema: Any, **schemas: CoreSchema) -> CoreSchema:
-    """Returns the schema of a class of a saved run with the schemas of the named fields replaced.
+def where_in(codec: type[SavedRun], loc: Sequence[str | int]) -> str:
+    """Returns the place pydantic names in a saved run, ``loc``, as text, up to the value found there and no step
+    inside the value, since a step inside it may be a key of the value's own dict; ``"the run"`` for an empty one.
 
-    ``_with_field_schemas(_RUN, graph=core_schema.literal_schema(["4c16"]))`` is the schema of ``SavedRun`` whose
-    ``graph`` accepts only ``"4c16"``.
-
-    Args:
-        saved_class_schema: The schema pydantic made of ``SavedRun``, ``SavedOutcomes`` or ``SavedReusable``.
-        **schemas: The schema to use for a field, by the field's name.
-
-    Raises:
-        KeyError: The class has no field of a name given.
+    ``("outcomes", "g", "outputs", "result", 0, "counts", "ida")`` gives ``"outcomes.g.outputs.result.0"``: the
+    value of ``g.result`` on call 0 is ``{"counts": {"ida": ...}}``. ``("inputs", "text")`` and
+    ``("outcomes", "g", "states", 0)`` are kept whole. The steps are walked through the fields of ``codec``, the
+    graph's codec: a value is wherever a field declares a value's hint (``_SavedValue``, ``Any``, ``str``, ...).
     """
-    fields = {declared["name"]: declared for declared in saved_class_schema["schema"]["fields"]}
-    for name, schema in schemas.items():
-        declared = fields[name]
-        fields[name] = {**declared, "schema": {**declared["schema"], "schema": schema} if declared["schema"]["type"] == "default" else schema}
-    replaced = {**saved_class_schema, "schema": {**saved_class_schema["schema"], "fields": list(fields.values())}}
-    del replaced["ref"]  # pydantic's name for the schema of the class as declared, which this is not
-    return replaced  # type: ignore[return-value]  # a dataclass schema, as the one given was
+    kept: list[str] = []
+    hint: Any = codec
+    for step in loc:
+        hint = _inside(hint, step)
+        if hint is None:
+            break
+        kept.append(str(step))
+    return ".".join(kept) or "the run"
 
 
-def _exact_keys_schema(required: Mapping[str, CoreSchema], optional: Mapping[str, CoreSchema] = MappingProxyType({})) -> CoreSchema:
-    """Returns the schema of a JSON object that must have every key of ``required``, may have the keys of
-    ``optional``, and may have no other key.
+def _inside(hint: Any, step: str | int) -> Any:
+    """Returns the hint that ``step`` leads to inside ``hint``, one of the hints of a codec's fields; ``None`` when
+    ``hint`` is a value's. A step a class or an exact-keys object does not declare leads to ``Any``."""
+    members = [member for member in get_args(hint) if member is not NoneType] if get_origin(hint) in (Union, UnionType) else [hint]
+    if len(members) > 1:  # one of several classes, as ``state`` is: pydantic's step is the tag of the class it read
+        fields = [_fields_of(member) for member in members]
+        declared = [of_member for of_member in fields if of_member is not None]
+        if len(declared) < len(fields):
+            return None  # a union with a type that is not a saved run's class: a value's
+        return next((of_member[str(step)] for of_member in declared if str(step) in of_member), hint)
+    hint = members[0]  # an optional key: what it is when it is there
+    if isinstance(hint, _ExactKeys):
+        return {**hint.required, **hint.optional}.get(str(step), Any)
+    origin, args = get_origin(hint) or hint, get_args(hint)
+    if (fields_of_class := _fields_of(origin)) is not None:
+        return fields_of_class.get(str(step), Any)
+    if origin in (dict, Mapping):
+        return args[1]
+    if origin is list:
+        return args[0]
+    return None
 
-    ``_exact_keys_schema({}, {"lines": a, "shout": b})`` accepts ``{}`` and ``{"shout": ...}`` and refuses
-    ``{"other": ...}``.
-    """
-    # speed only: each field is written out as a dict, since a graph makes three per node and pydantic's helper costs more than that
-    fields: dict[str, Any] = {name: {"type": "typed-dict-field", "schema": schema} for name, schema in required.items()}
-    fields.update((name, {"type": "typed-dict-field", "schema": schema, "required": False}) for name, schema in optional.items())
-    return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
 
-
-def _inline_definitions(schema: CoreSchema, shared: dict[str, CoreSchema]) -> CoreSchema:
-    """Returns ``schema`` ready to be put inside another schema, and moves its definitions to ``shared``.
-
-    Pydantic wraps the schema of a type in a ``definitions`` schema when the type contains a model twice or a
-    model that contains itself. One validator takes each definition once, at the top, so the definitions are
-    collected in ``shared`` and the inner schema is returned. Any other schema is returned as it is.
-    """
-    if schema["type"] != "definitions":
-        return schema
-    # every definition has its ref
-    shared.update((definition["ref"], definition) for definition in schema["definitions"])  # type: ignore[typeddict-item]
-    return schema["schema"]
+def _fields_of(hint: Any) -> dict[str, Any] | None:
+    """Returns the hint of each field of ``hint`` by name when it is a pydantic model or a dataclass (a codec's
+    class, or ``Question`` inside one), else ``None``."""
+    if isinstance(hint, type) and issubclass(hint, BaseModel):
+        return {name: field.annotation for name, field in hint.model_fields.items()}
+    if isinstance(hint, type) and is_dataclass(hint):
+        return get_type_hints(hint)
+    return None
 
 
 #: Each compiled graph's codec, built the first time one of its runs is read or written. Held weakly, so a graph
 #: nobody holds is freed with its codec.
-_CODECS: WeakKeyDictionary[CompiledGraph, RunCodec] = WeakKeyDictionary()
+_CODECS: WeakKeyDictionary[CompiledGraph, type[SavedRun]] = WeakKeyDictionary()
 
 
-def codec_of(graph: CompiledGraph) -> RunCodec:
-    """How the runs of ``graph`` are read from JSON and written as it, built once per graph."""
+def codec_of(graph: CompiledGraph) -> type[SavedRun]:
+    """The model the runs of ``graph`` are read from JSON and written as JSON by, built once per graph."""
     codec = _CODECS.get(graph)
     if codec is None:
         flat = flat_graph_of(graph)

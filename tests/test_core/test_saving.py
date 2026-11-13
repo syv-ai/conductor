@@ -442,6 +442,29 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
     assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("saved_run", "o.result"), "o.result")
 
 
+def test_saving_a_run_whose_node_has_outcomes_and_reusable_outcomes_names_the_output_with_no_json_form():
+    """The value with no JSON form is in this run's outcomes of ``odd``, which also has outcomes it may reuse."""
+
+    @node("split", title="Split", description="For a test.")
+    def split(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node("odd", title="Odd", description="For a test.", asks=True)
+    def odd(word: str) -> Any:
+        if word == "q":
+            raise Ask("q?")
+        return "fine" if word in ("a", "c") else _Opaque()
+
+    graph = Graph.compile(make_graph(split, odd, edges=[("split.result", "odd.word")]), registry_of(split, odd))
+    second = graph.run(text="a,c,q").with_inputs(text="b,q").resume()
+
+    with pytest.raises(InvalidCallError) as refused:
+        second.to_json()
+
+    (problem,) = refused.value.errors()
+    assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "odd.result")
+
+
 def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input():
     @node("take", title="Take", description="For a test.")
     def take(value: Any) -> str:
@@ -769,7 +792,7 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
 
     graph = Graph.compile(make_graph(same), registry_of(same))
     problem = _refused(graph, {})
-    assert problem.ctx["where"] == "the run" and "'graph'" in problem.msg and "KeyError" not in problem.msg  # the graph's fingerprint is read first, to know the saved run is of this graph
+    assert problem.ctx["where"] == "graph" and "KeyError" not in problem.msg  # the graph's fingerprint is read first, to know the saved run is of this graph
     saved = json.loads(graph.run(text="x").to_json())
     del saved["inputs"]
     assert _refused(graph, saved).ctx["where"] == "inputs"
@@ -829,7 +852,7 @@ def ok_word(word: str) -> bool:
         ("outcomes.ok", lambda s: s["outcomes"]["ok"]["questions"].__setitem__("7", {"prompt": "?", "inputs": {}})),
         ("outcomes.upper", lambda s: s["outcomes"]["upper"].__setitem__("not_called_because", {"0": "word"})),  # not called for a None, on a call that is done
         ("outcomes.ok", lambda s: s["outcomes"]["ok"].__setitem__("not_called_because", {"0": "word"})),  # not called for a None, on a call that waits
-        ("the run", lambda s: s.clear()),  # an empty saved run: the graph's fingerprint, which says which graph it is of, is read first
+        ("graph", lambda s: s.clear()),  # an empty saved run: the graph's fingerprint, which says which graph it is of, is read first
         ("inputs.split.text", lambda s: s["inputs"].__setitem__("split.text", ["a"])),
         ("inputs.nowhere.text", lambda s: s["inputs"].__setitem__("nowhere.text", "a")),
         ("code.nowhere", lambda s: s["code"].__setitem__("nowhere", "0")),

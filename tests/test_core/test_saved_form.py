@@ -1,7 +1,6 @@
 """A saved run: it reads back as the same run and resumes to the same result, a float that is not finite is read by
 its declared type, and a damaged saved run is refused at the place pydantic names."""
 
-import dataclasses
 import datetime
 import json
 import math
@@ -27,7 +26,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.run.json import codec_of
 from conductor._internal.run.json.write import saved_run
 from pydantic import BaseModel
 
@@ -390,52 +388,25 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "result"), "result")
 
 
-def test_a_field_added_to_a_saved_record_is_written_and_read_with_no_other_edit() -> None:
-    """A saved run's keys are the fields of its dataclasses: one more field is one more key, written and read."""
-    from conductor._internal.run.json.codec import _inline_definitions, _with_field_schemas
-    from conductor._internal.run.json.type import SavedOutcomes
-    from pydantic import TypeAdapter
-    from pydantic_core import SchemaSerializer, SchemaValidator, core_schema
-
-    @dataclasses.dataclass(slots=True, kw_only=True)
-    class Noted(SavedOutcomes):
-        note: str = ""
-
-    column = core_schema.list_schema(core_schema.nullable_schema(core_schema.str_schema()))
-    shared: dict[str, Any] = {}
-    record = _inline_definitions(TypeAdapter(Noted).core_schema, shared)  # the record's schema, as pydantic makes it from the record
-    composed = _with_field_schemas(record, outputs=core_schema.typed_dict_schema({"result": core_schema.typed_dict_field(column)}))
-    schema = core_schema.definitions_schema(composed, list(shared.values()))
-    noted = Noted(states=["done", None], outputs={"result": ["a", None]}, not_called_because={1: "text"}, note="kept")
-
-    written = SchemaSerializer(schema).to_json(noted, exclude_defaults=True)
-
-    assert json.loads(written) == {"states": ["done", None], "outputs": {"result": ["a", None]}, "not_called_because": {"1": "text"}, "note": "kept"}
-    assert SchemaValidator(schema).validate_json(written) == noted
-    with pytest.raises(KeyError):
-        _with_field_schemas(record, undeclared=column)  # composing for a field the record doesn't declare
-
-
 def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
-    """A saved run is written only from its dataclasses' fields, so no key can be written that the reader does not know."""
-    run = _everything().run(_inputs("a,bb"))
-    saved = saved_run(run, codec_of(run.graph))
+    """A saved run is written only from its models' fields, so no key can be written that the reader does not know."""
+    saved = saved_run(_everything().run(_inputs("a,bb")))
     for record in (saved, saved.outcomes["ask"]):
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError, match="has no field"):
             record.undeclared = {0: "x"}
-        with pytest.raises(TypeError):
-            type(record)(**{declared.name: getattr(record, declared.name) for declared in dataclasses.fields(record)}, undeclared={0: "x"})
+        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+            type(record).model_validate({"undeclared": {0: "x"}})
 
 
 def test_every_field_a_run_sets_in_its_saved_run_is_a_key_of_the_json_and_reads_back() -> None:
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()
-    saved = saved_run(waiting, codec_of(waiting.graph))
+    saved = saved_run(waiting)
     written = json.loads(waiting.to_json())
 
     def set_fields(record: Any) -> set[str]:
-        return {declared.name for declared in dataclasses.fields(record) if declared.default is dataclasses.MISSING or getattr(record, declared.name) is not None}
+        return {name for name, declared in type(record).model_fields.items() if declared.is_required() or getattr(record, name) != declared.get_default(call_default_factory=True)}
 
     assert set(written) == set_fields(saved)
     for name, node_outcomes in saved.outcomes.items():
