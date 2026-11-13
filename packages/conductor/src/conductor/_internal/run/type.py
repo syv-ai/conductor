@@ -27,7 +27,6 @@ from conductor._internal.base import (
     ItemIndexes,
     Loc,
     NodePath,
-    parse_loc_text,
 )
 from conductor._internal.gate import check_limits
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
@@ -62,7 +61,13 @@ from .state import (
     deadline,
 )
 from .stream import stream
-from .waiting import Waiting, question_fingerprint, waiting_record
+from .waiting import (
+    Waiting,
+    question_fingerprint,
+    read_waiting_id,
+    waiting_record,
+    write_waiting_id,
+)
 
 if TYPE_CHECKING:
     from conductor._internal.graph import Graph
@@ -293,21 +298,21 @@ class Run[C]:
         problems: list[Problem] = []
         answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
         for waiting_id, one in given.items():
-            place, _, fingerprint = waiting_id.partition("~")
             try:
-                loc, nodes, item_indexes = parse_loc_text(place)
-            except ValueError:  # a place in it isn't a number
-                problems.append(call_problems.not_waiting(waiting_id.partition("@")[0], waiting_id=waiting_id, status=self.status))
+                loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=self.status)
+            except InvalidCallError as refused:
+                problems.extend(refused.problems)
                 continue
             node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
             found = self._outcomes[nodes].get(item_indexes) if node is not None else None
-            if node is None or type(found) is not Unanswered:
-                moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
+            if node is None or type(found) is not Unanswered or outcome_loc(node, item_indexes) != loc:  # the indexes stand after the node of their loop
+                moved_to = self._moved_to(nodes, fingerprint) if fingerprint is not None else None
                 problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self.status, moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
-            if fingerprint and question_fingerprint(compiled_node, found) != fingerprint:
-                current = waiting_record(compiled_node, outcome_loc(node, item_indexes), found).id
+            asked = question_fingerprint(compiled_node, found)
+            if fingerprint is not None and asked != fingerprint:
+                current = write_waiting_id(outcome_loc(node, item_indexes), asked)
                 problems.append(call_problems.answer_stale(*loc, waiting_id=waiting_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, item_indexes) in answered:
@@ -332,9 +337,12 @@ class Run[C]:
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """The id of the call where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
-        for node, item_indexes, outcome in self._waiting_outcomes():
-            if node.node_path == nodes and question_fingerprint(node.compiled_node, outcome) == fingerprint:
-                return waiting_record(node.compiled_node, outcome_loc(node, item_indexes), outcome).id
+        node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
+        if node is None:
+            return None
+        for item_indexes, outcome in self._outcomes[nodes].items():
+            if type(outcome) is Unanswered and question_fingerprint(node.compiled_node, outcome) == fingerprint:
+                return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run[C]:

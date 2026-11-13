@@ -622,15 +622,19 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     run = graph.run(text="ab cd")
     first, second = (w.id for w in run.waiting)
     with pytest.raises(InvalidCallError) as refused:
-        run.answer({"e@5/q": "x", "e@1/q~00000000": "y", "e@0/up": "z", "e@x/q": "w"})
+        run.answer({"e@5/q": "x", "e@1/q~00000000": "y", "e@0/up": "z", "e@x/q": "w", "e@1/q@x": "v"})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("not_waiting", ("e", 5, "q")), ("answer_stale", ("e", 1, "q")), ("not_waiting", ("e", 0, "up")), ("not_waiting", ("e",)),
+        ("not_waiting", ("e", 1, "q")),  # an id is read up to the index that is not a number
     ]
     assert refused.value.problems[1].ctx["current"] == second
     with pytest.raises(InvalidCallError) as twice:
         run.answer({first: "a", "e@0/q": "b"})
     assert [(p.type, p.loc) for p in twice.value.problems] == [("invalid_answer", ("e", 0, "q"))]
     assert run.answer("e@1/q", "by place").resume().results["e"]["result"] == [None, "by place"]
+    with pytest.raises(InvalidCallError) as misplaced:
+        run.answer("e/q@1", "an index after the node outside whose loop it is")
+    assert [(p.type, p.loc) for p in misplaced.value.problems] == [("not_waiting", ("e", "q", 1))]
 
 
 # -- policy: an inner node is called, retried, timed out and cancelled as in one graph -------------

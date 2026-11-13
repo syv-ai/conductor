@@ -12,9 +12,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from conductor._internal.ask import QuestionOverrides, answer_required
-from conductor._internal.base import ConductorModel, Loc, json_hash, loc_text
+from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath, json_hash
 from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.field import Field, FieldDescription
+from conductor._internal.problem import InvalidCallError, call_problems
 
 from .outcome import Unanswered
 
@@ -73,8 +74,7 @@ def _overridden(field: Field, question: FieldDescription, overrides: QuestionOve
 
 
 def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unanswered) -> Waiting:
-    """A waiting call as a host shows it. Its id is where the call is as text, then ``~`` and the fingerprint of the
-    question asked there, as ``run.answer`` reads it.
+    """A waiting call as a host shows it.
 
     Args:
         compiled_node: The node that asks.
@@ -83,7 +83,7 @@ def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unans
     """
     question = waiting.question
     return Waiting(
-        id=f"{loc_text(loc)}~{question_fingerprint(compiled_node, waiting)}", loc=loc, prompt=question.prompt,
+        id=write_waiting_id(loc, question_fingerprint(compiled_node, waiting)), loc=loc, prompt=question.prompt,
         questions=waiting_questions(compiled_node, question.overrides), inputs=question.inputs,
     )
 
@@ -93,3 +93,52 @@ def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: Unanswere
     its call asks another question. What the node received is all of its inputs: a change to any of them asks
     again."""
     return json_hash([compiled_node.id, compiled_node.code_fingerprint, waiting.question.inputs], 4)
+
+
+def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
+    """The id of the call at ``loc`` waiting with the question whose fingerprint is ``fingerprint``.
+
+    Its node ids are joined by ``/``, each followed by ``@`` and each of its item indexes, then ``~`` and the
+    fingerprint: ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns
+    ``"review@0/approve@1~3fa2c0d1"``. Without a fingerprint it is the call alone, ``"review@0/approve@1"``.
+    ``read_waiting_id`` reads it back.
+    """
+    place = "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
+    return place if fingerprint is None else f"{place}~{fingerprint}"
+
+
+def read_waiting_id(waiting_id: str, *, status: str) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
+    """The call a waiting id names, as ``write_waiting_id`` wrote it, and the fingerprint of its question.
+
+    ``read_waiting_id("review@0/approve@1~3fa2c0d1", status="waiting")`` returns ``(("review", 0, "approve", 1),
+    ("review", "approve"), (0, 1), "3fa2c0d1")``. An id without ``~`` and a fingerprint names the call alone, and
+    its fingerprint is ``None``. Only the text ``write_waiting_id`` writes is read: ``"approve@01"`` names nothing.
+
+    Args:
+        waiting_id: The id, as a host gave it.
+        status: The run's status, which a refusal names.
+
+    Returns:
+        The call's loc, its node path and its item indexes, and the fingerprint.
+
+    Raises:
+        InvalidCallError: A text after an ``@`` is not a whole number (``not_waiting``, at the loc read up to the
+            node it follows), or the id is not the text ``write_waiting_id`` writes for what it names (``not_waiting``).
+    """
+    place, _, fingerprint = waiting_id.partition("~")
+    loc: list[str | int] = []
+    node_path: list[str] = []
+    item_indexes: list[int] = []
+    for part in place.split("/"):
+        node_id, *indexes = part.split("@")
+        node_path.append(node_id)
+        try:
+            read = [int(index) for index in indexes]
+        except ValueError:
+            raise InvalidCallError([call_problems.not_waiting(*loc, node_id, waiting_id=waiting_id, status=status)]) from None
+        loc += [node_id, *read]
+        item_indexes += read
+    read_fingerprint = fingerprint or None
+    if write_waiting_id(tuple(loc), read_fingerprint) != waiting_id:
+        raise InvalidCallError([call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status)])
+    return tuple(loc), tuple(node_path), tuple(item_indexes), read_fingerprint

@@ -14,8 +14,6 @@ from .address import (
     Name,
     NodePath,
     is_name,
-    loc_text,
-    parse_loc_text,
     parse_node_path,
     place_text,
 )

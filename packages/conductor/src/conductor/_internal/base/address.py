@@ -117,34 +117,6 @@ class Address:
         return place_text((self.node,), self.output, self.field)
 
 
-def loc_text(loc: Loc) -> str:
-    """A loc as text: ``/`` between node ids and ``@`` before each index.
-
-    ``loc_text(("loud", 1, "shout"))`` returns ``"loud@1/shout"``, and ``loc_text(("shout", 0, 2))`` returns
-    ``"shout@0@2"``. A loc starts with a node id.
-    """
-    return "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
-
-
-def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
-    """Read the text of a loc back, and also split it into its node path and its item indexes.
-
-    ``parse_loc_text("loud@1/shout")`` returns ``(("loud", 1, "shout"), ("loud", "shout"), (1,))``.
-
-    Raises:
-        ValueError: The text after an ``@`` is not a whole number.
-    """
-    loc: list[str | int] = []
-    node_ids: list[str] = []
-    item_indexes: list[int] = []
-    for part in text.split("/"):
-        node_id, *indexes = part.split("@")
-        node_ids.append(node_id)
-        item_indexes += [int(i) for i in indexes]
-        loc += [node_id, *item_indexes[len(item_indexes) - len(indexes):]]
-    return tuple(loc), tuple(node_ids), tuple(item_indexes)
-
-
 def place_text(node: NodePath, name: str | None = None, field: str | None = None) -> str:
     """A node, or an output, exclusive group or record field of it, as text for a person to read and as a saved
     run writes a node: the node path joined by ``/``, then a dot and the name, then a dot and the field.

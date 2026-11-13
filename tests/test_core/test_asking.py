@@ -646,6 +646,16 @@ def test_answering_with_ids_that_are_no_waiting_id_is_refused_as_problems():
     ]
 
 
+def test_a_waiting_id_has_one_spelling_and_any_other_names_nothing():
+    gate, _ = _counted()
+    _, run = _waiting_outcomes(gate, text="b1,b2")
+    first = run.waiting[0].id
+    other_spellings = ["q@01", "q@+1", "q@ 1", "q@-0", "q@0~", f"/{first}"]
+    faults = _refused(lambda: run.answer(dict.fromkeys(other_spellings, "B")))
+    assert [f.type for f in faults] == ["not_waiting"] * len(other_spellings)
+    assert run.answer({"q@1": "B", first: "A"}).waiting == []  # with or without its fingerprint, the id written is read
+
+
 def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")

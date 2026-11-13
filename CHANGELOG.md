@@ -152,6 +152,8 @@ What changes in how you work, before the name-by-name tables:
   of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
   `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a call's is a
   problem's (`("e", 0, "ask")`), a node's its id behind the subgraph node's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
+  An id with an index that is not a number is `not_waiting` at the place read up to it: `e@1/ask@x` at `("e", 1, "ask")`.
+  A waiting id has one spelling, the one `run.waiting` gives (or that text without `~` and its fingerprint); any other names nothing and is `not_waiting`: `e/ask@0` for `e@0/ask`, `ask@01`, `ask@0~`.
 - **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
   as their type says. `InvalidCallError` with `invalid_record` problems is what JSON text of the wrong shape raises.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is

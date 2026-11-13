@@ -407,7 +407,8 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
     Answer one of the ids in ``run.waiting``.
 
     Args:
-        loc: The node and the item indexes the waiting id names; the node alone when the id names no call.
+        loc: The node and the item indexes the waiting id names; for an id with an index that is not a number, those
+            read up to that index.
         waiting_id: The waiting id the answer was given for.
         status: The run's status.
         moved_to: The waiting id the same question has now, when it waits for another call of the node: a change of
