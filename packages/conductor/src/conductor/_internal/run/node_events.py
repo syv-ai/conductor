@@ -43,6 +43,7 @@ import operator
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from typing import assert_never
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.problem import Problem
@@ -219,6 +220,12 @@ class NodeEvents:
 def _is_skipped(outcome: Outcome) -> bool:
     """Whether a call was skipped: the node was not called because a branch upstream was not chosen, or it was
     called and returned ``SKIPPED`` on every output."""
-    return type(outcome) is Skipped or (
-        (type(outcome) is Done or type(outcome) is Answered) and bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values())
-    )
+    match outcome:
+        case Skipped():
+            return True
+        case Done() | Answered():
+            return bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values())
+        case NoneInput() | Unanswered():
+            return False
+        case _:
+            assert_never(outcome)

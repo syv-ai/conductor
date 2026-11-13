@@ -41,10 +41,10 @@ if TYPE_CHECKING:
 _STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED_DONE, Skipped: SAVED_SKIPPED}
 
 #: The outcome classes whose outputs are written: what a function returned, or what a person answered.
-_HAS_OUTPUTS = frozenset({Done, Answered})
+_HAS_OUTPUTS = (Done, Answered)
 
 #: The classes whose question is written: a call answered, or waiting.
-_HAS_QUESTION = frozenset({Answered, Unanswered})
+_HAS_QUESTION = (Answered, Unanswered)
 
 
 def run_to_json(run: Run) -> str:
@@ -153,13 +153,13 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     skipped_items: dict[str, dict[int, list[int]]] = {}
     questions: dict[int, Question] = {}
     not_called_because: dict[int, str] = {}
-    if classes & _HAS_OUTPUTS:
-        if classes <= _HAS_OUTPUTS:  # speed only: every call has outputs, as in a node that is complete
+    if not classes.isdisjoint(_HAS_OUTPUTS):
+        if classes.issubset(_HAS_OUTPUTS):  # speed only: every call has outputs, as in a node that is complete
             with_outputs = cast("list[Done | Answered]", outcomes)
             values_by_output = {name: [outcome.outputs[name] for outcome in with_outputs] for name in outputs}
         else:
             values_by_output = {
-                name: [outcome.outputs[name] if type(outcome) is Done or type(outcome) is Answered else None for outcome in outcomes]
+                name: [outcome.outputs[name] if isinstance(outcome, _HAS_OUTPUTS) else None for outcome in outcomes]
                 for name in outputs
             }
         for name, output in outputs.items():
@@ -177,10 +177,10 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
                             skipped_items.setdefault(name, {})[call_number] = skipped_indexes
     else:
         values_by_output = {name: [None] * len(outcomes) for name in outputs}
-    if classes & _HAS_QUESTION:
+    if not classes.isdisjoint(_HAS_QUESTION):
         questions = {
             call_number: outcome.question for call_number, outcome in enumerate(outcomes)
-            if type(outcome) is Answered or type(outcome) is Unanswered
+            if isinstance(outcome, _HAS_QUESTION)
         }
     if NoneInput in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
