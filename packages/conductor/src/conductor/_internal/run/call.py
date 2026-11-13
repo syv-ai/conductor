@@ -1,8 +1,9 @@
 """One call of a node's function: the arguments read by the node's edge door where the graph's types leave a
 doubt, the function called, and what it returns read into the node's outputs by its return door.
 
-Example: ``call(shout, {"line": "b", "mark": "!"}, None)`` returns ``({"result": "B!"}, None)``. When ``shout`` raises,
-or returns something that is not a ``str``, it returns ``(None, the exception)``.
+Example: ``call(shout, {"line": "b", "mark": "!"}, None)`` returns ``({"result": "B!"}, None)``. When ``shout``
+raises, it returns ``(None, the exception)``; when it returns something that is not a ``str``, ``(None, the problem
+invalid_output)``.
 """
 
 from __future__ import annotations
@@ -13,13 +14,13 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
 from conductor._internal.gate import RefusedError
-from conductor._internal.problem import run_problems
+from conductor._internal.problem import Problem, run_problems
 from conductor._internal.types import untyped_as_json
 
 from .flat import FlatFunctionNode
 
 
-def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | None]:
+def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | Problem | None]:
     """Call the function of ``node`` with ``arguments``, by name, and ``context`` first when the node takes it.
 
     Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources
@@ -32,9 +33,10 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
         context: The run's context, as the context door let it in; passed only to a node that takes it.
 
     Returns:
-        ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, error)``: what the
-        function raised, an ``Ask`` included (the node's ``Ask`` door, in the scheduler, refuses one the node did
-        not declare: ``ask_not_declared``); ``RefusedError`` for an argument or an output that its type refuses.
+        ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, problem)``: a door refused
+        an argument (``invalid_edge_value``) or what the function returned (``invalid_output``), the problem
+        without the call's loc. Or ``(None, error)``: what the function raised, an ``Ask`` included (the node's
+        ``Ask`` door, in the scheduler, refuses one the node did not declare: ``ask_not_declared``).
         ``KeyboardInterrupt`` and ``SystemExit`` are raised, not returned.
     """
     compiled_node = node.compiled_node
@@ -42,15 +44,16 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
     try:
         if (edge_door := node.edge_door) is not None:
             arguments = edge_door(arguments)
-        returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
-    except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
-        if isinstance(error, (KeyboardInterrupt, SystemExit)):
-            raise
-        return None, error
-    try:
+        try:
+            returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
+        except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
+            if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                raise
+            return None, error
         return compiled_node.return_door(returned), None
-    except RefusedError as refused:
-        return None, refused
+    except RefusedError as refused:  # the edge door or the return door, each of which reports its first fault
+        (problem,) = refused.problems
+        return None, problem
 
 
 def jsonable(arguments: dict[str, Any]) -> Any:

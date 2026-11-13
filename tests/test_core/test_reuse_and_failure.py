@@ -168,6 +168,46 @@ def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     assert (run.state.cause.type, run.state.cause.msg) == ("external_failed", "An outside service did not answer.")
 
 
+@node("double", title="Double", description="For a test.")
+def _double(n: int) -> int:
+    return 2 * n
+
+
+def _runs_another_graph(given: Mapping[str, Any], policy: Policy) -> FunctionDefinition:
+    """A node whose function runs a graph of ``double`` with ``given`` and lets its ``InvalidCallError`` escape."""
+    inner = Graph.compile(make_graph(_double), registry_of(_double))
+
+    @node("outer", title="Outer", description="For a test.", policy=policy)
+    def outer(text: str = "") -> int:
+        return inner.run(given).outputs["result"]  # type: ignore[no-any-return]
+
+    return outer
+
+
+@pytest.mark.parametrize("concurrency", [1, 2])
+@pytest.mark.parametrize("given", [{"n": "many"}, {"n": "many", "colour": "red"}], ids=["one problem", "two problems"])
+def test_an_invalid_call_error_the_node_lets_escape_is_its_own_failure_not_a_refusal(given, concurrency):
+    """The node's body called ``graph.run`` wrongly: a bug in the node, ``execution_failed``, however many problems the error has."""
+    run = _alone(_runs_another_graph(given, Policy(concurrency=concurrency))).run()
+
+    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("failed", "execution_failed", ("n",), {"error": "InvalidCallError"})
+
+
+def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_value_error():
+    """``InvalidCallError`` is a ``ValueError``; from the node's own body it is retried like any exception ``retry_on`` names."""
+    calls: list[int] = []
+    outer = _runs_another_graph({"n": "many"}, Policy())
+
+    @node("counted", title="Counted", description="For a test.", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ValueError,)))
+    def counted(text: str = "") -> int:
+        calls.append(1)
+        return outer.function(text)  # type: ignore[no-any-return]
+
+    run = _alone(counted).run()
+
+    assert len(calls) == 3 and (run.status, run.state.cause.type) == ("failed", "external_failed")
+
+
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     """A node that knows the outside world failed says so with ``ExternalError``; the message it wrote is what people read."""
     calls: list[int] = []

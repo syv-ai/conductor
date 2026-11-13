@@ -72,7 +72,12 @@ from typing import Any, Literal
 from conductor._internal.ask import Ask
 from conductor._internal.base import ItemIndexes, NodePath, place_text
 from conductor._internal.gate import RefusedError
-from conductor._internal.problem import ExternalError, NodeError, Problem, run_problems
+from conductor._internal.problem import (
+    ExternalError,
+    NodeError,
+    Problem,
+    run_problems,
+)
 
 from .call import call, jsonable
 from .events import EventBase
@@ -92,8 +97,8 @@ from .reuse import ReusableOutcomes, reused_outcome
 from .state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
 
 #: The exceptions of a call that is never retried, whatever the ``retry_on`` of its ``Policy`` names: the node's
-#: own failure, an output its type refuses, a question for a person. Calling again would raise the same.
-_NEVER_RETRIED = (NodeError, RefusedError, Ask)
+#: own failure and a question for a person. Calling again would raise the same.
+_NEVER_RETRIED = (NodeError, Ask)
 
 #: How long the scheduler waits for a thread before it asks ``stop`` again, in seconds.
 _SECONDS_BETWEEN_STOP_CHECKS = 0.05
@@ -127,12 +132,12 @@ class _Returned:
     Attributes:
         attempt: The attempt that was made.
         outputs: The node's outputs by name, or None when ``error`` is set.
-        error: What the function raised, or None.
+        error: What the function raised, or the problem a door of the call refused it with, or None.
     """
 
     attempt: _Attempt
     outputs: Any
-    error: BaseException | None
+    error: BaseException | Problem | None
 
 
 @dataclass(slots=True, order=True)
@@ -389,7 +394,8 @@ class Scheduler:
         try:
             arguments = self.arguments_for(node, item_indexes)
         except RefusedError as missing:  # an edge reads a field that the record it reads from does not have
-            self._record(node, item_indexes, self._failure(node, item_indexes, missing), trying_every_call)
+            (problem,) = missing.problems
+            self._record(node, item_indexes, self._failure(node, item_indexes, problem), trying_every_call)
             return
         if arguments is NotReady.NOT_READY:
             return
@@ -688,11 +694,11 @@ class Scheduler:
             del self.running[(node, item_indexes)]
             self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, error))
 
-    def _retry(self, attempt: _Attempt, error: BaseException | None) -> bool:
+    def _retry(self, attempt: _Attempt, error: BaseException | Problem | None) -> bool:
         """Set a timer to make the call again, if ``attempt`` failed and its node's ``Policy`` retries the error.
 
         An ``ExternalError`` is retried, and so is an exception of a class in ``retry_on``. A ``NodeError`` that is
-        not an ``ExternalError``, an output its type refuses and an ``Ask`` are never retried. The delay is
+        not an ``ExternalError``, a value a door of the call refused and an ``Ask`` are never retried. The delay is
         ``retry_delay`` seconds, doubled for each attempt before this one.
 
         Returns:
@@ -700,7 +706,7 @@ class Scheduler:
         """
         node, item_indexes = attempt.node, attempt.item_indexes
         policy = node.policy
-        if error is None or attempt.number >= policy.retries or not self.going:
+        if error is None or isinstance(error, Problem) or attempt.number >= policy.retries or not self.going:
             return False
         if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
             return False
@@ -730,7 +736,7 @@ class Scheduler:
             self._record(node, item_indexes, run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
     def _outcome(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
+        self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | Problem | None
     ) -> Outcome | Problem | None:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with the
         question when the function raised ``Ask``, or the problem the call failed with.
@@ -747,23 +753,24 @@ class Scheduler:
         if isinstance(error, Ask):
             try:
                 return Unanswered(node.compiled_node.ask_door(error, jsonable(arguments)))
-            except RefusedError as refused:
-                return self._failure(node, item_indexes, refused)
+            except RefusedError as refused:  # the Ask door, or arguments with no JSON form
+                (problem,) = refused.problems
+                return self._failure(node, item_indexes, problem)
         return self._failure(node, item_indexes, error)
 
-    def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException) -> Problem:
-        """The problem for an exception a call raised, with the call's loc.
+    def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem) -> Problem:
+        """The problem a call failed with, with the call's loc: a door's problem, or one for what the function raised.
 
-        A ``NodeError`` gives its own problem, and ``RefusedError`` the one problem the door that refused found. Any other
-        exception is written to the log with its traceback; the problem has only its class name, as its text
-        may quote values: ``external_failed`` for a class in the node's ``retry_on``, else ``execution_failed``.
+        A door's problem is kept, and a ``NodeError`` gives its own. Any other exception, an ``InvalidCallError`` the
+        function let escape included, is written to the log with its traceback; the problem has only its class name,
+        as its text may quote values: ``external_failed`` for a class in the node's ``retry_on``, else
+        ``execution_failed``.
         """
         loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
             return Problem.model_construct(type=error.code, loc=loc, msg=error.message, ctx=error.ctx)  # ctx was validated when the error was made
-        if isinstance(error, RefusedError):
-            (refused,) = error.problems
-            return refused.model_copy(update={"loc": loc})
+        if isinstance(error, Problem):
+            return error.model_copy(update={"loc": loc})
         _logger.error("node %r failed for item %r", place_text(node.node_path), item_indexes, exc_info=error)
         if isinstance(error, node.policy.retry_on):
             return run_problems.external_failed(*loc, error=type(error).__name__)
