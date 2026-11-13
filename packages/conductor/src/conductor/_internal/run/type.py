@@ -274,7 +274,7 @@ class Run[C]:
     @overload
     def answer(self, answers: Mapping[str, Any], /) -> Run[C]: ...
 
-    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = None, /) -> Run[C]:
+    def answer(self, waiting: Waiting | str | Mapping[str, Any], /, *value: Any) -> Run[C]:
         """Give waiting calls their answers, checked against their questions; nothing runs until ``resume``.
 
         ``run.answer(waiting, value)`` answers one, ``run.answer({waiting_id: value, ...})`` several. One question
@@ -287,22 +287,25 @@ class Run[C]:
 
         Args:
             waiting: The call to answer, as ``run.waiting`` lists it or by its id; or the answers by waiting id.
-            value: The answer to ``waiting``, when it names one call.
+            value: The answer to ``waiting`` when it names one call, given exactly once; nothing with a mapping.
 
         Returns:
             A copy of the run with the answers in it.
 
         Raises:
+            TypeError: A call is named without its answer, or a mapping is given one.
             InvalidCallError: Every fault at once, and the run is left as it was: a call answered twice in one
                 call of ``answer`` (``invalid_answer``), an id that names nothing waiting (``not_waiting``), one
                 whose call now asks another question (``answer_stale``, with ``ctx.moved_to`` when that question
                 waits elsewhere), or an answer its question refuses.
         """
-        match waiting:
-            case Waiting(id=key) | str(key):
-                given: Mapping[str, Any] = {key: value}
-            case _:
+        match waiting, value:
+            case (Waiting(id=key) | str(key)), (one,):
+                given: Mapping[str, Any] = {key: one}
+            case Mapping(), ():
                 given = waiting
+            case _:
+                raise TypeError("run.answer takes a waiting call and its answer, or a mapping of waiting ids to answers")
         problems: list[Problem] = []
         answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome | Answer] = {}
         for waiting_id, one in given.items():

@@ -587,6 +587,10 @@ def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
     assert run.answer(run.waiting[0], "1").answer("q@1", "2").to_json() == run.answer({"q@0": "1", "q@1": "2"}).to_json()
+    with pytest.raises(TypeError):
+        run.answer("q@0")  # type: ignore[call-overload]
+    with pytest.raises(TypeError):
+        run.answer({"q@0": "1"}, "2")  # type: ignore[call-overload]
 
 
 def test_an_answer_is_given_once():
