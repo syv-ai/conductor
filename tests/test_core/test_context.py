@@ -354,4 +354,4 @@ def test_check_registry_runs_each_example_with_the_context_it_is_given():
     registry = app_registry(sign, upper)
     assert check_registry(registry, examples={"sign": [{"text": "a"}]}, context=IDA) == []
     [problem] = check_registry(registry, examples={"sign": [{"text": "a"}]})
-    assert (problem.type, problem.loc, problem.ctx["cause"]) == ("run_failed", ("sign", 1), ["context_missing"])
+    assert (problem.type, problem.loc, [one["type"] for one in problem.ctx["problems"]]) == ("run_failed", ("sign", 1), ["context_missing"])

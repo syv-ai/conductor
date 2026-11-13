@@ -8,6 +8,7 @@ from conductor import (
     ExternalError,
     NodeRegistry,
     Param,
+    Problem,
     Series,
     Upgrade,
     make_graph,
@@ -29,6 +30,11 @@ def registry_of(*definitions: Any) -> NodeRegistry[Session]:
 
 def found(registry: NodeRegistry, **options: Any) -> list[tuple[str, tuple[str | int, ...]]]:
     return [(p.type, p.loc) for p in check_registry(registry, **options)]
+
+
+def behind(problem: Problem) -> list[str]:
+    """The codes of the problems a ``check_registry`` problem is made of."""
+    return [one["type"] for one in problem.ctx["problems"]]
 
 
 # -- nodes that keep the contract ------------------------------------------------------------------
@@ -164,11 +170,11 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
 
     assert found(registry_of(size, length)) == [("upgrade_broken", ("size", 1)), ("upgrade_broken", ("length", 1))]
     [problem] = check_registry(registry_of(size))
-    assert problem.ctx["cause"] == ["invalid_value"]
+    assert behind(problem) == ["invalid_value"]
 
 
 def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():
-    """The codes are in ``ctx.cause``, so ``reason`` is the messages alone, joined by "; ", for every kind alike."""
+    """The problems behind it are in ``ctx.problems``, and ``reason`` is their messages alone, joined by "; ", for every kind alike."""
 
     @node("size", title="Size v1", description="For a test.")
     def size_v1(n: int) -> int:
@@ -207,7 +213,7 @@ def test_an_example_that_does_not_run_to_the_end_or_a_pause_is_run_failed():
 
     examples = {"unsure": [{"text": "a"}], "offline": [{"text": "a"}], "who": [{"text": "no session"}], "upper": [{"txt": "a"}]}
     problems = check_registry(registry_of(unsure, offline, who, upper), examples=examples)
-    assert [(p.type, p.loc, p.ctx["cause"]) for p in problems] == [
+    assert [(p.type, p.loc, behind(p)) for p in problems] == [
         ("run_failed", ("unsure", 1), ["invalid_ask"]),
         ("run_failed", ("offline", 1), ["external_failed"]),
         ("run_failed", ("who", 1), ["context_missing"]),
@@ -251,7 +257,7 @@ def test_an_example_with_no_json_form_is_run_failed_by_its_node_and_input_and_ra
         return repr(thing)
 
     (problem,) = check_registry(registry_of(takes), examples={"takes": [{"thing": Opaque()}]})
-    assert (problem.type, problem.loc, problem.ctx["cause"]) == ("run_failed", ("takes", 1), ["invalid_value"])
+    assert (problem.type, problem.loc, behind(problem)) == ("run_failed", ("takes", 1), ["invalid_value"])
     assert problem.ctx["problems"][0]["loc"] == ["takes", "thing"]
 
 
@@ -265,7 +271,7 @@ def test_a_body_returning_what_its_type_refuses_is_run_failed():
         return {label: "one" for label in labels}  # type: ignore[misc]
 
     problems = check_registry(registry_of(counts, tally), examples={"counts": [{"text": "a"}], "tally": [{"labels": ["a"]}]})
-    assert [(p.type, p.loc, p.ctx["cause"]) for p in problems] == [
+    assert [(p.type, p.loc, behind(p)) for p in problems] == [
         ("run_failed", ("counts", 1), ["invalid_output"]), ("run_failed", ("tally", 1), ["invalid_output"]),
     ]
 
@@ -281,7 +287,7 @@ def test_what_a_check_says_is_made_from_its_ctx_alone():
     (found,) = check_registry(registry, examples={"halve": [{"n": 2}], "halv": [{"n": 2}]})[1:]
     (missing,) = check_registry(registry, examples={"halv": [{"n": 2}]})
 
-    assert (found.type, found.loc, found.ctx["status"], found.ctx["reason"], found.ctx["cause"]) == ("run_failed", ("halve", 1), "failed", "the node raised ZeroDivisionError", ["execution_failed"])
+    assert (found.type, found.loc, found.ctx["status"], found.ctx["reason"], behind(found)) == ("run_failed", ("halve", 1), "failed", "the node raised ZeroDivisionError", ["execution_failed"])
     assert (missing.type, missing.loc, missing.ctx) == ("example_for_no_node", ("halv",), {"named": "'halv'"})
     assert found.msg == "the example ended {status}: {reason}".format(**found.ctx)
     assert missing.msg == "{named} names no node of the registry; check the id, or remove the example".format(**missing.ctx)

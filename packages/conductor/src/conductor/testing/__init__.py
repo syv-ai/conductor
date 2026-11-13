@@ -49,6 +49,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from pydantic import ValidationError
+from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
@@ -70,11 +71,8 @@ from conductor.testing import problems
 _Example = Mapping[str, Any]
 
 
-class _Cannot:
-    """What ``_made_up`` gives for a field no value can be made for."""
-
-
-_CANNOT = _Cannot()
+#: What ``_made_up`` gives for a field no value can be made for.
+_CANNOT = sentinel("_CANNOT")
 
 
 def check_registry[C](
@@ -144,7 +142,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     if missing:
         return [problems.needs_example(version.id, version.version, inputs=missing)]
     failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type == compile_problems.compute_hook_failed.code]
-    return [problems.hook_failed(version.id, version.version, reason=_reason([p]), cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
+    return [problems.hook_failed(version.id, version.version, reason=_reason([p]), problems=[p.model_dump(mode="json")]) for p in failed]
 
 
 def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example]) -> list[Problem]:
@@ -169,7 +167,7 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given:
     graph_problems = Graph.compile(upgraded, registry).problems
     if not graph_problems:
         return []
-    return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=_reason(graph_problems), cause=[p.type for p in graph_problems], problems=[p.model_dump(mode="json") for p in graph_problems])]
+    return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=_reason(graph_problems), problems=[p.model_dump(mode="json") for p in graph_problems])]
 
 
 def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example: _Example, context: Any) -> list[Problem]:
@@ -194,24 +192,24 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example:
     except InvalidCallError as refused:
         call_problems = refused.problems
         return [problems.example_refused(
-            version.id, version.version, reason=_reason(call_problems), cause=[p.type for p in call_problems], problems=[p.model_dump(mode="json") for p in call_problems],
+            version.id, version.version, reason=_reason(call_problems), problems=[p.model_dump(mode="json") for p in call_problems],
         )]
     found = [
         problems.changed_its_inputs(version.id, version.version, input=name)
         for name in changed
     ]
     if (cause := run.cause) is not None:
-        found.append(problems.run_failed(version.id, version.version, status=run.status, reason=_reason([cause]), cause=[cause.type], problems=[cause.model_dump(mode="json")]))
+        found.append(problems.run_failed(version.id, version.version, status=run.status, reason=_reason([cause]), problems=[cause.model_dump(mode="json")]))
     return found
 
 
 def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) -> list[Problem]:
     """The one problem for an example whose graph has problems: ``hook_failed`` when a hook caused every one, else ``run_failed``."""
     reason = _reason(graph_problems)
-    cause, written = [p.type for p in graph_problems], [p.model_dump(mode="json") for p in graph_problems]
+    written = [p.model_dump(mode="json") for p in graph_problems]
     if all(p.type == compile_problems.compute_hook_failed.code for p in graph_problems):
-        return [problems.hook_failed_on_an_example(version.id, version.version, reason=reason, cause=cause, problems=written)]
-    return [problems.example_not_compiled(version.id, version.version, reason=reason, cause=cause, problems=written)]
+        return [problems.hook_failed_on_an_example(version.id, version.version, reason=reason, problems=written)]
+    return [problems.example_not_compiled(version.id, version.version, reason=reason, problems=written)]
 
 
 def _reason(behind: Sequence[Problem]) -> str:

@@ -74,7 +74,7 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
-def hook_failed(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's ``compute_...`` hook failed when called with the node's defaults and made-up values.
 
     Make the hook work on those values, or give the node an example it works on.
@@ -82,7 +82,6 @@ def hook_failed(*loc: str | int, reason: str, cause: list[str], problems: list[d
     Args:
         loc: The node and its version.
         reason: The message of the problem compiling the node reported.
-        cause: The code of that problem.
         problems: That problem, as JSON.
 
     Example:
@@ -103,7 +102,7 @@ def hook_failed(*loc: str | int, reason: str, cause: list[str], problems: list[d
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("hook_failed", variant="on_an_example")
-def hook_failed_on_an_example(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example cannot be compiled, and every problem is in a ``compute_...`` hook.
 
     Fix the hook, or the example. In the example, ``pick``'s hook raises for an empty text.
@@ -111,7 +110,6 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, cause: list[str], pr
     Args:
         loc: The node and its version.
         reason: The message of each problem compiling reported.
-        cause: The code of each.
         problems: Those problems, as JSON.
 
     Example:
@@ -123,7 +121,7 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, cause: list[str], pr
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
-def upgrade_broken(*loc: str | int, newest: int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def upgrade_broken(*loc: str | int, newest: int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node moved from an older version to the newest has problems when compiled.
 
     Fix the newest version's ``Upgrade``, so a graph saved with the older version compiles cleanly after the move. In
@@ -133,7 +131,6 @@ def upgrade_broken(*loc: str | int, newest: int, reason: str, cause: list[str], 
         loc: The node and the older version.
         newest: The version it was moved to.
         reason: The message of each problem compiling reported.
-        cause: The code of each.
         problems: Those problems, as JSON.
 
     Example:
@@ -214,10 +211,10 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
-def run_failed(*loc: str | int, status: str, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example ran and ended early: it failed, stopped, was cancelled or timed out.
 
-    Fix the node or the example. ``ctx.cause`` has the run's own problem; when the node raised an exception of its own,
+    Fix the node or the example. ``ctx.problems`` has the problem the run ended on; when the node raised an exception of its own,
     the message names its class. A node that is known to fail goes in a test of its own, marked
     ``pytest.mark.xfail(strict=True)``, that checks ``registry.filter(...)`` down to that node, so the test fails once
     the node is fixed.
@@ -226,7 +223,6 @@ def run_failed(*loc: str | int, status: str, reason: str, cause: list[str], prob
         loc: The node and its version.
         status: How the run ended.
         reason: The message of the problem it ended on; for an exception of the node's own, its class name.
-        cause: The code of that problem.
         problems: That problem, as JSON.
 
     Example:
@@ -243,7 +239,7 @@ def run_failed(*loc: str | int, status: str, reason: str, cause: list[str], prob
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="not_compiled")
-def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def example_not_compiled(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example cannot be compiled, for a problem that is not in a ``compute_...`` hook.
 
     Fix the example: its values must be inputs of the node, of the inputs' types.
@@ -251,7 +247,6 @@ def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problem
     Args:
         loc: The node and its version.
         reason: The message of each problem compiling reported.
-        cause: The code of each.
         problems: Those problems, as JSON.
 
     Example:
@@ -263,7 +258,7 @@ def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problem
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="refused")
-def example_refused(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+def example_refused(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
     """A node's example compiles, and running it is refused.
 
     Give the run what it needs: in the example, the run's context for the node's ``Context[HostContext]``, with
@@ -272,7 +267,6 @@ def example_refused(*loc: str | int, reason: str, cause: list[str], problems: li
     Args:
         loc: The node and its version.
         reason: The message of each problem the run was refused for.
-        cause: The code of each.
         problems: Those problems, as JSON.
 
     Example:
