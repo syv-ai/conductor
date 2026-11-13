@@ -115,6 +115,10 @@ def test_a_hook_that_fails_on_made_up_values_or_an_example_is_hook_failed():
     assert found(registry_of(breaks), examples={"breaks": [{"names": "a"}]}) == [("hook_failed", ("breaks", 1))]
 
 
+def test_a_hook_that_gives_a_field_a_name_it_cannot_have_is_hook_failed():
+    assert found(registry_of(columns), examples={"columns": [{"text": "a", "names": "a.b"}]}) == [("hook_failed", ("columns", 1))]
+
+
 def test_a_hook_reading_an_input_no_value_can_be_made_up_for_needs_an_example():
     def _code(code: str) -> dict[str, Any]:
         return {"x": str}

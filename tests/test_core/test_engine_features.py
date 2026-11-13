@@ -620,7 +620,7 @@ def test_a_hook_naming_a_field_with_a_character_of_an_address_is_a_problem_as_a_
 
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "dotted"}}, "outputs": {}}), registry_of(dotted))
 
-    assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("d", name))]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [("compute_hook_failed", ("d", name), "not_a_name")]
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {name: {"node": "dotted"}}}), registry_of(dotted))
     assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", name, "[key]"))]

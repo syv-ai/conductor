@@ -939,7 +939,7 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
 
 
 def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
-    assert [(p.type, p.loc) for p in _computing(lambda: {1: int}).problems] == [("parameter_name_invalid", ("h", "1"))]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in _computing(lambda: {1: int}).problems] == [("compute_hook_failed", ("h", "1"), "not_a_name")]
 
 
 def test_a_bug_in_a_host_types_own_schema_hook_raises_as_itself_where_the_class_is_declared():
@@ -971,7 +971,7 @@ def test_a_hook_adding_an_input_whose_name_an_address_cannot_carry_is_refused():
         return 1
 
     graph = compiled_graph(adds)
-    assert [(p.type, p.loc) for p in graph.problems] == [("parameter_name_invalid", ("adds", "a.b"))]
+    assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [("compute_hook_failed", ("adds", "a.b"), "not_a_name")]
 
 
 # -- what a signature says that conductor refuses or reads as written ------------------------

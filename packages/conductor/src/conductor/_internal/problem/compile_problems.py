@@ -51,19 +51,23 @@ def alternatives_from_different_loops(node_id: str, field: str, /, *, series: li
     )
 
 
-@COMPILE_PROBLEMS.problem(of_a_hook=True)
+@COMPILE_PROBLEMS.problem()
 def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dict[str, Any] | None = None) -> str:
     """A node's ``compute_...`` hook raised, or returned something compiling cannot use.
 
     The hook's exception and its traceback are in the ``conductor`` log. A hook that raises ``NodeError`` gives its
     ``code`` as ``ctx.error`` (``failed`` when it gives none, ``external_failed`` for an ``ExternalError``) and its
-    ``ctx`` as ``ctx.error_ctx``; any other exception gives its class name. Change the constant the hook reads, or
-    fix the hook. In the example, ``pick``'s hook raises ``ValueError`` for an empty text.
+    ``ctx`` as ``ctx.error_ctx``; any other exception gives its class name. A hook that gives a field a name it
+    cannot have fails at that name, with ``error`` ``not_a_name``: a name is not empty and has none of ``.``, ``/``,
+    ``@`` and ``~``, the characters addresses, node paths and waiting ids are written with. Change the constant the
+    hook reads, or fix the hook. In the example, ``pick``'s hook raises ``ValueError`` for an empty text.
 
     Args:
-        loc: The node.
+        loc: The node, and the name when the hook gave a field a name it cannot have.
         reason: The hook's message, or why compiling cannot use what it returned.
-        error: The ``code`` of the hook's ``NodeError``, or the class name of the exception it raised.
+        error: The ``code`` of the hook's ``NodeError``, the class name of the exception it raised, or why compiling
+            cannot use what it returned (``not_a_mapping``, ``not_a_name``, ``added_input_taken``, or the code of a
+            type conductor does not support).
         error_ctx: The ``ctx`` of the hook's ``NodeError``, when it has one.
 
     Example:
@@ -306,35 +310,6 @@ def invalid_value_bound_default(node_id: str, field: str, /, *, type: str, reaso
         }})
     """
     return f"The default of '{field}' is not a value of {type}, the type the edges into '{node_id}' give it: {reason.rstrip('.')}. Give a default of that type, or none."
-
-
-@COMPILE_PROBLEMS.problem(of_a_hook=True)
-def parameter_name_invalid(node_id: str, field: str, /) -> str:
-    """A node's ``compute_...`` hook returns an input or output name that cannot be one.
-
-    A name may not be empty or contain ``.``, ``/``, ``@`` or ``~``, the characters addresses (``a.result``), node
-    paths (``loud/shout``) and waiting ids (``a@1~3fa2``) are written with. Every name in a graph record is held to
-    the same rule. Change the hook.
-
-    Args:
-        node_id: The node.
-        field: The name.
-
-    Example:
-        def dotted(names: str) -> dict[str, type]:
-            return {name: str for name in names.split(",")}
-
-
-        @registry.node("fields", title="Fields", description="Gives one answer per name.", compute_outputs=dotted)
-        def fields(names: str) -> dict[str, str]:
-            return {}
-
-
-        problems({"nodes": {
-            "f": {"node": "fields", "inputs": {"names": {"constant": "a.b"}}}
-        }})
-    """
-    return f"'{field}' cannot be an input or output name: a name is not empty and has no '.', '/', '@' or '~'; change the node's hook."
 
 
 @COMPILE_PROBLEMS.problem()

@@ -18,8 +18,7 @@ It returns the message. Calling it makes the problem::
 A type checker checks every call against the function's signature; ``ProblemCatalogue.problem`` in ``type.py`` gives
 the rules for the signature in full. A few kinds name their code in the decorator,
 ``@COMPILE_PROBLEMS.problem("type_mismatch", variant="make_a_series")``: a second message under that code, for one particular
-mistake, and the problem's ``ctx.variant`` says which. ``of_a_hook=True`` marks a problem in a node's ``compute_...``
-hook, which the node's developer fixes rather than the graph's author; ``check_registry`` reports those as its own.
+mistake, and the problem's ``ctx.variant`` says which.
 
 Each kind's docstring is its entry on the problems page (``python -m conductor.about problems``): what is wrong and
 how to fix it, a line for each ``loc`` and ``ctx`` parameter, and an example. The example runs after the setup at

@@ -60,7 +60,7 @@ from conductor._internal.node import (
     SubgraphDefinition,
     read_by_hooks,
 )
-from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
+from conductor._internal.problem import InvalidCallError, Problem, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
@@ -68,10 +68,6 @@ from conductor.testing import problems
 
 #: One call's inputs, by name.
 _Example = Mapping[str, Any]
-
-
-#: The problems of loading that are a hook's.
-_HOOK_CODES = frozenset(kind.code for kind in PROBLEMS if kind.of_a_hook)
 
 
 class _Cannot:
@@ -147,7 +143,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
         return [problems.needs_example(version.id, version.version, inputs=missing)]
-    failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type in _HOOK_CODES]
+    failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type == compile_problems.compute_hook_failed.code]
     return [problems.hook_failed(version.id, version.version, reason=_reason([p]), cause=[p.type], problems=[p.model_dump(mode="json")]) for p in failed]
 
 
@@ -213,7 +209,7 @@ def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) ->
     """The one problem for an example whose graph has problems: ``hook_failed`` when a hook caused every one, else ``run_failed``."""
     reason = _reason(graph_problems)
     cause, written = [p.type for p in graph_problems], [p.model_dump(mode="json") for p in graph_problems]
-    if all(p.type in _HOOK_CODES for p in graph_problems):
+    if all(p.type == compile_problems.compute_hook_failed.code for p in graph_problems):
         return [problems.hook_failed_on_an_example(version.id, version.version, reason=reason, cause=cause, problems=written)]
     return [problems.example_not_compiled(version.id, version.version, reason=reason, cause=cause, problems=written)]
 

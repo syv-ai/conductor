@@ -23,7 +23,7 @@ The doors, with the module each is in:
     a constant or default written in a record               constants
                                                             invalid_value
     what a compute_added_inputs or compute_outputs hook     hook
-        returns                                             parameter_name_invalid, compute_hook_failed
+        returns                                             compute_hook_failed
     a caller's graph inputs, max_items, timeout and         inputs
         checkpoint_every                                    not_offered, missing_input,
                                                             invalid_input, invalid_input_make_a_series,

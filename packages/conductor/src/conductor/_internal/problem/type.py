@@ -84,15 +84,13 @@ class ProblemKind[**Params]:
         code: The problem's ``type``.
         variant: For a second message under a code, for one particular mistake: the value of ``ctx.variant``.
             ``None`` for a code's main message.
-        of_a_hook: Whether the problem is in a node's ``compute_...`` hook, which the node's developer fixes. Any
-            other problem of a compiled graph is fixed in the graph.
         sentence: The message with a replacement field ``{key}`` in place of each ``ctx`` value.
         ctx_type: The keys of ``ctx`` and their types, as a ``TypedDict``. A key that may be left out is not required.
         section: The title of the catalogue the kind is declared on; empty when it has none.
     """
 
-    def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, of_a_hook: bool, section: str) -> None:
-        self.code, self.variant, self.of_a_hook, self.section = code, variant, of_a_hook, section
+    def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, section: str) -> None:
+        self.code, self.variant, self.section = code, variant, section
         self.__doc__ = write_message.__doc__
         self._message = write_message
         signature = inspect.signature(write_message, eval_str=True)
@@ -195,7 +193,7 @@ class ProblemCatalogue:
                 catalogue._add(kind)
         return catalogue
 
-    def problem[**Params](self, code: str | None = None, *, variant: str | None = None, of_a_hook: bool = False) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
+    def problem[**Params](self, code: str | None = None, *, variant: str | None = None) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
         """Makes the function under it a kind of problem, and returns the kind, which is called to make a problem.
 
         The function returns the message, made from its parameters and nothing else. Each parameter is one of three
@@ -224,7 +222,6 @@ class ProblemCatalogue:
         Args:
             code: The problem's ``type``; the function's name when left out.
             variant: For a second message under a code declared before it: the value of ``ctx.variant``.
-            of_a_hook: Whether the fault is in a node's ``compute_...`` hook.
 
         Raises:
             TypeError: When the function is declared, for a parameter that is none of the three, a return type other
@@ -232,7 +229,7 @@ class ProblemCatalogue:
                 a ``variant`` for a code not declared before it.
         """
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
-            kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook, self._title)
+            kind = ProblemKind(write_message, code or write_message.__name__, variant, self._title)
             self._add(kind)
             return kind
 
