@@ -6,7 +6,7 @@ If its edge reads the field ``name`` (``split.result.name``), it is called with 
 which is ``"Ann"``. A node that returns a ``polars.DataFrame`` for a ``Series`` of records has it stored as
 ``Records``, which keeps the frame.
 
-Both classes have ``len(stored)``, ``stored[place]`` (the item at that index), ``columns``, ``as_list()``,
+Both classes have ``len(stored)``, ``stored[index]`` (the item at that index), ``columns``, ``as_list()``,
 ``as_table_input()``, ``field_as_list(name)``, ``for_saving()`` and ``written_once()``, so code that reads a
 stored Series never asks which of the two it has.
 """
@@ -99,7 +99,7 @@ class SeriesItems(list[Any]):
         """Returns the Series as a saved run writes it, and the indexes of its ``SKIPPED`` items, which the save
         writes as ``None`` and lists beside the Series. ``SeriesItems(["a", SKIPPED]).for_saving()`` is
         ``(SeriesItems(["a", None]), [1])``."""
-        skipped = [place for place, item in enumerate(self) if item is SKIPPED]
+        skipped = [index for index, item in enumerate(self) if item is SKIPPED]
         return (SeriesItems(self.as_list()), skipped) if skipped else (self, [])
 
     def written_once(self) -> None:
@@ -146,10 +146,10 @@ class Records[T]:
     def __len__(self) -> int:
         return self.frame.height
 
-    def __getitem__(self, place: int) -> dict[str, Any]:
-        """Returns the record at the index ``place`` as a dict."""
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        """Returns the record at ``index`` as a dict."""
         columns = self.columns
-        return {name: columns[name][place] for name in self.frame.columns}
+        return {name: columns[name][index] for name in self.frame.columns}
 
     def as_list(self) -> list[dict[str, Any]]:
         """Returns the records as a new list of dicts, as a node with a ``Series`` input receives them."""

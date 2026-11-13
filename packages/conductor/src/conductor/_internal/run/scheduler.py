@@ -166,13 +166,13 @@ class _AnswerOrder:
 
     Attributes:
         order: The item indexes of the node's calls, in item order.
-        place: The position of each of them in ``order``.
+        position: The position of each of them in ``order``.
         reached: How many calls, counted from the first in ``order``, have been tried.
         passed: The calls counted as tried because they cannot be tried in this ``resume()``.
     """
 
     order: list[ItemIndexes]
-    place: dict[ItemIndexes, int]
+    position: dict[ItemIndexes, int]
     reached: int = 0
     passed: set[ItemIndexes] = field(default_factory=set)
 
@@ -781,7 +781,7 @@ class Scheduler:
         (``_skip_calls_that_cannot_start``).
         """
         turn = self.answer_orders.get(node)
-        if turn is None or item_indexes not in turn.place:
+        if turn is None or item_indexes not in turn.position:
             order = all_item_indexes(self.all_outcomes, node.loops, ())[0]
             turn = self.answer_orders[node] = _AnswerOrder(order, {indexes: position for position, indexes in enumerate(order)})
         order, outcomes, passed, reached = turn.order, self.outcomes[node], turn.passed, turn.reached
@@ -791,7 +791,7 @@ class Scheduler:
                 break
             reached += 1
         turn.reached = reached
-        return turn.place.get(item_indexes, 0) <= reached
+        return turn.position.get(item_indexes, 0) <= reached
 
     def _skip_calls_that_cannot_start(self) -> bool:
         """Count as tried every call, of a node in ``answer_orders``, that has not been tried and has no outcome.
