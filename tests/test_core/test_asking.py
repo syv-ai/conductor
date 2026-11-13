@@ -348,6 +348,24 @@ def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_
     assert answered.results["q"] == Run.from_json(answered.to_json(), run.graph).results["q"]
 
 
+@node("route_to", title="Route to", description="For a test.", asks=True)
+def route_to(text: str) -> Routed:
+    raise Ask(f"Route {text}", choices={"escalate": ["boss", "team"]}, default={"escalate": "team"})
+
+
+def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_held_to():
+    _, run = _once(route_to, text="a")
+    note, escalate = run.waiting[0].questions
+    assert (note.required, note.choices, note.default) == (True, None, None)
+    assert ([c.id for c in escalate.choices], escalate.default, escalate.required) == (["boss", "team"], "team", False)
+
+    assert run.answer("q", {"note": "fine"}).resume().outputs == {"note": "fine", "escalate": "team"}  # the Ask's default, not SKIPPED
+    assert run.answer("q", {"note": "fine", "escalate": "boss"}).resume().outputs == {"note": "fine", "escalate": "boss"}
+    assert [f.msg for f in _refused(lambda: run.answer("q", {"note": "fine", "escalate": "ceo"}))] == [
+        "That is not a valid answer: 'escalate': the answer is not one of the choices",
+    ]
+
+
 class Line(TypedDict):
     sku: str
     qty: int

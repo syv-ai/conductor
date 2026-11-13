@@ -1,5 +1,5 @@
-"""What a call asked: ``Question``, kept with the call's outcome and saved with the run; and whether an answer must
-give a question.
+"""What a call asked: ``Question``, kept with the call's outcome and saved with the run; each output's question as the
+call asks it; and whether an answer must give a question.
 
 ``approve(line: str) -> bool`` raising ``Ask("approve b?")`` keeps ``Question(prompt="approve b?", inputs={"line":
 "b"})``.
@@ -16,7 +16,7 @@ from typing import Any, TypedDict
 from pydantic import JsonValue, SerializeAsAny
 
 from conductor._internal.base import REQUIRED
-from conductor._internal.field import Field
+from conductor._internal.field import Field, FieldDescription
 from conductor._internal.types import Choice
 
 
@@ -71,3 +71,23 @@ def answer_required(field: Field, overrides: QuestionOverrides, *, limited: bool
     defaulted = "default" in overrides or field.default is not REQUIRED
     may_be_none = not field.is_series and field.whole.optional and not limited
     return not defaulted and field.param.exclusive_group is None and not may_be_none
+
+
+def as_asked(field: Field, question: FieldDescription, overrides: Mapping[str, QuestionOverrides]) -> FieldDescription:
+    """The question about ``field`` as a call asks it: the question its type sets, with the choices and default the
+    call's ``Ask`` set on it, and ``required`` worked out from them. The questions a host is shown and the answer door
+    both read it.
+
+    ``Ask("Who?", default="bo")`` on ``assign(ticket: str) -> str`` asks ``result`` with ``default="bo"`` and
+    ``required=False``. Where the ``Ask`` set nothing on ``field``, ``question`` itself is returned.
+
+    Args:
+        field: The output the answer fills.
+        question: The question about it as its type sets it (``CompiledFunctionNode.questions``).
+        overrides: What the ``Ask`` set, by output name.
+    """
+    set_here = overrides.get(field.name)
+    if set_here is None:
+        return question
+    limited = set_here.get("choices", question.choices) is not None
+    return question.model_copy(update={**set_here, "required": answer_required(field, set_here, limited=limited)})

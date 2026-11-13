@@ -8,13 +8,12 @@ set, so a host draws a question with the code that draws an input.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
-from conductor._internal.ask import QuestionOverrides, answer_required
+from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath, json_hash
 from conductor._internal.compiled import CompiledFunctionNode
-from conductor._internal.field import Field, FieldDescription
+from conductor._internal.field import FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
 
 from .outcome import Unanswered
@@ -50,29 +49,6 @@ class Waiting(ConductorModel):
     inputs: dict[str, Any]
 
 
-def waiting_questions(compiled_node: CompiledFunctionNode, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
-    """A waiting call's questions: the question about each output, which the answer fills, with what its ``Ask`` set.
-
-    Args:
-        compiled_node: The node that asks.
-        overrides: What the ``Ask`` set, by output name.
-
-    Returns:
-        A question per output, in the outputs' order.
-    """
-    outputs = compiled_node.outputs
-    return [
-        _overridden(outputs[name], question, overrides[name]) if name in overrides else question
-        for name, question in compiled_node.questions.items()
-    ]
-
-
-def _overridden(field: Field, question: FieldDescription, overrides: QuestionOverrides) -> FieldDescription:
-    """One field's question with what its ``Ask`` set, and whether it is ``required`` worked out again from that."""
-    choices = overrides.get("choices", question.choices)
-    return question.model_copy(update={**overrides, "required": answer_required(field, overrides, limited=choices is not None)})
-
-
 def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unanswered) -> Waiting:
     """A waiting call as a host shows it.
 
@@ -81,10 +57,11 @@ def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unans
         loc: Where the call is: the node and its item, behind those of each subgraph's node around it.
         waiting: The call's outcome.
     """
-    question = waiting.question
+    asked, outputs = waiting.question, compiled_node.outputs
     return Waiting(
-        id=write_waiting_id(loc, question_fingerprint(compiled_node, waiting)), loc=loc, prompt=question.prompt,
-        questions=waiting_questions(compiled_node, question.overrides), inputs=question.inputs,
+        id=write_waiting_id(loc, question_fingerprint(compiled_node, waiting)), loc=loc, prompt=asked.prompt,
+        questions=[as_asked(outputs[name], question, asked.overrides) for name, question in compiled_node.questions.items()],
+        inputs=asked.inputs,
     )
 
 

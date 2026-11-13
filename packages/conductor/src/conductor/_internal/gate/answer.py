@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError
 
-from conductor._internal.ask import QuestionOverrides, answer_required
+from conductor._internal.ask import QuestionOverrides, as_asked
 from conductor._internal.base import SKIPPED, Loc, comma_separated, validate_as_json
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
@@ -71,11 +71,11 @@ class AnswerDoor:
     def _read(self, answer: Any, overrides: Mapping[str, QuestionOverrides]) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
         """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer."""
-        outputs = self._outputs
+        outputs, questions = self._outputs, self._questions
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
-                return {name: answer_value(field, answer, overrides.get(name, {}).get("choices", self._questions[name].choices))}, []
+                return {name: answer_value(field, answer, as_asked(field, questions[name], overrides).choices)}, []
             except PydanticCustomError as refused:
                 return {}, [(None, refused.message())]
         if answer is None and not outputs:
@@ -86,17 +86,16 @@ class AnswerDoor:
         read: dict[str, Any] = {}
         groups: dict[str, list[str]] = {}
         for name, field in outputs.items():
-            question, override, group = self._questions[name], overrides.get(name, {}), field.param.exclusive_group
-            choices = override.get("choices", question.choices)
+            asked, group = as_asked(field, questions[name], overrides), field.param.exclusive_group
             try:
                 if name in answer:
-                    read[name] = answer_value(field, answer[name], choices)
+                    read[name] = answer_value(field, answer[name], asked.choices)
                 elif group is not None:
                     read[name] = SKIPPED
-                elif field.default is SKIPPED and "default" not in override:
+                elif field.default is SKIPPED and "default" not in overrides.get(name, {}):
                     read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
-                elif not answer_required(field, override, limited=choices is not None):
-                    read[name] = read_as_answer(field.whole, override.get("default", question.default))  # its default, else None for a type that takes it
+                elif not asked.required:
+                    read[name] = read_as_answer(field.whole, asked.default)  # its default, else None for a type that takes it
                 else:
                     faults.append((name, f"'{name}' was not answered"))
             except PydanticCustomError as refused:
