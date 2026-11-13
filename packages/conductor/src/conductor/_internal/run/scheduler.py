@@ -38,7 +38,8 @@ after. The scheduler then calls ``shout`` with those arguments and writes what i
    the earlier run in place of a call with the same arguments (``run/reuse.py``). A person's answer is taken
    once, by the first call in item order that has those arguments. Calls on threads come back in any order, so
    a call that could take an answer is left untried until every call of its node before it has been tried
-   (``_in_turn``), and ``_try_every_call`` runs again for it.
+   (``_in_turn``), and ``_try_every_call`` runs again for it once another outcome is recorded. A call before it
+   that waits on a person's answer upstream holds it back until that answer comes.
 
 4. **Stopping, the item limit and checkpoints.** The first call that fails ends the run as ``failed``. So does
    ``stop`` (a cancel, a hand back, the run's ``timeout``) with its own state, and a series with more items than
@@ -148,13 +149,11 @@ class _AnswerOrder:
         order: The item indexes of the node's calls, in item order.
         position: The position of each of them in ``order``.
         reached: How many calls, counted from the first in ``order``, have been tried.
-        passed: The calls counted as tried because they cannot be tried in this ``resume()``.
     """
 
     order: list[ItemIndexes]
     position: dict[ItemIndexes, int]
     reached: int = 0
-    passed: set[ItemIndexes] = field(default_factory=set)
 
 
 @dataclass(slots=True)
@@ -468,8 +467,7 @@ class Scheduler:
         2. Tell the listener, which says which nodes are complete.
         3. If a call is running, go on: ``run`` waits for it.
         4. If a call was left untried out of turn (job 3), try every call again and go on. This is done only
-           when an outcome was recorded since the last time, or when calls that cannot be tried in this
-           ``resume()`` were just counted as tried: otherwise trying again would find the same.
+           when an outcome was recorded since the last time: otherwise trying again would find the same.
 
         Returns:
             False when nothing more can be called in this ``resume()``.
@@ -481,7 +479,7 @@ class Scheduler:
             self.node_events.nothing_is_ready(self.running)
         if self.running:
             return True
-        if self.out_of_turn and (self.recorded_since_last_pass or self._skip_calls_that_cannot_start()):
+        if self.out_of_turn and self.recorded_since_last_pass:
             self._try_every_call()
             self.changed = True
             return True
@@ -704,39 +702,25 @@ class Scheduler:
         ``(0,)`` and at ``(2,)``. The answer belongs to ``approve (0,)``. If ``approve (2,)`` is tried first,
         because its upstream call came back from a thread first, it is not in turn and takes nothing.
 
-        A call counts as tried when it has an outcome, is running, or is in ``passed``
-        (``_skip_calls_that_cannot_start``).
+        A call counts as tried when it has an outcome or is running. A call that is not ready because an upstream
+        call waits for a person is not tried in this ``resume()``, so no call after it is in turn: the run waits for
+        that person too. Nor is any call in turn while a series the node loops over is still to come, since an
+        earlier call may be inside it: with two pages, page 1's lines wait until page 0's lines are known.
         """
         turn = self.answer_orders.get(node)
-        if turn is None or item_indexes not in turn.position:
-            order = all_item_indexes(self.all_outcomes, node.loops, ())[0]
+        if turn is None:
+            order, every_call_known = all_item_indexes(self.all_outcomes, node.loops, ())
+            if not every_call_known:
+                return False
             turn = self.answer_orders[node] = _AnswerOrder(order, {indexes: position for position, indexes in enumerate(order)})
-        order, outcomes, passed, reached = turn.order, self.outcomes[node], turn.passed, turn.reached
+        order, outcomes, reached = turn.order, self.outcomes[node], turn.reached
         while reached < len(order):
             next_indexes = order[reached]
-            if not (next_indexes in outcomes or (node, next_indexes) in self.running or next_indexes in passed):
+            if not (next_indexes in outcomes or (node, next_indexes) in self.running):
                 break
             reached += 1
         turn.reached = reached
-        return turn.position.get(item_indexes, 0) <= reached
-
-    def _skip_calls_that_cannot_start(self) -> bool:
-        """Count as tried every call, of a node in ``answer_orders``, that has not been tried and has no outcome.
-
-        This is done when nothing is running and nothing is ready. Such a call is not ready in this ``resume()``:
-        an upstream call is waiting for a person. The calls after it would otherwise never be in turn. If the
-        call becomes ready in a later ``resume()``, it takes what answers are left.
-
-        Returns:
-            Whether any call was newly counted as tried.
-        """
-        passed_any = False
-        for node, turn in self.answer_orders.items():
-            outcomes = self.outcomes[node]
-            untried = {indexes for indexes in turn.order[turn.reached :] if indexes not in outcomes and indexes not in turn.passed}
-            turn.passed |= untried
-            passed_any = passed_any or bool(untried)
-        return passed_any
+        return turn.position[item_indexes] <= reached
 
     # -- 4. Stopping, the item limit and checkpoints --------------------------------------------------------------
 

@@ -1578,6 +1578,67 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
         assert again.results["a"]["result"] == [True, False] and again.waiting == []
 
 
+@pytest.mark.parametrize(("name", "results", "asked"), [("bo", [True, False], []), ("zz", [None, True], ["a@0"])])
+def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person_before_it_takes_an_answer(name: str, results: list[Any], asked: list[str]) -> None:
+    """Items "a" and "b" both reach ``approve`` as "bo" and are answered yes, then no. Run again with "x" in place of "a":
+    ``pre`` asks which name "x" is, and "b" takes no answer until then. Told "bo", "x" is the first "bo" and takes yes;
+    told "zz", "b" is the first "bo" and takes yes, and "zz" is asked."""
+
+    @node("pre", title="Pre", description="For a test.", asks=True)
+    def pre(name: str) -> str:
+        if name == "x":
+            raise Ask("Which name?")
+        return "bo"
+
+    @node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(name: str) -> bool:
+        raise Ask(f"Mail {name}?")
+
+    graph = Graph.compile(_record({"each": _each, "p": pre, "a": approve}, [("each.result", "p.name"), ("p.result", "a.name")]), registry_of(_each, pre, approve))
+    first = graph.run(items=["a", "b"])
+    answered = first.answer({w.id: place(w) == "a@0" for w in first.waiting}).resume()
+
+    again = answered.again(items=["x", "b"])
+    assert again.status == "waiting" and [place(w) for w in again.waiting] == ["p@0"] and again.results["a"]["result"] == [None, None]
+
+    told = again.answer(again.waiting[0], name).resume()
+    assert told.results["a"]["result"] == results and [place(w) for w in told.waiting] == asked
+
+
+def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_back_last():
+    """Two equal pages, each with the line "a", answered yes on page 0 and no on page 1. Run again, page 0's lines come
+    back from their thread after page 1's: page 1's line takes no answer before page 0's lines are known."""
+    from threading import Event as ThreadEvent
+    from threading import Lock
+
+    second_returned, calls, lock = ThreadEvent(), [], Lock()
+
+    @node("split", title="Split", description="For a test.", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
+    def split(page: str) -> Series[str]:
+        with lock:
+            calls.append(page)
+            first_of_the_run = len(calls) % 2 == 1
+        if first_of_the_run:
+            assert second_returned.wait(timeout=10)  # page 0 comes back after page 1
+        else:
+            second_returned.set()
+        return ["a"]
+
+    @node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(line: str) -> bool:
+        raise Ask(f"Mail {line}?")
+
+    graph = Graph.compile(_record({"each": _each, "s": split, "a": approve}, [("each.result", "s.page"), ("s.result", "a.line")]), registry_of(_each, split, approve))
+    first = graph.run(items=["p", "p"])
+    answered = first.answer({w.id: place(w) == "a@0@0" for w in first.waiting}).resume()
+    assert answered.results["a"]["result"] == [[True], [False]]
+
+    for _ in range(3):
+        second_returned.clear()
+        again = answered.again()
+        assert again.results["a"]["result"] == [[True], [False]] and again.waiting == []
+
+
 def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and_calls_nothing():
     """split -> ask_a -> ask_b; a@0 waits, b@1 and b@2 wait: ``again`` with the same inputs keeps all three and calls nothing."""
     calls: list[str] = []

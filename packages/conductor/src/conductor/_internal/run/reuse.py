@@ -133,8 +133,9 @@ class ReusableOutcomes:
 
         A person's answer is looked for first, then a ``Done`` outcome of the call with the same item indexes, then one
         of any call. Answers to the same question are reused once each, in the order of the calls: an answer reused is
-        taken out, and when an earlier call of the node has not been tried yet, the result is ``NOT_ITS_TURN`` and the
-        call is tried again later.
+        taken out, and while an answer is left and an earlier call of the node has not been tried yet, the result is
+        ``NOT_ITS_TURN`` and the call is tried again later. Questions still waiting are alike, so a call that would
+        reuse one takes it at once.
 
         Args:
             node: The node.
@@ -154,7 +155,7 @@ class ReusableOutcomes:
             question = (fingerprint, _outer_items_fingerprint(outcomes, node, item_indexes))
             asked = answers.get(question)
             if asked:
-                if not in_turn():
+                if any(type(left) is Answered for left in asked) and not in_turn():
                     return NotReady.NOT_ITS_TURN
                 answer = asked.pop(0)
                 if not asked:  # a node with no answer left has no entry, so a saved run writes none
