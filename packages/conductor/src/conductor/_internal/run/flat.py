@@ -266,7 +266,7 @@ def display_inputs_of(node: FlatFunctionNode, output: str) -> tuple[EdgeInput | 
     """
     node_inputs = node.display_inputs.get(output)
     if node_inputs is None:
-        source = Edge(node.node_path, output, None, node.loops, node.compiled_node.outputs[output].type, item=False)
+        source = Edge(node.node_path, output, None, node.loops, node.compiled_node.outputs[output].type, series=None)
         per_loop = [
             CollectingArgument(CollectingInput(_DISPLAY_FIELD, loop, node.loops[:depth], (source,)), _loop_body_of(loop, [node]))
             for depth, loop in enumerate(node.loops)
@@ -338,7 +338,7 @@ def _add_flat_nodes(
         inputs = {
             name: _flat_input(node_path, node_input, outer_inputs, outer_loops, nodes, functions) for name, node_input in compiled_node.inputs.items()
         }
-        loops = _loops_in_flat_graph(compiled_node.loops, outer_loops, parent_path, nodes)
+        loops = _loops_in_flat_graph(compiled_node.loops, outer_loops, parent_path)
         if isinstance(compiled_node, CompiledSubgraphNode):
             subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops)
             subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, inputs, functions, nodes)
@@ -389,25 +389,23 @@ def _add_flat_nodes(
     return nodes_by_id
 
 
-def _loop_in_flat_graph(loop: tuple[NodePath, str], graph_path: NodePath, nodes: Mapping[NodePath, FlatNode]) -> tuple[NodePath, str]:
-    """Returns a loop of a compiled graph as the flat graph names it: the path of the function node that returns the
-    list, and the output's name there.
+def _loop_in_flat_graph(loop: tuple[NodePath, str], graph_path: NodePath) -> tuple[NodePath, str]:
+    """Returns a loop of a compiled graph as the flat graph names it: the compiled graph names it by the path of the
+    function node that returns the list, from that graph, and the flat graph by its full path.
 
-    ``(("lines",), "result")`` stays itself. A loop over a subgraph's output is the output of the function node inside:
-    ``(("loud",), "parts")`` is ``(("loud", "split"), "result")`` when ``loud`` declares ``parts`` as ``split.result``.
+    In the example, ``(("lines",), "result")`` stays itself. A loop of ``loud``'s own graph gets ``loud``'s path in
+    front: one over ``(("split",), "result")`` would be ``(("loud", "split"), "result")``.
 
     Args:
         loop: The loop as the compiled graph names it, by node paths from that graph.
         graph_path: The path of the subgraph node that compiled graph is used as; ``()`` for the graph a run is of.
-        nodes: Every flat node made so far, by node path.
     """
     node_path, output = loop
-    function, function_output = nodes[(*graph_path, *node_path)].source_of(output)
-    return function.node_path, function_output
+    return (*graph_path, *node_path), output
 
 
 def _loops_in_flat_graph(
-    loops: tuple[tuple[NodePath, str], ...], outer_loops: tuple[tuple[NodePath, str], ...], graph_path: NodePath, nodes: Mapping[NodePath, FlatNode],
+    loops: tuple[tuple[NodePath, str], ...], outer_loops: tuple[tuple[NodePath, str], ...], graph_path: NodePath,
 ) -> tuple[tuple[NodePath, str], ...]:
     """Returns loops of a compiled graph (a node's, or an input's) as the flat graph names them: the loops of the
     subgraph node the graph is used as, then each of ``loops`` as ``_loop_in_flat_graph`` names it.
@@ -419,9 +417,8 @@ def _loops_in_flat_graph(
         loops: The loops as the compiled graph names them, outermost first.
         outer_loops: The flat loops of the subgraph node the compiled graph is used as; ``()`` for the graph a run is of.
         graph_path: The path of that subgraph node; ``()`` for the graph a run is of.
-        nodes: Every flat node made so far, by node path.
     """
-    return (*outer_loops, *[_loop_in_flat_graph(loop, graph_path, nodes) for loop in loops])
+    return (*outer_loops, *[_loop_in_flat_graph(loop, graph_path) for loop in loops])
 
 
 def _flat_input(
@@ -451,9 +448,10 @@ def _flat_input(
     def flat_edge(edge: Edge, starts_loop: bool) -> Edge:
         compiled_node = nodes[(*graph_path, *edge.node)]
         source_node, output = compiled_node.source_of(edge.output)
-        if starts_loop and edge.item:
+        if starts_loop and edge.series is not None:
             source_node.looped_outputs.setdefault(output, (compiled_node, edge.output))
-        return Edge(source_node.node_path, output, edge.record_field, source_node.loops, edge.type, item=edge.item)
+        series = None if edge.series is None else _loop_in_flat_graph(edge.series, graph_path)
+        return Edge(source_node.node_path, output, edge.record_field, source_node.loops, edge.type, series=series)
 
     match node_input:
         case ConstantInput():
@@ -464,12 +462,12 @@ def _flat_input(
             return node_input if outer_inputs is None else outer_inputs[name]
         case EdgeInput(field=field, sources=sources, as_list=as_list):
             edges = tuple([flat_edge(edge, not as_list) for edge in sources])
-            return EdgeInput(field, edges, _loops_in_flat_graph(node_input.loops, outer_loops, graph_path, nodes), as_list)
+            return EdgeInput(field, edges, _loops_in_flat_graph(node_input.loops, outer_loops, graph_path), as_list)
         case CollectingInput(field=field, series=series, sources=sources):
-            looped_over = _loop_in_flat_graph(series, graph_path, nodes)
+            looped_over = _loop_in_flat_graph(series, graph_path)
             edges = tuple([flat_edge(edge, False) for edge in sources])
             loop_body = _loop_body_of(looped_over, [functions[edge.node] for edge in edges])
-            return CollectingArgument(CollectingInput(field, looped_over, _loops_in_flat_graph(node_input.loops, outer_loops, graph_path, nodes), edges), loop_body)
+            return CollectingArgument(CollectingInput(field, looped_over, _loops_in_flat_graph(node_input.loops, outer_loops, graph_path), edges), loop_body)
         case _:
             assert_never(node_input)
 

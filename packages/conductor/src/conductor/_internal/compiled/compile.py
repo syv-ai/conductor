@@ -203,7 +203,7 @@ class _Compiler:
                 self.problems.append(compile_problems.graph_output_not_found(output=name, source=place_text((address.node,), address.output), outputs=found))
             elif source is not None:
                 field = source.outputs[address.output]
-                outputs[name] = Edge((address.node,), address.output, None, source.loops_around(address.output), field.type, item=field.is_series)
+                outputs[name] = Edge((address.node,), address.output, None, source.loops_around(address.output), field.type, series=source.loop_over(address.output) if field.is_series else None)
         return outputs
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
@@ -587,7 +587,8 @@ class _Compiler:
             fields = [place_text(node, address.output, f) for f in field.type.fields]
             self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=fields, record_field=address.field))
             return None
-        return Edge(node, address.output, address.field, source.loops_around(address.output), read_type, item=field.is_series)
+        series = source.loop_over(address.output) if field.is_series else None
+        return Edge(node, address.output, address.field, source.loops_around(address.output), read_type, series=series)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index among the node ids, then
@@ -708,7 +709,7 @@ def _edge_input(
     """
     if not collects:
         return EdgeInput(field, tuple(sources), deepest)
-    if deepest == loops[: len(deepest)] and not any(s.item for s in sources):
+    if deepest == loops[: len(deepest)] and all(s.series is None for s in sources):
         return EdgeInput(field, tuple(sources), deepest, as_list=True)
     return CollectingInput(field, deepest[-1], deepest[:-1], tuple(sources))
 
@@ -772,7 +773,7 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
     that column added.
     """
     written, expected = place_text(source.node, source.output, source.record_field), field.whole.id
-    got = f"Series[{source.type.text}]" if source.item else source.type.text
+    got = source.type.text if source.series is None else f"Series[{source.type.text}]"
     parts = _taken_apart(source.type)
     if field.whole.record is not None:
         has = (source.type.record or source.type).fields

@@ -195,7 +195,7 @@ class ResultReader:
         if value is None or value is SKIPPED:
             return value
         record_field = edge.record_field
-        if not edge.item:
+        if edge.series is None:
             return value if record_field is None else field_of(value, record_field)
         try:  # ``value`` is a stored Series: one item of it, or one field of that item
             index = item_indexes[depth]
@@ -230,7 +230,7 @@ class ResultReader:
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = collecting.sources
-        if len(edges) == 1 and edges[0].item:  # the input collects the list itself: its items, or one field of each
+        if len(edges) == 1 and edges[0].series is not None:  # the input collects the list itself: its items, or one field of each
             record_field = edges[0].record_field
             if record_field is not None:
                 return series.field_as_list(record_field)

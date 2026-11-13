@@ -275,6 +275,10 @@ INNER = {
     "wrapping": chain(("in", "asking-inner")),  # a subgraph inside a subgraph
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output is inside two loops
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series returned per word
+    "chars-and-upper-inner": {  # a Series, and a value per item of it
+        "nodes": {"c": {"node": "chars", "inputs": {"text": {"graph_input": "text"}}}, "up": {"node": "upper", "inputs": {"text": _sources("c", "result")}}},
+        "outputs": {"chars": {"node": "c", "output": "result"}, "upper": {"node": "up", "output": "result"}},
+    },
     "table-per-item-inner": chain(("w", "words"), ("t", "table")),
     "letters-per-word-inner": chain(("w", "words"), ("t", "letters")),
     "record-per-word-inner": chain(("w", "words"), ("r", "record")),  # each word's value is declared Any
@@ -428,6 +432,15 @@ def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     described = {inner: compile_graph({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
     assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
     assert [output.loops for output in described.values()] == [["w.result"], ["w.result", "c.result"], ["w.result", "c.result"]]
+
+
+def test_a_series_from_a_subgraph_and_a_value_per_item_of_it_pair_up_item_by_item_as_in_one_graph():
+    inside = compile_graph({"e": "chars-and-upper-inner", "g": "greet"}, [("e.chars", "g.text"), ("e.upper", "g.greeting")], outputs={"g": "g.result"})
+    inner, inner_edges = inner_nodes("chars-and-upper-inner")
+    one_graph = compile_graph({**inner, "g": "greet"}, [*inner_edges, ("c.result", "g.text"), ("up.result", "g.greeting")], outputs={"g": "g.result"})
+    assert problems(inside) == problems(one_graph) == []
+    assert (inside.runs_on["g"].series, one_graph.runs_on["g"].series) == ("e/c.result", "c.result")  # one loop, named by its series inside
+    assert inside.run(text="ab").outputs == one_graph.run(text="ab").outputs == {"g": ["A a", "B b"]}
 
 
 def test_a_table_returned_per_item_inside_a_subgraph_is_offered_as_a_series_of_tables():

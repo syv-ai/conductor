@@ -87,6 +87,12 @@ class _CompiledNodeBase:
         ``lines.result``."""
         return self.loops
 
+    def loop_over(self, output: str) -> tuple[NodePath, str]:
+        """Returns the loop over the list ``output`` returns, named as every loop is: by the path of the function
+        node that returns the list, and its output. In the example, ``lines.loop_over("result")`` is
+        ``(("lines",), "result")``."""
+        return (self.id,), output
+
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value: those the node needs to be
         called, and ``output`` itself when it is in an exclusive group."""
@@ -212,6 +218,18 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside = self.inner._loops_around(output)
         return (*self.loops, *[((self.id, *node), name) for node, name in inside])
 
+    def loop_over(self, output: str) -> tuple[NodePath, str]:
+        """Returns the loop over the list ``output`` returns, named by the function node inside that returns it.
+
+        Example: the subgraph ``s`` is ``chars -> upper``, and its record declares ``chars.result`` as the graph
+        output ``parts``. ``s.loop_over("parts")`` is ``(("s", "chars"), "result")``, the loop ``loops_around`` names
+        for ``upper``'s output, so a node outside that reads one item of ``parts`` and the value of ``upper`` for
+        that item is called once per item with both.
+        """
+        source = self.inner._outputs[output]
+        node, name = self.inner._nodes[source.node[0]].loop_over(source.output)
+        return (self.id, *node), name
+
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value: those this node needs to be
         called, and those the output needs inside the subgraph.
@@ -245,8 +263,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
                 described.append(field.description)
                 continue
             if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
-                source = self.inner._outputs[name]
-                loops.append(place_text(source.node, source.output))
+                node, output = self.loop_over(name)
+                loops.append(place_text(node[1:], output))
             item: Any = field.type.hint
             for _ in loops[1:]:
                 item = series_of[item]
