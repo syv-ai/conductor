@@ -448,7 +448,7 @@ def costs_nothing_takes_context() -> str:
     """A node whose ``Policy`` says ``costs_nothing`` takes the run's context.
 
     ``Policy(costs_nothing=True)`` is for a node whose call costs nothing and touches nothing outside the run, which
-    ``run.resume(only_costs_nothing=True)`` calls before any call that costs something. A node that needs the host's
+    ``run.estimate()`` calls before any call that costs something. A node that needs the host's
     objects is not that: drop ``costs_nothing``, or give the node what it needs as an input.
 
     Example:
