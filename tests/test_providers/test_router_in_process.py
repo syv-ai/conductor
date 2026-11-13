@@ -119,7 +119,7 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
         return who.x_user
 
     store = MemoryStore()
-    app = _app(store=store, registry=registry, caller=_Member, context=lambda caller: caller)
+    app = _app(store=store, registry=lambda _: registry, caller=_Member, context=lambda caller: caller)
 
     async with _serving(app) as client:
         started = await client.post("/runs", json={"graph": make_graph(whoami).model_dump(mode="json"), "inputs": {"text": "hi"}}, headers={"x-user": "bo"})
@@ -131,24 +131,50 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
 
 def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made() -> None:
     with pytest.raises(TypeError, match="return annotation"):
-        run_router(store=MemoryStore(), registry=NodeRegistry(), caller=lambda: "anna", may_see=_starter_only)
+        run_router(store=MemoryStore(), registry=lambda _: NodeRegistry(), caller=lambda: "anna", may_see=_starter_only)
 
 
 def test_a_router_given_a_caller_says_who_may_see_a_run_and_is_refused_when_it_is_made_without() -> None:
     with pytest.raises(TypeError, match="may_see"):
-        run_router(store=MemoryStore(), registry=NodeRegistry(), caller=_caller)  # type: ignore[call-overload]
+        run_router(store=MemoryStore(), registry=lambda _: NodeRegistry(), caller=_caller)  # type: ignore[call-overload]
 
 
 async def test_a_router_with_no_caller_lets_every_request_see_every_run() -> None:
     registry, _, graph = _doubling()
     store = MemoryStore()
     app = FastAPI()
-    app.include_router(run_router(store=store, registry=registry))
+    app.include_router(run_router(store=store, registry=lambda _: registry))
 
     async with _serving(app) as client:
         run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 2}})).json()["id"]
         assert (await store.ended(run_id)).outputs == {"result": 4}
         assert (await client.get(f"/runs/{run_id}", headers={"x-user": "bo"})).status_code == 200
+
+
+async def test_the_registry_is_asked_for_the_callers_nodes_once_for_each_request_and_once_for_each_resume() -> None:
+    full, _, graph = _doubling()
+    asked: list[str] = []
+
+    def nodes_of(who: str) -> NodeRegistry:
+        asked.append(who)
+        return full
+
+    store = MemoryStore()
+    async with _serving(_app(store=store, registry=nodes_of)) as client:
+        assert (await client.post("/compile", json=graph, headers={"x-user": "bo"})).status_code == 200
+        assert asked == ["bo"]
+        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 1}})).json()["id"]
+        assert (await store.ended(run_id)).status == "complete"
+        assert asked == ["bo", "anna", "anna"]  # the start, then the worker's resume
+
+
+async def test_one_registry_for_every_caller_serves_its_nodes() -> None:
+    registry, _, _ = _doubling()
+    app = FastAPI()
+    app.include_router(run_router(store=MemoryStore(), registry=lambda _: registry))
+
+    async with _serving(app) as client:
+        assert [node["id"] for node in (await client.get("/nodes")).json()["nodes"]] == ["double"]
 
 
 # -- what each route answers ----------------------------------------------------------------------
@@ -158,7 +184,7 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
 
-    async with _serving(_app(store=store, registry=registry)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         started = await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})
         run_id = started.json()["id"]
         view = (await client.get(f"/runs/{run_id}")).json()
@@ -210,7 +236,7 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
     graph = make_graph(approve, busy, then, edges=[("busy.result", "then.text")], outputs={"then": "then.result", "approve": "approve.result"}).model_dump(mode="json")
     store = MemoryStore()
 
-    async with _serving(_app(store=store, registry=registry)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"text": "x", "question": "y"}})).json()["id"]
         await asyncio.to_thread(asked.wait, 5)
         assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
@@ -233,7 +259,7 @@ async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_
             return not ("owner" in changes and self.rows[run_id].status == "waiting") and await super().update(run_id, rev, changes)
 
     store = ClaimLost()
-    app = _app(store=store, registry=registry)
+    app = _app(store=store, registry=lambda _: registry)
 
     def refusal(response: Any) -> tuple[int, list[tuple[str, dict[str, Any]]]]:
         problems = [Problem.model_validate(problem) for problem in response.json()["detail"]]
@@ -280,7 +306,7 @@ async def test_a_follower_gets_each_event_as_a_frame_with_its_number_and_last_ev
     gate.set()
     store = MemoryStore()
 
-    async with _serving(_app(store=store, registry=registry, poll=0.01)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry, poll=0.01)) as client:
         run_id = (await client.post("/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs})).json()["id"]
         await store.ended(run_id)
         whole = await client.get(f"/runs/{run_id}/events")
@@ -316,7 +342,7 @@ async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothin
     registry, graph, calls = _uploads()
     store = MemoryStore()
 
-    async with _serving(_app(store=store, registry=registry, published=lambda name: GraphRecord.model_validate(graph))) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry, published=lambda name: GraphRecord.model_validate(graph))) as client:
         estimated = await client.post("/estimate", json={"graph": graph, "inputs": {"files": ["a", "b", "c"]}})
         published = await client.post("/graphs/uploads/estimate", json={"files": ["a"]})
 
@@ -329,7 +355,7 @@ async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothin
 async def test_estimate_refuses_inputs_the_graph_refuses() -> None:
     registry, graph, _ = _uploads()
 
-    async with _serving(_app(store=MemoryStore(), registry=registry)) as client:
+    async with _serving(_app(store=MemoryStore(), registry=lambda _: registry)) as client:
         refused = await client.post("/estimate", json={"graph": graph, "inputs": {}})
 
     assert refused.status_code == 422 and [problem["type"] for problem in refused.json()["detail"]] == ["missing_input"]
@@ -342,7 +368,7 @@ async def test_a_graph_that_writes_one_node_id_twice_is_refused_by_every_route_t
     graph = f'{{"nodes": {{"review": {node}, "review": {node}}}}}'
     as_json = {"content-type": "application/json"}
 
-    async with _serving(_app(store=store, registry=registry)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         answers = [
             await client.post("/compile", content=graph, headers=as_json),
             await client.post("/runs", content=f'{{"graph": {graph}, "inputs": {{"file": "a"}}}}', headers=as_json),
@@ -361,7 +387,7 @@ async def test_a_run_body_that_writes_graph_twice_is_refused_and_nothing_is_stor
     bad = '{"nodes": {"review": {"inputs": {}}}}'
     body = f'{{"graph": {bad}, "graph": {json.dumps(good)}, "inputs": {{"files": ["a"]}}}}'
 
-    async with _serving(_app(store=store, registry=registry)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         answer = await client.post("/runs", content=body, headers={"content-type": "application/json"})
 
     assert answer.status_code == 422, answer.text
@@ -381,7 +407,7 @@ async def test_a_run_of_a_graph_record_of_the_wrong_shape_is_refused_with_conduc
     registry, _, _ = _uploads()
     store = MemoryStore()
 
-    async with _serving(_app(store=store, registry=registry)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         answer = await client.post("/runs", content=f'{{"graph": {graph}, "inputs": {{}}}}', headers={"content-type": "application/json"})
 
     assert answer.status_code == 422, answer.text
@@ -395,7 +421,7 @@ async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
     registry, graph, _ = _uploads()
     store = MemoryStore()
 
-    async with _serving(_app(store=store, registry=registry)) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"files": ["a", "b"]}})).json()["id"]
         await store.ended(run_id)
         view = (await client.get(f"/runs/{run_id}")).json()
@@ -408,14 +434,14 @@ async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
 
 
 def test_an_operations_id_is_its_route_functions_name_without_fastapis_path_and_verb() -> None:
-    schema = _app(store=MemoryStore(), registry=NodeRegistry(), published=lambda name: GraphRecord()).openapi()
+    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry(), published=lambda name: GraphRecord()).openapi()
 
     assert schema["paths"]["/nodes"]["get"]["operationId"] == "list_nodes"
     assert schema["paths"]["/runs/{run_id}/answers"]["post"]["operationId"] == "answer_run"
 
 
 def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_them() -> None:
-    schema = _app(store=MemoryStore(), registry=NodeRegistry(), published=lambda name: GraphRecord()).openapi()
+    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry(), published=lambda name: GraphRecord()).openapi()
     operations = {(verb, path): operation for path, verbs in schema["paths"].items() for verb, operation in verbs.items()}
 
     assert {key: operation["summary"] for key, operation in operations.items()} == {

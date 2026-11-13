@@ -3,7 +3,7 @@
 Mount it with your store, your login and who may see a run::
 
     app = FastAPI()
-    app.include_router(run_router(store=store, registry=registry, caller=current_caller, may_see=same_caller))
+    app.include_router(run_router(store=store, registry=lambda caller: registry, caller=current_caller, may_see=same_caller))
 
 Any number of workers can serve it against one store: each takes over the
 runs of a worker that died, and a worker that shuts down hands its runs back.

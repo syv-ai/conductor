@@ -143,7 +143,7 @@ def published(name: str) -> GraphRecord:
 app = FastAPI()
 app.include_router(run_router(
     store=SqliteRunStore(database.path),
-    registry=registry,
+    registry=lambda caller: registry,
     caller=current_caller,
     may_see=lambda caller, started_by: caller.name == started_by.name,
     context=context_of,
@@ -155,7 +155,7 @@ That gives these routes:
 
 | Route | What it does |
 |---|---|
-| `GET /nodes` | The caller's palette: `registry.describe()`, each node with its fields. |
+| `GET /nodes` | The caller's palette: `describe()` of the caller's registry, each node with its fields. |
 | `POST /compile` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each a `field`, by name, and its outputs a list of names. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
@@ -177,7 +177,7 @@ Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each 
 
 **What `caller` returns.** What identifies the caller and nothing that changes: an id, a tenant. It is kept on the run as JSON when the run starts, and the run's context (`context_of`) and registry are made from it as it was then each time the run is resumed, whichever worker does it.
 
-**A registry per tenant.** `registry=` takes a function of the caller instead of a registry. `registry.filter` gives each tenant the nodes it may use. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
+**A registry per tenant.** `registry=` is a function of the caller, so above it gives every caller the one registry. `registry.filter` gives each tenant the nodes it may use instead. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
 
 ```python
 from functools import cache

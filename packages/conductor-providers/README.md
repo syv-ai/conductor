@@ -20,7 +20,7 @@ def current_caller() -> str:
 
 def mount(app: FastAPI, store: RunStore, registry: NodeRegistry) -> None:
     app.include_router(run_router(
-        store=store, registry=registry, caller=current_caller,
+        store=store, registry=lambda caller: registry, caller=current_caller,
         may_see=lambda caller, started_by: caller == started_by,
     ))
 ```

@@ -206,7 +206,7 @@ def _no_context(caller: object) -> None:
 def run_router(
     *,
     store: RunStore,
-    registry: NodeRegistry[X] | Callable[[C], NodeRegistry[X]],
+    registry: Callable[[C], NodeRegistry[X]],
     caller: Callable[..., C],
     may_see: Callable[[C, C], bool],
     context: Callable[[C], X] = ...,
@@ -223,7 +223,7 @@ def run_router(
 def run_router(
     *,
     store: RunStore,
-    registry: NodeRegistry[X] | Callable[[None], NodeRegistry[X]],
+    registry: Callable[[None], NodeRegistry[X]],
     context: Callable[[None], X] = ...,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
@@ -237,7 +237,7 @@ def run_router(
 def run_router(
     *,
     store: RunStore,
-    registry: NodeRegistry[Any] | Callable[[C], NodeRegistry[Any]],
+    registry: Callable[[C], NodeRegistry[Any]],
     caller: Callable[..., Any] = _nobody,
     may_see: Callable[[Any, Any], bool] = _everyone,
     context: Callable[[C], Any] = _no_context,
@@ -252,8 +252,9 @@ def run_router(
 
     Args:
         store: Where runs and events are kept.
-        registry: The nodes graphs may use, or a function of the caller giving them, for a registry per tenant. It
-            is called again for every request and every time a run is resumed, so a function caches what it builds.
+        registry: Gives the nodes a caller's graphs may use, from the caller: ``lambda caller: registry`` for one
+            registry, or a registry per tenant. It is called for every request and every time a run is resumed, so
+            it caches what it builds.
         caller: A FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
             dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a
             run is built again on any worker. Let it hold what identifies the caller and nothing that changes: a
@@ -281,9 +282,8 @@ def run_router(
     """
     if caller is not _nobody and may_see is _everyone:
         raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
-    nodes_for: Callable[[C], NodeRegistry[Any]] = (lambda who: registry) if isinstance(registry, NodeRegistry) else registry
     worker: Worker[C] = Worker(
-        store=store, nodes_for=nodes_for, callers=TypeAdapter(_caller_type(caller)), context=context,
+        store=store, nodes_for=registry, callers=TypeAdapter(_caller_type(caller)), context=context,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, resume_timeout=resume_timeout, poll=poll,
     )
     router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute, generate_unique_id_function=attrgetter("name"))
@@ -310,13 +310,13 @@ def run_router(
     @router.get("/nodes")
     def list_nodes(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
         """The nodes the caller may use, as an editor's palette reads them."""
-        return nodes_for(who).describe()
+        return registry(who).describe()
 
     @router.post("/compile")
     async def compile_graph(graph: Annotated[GraphAsSent, Body()], request: Request, who: Annotated[C, Depends(caller)]) -> GraphDescription:
         """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
         and every problem. Nothing is run or stored."""
-        return Graph.compile(await request.body(), nodes_for(who)).describe()  # the record door reads the body's text
+        return Graph.compile(await request.body(), registry(who)).describe()  # the record door reads the body's text
 
     @router.post("/runs", status_code=202)
     async def start_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Started:
