@@ -86,7 +86,7 @@ _MET_BY = {"Compiling a graph": "problems", "Refused calls": "refused", "Why a r
 _SECTIONED = [*PROBLEMS, *DECLARATION_PROBLEMS]
 
 
-@pytest.mark.parametrize("kind", _SECTIONED, ids=[f"{kind.code}-{kind._message.__name__}" for kind in _SECTIONED])
+@pytest.mark.parametrize("kind", _SECTIONED, ids=[f"{kind.code}-{kind.variant}" for kind in _SECTIONED])
 def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(kind: ProblemKind[...]) -> None:
     """The example's last line calls its section's helper, and the test above runs it, so the problem is met there."""
     *_, last = ast.parse(_kind_docs(kind).example).body
