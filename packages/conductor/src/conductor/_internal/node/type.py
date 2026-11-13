@@ -18,11 +18,11 @@ from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED, qualified_name
 from conductor._internal.context import ContextParameter
-from conductor._internal.field import Field
+from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import ReturnShape
 from conductor._internal.record import GraphRecord
 
-from .describe import FunctionNodeDescription, SubgraphDescription
+from .describe import NodeDescription
 from .policy import Deprecation, Policy
 
 
@@ -136,16 +136,22 @@ class _Version:
                 return found
         raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
 
-    def described_as[D: FunctionNodeDescription | SubgraphDescription](self, record: type[D], **more: Any) -> D:
-        """Describes this version as an editor's palette shows it.
+    def described_as(
+        self, *, inputs: list[FieldDescription], outputs: list[FieldDescription], asks: bool, takes_added_inputs: bool, computes_outputs: bool,
+    ) -> NodeDescription:
+        """Describes this version as an editor's palette shows it, with what its kind of node works out itself.
 
         Args:
-            record: The kind of description to make.
-            **more: What that kind holds beside what every version has: its fields, and a function's policy.
+            inputs: Its inputs.
+            outputs: Its outputs.
+            asks: Whether a call may wait for a person.
+            takes_added_inputs: Whether what is typed into it adds inputs.
+            computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
         """
-        return record(
+        return NodeDescription(
             id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
-            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation, **more,
+            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
+            inputs=inputs, outputs=outputs, asks=asks, takes_added_inputs=takes_added_inputs, computes_outputs=computes_outputs,
         )
 
 
@@ -215,10 +221,9 @@ class FunctionDefinition[**P, R](_Version):
         """The names of its outputs."""
         return tuple(self.outputs)
 
-    def describe(self) -> FunctionNodeDescription:
+    def describe(self) -> NodeDescription:
         """The node as an editor's palette shows it."""
         return self.described_as(
-            FunctionNodeDescription, policy=self.policy,
             inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
             asks=self.asks,

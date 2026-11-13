@@ -580,11 +580,11 @@ def test_two_series_on_opposite_branches_refused():
 
 
 
-def test_a_registrys_description_has_each_nodes_policy_hooks_branches_and_the_types_each_type_accepts():
-    reg7 = registry_of(count, double, attach, size, formula, route, decide, slow)
+def test_a_registrys_description_has_each_nodes_hooks_branches_and_the_types_each_type_accepts():
+    reg7 = registry_of(count, double, attach, size, formula, route, decide)
     palette = json.loads(reg7.describe().model_dump_json())
     nodes = {n["id"]: n for n in palette["nodes"]}
-    assert nodes["slow"]["policy"]["concurrency"] == 8 and nodes["formula"]["takes_added_inputs"] and nodes["route"]["computes_outputs"]
+    assert nodes["formula"]["takes_added_inputs"] and nodes["route"]["computes_outputs"]
     assert nodes["decide"]["outputs"][0]["exclusive_group"] == "answer"
     types = {t["id"]: t["accepted_as"] for t in palette["types"]}
     assert "number" in types["integer"] and "integer" not in types["number"], types

@@ -291,11 +291,10 @@ def test_describe_is_the_node_as_json_with_no_keys_beyond_its_own():
 
     described = json.loads(v2.describe().model_dump_json())
     assert set(described) == {
-        "id", "version", "versions", "title", "description", "category", "tags", "extra", "docs", "deprecation", "kind",
-        "policy", "inputs", "outputs", "takes_added_inputs", "computes_outputs", "asks",
+        "id", "version", "versions", "title", "description", "category", "tags", "extra", "docs", "deprecation",
+        "inputs", "outputs", "takes_added_inputs", "computes_outputs", "asks",
     }
     assert (described["id"], described["version"], described["versions"], described["tags"]) == ("v", 2, [2, 1], ["words"])
-    assert described["kind"] == "function" and described["policy"]["retries"] == 2
     assert described["inputs"][0]["widget"] == {"type": "textarea", "rows": 2}
     assert described["outputs"][0]["type"] == "Text"
 
@@ -731,7 +730,7 @@ def test_a_subgraph_may_be_declared_at_a_version_of_its_own():
 
     inner = subgraph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
     assert inner.version == 3 and inner.versions == (3,)
-    assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").kind == "subgraph"
+    assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").version == 3
     graph = compiled_graph(read, inner, record=GraphRecord(nodes={"e": node_record("inner", version=3, graph_inputs=("text",))}))
     assert graph.problems == [] and list(graph.inputs) == ["text"]
 

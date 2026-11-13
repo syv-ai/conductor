@@ -733,8 +733,8 @@ def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_de
     registry = NodeRegistry()
     registry.add(upper, shout)
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
-    assert listed.kind == "subgraph" and not hasattr(shout, "describe")
-    assert not {"policy", "takes_added_inputs", "computes_outputs"} & listed.model_dump(mode="json").keys()
+    assert not hasattr(shout, "describe")
+    assert (listed.takes_added_inputs, listed.computes_outputs) == (False, False)
     assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
 
 

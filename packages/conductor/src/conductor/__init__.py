@@ -29,12 +29,10 @@ from conductor._internal.graph import Graph, make_graph
 from conductor._internal.node import (
     Deprecation,
     FunctionDefinition,
-    FunctionNodeDescription,
     NodeDefinition,
     NodeDescription,
     Policy,
     SubgraphDefinition,
-    SubgraphDescription,
     Upgrade,
     node,
     subgraph,
@@ -106,8 +104,6 @@ __all__ = [
     # What an editor reads
     "FieldDescription",
     "NodeDescription",
-    "FunctionNodeDescription",
-    "SubgraphDescription",
     "RegistryDescription",
     "TypeDescription",
     "GraphDescription",

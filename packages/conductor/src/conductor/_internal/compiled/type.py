@@ -24,13 +24,15 @@ host that holds a ``Graph`` must not see them.
 from __future__ import annotations
 
 import functools
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Any
 
 from conductor._internal.base import Loc, NodePath, json_hash, place_text, plural
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import ContextDoor, InputsDoor
+from conductor._internal.node import FunctionDefinition
 from conductor._internal.problem import Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
@@ -188,24 +190,24 @@ class CompiledGraph:
         ``context_type`` and every node that takes the context, those inside subgraphs too."""
         return ContextDoor(self._context_type, self._nodes_taking_context())
 
-    def _nodes_taking_context(self) -> list[tuple[NodePath, ContextParameter]]:
-        """Every function node of the graph and of its subgraphs that takes the run's context, as its node path
-        (``("loud", "shout")``) and its ``Context`` parameter, in the order a run tries them."""
-        takers: list[tuple[NodePath, ContextParameter]] = []
+    def _function_nodes(self) -> Iterator[tuple[NodePath, FunctionDefinition[..., Any]]]:
+        """Every function node of the graph and of its subgraphs, at any depth, as its node path (``("loud", "shout")``)
+        and its definition, in the order a run tries them."""
         for compiled_node in self._nodes.values():
             if isinstance(compiled_node, CompiledSubgraphNode):
-                takers += [((compiled_node.id, *path), parameter) for path, parameter in compiled_node.inner._nodes_taking_context()]
-            elif (parameter := compiled_node.definition.context) is not None:
-                takers.append(((compiled_node.id,), parameter))
-        return takers
+                yield from (((compiled_node.id, *path), definition) for path, definition in compiled_node.inner._function_nodes())
+            else:
+                yield (compiled_node.id,), compiled_node.definition
+
+    def _nodes_taking_context(self) -> list[tuple[NodePath, ContextParameter]]:
+        """Every function node of the graph and of its subgraphs that takes the run's context, as its node path and its
+        ``Context`` parameter, in the order a run tries them."""
+        return [(path, definition.context) for path, definition in self._function_nodes() if definition.context is not None]
 
     def _asks(self) -> bool:
         """Whether a call of a function node of the graph, or of its subgraphs at any depth, may wait for a person: the
         node declares ``asks=True``."""
-        return any(
-            compiled_node.inner._asks() if isinstance(compiled_node, CompiledSubgraphNode) else compiled_node.definition.asks
-            for compiled_node in self._nodes.values()
-        )
+        return any(definition.asks for _, definition in self._function_nodes())
 
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:

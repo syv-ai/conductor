@@ -51,10 +51,11 @@ What changes in how you work, before the name-by-name tables:
 
 - **A field's description is one flat record.** It has `is_series`, `type`, `schema` (always set),
   `type_variables` and `loops`; there is no `shape` and no `columns`, a table's columns are in its type and its
-  schema. An input of a node in `graph.describe()` and a graph input have the field as `field`. A node's description is a
-  `FunctionNodeDescription` or a `SubgraphDescription`, told apart by `kind`, and a subgraph's
-  fields are listed by `registry.describe()` only. `Policy` is a pydantic model, a policy out of bounds
-  raises pydantic's validation error, and `PolicyDescription` is gone.
+  schema. An input of a node in `graph.describe()` and a graph input have the field as `field`. A node's description is
+  one `NodeDescription` for a function and a subgraph alike, with no `kind`: a subgraph's `takes_added_inputs` and
+  `computes_outputs` are false, and its fields are listed by `registry.describe()` only. A palette carries no policy:
+  `PolicyDescription` is gone, and a host reads a function's `Policy` from its definition. `Policy` is a pydantic
+  model, and a policy out of bounds raises pydantic's validation error.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,

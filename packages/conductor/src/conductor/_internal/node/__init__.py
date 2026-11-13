@@ -6,11 +6,7 @@ is what they make, ``FunctionDefinition`` and ``SubgraphDefinition``; ``policy.p
 """
 
 from .declare import node, subgraph
-from .describe import (
-    FunctionNodeDescription,
-    NodeDescription,
-    SubgraphDescription,
-)
+from .describe import NodeDescription
 from .policy import Deprecation, Policy
 from .type import (
     FunctionDefinition,

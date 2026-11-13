@@ -20,9 +20,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 DOORS: dict[str, list[str]] = {
     "conductor": [
-        "Ask", "CallCount", "Choice", "Context", "DECLARATION_PROBLEMS", "Deprecation", "ExternalError", "FieldDescription", "FunctionDefinition", "FunctionNodeDescription", "Graph", "GraphDescription", "GraphRecord", "InputEntry", "InputSource", "InvalidCallError", "NodeDeclarationError",
+        "Ask", "CallCount", "Choice", "Context", "DECLARATION_PROBLEMS", "Deprecation", "ExternalError", "FieldDescription", "FunctionDefinition", "Graph", "GraphDescription", "GraphRecord", "InputEntry", "InputSource", "InvalidCallError", "NodeDeclarationError",
         "NodeDefinition", "NodeDescription", "NodeError", "NodeRecord", "NodeRegistry", "NotCalled", "PROBLEMS", "Param", "Policy", "Problem", "ProblemCatalogue", "ProblemKind", "RegistryDescription", "Run", "RunProgress", "RunStatus", "RunsOn",
-        "SKIPPED", "Series", "Source", "SubgraphDefinition", "SubgraphDescription", "Table", "TypeDescription", "Upgrade", "Waiting", "host_type", "make_graph", "node", "read_json", "subgraph",
+        "SKIPPED", "Series", "Source", "SubgraphDefinition", "Table", "TypeDescription", "Upgrade", "Waiting", "host_type", "make_graph", "node", "read_json", "subgraph",
     ],
     "conductor.widgets": [
         "DatePicker", "Dropdown", "FileUpload", "ListInput", "NumberInput", "Slider", "Switch",

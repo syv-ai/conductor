@@ -525,8 +525,8 @@ def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
 def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     from conductor import (
         FieldDescription,
-        FunctionNodeDescription,
         GraphDescription,
+        NodeDescription,
         NodeRegistry,
         RegistryDescription,
         node,
@@ -539,7 +539,7 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     registry = NodeRegistry()
     registry.add(upper)
     described = registry.describe()
-    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], FunctionNodeDescription)
+    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], NodeDescription)
     assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[0].json_schema == {"type": "string"}
     assert isinstance(Graph.compile(GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}), registry).describe(), GraphDescription)
     for record in (RegistryDescription, GraphDescription):

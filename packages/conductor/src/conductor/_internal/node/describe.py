@@ -1,23 +1,23 @@
-"""A node as an editor's palette shows it: ``FunctionNodeDescription`` and ``SubgraphDescription``, told apart by
-``kind``, the two kinds of ``NodeDescription``. ``shout.describe()`` is ``FunctionNodeDescription(id="shout", ...)``.
+"""A node as an editor's palette shows it: ``NodeDescription``, one record for a function and a subgraph alike.
+``shout.describe()`` is ``NodeDescription(id="shout", ...)``.
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
-
-from pydantic import Field as PydanticField
 from pydantic import JsonValue
 
 from conductor._internal.base import ConductorModel
 from conductor._internal.field import FieldDescription
 
-from .policy import Deprecation, Policy
+from .policy import Deprecation
 
 
-class _NodeDescription(ConductorModel):
-    """What an editor's palette shows of every node. Never made on its own: a node is described as a function or as a
-    subgraph.
+class NodeDescription(ConductorModel):
+    """A node as an editor's palette shows it, whether its author wrote a function or a graph record.
+
+    A palette offers a node to pick and wire, so this is what a person and a host need for that: what the node is,
+    its fields, and whether a run of it can wait for a person (``asks``). How the engine calls a function, its
+    ``Policy``, stays on the definition: a subgraph is never called, and each node inside it runs by its own policy.
 
     Attributes:
         id: The id a graph names the node by.
@@ -34,6 +34,9 @@ class _NodeDescription(ConductorModel):
         outputs: Its outputs.
         asks: Whether a call may wait for a person: a function that raises ``Ask``, or a subgraph with such a node
             inside it, at any depth. A graph with such a node can pause, so a host can't run it unattended.
+        takes_added_inputs: Whether what is typed into it adds inputs; never for a subgraph.
+        computes_outputs: Whether its outputs depend on what is typed into it and on what arrives; never for a
+            subgraph.
     """
 
     id: str
@@ -49,36 +52,5 @@ class _NodeDescription(ConductorModel):
     inputs: list[FieldDescription]
     outputs: list[FieldDescription]
     asks: bool
-
-
-class FunctionNodeDescription(_NodeDescription):
-    """A node that is a function, as an editor's palette shows it.
-
-    Attributes:
-        kind: ``"function"``.
-        policy: How the engine calls it.
-        takes_added_inputs: Whether what is typed into it adds inputs.
-        computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
-    """
-
-    kind: Literal["function"] = "function"
-    policy: Policy
     takes_added_inputs: bool
     computes_outputs: bool
-
-
-class SubgraphDescription(_NodeDescription):
-    """A subgraph as an editor's palette shows it.
-
-    Its inputs and outputs are the graph inputs and graph outputs of its graph record, so only a registry that
-    has the node definitions that record uses can describe it.
-
-    Attributes:
-        kind: ``"subgraph"``.
-    """
-
-    kind: Literal["subgraph"] = "subgraph"
-
-
-#: A node as an editor's palette shows it, one of two kinds told apart by ``kind``.
-NodeDescription = Annotated[FunctionNodeDescription | SubgraphDescription, PydanticField(discriminator="kind")]

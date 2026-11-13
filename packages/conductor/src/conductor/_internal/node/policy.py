@@ -1,5 +1,5 @@
-"""What a node's author sets beside its function and its fields, and an editor is shown: ``Policy``, how the engine
-calls the node (``Policy(retries=3)``), and ``Deprecation``, the notice that a node is going away.
+"""What a node's author sets beside its function and its fields: ``Policy``, how the engine calls the node
+(``Policy(retries=3)``), and ``Deprecation``, the notice that a node is going away, which an editor shows.
 """
 
 from __future__ import annotations
@@ -33,8 +33,9 @@ class Policy(ConductorModel):
     calls only such nodes, so a host learns how many calls the costly nodes will
     have (``run.progress``) before any of them is made.
 
-    It is also what an editor reads of a node's policy: as JSON it leaves ``retry_on`` out, since a class has no
-    JSON form. Its values are read strictly: a whole number is no yes or no and no text that spells one.
+    Only a function node has one: a subgraph is never called, and each node inside it runs by its own policy. As
+    JSON it leaves ``retry_on`` out, since a class has no JSON form. Its values are read strictly: a whole number is
+    no yes or no and no text that spells one.
 
     Attributes:
         concurrency: How many calls are made at once; at least 1.

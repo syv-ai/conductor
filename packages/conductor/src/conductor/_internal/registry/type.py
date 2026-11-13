@@ -59,7 +59,6 @@ from conductor._internal.node import (
     NodeDefinition,
     NodeDescription,
     SubgraphDefinition,
-    SubgraphDescription,
     node,
     subgraph,
     with_defaults,
@@ -133,7 +132,7 @@ class NodeRegistry[C]:
         #: Every type, by id: the ones the nodes declare, then the named ones.
         self._types: dict[str, type] = _by_id(self._named_types)
         #: Each subgraph's description, by id, as these nodes make it; emptied whenever what is held changes.
-        self._graph_descriptions: dict[str, SubgraphDescription] = {}
+        self._graph_descriptions: dict[str, NodeDescription] = {}
 
     def __repr__(self) -> str:
         """How many nodes it holds, then each as its own repr, one per line."""
@@ -303,8 +302,8 @@ class NodeRegistry[C]:
             compiled = compile_graph(record, self, self._context_type, CompiledGraph)
             described = compiled.describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
-                SubgraphDescription, inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
-                asks=compiled._asks(),
+                inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
+                asks=compiled._asks(), takes_added_inputs=False, computes_outputs=False,
             )
         return self._graph_descriptions[definition.id]
 
