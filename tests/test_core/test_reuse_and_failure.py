@@ -1774,3 +1774,21 @@ def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused(
 
     chosen = graph_taking(Annotated[int, Param(choices=[1, 2])]).with_inputs(n=3, previous=first).resume()
     assert chosen.status == "failed" and chosen.state.cause.type == "invalid_edge_value"
+
+
+def test_again_with_the_same_inputs_keeps_each_call_its_own_outcome_when_equal_arguments_gave_different_outputs():
+    counter = iter(range(1, 100))
+    calls: list[str] = []
+
+    @node("stamp", title="Stamp", description="For a test.")
+    def stamp(line: str) -> str:
+        calls.append(line)
+        return f"{line}{next(counter)}"
+
+    graph = Graph.compile(_record({"each": _each, "stamp": stamp}, [("each.result", "stamp.line")]), registry_of(_each, stamp))
+    first = graph.run(items=["a", "a", "b"])
+    assert first.results["stamp"]["result"] == ["a1", "a2", "b3"]
+
+    again = first.again(items=["a", "a", "b"])
+
+    assert again.results["stamp"]["result"] == ["a1", "a2", "b3"] and calls == ["a", "a", "b"]
