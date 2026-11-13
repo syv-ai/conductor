@@ -10,7 +10,8 @@ rules)::
 Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``. A developer reads them
 when a test fails; a host never gets one from a graph or a run, so they are not in ``PROBLEMS``, the catalogue of the
 problems a graph or a run reports. Some kinds share a code (``hook_failed``, ``upgrade_broken``, ``run_failed``): the
-decorator names the code, and each kind's message says which case it is. Each kind's docstring is its entry on the
+decorator names the code and a variant, which the problem's ``ctx.variant`` gives, and each kind's message says which
+case it is. Each kind's docstring is its entry on the
 problems page (``python -m conductor.about problems``); its example runs after the setup at the top of that page, and
 a test checks it makes this kind of problem.
 """
@@ -101,7 +102,7 @@ def hook_failed(*loc: str | int, reason: str, cause: list[str], problems: list[d
     return f"a hook failed on the node's defaults and made-up values: {reason}"
 
 
-@REGISTRY_CHECK_PROBLEMS.problem("hook_failed")
+@REGISTRY_CHECK_PROBLEMS.problem("hook_failed", variant="on_an_example")
 def hook_failed_on_an_example(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
     """A node's example cannot be compiled, and every problem is in a ``compute_...`` hook.
 
@@ -119,40 +120,6 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, cause: list[str], pr
         check_registry(checked, examples={"pick": [{"names": ""}]})
     """
     return f"the example does not compile: {reason}"
-
-
-@REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken")
-def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str:
-    """Moving a node from an older version to the newest raised an exception.
-
-    Fix the newest version's ``Upgrade``, so a graph saved with the older version is moved without an error.
-
-    Args:
-        loc: The node and the older version.
-        newest: The version it was moved to.
-        error: The exception's class name.
-        reason: The exception's message.
-
-    Example:
-        @node("hi", title="Hi", description="Says hi to a person.")
-        def hi_v1(name: str) -> str:
-            return f"Hi {name}"
-
-
-        def broken_rewrite(values: dict) -> dict:
-            raise KeyError("first")
-
-
-        @node("hi", title="Hi", description="Says hi to a person.", replaces=hi_v1, upgrade=Upgrade(rewrite=broken_rewrite))
-        def hi_v2(first: str) -> str:
-            return first
-
-
-        checked = NodeRegistry()
-        checked.add(hi_v2)
-        check_registry(checked)
-    """
-    return f"moving to version {newest} raised {error}: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -187,6 +154,40 @@ def upgrade_broken(*loc: str | int, newest: int, reason: str, cause: list[str], 
     return f"after moving to version {newest}: {reason}"
 
 
+@REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken", variant="raised")
+def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str:
+    """Moving a node from an older version to the newest raised an exception.
+
+    Fix the newest version's ``Upgrade``, so a graph saved with the older version is moved without an error.
+
+    Args:
+        loc: The node and the older version.
+        newest: The version it was moved to.
+        error: The exception's class name.
+        reason: The exception's message.
+
+    Example:
+        @node("hi", title="Hi", description="Says hi to a person.")
+        def hi_v1(name: str) -> str:
+            return f"Hi {name}"
+
+
+        def broken_rewrite(values: dict) -> dict:
+            raise KeyError("first")
+
+
+        @node("hi", title="Hi", description="Says hi to a person.", replaces=hi_v1, upgrade=Upgrade(rewrite=broken_rewrite))
+        def hi_v2(first: str) -> str:
+            return first
+
+
+        checked = NodeRegistry()
+        checked.add(hi_v2)
+        check_registry(checked)
+    """
+    return f"moving to version {newest} raised {error}: {reason}"
+
+
 @REGISTRY_CHECK_PROBLEMS.problem()
 def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the ctx key a developer reads
     """A node changed a value it was given, in place.
@@ -210,47 +211,6 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
         check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})
     """
     return f"the node changed {input!r}, a value it was given; several calls of a run can be given the same value, so copy it before changing it"
-
-
-@REGISTRY_CHECK_PROBLEMS.problem("run_failed")
-def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
-    """A node's example cannot be compiled, for a problem that is not in a ``compute_...`` hook.
-
-    Fix the example: its values must be inputs of the node, of the inputs' types.
-
-    Args:
-        loc: The node and its version.
-        reason: The message of each problem compiling reported.
-        cause: The code of each.
-        problems: Those problems, as JSON.
-
-    Example:
-        checked = NodeRegistry()
-        checked.add(upper)
-        check_registry(checked, examples={"upper": [{"txt": "a"}]})
-    """
-    return f"the example does not compile: {reason}"
-
-
-@REGISTRY_CHECK_PROBLEMS.problem("run_failed")
-def example_refused(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
-    """A node's example compiles, and running it is refused.
-
-    Give the run what it needs: in the example, the run's context for the node's ``Context[HostContext]``, with
-    ``check_registry(checked, context=HostContext(caller=Caller("Ida")))``.
-
-    Args:
-        loc: The node and its version.
-        reason: The message of each problem the run was refused for.
-        cause: The code of each.
-        problems: Those problems, as JSON.
-
-    Example:
-        served = NodeRegistry(context_type=HostContext)
-        served.add(who)
-        check_registry(served, examples={"who": [{}]})
-    """
-    return f"the example was refused: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -280,3 +240,44 @@ def run_failed(*loc: str | int, status: str, reason: str, cause: list[str], prob
         check_registry(checked, examples={"divide_by": [{"n": 0}]})
     """
     return f"the example ended {status}: {reason}"
+
+
+@REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="not_compiled")
+def example_not_compiled(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+    """A node's example cannot be compiled, for a problem that is not in a ``compute_...`` hook.
+
+    Fix the example: its values must be inputs of the node, of the inputs' types.
+
+    Args:
+        loc: The node and its version.
+        reason: The message of each problem compiling reported.
+        cause: The code of each.
+        problems: Those problems, as JSON.
+
+    Example:
+        checked = NodeRegistry()
+        checked.add(upper)
+        check_registry(checked, examples={"upper": [{"txt": "a"}]})
+    """
+    return f"the example does not compile: {reason}"
+
+
+@REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="refused")
+def example_refused(*loc: str | int, reason: str, cause: list[str], problems: list[dict[str, Any]]) -> str:
+    """A node's example compiles, and running it is refused.
+
+    Give the run what it needs: in the example, the run's context for the node's ``Context[HostContext]``, with
+    ``check_registry(checked, context=HostContext(caller=Caller("Ida")))``.
+
+    Args:
+        loc: The node and its version.
+        reason: The message of each problem the run was refused for.
+        cause: The code of each.
+        problems: Those problems, as JSON.
+
+    Example:
+        served = NodeRegistry(context_type=HostContext)
+        served.add(who)
+        check_registry(served, examples={"who": [{}]})
+    """
+    return f"the example was refused: {reason}"

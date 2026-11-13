@@ -12,7 +12,7 @@ A kind is declared as the kinds of ``PROBLEMS`` are (``ProblemCatalogue.problem`
 returns the message, and its keyword-only parameters are the keys of ``ctx``. A declaration problem has no ``loc``;
 the error's ``where`` says where the fault is (``@node('fetch') on fetch``, then the input's name), and its text puts
 that in front of the message. Some codes have several kinds, one per mistake, each with a message of its own: the
-decorator names the code. Each kind's docstring is its entry on the problems page
+decorator names the code and a variant, which the problem's ``ctx.variant`` gives. Each kind's docstring is its entry on the problems page
 (``python -m conductor.about problems``), and its example runs after the setup at the top of that page; its last
 line, ``declaration_refused(lambda: ...)``, gives the problem the declaration raises, and a test checks it is of
 this kind.
@@ -236,7 +236,7 @@ def bound_invalid(*, unheld: list[str], type: str) -> str:
     return f"{unheld} can't apply to {type}, as pydantic holds no such limit on it; take them off, or check the value in the node"
 
 
-@DECLARATION_PROBLEMS.problem("bound_invalid")
+@DECLARATION_PROBLEMS.problem("bound_invalid", variant="limit_value")
 def bound_invalid_value(*, limits: str, type: str, error: str) -> str:
     """A ``Param`` sets a limit to a value of the wrong kind for the type, such as ``ge="a"`` on an ``int``.
 
@@ -276,7 +276,7 @@ def choices_invalid() -> str:
     return "the choices hold an id twice, or none; give each choice once, as a value of the field's type"
 
 
-@DECLARATION_PROBLEMS.problem("choices_invalid")
+@DECLARATION_PROBLEMS.problem("choices_invalid", variant="on_a_literal")
 def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
     """A ``Param``'s choices on a ``Literal`` do not title its values, one each.
 
@@ -301,7 +301,7 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
     return f"on a Literal the choices title its values, one each: {values}; give each choice once, as a value of the field's type"
 
 
-@DECLARATION_PROBLEMS.problem("choices_invalid")
+@DECLARATION_PROBLEMS.problem("choices_invalid", variant="not_a_value")
 def choices_invalid_not_a_value(*, reason: str) -> str:
     """A ``Param``'s choice is not a value of the input's type.
 
@@ -323,7 +323,7 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
     return f"a choice is not a value of the field's type: {reason}; give each choice once, as a value of the field's type"
 
 
-@DECLARATION_PROBLEMS.problem("choices_invalid")
+@DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")
 def choices_invalid_no_json_form() -> str:
     """A ``Param``'s choice has no JSON form, so an editor cannot show it nor a saved graph store it.
 
@@ -421,7 +421,7 @@ def context_type_differs(*, subregistry_type: str, registry_type: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("context_type_differs")
+@DECLARATION_PROBLEMS.problem("context_type_differs", variant="on_subregistry_only")
 def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
     """A registry that names no ``context_type`` is given a subregistry that names one.
 
@@ -489,7 +489,7 @@ def default_invalid(*, default: str, type: str, reason: str) -> str:
     return f"the default {default} is not a value of {type} that it writes as JSON: {reason}; give one that is"
 
 
-@DECLARATION_PROBLEMS.problem("default_invalid")
+@DECLARATION_PROBLEMS.problem("default_invalid", variant="none_not_taken")
 def default_none_not_taken() -> str:
     """An input's default is ``None``, and its type does not take ``None``.
 
@@ -623,7 +623,7 @@ def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> s
     return f"{hook} parameter {parameter!r} names no input of the node; it has {inputs}"
 
 
-@DECLARATION_PROBLEMS.problem("hook_parameter_unknown")
+@DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="not_by_name")
 def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
     """A hook's parameter is ``*args`` or positional-only.
 
@@ -648,7 +648,7 @@ def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
     return f"{hook} parameter {parameter!r}: a hook's parameters are passed by name; name each after an input of the node"
 
 
-@DECLARATION_PROBLEMS.problem("hook_parameter_unknown")
+@DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="var_keyword")
 def hook_parameter_var_keyword(*, hook: str, parameter: str) -> str:
     """A hook takes ``**`` other than as ``**name: type`` on ``compute_outputs`` of a node with ``compute_added_inputs``.
 
@@ -815,7 +815,7 @@ def pydantic_field_in_hint() -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("pydantic_field_in_hint")
+@DECLARATION_PROBLEMS.problem("pydantic_field_in_hint", variant="discriminator")
 def pydantic_discriminator_in_hint() -> str:
     """An input's or output's hint has pydantic's ``Field(discriminator=...)`` on a union.
 
@@ -886,7 +886,7 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
     return f"@host_type({id!r}): {faults}; give an id that is one word and not one of conductor's own, a title, and classes in accepts"
 
 
-@DECLARATION_PROBLEMS.problem("type_declaration_invalid")
+@DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_on_a_class")
 def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
     """``@host_type`` is put above something that is not a class it can name, such as a function or a ``TypedDict``.
 
@@ -907,7 +907,7 @@ def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
     return f"@host_type({id!r}) goes above a class, and {given} is not one it can name; a TypedDict is a record and needs no declaration"
 
 
-@DECLARATION_PROBLEMS.problem("type_declaration_invalid")
+@DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_writable")
 def type_declaration_not_writable(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class Python lets nobody change, such as ``int``.
 
@@ -986,7 +986,7 @@ def type_not_carried(*, type: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("type_not_carried")
+@DECLARATION_PROBLEMS.problem("type_not_carried", variant="declared")
 def type_not_carried_declared(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class pydantic cannot validate or write as JSON.
 

@@ -169,7 +169,7 @@ class ProblemCatalogue:
     """
 
     def __init__(self) -> None:
-        self._kinds: list[ProblemKind[...]] = []
+        self._kinds: dict[tuple[str, str | None], ProblemKind[...]] = {}
         self.sections: dict[str, str] = {}
 
     def section(self, title: str, text: str) -> None:
@@ -202,6 +202,9 @@ class ProblemCatalogue:
               def cycle(*loc: str | int) -> str: ...
               cycle("a")                                           # loc == ("a",), ctx == {}
 
+        A code has one kind with no variant, declared first, and every other kind under it names the code and a
+        variant of its own: ``@catalogue.problem("type_mismatch", variant="make_a_series")``.
+
         Args:
             code: The problem's ``type``; the function's name when left out.
             variant: For a second message under a code declared before it: the value of ``ctx.variant``.
@@ -209,22 +212,28 @@ class ProblemCatalogue:
 
         Raises:
             TypeError: When the function is declared, for a parameter that is none of the three, a return type other
-                than ``str``, or a ``variant`` for a code not declared before it.
+                than ``str``, a second kind under a code with no ``variant`` or with a variant declared before it, or
+                a ``variant`` for a code not declared before it.
         """
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
-            kind = ProblemKind(write_message, code or write_message.__name__, variant, of_a_hook, next(reversed(self.sections), ""))
-            if variant and kind.code not in self.codes:
-                raise TypeError(f"{write_message.__name__}: a variant is a second message under a code, and '{kind.code}' is not declared before it")
-            self._kinds.append(kind)
+            name = write_message.__name__
+            kind_code = code or name
+            if (kind_code, variant) in self._kinds:
+                taken = f"the variant {variant!r}" if variant else "a kind"
+                raise TypeError(f"{name}: '{kind_code}' has {taken} declared before it; give this kind a variant of its own")
+            if variant and (kind_code, None) not in self._kinds:
+                raise TypeError(f"{name}: a variant is a second message under a code, and '{kind_code}' is not declared before it")
+            kind = ProblemKind(write_message, kind_code, variant, of_a_hook, next(reversed(self.sections), ""))
+            self._kinds[kind_code, variant] = kind
             return kind
 
         return declared
 
     def __iter__(self) -> Iterator[ProblemKind[...]]:
-        return iter(self._kinds)
+        return iter(self._kinds.values())
 
     @property
     def codes(self) -> frozenset[str]:
         """Every code of the catalogue's kinds."""
-        return frozenset(kind.code for kind in self._kinds)
+        return frozenset(code for code, _ in self._kinds)
 

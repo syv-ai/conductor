@@ -156,6 +156,23 @@ def test_a_variant_for_a_code_the_catalogue_has_not_declared_is_refused() -> Non
         ProblemCatalogue().problem("no_such_code", variant="near")(lonely)
 
 
+@pytest.mark.parametrize("variant", [None, "near"], ids=["no variant", "the same variant"])
+def test_a_second_kind_under_a_code_without_a_variant_of_its_own_is_refused_where_it_is_declared(variant: str | None) -> None:
+    """The module that declares it fails to import, so no page or host meets two kinds it cannot tell apart."""
+    def shelf_missing(*loc: str | int) -> str:
+        return ""
+
+    def shelf_missing_again(*loc: str | int) -> str:
+        return ""
+
+    declared = ProblemCatalogue()
+    declared.problem()(shelf_missing)
+    declared.problem("shelf_missing", variant="near")(shelf_missing)
+
+    with pytest.raises(TypeError, match="shelf_missing_again: 'shelf_missing' has .* declared before it"):
+        declared.problem("shelf_missing", variant=variant)(shelf_missing_again)
+
+
 def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> None:
     for declared in (PROBLEMS, REGISTRY_CHECK_PROBLEMS, ROUTER_PROBLEMS, RUN_STORE_CHECK_PROBLEMS):
         for kind in declared:
