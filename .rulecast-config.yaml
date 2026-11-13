@@ -1,0 +1,681 @@
+# Conductor's coding conventions live in conventions/; each rule below points an agent at the section it enforces.
+minimum_rulecast_version: 0.13.0
+conventions: conventions/
+llm:
+  provider: claude-code
+  model: haiku
+
+repos:
+  - repo: local
+    rules:
+      # ---------------------------------------------------------------- delivered on first touch
+      - id: touch/library-code
+        name: How conductor's library code is written
+        files: '^packages/[^/]+/src/.*\.py$'
+        stages: [touch]
+        context:
+          - "@conventions/principles.md"
+          - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
+          - "@conventions/names-and-words.md#google-style-docstrings"
+          - "@conventions/types-and-models.md#trust-the-declared-type"
+          - "@conventions/types-and-models.md#fail-loud"
+          - "@conventions/types-and-models.md#invalid-states-cannot-be-written"
+          - "@conventions/principles.md#fewer-concepts-and-models"
+          - "@conventions/principles.md#change-radically-when-it-simplifies"
+          - "@conventions/design.md#one-rule-one-place"
+          - "@conventions/modules-and-imports.md#no-helper-without-a-job"
+          - "@conventions/modules-and-imports.md#json-in-and-out-is-one-concept"
+          - "@conventions/names-and-words.md#conductor-stands-alone"
+          - "@conventions/names-and-words.md#no-history-in-code"
+          - "@conventions/design.md#no-mirrors"
+          - "@conventions/design.md#look-up-dont-scan"
+          - "@conventions/commits-and-docs.md#no-ai-co-sign"
+
+      - id: touch/gate
+        name: The doors where outside values enter
+        files: '^packages/conductor/src/conductor/_internal/gate/'
+        stages: [touch]
+        context:
+          - "@conventions/validation.md"
+
+      - id: touch/addresses
+        name: Where address text is parsed
+        files: '^packages/conductor/src/conductor/_internal/(base/address|gate/record|graph/make)\.py$'
+        stages: [touch]
+        context:
+          - "@conventions/validation.md#text-is-parsed-once-at-its-door"
+
+      - id: touch/package-layout
+        name: Package layout and imports
+        files: '^packages/conductor/src/conductor/_internal/'
+        stages: [touch]
+        context:
+          - "@conventions/modules-and-imports.md#a-concept-is-a-package"
+          - "@conventions/principles.md#deep-modules-uniform-surfaces"
+          - "@conventions/modules-and-imports.md#imports-go-through-a-packages-surface"
+          - "@conventions/modules-and-imports.md#classes-are-imported-by-name"
+          - "@conventions/validation.md#validation-is-the-wall"
+
+      - id: touch/engine-paths
+        name: The engine's hot paths
+        files: '^packages/conductor/src/conductor/_internal/(run|compiled|graph|registry)/'
+        stages: [touch]
+        context:
+          - "@conventions/design.md#readability-over-speed"
+
+      - id: touch/shown-to-people
+        name: Text a person sees
+        files: '^packages/conductor/src/conductor/_internal/(types|node|registry|field)/'
+        stages: [touch]
+        context:
+          - "@conventions/types-and-models.md#what-a-person-sees-is-declared"
+
+      - id: touch/public-surface
+        name: What a host sees
+        files: '^(packages/conductor/src/conductor/(__init__|widgets|events)\.py|packages/conductor/src/conductor/(testing|about)/|packages/conductor/src/conductor/_internal/problem/|packages/conductor-providers/src/|README\.md$|docs/|CHANGELOG\.md$|skills/)'
+        stages: [touch]
+        context:
+          - "@conventions/commits-and-docs.md#docs-are-part-of-the-change"
+          - "@conventions/design.md#the-wire-is-never-an-argument"
+          - "@conventions/names-and-words.md#conductor-stands-alone"
+          - "@conventions/names-and-words.md#no-history-in-code"
+
+      - id: touch/tests
+        name: How tests are written
+        files: '^tests/.*\.py$'
+        stages: [touch]
+        context:
+          - "@conventions/principles.md"
+          - "@conventions/design.md#tests-read-public-names"
+          - "@conventions/design.md#no-mirrors"
+          - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
+          - "@conventions/names-and-words.md#no-history-in-code"
+          - "@conventions/commits-and-docs.md#no-ai-co-sign"
+
+      # ---------------------------------------------------------------- the project's own checks
+      - id: imports/through-init
+        name: Another package is imported only through its __init__
+        files: '^packages/conductor/src/conductor/.*\.py$'
+        detect:
+          command:
+            run: [.venv/bin/pre-commit, run, imported-only-through-init, --files, "{{files}}"]
+            output:
+              lines:
+                pattern: '^(?<file>[^:\s]+\.py):(?<line>\d+):(?<message>.*)$'
+        message: "{{file}}:{{line}} imports a file inside another package: {{message}}. Import the name from the package (its __init__), or by a relative name inside your own package."
+        context:
+          - "@conventions/modules-and-imports.md#imports-go-through-a-packages-surface"
+
+      - id: imports/classes-by-name
+        name: A class or exception is imported by name
+        files: '^(packages/[^/]+/src|tests)/.*\.py$'
+        detect:
+          command:
+            run: [.venv/bin/python, -c, "from tests.test_core.test_imports_by_name import classes_through_a_module; print(*classes_through_a_module(), sep='\\n')"]
+            scope: project
+            output: { lines: gcc-nocol }
+        stages: [verify]
+        message: "{{file}}:{{line}} writes {{message}} through its module. Import the class by name (`from module import Class`) and write it bare."
+        context:
+          - "@conventions/modules-and-imports.md#classes-are-imported-by-name"
+          - "@conventions/validation.md#validation-is-the-wall"
+
+      # ---------------------------------------------------------------- ruff rules the project does not select
+      - id: names/errors-end-in-error
+        name: Exception classes end in Error
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: class_definition
+              has:
+                field: superclasses
+                has: { kind: identifier, regex: '(Error|Exception)$' }
+              not:
+                has: { field: name, regex: '(Error|^Ask)$' }
+        message: "{{file}}:{{line}} declares an exception whose name does not end in Error. Name it for what went wrong and end it in Error (Ask is the one exception)."
+        context:
+          - "@conventions/names-and-words.md#errors-end-in-error"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/ask/type.py
+              code: |
+                class WrongAsk(ConductorError):
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/ask/type.py
+              code: |
+                class InvalidAskError(ConductorError):
+                    pass
+                class Ask(BaseException):
+                    pass
+                class Event(BaseModel):
+                    pass
+
+      - id: docstrings/missing
+        name: Every public class and module-level function has a docstring
+        files: '^packages/[^/]+/src/.*\.py$'
+        scope: container
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - kind: function_definition
+                  not: { inside: { kind: class_definition, stopBy: end } }
+                - kind: class_definition
+              not:
+                any:
+                  - has:
+                      field: body
+                      has: { nthChild: 1, kind: expression_statement, has: { kind: string } }
+                  - inside: { kind: decorated_definition, has: { kind: decorator, regex: 'overload' } }
+                  - has: { field: name, regex: '^_' }
+                  - has: { field: body, regex: '^\.\.\.$' }
+                  - inside: { kind: function_definition, stopBy: end }
+        message: "{{file}}:{{line}} has no docstring. Say what it does, in Google style (Args, Returns, Raises, Attributes)."
+        context:
+          - "@conventions/names-and-words.md#google-style-docstrings"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                def seconds(value):
+                    return value / 1000
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                def seconds(value: float) -> float:
+                    """Returns a time given in milliseconds in seconds."""
+                    return value / 1000
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              before: |
+                def a():
+                    return 1
+              after: |
+                def a():
+                    x = 1
+                    return x
+
+                def b():
+                    return 2
+
+                def _c():
+                    return 3
+              expect: { new: [5], preexisting: [1] }
+
+      - id: types/no-blind-except
+        name: No except that swallows every exception
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: except_clause
+              has: { kind: identifier, regex: '^(Exception|BaseException)$' }
+              not: { has: { kind: comment, stopBy: end } }
+              all:
+                - has:
+                    kind: block
+                    has: { nthChild: 1, any: [ { kind: pass_statement }, { kind: continue_statement }, { kind: return_statement, regex: '^return( None)?$' } ] }
+        message: "{{file}}:{{line}} swallows every exception. Catch the exception you expect, or let it raise."
+        context:
+          - "@conventions/types-and-models.md#fail-loud"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/graph/type.py
+              code: |
+                try:
+                    text = to_json(value)
+                except Exception:
+                    return None
+              expect: { lines: [3] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/stream.py
+              code: |
+                try:
+                    scheduler.run()
+                except BaseException as error:
+                    failed.append(error)
+
+      # ---------------------------------------------------------------- names the owner ruled out
+      - id: names/ruled-out-identifiers
+        name: Names the owner ruled out stay out
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - kind: identifier
+                  inside: { kind: parameters, stopBy: end }
+                  regex: '^at$'
+                - kind: identifier
+                  regex: '^(WrongAsk|Referred|_Said|_say|AsItStandsReader|EarlierWork|_as_earlier_work|earlier_columns|SavedForm|has_every_unit|comes_to|_?wanted(_\w*)?|\w*_wanted|_?legs?(_\w*)?|\w*_legs?|_?placed(_\w*)?|\w*_placed|Placed\w*|_places|\w*_places|places_\w+|_inlined|\w*_inlined|[A-Z]\w*At[A-Z]\w*|(\w+_)?at_path|_?node_at)$'
+        message: "{{file}}:{{line}} names `{{text}}`, a name the owner ruled out. Choose a plain name that says its job."
+        context:
+          - "@conventions/names-and-words.md#names-the-owner-ruled-out"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                for leg in self.legs:
+                    pass
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/types/fit.py
+              code: |
+                wanted_args = get_args(target)
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/ask/type.py
+              code: |
+                class WrongAsk(Exception):
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                for item_indexes in self.loop_items:
+                    legal = True  # "leg" inside a word is not the name
+            - path: packages/conductor/src/conductor/_internal/types/fit.py
+              code: |
+                """Whether the target's legs are wanted, as it is said in a docstring."""
+                target_args = get_args(target)
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              before: |
+                def walk(run):
+                    for leg in run.parts:
+                        pass
+              after: |
+                def walk(run):
+                    count = 0
+                    for leg in run.parts:
+                        pass
+                    wanted = 1
+              expect: { new: [5], preexisting: [3] }
+
+      - id: names/ruled-out-phrases
+        name: Phrases the owner ruled out stay out
+        files: '^(packages/[^/]+/src/.*\.py|docs/.*\.md|README\.md|packages/conductor/src/conductor/about/.*\.(txt|md))$'
+        detect:
+          regex:
+            pattern: '(?<phrase>\bas it stands\b|\bbirthed\b|\bbarren\b)'
+            flags: i
+        message: "{{file}}:{{line}} says \"{{phrase}}\", wording the owner ruled out. Say it in plain words."
+        context:
+          - "@conventions/names-and-words.md#names-the-owner-ruled-out"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                """The run as it stands: what has been called."""
+              expect: { lines: [1] }
+            - path: docs/design.md
+              code: |
+                A barren item has no value.
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                """The run so far: the calls made and their outcomes."""
+            - path: docs/design.md
+              code: |
+                An item whose node was skipped has no value; a stand of trees is not a stand-in.
+          baseline:
+            - path: docs/design.md
+              before: |
+                # Runs
+
+                A run, as it stands, is saved.
+              after: |
+                # Runs
+
+                Each run is saved.
+                A run, as it stands, is saved.
+                It was birthed.
+              expect: { new: [5], preexisting: [4] }
+
+      - id: names/no-saved-run-package
+        name: No package named saved_run
+        files: '^packages/conductor/src/conductor/_internal/saved_run/'
+        detect:
+          path: {}
+        message: "{{file}} is in a package named saved_run, a name the owner ruled out. A run's JSON form lives in run/json/."
+        context:
+          - "@conventions/names-and-words.md#names-the-owner-ruled-out"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/saved_run/type.py
+              code: |
+                x = 1
+              expect: { lines: [1] }
+
+      # ---------------------------------------------------------------- docstrings and comments
+      - id: docstrings/no-plan-references
+        name: No plan files or decision ids in code and docs
+        files: '^(packages/.*\.(py|txt|md)|tests/.*\.py|docs/.*\.md|README\.md|AGENTS\.md|CHANGELOG\.md|pyproject\.toml|skills/.*)$'
+        detect:
+          regex:
+            pattern: '(?<ref>\bD-[A-Z]{1,3}\d+\b|\bplans/|\bredo/|\bBOARD\.md\b|\bdesign-decisions\.md\b)'
+        message: "{{file}}:{{line}} cites `{{ref}}`, a programme plan or decision. Say what the code does now, in its own words."
+        context:
+          - "@conventions/names-and-words.md#no-history-in-code"
+        examples:
+          bad:
+            - path: pyproject.toml
+              code: |
+                # Bottom to top this is the order of the module map (plans: D-L143).
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                x = 1
+                # see redo/terminology.md
+              expect: { lines: [2] }
+          good:
+            - path: pyproject.toml
+              code: |
+                # Packages on one line with " | " between them import none of each other.
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                # a D-shaped graph: four nodes, two paths; see docs/design.md
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              before: |
+                def run():
+                    # D-L12 says so
+                    return 1
+              after: |
+                def run():
+                    x = 1
+                    # D-L12 says so
+                    return x  # D-U3
+              expect: { new: [4], preexisting: [3] }
+
+      # ---------------------------------------------------------------- types and models
+      - id: types/no-alias-for-a-container
+        name: No alias that only renames a dict, list or tuple
+        files: '^packages/[^/]+/src/.*\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/base/address\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - kind: expression_statement
+                  inside: { kind: module }
+                  has:
+                    kind: assignment
+                    has:
+                      field: right
+                      kind: generic_type
+                      regex: '^(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+                - kind: expression_statement
+                  inside: { kind: module }
+                  has:
+                    kind: assignment
+                    has:
+                      field: right
+                      kind: subscript
+                      regex: '^(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+                - pattern: '$NAME: TypeAlias = $TYPE'
+                  inside: { kind: module, stopBy: end }
+                  regex: '=\s*(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+                - kind: type_alias_statement
+                  not: { inside: { kind: if_statement, regex: '^if TYPE_CHECKING', stopBy: end } }
+                  regex: '=\s*(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+        severity: warning
+        message: "{{file}}:{{line}} names a container type: `{{text}}`. Write the type out where it is used, or make a dataclass with named fields if it is a record."
+        context:
+          - "@conventions/principles.md#fewer-concepts-and-models"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                CallInputs = dict[str, Any]
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                type Scope = tuple[str, ...]
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                def call(inputs: dict[str, Any]) -> None:
+                    seen = dict[str, int]()
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                _CTX = TypeAdapter(dict[str, JsonValue])
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              before: |
+                CallInputs = dict[str, Any]
+                x = 1
+              after: |
+                CallInputs = dict[str, Any]
+                x = 2
+                Units = list[int]
+              expect: { new: [3], preexisting: [1] }
+
+      - id: types/one-model-per-concept
+        name: No second model of a concept
+        files: '^packages/.*\.py$'
+        detect:
+          llm:
+            question: >
+              Report each changed line that declares a new class, dataclass, pydantic model, TypedDict or Protocol
+              which holds facts an existing model already holds, or which is a second shape of an existing concept
+              (keyed against list, flat against compiled, description against definition, a "checked" or "keyed"
+              twin). Do not report a class that is the only model of its concept, or a dict built once to look
+              values up by key (an index over data held elsewhere is a lookup, not a model).
+        severity: warning
+        message: "{{file}}:{{line}} may be a second model of a concept: {{reason}}"
+        context:
+          - "@conventions/principles.md#fewer-concepts-and-models"
+
+      - id: types/display-text-guessed
+        name: Text a person sees is declared, not guessed
+        files: '^packages/conductor/src/conductor/_internal/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: getattr($OBJ, $NAME, $DEFAULT)
+                  has: { kind: string, regex: 'title|label|description|name|__doc__', stopBy: end }
+                - pattern: inspect.getdoc($$$)
+                - pattern: getdoc($$$)
+        severity: warning
+        message: "{{file}}:{{line}} guesses text a person may see: `{{text}}`. Read the title or description that @node, @host_type or Param declares."
+        context:
+          - "@conventions/types-and-models.md#what-a-person-sees-is-declared"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/types/type.py
+              code: |
+                title = getattr(cls, "title", None) or cls.__name__
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/types/type.py
+              code: |
+                title = declared.title
+                limit = getattr(field, "max_length", None)
+
+      # ---------------------------------------------------------------- validation
+      - id: validation/validator-outside-gate
+        name: Validators are built only at the doors
+        files: '^packages/conductor/src/conductor/.*\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/(gate/|types/|run/json/|problem/errors\.py$|base/json\.py$)'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: TypeAdapter($$$)
+                - pattern: SchemaValidator($$$)
+                - pattern: $V.validate_python($$$)
+                - pattern: $V.validate_json($$$)
+                - pattern: $V.validate_strings($$$)
+                - pattern: $M.model_validate($$$)
+                - pattern: $M.model_validate_json($$$)
+        message: "{{file}}:{{line}} validates outside the doors: `{{text}}`. Read outside data at its door in _internal/gate/, and trust its types inside."
+        context:
+          - "@conventions/validation.md#validation-is-the-wall"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              code: |
+                record = GraphRecord.model_validate(data)
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/field/type.py
+              code: |
+                _NOT_A_BOOL = TypeAdapter(int)
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              code: |
+                text = record.model_dump_json()
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              code: |
+                record = read_record(data)
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              before: |
+                def compile(data):
+                    record = GraphRecord.model_validate(data)
+                    return record
+              after: |
+                def compile(data):
+                    count = 0
+                    record = GraphRecord.model_validate(data)
+                    other = TypeAdapter(int)
+                    return record
+              expect: { new: [4], preexisting: [3] }
+
+      - id: validation/address-split-by-hand
+        name: Address text is parsed only by Address
+        files: '^packages/conductor/src/conductor/.*\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/base/address\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: $T.split(".")
+                - pattern: $T.split(".", $N)
+                - pattern: $T.rsplit(".", $$$)
+                - pattern: $T.partition(".")
+                - pattern: $T.rpartition(".")
+        message: "{{file}}:{{line}} splits text at a dot by hand: `{{text}}`. Parse an address once with Address.parse at its door and keep the Address."
+        context:
+          - "@conventions/validation.md#text-is-parsed-once-at-its-door"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              code: |
+                node, name = target.split(".", 1)
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              code: |
+                address = Address.parse(target)
+                words = text.split(" ")
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              code: |
+                node, _, name = text.partition(":")
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+              before: |
+                def read(target):
+                    node, name = target.split(".", 1)
+                    return node
+              after: |
+                def read(target):
+                    count = 0
+                    node, name = target.split(".", 1)
+                    head = target.partition(".")
+                    return node
+              expect: { new: [4], preexisting: [3] }
+
+      # ---------------------------------------------------------------- modules
+      - id: modules/kind-test-chain
+        name: No chain of type tests over a concept's kinds
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: type($X) is $A or type($X) is $B
+                - pattern: type($X) is $A or type($X) is $B or $$$REST
+        severity: warning
+        message: "{{file}}:{{line}} asks which kind {{X}} is: `{{text}}`. Ask the object through the one interface its concept offers, or match the closed set once and end it in assert_never."
+        context:
+          - "@conventions/principles.md#deep-modules-uniform-surfaces"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/scheduler.py
+              code: |
+                if type(outcome) is Skipped or type(outcome) is NoneInput:
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/scheduler.py
+              code: |
+                if type(outcome) is Skipped:
+                    pass
+            - path: packages/conductor/src/conductor/_internal/run/scheduler.py
+              code: |
+                if outcome.has_value or other.has_value:
+                    pass
+
+      # ---------------------------------------------------------------- design
+      - id: design/no-speed-only-shortcut
+        name: No shortcut kept for speed alone
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          regex:
+            pattern: '#:?\s*(?<said>speed only|for speed)\b'
+            flags: i
+        severity: warning
+        message: "{{file}}:{{line}} keeps code \"{{said}}\". Readability wins over speed: remove the shortcut, unless a run would otherwise be slower than conductor's last release, and then say so in the commit message."
+        context:
+          - "@conventions/design.md#readability-over-speed"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/json/codec.py
+              code: |
+                if shareable:  # speed only: the extra pass is skipped when no output can be a shared table
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/json/codec.py
+              code: |
+                """Speed of a run is measured by the bench, not here."""
+                schema = with_shared_tables(schema)
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/json/codec.py
+              before: |
+                def codec():
+                    x = 1  # speed only: one pass
+                    return x
+              after: |
+                def codec():
+                    y = 0
+                    x = 1  # speed only: one pass
+                    return x  # for speed
+              expect: { new: [4], preexisting: [3] }
+
+      # ---------------------------------------------------------------- tests
+      - id: tests/no-private-reads
+        name: Tests read public names
+        files: '^tests/.*\.py$'
+        detect:
+          linter: { tool: ruff, rules: [SLF001] }
+        severity: warning
+        message: "{{file}}:{{line}} {{message}}. Pin the behaviour through what a host can call."
+        context:
+          - "@conventions/design.md#tests-read-public-names"
