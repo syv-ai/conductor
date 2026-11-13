@@ -75,11 +75,6 @@ if TYPE_CHECKING:
     from conductor._internal.graph import Graph
 
 
-
-#: ``run.answer``'s second argument when it is given a mapping of answers instead.
-_NOT_GIVEN: Any = object()
-
-
 class NotCalled(ConductorModel):
     """A call a node was not given because one of its arguments was ``None`` and the input does not accept ``None``.
 
@@ -268,55 +263,60 @@ class Run[C]:
     @overload
     def answer(self, answers: Mapping[str, Any], /) -> Run[C]: ...
 
-    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = _NOT_GIVEN, /) -> Run[C]:
-        """Give waiting units their answers, checked against their questions; nothing runs until ``resume``.
+    def answer(self, waiting: Waiting | str | Mapping[str, Any], value: Any = None, /) -> Run[C]:
+        """Give waiting calls their answers, checked against their questions; nothing runs until ``resume``.
 
-        ``run.answer(waiting, value)`` answers one, ``run.answer({waiting_id: value, ...})``
-        several. One question is answered with its value, several (a node
-        with several outputs) with a mapping by question name, where a
-        question with a default or a blank-taking type without choices may be
-        left out, and of an ``exclusive_group`` exactly one is answered; a
-        question limited by choices is answered unless it has a default. The
-        answer to a node's outputs is the call's outcome. The answer to an
-        ``Asked`` parameter is kept by the run, and ``resume`` calls the node
-        with it. Every fault is refused at once and the run is left as it
-        was: a call answered twice in one call of ``answer``, an id that names
-        nothing waiting (``not_waiting``), or one whose call now asks another
-        question (``answer_stale``, with ``ctx.moved_to`` when that question
-        waits elsewhere). A run that ended early takes answers as a waiting
+        ``run.answer(waiting, value)`` answers one, ``run.answer({waiting_id: value, ...})`` several. One question
+        is answered with its value, several (a node with several outputs) with a mapping by question name, where a
+        question with a default or a blank-taking type without choices may be left out, and of an
+        ``exclusive_group`` exactly one is answered; a question limited by choices is answered unless it has a
+        default. The answer to a node's outputs is the call's outcome. The answer to an ``Asked`` parameter is
+        kept by the run, and ``resume`` calls the node with it. A run that ended early takes answers as a waiting
         one does, a cancelled one included.
+
+        Args:
+            waiting: The call to answer, as ``run.waiting`` lists it or by its id; or the answers by waiting id.
+            value: The answer to ``waiting``, when it names one call.
+
+        Returns:
+            A copy of the run with the answers in it.
+
+        Raises:
+            InvalidCallError: Every fault at once, and the run is left as it was: a call answered twice in one
+                call of ``answer`` (``invalid_answer``), an id that names nothing waiting (``not_waiting``), one
+                whose call now asks another question (``answer_stale``, with ``ctx.moved_to`` when that question
+                waits elsewhere), or an answer its question refuses.
         """
-        if value is not _NOT_GIVEN:
-            given: Mapping[str, Any] = {waiting.id if isinstance(waiting, Waiting) else str(waiting): value}
-        elif isinstance(waiting, Mapping):
-            given = {str(key): one for key, one in waiting.items()}
-        else:
-            raise TypeError("run.answer takes a unit and its answer, or a mapping of unit ids to answers")
+        match waiting:
+            case Waiting(id=key) | str(key):
+                given: Mapping[str, Any] = {key: value}
+            case _:
+                given = waiting
         problems: list[Problem] = []
         answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome | Answer] = {}
-        for unit_id, one in given.items():
-            place, _, fingerprint = unit_id.partition("~")
+        for waiting_id, one in given.items():
+            place, _, fingerprint = waiting_id.partition("~")
             try:
                 loc, nodes, item_indexes = parse_loc_text(place)
             except ValueError:  # a place in it isn't a number
-                problems.append(call_problems.not_waiting(unit_id.partition("@")[0], waiting_id=unit_id, status=self.status))
+                problems.append(call_problems.not_waiting(waiting_id.partition("@")[0], waiting_id=waiting_id, status=self.status))
                 continue
             node = self._flat.function_nodes.get(node_path_text(nodes))  # None for an id of a subgraph, or of no node
             found = self._outcomes[node.name].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered:
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint else None
-                problems.append(call_problems.not_waiting(*loc, waiting_id=unit_id, status=self.status, moved_to=moved_to))
+                problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self.status, moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
             if fingerprint and question_fingerprint(compiled_node, found) != fingerprint:
                 current = waiting_record(compiled_node, outcome_loc(node, item_indexes), found).id
-                problems.append(call_problems.answer_stale(*loc, waiting_id=unit_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
+                problems.append(call_problems.answer_stale(*loc, waiting_id=waiting_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
                 continue
             if (node, item_indexes) in answered:
-                problems.append(call_problems.invalid_answer(*loc, waiting_id=unit_id, reason="the unit is answered twice in one call"))
+                problems.append(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason="the call is answered twice"))
                 continue
             try:
-                read = compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=unit_id)
+                read = compiled_node.answer_door(one, found.question.overrides, loc=loc, waiting_id=waiting_id)
             except RefusedError as refused:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found

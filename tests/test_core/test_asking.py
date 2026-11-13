@@ -577,9 +577,9 @@ def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answer
 def test_answering_with_ids_that_are_no_waiting_id_is_refused_as_problems():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
-    faults = _refused(lambda: run.answer({0: "B1", None: "B2", "q@x": "B", "q": "B", "q@0@1": "B"}))  # type: ignore[dict-item]
+    faults = _refused(lambda: run.answer({"0": "B1", "q@x": "B", "q": "B", "q@0@1": "B"}))
     assert [(f.type, f.loc) for f in faults] == [
-        ("not_waiting", ("0",)), ("not_waiting", ("None",)), ("not_waiting", ("q",)), ("not_waiting", ("q",)), ("not_waiting", ("q", 0, 1)),
+        ("not_waiting", ("0",)), ("not_waiting", ("q",)), ("not_waiting", ("q",)), ("not_waiting", ("q", 0, 1)),
     ]
 
 
@@ -587,8 +587,6 @@ def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
     gate, _ = _counted()
     _, run = _waiting_outcomes(gate, text="b1,b2")
     assert run.answer(run.waiting[0], "1").answer("q@1", "2").to_json() == run.answer({"q@0": "1", "q@1": "2"}).to_json()
-    with pytest.raises(TypeError):
-        run.answer("q@0")  # type: ignore[call-overload]
 
 
 def test_an_answer_is_given_once():
