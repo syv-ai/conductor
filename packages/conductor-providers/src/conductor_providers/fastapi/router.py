@@ -176,21 +176,21 @@ def _graph_text(body: bytes) -> str:
     graph record from its own text, so a key written twice in it (two nodes with one id) is refused there.
     """
     text, decoder = body.decode(), JSONDecoder()
-    at = _past_space(text, text.index("{") + 1)
+    start = _past_space(text, text.index("{") + 1)
     while True:
-        key, at = decoder.raw_decode(text, at)
-        at = _past_space(text, text.index(":", at) + 1)
-        _, end = decoder.raw_decode(text, at)
+        key, start = decoder.raw_decode(text, start)
+        start = _past_space(text, text.index(":", start) + 1)
+        _, end = decoder.raw_decode(text, start)
         if key == "graph":
-            return text[at:end]
-        at = _past_space(text, text.index(",", end) + 1)
+            return text[start:end]
+        start = _past_space(text, text.index(",", end) + 1)
 
 
-def _past_space(text: str, at: int) -> int:
-    """The index of the first character at or after ``at`` that is not JSON's white space."""
-    while text[at] in " \t\n\r":
-        at += 1
-    return at
+def _past_space(text: str, index: int) -> int:
+    """The index of the first character at or after ``index`` that is not JSON's white space."""
+    while text[index] in " \t\n\r":
+        index += 1
+    return index
 
 
 def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
