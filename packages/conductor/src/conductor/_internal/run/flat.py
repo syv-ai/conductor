@@ -331,9 +331,9 @@ def _add_flat_nodes(
     for compiled_node in graph._nodes.values():
         node_path = (*parent_path, compiled_node.id)
         inputs = {
-            name: _flat_input(node_path, node_input, outer_inputs, nodes, functions) for name, node_input in compiled_node.inputs.items()
+            name: _flat_input(node_path, node_input, outer_inputs, outer_loops, nodes, functions) for name, node_input in compiled_node.inputs.items()
         }
-        loops = (*outer_loops, *[_loop_in_flat_graph(loop, parent_path, nodes) for loop in compiled_node.loops])
+        loops = _loops_in_flat_graph(compiled_node.loops, outer_loops, parent_path, nodes)
         if isinstance(compiled_node, CompiledSubgraphNode):
             subgraph = FlatSubgraph(compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops)
             subgraph.inner_nodes = _add_flat_nodes(compiled_node.inner, subgraph, inputs, functions, nodes)
@@ -401,9 +401,27 @@ def _loop_in_flat_graph(loop: tuple[NodePath, str], graph_path: NodePath, nodes:
     return function.node_path, function_output
 
 
+def _loops_in_flat_graph(
+    loops: tuple[tuple[NodePath, str], ...], outer_loops: tuple[tuple[NodePath, str], ...], graph_path: NodePath, nodes: Mapping[NodePath, FlatNode],
+) -> tuple[tuple[NodePath, str], ...]:
+    """Returns loops of a compiled graph (a node's, or an input's) as the flat graph names them: the loops of the
+    subgraph node the graph is used as, then each of ``loops`` as ``_loop_in_flat_graph`` names it.
+
+    In the example, ``loud/shout`` is inside no loop of ``loud``'s own graph, and ``loud`` is inside the loop over
+    ``lines.result``, so its loops are ``((("lines",), "result"),)``.
+
+    Args:
+        loops: The loops as the compiled graph names them, outermost first.
+        outer_loops: The flat loops of the subgraph node the compiled graph is used as; ``()`` for the graph a run is of.
+        graph_path: The path of that subgraph node; ``()`` for the graph a run is of.
+        nodes: Every flat node made so far, by node path.
+    """
+    return (*outer_loops, *[_loop_in_flat_graph(loop, graph_path, nodes) for loop in loops])
+
+
 def _flat_input(
     node_path: NodePath, node_input: Input, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeInput | CollectingArgument] | None,
-    nodes: Mapping[NodePath, FlatNode], functions: Mapping[NodePath, FlatFunctionNode],
+    outer_loops: tuple[tuple[NodePath, str], ...], nodes: Mapping[NodePath, FlatNode], functions: Mapping[NodePath, FlatFunctionNode],
 ) -> ConstantInput | GraphInput | EdgeInput | CollectingArgument:
     """Returns how a call reads the input that its own graph compiled as ``node_input``: a constant or a graph input
     as compiled, and an input that edges lead to as an ``EdgeInput`` or a ``CollectingArgument`` of the flat graph.
@@ -417,6 +435,8 @@ def _flat_input(
         node_path: The node path of the node the input is of.
         node_input: The input as the node's own graph compiled it.
         outer_inputs: See ``_add_flat_nodes``.
+        outer_loops: The loops of the subgraph node the node is inside, as the flat graph names them; ``()`` for a node
+            of the graph a run is of.
         nodes: Every flat node made so far, by node path.
         functions: Every function node made so far, by node path.
     """
@@ -439,12 +459,12 @@ def _flat_input(
             return node_input if outer_inputs is None else outer_inputs[name]
         case EdgeInput(field=field, sources=sources, as_list=as_list):
             edges = tuple([flat_edge(edge, not as_list) for edge in sources])
-            return EdgeInput(field, edges, max([edge.loops_of_value for edge in edges], key=len), as_list)
+            return EdgeInput(field, edges, _loops_in_flat_graph(node_input.loops, outer_loops, graph_path, nodes), as_list)
         case CollectingInput(field=field, series=series, sources=sources):
             looped_over = _loop_in_flat_graph(series, graph_path, nodes)
             edges = tuple([flat_edge(edge, False) for edge in sources])
             loop_body = _loop_body_of(looped_over, [functions[edge.node] for edge in edges])
-            return CollectingArgument(CollectingInput(field, looped_over, functions[looped_over[0]].loops, edges), loop_body)
+            return CollectingArgument(CollectingInput(field, looped_over, _loops_in_flat_graph(node_input.loops, outer_loops, graph_path, nodes), edges), loop_body)
         case _:
             assert_never(node_input)
 
