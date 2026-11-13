@@ -7,7 +7,7 @@ which writes itself as text.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, assert_never, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
@@ -179,14 +179,10 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     else:
         values_by_output = {name: [None] * len(outcomes) for name in outputs}
     if classes & _HAS_QUESTION:
-        for call_number, outcome in enumerate(outcomes):
-            match outcome:
-                case Answered(question=question) | Unanswered(question=question):
-                    questions[call_number] = question
-                case Done() | Skipped() | NoneInput() | None:
-                    pass
-                case _:
-                    assert_never(outcome)
+        questions = {
+            call_number: outcome.question for call_number, outcome in enumerate(outcomes)
+            if type(outcome) is Answered or type(outcome) is Unanswered
+        }
     if NoneInput in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
     return saved_class.model_construct(
