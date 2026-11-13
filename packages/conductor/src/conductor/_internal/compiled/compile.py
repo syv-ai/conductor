@@ -42,7 +42,7 @@ from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import MISSING
 
-from conductor._internal.base import REQUIRED, Address, Path, place_text
+from conductor._internal.base import REQUIRED, Address, NodePath, place_text
 from conductor._internal.field import Field
 from conductor._internal.gate import (
     RefusedError,
@@ -131,7 +131,7 @@ class _InputPlans:
     """
 
     inputs: dict[str, Input]
-    loops: tuple[Path, ...]
+    loops: tuple[tuple[NodePath, str], ...]
     required_branches: frozenset[RequiredBranch]
     bound: Mapping[TypeVar, Any] | None
 
@@ -200,11 +200,11 @@ class _Compiler:
         for name, address in sorted(self.record.outputs.items()):
             source = self.nodes.get(address.node)
             if address.node not in self.record.nodes or (source is not None and address.output not in source.outputs):
-                found = [str(Address(address.node, output)) for output in source.outputs] if source is not None else []
-                self.problems.append(compile_problems.graph_output_not_found(output=name, source=str(address), outputs=found))
+                found = [place_text((address.node,), output) for output in source.outputs] if source is not None else []
+                self.problems.append(compile_problems.graph_output_not_found(output=name, source=place_text((address.node,), address.output), outputs=found))
             elif source is not None:
                 field = source.outputs[address.output]
-                outputs[name] = Edge((address.node, address.output), None, source.loops_around(address.output), field.type, item=field.is_series)
+                outputs[name] = Edge((address.node,), address.output, None, source.loops_around(address.output), field.type, item=field.is_series)
         return outputs
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
@@ -419,14 +419,14 @@ class _Compiler:
             if loops[: len(node_input.loops)] != node_input.loops:  # not the node's outermost loops: items of two different lists are never paired
                 series = [loops[-1], node_input.loops[-1]]
                 reading = next(n for n, p in inputs.items() if p.loops == loops)
-                subgraphs = list(dict.fromkeys(path[0] for path in series if isinstance(self.nodes[path[0]], CompiledSubgraphNode)))
+                subgraphs = list(dict.fromkeys(node[0] for node, _ in series if isinstance(self.nodes[node[0]], CompiledSubgraphNode)))
                 if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph
                     self.problems.append(compile_problems.loops_not_nested_inside_subgraph(
-                        node_id, series=[place_text(s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
+                        node_id, series=[place_text(*s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
                     ))
                 else:
                     self.problems.append(compile_problems.series_not_nested(
-                        node_id, series=[place_text(s) for s in series], inputs=[reading, name],
+                        node_id, series=[place_text(*s) for s in series], inputs=[reading, name],
                     ))
                 inputs[name] = MissingInput(node_input.field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
@@ -537,7 +537,8 @@ class _Compiler:
         sources: list[Edge] = []
         for address in addresses:
             if address.node not in self.record.nodes:
-                self.problems.append(compile_problems.edge_names_missing_node(node_id, name, missing=address.node, source=str(address), target=f"{node_id}.{name}"))
+                written = place_text((address.node,), address.output, address.field)
+                self.problems.append(compile_problems.edge_names_missing_node(node_id, name, missing=address.node, source=written, target=place_text((node_id,), name)))
                 return None
             source = self._source(address, node_id, name)
             if source is None:
@@ -570,36 +571,36 @@ class _Compiler:
         source = self.nodes.get(address.node)
         if source is None:  # not compiled, or on a cycle and later: a problem of its own says why
             return None
+        node, written = (address.node,), place_text((address.node,), address.output, address.field)
         if address.output not in source.outputs:
-            outputs = [str(Address(address.node, output)) for output in source.outputs]
-            self.problems.append(compile_problems.unknown_output(node_id, name, source=str(address), outputs=outputs))
+            outputs = [place_text(node, output) for output in source.outputs]
+            self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=outputs))
             return None
         field = source.outputs[address.output]
         if address.field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
             self.problems.append(compile_problems.unknown_output_make_a_series(
-                node_id, name, source=str(address), outputs=[str(Address(address.node, output)) for output in source.outputs],
+                node_id, name, source=written, outputs=[place_text(node, output) for output in source.outputs],
                 record_field=address.field, whole=parts[0], fields=parts[1],
             ))
             return None
         read_type = field.type if address.field is None else _field_type(field.type, address.field)
         if read_type is None:
-            fields = [str(Address(address.node, address.output, f)) for f in field.type.fields]
-            self.problems.append(compile_problems.unknown_output(node_id, name, source=str(address), outputs=fields, record_field=address.field))
+            fields = [place_text(node, address.output, f) for f in field.type.fields]
+            self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=fields, record_field=address.field))
             return None
-        return Edge((address.node, address.output), address.field, source.loops_around(address.output), read_type, item=field.is_series)
+        return Edge(node, address.output, address.field, source.loops_around(address.output), read_type, item=field.is_series)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index among the node ids, then
-        by its output's index in that node."""
-        node_id, output = edge.source
-        return self.position[node_id], list(self.nodes[node_id].outputs).index(output), str(edge)
+        by its output's index in that node, then by the record field it reads, the whole output first."""
+        node_id = edge.node[0]
+        return self.position[node_id], list(self.nodes[node_id].outputs).index(edge.output), edge.record_field or ""
 
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
         """The branches that must be chosen for the output ``edge`` reads to have a value."""
-        node_id, output = edge.source
-        return self.nodes[node_id].branches_required_for(output)
+        return self.nodes[edge.node[0]].branches_required_for(edge.output)
 
     def _inputs_with_conflicting_edges(
         self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
@@ -629,10 +630,10 @@ class _Compiler:
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s) for s in sources]))
+                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[place_text(s.node, s.output, s.record_field) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
-                series = [place_text(loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
+                series = [place_text(*loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
                 self.problems.append(compile_problems.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
         aligned = [  # the collecting inputs whose edges come from inside a loop
@@ -687,7 +688,9 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     return collects, field.whole if not collects else field.type if record is None else record
 
 
-def _edge_input(field: Field, sources: list[Edge], deepest: tuple[Path, ...], loops: tuple[Path, ...], *, collects: bool) -> EdgeInput | CollectingInput:
+def _edge_input(
+    field: Field, sources: list[Edge], deepest: tuple[tuple[NodePath, str], ...], loops: tuple[tuple[NodePath, str], ...], *, collects: bool,
+) -> EdgeInput | CollectingInput:
     """Returns the compiled input of an input whose edges read ``sources``, for a node inside ``loops``.
 
     In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what
@@ -769,7 +772,7 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
     one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
     that column added.
     """
-    address, expected = str(source), field.whole.id
+    written, expected = place_text(source.node, source.output, source.record_field), field.whole.id
     got = f"Series[{source.type.text}]" if source.item else source.type.text
     parts = _taken_apart(source.type)
     if field.whole.record is not None:
@@ -777,10 +780,10 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
         missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
-            return compile_problems.type_mismatch_add_column(node_id, field.name, source=address, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
+            return compile_problems.type_mismatch_add_column(node_id, field.name, source=written, got=got, expected=expected, column=missing[0], column_type=column_type, has=list(has))
     elif parts and not field.is_series:
-        return compile_problems.type_mismatch_make_a_series(node_id, field.name, source=address, got=got, expected=expected, whole=parts[0], fields=parts[1])
-    return compile_problems.type_mismatch(node_id, field.name, source=address, got=got, expected=expected)
+        return compile_problems.type_mismatch_make_a_series(node_id, field.name, source=written, got=got, expected=expected, whole=parts[0], fields=parts[1])
+    return compile_problems.type_mismatch(node_id, field.name, source=written, got=got, expected=expected)
 
 
 def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:
@@ -808,7 +811,7 @@ def _field_type(record: Type, name: str) -> Type | None:
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
     """Whether two sets of required branches can never both be chosen: one exclusive group must choose one output
     for ``a`` and another for ``b``."""
-    return any(x[:2] == y[:2] and x.output != y.output for x in a for y in b)
+    return any(x.node == y.node and x.group == y.group and x.output != y.output for x in a for y in b)
 
 
 def _reaches(start: str, goal: str, downstream: Mapping[str, list[str]], within: set[str]) -> bool:

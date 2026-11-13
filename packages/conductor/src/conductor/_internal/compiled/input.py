@@ -20,8 +20,9 @@ Each input of a compiled node is an ``Input``, of one of five kinds:
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
 input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
-loops. A source names a node of the compiled graph by its id; the run's flat graph (``run/flat.py``) makes the
-arguments a call reads from these, naming function nodes by their names (``"loud/shout"`` for ``shout`` inside
+loops. A loop is named by the list it loops over: the node path of the node that returns the list, and the output's
+name. A source names a node of the compiled graph by its id; the run's flat graph (``run/flat.py``) makes the
+arguments a call reads from these, naming function nodes by their paths (``("loud", "shout")`` for ``shout`` inside
 ``loud``).
 """
 
@@ -31,7 +32,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, ClassVar, final
 
-from conductor._internal.base import Path, node_path_text, place_text
+from conductor._internal.base import NodePath
 from conductor._internal.field import Field
 from conductor._internal.types import Type
 
@@ -42,48 +43,41 @@ class Edge:
     """What one edge reads from an output, as compiled: the input it leads to holds one per edge.
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
-    ``shout``, so it is ``Edge(("lines", "result"), None, (), Type(str), item=True)``. The edge from ``shout.result``
-    reads the value one call of ``shout`` returned, ``Edge(("shout", "result"), None, (("lines", "result"),),
+    ``shout``, so it is ``Edge(("lines",), "result", None, (), Type(str), item=True)``. The edge from ``shout.result``
+    reads the value one call of ``shout`` returned, ``Edge(("shout",), "result", None, ((("lines",), "result"),),
     Type(str), item=False)``, with ``depth`` 1: a call of ``shout`` is found by one item index. An edge from the
-    field ``email`` of the record ``split.result`` is ``Edge(("split", "result"), "email", ...)``.
+    field ``email`` of the record ``split.result`` is ``Edge(("split",), "result", "email", ...)``.
 
     Attributes:
-        source: The path of the output the edge reads. In a compiled graph it is the node's id and the output; in
-            the flat graph, the function node's path and the output there (``("loud", "shout", "result")`` for
-            ``shout`` inside the subgraph node ``loud``).
-        field: The field of the record the output returns that the edge reads; ``None`` for the whole output.
-        loops: The loops that node is inside, outermost first, each as the path of the list looped over.
+        node: The path of the node the edge comes from. In a compiled graph it is the node's id alone; in the flat
+            graph, the function node's path (``("loud", "shout")`` for ``shout`` inside the subgraph node ``loud``).
+        output: The name of the output the edge reads.
+        record_field: The field of the record the output returns that the edge reads; ``None`` for the whole output.
+        loops: The loops that node is inside, outermost first, each as the node path and the output of the list
+            looped over.
         type: The type of the value the edge reads.
         item: Whether the output is a ``Series`` and the edge reads one item of it. The node the edge leads to
             is then inside the loop over this output, and an item is found by one more item index than
             ``depth``.
         depth: How many loops the node is inside: the number of item indexes that say which call of it.
-        node_name: The path of the node the edge comes from, as text (``"loud/shout"``): the key a run keeps the
-            node's outcomes under.
     """
 
-    source: Path
-    field: str | None
-    loops: tuple[Path, ...]
+    node: NodePath
+    output: str
+    record_field: str | None
+    loops: tuple[tuple[NodePath, str], ...]
     type: Type
     item: bool
     depth: int = dataclasses.field(init=False, compare=False, repr=False)
-    node_name: str = dataclasses.field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "depth", len(self.loops))
-        object.__setattr__(self, "node_name", node_path_text(self.source[:-1]))
-
-    def __str__(self) -> str:
-        """The edge's source as a person reads it: ``"lines.result"``, ``"read.result.email"``,
-        ``"loud/shout.result"``."""
-        return place_text(self.source) if self.field is None else f"{place_text(self.source)}.{self.field}"
 
     @property
-    def loops_of_value(self) -> tuple[Path, ...]:
+    def loops_of_value(self) -> tuple[tuple[NodePath, str], ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
         node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return (*self.loops, self.source) if self.item else self.loops
+        return (*self.loops, (self.node, self.output)) if self.item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -105,7 +99,7 @@ class ConstantInput:
     field: Field
     value: Any
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[Path, ...]] = ()
+    loops: ClassVar[tuple[tuple[NodePath, str], ...]] = ()
 
 
 @final
@@ -123,7 +117,7 @@ class MissingInput:
 
     field: Field
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[Path, ...]] = ()
+    loops: ClassVar[tuple[tuple[NodePath, str], ...]] = ()
 
 
 @final
@@ -142,7 +136,7 @@ class GraphInput:
     field: Field
     name: str
     sources: ClassVar[tuple[Edge, ...]] = ()
-    loops: ClassVar[tuple[Path, ...]] = ()
+    loops: ClassVar[tuple[tuple[NodePath, str], ...]] = ()
 
 
 @final
@@ -167,7 +161,7 @@ class EdgeInput:
 
     field: Field
     sources: tuple[Edge, ...]
-    loops: tuple[Path, ...]
+    loops: tuple[tuple[NodePath, str], ...]
     as_list: bool = False
 
 
@@ -180,7 +174,7 @@ class CollectingInput:
 
     Attributes:
         field: The input, as its node declares it.
-        series: The list whose loop the input collects: ``lines.result``.
+        series: The list whose loop the input collects, as the node path and the output: ``(("lines",), "result")``.
         loops: The loops the input's node must be inside to read the list, outermost first: the loops the node
             that returns ``series`` is inside. The loop over ``series`` itself is not one of them.
         sources: What each edge into the input reads for one item. Several edges come from different branches
@@ -188,8 +182,8 @@ class CollectingInput:
     """
 
     field: Field
-    series: Path
-    loops: tuple[Path, ...]
+    series: tuple[NodePath, str]
+    loops: tuple[tuple[NodePath, str], ...]
     sources: tuple[Edge, ...]
 
 

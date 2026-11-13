@@ -426,6 +426,18 @@ def test_an_edge_from_another_nodes_input_is_not_a_source():
     assert [(p.type, p.loc, p.ctx["source"]) for p in problems] == [("unknown_output", ("u", "text"), "h.text")]
 
 
+def test_an_edge_naming_a_field_a_record_lacks_lists_every_field_whatever_its_name():
+    Hidden = TypedDict("Hidden", {".hidden": str, "b": str})
+
+    @node("give_hidden", title="Give", description="For a test.")
+    def give_hidden() -> Hidden:
+        return {".hidden": "x", "b": "y"}
+
+    record = {"nodes": {"g": {"node": "give_hidden"}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "g", "output": "result", "field": "zz"}]}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}
+    (found,) = Graph.compile(GraphRecord.model_validate(record), registry_of(give_hidden, upper)).problems
+    assert (found.type, found.loc, found.ctx["outputs"]) == ("unknown_output", ("u", "text"), ["g.result..hidden", "g.result.b"])
+
+
 def test_a_broken_edge_is_one_problem_not_repeated_on_the_nodes_downstream():
     record = {"nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "nope"}]}}}, "c": {"node": "tail", "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}}}}, "outputs": {"result": {"node": "c", "output": "result"}}}
     assert _problems(record) == [("unknown_output", ("b", "text"))]

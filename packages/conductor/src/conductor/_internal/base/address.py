@@ -9,10 +9,10 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
         shout(line: str) -> str
     join(texts: Series[str]) -> str   # wired to loud.shout.result, the output of loud's inner node shout
 
-- A **path** names a node: its id, after the id of each subgraph node it is inside. The inner node ``shout`` is
-  ``("loud", "shout")``, written ``"loud/shout"``; ``lines`` is ``("lines",)``, written ``"lines"``. Followed by a
-  name, it names that output or exclusive group of the node: ``("loud", "shout", "result")``, written
-  ``"loud/shout.result"``.
+- A **node path** names a node: its id, after the id of each subgraph node it is inside. The inner node ``shout`` is
+  ``("loud", "shout")``, written ``"loud/shout"``; ``lines`` is ``("lines",)``, written ``"lines"``. An output or an
+  exclusive group of a node is its node path and its name, side by side: the output ``result`` of ``loud/shout`` is
+  written ``"loud/shout.result"``.
 - **Item indexes** say which call of a node: one index per loop the node is inside, outermost first. The call of
   ``loud/shout`` for the line ``" "`` has the item indexes ``(1,)``.
 - A **loc** names one call: the node path and the item indexes in one tuple. Each index is written after the id
@@ -22,8 +22,8 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
 - An **address** names one output of a node of a graph record, or one field of the record an output returns:
   ``Address("lines", "result")``, written ``"lines.result"``. A graph record writes where each edge comes from as
-  one. Inside the engine a place is a **path** (``Path``): a node's path, then an output's name. Compiling names a loop
-  and an edge's source by the path of the output, ``("loud", "shout", "result")`` deep inside a subgraph.
+  one. Inside the engine, an output deep in a graph is its node's path and its name: compiling names a loop and an
+  edge's source so, ``(("loud", "shout"), "result")``.
 
 Because these are written with ``.``, ``/``, ``@`` and ``~`` (``~`` comes before the fingerprint of a waiting
 call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output contains one of them (``is_name``).
@@ -39,12 +39,10 @@ from pydantic import AfterValidator, ConfigDict, Field
 from pydantic.dataclasses import dataclass
 from pydantic_core import PydanticCustomError
 
-#: The names on the way to a place in a graph, outermost first: the id of each subgraph node it is inside, the node's
-#: own id, and for an output or an exclusive group of the node, its name. ``("loud", "shout")`` is the node ``shout``
-#: inside the subgraph node ``loud``, and ``("loud", "shout", "result")`` its output ``result``; ``("lines",)`` is a node
-#: of the graph itself, and ``("lines", "result")`` its output. Compiling names each loop by the path of the list it
-#: loops over, and each branch by the path of the node that chooses it.
-Path = tuple[str, ...]
+#: The ids on the way to a node, outermost first: the id of each subgraph node it is inside, then the node's own id.
+#: ``("loud", "shout")`` is the node ``shout`` inside the subgraph node ``loud``; ``("lines",)`` is a node of the graph
+#: itself. An output of a node is its node path and the output's name, side by side.
+NodePath = tuple[str, ...]
 
 #: Which call of a node: one index per loop the node is inside, outermost first. In a graph that loops over pages
 #: and then over the lines of each page, ``(0, 2)`` is line 2 of page 0. A node inside no loop has ``()``.
@@ -86,7 +84,7 @@ def _a_field(text: str | None) -> str | None:
         PydanticCustomError: It is empty or starts with a dot (``not_a_field``).
     """
     if text is not None and (not text or text.startswith(".")):
-        raise PydanticCustomError("not_a_field", "'{text}' is not the name of a field: it is not empty and does not start with '.'", {"text": text})
+        raise PydanticCustomError("not_a_field", "'{text}' is not the name of a field: a field's name is not empty and does not start with '.'", {"text": text})
     return text
 
 
@@ -102,8 +100,8 @@ class Address:
     A graph record writes it as ``{"node": "lines", "output": "result"}``, and a field as ``{"node": "read",
     "output": "result", "field": "email"}``. A subgraph node's outputs are the graph outputs its graph record
     declares, each a name like any other output's. Every part is checked when an address is made, from Python as
-    from JSON: ``Address("loud/shout", "result")`` raises, as a node id is a name. A place deeper in a graph is a
-    ``Path``. As text, for a person to read, the parts are joined by dots: ``"lines.result"``, ``"read.result.email"``.
+    from JSON: ``Address("loud/shout", "result")`` raises, as a node id is a name. As text, for a person to read, it
+    is what ``place_text`` writes: ``"lines.result"``, ``"read.result.email"``.
 
     Attributes:
         node: The node's id.
@@ -116,7 +114,7 @@ class Address:
     field: Annotated[str | None, AfterValidator(_a_field), Field(exclude_if=lambda field: field is None)] = None
 
     def __str__(self) -> str:
-        return f"{self.node}.{self.output}" if self.field is None else f"{self.node}.{self.output}.{self.field}"
+        return place_text((self.node,), self.output, self.field)
 
 
 def loc_text(loc: Loc) -> str:
@@ -128,7 +126,7 @@ def loc_text(loc: Loc) -> str:
     return "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
 
 
-def parse_loc_text(text: str) -> tuple[Loc, Path, ItemIndexes]:
+def parse_loc_text(text: str) -> tuple[Loc, NodePath, ItemIndexes]:
     """Read the text of a loc back, and also split it into its node path and its item indexes.
 
     ``parse_loc_text("loud@1/shout")`` returns ``(("loud", 1, "shout"), ("loud", "shout"), (1,))``.
@@ -147,21 +145,29 @@ def parse_loc_text(text: str) -> tuple[Loc, Path, ItemIndexes]:
     return tuple(loc), tuple(node_ids), tuple(item_indexes)
 
 
-def node_path_text(path: Path) -> str:
-    """A node path as text, joined by ``/``: ``node_path_text(("loud", "shout"))`` returns ``"loud/shout"``.
+def place_text(node: NodePath, name: str | None = None, field: str | None = None) -> str:
+    """A node, or an output, exclusive group or record field of it, as text for a person to read and as a saved
+    run writes a node: the node path joined by ``/``, then a dot and the name, then a dot and the field.
 
-    A run keeps each node's outcomes, one per call, under this text, and a saved run writes them under it.
+    ``place_text(("loud", "shout"))`` returns ``"loud/shout"``, ``place_text(("lines",), "result")`` returns
+    ``"lines.result"``, and ``place_text(("read",), "result", "email")`` returns ``"read.result.email"``.
+
+    Args:
+        node: The node's path.
+        name: The name of an output or an exclusive group of the node; ``None`` for the node itself.
+        field: The field of the record the output returns; ``None`` for the whole output.
     """
+    text = "/".join(node)
+    if name is not None:
+        text = f"{text}.{name}"
+    return text if field is None else f"{text}.{field}"
+
+
+def node_path_text(path: NodePath) -> str:
+    """A node path as text, joined by ``/``."""
     return "/".join(path)
 
 
-def place_text(path: Path) -> str:
-    """The path of an output or an exclusive group as text, for a person to read: the node's path as text, a dot,
-    then the name. ``place_text(("lines", "result"))`` returns ``"lines.result"``, and ``place_text(("loud", "shout",
-    "result"))`` returns ``"loud/shout.result"``."""
-    return f"{node_path_text(path[:-1])}.{path[-1]}"
-
-
-def parse_node_path(name: str) -> Path:
-    """The node path that ``node_path_text`` wrote as ``name``: ``parse_node_path("loud/shout")`` returns ``("loud", "shout")``."""
-    return tuple(name.split("/"))
+def parse_node_path(text: str) -> NodePath:
+    """The node path that ``place_text`` wrote as ``text``: ``parse_node_path("loud/shout")`` returns ``("loud", "shout")``."""
+    return tuple(text.split("/"))

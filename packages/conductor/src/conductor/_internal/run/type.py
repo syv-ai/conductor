@@ -27,7 +27,7 @@ from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
     Loc,
-    Path,
+    NodePath,
     node_path_text,
     parse_loc_text,
 )
@@ -120,14 +120,14 @@ class Run[C]:
     #: and it sorts them again before it hands the run on.
     _outcomes: dict[str, dict[ItemIndexes, Outcome]]
     #: What each node may take from the run this one went on from.
-    _reusable: dict[Path, ReusableOutcomes]
+    _reusable: dict[NodePath, ReusableOutcomes]
     #: The flat graph of ``graph``: the function nodes the run calls.
     _flat: FlatGraph = field(kw_only=True)
     state: RunState = READY
     #: For a node whose units a saved run made with other code or another signature, what that code was; they are never earlier work for a later run.
-    _code_changed: dict[Path, str] = field(default_factory=dict[Path, str])
+    _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes every unit of which was finished when the last leg ended, so a later leg doesn't say them complete again.
-    _finished_nodes: frozenset[Path] = frozenset()
+    _finished_nodes: frozenset[NodePath] = frozenset()
     #: A person's answers to a node's ``Asked`` parameter, by node name and item indexes, each kept until its call is
     #: made: ``_answers["approve"][(1,)]`` once ``run.answer`` is given ``True`` for ``approve@1``. Never changed in place.
     _answers: dict[str, dict[ItemIndexes, Answer]] = field(default_factory=dict[str, dict[ItemIndexes, Answer]])
@@ -352,7 +352,7 @@ class Run[C]:
                 run._outcomes[node.name][item_indexes] = now
         return run
 
-    def _moved_to(self, nodes: Path, fingerprint: str) -> str | None:
+    def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """The id of the unit where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
         for node, item_indexes, outcome in self._waiting_outcomes():
@@ -387,7 +387,7 @@ class Run[C]:
             del fresh._reusable[path]
         return fresh
 
-    def _reusable_outcomes(self, into: FlatGraph) -> dict[Path, ReusableOutcomes]:
+    def _reusable_outcomes(self, into: FlatGraph) -> dict[NodePath, ReusableOutcomes]:
         """What a run going on from this one may take, by node: each node's finished and waiting units, in
         item order, then the outcomes this run carried from the previous run and did not take.
 
@@ -395,7 +395,7 @@ class Run[C]:
         as they are here (by ``code_fingerprint``) are kept: the others' outcomes could never be taken there, and kept
         they would only make its save larger.
         """
-        work: dict[Path, ReusableOutcomes] = {}
+        work: dict[NodePath, ReusableOutcomes] = {}
         reader = self._reader
         for node in self._flat.function_nodes.values():
             if not node.policy.reuse_when_inputs_match or node.node_path in self._code_changed:

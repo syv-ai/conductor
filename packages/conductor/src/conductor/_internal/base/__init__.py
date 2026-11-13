@@ -12,7 +12,7 @@ from .address import (
     ItemIndexes,
     Loc,
     Name,
-    Path,
+    NodePath,
     is_name,
     loc_text,
     node_path_text,

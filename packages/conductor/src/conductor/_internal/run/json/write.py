@@ -77,8 +77,8 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for text, value in run.outputs.items():
-        node_id, graph_output = run.graph._outputs[text].source
-        function, output = run._flat.nodes[node_id].source_of(graph_output)
+        source = run.graph._outputs[text]
+        function, output = run._flat.nodes[source.node[0]].source_of(source.output)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
@@ -286,9 +286,9 @@ def first_unwritable_value(saved: SavedRun) -> str:
     """
     alone: list[tuple[str, Any]] = [(name, {"inputs": {name}}) for name in saved.inputs]
     for name, outcomes in saved.outcomes.items():
-        alone.extend((place_text((*parse_node_path(name), output)), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
+        alone.extend((place_text(parse_node_path(name), output), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
     for name, reusable in saved.reusable.items():
-        alone.extend((place_text((*parse_node_path(name), output)), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
+        alone.extend((place_text(parse_node_path(name), output), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
     for where, include in alone:
         try:
             saved.model_dump_json(include=include)

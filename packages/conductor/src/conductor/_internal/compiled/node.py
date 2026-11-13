@@ -7,7 +7,7 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=(("lines", "result"),)``,
+``shout`` compiles to a ``CompiledFunctionNode`` with ``id="shout"``, ``loops=((("lines",), "result"),)``,
 a compiled input for each of ``line`` (one item of ``lines.result``) and ``mark`` (the constant ``"!"``), and the
 output ``result: str``. A compiled node has nothing from a run in it: it is made once and used by every run.
 """
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import Ask, Question, field_questions
-from conductor._internal.base import SKIPPED, Path, place_text, short_hash
+from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
@@ -53,7 +53,7 @@ class RequiredBranch(NamedTuple):
             chooses once per line.
     """
 
-    node: Path
+    node: NodePath
     group: str
     output: str
     depth: int
@@ -65,7 +65,8 @@ class _CompiledNodeBase:
 
     Attributes:
         id: The node's id in the graph record.
-        loops: The loops the node is inside, outermost first, each named by the path of the output it loops over.
+        loops: The loops the node is inside, outermost first, each named by the node path and the output it loops
+            over.
         inputs: The compiled input of each input, by name. Each one's ``field`` is the input as compiled: it includes
             the inputs a ``compute_added_inputs`` hook added, and a type variable is replaced by the type its edges
             read.
@@ -75,7 +76,7 @@ class _CompiledNodeBase:
     """
 
     id: str
-    loops: tuple[Path, ...]
+    loops: tuple[tuple[NodePath, str], ...]
     inputs: dict[str, Input]
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
@@ -86,7 +87,7 @@ class _CompiledNodeBase:
         keys first."""
         return all(node_input.field.type.hashes_plainly for node_input in self.inputs.values())
 
-    def loops_around(self, output: str) -> tuple[Path, ...]:
+    def loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: for a function node, the
         loops the node is inside. In the example, ``shout.loops_around("result")`` is the loop over
         ``lines.result``."""
@@ -130,8 +131,9 @@ class CompiledFunctionNode(_CompiledNodeBase):
         fields = [(spec.name, spec.whole.reads_as) for spec in specs]
         functions: list[Callable[..., Any]] = [definition.function, *([definition.asked.function] if definition.asked else [])]
         code = [_code_text(inspect.unwrap(function).__code__) for function in functions]
-        # as text: the id of a call waiting for a person's answer and a saved run contain the hash, so no repr may change it
-        loops = tuple([place_text(series) for series in self.loops])
+        # each loop as place_text writes it (``"e/split.result"``), not as a repr: a waiting call's id and a saved run
+        # contain the hash, so it changes only when that text does
+        loops = tuple([place_text(node, output) for node, output in self.loops])
         written = repr((definition.id, definition.version, code[0] if len(code) == 1 else code, fields, loops))
         return short_hash(written.encode(), 8)
 
@@ -211,17 +213,17 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     definition: SubgraphDefinition
     inner: CompiledGraph
 
-    def loops_around(self, output: str) -> tuple[Path, ...]:
+    def loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: the loops this node is
         inside, then the loops inside the subgraph.
 
         Example: ``e`` above is called once, and ``loops_around("shouted")`` is
-        ``(("e", "documents", "result"), ("e", "lines", "result"))``. A loop inside is named by this node's id and the path of
-        the list inside, so two outputs returned in the same loop inside name the same loop, and a node outside
-        that reads both is called once per item with the two values of that item.
+        ``((("e", "documents"), "result"), (("e", "lines"), "result"))``. A loop inside is named by the path of the node
+        inside, from this graph, and its output, so two outputs returned in the same loop inside name the same loop,
+        and a node outside that reads both is called once per item with the two values of that item.
         """
         inside = self.inner._loops_around(output)
-        return (*self.loops, *[(self.id, *loop) for loop in inside])
+        return (*self.loops, *[((self.id, *node), name) for node, name in inside])
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value: those this node needs to be
@@ -251,12 +253,13 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         described = []
         series_of: Any = Series  # typed Any: the type checker cannot follow ``Series[...]`` built at run time
         for name, field in self.outputs.items():
-            loops = [place_text(loop[1:]) for loop in self.loops_around(name)[len(self.loops) :]]
+            loops = [place_text(node[1:], output) for node, output in self.loops_around(name)[len(self.loops) :]]
             if not loops:
                 described.append(field.description)
                 continue
             if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
-                loops.append(place_text(self.inner._outputs[name].source))
+                source = self.inner._outputs[name]
+                loops.append(place_text(source.node, source.output))
             item: Any = field.type.hint
             for _ in loops[1:]:
                 item = series_of[item]

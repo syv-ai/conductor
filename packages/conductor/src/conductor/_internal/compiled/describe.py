@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal, assert_never
 
-from conductor._internal.base import ConductorModel, Path, place_text
+from conductor._internal.base import ConductorModel, NodePath, place_text
 from conductor._internal.field import FieldDescription
 from conductor._internal.problem import Problem
 
@@ -124,13 +124,16 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-def runs_on(loops: tuple[Path, ...]) -> RunsOn:
+def runs_on(loops: tuple[tuple[NodePath, str], ...]) -> RunsOn:
     """Returns whether a node inside ``loops`` is called once or once per item: ``per_item`` of the list of the
     innermost loop, or ``once`` when ``loops`` is empty."""
-    return RunsOn(mode="per_item", series=place_text(loops[-1]), msg=f"per item of {place_text(loops[-1])}") if loops else RunsOn(mode="once", msg="once")
+    if not loops:
+        return RunsOn(mode="once", msg="once")
+    series = place_text(*loops[-1])
+    return RunsOn(mode="per_item", series=series, msg=f"per item of {series}")
 
 
-def input_source_of(loops: tuple[Path, ...], node_input: Input) -> InputSource:
+def input_source_of(loops: tuple[tuple[NodePath, str], ...], node_input: Input) -> InputSource:
     """Returns how an input with ``node_input`` gets its value on each call, for a node inside ``loops``.
 
     In ``lines -> shout -> join``: ``shout.line`` is an ``item`` of ``lines.result``, ``shout.mark`` is a
@@ -146,16 +149,16 @@ def input_source_of(loops: tuple[Path, ...], node_input: Input) -> InputSource:
         case MissingInput():
             return InputSource(mode="missing", msg="no value: a problem of the graph says why")
         case CollectingInput(series=series):
-            return InputSource(mode="collected", series=place_text(series), msg=f"every item of {place_text(series)}")
+            return InputSource(mode="collected", series=place_text(*series), msg=f"every item of {place_text(*series)}")
         case EdgeInput(as_list=True):
             return InputSource(mode="collected", msg="the one value, as a Series of one")
         case EdgeInput(loops=value_loops):
             if value_loops != loops:  # the value's node is inside fewer loops than this node: the same value for every item
                 if value_loops:
-                    return InputSource(mode="outer_value", series=place_text(value_loops[-1]), msg=f"the value of the item of {place_text(value_loops[-1])}")
+                    return InputSource(mode="outer_value", series=place_text(*value_loops[-1]), msg=f"the value of the item of {place_text(*value_loops[-1])}")
                 return InputSource(mode="outer_value", msg="one value, the same for every item")
             if value_loops:
-                return InputSource(mode="item", series=place_text(value_loops[-1]), msg=f"per item of {place_text(value_loops[-1])}")
+                return InputSource(mode="item", series=place_text(*value_loops[-1]), msg=f"per item of {place_text(*value_loops[-1])}")
             return InputSource(mode="one_value", msg="one value")
         case _:
             assert_never(node_input)

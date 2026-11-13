@@ -222,8 +222,8 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[str, list[Outc
             outcome.outputs[output] = output_validator_of(output_type).validate_python(table, strict=True)
         except (LookupError, AttributeError, ValidationError) as wrong:
             reason = output_type.refusal(wrong).reason if isinstance(wrong, ValidationError) else "that is not an output written in full before it"
-            where = f"{place_text((*parse_node_path(node), output))}[{call_number}]"
-            same_as = f"{place_text((*parse_node_path(from_node), from_output))}[{from_call_number}]"
+            where = f"{place_text(parse_node_path(node), output)}[{call_number}]"
+            same_as = f"{place_text(parse_node_path(from_node), from_output)}[{from_call_number}]"
             reason = f"'{where}' can't be read as the table at '{same_as}': {reason}"
             raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where="tables_written_once", reason=reason)]) from None
 

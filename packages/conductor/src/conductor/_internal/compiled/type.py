@@ -27,7 +27,7 @@ import functools
 from dataclasses import dataclass
 from typing import Annotated
 
-from conductor._internal.base import Loc, Path, json_hash, place_text, plural
+from conductor._internal.base import Loc, NodePath, json_hash, place_text, plural
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import ContextDoor, InputsDoor, RefusedError
@@ -69,7 +69,7 @@ class CompiledGraph:
     #: Each graph input, by name, as the caller gives a value for it: its type, and the value used when the caller
     #: gives none (``REQUIRED`` when the caller must give one).
     _inputs: dict[str, Field]
-    #: Each graph output, by name, as what an edge from it reads: ``{"result": Edge(("join", "result"), None, ...)}``.
+    #: Each graph output, by name, as what an edge from it reads: ``{"result": Edge(("join",), "result", None, ...)}``.
     #: A graph output whose source the graph cannot read is left out, and the graph has the problem.
     _outputs: dict[str, Edge]
     #: The class the registry names with ``context_type``, which every node's ``Context[X]`` was checked against;
@@ -153,25 +153,37 @@ class CompiledGraph:
         """The graph output ``output`` as the output of a subgraph node that uses this graph: the field of the node's
         output it is, under the graph output's name.
 
-        An exclusive group is named by the node here (``route.length``), so the groups of two nodes stay apart.
+        An exclusive group is named by the path of the node that chooses it, from this graph (``route.length``,
+        ``g/route.length`` for a node inside the subgraph node ``g``), so the groups of two nodes stay apart.
         """
-        node_id, inner_output = self._outputs[output].source
-        field = self._nodes[node_id].outputs[inner_output]
-        group = field.param.exclusive_group
-        hint = Annotated[field.hint, Param(exclusive_group=place_text((node_id, group)))] if group else field.hint
+        source = self._outputs[output]
+        field = self._nodes[source.node[0]].outputs[source.output]
+        group = self._group_of(output)
+        hint = Annotated[field.hint, Param(exclusive_group=place_text(*group))] if group is not None else field.hint
         return Field(output, hint, field.default)
 
-    def _loops_around(self, output: str) -> tuple[Path, ...]:
+    def _group_of(self, output: str) -> tuple[NodePath, str] | None:
+        """Returns the exclusive group the graph output ``output`` is in: the path of the function node that chooses
+        it, from this graph, and the group's name; ``None`` for an output in no group."""
+        source = self._outputs[output]
+        node = self._nodes[source.node[0]]
+        if isinstance(node, CompiledSubgraphNode):
+            inside = node.inner._group_of(source.output)
+            return None if inside is None else ((node.id, *inside[0]), inside[1])
+        group = node.outputs[source.output].param.exclusive_group
+        return None if group is None else (source.node, group)
+
+    def _loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
         """Returns the loops inside this graph that the graph output ``output`` has one value per item of, outermost
         first."""
-        node_id, inner_output = self._outputs[output].source
-        return self._nodes[node_id].loops_around(inner_output)
+        source = self._outputs[output]
+        return self._nodes[source.node[0]].loops_around(source.output)
 
     def _branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches inside this graph that must be chosen for the graph output ``output`` to have a
         value."""
-        node_id, inner_output = self._outputs[output].source
-        return self._nodes[node_id].branches_required_for(inner_output)
+        source = self._outputs[output]
+        return self._nodes[source.node[0]].branches_required_for(source.output)
 
     # -- what a run uses --------------------------------------------------------
 
@@ -194,10 +206,10 @@ class CompiledGraph:
         ``context_type`` and every node that takes the context, those inside subgraphs too."""
         return ContextDoor(self._context_type, self._nodes_taking_context())
 
-    def _nodes_taking_context(self) -> list[tuple[Path, ContextParameter]]:
+    def _nodes_taking_context(self) -> list[tuple[NodePath, ContextParameter]]:
         """Every function node of the graph and of its subgraphs that takes the run's context, as its node path
         (``("loud", "shout")``) and its ``Context`` parameter, in the order a run tries them."""
-        takers: list[tuple[Path, ContextParameter]] = []
+        takers: list[tuple[NodePath, ContextParameter]] = []
         for compiled_node in self._nodes.values():
             if isinstance(compiled_node, CompiledSubgraphNode):
                 takers += [((compiled_node.id, *path), parameter) for path, parameter in compiled_node.inner._nodes_taking_context()]
