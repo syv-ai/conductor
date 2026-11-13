@@ -47,7 +47,7 @@ class AnswerDoor:
 
         Args:
             outputs: The node's outputs, which the answer fills, by name.
-            questions: The question about each output as its type sets it (``field_questions``), by name.
+            questions: The question about each output as its type sets it (``CompiledFunctionNode.questions``), by name.
         """
         self._outputs = outputs
         self._questions = questions

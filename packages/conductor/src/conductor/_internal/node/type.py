@@ -174,8 +174,9 @@ class FunctionDefinition[**P, R](_Version):
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
         generic: Whether an input's type holds a type variable, which a graph binds from its edges as it loads.
-        asks: Whether the function may raise ``Ask``, as ``@node(asks=True)`` declares; the answer is then its
-            outputs.
+        asks: Whether a call may wait for a person: the function may raise ``Ask``, as ``@node(asks=True)``
+            declares, and the answer is then its outputs. An ``Ask`` raised from any other node fails its call
+            (``ask_not_declared``).
     """
 
     function: NodeFunction[P, R]
@@ -193,12 +194,6 @@ class FunctionDefinition[**P, R](_Version):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the function, as a test or a host would."""
         return self.function(*args, **kwargs)
-
-    @property
-    def may_ask(self) -> bool:
-        """Whether a call of the node may wait for a person's answer: ``approval`` declared with ``asks=True``. An
-        ``Ask`` raised from any other node fails its call (``ask_not_declared``)."""
-        return self.asks
 
     @property
     def where_declared(self) -> str:
@@ -228,7 +223,7 @@ class FunctionDefinition[**P, R](_Version):
             FunctionNodeDescription, policy=self.policy,
             inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
-            asks=self.may_ask,
+            asks=self.asks,
         )
 
 

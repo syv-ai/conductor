@@ -22,7 +22,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from conductor._internal.ask import Ask, Question, field_questions
+from conductor._internal.ask import Ask, Question, answer_required
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
@@ -154,20 +154,24 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
     @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:
-        """The question a person is asked about each output, which an answer fills, made from the output's type; the
-        ``Ask`` can add a prompt, choices and a default to it."""
-        return field_questions(self.outputs)
+        """The question a person is asked about each output, which an answer fills, by name, as the output's type
+        sets it: its description, and whether an answer must give it. A field of a returned dataclass with a default
+        proposes it. The ``Ask`` can add a prompt, choices and a default to it."""
+        return {
+            name: output.description.model_copy(update={"required": answer_required(output, {}, limited=output.description.choices is not None)})
+            for name, output in self.outputs.items()
+        }
 
     @functools.cached_property
     def ask_door(self) -> Callable[[Ask, dict[str, Any]], Question]:
         """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and keeps it as the
-        call's question; for a node that may not ask (``definition.may_ask``), refuses it (``ask_not_declared``). Built when
+        call's question; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
         the node first asks.
 
         Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For
         ``pick[T](value: T) -> T``, ``choices=[1, 2]`` fits when ``value`` comes from an ``int`` output and is refused
         when it comes from a ``str`` one."""
-        return AskDoor(self.outputs) if self.definition.may_ask else undeclared_ask
+        return AskDoor(self.outputs) if self.definition.asks else undeclared_ask
 
     @functools.cached_property
     def answer_door(self) -> AnswerDoor:

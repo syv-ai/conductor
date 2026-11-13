@@ -2,8 +2,7 @@
 give a question.
 
 ``approve(line: str) -> bool`` raising ``Ask("approve b?")`` keeps ``Question(prompt="approve b?", inputs={"line":
-"b"})``. ``field_questions`` makes the question about each output an answer fills from the output's type, before an
-``Ask`` sets anything.
+"b"})``.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from typing import Any, TypedDict
 from pydantic import JsonValue, SerializeAsAny
 
 from conductor._internal.base import REQUIRED
-from conductor._internal.field import Field, FieldDescription
+from conductor._internal.field import Field
 from conductor._internal.types import Choice
 
 
@@ -54,25 +53,6 @@ class Question:
     prompt: str
     inputs: dict[str, Any]
     overrides: Mapping[str, QuestionOverrides] = dataclasses.field(default_factory=dict)
-
-
-def field_questions(fields: Mapping[str, Field]) -> dict[str, FieldDescription]:
-    """The question about each field an answer fills, as the field's type sets it, before an ``Ask`` sets anything.
-
-    Args:
-        fields: The node's outputs, which the answer fills, by name.
-
-    Returns:
-        A question per field, by name, under the field's own label; a field of a returned dataclass with a default
-        proposes it.
-    """
-    return {name: _question(field) for name, field in fields.items()}
-
-
-def _question(field: Field) -> FieldDescription:
-    """One field's question as its type sets it."""
-    question = field.description
-    return question.model_copy(update={"required": answer_required(field, {}, limited=question.choices is not None)})
 
 
 def answer_required(field: Field, overrides: QuestionOverrides, *, limited: bool) -> bool:
