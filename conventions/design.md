@@ -35,7 +35,7 @@ counts = Counter(names); [i for i in graph_inputs if counts[i.name] > 1]   # goo
 
 ## Readability over speed
 
-Never add a shortcut, second structure or repeated line for speed unless a run would otherwise be slower than conductor's last release.
+Never add a shortcut, second structure or repeated line for speed unless a run would otherwise be slower than conductor's last release, and never for work that release does not do.
 
 Why: "If we have to pick between readability/maintainability and speed improvements, we are picking the former."
 
@@ -51,17 +51,17 @@ Judge a design only by what it simplifies in conductor, never by the JSON or nam
 Why: "We don't care about the wire! … This should never be an argument."
 
 ```text
-Bad:  Keep the edge as text, because hosts send text.
-Good: Read the edge's text into an Address at the record door.
+Bad:  Keep a source as "node.output" text, because hosts write it.
+Good: make_graph reads the text once; the record holds an Address.
 ```
 
 ## Tests read public names
 
-Pin behaviour in a test through names that are not private, and never read or patch private state such as `run._outcomes`.
+Pin behaviour in a test, its ids and its helpers through names that are not private, and never read or patch private state such as `run._outcomes`.
 
 Why: "We are not in the business of fitting code to tests."
 
 ```python
-assert run._outcomes["shout"][0].outputs["result"] == "HI"   # bad
-assert run.results["shout"]["result"] == "HI"                 # good
+assert run._outcomes[("shout",)][0].outputs["result"] == "HI"   # bad
+assert run.results["shout"]["result"] == "HI"                    # good
 ```

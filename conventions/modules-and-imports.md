@@ -13,7 +13,7 @@ Good: _internal/node/declare.py, type.py, policy.py, describe.py.
 
 ## Imports go through a package's surface
 
-Import another package only through its `__init__.py` and only from a lower layer, your own package's modules by a relative name, and never a name with a leading underscore from another module.
+Import another package only through its `__init__.py` and only from a lower layer, your own package's modules by a relative name, never `*`, a name with a leading underscore from another module or an attribute with one from another package, and register nothing at import.
 
 Why: "We also mix layers a fair bit inside _internal."
 

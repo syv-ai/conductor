@@ -2,7 +2,7 @@
 
 ## Docs are part of the change
 
-Update `README.md`, `docs/`, `about/llms.txt`, the notebooks, the skills and a `CHANGELOG.md` line in the same commit as any change a host sees (a public name, JSON, a problem code, a `ctx` key).
+Update `README.md`, `docs/`, `about/llms.txt`, the notebooks, the skills, conductor's own docstrings and comments, and a `CHANGELOG.md` line in the same commit as any change a host sees (a public name, JSON, a problem code, a `ctx` key).
 
 Why: "If they are stale, they pose a risk to us."
 

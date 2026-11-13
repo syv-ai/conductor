@@ -1,7 +1,5 @@
 # Names and words
 
-Names, docstrings and comments.
-
 ## Plain words a stranger reads right
 
 Write every name, docstring and comment so a Python developer who has never seen conductor or its plans reads it right: plain Python words, graph words where one fits, no coined metaphors and no word taken from a plan or word list.
@@ -48,7 +46,7 @@ class InvalidAskError(Exception): ...  # good
 
 ## Google-style docstrings
 
-Give every public class and function a Google-style docstring that says what it does, with `Args`, `Returns`, `Raises` and `Attributes` saying what each argument and field holds.
+Give every public class and function a Google-style docstring that says what it does, with `Args`, `Returns`, `Raises` and `Attributes` saying what each argument and field is for.
 
 Why: "In general, the docstrings are a mess. Use Google's format consistently in Conductor." "The docstring needs to explain what it does and what the fields do."
 

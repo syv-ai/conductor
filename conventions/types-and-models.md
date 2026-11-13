@@ -25,7 +25,7 @@ return to_json(value)            # good
 
 ## Invalid states cannot be written
 
-Split a record whose fields hide an either/or into two types, and give no field a `None` or empty value in one of its uses or a union of several types for one thing.
+Split a record whose fields hide an either/or into two types, give no field a `None` or empty value in one of its uses or a union of several types for one thing, and no type two meanings (a path to a node or to an output).
 
 Why: "I see a union of 4 types allowed for field `widget`. Why? That to me indicates a fragmentation upstream."
 
@@ -37,7 +37,7 @@ class SubgraphVersion: graph: GraphRecord
 
 ## What a person sees is declared
 
-Read text a person sees from what `@node`, `@host_type` or `Param(title=...)` declares, and never guess it from a class name, a docstring or `getattr` with a default.
+Read text a person sees from what `@node`, `@host_type` or `Param(title=...)` declares, never guess it from a class name, a docstring or `getattr` with a default, and advise in a problem only what is right in every case.
 
 Why: "There should be absolutely *NO* question what the user sees."
 

@@ -39,11 +39,11 @@ repos:
           - "@conventions/validation.md"
 
       - id: touch/addresses
-        name: Where address text is parsed
-        files: '^packages/conductor/src/conductor/_internal/(base/address|gate/record|graph/make)\.py$'
+        name: Where JSON and place text are read
+        files: '^(packages/conductor/src/conductor/_internal/(base/address|gate/record|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
         stages: [touch]
         context:
-          - "@conventions/validation.md#text-is-parsed-once-at-its-door"
+          - "@conventions/validation.md#text-is-read-once-at-its-door"
 
       - id: touch/package-layout
         name: Package layout and imports
@@ -556,9 +556,9 @@ repos:
               expect: { new: [4], preexisting: [3] }
 
       - id: validation/address-split-by-hand
-        name: Address text is parsed only by Address
+        name: A dotted place is read only by make_graph
         files: '^packages/conductor/src/conductor/.*\.py$'
-        exclude: '^packages/conductor/src/conductor/_internal/base/address\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/graph/make\.py$'
         detect:
           ast-grep:
             language: python
@@ -569,9 +569,9 @@ repos:
                 - pattern: $T.rsplit(".", $$$)
                 - pattern: $T.partition(".")
                 - pattern: $T.rpartition(".")
-        message: "{{file}}:{{line}} splits text at a dot by hand: `{{text}}`. Parse an address once with Address.parse at its door and keep the Address."
+        message: "{{file}}:{{line}} splits text at a dot by hand: `{{text}}`. A dotted place is read once, by make_graph; keep the Address or NodePath it gives."
         context:
-          - "@conventions/validation.md#text-is-parsed-once-at-its-door"
+          - "@conventions/validation.md#text-is-read-once-at-its-door"
         examples:
           bad:
             - path: packages/conductor/src/conductor/_internal/compiled/compile.py
@@ -581,7 +581,7 @@ repos:
           good:
             - path: packages/conductor/src/conductor/_internal/compiled/compile.py
               code: |
-                address = Address.parse(target)
+                node, output = source.node, source.output
                 words = text.split(" ")
             - path: packages/conductor/src/conductor/_internal/compiled/compile.py
               code: |

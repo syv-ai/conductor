@@ -21,7 +21,7 @@ Why: "Your prime directive is deep modules, uniform surfaces, even at the cost o
 
 ```python
 if type(outcome) is Skipped or type(outcome) is NoneInput: ...   # bad: the caller asks which kind
-match outcome:                                                   # good: one exhaustive match where kinds differ
+match outcome:                                                   # good: an exhaustive match where kinds differ
     case Done() | Answered() | Unanswered(): ...
     case Skipped() | NoneInput(): ...
     case _: assert_never(outcome)
@@ -34,8 +34,8 @@ Do not add a class, model, protocol, alias or sentinel when an existing one hold
 Why: "The worst thing that can happen is that the number of concepts and models grow (unless it's transitional to remove a higher number of them later)." "KeyedGraphRecord vs GraphRecord is the prime examples. It's piling on, not redesigning in a better way."
 
 ```python
-class KeyedGraphRecord(BaseModel): nodes: dict[str, NodeRecord]    # bad: GraphRecord again, keyed
-nodes_by_id = {node.id: node for node in record.nodes}              # good: a lookup where it is needed
+class KeyedGraphRecord(BaseModel): nodes: dict[str, NodeRecord]   # bad: a keyed twin of GraphRecord
+class GraphRecord(BaseModel): nodes: dict[str, NodeRecord]        # good: the one record, keyed by id
 ```
 
 ## Change radically when it simplifies
