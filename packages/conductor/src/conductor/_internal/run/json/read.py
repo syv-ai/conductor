@@ -23,7 +23,7 @@ from conductor._internal.field import Field
 from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
-from ..flat import FlatGraph
+from ..blueprint import RunBlueprint
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
@@ -39,7 +39,7 @@ from .type import (
 )
 
 
-def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: CompiledGraph, flat: FlatGraph, codec: type[SavedRun]) -> R:
+def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: CompiledGraph, blueprint: RunBlueprint, codec: type[SavedRun]) -> R:
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
     For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the
@@ -54,7 +54,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
         saved: The JSON text.
         graph: The graph the run was made on.
-        flat: The graph's flat graph.
+        blueprint: The graph's blueprint.
         codec: The graph's codec.
 
     Raises:
@@ -73,23 +73,23 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
     in_call_order: dict[NodePath, list[Outcome | None]] = {}
     code_changed = {
         path: fingerprint for name, fingerprint in read.code.items()
-        if fingerprint != flat.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
+        if fingerprint != blueprint.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
     }
     reusable = ReusableOutcomes(code_changed=code_changed)
     try:
         for name, saved_outcomes in read.outcomes.items():
             where, path = f"outcomes.{name}", parse_node_path(name)
-            in_call_order[path] = outcomes_from_saved(flat.function_nodes[path].compiled_node.outputs, saved_outcomes)
+            in_call_order[path] = outcomes_from_saved(blueprint.function_nodes[path].compiled_node.outputs, saved_outcomes)
         for name, saved_reusable in read.reusable.items():
             where, path = f"reusable.{name}.outcomes", parse_node_path(name)
-            reusable_in_call_order = outcomes_from_saved(flat.function_nodes[path].compiled_node.outputs, saved_reusable.outcomes)
+            reusable_in_call_order = outcomes_from_saved(blueprint.function_nodes[path].compiled_node.outputs, saved_reusable.outcomes)
             where = f"reusable.{name}"
             add_reusable_from_saved(reusable, path, saved_reusable, reusable_in_call_order)
     except ValueError as wrong:
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]) from None
-    _share_tables_written_once(flat, in_call_order, read.tables_written_once)
+    _share_tables_written_once(blueprint, in_call_order, read.tables_written_once)
     outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {}
-    for path, node in flat.function_nodes.items():
+    for path, node in blueprint.function_nodes.items():
         outcomes[path] = {}
         if (of_node := in_call_order.get(path)) is not None:
             every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
@@ -155,7 +155,7 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
     return outcomes
 
 
-def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[NodePath, list[Outcome | None]], entries: list[SameAs]) -> None:
+def _share_tables_written_once(blueprint: RunBlueprint, outcomes: Mapping[NodePath, list[Outcome | None]], entries: list[SameAs]) -> None:
     """Fills in the outputs that a saved run wrote as ``null`` and listed under ``tables_written_once``.
 
     The saved run lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
@@ -163,7 +163,7 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[NodePath, list
     the same table object again.
 
     Args:
-        flat: The flat graph of the run's graph.
+        blueprint: The blueprint of the run's graph.
         outcomes: Each node's outcomes in call-number order, by node path. Changed in place.
         entries: The saved run's ``tables_written_once``.
 
@@ -179,8 +179,8 @@ def _share_tables_written_once(flat: FlatGraph, outcomes: Mapping[NodePath, list
             outcome, source = outcomes[node][call_number], outcomes[from_node][from_call_number]
             if not isinstance(outcome, (Done, Answered)) or not isinstance(source, (Done, Answered)) or outcome.outputs[output] is not None:
                 raise LookupError(call_number)
-            output_type = flat.function_nodes[node].compiled_node.outputs[output].whole
-            table = flat.function_nodes[from_node].compiled_node.outputs[from_output].whole.written_once(source.outputs[from_output])
+            output_type = blueprint.function_nodes[node].compiled_node.outputs[output].whole
+            table = blueprint.function_nodes[from_node].compiled_node.outputs[from_output].whole.written_once(source.outputs[from_output])
             if table is None:
                 raise LookupError(from_call_number)
             outcome.outputs[output] = output_validator_of(output_type).validate_python(table, strict=True)

@@ -31,7 +31,7 @@ from typing import Any
 
 from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes, NodePath, place_text
 
-from .flat import FlatFunctionNode, FlatGraph, FlatSubgraph
+from .blueprint import BlueprintFunctionNode, BlueprintSubgraphNode, RunBlueprint
 from .outcome import Outcome, Unanswered
 
 
@@ -72,7 +72,7 @@ class Progress(CallCount):
     nodes: dict[str, CallCount]
 
 
-def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> CallCount:
+def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> CallCount:
     """The count of one function node, read from a run's outcomes.
 
     Args:
@@ -89,24 +89,24 @@ def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatF
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
-def progress_of(flat_graph: FlatGraph, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]) -> Progress:
+def progress_of(blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]) -> Progress:
     """The progress of a run with these outcomes: what ``run.progress`` returns.
 
     Args:
-        flat_graph: The flat graph of the run's graph.
+        blueprint: The blueprint of the run's graph.
         outcomes: The run's outcomes, by node path and then by item indexes.
 
     Returns:
-        The count of each node, in the order of the flat graph with a subgraph node after the nodes inside it,
+        The count of each node, in the order of the blueprint with a subgraph node after the nodes inside it,
         and their sums.
     """
     nodes: dict[str, CallCount] = {}
-    for path, flat in flat_graph.nodes.items():
-        if isinstance(flat, FlatSubgraph):  # the nodes inside it come before it, so their counts are made
-            nodes[place_text(path)] = _sum(nodes[place_text(inner.node_path)] for inner in flat.inner_nodes.values())
+    for path, node in blueprint.nodes.items():
+        if isinstance(node, BlueprintSubgraphNode):  # the nodes inside it come before it, so their counts are made
+            nodes[place_text(path)] = _sum(nodes[place_text(inner.node_path)] for inner in node.inner_nodes.values())
         else:
-            nodes[place_text(path)] = call_count(outcomes, flat)
-    run = _sum(nodes[place_text(path)] for path in flat_graph.function_nodes)
+            nodes[place_text(path)] = call_count(outcomes, node)
+    run = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
     return Progress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
 
 
@@ -185,7 +185,7 @@ def calls_expected(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], loops: 
     return expected, complete
 
 
-def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> bool:
     """Whether ``node`` is complete: it has an outcome for every call it will have, and none of them waits for a person.
 
     ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. ``approve`` with an
@@ -197,7 +197,7 @@ def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Flat
     return has_every_outcome(outcomes, node) and all(type(outcome) is not Unanswered for outcome in of_node.values())
 
 
-def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode) -> bool:
+def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> bool:
     """Whether ``node`` has an outcome for every call it will have.
 
     ``shout`` has when ``lines`` has returned and ``shout`` has three outcomes. An ``Unanswered`` outcome counts:

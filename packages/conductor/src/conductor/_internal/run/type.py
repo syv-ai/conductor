@@ -33,6 +33,7 @@ from conductor._internal.gate import check_limits
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .arguments import ResultReader
+from .blueprint import BlueprintFunctionNode, RunBlueprint, outcome_loc
 from .events import (
     Event,
     EventBase,
@@ -40,7 +41,6 @@ from .events import (
     RunEnd,
     RunStart,
 )
-from .flat import FlatFunctionNode, FlatGraph, outcome_loc
 from .json import outputs_to_json, run_from_json, run_to_json
 from .outcome import (
     Answered,
@@ -119,9 +119,9 @@ class Run[C]:
     _complete_nodes: frozenset[NodePath] = frozenset()
 
     @property
-    def _flat(self) -> FlatGraph:
-        """The flat graph of the run's graph: the function nodes the run calls."""
-        return self.graph._flat
+    def _blueprint(self) -> RunBlueprint:
+        """The blueprint of the run's graph: the function nodes the run calls."""
+        return self.graph._blueprint
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
@@ -133,12 +133,12 @@ class Run[C]:
         left, how the last ``resume()`` ended it early: ``failed``, ``stopped`` (at the item limit), ``cancelled`` or
         ``timed_out``. A failed call and a series over the item limit stand until a ``resume()``; an answer reads a
         cancelled or timed-out run from its outcomes again."""
-        return status_of(self._last_resume, self._flat.function_nodes.values(), self._outcomes)[0]
+        return status_of(self._last_resume, self._blueprint.function_nodes.values(), self._outcomes)[0]
 
     @property
     def cause(self) -> Problem | None:
         """The problem that ended the run early, with its ``loc`` and its code; ``None`` when the run did not end early."""
-        return status_of(self._last_resume, self._flat.function_nodes.values(), self._outcomes)[1]
+        return status_of(self._last_resume, self._blueprint.function_nodes.values(), self._outcomes)[1]
 
     # -- going on ---------------------------------------------------------------
 
@@ -256,11 +256,11 @@ class Run[C]:
                 def checkpoint(stopped: LastResume) -> None:
                     listener(RunCheckpoint(run=dataclasses.replace(run._copy(), _last_resume="running" if stopped is None else stopped)))
 
-        flat = self._flat
-        nodes = flat.function_nodes
+        blueprint = self._blueprint
+        nodes = blueprint.function_nodes
         complete_before = run._complete_nodes
         run._last_resume = stopped = Scheduler(
-            nodes=list(nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
+            nodes=list(nodes.values()), threads=blueprint.threads, outcomes=run._outcomes, reusable=run._reusable,
             complete=complete_before,
             max_items=run.max_items, arguments_for=_only_costs_nothing(run._reader.arguments_for) if only_costs_nothing else run._reader.arguments_for,
             emit=emit, stop=stop, context=context, checkpoint=checkpoint, checkpoint_every=checkpoint_every,
@@ -313,7 +313,7 @@ class Run[C]:
             case _:
                 raise TypeError("run.answer takes a waiting call and its answer, or a mapping of waiting ids to answers")
         problems: list[Problem] = []
-        answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
+        answered: dict[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = {}
         arguments_for = self._reader.arguments_for
         status = cache(lambda: self.status)  # read from every outcome, so only when a refusal names it
         for waiting_id, one in given.items():
@@ -322,7 +322,7 @@ class Run[C]:
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 continue
-            node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
+            node = self._blueprint.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
             found = self._outcomes[nodes].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered or outcome_loc(node, item_indexes) != loc:  # the indexes stand after the node of their loop
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint is not None else None
@@ -356,7 +356,7 @@ class Run[C]:
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """The id of the call where the question a stale id names now waits, if it waits elsewhere on the node at
         the path ``nodes``."""
-        node = self._flat.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
+        node = self._blueprint.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
         if node is None:
             return None
         arguments_for = self._reader.arguments_for
@@ -388,7 +388,7 @@ class Run[C]:
         if unknown:
             raise InvalidCallError([call_problems.node_not_in_graph(n, nodes=list(self.graph._nodes)) for n in unknown])
         fresh = self.with_inputs()
-        fresh._reusable.drop({path for path in self._flat.function_nodes if path[0] in node_ids})  # a subgraph's id forgets every node inside it
+        fresh._reusable.drop({path for path in self._blueprint.function_nodes if path[0] in node_ids})  # a subgraph's id forgets every node inside it
         return fresh
 
     def again(
@@ -411,9 +411,9 @@ class Run[C]:
         arguments_for = self._reader.arguments_for
         return [waiting_record(node, item_indexes, outcome, arguments_for) for node, item_indexes, outcome in self._waiting_outcomes()]
 
-    def _waiting_outcomes(self) -> Iterator[tuple[FlatFunctionNode, ItemIndexes, Unanswered]]:
+    def _waiting_outcomes(self) -> Iterator[tuple[BlueprintFunctionNode, ItemIndexes, Unanswered]]:
         """Every call waiting for a person, with its node and item indexes, in node then item order."""
-        for node in self._flat.function_nodes.values():
+        for node in self._blueprint.function_nodes.values():
             for item_indexes, outcome in self._outcomes[node.node_path].items():
                 if type(outcome) is Unanswered:
                     yield node, item_indexes, outcome
@@ -429,7 +429,7 @@ class Run[C]:
         invoices there are is known once ``read`` has returned. ``run.estimate()`` calls ``read`` first when its
         ``Policy`` says ``costs_nothing``.
         """
-        return progress_of(self._flat, self._outcomes)
+        return progress_of(self._blueprint, self._outcomes)
 
     @property
     def not_called(self) -> list[NotCalled]:
@@ -437,7 +437,7 @@ class Run[C]:
         inside a subgraph where its node stands."""
         return [
             NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
-            for node in self._flat.function_nodes.values() for item_indexes, outcome in self._outcomes[node.node_path].items() if type(outcome) is NoneInput
+            for node in self._blueprint.function_nodes.values() for item_indexes, outcome in self._outcomes[node.node_path].items() if type(outcome) is NoneInput
         ]
 
     @property
@@ -450,7 +450,7 @@ class Run[C]:
         ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
         made, or no item of it could have a value.
         """
-        return results_of(self.graph, self._flat, self._outcomes, self.inputs)
+        return results_of(self.graph, self._blueprint, self._outcomes, self.inputs)
 
     @property
     def outputs(self) -> dict[str, Any]:
@@ -458,7 +458,7 @@ class Run[C]:
         if (status := self.status) != "complete":
             reason = cause.msg if (cause := self.cause) is not None else ""
             raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason=reason)])
-        return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
+        return outputs_of(self.graph, self._blueprint, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by name: ``{"result":"A!+B!+C!"}`` for the README graph.
@@ -496,7 +496,7 @@ class Run[C]:
         """
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        return run_from_json(Run, saved, graph, graph._flat, graph._codec)
+        return run_from_json(Run, saved, graph, graph._blueprint, graph._codec)
 
     def to_json(self) -> str:
         """Returns the whole run as JSON text: its inputs, how the last ``resume()`` left it, every node's outcomes, and the outcomes
@@ -526,12 +526,12 @@ RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
 def _only_costs_nothing(
-    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
-) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
+    arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+) -> Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
     """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready: what
     ``estimate`` hands the scheduler, so that it calls ``lines`` and never ``shout`` when only ``lines`` costs nothing."""
 
-    def restricted(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
+    def restricted(node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
 
     return restricted
@@ -541,6 +541,6 @@ def make_run[C](graph: Graph[C], inputs: dict[str, Any], max_items: int | None, 
     """Returns a run of ``graph`` that has not started, with the inputs the inputs door let in: what
     ``graph.with_inputs(text="a\\nb")`` returns. No node has an outcome yet; with ``previous``, the run may reuse
     that run's outcomes (``Run.with_inputs``)."""
-    flat = graph._flat
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {path: {} for path in flat.function_nodes}
-    return Run(graph, inputs, max_items, outcomes, ReusableOutcomes.from_run(previous, into=flat) if previous is not None else ReusableOutcomes())
+    blueprint = graph._blueprint
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {path: {} for path in blueprint.function_nodes}
+    return Run(graph, inputs, max_items, outcomes, ReusableOutcomes.from_run(previous, into=blueprint) if previous is not None else ReusableOutcomes())

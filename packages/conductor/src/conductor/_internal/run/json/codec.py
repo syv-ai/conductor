@@ -25,7 +25,7 @@ from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.types import Type, union_of
 
-from ..flat import FlatGraph
+from ..blueprint import RunBlueprint
 from .type import SavedOutcomes, SavedReusable, SavedRun
 
 
@@ -203,17 +203,17 @@ def _fields_of(hint: Any) -> dict[str, Any] | None:
     return None
 
 
-def codec_of(graph: CompiledGraph, flat: FlatGraph) -> type[SavedRun]:
+def codec_of(graph: CompiledGraph, blueprint: RunBlueprint) -> type[SavedRun]:
     """The model the runs of ``graph`` are read from JSON and written as JSON by. Built the first time one of its runs
     is read or written, and kept by the ``Graph`` (``graph._codec``).
 
     Args:
         graph: The graph.
-        flat: Its flat graph.
+        blueprint: Its blueprint.
     """
     return run_codec(
         graph.fingerprint,
         inputs={name: field.whole for name, field in graph._inputs.items()},
-        outputs={place_text(path): node.compiled_node.outputs for path, node in flat.function_nodes.items()},
-        nodes=[place_text(path) for path in flat.function_nodes],
+        outputs={place_text(path): node.compiled_node.outputs for path, node in blueprint.function_nodes.items()},
+        nodes=[place_text(path) for path in blueprint.function_nodes],
     )

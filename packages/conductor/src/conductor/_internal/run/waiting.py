@@ -17,8 +17,8 @@ from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.field import FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
 
+from .blueprint import BlueprintFunctionNode, outcome_loc
 from .call import jsonable
-from .flat import FlatFunctionNode, outcome_loc
 from .outcome import NoneInput, NotReady, Skipped, Unanswered
 
 
@@ -52,7 +52,7 @@ class Waiting(ConductorModel):
     inputs: dict[str, Any]
 
 
-def waiting_record(node: FlatFunctionNode, item_indexes: ItemIndexes, waiting: Unanswered, arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]) -> Waiting:
+def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiting: Unanswered, arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]) -> Waiting:
     """A waiting call as a host shows it.
 
     Args:
@@ -70,7 +70,7 @@ def waiting_record(node: FlatFunctionNode, item_indexes: ItemIndexes, waiting: U
     )
 
 
-def received(node: FlatFunctionNode, item_indexes: ItemIndexes, arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]) -> dict[str, Any]:
+def received(node: BlueprintFunctionNode, item_indexes: ItemIndexes, arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]) -> dict[str, Any]:
     """What a call that waits received, as JSON: its arguments read again from the outcomes it reads, which never
     change once written. ``received(approve, (1,), reader.arguments_for)`` is ``{"line": "b"}``.
 

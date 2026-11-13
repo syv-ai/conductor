@@ -25,7 +25,7 @@ from pydantic_core import PydanticSerializationError
 from conductor._internal.base import ItemIndexes, NodePath, json_hash
 from conductor._internal.types import untyped_to_hash
 
-from .flat import FlatFunctionNode, FlatGraph
+from .blueprint import BlueprintFunctionNode, RunBlueprint
 from .outcome import Answered, Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
 
 if TYPE_CHECKING:
@@ -62,16 +62,16 @@ class ReusableOutcomes:
     code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
 
     @classmethod
-    def from_run(cls, run: Run[Any], into: FlatGraph) -> ReusableOutcomes:
+    def from_run(cls, run: Run[Any], into: RunBlueprint) -> ReusableOutcomes:
         """What a run going on from ``run`` may reuse: each node's finished and waiting calls, in item order, then
         the outcomes ``run`` itself could reuse and did not.
 
-        ``into`` is the flat graph of the new run's graph, ``run``'s or another's. Only the nodes it has as they are
+        ``into`` is the blueprint of the new run's graph, ``run``'s or another's. Only the nodes it has as they are
         in ``run`` (by ``code_fingerprint``), and whose ``Policy`` there says ``reuse_when_inputs_match``, are kept:
         the others' outcomes could never be taken there, and kept they would only make its save larger.
         """
         reusable, previous, reader = cls(), run._reusable, run._reader
-        for path, node in run._flat.function_nodes.items():
+        for path, node in run._blueprint.function_nodes.items():
             there = into.function_nodes.get(path)
             if there is None or not there.policy.reuse_when_inputs_match or there.compiled_node.code_fingerprint != node.compiled_node.code_fingerprint:
                 continue
@@ -122,7 +122,7 @@ class ReusableOutcomes:
                 self.answers.setdefault(path, {}).setdefault((fingerprint, outer_items), []).append(outcome)
 
     def take(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         in_turn: Callable[[], bool],
     ) -> Done | Answered | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
         """The outcome a call reuses in place of calling the function, or ``None`` when there is none.
@@ -182,7 +182,7 @@ class ReusableOutcomes:
         )
 
 
-def _outer_items_fingerprint(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: FlatFunctionNode, item_indexes: ItemIndexes) -> str:
+def _outer_items_fingerprint(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> str:
     """A fingerprint of the items of the outer loops of a call: every loop the node is inside but the innermost.
 
     It keeps a person's answers with the item they were given for. In ``pages -> lines -> approve``, two pages may

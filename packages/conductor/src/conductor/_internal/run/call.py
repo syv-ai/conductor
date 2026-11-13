@@ -16,10 +16,10 @@ from conductor._internal.base import plain_json
 from conductor._internal.problem import InvalidCallError, Problem, run_problems
 from conductor._internal.types import untyped_as_json
 
-from .flat import FlatFunctionNode
+from .blueprint import BlueprintFunctionNode
 
 
-def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | Problem | None]:
+def call(node: BlueprintFunctionNode, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | Problem | None]:
     """Call the function of ``node`` with ``arguments``, by name, and ``context`` first when the node takes it.
 
     Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources

@@ -25,8 +25,8 @@ the output's name, also when the list is an output of a subgraph node (``(("loud
 
 An ``EdgeInput`` and a ``CollectingInput`` are made in two places, and their node paths mean a different thing in
 each. Compiling makes them with node paths from the node's own graph: a source is a node of that graph by its id
-(``("shout",)``, or ``("loud",)`` for a subgraph node), and a loop is named from that graph. The run's flat graph
-(``run/flat.py``) makes them again for each use of the node, with the full path of the function node a value
+(``("shout",)``, or ``("loud",)`` for a subgraph node), and a loop is named from that graph. The run blueprint
+(``run/blueprint.py``) makes them again for each use of the node, with the full path of the function node a value
 comes from (``("loud", "shout")`` for ``shout`` inside ``loud``), and every loop by its full path.
 """
 
@@ -54,8 +54,8 @@ class Edge:
     ...)``.
 
     Attributes:
-        node: The path of the node the edge comes from. In a compiled graph it is the node's id alone; in the flat
-            graph, the function node's path (``("loud", "shout")`` for ``shout`` inside the subgraph node ``loud``).
+        node: The path of the node the edge comes from. In a compiled graph it is the node's id alone; in the
+            blueprint, the function node's path (``("loud", "shout")`` for ``shout`` inside the subgraph node ``loud``).
         output: The name of the output the edge reads.
         record_field: The field of the record the output returns that the edge reads; ``None`` for the whole output.
         loops: The loops that node is inside, outermost first, each as the node path and the output of the list
@@ -161,9 +161,9 @@ class EdgeInput:
         field: The input, as its node declares it.
         sources: What each edge into the input reads. With several edges, each comes from a different branch of
             one decision, and a call gets the value from the branch that was chosen. Compiled, each names a node of
-            the node's own graph; in the flat graph, the function node it comes from by its full path.
+            the node's own graph; in the blueprint, the function node it comes from by its full path.
         loops: The loops the input's node must be inside to read the value, outermost first: those of the
-            source with the most loops. Compiled, the loops inside the node's own graph; in the flat graph, every
+            source with the most loops. Compiled, the loops inside the node's own graph; in the blueprint, every
             loop, those of the subgraph nodes it is inside first.
         as_list: Whether a call gets the value as a list of one.
     """
@@ -184,15 +184,15 @@ class CollectingInput:
     Attributes:
         field: The input, as its node declares it.
         series: The list whose loop the input collects, as the node path and the output: ``(("lines",), "result")``.
-            Compiled, a node path from the node's own graph; in the flat graph, the full path of the function node
+            Compiled, a node path from the node's own graph; in the blueprint, the full path of the function node
             that returns the list.
         loops: The loops the input's node must be inside to read the list, outermost first: the loops the node
             that returns ``series`` is inside. The loop over ``series`` itself is not one of them. Compiled, the
-            loops inside the node's own graph; in the flat graph, every loop, those of the subgraph nodes it is
+            loops inside the node's own graph; in the blueprint, every loop, those of the subgraph nodes it is
             inside first.
         sources: What each edge into the input reads for one item. Several edges come from different branches
-            of one decision, as for any input. Compiled, each names a node of the node's own graph; in the flat
-            graph, the function node it comes from by its full path.
+            of one decision, as for any input. Compiled, each names a node of the node's own graph; in the
+            blueprint, the function node it comes from by its full path.
     """
 
     field: Field

@@ -2,7 +2,7 @@
 
 For the README graph after ``graph.run(text="a\\nb")``, ``run.results["shout"]["result"]`` is ``["A!", "B!"]`` and
 ``run.outputs`` is ``{"result": "A!+B!"}``. A host reads an output the way a node wired to it would, with the
-inputs ``display_inputs_of`` gives (``flat.py``), by a ``DisplayReader``, which reads a value that is not
+inputs ``display_inputs_of`` gives (``blueprint.py``), by a ``DisplayReader``, which reads a value that is not
 there yet as ``None``.
 """
 
@@ -17,25 +17,25 @@ from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
 from .arguments import ResultReader
-from .flat import CollectingArgument, FlatGraph, display_inputs_of
+from .blueprint import CollectingArgument, RunBlueprint, display_inputs_of
 from .outcome import NotReady, Outcome
 
 
 def results_of(
-    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    graph: CompiledGraph, blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    """``run.results``: every node's outputs so far, by node id and output name. ``flat`` is ``graph``'s flat graph."""
+    """``run.results``: every node's outputs so far, by node id and output name. ``blueprint`` is ``graph``'s blueprint."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {n: {o: reader.display_value(display_inputs_of(*flat.nodes[(n,)].source_of(o))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
+    return {n: {o: reader.display_value(display_inputs_of(*blueprint.nodes[(n,)].source_of(o))) for o in compiled_node.outputs} for n, compiled_node in graph._nodes.items()}
 
 
 def outputs_of(
-    graph: CompiledGraph, flat: FlatGraph, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    graph: CompiledGraph, blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
-    it is. ``flat`` is ``graph``'s flat graph."""
+    it is. ``blueprint`` is ``graph``'s blueprint."""
     reader = DisplayReader(outcomes, graph_inputs)
-    return {name: reader.display_value(display_inputs_of(*flat.nodes[edge.node].source_of(edge.output))) for name, edge in graph._outputs.items()}
+    return {name: reader.display_value(display_inputs_of(*blueprint.nodes[edge.node].source_of(edge.output))) for name, edge in graph._outputs.items()}
 
 
 class DisplayReader(ResultReader):

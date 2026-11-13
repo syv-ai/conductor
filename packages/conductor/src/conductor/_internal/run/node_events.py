@@ -48,6 +48,7 @@ from typing import Any, Literal, assert_never
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.problem import Problem
 
+from .blueprint import BlueprintFunctionNode, BlueprintNode, all_upstream, outcome_loc
 from .events import (
     EventBase,
     NodeComplete,
@@ -58,7 +59,6 @@ from .events import (
     NodeStart,
     NodeWaiting,
 )
-from .flat import FlatFunctionNode, FlatNode, all_upstream, outcome_loc
 from .outcome import Answered, Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
 from .progress import CallCount, call_count, calls_expected, is_complete
 from .waiting import waiting_record
@@ -90,10 +90,10 @@ class NodeEvents:
     def __init__(
         self,
         emit: Callable[[EventBase], None],
-        nodes: list[FlatFunctionNode],
+        nodes: list[BlueprintFunctionNode],
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         complete: frozenset[NodePath],
-        arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+        arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
     ) -> None:
         """
         Args:
@@ -105,24 +105,24 @@ class NodeEvents:
             arguments_for: Reads the arguments of a call from the run's outcomes, for what a waiting call received.
         """
         self.emit, self.nodes, self.outcomes, self.arguments_for = emit, nodes, outcomes, arguments_for
-        with_outcomes: set[FlatFunctionNode] = {node for node in nodes if outcomes[node.node_path]}
-        self.started: set[FlatNode] = set(with_outcomes)
+        with_outcomes: set[BlueprintFunctionNode] = {node for node in nodes if outcomes[node.node_path]}
+        self.started: set[BlueprintNode] = set(with_outcomes)
         for node in with_outcomes:
             subgraph = node.parent
             while subgraph is not None:
                 self.started.add(subgraph)
                 subgraph = subgraph.parent
-        complete_before: set[FlatFunctionNode] = {node for node in nodes if node.node_path in complete}
-        self.complete: set[FlatNode] = set(complete_before)
+        complete_before: set[BlueprintFunctionNode] = {node for node in nodes if node.node_path in complete}
+        self.complete: set[BlueprintNode] = set(complete_before)
         for node in complete_before:
             self._complete_subgraphs_around(node, announce=False)
-        self.skipped: set[FlatNode] = set()
+        self.skipped: set[BlueprintNode] = set()
         self.changed = with_outcomes - complete_before
-        self.reused: defaultdict[FlatFunctionNode, int] = defaultdict(int)
-        self.progress_at: dict[FlatFunctionNode, float] = {}
-        self.progress_count: dict[FlatFunctionNode, CallCount] = {}
+        self.reused: defaultdict[BlueprintFunctionNode, int] = defaultdict(int)
+        self.progress_at: dict[BlueprintFunctionNode, float] = {}
+        self.progress_count: dict[BlueprintFunctionNode, CallCount] = {}
 
-    def call_starts(self, node: FlatNode) -> None:
+    def call_starts(self, node: BlueprintNode) -> None:
         """A call of ``node`` is about to be made: ``NodeStart``, unless the node has started."""
         if node not in self.started:
             if node.parent is not None:
@@ -130,11 +130,11 @@ class NodeEvents:
             self.started.add(node)
             self.emit(NodeStart(loc=node.node_path))
 
-    def outcome_reused(self, node: FlatFunctionNode) -> None:
+    def outcome_reused(self, node: BlueprintFunctionNode) -> None:
         """The outcome recorded next for ``node`` is taken from the previous run."""
         self.reused[node] += 1
 
-    def outcome_recorded(self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome) -> None:
+    def outcome_recorded(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome) -> None:
         """``outcome`` was written for the call ``item_indexes`` of ``node``.
 
         An outcome that was not a call (reused, or ``NoneInput``) starts its node as a call does. ``Skipped`` does not.
@@ -147,15 +147,15 @@ class NodeEvents:
         if node.loops:
             self._progress(node)
 
-    def call_retries(self, node: FlatFunctionNode, item_indexes: ItemIndexes, attempt: int, delay: float, cause: Problem) -> None:
+    def call_retries(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, attempt: int, delay: float, cause: Problem) -> None:
         """A call failed and is made again after ``delay`` seconds, as try number ``attempt`` after the first."""
         self.emit(NodeRetry(loc=outcome_loc(node, item_indexes), attempt=attempt, retries=node.policy.retries, delay=delay, cause=cause))
 
-    def call_failed(self, node: FlatFunctionNode, cause: Problem) -> None:
+    def call_failed(self, node: BlueprintFunctionNode, cause: Problem) -> None:
         """A call of ``node`` failed and is not retried: the run fails with ``cause``."""
         self.emit(NodeFailed(loc=node.node_path, cause=cause))
 
-    def nothing_is_ready(self, running: Iterable[tuple[FlatFunctionNode, ItemIndexes]]) -> None:
+    def nothing_is_ready(self, running: Iterable[tuple[BlueprintFunctionNode, ItemIndexes]]) -> None:
         """No call is ready to be made: say ``NodeComplete`` or ``NodeSkipped`` for every node that is now complete.
 
         Args:
@@ -191,7 +191,7 @@ class NodeEvents:
             if node.loops and node in self.progress_count:
                 self._progress(node, last=True)
 
-    def _progress(self, node: FlatFunctionNode, last: bool = False) -> None:
+    def _progress(self, node: BlueprintFunctionNode, last: bool = False) -> None:
         """Say ``NodeProgress`` for a node inside a loop, unless the last one is under a quarter of a second old or
         had the same count. ``last`` leaves out the clock: it is the node's final count. The count is the node's in ``run.progress``."""
         now = time.monotonic()
@@ -202,7 +202,7 @@ class NodeEvents:
             self.progress_at[node], self.progress_count[node] = now, count
             self.emit(NodeProgress(loc=node.node_path, count=count))
 
-    def _complete_subgraphs_around(self, node: FlatNode, announce: bool) -> None:
+    def _complete_subgraphs_around(self, node: BlueprintNode, announce: bool) -> None:
         """Mark the subgraph node ``node`` is inside as complete when every node inside it is, then the subgraph
         node that one is inside, and so on.
 

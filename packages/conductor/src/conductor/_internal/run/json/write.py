@@ -17,7 +17,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
-from ..flat import FlatFunctionNode
+from ..blueprint import BlueprintFunctionNode
 from ..outcome import Answered, Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes, has_every_outcome
 from ..reuse import ReusableOutcomes
@@ -58,7 +58,7 @@ def run_to_json(run: Run) -> str:
     try:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
-        where = first_unwritable_value(saved, run._flat.function_nodes)
+        where = first_unwritable_value(saved, run._blueprint.function_nodes)
         raise InvalidCallError([call_problems.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
 
 
@@ -75,7 +75,7 @@ def outputs_to_json(run: Run) -> str:
     written = {}
     for text, value in run.outputs.items():
         source = run.graph._outputs[text]
-        function, output = run._flat.nodes[source.node].source_of(source.output)
+        function, output = run._blueprint.nodes[source.node].source_of(source.output)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
@@ -98,7 +98,7 @@ def saved_run(run: Run) -> SavedRun:
     key at all.
     """
     codec = run.graph._codec
-    function_nodes = run._flat.function_nodes
+    function_nodes = run._blueprint.function_nodes
     names = {path: place_text(path) for path in function_nodes}
     outcomes = {
         names[path]: saved_outcomes(codec.outcomes_classes[names[path]], node.compiled_node.outputs, _outcomes_by_call_number(run, node))
@@ -120,7 +120,7 @@ def saved_run(run: Run) -> SavedRun:
     )
 
 
-def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome | None]:
+def _outcomes_by_call_number(run: Run, node: BlueprintFunctionNode) -> list[Outcome | None]:
     """Returns the outcomes of ``node`` as a list with one entry per call, in the order of the calls' item indexes.
 
     For ``shout`` after its first two calls of three: ``[Done(...), Done(...), None]``. The place of an entry
@@ -185,7 +185,7 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     )
 
 
-def tables_written_once(function_nodes: Iterable[FlatFunctionNode], outcomes: Mapping[str, SavedOutcomes]) -> list[SameAs]:
+def tables_written_once(function_nodes: Iterable[BlueprintFunctionNode], outcomes: Mapping[str, SavedOutcomes]) -> list[SameAs]:
     """Finds the outputs that have the very same table object as an output before them, and writes each such table once.
 
     ``read.result`` is a table and ``split.result`` is a series of records made of that same table. The entry

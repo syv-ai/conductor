@@ -22,7 +22,7 @@ from pydantic import ConfigDict
 from conductor._internal.base import ItemIndexes, NodePath
 from conductor._internal.problem import Problem, run_problems
 
-from .flat import FlatFunctionNode
+from .blueprint import BlueprintFunctionNode
 from .outcome import Outcome, Unanswered
 from .progress import is_complete
 
@@ -53,7 +53,7 @@ LastResume = EndedEarly | Literal["running"] | None
 
 
 def status_of(
-    last_resume: LastResume, nodes: Iterable[FlatFunctionNode], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+    last_resume: LastResume, nodes: Iterable[BlueprintFunctionNode], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
 ) -> tuple[RunStatus, Problem | None]:
     """The status of a run, and the problem that ended it early when that is its status.
 

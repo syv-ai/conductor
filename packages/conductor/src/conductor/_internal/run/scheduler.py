@@ -74,9 +74,9 @@ from conductor._internal.problem import (
     run_problems,
 )
 
+from .blueprint import BlueprintFunctionNode, all_upstream, outcome_loc
 from .call import call, jsonable
 from .events import EventBase
-from .flat import FlatFunctionNode, all_upstream, outcome_loc
 from .node_events import NodeEvents
 from .outcome import (
     Answered,
@@ -114,7 +114,7 @@ class _Attempt:
         number: 0 for the first attempt at the call, 1 for its first retry.
     """
 
-    node: FlatFunctionNode
+    node: BlueprintFunctionNode
     item_indexes: ItemIndexes
     arguments: dict[str, Any]
     number: int
@@ -181,13 +181,13 @@ class Scheduler:
     def __init__(
         self,
         *,
-        nodes: list[FlatFunctionNode],
+        nodes: list[BlueprintFunctionNode],
         threads: int,
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         reusable: ReusableOutcomes,
         complete: frozenset[NodePath],
         max_items: int | None,
-        arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+        arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None,
         stop: Callable[[], LastResume] | None,
         context: Any,
@@ -224,26 +224,26 @@ class Scheduler:
         #: Each node's outcomes by item indexes. These are the dicts of ``all_outcomes``, by node in place of node path.
         self.outcomes = {node: outcomes[node.node_path] for node in self.nodes}
         #: The nodes with an outcome written before one that is earlier in item order. ``_put_in_order`` sorts them.
-        self.out_of_order: set[FlatFunctionNode] = set()
+        self.out_of_order: set[BlueprintFunctionNode] = set()
         #: The calls to try, as a heap of (node position, item indexes): the first node in topological order first.
         self.ready: list[tuple[int, ItemIndexes]] = []
         #: Whether an outcome was recorded, or every call was tried, since ``_when_nothing_is_ready`` last ran.
         self.changed = True
         #: The collecting calls to try once no call upstream of them is running: the node, and the item indexes
         #: that the calls it collects start with.
-        self.collectors: set[tuple[FlatFunctionNode, ItemIndexes]] = set()
+        self.collectors: set[tuple[BlueprintFunctionNode, ItemIndexes]] = set()
         #: The calls with an attempt on a thread, waiting for a thread, or waiting to be retried, each with that attempt.
         #: speed only: a dict where a set would do. It is listed whenever nothing is ready, and a set that had 2,000 calls
         #: in it is slow to list for the rest of its life: 18% of a run of 6,000 calls on threads.
-        self.running: dict[tuple[FlatFunctionNode, ItemIndexes], _Attempt] = {}
+        self.running: dict[tuple[BlueprintFunctionNode, ItemIndexes], _Attempt] = {}
 
         # 2. Threads, retries and timeouts.
         #: The pool the attempts run on. It is made when the first attempt goes to a thread.
         self.pool: ThreadPoolExecutor | None = None
         #: Each node's attempts that wait for a thread, first in first out.
-        self.waiting_for_thread: defaultdict[FlatFunctionNode, deque[_Attempt]] = defaultdict(deque)
+        self.waiting_for_thread: defaultdict[BlueprintFunctionNode, deque[_Attempt]] = defaultdict(deque)
         #: How many attempts of each node are on threads. The node's ``concurrency`` is the most there may be.
-        self.on_threads: defaultdict[FlatFunctionNode, int] = defaultdict(int)
+        self.on_threads: defaultdict[BlueprintFunctionNode, int] = defaultdict(int)
         #: What the pool threads hand back: an attempt with what ``call`` returned for it (the node's outputs, and what
         #: the function raised or the problem a door of the call refused it with), or an exception ``call`` itself raised.
         self.returned: SimpleQueue[tuple[_Attempt, Any, BaseException | Problem | None] | BaseException] = SimpleQueue()
@@ -256,7 +256,7 @@ class Scheduler:
         #: The outcomes of the previous run that a call may reuse.
         self.reusable = reusable
         #: How far each node that takes a person's earlier answers has been tried in item order.
-        self.answer_orders: dict[FlatFunctionNode, _AnswerOrder] = {}
+        self.answer_orders: dict[BlueprintFunctionNode, _AnswerOrder] = {}
         #: Whether a call was left untried because a call of its node before it has not been tried yet.
         self.out_of_turn = False
         #: How many outcomes were recorded since ``_try_every_call`` last ran, not counting its own.
@@ -341,7 +341,7 @@ class Scheduler:
                         return
                     self._start_if_ready(node, item_indexes, trying_every_call=True)
 
-    def _start_if_ready(self, node: FlatFunctionNode, item_indexes: ItemIndexes, trying_every_call: bool = False) -> None:
+    def _start_if_ready(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, trying_every_call: bool = False) -> None:
         """Try one call: ask for its arguments, and if it is ready, call the node or record why it is not called.
 
         Example: ``_start_if_ready(shout, (1,))`` does nothing while ``lines`` has no outcome. After, it calls
@@ -395,7 +395,7 @@ class Scheduler:
                 self._record(node, item_indexes, outcome, trying_every_call)
 
     def _record(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False
     ) -> None:
         """One call is over: write its outcome into the run, and do what follows from it.
 
@@ -433,14 +433,14 @@ class Scheduler:
         if not trying_every_call and self.going and outcome.has_outputs:  # no call that reads a waiting outcome is ready
             self._make_downstream_ready(node, item_indexes)
 
-    def _fail(self, node: FlatFunctionNode, cause: Problem) -> None:
+    def _fail(self, node: BlueprintFunctionNode, cause: Problem) -> None:
         """A call of ``node`` failed. The first failure ends the run as ``failed``; a later one changes nothing."""
         if self.going:
             self.end(EndedEarly("failed", cause))
             if self.node_events is not None:
                 self.node_events.call_failed(node, cause)
 
-    def _make_downstream_ready(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> None:
+    def _make_downstream_ready(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> None:
         """Put the calls that read the outcome of ``node`` for ``item_indexes`` on ``ready``, or on ``collectors``.
 
         Example: after ``shout (1,)``, the downstream node ``join`` collects every call of ``shout``, so
@@ -540,7 +540,7 @@ class Scheduler:
         self.waiting_for_thread[node].append(attempt)
         self._start_waiting_calls(node)
 
-    def _start_waiting_calls(self, node: FlatFunctionNode) -> None:
+    def _start_waiting_calls(self, node: BlueprintFunctionNode) -> None:
         """Put the attempts of ``node`` that wait for a thread on threads, until ``concurrency`` of them are on
         threads. An attempt with an ``attempt_timeout`` gets its deadline timer here, when its thread starts."""
         waiting, policy = self.waiting_for_thread[node], node.policy
@@ -657,7 +657,7 @@ class Scheduler:
             self._record(node, item_indexes, run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
     def _outcome(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | Problem | None
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | Problem | None
     ) -> Outcome | Problem:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with what the
         ``Ask`` said when the function raised one, or the problem the call failed with.
@@ -677,7 +677,7 @@ class Scheduler:
             return Unanswered(error.prompt, choices, defaults)
         return self._failure(node, item_indexes, error)
 
-    def _failure(self, node: FlatFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem) -> Problem:
+    def _failure(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem) -> Problem:
         """The problem a call failed with, with the call's loc: a door's problem, or one for what the function raised.
 
         A door's problem is kept, and so is the one a ``NodeError`` made when it was raised. Any other exception, an
@@ -697,7 +697,7 @@ class Scheduler:
 
     # -- 3. Reusing answers in item order -------------------------------------------------------------------------
 
-    def _in_turn(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> bool:
+    def _in_turn(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> bool:
         """Whether every call of ``node`` before ``item_indexes`` in item order has been tried.
 
         Example: the earlier run has one answer for ``approve(line="a")``, and this run has the line ``"a"`` at
@@ -753,7 +753,7 @@ class Scheduler:
                         return
 
     def _stop_if_over_item_limit(
-        self, node: FlatFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NoneInput, item_limit: int
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Done | Answered | Skipped | NoneInput, item_limit: int
     ) -> bool:
         """End the run as ``stopped`` with the problem ``item_limit`` if a series in ``outcome`` that a loop runs over
         has more items than ``item_limit``, unless ``end`` was called before: the first cause stays.

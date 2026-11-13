@@ -1154,7 +1154,7 @@ def test_a_failed_stream_with_calls_on_threads_yields_a_checkpoint_saying_it_fai
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 
-def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_a_flat_graph():
+def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one_graph():
     @node("words", title="Words", description="For a test.")
     def words(text: str) -> Series[str | None]:
         return [None if w == "_" else w for w in text.split()]

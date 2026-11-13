@@ -211,6 +211,6 @@ def test_a_run_that_ends_with_a_call_never_made_ready_raises_rather_than_return_
     graph = Graph.compile(_record(case.nodes, case.edges, registry), registry)
     run = graph.with_inputs(dict.fromkeys(graph.inputs, ""))
     # a bug in the engine, made by hand for this graph alone: the series makes no downstream node ready
-    monkeypatch.setattr(run._flat.function_nodes[("w",)], "downstream", [])
+    monkeypatch.setattr(run._blueprint.function_nodes[("w",)], "downstream", [])
     with pytest.raises(RuntimeError, match=r"no outcome for every call of \[\('j',\)\]"):
         run.resume()

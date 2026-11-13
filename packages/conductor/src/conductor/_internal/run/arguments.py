@@ -43,7 +43,7 @@ from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
-from .flat import CollectingArgument, FlatFunctionNode
+from .blueprint import BlueprintFunctionNode, CollectingArgument
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
 #: What a read returns in place of a value when it is asked for any item of a loop and some item may have a
@@ -68,7 +68,7 @@ class ResultReader:
         self.outcomes, self.graph_inputs = outcomes, graph_inputs
         self.for_any_item: dict[NodePath, dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]] = {}
 
-    def arguments_for(self, node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
+    def arguments_for(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         """Returns the arguments of the call of ``node`` for ``item_indexes``, or why the node is not called.
 
         In the example, ``arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``.
@@ -277,7 +277,7 @@ class ResultReader:
             return value
         return MAY_HAVE_VALUE
 
-    def align_lists(self, node: FlatFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
+    def align_lists(self, node: BlueprintFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
         """Returns ``arguments`` with the lists collected from one loop cut to the same items.
 
         Example: ``pair(names: Series[str], ages: Series[int])`` collects two outputs of one loop, and item 1
