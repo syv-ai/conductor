@@ -134,16 +134,15 @@ def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made()
         run_router(store=MemoryStore(), registry=lambda _: NodeRegistry(), caller=lambda: "anna", may_see=_starter_only)
 
 
-def test_a_router_given_a_caller_says_who_may_see_a_run_and_is_refused_when_it_is_made_without() -> None:
-    with pytest.raises(TypeError, match="may_see"):
-        run_router(store=MemoryStore(), registry=lambda _: NodeRegistry(), caller=_caller)  # type: ignore[call-overload]
+def _nobody() -> None:
+    return None
 
 
-async def test_a_router_with_no_caller_lets_every_request_see_every_run() -> None:
+async def test_a_router_with_no_logins_lets_every_request_see_every_run() -> None:
     registry, _, graph = _doubling()
     store = MemoryStore()
     app = FastAPI()
-    app.include_router(run_router(store=store, registry=lambda _: registry))
+    app.include_router(run_router(store=store, registry=lambda _: registry, caller=_nobody, may_see=lambda caller, started_by: True))
 
     async with _serving(app) as client:
         run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 2}})).json()["id"]
@@ -170,10 +169,8 @@ async def test_the_registry_is_asked_for_the_callers_nodes_once_for_each_request
 
 async def test_one_registry_for_every_caller_serves_its_nodes() -> None:
     registry, _, _ = _doubling()
-    app = FastAPI()
-    app.include_router(run_router(store=MemoryStore(), registry=lambda _: registry))
 
-    async with _serving(app) as client:
+    async with _serving(_app(store=MemoryStore(), registry=lambda _: registry)) as client:
         assert [node["id"] for node in (await client.get("/nodes")).json()["nodes"]] == ["double"]
 
 

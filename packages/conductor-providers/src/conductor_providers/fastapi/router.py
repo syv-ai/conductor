@@ -187,16 +187,6 @@ def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
     return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
 
 
-def _nobody() -> None:
-    """The caller when the host names none."""
-    return None
-
-
-def _everyone(caller: None, started_by: None) -> bool:
-    """Who may see a run when the host names no caller: every request, since each is the same caller, nobody."""
-    return True
-
-
 def _no_context(caller: object) -> None:
     """The run's context when the host gives none: none, for a registry that names no ``context_type``."""
     return None
@@ -209,7 +199,7 @@ def run_router(
     registry: Callable[[C], NodeRegistry[X]],
     caller: Callable[..., C],
     may_see: Callable[[C, C], bool],
-    context: Callable[[C], X] = ...,
+    context: Callable[[C], X],
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -223,8 +213,9 @@ def run_router(
 def run_router(
     *,
     store: RunStore,
-    registry: Callable[[None], NodeRegistry[X]],
-    context: Callable[[None], X] = ...,
+    registry: Callable[[C], NodeRegistry[None]],
+    caller: Callable[..., C],
+    may_see: Callable[[C, C], bool],
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
     lease: float = 30.0,
@@ -238,8 +229,8 @@ def run_router(
     *,
     store: RunStore,
     registry: Callable[[C], NodeRegistry[Any]],
-    caller: Callable[..., Any] = _nobody,
-    may_see: Callable[[Any, Any], bool] = _everyone,
+    caller: Callable[..., C],
+    may_see: Callable[[C, C], bool],
     context: Callable[[C], Any] = _no_context,
     published: Callable[..., GraphRecord] | None = None,
     max_items: int | None = None,
@@ -258,9 +249,11 @@ def run_router(
         caller: A FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
             dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a
             run is built again on any worker. Let it hold what identifies the caller and nothing that changes: a
-            run keeps its caller as they were when it started.
-        may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run. Given whenever
-            ``caller`` is: ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone.
+            run keeps its caller as they were when it started. A host with no logins gives a function annotated
+            ``-> None``.
+        may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run:
+            ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone,
+            ``lambda caller, started_by: True`` for everyone.
         context: Gives a run its context, an instance of the registry's ``context_type``, from the caller who
             started it, each time it is resumed: ``def context_of(caller: Member) -> HostContext``. A run's nodes
             are called on threads of their own, so the object holds a way to connect, never an open connection.
@@ -278,10 +271,8 @@ def run_router(
         The router, whose lifespan runs the worker.
 
     Raises:
-        TypeError: ``caller`` is given without ``may_see``, or is a function with no return annotation.
+        TypeError: ``caller`` is a function with no return annotation.
     """
-    if caller is not _nobody and may_see is _everyone:
-        raise TypeError("run_router(caller=...) needs may_see=: say who may see a run, as lambda caller, started_by: caller.id == started_by.id")
     worker: Worker[C] = Worker(
         store=store, nodes_for=registry, callers=TypeAdapter(_caller_type(caller)), context=context,
         max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, resume_timeout=resume_timeout, poll=poll,
