@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from typing import Any, Generic, Literal, TypeVar
 
-from conductor import Graph, InvalidCallError, NodeRegistry, Progress, Run
+from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
@@ -177,7 +177,7 @@ class Worker(Generic[C]):
         run = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items))
         return await self._create(run.graph.record.model_dump_json(), who, run)
 
-    async def estimate(self, graph: Any, inputs: Mapping[str, Any], who: C) -> Progress:
+    async def estimate(self, graph: Any, inputs: Mapping[str, Any], who: C) -> RunProgress:
         """How many calls a run of ``graph`` on ``inputs`` will make, from ``run.estimate()``, which calls only the
         nodes that cost nothing; nothing is stored.
 
@@ -197,7 +197,7 @@ class Worker(Generic[C]):
         """
         nodes = self._nodes_for(who)
 
-        def estimated() -> Progress:
+        def estimated() -> RunProgress:
             ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
             return ready.estimate(context=self._context(who), timeout=self._resume_timeout).progress
 

@@ -55,8 +55,8 @@ from conductor._internal.registry import NodeRegistry, RegistryDescription, Type
 from conductor._internal.run import (
     CallCount,
     NotCalled,
-    Progress,
     Run,
+    RunProgress,
     RunStatus,
     Waiting,
 )
@@ -100,7 +100,7 @@ __all__ = [
     "Run",
     "Waiting",
     "NotCalled",
-    "Progress",
+    "RunProgress",
     "CallCount",
     "RunStatus",
     # What an editor reads

@@ -17,8 +17,8 @@ from conductor import (
     NodeDeclarationError,
     NodeError,
     Policy,
-    Progress,
     Run,
+    RunProgress,
     Series,
     make_graph,
     node,
@@ -180,7 +180,7 @@ def test_a_subgraph_node_counts_the_calls_of_the_nodes_inside_it() -> None:
 def test_progress_is_json_a_host_reads_back() -> None:
     progress = _invoices().with_inputs(files=["d1"]).estimate().progress
 
-    assert Progress.model_validate_json(progress.model_dump_json()) == progress
+    assert RunProgress.model_validate_json(progress.model_dump_json()) == progress
 
 
 def test_a_free_node_is_refused_the_run_context() -> None:

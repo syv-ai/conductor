@@ -25,7 +25,7 @@ from .events import (
     RunStart,
 )
 from .json import SavedRun, codec_of
-from .progress import CallCount, Progress
+from .progress import CallCount, RunProgress
 from .state import RunStatus
 from .type import (
     NotCalled,

@@ -15,8 +15,8 @@ from conductor import (
     InvalidCallError,
     NodeRegistry,
     Problem,
-    Progress,
     RegistryDescription,
+    RunProgress,
     RunStatus,
     read_json,
 )
@@ -316,7 +316,7 @@ def run_router(
         return Started(id=await worker.begin(sent.graph, sent.inputs, who))
 
     @router.post("/estimate")
-    async def estimate_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Progress:
+    async def estimate_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> RunProgress:
         """How many calls a run of the graph on these inputs will make: the nodes whose ``Policy`` says
         ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
         call that costs something."""
@@ -338,7 +338,7 @@ def run_router(
             graph: Annotated[GraphRecord, Depends(published)],
             inputs: Annotated[dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")],
             who: Annotated[C, Depends(caller)],
-        ) -> Progress:
+        ) -> RunProgress:
             """How many calls a run of a graph you offer by name will make on these inputs, as ``POST /estimate``."""
             return await worker.estimate(graph, inputs, who)
 

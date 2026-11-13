@@ -50,7 +50,7 @@ from .outcome import (
     Skipped,
     Unanswered,
 )
-from .progress import Progress, is_complete, progress_of
+from .progress import RunProgress, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
@@ -419,7 +419,7 @@ class Run[C]:
                     yield node, item_indexes, outcome
 
     @property
-    def progress(self) -> Progress:
+    def progress(self) -> RunProgress:
         """How far the run is: for the run and for each node, how many calls have an outcome, how many wait for a
         person, how many are known so far, and how many there will be (``None`` while a series that decides it
         does not exist yet).

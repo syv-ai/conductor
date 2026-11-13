@@ -10,7 +10,7 @@ The example graph::
 
 Before any call, ``graph.with_inputs(text="a\\nb\\nc").progress`` is::
 
-    Progress(finished=0, waiting=0, known=2, total=None, nodes={
+    RunProgress(finished=0, waiting=0, known=2, total=None, nodes={
         "lines": CallCount(finished=0, waiting=0, known=1, total=1),
         "shout": CallCount(finished=0, waiting=0, known=0, total=None),
         "join":  CallCount(finished=0, waiting=0, known=1, total=1)})
@@ -57,7 +57,7 @@ class CallCount(ConductorModel):
     total: int | None
 
 
-class Progress(CallCount):
+class RunProgress(CallCount):
     """How far a run is: ``run.progress``. Its own four numbers are the sums over every function node of the
     graph and of its subgraphs, and ``nodes`` has the count of each node.
 
@@ -89,7 +89,7 @@ def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Bluep
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
-def progress_of(blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]) -> Progress:
+def progress_of(blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]) -> RunProgress:
     """The progress of a run with these outcomes: what ``run.progress`` returns.
 
     Args:
@@ -107,7 +107,7 @@ def progress_of(blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndex
         else:
             nodes[place_text(path)] = call_count(outcomes, node)
     run = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
-    return Progress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
+    return RunProgress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
 
 
 def _sum(counts: Iterable[CallCount]) -> CallCount:

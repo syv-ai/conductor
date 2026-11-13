@@ -9,7 +9,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from conductor import Problem, Progress, Run, RunStatus, Waiting
+from conductor import Problem, Run, RunProgress, RunStatus, Waiting
 from pydantic import BaseModel
 from pydantic_core import from_json
 
@@ -79,7 +79,7 @@ class Outcome(BaseModel):
 
     waiting: list[Waiting]
     outputs: dict[str, Any] | None
-    progress: Progress | None
+    progress: RunProgress | None
 
     @classmethod
     def empty(cls) -> Outcome:
