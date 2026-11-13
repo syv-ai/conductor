@@ -146,7 +146,7 @@ class RunView(Outcome):
             What ``GET /runs/{id}`` answers for it.
         """
         outcome = Outcome.model_validate_json(run.row.outcome)
-        return cls(id=run.row.id, status=run.state.run_state.status, refused=run.state.refused, cause=run.state.cause, waiting=outcome.waiting, outputs=outcome.outputs, progress=outcome.progress)
+        return cls(id=run.row.id, status=run.state.status, refused=run.state.refused, cause=run.state.cause, waiting=outcome.waiting, outputs=outcome.outputs, progress=outcome.progress)
 
 
 class _RefusingRoute(APIRoute):

@@ -7,11 +7,11 @@ which, and when:
     a node's developer        NodeDeclarationError (raised)               the module that declares the node is imported
     a graph's author          a Problem in graph.problems (not raised)    the graph is compiled
     a caller                  InvalidCallError (raised)                   graph.run, run.answer, ... is given a wrong value
-    whoever reads a run       a Problem as run.state's cause              a run ended early
+    whoever reads a run       a Problem as run.cause                      a run ended early
 
 A graph with problems is data, not an exception, so an editor can show it while it is being drawn. A call that cannot
 be done raises, from that call. A run that ends early does not raise either: ``run.resume()`` returns the run, and
-its ``state`` says why.
+its ``cause`` says why.
 
     ConductorError
     ├── NodeDeclarationError    a node was declared wrong; also a TypeError

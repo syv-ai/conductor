@@ -189,8 +189,8 @@ def test_each_contract_is_called_with_every_appendix_collected_whole():
 
 def test_a_series_longer_than_max_items_stops_the_run_before_any_file_is_read():
     run = ran(PER, max_items=10, files=FILES)
-    assert run.status == "stopped" and run.state.cause.type == "item_limit"
-    assert run.state.cause.ctx == {"series": "upload.result", "items": 11, "max_items": 10}
+    assert run.status == "stopped" and run.cause.type == "item_limit"
+    assert run.cause.ctx == {"series": "upload.result", "items": 11, "max_items": 10}
     assert CALLS == {}
 
 

@@ -201,7 +201,7 @@ def test_a_run_reads_back_as_itself_and_resumes_to_the_same_result(text: str) ->
 def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() -> None:
     saved = json.loads(_everything().run(_inputs("a,bb,ccc,xax,b")).to_json())
 
-    assert saved["state"] == {"status": "waiting"}
+    assert saved["ended_early"] is None
     assert saved["outcomes"]["maybe"] == {"states": ["done"] * 5, "outputs": {"result": ["A", None, "CCC", "XAX", None]}}
     assert saved["outcomes"]["gate"] == {
         "states": ["done"] * 5, "outputs": {"long": [None, None, "ccc", "xax", None], "short": ["a", "bb", None, None, "b"]},
@@ -311,7 +311,7 @@ def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
     (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1]["values"].__setitem__(0, "soon"), "outcomes.frame.outputs.result.0"),
     (lambda s: s["outcomes"]["typed"]["outputs"]["result"][0]["columns"].pop(1), "outcomes.typed.outputs.result.0"),  # the column its row type names
     (lambda s: s["outcomes"]["e/q"]["states"].__setitem__(0, 5), "outcomes.e/q.states.0"),
-    (lambda s: s.pop("state"), "state"),
+    (lambda s: s.pop("ended_early"), "ended_early"),
     (lambda s: s.__setitem__("keys", []), "keys"),
 ])
 def test_a_damaged_saved_run_is_refused_at_the_place_pydantic_names(damage: Any, at: str) -> None:

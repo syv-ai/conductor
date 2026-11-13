@@ -162,11 +162,15 @@ What changes in how you work, before the name-by-name tables:
   newer version that drops a graph input or output of the one it replaces needs an `Upgrade` saying where it went, as a function's does
   (`upgrade_missing` where it is declared).
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
-  complete, waiting or ended early, and whose `state` is `Going` or, for a run that failed, stopped, was cancelled or timed out,
-  `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
+  ready, running, waiting, complete or ended early, and whose `cause` is the `Problem` that ended a run that failed,
+  stopped, was cancelled or timed out (`None` otherwise). One rule reads it from the outcomes and from how the last
+  `resume()` left the run: a checkpoint is `running` until it is saved, and read back is what its outcomes say; a run whose every call returned is `complete` however its resume
+  ended; a failed call keeps the run `failed` until it is tried again; and an answer to a cancelled or timed-out run
+  reads it from its outcomes, so answering the last question makes a run `ready`, or `complete` when no call is left,
+  before any `resume()`. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `Run.from_json(saved, graph)`, which reads a save from its JSON text; a save that
   doesn't fit is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save has each node's
-  outcomes as a list per output with one entry per call, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and the run's state under `state`;
+  outcomes as a list per output with one entry per call, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the last resume ended early under `ended_early`, `null` for one that did not;
   a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
   calling the nodes only for the items that changed (`run.again(...)`). A run's `max_items` is a whole number of
   at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
@@ -223,7 +227,7 @@ What changes in how you work, before the name-by-name tables:
 - **A row type's fields are all required.** A `Table[R]` or a `Series[R]` of records whose `R` has a `NotRequired` field, or is declared `total=False`, is refused when the node is declared (`row_field_optional`, a new declaration code); a node returning such a `Series` failed its run with pydantic's own schema error. Declare the field `X | None`.
 - **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
 - **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. `node_skipped` is said for a node whose every call is downstream of a branch not chosen, a decision whose every output is `SKIPPED` included; a node with no output that returns `SKIPPED` says `node_complete`.
-- **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early, so it is `Going`. The run saved in the row says `running` too: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
+- **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early. The run saved in the row is its last checkpoint, which reads back as its outcomes say: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and resumes the run, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`not_waiting`, `invalid_answer`), and only a `complete` run is a 409. Answers queued while the run is running are given to the run it stopped as, whatever its status; a resume that raised keeps them queued. The code `run_not_waiting` is gone.
 - **How a run stopped is stored once, when the router has decided what it is.** A run handed back at shutdown stores no `run_end` (it read `cancelled`, for a run nobody cancelled that another worker then finished), so a follower's stream goes on into the next worker's events. A resume that raised outside a node reads `failed` with a cause, `resume_failed`, in `GET /runs/{id}` and on its `run_end` (the cause was null). The router's own codes are a catalogue, `conductor_providers.fastapi.ROUTER_PROBLEMS`, a function per code as conductor's `PROBLEMS` is.
 - **Every refusal of the runs router is a list of problems.** A 404 and a 409 are `{"detail": [{type, loc, msg, ctx}]}` as a 422 is (they were an English sentence), with the router's own codes: `no_such_run`, `already_answered` (`ctx.waiting_id`), `run_complete`, `run_not_resumable` (`ctx.status`) and `run_changed`. The OpenAPI schema declares both, as `Refused`.
@@ -361,7 +365,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.results.normalize_result` | gone: what a node returns is checked against its type |
 | `conductor.execution.results.OutputRef` | an address, `node.output` |
 | `conductor.execution.results.project_outputs` | `run.outputs`, by address |
-| `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `state` (`Going`, or `EndedEarly` with its `cause`) |
+| `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `cause` |
 | `execute_sync` | `graph.run(**inputs)` |
 | `execute` | `graph.run(**inputs)` returns a `Run`; `run.stream()` yields its events |
 | `FlowCheckpoint` | a `Run`: `run.to_json()` and `Run.from_json(saved, graph)`; while it runs, `run.stream(checkpoint_every=)` yields `RunCheckpoint` |
@@ -385,7 +389,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.errors.TypeCheckError` | the problem `type_mismatch` in `graph.problems` |
 | `ConductorError` | gone: catch `NodeDeclarationError`, `InvalidCallError` or `NodeError` |
 | `errors` | gone as a module: the classes import from `conductor` |
-| `FlowExecutionError` | gone: a run that failed is returned as a `Run`, its `state` an `EndedEarly` whose `status` is `failed` and `cause` a `Problem` |
+| `FlowExecutionError` | gone: a run that failed is returned as a `Run` whose `status` is `failed` and `cause` a `Problem` |
 | `FlowPausedError` | gone: a run waiting for a person is returned as a `Run`, `status` `waiting` |
 | `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
 | `LoopRunawayError` | `graph.run(max_items=)`, the problem `item_limit` |
@@ -482,7 +486,7 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": {id: node, ...}, "outputs": {..
 
 ### Events
 
-Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run while it runs, for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last (but for a run its host hands back with `run.stream(hand_back=event)`, which leaves the run `running` and ends with a `run_checkpoint` of it), its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`, and its `cause` the run's `Problem` for one that failed, stopped, was cancelled or timed out (`null` otherwise).
+Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run while it runs, for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last (but for a run its host hands back with `run.stream(hand_back=event)`, which leaves the run with calls to make and ends with a `run_checkpoint` of it), its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`, and its `cause` the run's `Problem` for one that failed, stopped, was cancelled or timed out (`null` otherwise).
 
 | 1.12.2 `type` | 2.0 |
 |---|---|

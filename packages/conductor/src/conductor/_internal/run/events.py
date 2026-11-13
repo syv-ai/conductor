@@ -43,7 +43,7 @@ from pydantic.json_schema import SkipJsonSchema
 from conductor._internal.base import ConductorModel, Loc
 from conductor._internal.problem import Problem
 
-from .state import EndedEarly, Going, RunStatus
+from .state import RunStatus
 from .waiting import Waiting
 
 if TYPE_CHECKING:
@@ -246,12 +246,8 @@ class RunEnd(EventBase):
 
     @classmethod
     def of(cls, run: Run) -> RunEnd:
-        """Returns the ``RunEnd`` of ``run``: the status of ``run.state``, and its cause when the run ended early."""
-        match run.state:
-            case Going(status=status):
-                return cls(status=status, run=run)
-            case EndedEarly(status=status, cause=cause):
-                return cls(status=status, cause=cause, run=run)
+        """Returns the ``RunEnd`` of ``run``: its status, and its cause when the run ended early."""
+        return cls(status=run.status, cause=run.cause, run=run)
 
 
 class RunCheckpoint(EventBase):
@@ -277,8 +273,9 @@ class RunCheckpoint(EventBase):
 
     Attributes:
         run: The copy. Its status is ``running`` while the run goes on, and after ``hand_back``. A copy made as the
-            run stops has the status it stops with: ``failed``, ``stopped``, ``cancelled`` or ``timed_out``. It is
-            not written by ``model_dump``.
+            run stops early has the status it stops with: ``failed``, ``stopped``, ``cancelled`` or ``timed_out``.
+            ``running`` is never saved: read back from ``to_json()``, the copy is what its outcomes say. It is not
+            written by ``model_dump``.
     """
 
     type: Literal["run_checkpoint"] = "run_checkpoint"

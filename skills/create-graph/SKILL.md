@@ -79,7 +79,7 @@ Each input the record lists gets exactly one of a `constant` (the same on every 
 | A loop node, or a `for` around `run` | wire a `Series` output to the node; the engine runs it once per item |
 | A table wired to an input of one value (`type_mismatch`, variant `make_a_series`) | put a node that returns the table's records as a `Series` between them, such as `series-split`, and wire its result or one field of it; to join two tables on a key, wire both whole into one node |
 | Items of two Series at one node (`series_not_nested`) | make one inside the other: wire the first into the node that makes the second; or give one whole to a `Series` input |
-| `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, and `match run.state` for an `EndedEarly`'s `cause` |
+| `except` around `run` for a pause, error or timeout | they are statuses: read `run.status`, and `run.cause` for why it ended early |
 | `graph.run` in a server's event loop | `async for event in run.stream()`: the nodes are called on a thread of their own |
 
 To debug, read `problems`, then print every event of `run.stream()`. A failure is a `Problem`: `type`, `msg`, `ctx`, and `loc` starts with the node. `graph.runs_on` says how often each node runs.

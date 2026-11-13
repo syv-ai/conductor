@@ -924,7 +924,7 @@ async def test_a_run_that_cant_be_written_fails_with_run_unwritable_the_first_ti
     ends = [(event["status"], event["cause"]["type"]) for event in await store.stored_events(run_id) if event["type"] == "run_end"]
     assert ended.cause is not None
     assert (ended.status, ended.cause.type, ended.cause.ctx["where"], ended.waiting, ends) == ("failed", "run_unwritable", at, [], [("failed", "run_unwritable")])
-    assert await _resume_calls(store, run_id) == 1 and (await worker.read(run_id)).state.run_state.status == "failed"
+    assert await _resume_calls(store, run_id) == 1 and (await worker.read(run_id)).state.status == "failed"
 
 
 # -- a follower -----------------------------------------------------------------------------------
@@ -1029,7 +1029,7 @@ async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run
     assert finished == sorted(finished) and finished[0] < 20 and written[0]["progress"]["nodes"]["slow"]["total"] == 20
 
 
-async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_so_does_the_run_saved_for_it() -> None:
+async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_its_saved_run_as_its_outcomes_say() -> None:
     registry, graph, called, _ = _slow_items()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -1041,7 +1041,7 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
     run = await worker.read(run_id)
     view = RunView.of(run)
     assert (view.status, view.cause, run.row.owner, run.row.lease_until) == ("running", None, None, 0.0)
-    assert Run.from_json(run.row.run, Graph.compile(run.row.graph, registry)).status == "running"
+    assert Run.from_json(run.row.run, Graph.compile(run.row.graph, registry)).status == "ready"  # only the row says a worker is to go on
 
 
 async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_that_takes_it_repeats_no_call() -> None:

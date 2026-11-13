@@ -63,7 +63,6 @@ from conductor._internal.node import (
 from conductor._internal.problem import PROBLEMS, InvalidCallError, Problem
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.run import EndedEarly
 from conductor._internal.types import Param, kind_of_value
 from conductor.testing import problems
 
@@ -205,9 +204,8 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example:
         problems.changed_its_inputs(version.id, version.version, input=name)
         for name in changed
     ]
-    match run.state:
-        case EndedEarly(status=status, cause=cause):
-            found.append(problems.run_failed(version.id, version.version, status=status, reason=_reason([cause]), cause=[cause.type], problems=[cause.model_dump(mode="json")]))
+    if (cause := run.cause) is not None:
+        found.append(problems.run_failed(version.id, version.version, status=run.status, reason=_reason([cause]), cause=[cause.type], problems=[cause.model_dump(mode="json")]))
     return found
 
 

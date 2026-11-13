@@ -179,14 +179,8 @@ def where_in(codec: type[SavedRun], loc: Sequence[str | int]) -> str:
 def _inside(hint: Any, step: str | int) -> Any:
     """Returns the hint that ``step`` leads to inside ``hint``, one of the hints of a codec's fields; ``None`` when
     ``hint`` is a value's. A step a class or an exact-keys object does not declare leads to ``Any``."""
-    members = [member for member in get_args(hint) if member is not NoneType] if get_origin(hint) in (Union, UnionType) else [hint]
-    if len(members) > 1:  # one of several classes, as ``state`` is: pydantic's step is the tag of the class it read
-        fields = [_fields_of(member) for member in members]
-        declared = [of_member for of_member in fields if of_member is not None]
-        if len(declared) < len(fields):
-            return None  # a union with a type that is not a saved run's class: a value's
-        return next((of_member[str(step)] for of_member in declared if str(step) in of_member), hint)
-    hint = members[0]  # an optional key: what it is when it is there
+    if get_origin(hint) in (Union, UnionType):  # an optional key, ``X | None``: what it is when it is there
+        (hint,) = (member for member in get_args(hint) if member is not NoneType)
     if isinstance(hint, _ExactKeys):
         return {**hint.required, **hint.optional}.get(str(step), Any)
     origin, args = get_origin(hint) or hint, get_args(hint)

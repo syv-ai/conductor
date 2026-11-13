@@ -48,7 +48,7 @@ def run_to_json(run: Run) -> str:
     r"""Returns the whole run as JSON text.
 
     For the finished run of the README graph on ``"a\nb\nc"`` the text starts
-    ``{"graph":"<16 hex characters>","state":{"status":"complete"},"max_items":null,"inputs":{"text":"a\nb\nc"},``
+    ``{"graph":"<16 hex characters>","ended_early":null,"max_items":null,"inputs":{"text":"a\nb\nc"},``
     and goes on with every node's outcomes. ``SavedRun`` shows all of it.
 
     Raises:
@@ -113,7 +113,8 @@ def saved_run(run: Run) -> SavedRun:
         for path, node in function_nodes.items() if names[path] in outcomes or names[path] in reusable
     }
     return codec.model_construct(
-        graph=run.graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
+        graph=run.graph.fingerprint, ended_early=None if run._last_resume == "running" else run._last_resume,  # a resume going on is the process's, never the save's
+        max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
         complete=[names[path] for path in function_nodes if path in run._finished_nodes],
         tables_written_once=tables_written_once(function_nodes.values(), outcomes),
     )

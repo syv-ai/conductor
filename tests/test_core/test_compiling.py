@@ -763,8 +763,8 @@ def test_an_inner_nodes_error_is_reported_at_its_node_path_with_the_ctx_its_auth
     sub = subgraph("e", title="E", description="For a test.")(make_graph(unreadable))
     run = Graph.compile(make_graph(sub), registry_of(unreadable, sub)).run(text="hi")
 
-    assert (run.status, run.state.cause.msg) == ("failed", "The document could not be read.")
-    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("unreadable", ("e", "unreadable"), ctx)
+    assert (run.status, run.cause.msg) == ("failed", "The document could not be read.")
+    assert (run.cause.type, run.cause.loc, run.cause.ctx) == ("unreadable", ("e", "unreadable"), ctx)
 
 
 def test_an_outer_edge_cannot_read_an_inner_node_by_its_node_path():

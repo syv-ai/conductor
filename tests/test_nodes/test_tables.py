@@ -233,7 +233,7 @@ def test_collect_refuses_a_new_column_that_a_table_of_any_columns_already_has_wh
     """A bare ``Table``'s columns are known only when the node runs, so a new column with one of their names fails then."""
     graph = compile_graph(*nodes, tables.collect, edges=edges, constants=constants)
     assert graph.problems == []
-    cause = graph.run().state.cause
+    cause = graph.run().cause
     assert (cause.type, cause.loc, cause.ctx) == ("column_taken", ("table-collect",), {"column": "age"})
 
 
@@ -257,7 +257,7 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
         ("people.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("words.result", "table-collect.word"),
     ], constants={"table-collect.columns": ["word"]}), held)
     assert graph.problems == []
-    cause = graph.run().state.cause
+    cause = graph.run().cause
     assert (cause.type, cause.loc, cause.ctx) == ("columns_not_aligned", ("table-collect",), expected)
     assert "'word' has 2 values" in cause.msg and f"{people} record" in cause.msg and "once for each of the same records" in cause.msg
 
@@ -274,7 +274,7 @@ def test_collect_says_where_a_value_returned_once_goes_when_it_is_wired_as_a_col
         ("two-people.result", "series-split.value"), ("series-split.result", "table-collect.records"), ("sentence.result", "table-collect.team"),
     ], constants={"table-collect.columns": ["team"]}), held)
     assert graph.problems == []
-    cause = graph.run().state.cause
+    cause = graph.run().cause
     assert (cause.type, cause.ctx["values"]) == ("columns_not_aligned", 1)
     assert "has 1 value for" in cause.msg and "If it is one value for every record, name it in 'constant_columns'" in cause.msg
 
@@ -284,7 +284,7 @@ def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():
         ("nobody.result", "table-collect.records"), ("sentence.result", "table-collect.team"), ("table-collect.result", "header.table"),
     ], constants={"table-collect.constant_columns": ["team"]})
     run = graph.run()
-    assert run.status == "complete", run.state
+    assert run.status == "complete", run.cause
     assert run.results["table-collect"]["result"].height == 0 and run.results["header"]["result"] == ["name", "email", "team"]
 
 

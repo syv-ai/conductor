@@ -112,16 +112,16 @@ def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
     return place if fingerprint is None else f"{place}~{fingerprint}"
 
 
-def read_waiting_id(waiting_id: str, *, status: str) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
+def read_waiting_id(waiting_id: str, *, status: Callable[[], str]) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
     """The call a waiting id names, as ``write_waiting_id`` wrote it, and the fingerprint of its question.
 
-    ``read_waiting_id("review@0/approve@1~3fa2c0d1", status="waiting")`` returns ``(("review", 0, "approve", 1),
+    ``read_waiting_id("review@0/approve@1~3fa2c0d1", status=lambda: "waiting")`` returns ``(("review", 0, "approve", 1),
     ("review", "approve"), (0, 1), "3fa2c0d1")``. An id without ``~`` and a fingerprint names the call alone, and
     its fingerprint is ``None``. Only the text ``write_waiting_id`` writes is read: ``"approve@01"`` names nothing.
 
     Args:
         waiting_id: The id, as a host gave it.
-        status: The run's status, which a refusal names.
+        status: Returns the run's status, which a refusal names; it is called only for a refusal.
 
     Returns:
         The call's loc, its node path and its item indexes, and the fingerprint.
@@ -140,10 +140,10 @@ def read_waiting_id(waiting_id: str, *, status: str) -> tuple[Loc, NodePath, Ite
         try:
             read = [int(index) for index in indexes]
         except ValueError:
-            raise InvalidCallError([call_problems.not_waiting(*loc, node_id, waiting_id=waiting_id, status=status)]) from None
+            raise InvalidCallError([call_problems.not_waiting(*loc, node_id, waiting_id=waiting_id, status=status())]) from None
         loc += [node_id, *read]
         item_indexes += read
     read_fingerprint = fingerprint or None
     if write_waiting_id(tuple(loc), read_fingerprint) != waiting_id:
-        raise InvalidCallError([call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status)])
+        raise InvalidCallError([call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())])
     return tuple(loc), tuple(node_path), tuple(item_indexes), read_fingerprint

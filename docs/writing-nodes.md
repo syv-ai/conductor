@@ -512,7 +512,7 @@ print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-
 Raise `NodeError` for a failure you can explain to a person. Its message reaches the host as written, and `code` is yours to choose:
 
 ```python
-from conductor import EndedEarly, NodeError
+from conductor import NodeError
 
 
 @registry.node("parse", title="Parse", description="Reads a text as a whole number.")
@@ -523,12 +523,11 @@ def parse(text: str) -> int:
 
 
 run = Graph.compile(make_graph(parse), registry).run(text="twelve")
-match run.state:  # a run that failed, stopped or timed out says why
-    case EndedEarly(status=status, cause=cause):
-        print(status, cause.type, cause.msg)  # failed not_a_number The text is not a number.
+if run.cause is not None:  # a run that failed, stopped or timed out says why
+    print(run.status, run.cause.type, run.cause.msg)  # failed not_a_number The text is not a number.
 ```
 
-`ctx=` takes what a host needs beyond the text, as JSON values: text, numbers, `True`/`False`, `None`, lists and dicts of them. The host reads it as `cause.ctx`. A problem is saved and streamed as JSON, so a `ctx` with anything else in it (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at your `raise`, and the node fails as `execution_failed`. A run's `state` is `Going(status)` while nothing ended it early, and `EndedEarly(status, cause)` when it failed, stopped, was cancelled or timed out.
+`ctx=` takes what a host needs beyond the text, as JSON values: text, numbers, `True`/`False`, `None`, lists and dicts of them. The host reads it as `cause.ctx`. A problem is saved and streamed as JSON, so a `ctx` with anything else in it (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at your `raise`, and the node fails as `execution_failed`. A run's `cause` is that problem when it failed, stopped, was cancelled or timed out, and `None` otherwise.
 
 Any other exception fails the node too. Its traceback goes to the `conductor` logger, and the host gets a fixed message with only the exception's class name, in `cause.ctx["error"]`, so a value your node handled never leaks into an event.
 

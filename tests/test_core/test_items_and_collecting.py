@@ -1297,7 +1297,7 @@ def test_a_node_returning_values_on_two_branches_fails_with_invalid_output():
 
     run = graph({"id": "b", "node": "both"}, registry=registry_of(both)).run(text="a")
 
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("b",), "no")
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("b",), "no")
 
 
 class Line(TypedDict):
@@ -1484,8 +1484,8 @@ def test_a_series_longer_than_the_item_limit_stops_the_run_before_any_call_in_it
 
     stopped = compiled.run(text="a,b,c", max_items=2)
 
-    assert (stopped.status, stopped.state.cause.type, stopped.state.cause.loc) == ("stopped", "item_limit", ("s",))
-    assert stopped.state.cause.ctx == {"series": "s.result", "items": 3, "max_items": 2} and CALLED == []
+    assert (stopped.status, stopped.cause.type, stopped.cause.loc) == ("stopped", "item_limit", ("s",))
+    assert stopped.cause.ctx == {"series": "s.result", "items": 3, "max_items": 2} and CALLED == []
     assert stopped.with_max_items(3).resume().results["u"]["result"] == ["A", "B", "C"]
 
 
@@ -1497,7 +1497,7 @@ def test_with_max_items_is_the_same_run_with_a_higher_item_limit_and_calls_nothi
     raised = stopped.with_max_items(3)
 
     assert (raised.max_items, stopped.max_items) == (3, 2) and CALLED == []
-    assert raised.state == stopped.state and raised.results == stopped.results and raised.inputs == stopped.inputs
+    assert (raised.status, raised.cause) == (stopped.status, stopped.cause) and raised.results == stopped.results and raised.inputs == stopped.inputs
     assert json.loads(raised.to_json()) == {**json.loads(stopped.to_json()), "max_items": 3}
     assert Run.from_json(raised.to_json(), compiled).resume().status == "complete"
     with pytest.raises(InvalidCallError) as refused:
@@ -1531,7 +1531,7 @@ def test_the_item_limit_is_on_each_series_never_on_all_their_items_together():
 
     assert compiled.run(text="a,b|c,d|e,f", max_items=3).status == "complete"  # six lines in all, never more than three in one Series
     stopped = compiled.run(text="a,b|c,d,e,f|g", max_items=3)
-    assert (stopped.status, stopped.state.cause.ctx) == ("stopped", {"series": "l.result", "items": 4, "max_items": 3})
+    assert (stopped.status, stopped.cause.ctx) == ("stopped", {"series": "l.result", "items": 4, "max_items": 3})
 
 
 @pytest.mark.timeout(10)
@@ -1548,7 +1548,7 @@ def test_the_item_limit_stops_a_run_whose_calls_wait_for_threads_and_resume_call
 
     stopped = compiled.run(text=",".join("abcdefghij"), max_items=10)
 
-    assert (stopped.status, stopped.state.cause.type) == ("stopped", "item_limit") and len(calls) < 10
+    assert (stopped.status, stopped.cause.type) == ("stopped", "item_limit") and len(calls) < 10
     assert stopped.with_max_items(100).resume().status == "complete" and sorted(calls) == list("abcdefghij")
 
 

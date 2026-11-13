@@ -230,7 +230,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
 
     run = Graph.compile(GraphRecord.model_validate({"nodes": {"n": {"node": "numbers", "inputs": {"upto": {"graph_input": "upto"}}}, "e": {"node": "each", "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), registry).run(upto=3)
 
-    assert run.status == "failed" and run.state.cause is not None and run.state.cause.loc == ("e", 1)
+    assert run.status == "failed" and run.cause is not None and run.cause.loc == ("e", 1)
     with pytest.raises(InvalidCallError) as raised:
         run.outputs
     (refused,) = raised.value.problems

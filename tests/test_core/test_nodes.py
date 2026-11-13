@@ -1058,7 +1058,7 @@ def test_a_param_on_a_tables_column_limits_what_the_node_returns():
 
     assert Graph.compile(GraphRecord(nodes={"r": node_record("rows", graph_inputs=("text",))}), registry_of(rows)).problems == []
     run = Graph.compile(GraphRecord(nodes={"r": node_record("rows", graph_inputs=("text",))}), registry_of(rows)).run(text="x")
-    assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
+    assert (run.status, run.cause.type) == ("failed", "invalid_output")
 
 
 def test_a_params_choices_limit_a_hosts_own_model_as_they_limit_a_nodes_field():
@@ -1084,7 +1084,7 @@ def test_a_value_from_an_edge_is_checked_against_the_inputs_choices_as_against_i
     graph = Graph.compile(make_graph(give, pick), registry)
     assert graph.run(text="red").outputs == {"result": "red"}
     run = graph.run(text="green")
-    assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
+    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_edge_value", ("pick",))
 
 
 def test_a_params_choices_limit_a_field_of_a_dataclass_input_as_its_limits_do():

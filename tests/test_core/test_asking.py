@@ -229,7 +229,7 @@ def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_w
     def pick() -> int:
         raise Ask("Which?", choices=choices)
 
-    cause = _once(pick)[1].state.cause
+    cause = _once(pick)[1].cause
     assert (cause.type, cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: " + ("none is given" if not choices else "one is given twice"))
 
 
@@ -245,7 +245,7 @@ def test_the_choices_an_ask_offers_a_series_are_each_read_as_one_item():
     _, run = _once(numbers)
     assert run.waiting[0].questions[0].choices == (Choice(1.0, "1"), Choice(2.0, "Two"))
     assert run.answer("q", [2, 1]).resume().outputs == {"result": [2.0, 1.0]}
-    assert _once(lists)[1].state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid number"
+    assert _once(lists)[1].cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid number"
 
 
 def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type():
@@ -525,7 +525,7 @@ def test_a_node_asking_what_its_output_cant_be_answered_with_fails_naming_why(as
         raise ask()
 
     _, run = _once(wrong)
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["reason"]) == ("failed", "invalid_ask", ("q",), reason)
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["reason"]) == ("failed", "invalid_ask", ("q",), reason)
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -546,7 +546,7 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     import asyncio
 
     run = asyncio.run(streamed()) if stream else graph.run(text="x")
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["input"]) == ("failed", "question_unwritable", ("a",), "value")
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["input"]) == ("failed", "question_unwritable", ("a",), "value")
 
 
 @pytest.mark.parametrize(("ask", "reason"), [
@@ -559,7 +559,7 @@ def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
     def wrong() -> Route:
         raise ask()
 
-    assert _once(wrong)[1].state.cause.ctx["reason"] == reason
+    assert _once(wrong)[1].cause.ctx["reason"] == reason
 
 
 def test_a_default_obeys_what_an_answer_must():
@@ -571,8 +571,8 @@ def test_a_default_obeys_what_an_answer_must():
     def twice() -> Series[str]:
         raise Ask("?", choices=["t1", "t2"], default=["t1", "t1"])
 
-    assert _once(blank)[1].state.cause.ctx["reason"] == "the default for 'result' is not an answer it takes: the answer is not one of the choices"
-    assert _once(twice)[1].state.cause.ctx["reason"] == "the default for 'result' is not an answer it takes: a choice is picked twice"
+    assert _once(blank)[1].cause.ctx["reason"] == "the default for 'result' is not an answer it takes: the answer is not one of the choices"
+    assert _once(twice)[1].cause.ctx["reason"] == "the default for 'result' is not an answer it takes: a choice is picked twice"
 
 
 def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_takes_none():
@@ -617,7 +617,7 @@ def test_a_choice_offered_for_a_table_is_a_table_like_any_choice_of_its_type():
     def wrong() -> Table[Line]:
         raise Ask("?", choices=[1])
 
-    assert _once(wrong)[1].state.cause.ctx["reason"] == "the choices for 'result' are refused: a table is a frame or a list of records, one object per row"
+    assert _once(wrong)[1].cause.ctx["reason"] == "the choices for 'result' are refused: a table is a frame or a list of records, one object per row"
 
 
 # -- answering ----------------------------------------------------------------------------------
@@ -643,6 +643,57 @@ def test_answer_runs_nothing_and_leaves_the_run_it_was_given_as_it_was():
     answered = run.answer("q@1", "B1")
     assert called == calls and run.to_json() == before and [place(w) for w in run.waiting] == ["q@1", "q@2"]
     assert [place(w) for w in answered.waiting] == ["q@2"]
+
+
+def test_a_run_whose_every_question_is_answered_is_complete_when_nothing_is_left_to_call():
+    gate, _ = _counted()
+    _, run = _waiting_outcomes(gate, text="a,b1,b2")
+    half = run.answer("q@1", "B1")
+    assert (half.status, half.cause) == ("waiting", None)
+    assert [p.ctx["status"] for p in _refused(lambda: half.outputs)] == ["waiting"]
+    answered = half.answer("q@2", "B2")
+    assert (answered.status, answered.waiting, answered.outputs) == ("complete", [], {"result": ["a", "B1", "B2"]})
+
+
+def test_a_run_whose_every_question_is_answered_is_ready_while_a_node_has_calls_to_make():
+    run = _approve_then_pay().run(text="A:100,B:900")
+    answered = run.answer(run.waiting[0], True)
+    assert (answered.status, answered.waiting) == ("ready", [])
+    assert [p.ctx["status"] for p in _refused(lambda: answered.outputs)] == ["ready"]
+    assert answered.resume().outputs == {"result": "paid A; paid B"}
+
+
+def _ask_or_wait_or_fail() -> Any:
+    """A node ``q`` that asks for ``ask``, sleeps 60 ms for ``slow`` and raises for ``boom``."""
+
+    @node("q", title="Q", description="For a test.", asks=True)
+    def q(text: str) -> str:
+        if text == "ask":
+            raise Ask("?")
+        if text == "slow":
+            time.sleep(0.06)
+        if text == "boom":
+            raise ValueError("no")
+        return text
+
+    return q
+
+
+def test_a_run_that_timed_out_and_is_answered_is_ready_as_its_outcomes_say_also_read_back():
+    graph, _ = _waiting_outcomes(_ask_or_wait_or_fail(), text="ask,slow,slow")
+    timed_out = graph.with_inputs().resume(timeout=0.03)
+    assert (timed_out.status, timed_out.cause.type) == ("timed_out", "run_timed_out")
+    answered = timed_out.answer(timed_out.waiting[0], "A")
+    assert (answered.status, answered.cause, answered.waiting) == ("ready", None, [])
+    assert Run.from_json(answered.to_json(), graph).status == "ready"
+    assert answered.resume().outputs == {"result": ["A", "slow", "slow"]}
+
+
+def test_a_failed_call_keeps_the_run_failed_after_an_answer_to_another_call():
+    graph, run = _waiting_outcomes(_ask_or_wait_or_fail(), text="ask,boom")
+    answered = run.answer(run.waiting[0], "A")
+    assert (run.status, answered.status, answered.cause) == ("failed", "failed", run.cause)
+    assert Run.from_json(answered.to_json(), graph).cause == run.cause
 
 
 def test_every_fault_of_one_answer_call_is_refused_at_once_and_nothing_is_answered():
@@ -879,7 +930,7 @@ def test_an_id_whose_item_index_is_not_a_number_answers_nothing_not_even_a_node_
 
     run = Graph.compile(make_graph(once), registry_of(once)).run(text="x")
     assert [(f.type, f.loc) for f in _refused(lambda: run.answer("once@banana", "y"))] == [("not_waiting", ("once",))]
-    assert run.answer("once", "y").status == "waiting"  # answered, not yet resumed
+    assert run.answer("once", "y").outputs == {"result": "y"}  # answered, and no call is left to make
 
 
 async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_that_ended_early_does():
@@ -895,7 +946,7 @@ async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_
     assert cancelled.status == "cancelled" and [place(w) for w in cancelled.waiting] == ["q@0", "q@1"]
 
     answered = cancelled.answer("q@0", "B1")
-    assert answered.status == "cancelled" and answered.state.cause.type == "run_cancelled"  # answered, not yet resumed
+    assert (answered.status, answered.cause) == ("waiting", None)  # the cancel was the stream's; q@1 still waits
     resumed = answered.resume()
     assert resumed.status == "waiting" and [place(w) for w in resumed.waiting] == ["q@1"]
 
@@ -963,8 +1014,8 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
         raise Ask("?", choices=choices)
 
     _, run = _once(pick)
-    assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
-    assert run.state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid integer"
+    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
+    assert run.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid integer"
 
 
 def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_answer_is() -> None:
@@ -972,7 +1023,7 @@ def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_
     def pick() -> Literal[1, 2]:
         raise Ask("?", choices=[True])
 
-    cause = _once(pick)[1].state.cause
+    cause = _once(pick)[1].cause
     assert (cause.type, cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: a yes or no is not a number; give a number")
 
 
@@ -997,8 +1048,8 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
         raise Ask("Who?", choices=[ida])
 
     _, run = _once(assign)
-    assert (run.status, run.state.cause.type) == ("failed", "invalid_ask")
-    assert run.state.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid string"
+    assert (run.status, run.cause.type) == ("failed", "invalid_ask")
+    assert run.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid string"
 
 
 def test_a_lone_output_is_asked_under_the_label_describe_shows_for_it():
@@ -1107,8 +1158,8 @@ def test_a_raise_of_ask_from_a_node_that_does_not_declare_asks_fails_the_run_nam
 
     run = Graph.compile(make_graph(reason), registry_of(reason)).run(ticket="T-1")
     assert run.status == "failed"
-    assert (run.state.cause.type, run.state.cause.loc) == ("ask_not_declared", ("reason",))
-    assert "asks=True" in run.state.cause.msg
+    assert (run.cause.type, run.cause.loc) == ("ask_not_declared", ("reason",))
+    assert "asks=True" in run.cause.msg
 
 
 def test_an_undeclared_ask_on_a_thread_fails_the_same_way():
@@ -1117,7 +1168,7 @@ def test_an_undeclared_ask_on_a_thread_fails_the_same_way():
         raise Ask("Why?")
 
     run = Graph.compile(make_graph(reason), registry_of(reason)).run(ticket="T-1")
-    assert run.state.cause.type == "ask_not_declared"
+    assert run.cause.type == "ask_not_declared"
 
 
 def test_describe_says_whether_a_node_asks_and_a_registry_node_takes_asks_as_node_does():

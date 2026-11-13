@@ -211,7 +211,7 @@ def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
 
     saved = Graph.compile(make_graph(odd), registry_of(odd)).run(text="x").to_json()
 
-    assert _strict(saved)["state"] == {"status": "complete"}
+    assert _strict(saved)["ended_early"] is None
 
 
 def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
@@ -803,7 +803,7 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
     [
         ("units", lambda s: s.__setitem__("units", [])),  # a key a saved run does not have
         ("inputs", lambda s: s.__setitem__("inputs", [])),
-        ("state", lambda s: s["state"].__setitem__("status", "banana")),
+        ("ended_early", lambda s: s.__setitem__("ended_early", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
         ("outcomes.split.states", lambda s: s["outcomes"]["split"].__setitem__("states", {})),
         ("outcomes.split.states.0", lambda s: s["outcomes"]["split"].__setitem__("states", ["waiting"])),  # a waiting call is saved as its question, never as a state word
@@ -838,7 +838,7 @@ def ok_word(word: str) -> bool:
         ("inputs", lambda s: s.__setitem__("inputs", [])),
         ("code", lambda s: s.__setitem__("code", [])),
         ("complete", lambda s: s.__setitem__("complete", 3)),
-        ("state", lambda s: s["state"].__setitem__("status", "banana")),
+        ("ended_early", lambda s: s.__setitem__("ended_early", "banana")),
         ("max_items", lambda s: s.__setitem__("max_items", "ten")),
         ("max_items", lambda s: s.__setitem__("max_items", -1)),
         ("outcomes.upper.states", lambda s: s["outcomes"]["upper"].__setitem__("states", {})),
@@ -961,8 +961,8 @@ def test_a_run_is_written_to_the_same_bytes_in_every_process():
     assert len(saved) == 1
 
 
-def test_a_saved_run_whose_status_and_cause_disagree_is_refused_at_the_cause():
-    """A failed run is saved with its cause and a complete one without; a saved run that says otherwise is refused."""
+def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refused_where_it_says_so():
+    """A failed run is saved with how its last resume ended early, its status and its cause, and a complete one with nothing there."""
 
     @node("boom", title="Boom", description="Fails on 'x'.")
     def boom(text: str) -> str:
@@ -972,6 +972,6 @@ def test_a_saved_run_whose_status_and_cause_disagree_is_refused_at_the_cause():
 
     graph = Graph.compile(make_graph(boom), registry_of(boom))
     failed, complete = json.loads(graph.run(text="x").to_json()), json.loads(graph.run(text="y").to_json())
-    assert failed["state"]["status"] == "failed" and complete["state"] == {"status": "complete"}
-    assert _refused(graph, {**failed, "state": {"status": "failed"}}).ctx["where"] == "state.failed.cause"
-    assert _refused(graph, {**complete, "state": {"status": "complete", "cause": failed["state"]["cause"]}}).ctx["where"] == "state.complete.cause"
+    assert failed["ended_early"]["status"] == "failed" and complete["ended_early"] is None
+    assert _refused(graph, {**failed, "ended_early": {"status": "failed"}}).ctx["where"] == "ended_early.cause"
+    assert _refused(graph, {**complete, "ended_early": {"status": "complete", "cause": failed["ended_early"]["cause"]}}).ctx["where"] == "ended_early.status"

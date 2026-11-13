@@ -113,11 +113,11 @@ def _edge(hint: Any, good: Any, bad: Any) -> list[Problem]:
         return "ok"
 
     record = GraphRecord.model_validate({"nodes": {"a": {"node": "give"}, "b": {"node": "take", "inputs": {"x": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "b", "output": "result"}}})
-    return [Graph.compile(record, registry_of(give, take)).run().state.cause]
+    return [Graph.compile(record, registry_of(give, take)).run().cause]
 
 
 def _giving(definition: Any) -> list[Problem]:
-    return [Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": definition.id}}}), registry_of(definition)).run().state.cause]
+    return [Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": definition.id}}}), registry_of(definition)).run().cause]
 
 
 def _one_output(hint: Any, good: Any, bad: Any) -> list[Problem]:

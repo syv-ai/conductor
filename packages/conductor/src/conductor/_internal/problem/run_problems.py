@@ -1,4 +1,4 @@
-"""The kinds of problem a run ends early on, its ``run.state`` cause: the section "Why a run stopped" of ``PROBLEMS``.
+"""The kinds of problem a run ends early on, its ``run.cause``: the section "Why a run stopped" of ``PROBLEMS``.
 
 A module that reports one imports this module and calls the kind: ``run_problems.timeout(*loc, seconds=30.0)``.
 """
@@ -12,7 +12,7 @@ from .type import ProblemCatalogue
 #: The kinds of this section of the problems page.
 RUN_PROBLEMS = ProblemCatalogue(
     "Why a run stopped",
-    "The `cause` of an `EndedEarly` `run.state`, and the `problem` of a `node_failed` event. For a call that failed, "
+    "The `run.cause` of a run that ended early, and the `problem` of a `node_failed` event. For a call that failed, "
     '`loc` is the node\'s id and the call\'s item indexes: `("shout", 1)`; inside a subgraph, the subgraph node\'s id '
     "comes first. For the run as a whole, `loc` is `()`. `resume()` goes on from where the run stopped.",
 )
@@ -273,7 +273,7 @@ def run_timed_out(*, timeout: float) -> str:
             return text
 
 
-        why_it_stopped(Graph.compile(make_graph(slow), registry).run(text="a", timeout=0.05))
+        why_it_stopped(Graph.compile(make_graph(slow, upper), registry).run(text="a", timeout=0.05))  # upper is never called
     """
     return "The run took too long and was stopped; run.resume() goes on from where it stopped."
 

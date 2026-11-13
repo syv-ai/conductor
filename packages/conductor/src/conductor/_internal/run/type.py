@@ -19,6 +19,7 @@ import dataclasses
 from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass
+from functools import cache
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, overload
 
@@ -51,15 +52,7 @@ from .progress import Progress, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
-from .state import (
-    READY,
-    RUNNING,
-    EndedEarly,
-    Going,
-    RunState,
-    RunStatus,
-    deadline,
-)
+from .state import LastResume, RunStatus, deadline, kept_by_an_answer, status_of
 from .stream import stream
 from .waiting import (
     Waiting,
@@ -105,9 +98,6 @@ class Run[C]:
         inputs: The caller's inputs as checked, by the graph input's name (``"text"``).
         max_items: The most items any one Series a node works through may hold before the run stops as
             ``stopped``; ``None`` for no ceiling.
-        state: How the run stands: ``Going`` (``ready`` before it is first resumed, then ``running``, ``waiting`` or
-            ``complete``), or ``EndedEarly`` (``failed``, ``stopped`` at the item ceiling, ``cancelled`` or
-            ``timed_out``) with the ``Problem`` that caused it.
     """
 
     graph: Graph[C]
@@ -119,7 +109,9 @@ class Run[C]:
     _outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]
     #: The outcomes of the run this one went on from that its calls may reuse.
     _reusable: ReusableOutcomes
-    state: RunState = READY
+    #: How the last ``resume()`` left the run: ``"running"`` in a copy made while it went on, how it ended early, or
+    #: ``None`` when it made every call that was ready.
+    _last_resume: LastResume = None
     #: The nodes whose every call was finished when the run was last resumed, so a later resume doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
 
@@ -133,8 +125,17 @@ class Run[C]:
 
     @property
     def status(self) -> RunStatus:
-        """How the run stands, as ``state`` says it."""
-        return self.state.status
+        """How the run stands: ``ready`` (a call is left to make), ``waiting`` (a call waits for a person) or
+        ``complete``, as its outcomes say; ``running`` in a copy made while a ``resume()`` went on; or, while a call is
+        left, how the last ``resume()`` ended it early: ``failed``, ``stopped`` (at the item limit), ``cancelled`` or
+        ``timed_out``. A failed call and a series over the item limit stand until a ``resume()``; an answer reads a
+        cancelled or timed-out run from its outcomes again."""
+        return status_of(self._last_resume, self._flat.function_nodes.values(), self._outcomes)[0]
+
+    @property
+    def cause(self) -> Problem | None:
+        """The problem that ended the run early, with its ``loc`` and its code; ``None`` when the run did not end early."""
+        return status_of(self._last_resume, self._flat.function_nodes.values(), self._outcomes)[1]
 
     # -- going on ---------------------------------------------------------------
 
@@ -219,10 +220,10 @@ class Run[C]:
         return stream(self._run_scheduler, self.graph._context_door(context), timeout, cancel, hand_back, checkpoint_every)
 
     def _run_scheduler(
-        self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], RunState | None] | None,
+        self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], LastResume] | None,
         checkpoint_every: float | None = None, only_costs_nothing: bool = False,
     ) -> Run[C]:
-        """Runs the scheduler on a copy of this run and returns the copy with the outcomes and the state it wrote.
+        """Runs the scheduler on a copy of this run and returns the copy with the outcomes it wrote and how it left the run.
 
         The scheduler emits the events about each node. The events about the run itself (that it started, a
         checkpoint of it, how it ended) are emitted here, since they carry the run.
@@ -230,7 +231,7 @@ class Run[C]:
         Args:
             context: The run's context, passed to each node that takes it.
             emit: Called with each event, for ``stream``; ``None`` for ``resume`` and ``estimate``.
-            stop: Asked before each call whether the run must stop now, and with which state.
+            stop: Asked before each call whether the run must stop now, and why.
             checkpoint_every: The least number of seconds between two checkpoints; ``None`` for none.
             only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called, for
                 ``estimate``.
@@ -239,24 +240,25 @@ class Run[C]:
             The copy, as the scheduler left it.
         """
         run = self._copy()
-        checkpoint: Callable[[RunState], None] | None = None
+        checkpoint: Callable[[LastResume], None] | None = None
         if emit is not None:
             emit(RunStart(waiting=tuple(run.waiting)))
             if checkpoint_every is not None:
                 listener = emit
 
-                def checkpoint(state: RunState) -> None:
-                    listener(RunCheckpoint(run=dataclasses.replace(run._copy(), state=state)))
+                def checkpoint(stopped: LastResume) -> None:
+                    listener(RunCheckpoint(run=dataclasses.replace(run._copy(), _last_resume="running" if stopped is None else stopped)))
 
         flat = self._flat
-        run.state, run._finished_nodes = Scheduler(
+        stopped, run._finished_nodes = Scheduler(
             nodes=list(flat.function_nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
             finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
         ).run()
+        run._last_resume = stopped
         if emit is not None:  # a run handed back is still running: it did not end, and the host stores it to go on elsewhere
-            emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
+            emit(RunCheckpoint(run=run) if stopped == "running" else RunEnd.of(run))
         return run
 
     @overload
@@ -299,9 +301,10 @@ class Run[C]:
         problems: list[Problem] = []
         answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
         arguments_for = self._reader.arguments_for
+        status = cache(lambda: self.status)  # read from every outcome, so only when a refusal names it
         for waiting_id, one in given.items():
             try:
-                loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=self.status)
+                loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=status)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 continue
@@ -309,7 +312,7 @@ class Run[C]:
             found = self._outcomes[nodes].get(item_indexes) if node is not None else None
             if node is None or type(found) is not Unanswered or outcome_loc(node, item_indexes) != loc:  # the indexes stand after the node of their loop
                 moved_to = self._moved_to(nodes, fingerprint) if fingerprint is not None else None
-                problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=self.status, moved_to=moved_to))
+                problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status(), moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
             asked = question_fingerprint(compiled_node, received(node, item_indexes, arguments_for))
@@ -329,7 +332,7 @@ class Run[C]:
             answered[(node, item_indexes)] = Answered(read)
         if problems:
             raise InvalidCallError(problems)
-        run = self._copy(share_outcomes=True)
+        run = dataclasses.replace(self._copy(share_outcomes=True), _last_resume=kept_by_an_answer(self._last_resume))
         for changed in {node for node, _ in answered}:  # its own outcomes for each node it changes; every other node's are shared
             run._outcomes[changed.node_path] = dict(self._outcomes[changed.node_path])
         for (node, item_indexes), now in answered.items():
@@ -438,13 +441,9 @@ class Run[C]:
     @property
     def outputs(self) -> dict[str, Any]:
         """The graph's outputs (``graph.outputs``), by name, once the run is complete; ``results`` reads a run in any state."""
-        match self.state:
-            case Going(status="complete"):
-                pass
-            case Going(status=status):
-                raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason="")])
-            case EndedEarly(status=status, cause=cause):
-                raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason=cause.msg)])
+        if (status := self.status) != "complete":
+            reason = cause.msg if (cause := self.cause) is not None else ""
+            raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason=reason)])
         return outputs_of(self.graph, self._flat, self._outcomes, self.inputs)
 
     def outputs_to_json(self) -> str:
@@ -472,7 +471,7 @@ class Run[C]:
     def from_json[R](cls, saved: str | bytes, graph: Graph[R]) -> Run[R]:
         """Returns the run that ``run.to_json()`` wrote as ``saved``, on the same ``graph``.
 
-        ``Run.from_json(run.to_json(), graph)`` has the inputs, the outcomes and the state of ``run``, also in
+        ``Run.from_json(run.to_json(), graph)`` has the inputs, the outcomes and the status of ``run``, also in
         another process. Each value is read the way its type reads JSON: a date from its text, for example.
 
         Raises:
@@ -486,7 +485,7 @@ class Run[C]:
         return run_from_json(Run, saved, graph, graph._flat, graph._codec)
 
     def to_json(self) -> str:
-        """Returns the whole run as JSON text: its inputs, its state, every node's outcomes, and the outcomes
+        """Returns the whole run as JSON text: its inputs, how the last ``resume()`` left it, every node's outcomes, and the outcomes
         it may still reuse from the previous run.
 
         Raises:

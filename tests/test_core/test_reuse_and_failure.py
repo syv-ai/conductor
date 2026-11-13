@@ -107,7 +107,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == ("execution_failed", "The node raised an exception; its developer finds it in the conductor log.", ("n",), {"error": "KeyError"})
     assert "secret" not in json.dumps([e.model_dump(mode="json") for e in events])
     assert "the secret" in caplog.text  # the text goes to the log, with its traceback
-    assert events[-1].run.status == "failed" and events[-1].run.state.cause == failed.cause
+    assert events[-1].run.status == "failed" and events[-1].run.cause == failed.cause
 
 
 @pytest.mark.parametrize("concurrency", [1, 2])
@@ -130,7 +130,7 @@ def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry
         calls.append("asks")
         raise Ask("Which?")
 
-    causes = [_alone(definition).run().state.cause for definition in (own, wrong)]
+    causes = [_alone(definition).run().cause for definition in (own, wrong)]
 
     assert [c.type for c in causes] == ["unreadable", "invalid_output"] and _alone(asks).run().status == "waiting"
     assert calls == ["own", "wrong", "asks"]
@@ -165,7 +165,7 @@ def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     run = _alone(down).run()
 
     assert len(calls) == 3 and run.status == "failed"
-    assert (run.state.cause.type, run.state.cause.msg) == ("external_failed", "An outside service did not answer.")
+    assert (run.cause.type, run.cause.msg) == ("external_failed", "An outside service did not answer.")
 
 
 @node("double", title="Double", description="For a test.")
@@ -190,7 +190,7 @@ def test_an_invalid_call_error_the_node_lets_escape_is_its_own_failure_not_a_ref
     """The node's body called ``graph.run`` wrongly: a bug in the node, ``execution_failed``, however many problems the error has."""
     run = _alone(_runs_another_graph(given, Policy(concurrency=concurrency))).run()
 
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx) == ("failed", "execution_failed", ("n",), {"error": "InvalidCallError"})
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx) == ("failed", "execution_failed", ("n",), {"error": "InvalidCallError"})
 
 
 def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_value_error():
@@ -205,7 +205,7 @@ def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_va
 
     run = _alone(counted).run()
 
-    assert len(calls) == 3 and (run.status, run.state.cause.type) == ("failed", "external_failed")
+    assert len(calls) == 3 and (run.status, run.cause.type) == ("failed", "external_failed")
 
 
 def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
@@ -220,7 +220,7 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     run = _alone(bank).run()
 
     assert len(calls) == 2
-    assert (run.state.cause.type, run.state.cause.msg) == ("external_failed", "Nationalbanken svarede ikke.")
+    assert (run.cause.type, run.cause.msg) == ("external_failed", "Nationalbanken svarede ikke.")
 
 
 def test_a_node_error_runs_once_and_keeps_its_message_code_and_ctx():
@@ -252,8 +252,8 @@ def test_a_node_error_whose_ctx_has_no_json_form_is_refused_where_the_node_raise
     events = _events(_alone(read).with_inputs())
     run = _alone(read).run()
 
-    assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "execution_failed", ("n",))
-    assert json.loads(run.to_json())["state"]["cause"]["ctx"] == {"error": "ValidationError"}
+    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "execution_failed", ("n",))
+    assert json.loads(run.to_json())["ended_early"]["cause"]["ctx"] == {"error": "ValidationError"}
     assert [json.loads(event.model_dump_json())["type"] for event in events][-2:] == ["node_failed", "run_end"]
 
 
@@ -270,7 +270,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
 
     run = _alone(parse, text="not a number").run()
 
-    assert len(calls) == 1 and (run.state.cause.type, run.state.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
+    assert len(calls) == 1 and (run.cause.type, run.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
 
 
 def test_a_policy_out_of_bounds_or_of_another_type_is_refused_and_its_dump_leaves_retry_on_out():
@@ -353,7 +353,7 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
     broken["on"] = False
     resumed = Run.from_json(failed.to_json(), graph).resume()
 
-    assert failed.status == "failed" and failed.state.cause.loc == ("mail", 1)
+    assert failed.status == "failed" and failed.cause.loc == ("mail", 1)
     assert resumed.results["mail"]["result"] == ["sent a", "sent b", "sent c"]
     assert calls.count("a") == 1 and calls.count("b") == 2
 
@@ -1623,7 +1623,7 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
     run = graph.run(x="q", y="w")
 
     assert graph.outputs == ["a", "b"]
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_output", ("sub", "a"), "result")
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("sub", "a"), "result")
 
 
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
@@ -1771,10 +1771,10 @@ def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused(
     assert same.status == "complete" and called == [3]  # a title changes nothing that is read
 
     tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, previous=first).resume()
-    assert tight.status == "failed" and tight.state.cause.type == "invalid_edge_value"
+    assert tight.status == "failed" and tight.cause.type == "invalid_edge_value"
 
     chosen = graph_taking(Annotated[int, Param(choices=[1, 2])]).with_inputs(n=3, previous=first).resume()
-    assert chosen.status == "failed" and chosen.state.cause.type == "invalid_edge_value"
+    assert chosen.status == "failed" and chosen.cause.type == "invalid_edge_value"
 
 
 def test_again_with_the_same_inputs_keeps_each_call_its_own_outcome_when_equal_arguments_gave_different_outputs():

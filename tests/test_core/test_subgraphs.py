@@ -585,7 +585,7 @@ def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
 def test_the_item_limit_applies_inside_a_subgraph_and_is_raised_on_resume():
     graph = inside_a_loop("deep-inner")
     run = graph.run(text="ab cdef", max_items=3)
-    assert run.status == "stopped" and run.state.cause.type == "item_limit" and run.state.cause.loc == ("e", 1, "c")
+    assert run.status == "stopped" and run.cause.type == "item_limit" and run.cause.loc == ("e", 1, "c")
     resumed = Run.from_json(run.to_json(), graph).with_max_items(10).resume()
     assert resumed.status == "complete" and resumed.results["e"]["result"] == [[["A", "B"]], [["C", "D", "E", "F"]]]
     assert Run.from_json(run.to_json(), graph).resume().status == "stopped"  # the item limit saved with the run still applies inside
@@ -665,7 +665,7 @@ def test_a_cancel_inside_a_subgraph_keeps_the_calls_on_threads_and_resume_repeat
     graph = inside_a_loop("fetch-inner")
     events = stream(graph.with_inputs(text="a b c d"), cancel_when=lambda e: isinstance(e, NodeStart) and e.loc == ("e", "f"))
     cancelled = events[-1].run
-    assert cancelled.status == "cancelled" and cancelled.state.cause.type == "run_cancelled"
+    assert cancelled.status == "cancelled" and cancelled.cause.type == "run_cancelled"
     assert CALLS["fetch"] in (1, 2)  # the calls that had a thread when the cancel was seen; those waiting for a thread were dropped
     assert cancelled.results["e"] == {"result": [None, None, None, None]}
     resumed = Run.from_json(cancelled.to_json(), graph).resume()
@@ -676,7 +676,7 @@ def test_a_cancel_inside_a_subgraph_keeps_the_calls_on_threads_and_resume_repeat
 def test_the_run_timeout_stops_the_calls_inside_a_subgraph():
     graph = inside_a_loop("fetch-inner")
     run = graph.run(text="a b c d", timeout=0.05)
-    assert run.status == "timed_out" and run.state.cause.type == "run_timed_out"
+    assert run.status == "timed_out" and run.cause.type == "run_timed_out"
     assert CALLS["fetch"] == 2
     assert Run.from_json(run.to_json(), graph).resume().status == "complete" and CALLS["fetch"] == 4
 
@@ -692,7 +692,7 @@ def test_an_inner_node_is_retried_by_its_own_policy():
 def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_node_path_and_keeps_the_other_items_outcomes():
     graph = inside_a_loop("stuck-inner")
     run = graph.run(text="ok slow")
-    assert run.status == "failed" and run.state.cause.type == "timeout" and run.state.cause.loc == ("e", 1, "s")
+    assert run.status == "failed" and run.cause.type == "timeout" and run.cause.loc == ("e", 1, "s")
     assert run.results["e"]["result"] == ["OK", None]
     CALLS.clear()
     assert Run.from_json(run.to_json(), graph).resume().status == "failed" and CALLS == {"stuck": 1}  # only the call that failed
@@ -702,7 +702,7 @@ def test_a_failure_inside_a_subgraph_keeps_the_other_inner_outcomes_for_resume()
     graph = inside_a_loop("boom-inner")
     events = stream(graph.with_inputs(text="ok bad"))
     run = events[-1].run
-    assert run.status == "failed" and run.state.cause.loc == ("e", 1, "b") and run.state.cause.type == "failed"
+    assert run.status == "failed" and run.cause.loc == ("e", 1, "b") and run.cause.type == "failed"
     assert [(e.loc, e.cause.loc) for e in events if isinstance(e, NodeFailed)] == [(("e", "b"), ("e", 1, "b"))]  # the event names the node, and its cause the call
     again = Run.from_json(run.to_json(), graph).resume()
     assert again.status == "failed" and CALLS["upper"] == 2 and CALLS["boom"] == 3  # only the failed call is made again
@@ -894,7 +894,7 @@ def test_an_answer_inside_a_subgraph_shows_in_its_results_before_resume_as_in_on
 def test_a_run_stopped_at_the_item_limit_keeps_the_calls_on_threads_inside_a_subgraph_in_its_results():
     graph = compile_graph({"e": "fetch-words-inner", "many": "words", "each": "upper"}, [("many.result", "each.text")], inputs={"few": "e.text", "many": "many.text"}, outputs={"e": "e.result", "each": "each.result"})
     stopped = graph.run(few="a b", many="x y z", max_items=2)
-    assert stopped.status == "stopped" and stopped.state.cause.loc == ("many",)
+    assert stopped.status == "stopped" and stopped.cause.loc == ("many",)
     assert stopped.results["e"] == {"result": ["a?", "b?"]} and reads_the_same_saved_and_read_back(stopped)
 
 
@@ -908,10 +908,11 @@ def test_an_inner_node_not_called_for_none_reads_the_same_saved_and_read_back():
     assert run.status == "complete" and [call.loc for call in run.not_called] == [("e", 1, "up")] and reads_the_same_saved_and_read_back(run)
 
 
-def test_every_checkpoint_inside_a_subgraph_reads_the_same_saved_and_read_back_whichever_calls_returned():
-    events = stream(inside_a_loop("upper-fetch-inner").with_inputs(text="a b c d"), checkpoint_every=0.01)
-    checkpoints = [event.run for event in events if isinstance(event, RunCheckpoint)]
-    assert checkpoints and all(reads_the_same_saved_and_read_back(checkpoint) for checkpoint in checkpoints)
+def test_every_checkpoint_inside_a_subgraph_read_back_reads_the_same_saved_again_whichever_calls_returned():
+    graph = inside_a_loop("upper-fetch-inner")
+    events = stream(graph.with_inputs(text="a b c d"), checkpoint_every=0.01)
+    read_back = [Run.from_json(event.run.to_json(), graph) for event in events if isinstance(event, RunCheckpoint)]  # running only while the stream goes on
+    assert read_back and all(run.status != "running" and reads_the_same_saved_and_read_back(run) for run in read_back)
 
 
 @pytest.mark.parametrize("inner", ["two-asks-inner", "three-asks-inner"])

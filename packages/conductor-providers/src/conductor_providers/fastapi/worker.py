@@ -38,7 +38,6 @@ from conductor_providers.fastapi.resume_end import HandedBack, Raised, ResumeEnd
 from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import (
-    RUNNING,
     Outcome,
     RunAsRead,
     RunChanges,
@@ -250,11 +249,11 @@ class Worker(Generic[C]):
         run = await self._ask_of_a_running_run(run, queued_with_these)
         if run.state.is_running:
             return "queued"
-        if run.state.run_state.status == "complete":
+        if run.state.status == "complete":
             raise RefusedError(router_problems.run_complete())
         row, nodes = run.row, self._nodes_for(self.started_by(run.row))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        state = run.state.answered(answers.keys()).model_copy(update={"run_state": RUNNING})
+        state = run.state.answered(answers.keys()).running()
         if not await self._claim(run, state, changed=answered):
             raise RefusedError(router_problems.run_changed())
         return "started"
@@ -273,8 +272,8 @@ class Worker(Generic[C]):
             InvalidCallError: With ``max_items``, the stored run can't be loaded to raise its ceiling.
         """
         if run.state.cause is None:
-            raise RefusedError(router_problems.run_not_resumable(status=run.state.run_state.status))
-        state = run.state.model_copy(update={"run_state": RUNNING})
+            raise RefusedError(router_problems.run_not_resumable(status=run.state.status))
+        state = run.state.running()
         raised = None
         if max_items is not None:
             row, nodes = run.row, self._nodes_for(self.started_by(run.row))

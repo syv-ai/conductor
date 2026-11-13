@@ -12,11 +12,11 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from conductor import EndedEarly, InvalidCallError, Problem, Run
+from conductor import InvalidCallError, Problem, Run
 from conductor.events import RunEnd
 
 from conductor_providers.fastapi import router_problems
-from conductor_providers.fastapi.stored_run import RUNNING, Outcome, RunChanges, StoredState
+from conductor_providers.fastapi.stored_run import Outcome, RunChanges, StoredState
 
 log = logging.getLogger("conductor_providers.fastapi")
 
@@ -94,9 +94,8 @@ class Ended(ResumeEnd):
                 refused[waiting_id] = [router_problems.answer_check_failed(waiting_id=waiting_id, error=type(error).__name__)]
         settled = state.answered(taken)
         unheard = state.cancel_asked and bool(taken) and self.run.status != "cancelled"
-        after = settled.model_copy(update={
-            "run_state": RUNNING if taken else self.run.state, "queued_answers": {}, "refused": {**settled.refused, **refused}, "cancel_asked": unheard,
-        })
+        stopped = settled.running() if taken else settled.stopped(self.run)
+        after = stopped.model_copy(update={"queued_answers": {}, "refused": {**settled.refused, **refused}, "cancel_asked": unheard})
         return RowAfterResume(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome})
 
 
@@ -151,7 +150,7 @@ class Raised(ResumeEnd):
         """What to write to the row: the run failed. The row keeps its last checkpoint as ``run``, its ``outcome``
         lists what waits in that checkpoint and its progress there, and the answers queued while the run was
         running stay queued until the run is resumed and stops again."""
-        after = state.model_copy(update={"run_state": EndedEarly("failed", self.cause), "cancel_asked": False})
+        after = state.failed(self.cause).model_copy(update={"cancel_asked": False})
         return RowAfterResume(after, {"outcome": self.outcome})
 
 

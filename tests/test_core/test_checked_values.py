@@ -78,13 +78,13 @@ def test_a_return_that_is_not_the_declared_type_fails_the_node_that_returned_it(
     """``-> str`` returning ``42`` fails at ``g``, never downstream; ``"abc"`` for a ``Series`` is never three rows."""
     run = _returning(returned, return_type)
 
-    assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_output", ("g",))
+    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_output", ("g",))
     assert run.results["g"] == ({"result": None} if return_type is not None else {})
 
 
 def test_returning_none_needs_the_hint():
     assert _returning(None, str | None).status == "complete"
-    assert _returning(None, str).state.cause.type == "invalid_output"
+    assert _returning(None, str).cause.type == "invalid_output"
 
 
 @pytest.mark.parametrize(("returned", "return_type"), [([1], list[int] | None), ("a", Literal["a", "b"] | None)],
@@ -144,14 +144,14 @@ def test_an_asks_choice_is_checked_against_its_types_own_class_as_an_answer_is()
         raise Ask("Which square?", choices=[{"side": 2}])
 
     run = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "square"}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(square)).run()
-    assert (run.state.cause.type, run.state.cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: its type's own check gave a dict, not a Square")
+    assert (run.cause.type, run.cause.ctx["reason"]) == ("invalid_ask", "the choices for 'result' are refused: its type's own check gave a dict, not a Square")
 
 
 def test_a_type_whose_own_check_does_not_give_the_type_fails_the_node_naming_the_type():
     run = _returning(Shape(side=2), Square)
 
-    assert (run.status, run.state.cause.type, run.state.cause.loc) == ("failed", "invalid_output", ("g",))
-    assert "Square" in run.state.cause.ctx["reason"]
+    assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_output", ("g",))
+    assert "Square" in run.cause.ctx["reason"]
 
 
 @dataclass(frozen=True)
@@ -163,8 +163,8 @@ class Pair:
 def test_a_node_returning_something_other_than_its_dataclass_fails_naming_the_class():
     run = _returning(("a", 1), Pair)
 
-    assert (run.state.cause.type, run.state.cause.loc) == ("invalid_output", ("g",))
-    assert "Pair" in run.state.cause.ctx["reason"] and "tuple" in run.state.cause.ctx["reason"]
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("g",))
+    assert "Pair" in run.cause.ctx["reason"] and "tuple" in run.cause.ctx["reason"]
 
 
 @dataclass(frozen=True)
@@ -177,13 +177,13 @@ def test_a_dataclass_whose_one_field_is_named_result_is_spread_like_any_dataclas
 
     run = _returning("hi", OnlyResult)
 
-    assert (run.state.cause.type, run.state.cause.loc) == ("invalid_output", ("g",)) and "OnlyResult" in run.state.cause.ctx["reason"]
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("g",)) and "OnlyResult" in run.cause.ctx["reason"]
 
 
 def test_a_call_whose_second_output_is_invalid_writes_none_of_its_outputs():
     run = _returning(Pair("ok", "many"), Pair)  # type: ignore[arg-type]
 
-    assert (run.state.cause.type, run.state.cause.ctx["name"]) == ("invalid_output", "count")
+    assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "count")
     assert run.results["g"] == {"name": None, "count": None}
     assert "g" not in json.loads(run.to_json())["outcomes"]
 
@@ -200,14 +200,14 @@ def test_a_node_with_computed_outputs_returns_exactly_them_as_a_mapping():
     assert _computed({"name": "Ida", "age": 3}).results["c"] == {"name": "Ida", "age": 3}
     for returned, named in (({"name": "Ida"}, "age"), ({"name": "Ida", "age": 3, "more": 1}, "more")):
         run = _computed(returned)
-        assert (run.state.cause.type, run.state.cause.ctx["name"]) == ("invalid_output", named)
-    assert _computed(["Ida", 3]).state.cause.type == "invalid_output"
+        assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", named)
+    assert _computed(["Ida", 3]).cause.type == "invalid_output"
 
 
 def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_in_order_of_name():
     run = _computed({"zeta": 1, "name": "Ida", "age": 3, "beta": 2})
 
-    assert (run.state.cause.ctx["name"], run.state.cause.ctx["reason"]) == ("beta", "'beta' is not one of the outputs it returns")
+    assert (run.cause.ctx["name"], run.cause.ctx["reason"]) == ("beta", "'beta' is not one of the outputs it returns")
 
 
 @dataclass(frozen=True)
@@ -221,8 +221,8 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
     """Both branches given a value is the problem reported, though ``count``, declared first, is refused too."""
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
 
-    assert (run.state.cause.type, run.state.cause.ctx["name"]) == ("invalid_output", "short")
-    assert run.state.cause.ctx["reason"] == "'long' and 'short' are alternatives of 'length', and both hold a value"
+    assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
+    assert run.cause.ctx["reason"] == "'long' and 'short' are alternatives of 'length', and both hold a value"
     assert _returning(Routed(long="a", count=2), Routed).results["g"] == {"count": 2, "long": "a", "short": None}
 
 
@@ -240,19 +240,19 @@ class Squares:
 def test_an_output_of_several_is_refused_as_its_own_type_says_naming_the_output():
     run = _returning(Squares(Shape(side=2), [{"item": "a", "amount": 1}]), Squares)  # type: ignore[arg-type]
 
-    assert (run.state.cause.ctx["name"], run.state.cause.ctx["errors"][0]["type"]) == ("first", "not_its_class")
-    assert run.state.cause.ctx["reason"] == "its type's own check gave a Shape, not a Square"
+    assert (run.cause.ctx["name"], run.cause.ctx["errors"][0]["type"]) == ("first", "not_its_class")
+    assert run.cause.ctx["reason"] == "its type's own check gave a Shape, not a Square"
     run = _returning(Squares(Square(side=2), pl.DataFrame({"item": ["a"], "amount": [1.5]})), Squares)  # type: ignore[arg-type]
 
-    assert (run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("lines", "amount")
-    assert run.state.cause.ctx["reason"].startswith("column 'amount': ")
+    assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("lines", "amount")
+    assert run.cause.ctx["reason"].startswith("column 'amount': ")
 
 
 def test_a_series_with_a_skipped_item_is_checked_around_the_gap():
     run = _returning([1, SKIPPED, 2], Series[int])
 
     assert run.status == "complete" and run.results["g"]["result"] == [1, None, 2]
-    assert _returning([1, SKIPPED, "2"], Series[int]).state.cause.type == "invalid_output"
+    assert _returning([1, SKIPPED, "2"], Series[int]).cause.type == "invalid_output"
 
 
 class Line(TypedDict):
@@ -263,12 +263,12 @@ class Line(TypedDict):
 def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off():
     run = _returning(pl.DataFrame({"item": ["a"], "amount": [12.75]}), Table[Line])
 
-    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("invalid_output", ("g",), "result", "amount")
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == ("invalid_output", ("g",), "result", "amount")
 
 
 def test_a_float_column_for_an_int_one_fails_even_when_whole():
     """Outputs are read strictly: ``12.0`` is a float, so an ``int`` column refuses it, as ``-> int`` refuses ``"12"``."""
-    assert _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).state.cause.type == "invalid_output"
+    assert _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).cause.type == "invalid_output"
 
 
 def test_a_column_may_have_none_only_where_its_type_takes_none():
@@ -280,7 +280,7 @@ def test_a_column_may_have_none_only_where_its_type_takes_none():
         amount: int | None
 
     with_a_none = pl.DataFrame({"item": ["a", "b"], "amount": [12, None]})
-    refused = _returning(with_a_none, Table[Line]).state.cause
+    refused = _returning(with_a_none, Table[Line]).cause
     assert (refused.type, refused.ctx["column"]) == ("invalid_output", "amount")
     kept = _returning(with_a_none, Table[Loose]).results["g"]["result"]
     assert kept.to_dicts() == [{"item": "a", "amount": 12}, {"item": "b", "amount": None}]
@@ -289,14 +289,14 @@ def test_a_column_may_have_none_only_where_its_type_takes_none():
 def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_given():
     """A yes or no never lands on a number, though Python counts ``True`` as 1: a column is checked as a single value is."""
     yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
-    assert (_returning(yes_no, Table[Line]).state.cause.type, _returning(yes_no, Table[Line]).state.cause.ctx["column"]) == ("invalid_output", "amount")
+    assert (_returning(yes_no, Table[Line]).cause.type, _returning(yes_no, Table[Line]).cause.ctx["column"]) == ("invalid_output", "amount")
 
     @node("total", title="Total", description="For a test.")
     def total(lines: Table[Line]) -> int:
         return int(lines["amount"].sum())
 
     on_edge = _feeding(yes_no, Table, total)
-    assert (on_edge.state.cause.type, on_edge.state.cause.loc, on_edge.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
+    assert (on_edge.cause.type, on_edge.cause.loc, on_edge.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "amount")
     with pytest.raises(InvalidCallError) as given:
         Graph.compile(GraphRecord.model_validate({"nodes": {"t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}}}), registry_of(total)).run(lines=yes_no)
     assert [p.type for p in given.value.problems] == ["invalid_input"]
@@ -325,12 +325,12 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
 @pytest.mark.parametrize(("returned", "return_type"), [("no", bool), ("12", int), ("2026-01-02", datetime.date), (12.0, int)],
                          ids=["a-word-for-a-bool", "text-for-an-int", "text-for-a-date", "a-float-for-an-int"])
 def test_an_output_is_read_strictly_never_from_text_that_spells_it(returned, return_type):
-    assert _returning(returned, return_type).state.cause.type == "invalid_output"
+    assert _returning(returned, return_type).cause.type == "invalid_output"
 
 
 def test_a_node_may_return_a_table_as_records_and_anything_else_fails_it():
     assert _returning([{"item": "a", "amount": 1}], Table[Line]).results["g"]["result"].to_dicts() == [{"item": "a", "amount": 1}]
-    assert _returning("item,amount", Table[Line]).state.cause.type == "invalid_output"
+    assert _returning("item,amount", Table[Line]).cause.type == "invalid_output"
 
 
 # -- a value on an edge ---------------------------------------------------------------------
@@ -358,8 +358,8 @@ def test_a_value_on_an_edge_that_the_input_refuses_fails_the_target_node_quoting
 
     run = _feeding(SECRET, str, sink)
 
-    assert (run.status, run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"]) == ("failed", "invalid_edge_value", ("b",), "identifier")
-    assert SECRET not in run.state.cause.model_dump_json() and run.state.cause.ctx["reason"]
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_edge_value", ("b",), "identifier")
+    assert SECRET not in run.cause.model_dump_json() and run.cause.ctx["reason"]
     assert run.results["a"] == {"result": SECRET}
 
 
@@ -374,8 +374,8 @@ def test_a_value_on_an_edge_outside_its_bounds_fails_the_node_for_that_item():
 
     run = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "numbers"}, "b": {"node": "at_least_five", "inputs": {"n": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "b", "output": "result"}}}), registry_of(numbers, at_least_five)).run()
 
-    assert (run.state.cause.type, run.state.cause.loc) == ("invalid_edge_value", ("b", 1))
-    assert [(e["type"], e["msg"]) for e in run.state.cause.ctx["errors"]] == [("greater_than_equal", "Input should be greater than or equal to 5")]
+    assert (run.cause.type, run.cause.loc) == ("invalid_edge_value", ("b", 1))
+    assert [(e["type"], e["msg"]) for e in run.cause.ctx["errors"]] == [("greater_than_equal", "Input should be greater than or equal to 5")]
 
 
 def test_an_int_arriving_on_a_float_input_arrives_a_float():
@@ -398,7 +398,7 @@ def test_a_table_input_given_a_table_without_a_column_it_declares_fails_naming_t
 
     run = _feeding(pl.DataFrame({"name": ["Ida"]}), Table, needs_email)
 
-    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "contacts", "email")
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["name"], run.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "contacts", "email")
 
 
 def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made_them():
@@ -444,7 +444,7 @@ def test_a_column_of_an_untyped_table_its_input_wont_take_fails_the_target_as_in
 
     run = _feeding(pl.DataFrame({"result": ["1", "two"]}), Table, total)
 
-    assert (run.state.cause.type, run.state.cause.loc, run.state.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "result")
+    assert (run.cause.type, run.cause.loc, run.cause.ctx["column"]) == ("invalid_edge_value", ("b",), "result")
 
 
 # -- a failure says why, and nothing of the value ------------------------------------------
@@ -493,18 +493,18 @@ class Bounded(BaseModel):
 def test_what_a_node_returned_is_not_in_the_failure_of_its_output(returned, return_type):
     run = _returning(returned, return_type)
 
-    assert run.state.cause.type == "invalid_output"
-    assert SECRET not in run.state.cause.model_dump_json() and SECRET not in run.to_json()
+    assert run.cause.type == "invalid_output"
+    assert SECRET not in run.cause.model_dump_json() and SECRET not in run.to_json()
 
 
 def test_the_failure_of_an_output_says_which_check_refused_and_the_limit_it_broke():
-    cause = _returning({"number": 1}, Bounded).state.cause
+    cause = _returning({"number": 1}, Bounded).cause
 
     assert [(error["type"], error["msg"]) for error in cause.ctx["errors"]] == [("greater_than_equal", "Input should be greater than or equal to 5")]
 
 
 def test_a_record_field_is_named_in_the_failure_of_an_output():
-    cause = _returning({"counts": {SECRET: "many"}}, ByPerson).state.cause
+    cause = _returning({"counts": {SECRET: "many"}}, ByPerson).cause
 
     assert [tuple(error["loc"]) for error in cause.ctx["errors"]] == [("counts",)]
 
@@ -588,7 +588,7 @@ def test_a_node_typed_any_returns_anything_and_a_node_taking_any_receives_it(ret
 def test_a_yes_or_no_returned_for_a_literal_of_numbers_is_refused_as_for_a_number():
     for return_type in (int, float, Literal[1, 2]):
         run = _returning(True, return_type)
-        assert (run.status, run.state.cause.type) == ("failed", "invalid_output"), return_type
+        assert (run.status, run.cause.type) == ("failed", "invalid_output"), return_type
 
 
 @node("anything-in", title="Anything in", description="For a test.")
@@ -613,7 +613,7 @@ def _giving(returned: Any, return_type: Any) -> Any:
 def _fails_with(graph: Any) -> tuple[Any, ...]:
     """How a run of ``graph`` ended: its status, and its cause's code, place, input and field."""
     run = graph.run()
-    cause = run.state.cause
+    cause = run.cause
     return run.status, cause.type, cause.loc, cause.ctx["name"], cause.ctx["record_field"]
 
 
@@ -624,7 +624,7 @@ def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_rea
     graph = Graph.compile(make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]), registry_of(give, _anything_in))
     assert graph.is_runnable
     assert _fails_with(graph) == ("failed", "invalid_edge_value", ("anything-in",), "x", "name")
-    assert SECRET not in graph.run().state.cause.msg and "no field 'name'" in graph.run().state.cause.msg
+    assert SECRET not in graph.run().cause.msg and "no field 'name'" in graph.run().cause.msg
 
 
 def test_a_field_an_item_or_untyped_column_lacks_fails_the_target_at_that_item_or_the_collect_whole():
@@ -682,7 +682,7 @@ def test_the_first_fault_in_the_signature_fails_a_call_that_no_skip_settles():
     edges = [("give.result.email", "two.first"), ("give.result.name", "two.second")]
     graph = Graph.compile(make_graph(items, two, edges=edges), registry_of(items, two))
     run = graph.run()
-    assert (run.status, run.state.cause.type, run.state.cause.ctx["name"], run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "first", "email")
+    assert (run.status, run.cause.type, run.cause.ctx["name"], run.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "first", "email")
 
 
 @node("words", title="Words", description="For a test.")
@@ -712,7 +712,7 @@ def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_c
     edges = [("words.result", f"{reader.id}.word"), ("give.result.name", f"{reader.id}.{input_name}"), (f"{reader.id}.result", "all-of.values")]
     graph = Graph.compile(make_graph(_words, give, reader, _all_of, edges=edges), registry_of(_words, give, reader, _all_of))
     run = graph.run(text="a b")
-    assert (run.status, run.state.cause.type, run.state.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "name")
+    assert (run.status, run.cause.type, run.cause.ctx["record_field"]) == ("failed", "invalid_edge_value", "name")
     for read in (run, Run.from_json(run.to_json(), graph)):
         assert read.results["words"] == {"result": ["a", "b"]}
         assert read.results[reader.id] == {"result": [None, None]} and read.results["all-of"] == {"result": None}

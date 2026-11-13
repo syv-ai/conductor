@@ -14,7 +14,7 @@ from typing import Annotated, Protocol, TypedDict
 
 import polars as pl
 from conductor import (
-    Ask, Context, EndedEarly, Graph, GraphRecord, InvalidCallError, NodeDeclarationError, NodeError, NodeRegistry,
+    Ask, Context, Graph, GraphRecord, InvalidCallError, NodeDeclarationError, NodeError, NodeRegistry,
     Param, Policy, Problem, Run, SKIPPED, Series, Table, Upgrade, host_type, make_graph, node, subgraph,
 )
 from conductor.testing import check_registry
@@ -125,10 +125,8 @@ def declaration_refused(declare: Callable[[], object]) -> Problem:
 
 def why_it_stopped(run: Run) -> Problem:
     """The problem a run ended early on."""
-    match run.state:
-        case EndedEarly(cause=cause):
-            return cause
-    raise AssertionError(f"the run is {run.status}")
+    assert run.cause is not None, f"the run is {run.status}"
+    return run.cause
 ```
 
 <!-- problems: conductor.PROBLEMS -->

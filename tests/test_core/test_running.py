@@ -476,7 +476,7 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
 
     assert most == 1
     assert not [e for e in events if e.type == "node_retry"]
-    assert events[-1].run.status == "failed" and events[-1].run.state.cause.type == "timeout"
+    assert events[-1].run.status == "failed" and events[-1].run.cause.type == "timeout"
 
 
 def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
@@ -509,7 +509,7 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
     streamed = _events(graph.with_inputs(text="x"))[-1].run
 
     for ended in (run, streamed):
-        assert (ended.status, ended.state.cause.type, ended.state.cause.loc) == ("failed", "execution_failed", ("r",))
+        assert (ended.status, ended.cause.type, ended.cause.loc) == ("failed", "execution_failed", ("r",))
 
 
 def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
@@ -591,7 +591,7 @@ def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_
         release.set()
     took = time.monotonic() - started
 
-    assert run.status == "failed" and run.state.cause.type == "execution_failed", "the first failure stands"
+    assert run.status == "failed" and run.cause.type == "execution_failed", "the first failure stands"
     assert 0.15 < took < 1.0, took
 
 
@@ -613,7 +613,7 @@ def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failur
     events = _releasing_on_failure(_per_item(mixed, 4).with_inputs(), release)
 
     run = events[-1].run
-    assert run.status == "failed" and run.state.cause.loc == ("slow", 0)
+    assert run.status == "failed" and run.cause.loc == ("slow", 0)
     assert [e.type for e in events].count("node_failed") == 1
     assert [place(w) for w in run.waiting] == ["slow@1"]
     assert run.results["slow"]["result"] == [None, None, None, "3"]
@@ -634,7 +634,7 @@ def test_no_retry_starts_once_the_run_has_failed():
     events = _releasing_on_failure(_per_item(flaky, 2).with_inputs(), release)
 
     assert _count_twice(calls)[0] == 2 and sorted(calls) == ["0", "1"]
-    assert events[-1].run.state.cause.type == "execution_failed" and not [e for e in events if e.type == "node_retry"]
+    assert events[-1].run.cause.type == "execution_failed" and not [e for e in events if e.type == "node_retry"]
 
 
 # -- leaving, cancelling, timing out -----------------------------------------------------------
@@ -772,7 +772,7 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
         release.wait(BOUND)
         return text
 
-    prepared = _per_item(late, 2).with_inputs()
+    prepared = _per_item(late, 4).with_inputs()  # two calls on threads when the cancel comes, two never started
 
     async def go() -> list[Any]:
         cancel, seen = AsyncioEvent(), []
@@ -884,8 +884,8 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
 
     run = graph.run(text="x")
 
-    assert run.status == "failed" and (run.state.cause.type, run.state.cause.loc) == ("invalid_output", ("b",))
-    assert (run.state.cause.ctx["name"], run.state.cause.ctx["column"]) == ("result", "email")
+    assert run.status == "failed" and (run.cause.type, run.cause.loc) == ("invalid_output", ("b",))
+    assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("result", "email")
 
 
 def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
@@ -947,7 +947,7 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "boom", "inputs": {"text": {"graph_input": "b_text"}}}, "m": {"node": "many", "inputs": {"text": {"graph_input": "m_text"}}}}, "outputs": {"b_result": {"node": "b", "output": "result"}, "m_result": {"node": "m", "output": "result"}}}), registry_of(boom, many))
     run = graph.run(b_text="x", m_text="y", max_items=2)
 
-    assert (run.status, run.state.cause.type) == ("failed", "execution_failed")
+    assert (run.status, run.cause.type) == ("failed", "execution_failed")
 
 
 def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_never_called_again():
@@ -966,11 +966,11 @@ def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_ne
 
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"l": {"node": "late", "inputs": {"text": {"graph_input": "l_text"}}}, "o": {"node": "long", "inputs": {"text": {"graph_input": "o_text"}}}}, "outputs": {"l_result": {"node": "l", "output": "result"}, "o_result": {"node": "o", "output": "result"}}}), registry_of(late, long))
     run = graph.run(l_text="mail", o_text="x")
-    assert (run.status, run.state.cause.type) == ("failed", "timeout") and effects == ["mail"]
+    assert (run.status, run.cause, run.outputs) == ("complete", None, {"l_result": "mail", "o_result": "x"}) and effects == ["mail"]
 
     resumed = run.resume()
 
-    assert resumed.status == "complete" and resumed.results["l"]["result"] == "mail" and effects == ["mail"]
+    assert resumed.status == "complete" and effects == ["mail"]
 
 
 @node("numbers", title="Numbers", description="For a test.")
@@ -1013,6 +1013,33 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
     assert 0 < kept <= before < 400
     assert resumed.status == "complete" and resumed.results["llm"]["result"] == [n * 2 for n in range(400)]
     assert len(calls) == 400 - kept  # only the calls the checkpoint has no outcome for
+
+
+def test_a_checkpoint_is_running_while_calls_go_on_and_read_back_is_what_its_outcomes_say():
+    @node("q", title="Q", description="For a test.", asks=True)
+    def q(n: int) -> int:
+        if n == 0:
+            raise Ask("?")
+        time.sleep(0.02)
+        return n
+
+    graph = Graph.compile(make_graph(numbers, q), registry_of(numbers, q))
+
+    async def copies() -> list[Run[Any]]:
+        return [event.run async for event in graph.with_inputs(n=[0, 1, 2, 3]).stream(checkpoint_every=0.005) if event.type in ("run_checkpoint", "run_end")]
+
+    *checkpoints, end = _bounded(copies())
+    assert checkpoints and {c.status for c in checkpoints} == {"running"} and end.status == "waiting"
+    read_back = [Run.from_json(c.to_json(), graph) for c in checkpoints]  # the process that made them is gone
+    assert {r.status for r in read_back} == {"waiting"} and '"running"' not in checkpoints[-1].to_json()
+
+
+def test_a_run_whose_every_call_returned_is_complete_though_the_timeout_passed_while_it_waited_for_a_thread():
+    calls: list[int] = []
+    llm = _counting_llm(calls, 0.1)
+    graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
+    run = graph.with_inputs(n=[1]).resume(timeout=0.02)
+    assert (run.status, run.cause, run.outputs) == ("complete", None, {"result": [2]}) and calls == [1]
 
 
 def test_a_cancelled_stream_with_calls_on_threads_yields_a_checkpoint_before_waiting_for_them():
@@ -1123,7 +1150,7 @@ def test_a_failed_stream_with_calls_on_threads_yields_a_checkpoint_saying_it_fai
 
     seen = _bounded(streamed())
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
-    assert (checkpoint.run.status, checkpoint.run.state.cause.type) == ("failed", "execution_failed")
+    assert (checkpoint.run.status, checkpoint.run.cause.type) == ("failed", "execution_failed")
     assert seen[-1].type == "run_end" and seen[-1].status == "failed"
 
 

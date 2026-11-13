@@ -137,7 +137,7 @@ def test_a_constant_or_a_type_alias_is_listed_by_its_name_alone():
     section = about.get_section("conductor")
     assert section is not None
     assert "- `SKIPPED`\n" in section
-    assert "- `RunState`\n" in section
+    assert "- `RunStatus`\n" in section
 
 
 def test_the_cli_prints_a_modules_names():

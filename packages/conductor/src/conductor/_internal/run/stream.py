@@ -16,11 +16,11 @@ from typing import Any
 from conductor._internal.problem import run_problems
 
 from .events import Event, EventBase
-from .state import RUNNING, EndedEarly, RunState, deadline
+from .state import EndedEarly, LastResume, deadline
 
 
 async def stream(
-    run_scheduler: Callable[[Any, Callable[[EventBase], None] | None, Callable[[], RunState | None] | None, float | None], Any],
+    run_scheduler: Callable[[Any, Callable[[EventBase], None] | None, Callable[[], LastResume] | None, float | None], Any],
     context: Any, timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
     checkpoint_every: float | None,
 ) -> AsyncGenerator[Event]:
@@ -35,11 +35,11 @@ async def stream(
     cancelled = ThreadEvent()
     check_deadline = deadline(timeout)
 
-    def stop() -> RunState | None:
+    def stop() -> LastResume:
         if cancelled.is_set() or (cancel is not None and cancel.is_set()):
             return EndedEarly("cancelled", run_problems.run_cancelled())
         if hand_back is not None and hand_back.is_set():
-            return RUNNING  # the scheduler stops here and another process goes on with the run
+            return "running"  # the scheduler stops here and another process goes on with the run
         return check_deadline() if check_deadline is not None else None
 
     failed: list[BaseException] = []

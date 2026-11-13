@@ -6,7 +6,7 @@ graph, whose fields narrow these to the graph's own keys and value types.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, ClassVar, Literal, get_args
+from typing import Any, ClassVar, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt
 from pydantic import Field as PydanticField
@@ -14,7 +14,7 @@ from pydantic import Field as PydanticField
 from conductor._internal.base import NON_FINITE_FLOATS
 
 from ..outcome import Unanswered
-from ..state import EndedEarly, Going
+from ..state import EndedEarly
 
 #: Every class here refuses a key it does not declare, and writes ``inf`` and ``nan`` as text. A key whose value is
 #: its default (an empty dict or list, made new for each instance) is left out of the JSON, and ``null`` is never a
@@ -131,7 +131,7 @@ class SavedRun(BaseModel):
 
     The finished run of the README graph ``lines -> shout -> join`` on ``"a\nb\nc"`` is saved as::
 
-        {"graph": "<16 hex characters>", "state": {"status": "complete"}, "max_items": null,
+        {"graph": "<16 hex characters>", "ended_early": null, "max_items": null,
          "inputs": {"text": "a\nb\nc"},
          "outcomes": {"lines": {"states": ["done"], "outputs": {"result": [["a", "b", "c"]]}},
                       "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
@@ -149,7 +149,9 @@ class SavedRun(BaseModel):
 
     Attributes:
         graph: The fingerprint of the run's graph; a saved run of another graph is refused by it.
-        state: The run's ``state``: its status and, when it ended early, the problem that ended it.
+        ended_early: How the last ``resume()`` ended the run early, its status and the problem that ended it; ``null``
+            when it did not. That a resume is going on is a fact of the process that runs it, never of a save: a copy
+            made mid-resume is saved with ``null`` here, and read back is what its outcomes say.
         max_items: The run's item limit.
         inputs: The graph inputs the caller gave, by name.
         outcomes: By node, the outcomes of each node that has any.
@@ -166,7 +168,7 @@ class SavedRun(BaseModel):
 
     model_config = _SAVED
     graph: str
-    state: Annotated[Going | EndedEarly, PydanticField(discriminator="status")]
+    ended_early: EndedEarly | None
     max_items: PositiveInt | None
     inputs: dict[str, Any]
     outcomes: dict[str, SavedOutcomes]

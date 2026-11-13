@@ -43,7 +43,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
     For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the
-    outcomes and the state of ``run``: its ``results["shout"]["result"]`` is ``["A!", "B!", "C!"]`` again.
+    outcomes and the status of ``run``: its ``results["shout"]["result"]`` is ``["A!", "B!", "C!"]`` again.
 
     The graph's codec validates the JSON text in one pass, and reads each value the way its type reads JSON: a
     date from its text, for example. Each node's saved lists are then turned into a list of outcomes in
@@ -101,7 +101,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             }
     reusable.drop(code_changed)  # outcomes that other code produced are never reused
     return run_type(
-        graph, read.inputs, read.max_items, outcomes, reusable, state=read.state,
+        graph, read.inputs, read.max_items, outcomes, reusable, _last_resume=read.ended_early,
         _finished_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
 

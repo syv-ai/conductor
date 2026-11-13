@@ -9,7 +9,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
-from conductor import EndedEarly, Going, Problem, Progress, Run, RunState, RunStatus, Waiting
+from conductor import Problem, Progress, Run, RunStatus, Waiting
 from pydantic import BaseModel
 from pydantic_core import from_json
 
@@ -66,10 +66,6 @@ class RunChanges(TypedDict, total=False):
     lease_until: float | None
 
 
-#: The state of a run that a worker resumes or is to resume.
-RUNNING = Going("running")
-
-
 class Outcome(BaseModel):
     """What a reader gets of a run without loading it, written each time the run stops running: a row's ``outcome``, as JSON.
 
@@ -123,15 +119,24 @@ class Outcome(BaseModel):
 class StoredState(BaseModel):
     """A run's status and what was asked of it while it was running: a row's ``state``, as JSON.
 
-    Example: ``{"run_state": {"status": "running"}, "queued_answers": {"approve@1~3fa2c0d1": true}, "refused": {},
+    Example: ``{"status": "running", "cause": null, "queued_answers": {"approve@1~3fa2c0d1": true}, "refused": {},
     "cancel_asked": false}`` for a running run that one answer was sent to.
 
     It is small however large the run is, so a route that queues an answer or asks a cancel reads and writes it
     without touching the row's ``run`` or ``outcome``.
 
+    ``status`` and ``cause`` are an index of the row's run: ``stopped(run)`` writes them from the run each time a
+    resume call stores the run it ended with, so ``GET /runs/{id}`` and the routes that refuse by status read them
+    without loading a run that can be megabytes. Two values are the store's own, which no saved run can hold:
+    ``running`` (``running()``: a worker resumes the run or is to, a fact of the lease, and a save never says
+    ``running``) and ``failed`` with a cause of the router's (``failed(cause)``: a resume call raised outside
+    conductor and returned no run, so the row keeps its last checkpoint).
+
     Attributes:
-        run_state: ``running`` while a worker resumes the run or is to; else the run's own state when it last
-            stopped running, with its cause when it ended early.
+        status: ``running`` while a worker resumes the run or is to; else ``run.status`` as the run was stored, or
+            ``failed`` for a resume call that raised.
+        cause: ``run.cause`` as the run was stored, or why a resume call raised; ``None`` for a running run and for
+            one that did not end early, which can't be resumed.
         queued_answers: Answers that came while the run was running, by waiting id; the run is given them when it
             stops.
         refused: Queued answers the run refused when it stopped, by waiting id, each with its problems.
@@ -140,7 +145,8 @@ class StoredState(BaseModel):
             stops it then.
     """
 
-    run_state: RunState
+    status: RunStatus
+    cause: Problem | None
     queued_answers: dict[str, Any]
     refused: dict[str, list[Problem]]
     cancel_asked: bool
@@ -148,12 +154,38 @@ class StoredState(BaseModel):
     @classmethod
     def started(cls) -> StoredState:
         """The state of a run that has just started: it is running, and nothing is queued, refused or asked."""
-        return cls(run_state=RUNNING, queued_answers={}, refused={}, cancel_asked=False)
+        return cls(status="running", cause=None, queued_answers={}, refused={}, cancel_asked=False)
 
     @property
     def is_running(self) -> bool:
         """Whether the run's status is ``running``: a worker resumes it, or it waits for a worker to take it."""
-        return self.run_state == RUNNING
+        return self.status == "running"
+
+    def running(self) -> StoredState:
+        """This state with the run running again, for a worker to resume: its status ``running``, and no cause."""
+        return self.model_copy(update={"status": "running", "cause": None})
+
+    def stopped(self, run: Run[Any]) -> StoredState:
+        """This state once a resume call stored ``run``, the run it ended with: its status and cause are the run's.
+
+        Args:
+            run: The run as the row now stores it.
+
+        Returns:
+            The state with ``run.status`` and ``run.cause``.
+        """
+        return self.model_copy(update={"status": run.status, "cause": run.cause})
+
+    def failed(self, cause: Problem) -> StoredState:
+        """This state once a resume call raised outside conductor and returned no run: ``failed``, with ``cause``.
+
+        Args:
+            cause: Why the resume call failed, a problem of the router's or the one conductor refused it with.
+
+        Returns:
+            The state, ``failed`` with ``cause``.
+        """
+        return self.model_copy(update={"status": "failed", "cause": cause})
 
     def answered(self, waiting_ids: Collection[str]) -> StoredState:
         """This state once answers to some questions are taken: nothing is refused or queued for them any more.
@@ -170,11 +202,6 @@ class StoredState(BaseModel):
         }
         return self.model_copy(update=left)
 
-    @property
-    def cause(self) -> Problem | None:
-        """Why the run ended early; ``None`` for a run that didn't, which can't be resumed."""
-        return self.run_state.cause if isinstance(self.run_state, EndedEarly) else None
-
     def columns(self) -> RunChanges:
         """The row's ``status`` and ``state`` for this state.
 
@@ -185,7 +212,7 @@ class StoredState(BaseModel):
         Returns:
             The two columns, to write in one ``update``.
         """
-        return {"status": self.run_state.status, "state": self.model_dump_json()}
+        return {"status": self.status, "state": self.model_dump_json()}
 
 
 @dataclass(frozen=True)

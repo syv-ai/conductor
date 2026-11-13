@@ -165,7 +165,7 @@ def test_waiting_and_skipped_events():
 def test_failure_keeps_calls_already_made():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "boom")), reg)
     run = graph.run(text="a,b,c,d")
-    assert run.status == "failed" and run.state.cause.loc == ("boom", 2), run.state.cause
+    assert run.status == "failed" and run.cause.loc == ("boom", 2), run.cause
     assert all(run._outcomes[("boom",)].get((i,)) is not None for i in (0, 1, 3))  # d finished on its thread after c failed
     seen = []
 
@@ -306,10 +306,10 @@ def test_retries_run_out_and_plain_errors_never_retry():
         raise KeyError(text)
 
     run = Graph.compile(GraphRecord.model_validate({"nodes": {"down": {"node": "down", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "down", "output": "result"}}}), registry_of(down)).run(text="x")
-    assert run.status == "failed" and run.state.cause.type == "external_failed" and calls == ["x", "x"], (run.state.cause, calls)
+    assert run.status == "failed" and run.cause.type == "external_failed" and calls == ["x", "x"], (run.cause, calls)
     calls.clear()
     run = Graph.compile(GraphRecord.model_validate({"nodes": {"bug": {"node": "bug", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "bug", "output": "result"}}}), registry_of(bug)).run(text="x")
-    assert run.status == "failed" and run.state.cause.type == "execution_failed" and calls == ["bug"]
+    assert run.status == "failed" and run.cause.type == "execution_failed" and calls == ["bug"]
 
 
 def test_attempt_timeout_is_final():
@@ -323,7 +323,7 @@ def test_attempt_timeout_is_final():
 
     start = t.monotonic()
     run = Graph.compile(GraphRecord.model_validate({"nodes": {"hang": {"node": "hang", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "hang", "output": "result"}}}), registry_of(hang)).run(text="x")
-    assert run.status == "failed" and run.state.cause.type == "timeout" and calls == ["x"] and t.monotonic() - start < 0.25, (run.state.cause, calls)
+    assert run.status == "failed" and run.cause.type == "timeout" and calls == ["x"] and t.monotonic() - start < 0.25, (run.cause, calls)
 
 
 def test_reuse_when_inputs_match_false_calls_again():
@@ -636,11 +636,11 @@ def test_a_timed_out_run_keeps_the_calls_already_on_threads():
         return text
 
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4))
-    stopped = graph.with_inputs(text="a,b,c,d").resume(timeout=0.05)
-    finished = Run.from_json(stopped.to_json(), graph).resume()
-
+    stopped = graph.with_inputs(text="a,b,c,d,e,f,g,h").resume(timeout=0.05)  # four on threads, four never started
     assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
-    assert finished.status == "complete" and sorted(sent) == ["a", "b", "c", "d"]
+
+    finished = Run.from_json(stopped.to_json(), graph).resume()
+    assert finished.status == "complete" and sorted(sent) == ["a", "b", "c", "d", "e", "f", "g", "h"]
 
 
 def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():

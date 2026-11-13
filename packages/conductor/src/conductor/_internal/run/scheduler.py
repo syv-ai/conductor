@@ -94,7 +94,7 @@ from .outcome import (
 )
 from .progress import all_item_indexes, has_every_outcome, length
 from .reuse import ReusableOutcomes
-from .state import COMPLETE, READY, RUNNING, WAITING, EndedEarly, RunState
+from .state import EndedEarly, LastResume
 
 #: The exceptions of a call that is never retried, whatever the ``retry_on`` of its ``Policy`` names: the node's
 #: own failure and a question for a person. Calling again would raise the same.
@@ -182,12 +182,12 @@ class _Checkpoints:
     """Hands the host a copy of the run at most every ``every`` seconds, while outcomes are recorded.
 
     Attributes:
-        save: Called with the run's state. It copies the run and hands the copy to the host.
+        save: Called with why the scheduler stopped, if it did. It copies the run and hands the copy to the host.
         every: The least number of seconds between two checkpoints.
         next_at: The ``time.monotonic()`` from which the next recorded outcome is followed by a checkpoint.
     """
 
-    save: Callable[[RunState], None]
+    save: Callable[[LastResume], None]
     every: float
     next_at: float
 
@@ -209,9 +209,9 @@ class Scheduler:
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
         emit: Callable[[EventBase], None] | None,
-        stop: Callable[[], RunState | None] | None,
+        stop: Callable[[], LastResume] | None,
         context: Any,
-        checkpoint: Callable[[RunState], None] | None = None,
+        checkpoint: Callable[[LastResume], None] | None = None,
         checkpoint_every: float | None = None,
         only_costs_nothing: bool = False,
     ) -> None:
@@ -227,11 +227,11 @@ class Scheduler:
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
             emit: The listener of ``run.stream()``, called with each event about a node. None for ``run.resume()``.
-            stop: Asked before each call and while waiting for threads. It returns the state the run ends with
-                when the scheduler must stop now: an ``EndedEarly`` (cancelled, timed out), or ``RUNNING`` when
-                the host takes the run back to resume it elsewhere. Otherwise it returns None.
+            stop: Asked before each call and while waiting for threads. It returns why the scheduler must stop now:
+                an ``EndedEarly`` (cancelled, timed out), or ``"running"`` when the host takes the run back to
+                resume it elsewhere. Otherwise it returns None.
             context: The run's context, passed to each node that takes it; ``None`` when the host passed none.
-            checkpoint: Called with the run's state to hand the host a copy of the run.
+            checkpoint: Called with why the scheduler stopped, if it did, to hand the host a copy of the run.
             checkpoint_every: The least number of seconds between two checkpoints. None for no checkpoints.
             only_costs_nothing: Whether only the nodes whose ``Policy`` says ``costs_nothing`` are called (job 6).
         """
@@ -241,8 +241,8 @@ class Scheduler:
         self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
 
         # 1. Choosing the next call.
-        #: The state ``run`` returns: ``RUNNING`` until ``end`` or ``_close`` sets another.
-        self.state: RunState = RUNNING
+        #: Why ``run`` stopped before every call that is ready was made: ``None`` until ``end`` is called.
+        self.stopped: LastResume = None
         #: False once ``end`` was called: no more calls are started.
         self.going = True
         #: The node paths of the nodes that are complete: as given, and from ``_close`` as this ``resume()`` leaves them.
@@ -302,12 +302,12 @@ class Scheduler:
         #: Makes the events about each node. None when nobody listens.
         self.node_events = NodeEvents(emit, nodes, outcomes, finished, self.arguments_for) if emit is not None else None
 
-    def run(self) -> tuple[RunState, frozenset[NodePath]]:
+    def run(self) -> tuple[LastResume, frozenset[NodePath]]:
         """Call every node that is ready, until none is and no attempt is on a thread, or until ``end`` is called.
 
         Returns:
-            The run's state (complete, waiting for a person, ended early with its cause, or ``RUNNING`` when
-            the host took the run back), and the node paths of the nodes that are complete.
+            Why it stopped before then: how the run ended early, ``"running"`` when the host took the run back, or
+            ``None`` when it did not stop early; and the node paths of the nodes that are complete.
         """
         try:
             self._check_item_limit()
@@ -332,17 +332,16 @@ class Scheduler:
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         self._close()
-        return self.state, self.finished
+        return self.stopped, self.finished
 
-    def end(self, state: RunState) -> None:
+    def end(self, stopped: EndedEarly | Literal["running"]) -> None:
         """Start no more calls. The attempts that wait for a thread or for a retry are dropped; ``run`` waits for
         the attempts on threads and keeps their outcomes.
 
         Args:
-            state: The state ``run`` returns: an ``EndedEarly`` with its cause, or ``RUNNING`` when the host
-                takes the run back.
+            stopped: Why: how the run ends early, with its cause, or ``"running"`` when the host takes the run back.
         """
-        self.state, self.going = state, False
+        self.stopped, self.going = stopped, False
         for node, waiting in self.waiting_for_thread.items():
             for attempt in waiting:
                 self.running.pop((node, attempt.item_indexes), None)
@@ -538,12 +537,11 @@ class Scheduler:
         return released
 
     def _close(self) -> None:
-        """Set the state and the complete nodes that ``run`` returns, once no call is running.
+        """Set the complete nodes that ``run`` returns, once no call is running.
 
         A node is complete when it has an outcome for every call and none of them is waiting for a person. When
-        ``end`` was not called, the run is ``COMPLETE`` when every node is complete, ``WAITING`` when a node is
-        waiting, and ``READY`` when only the nodes that cost nothing were called and a node lacks an outcome.
-        Otherwise it has the state ``end`` was given.
+        ``end`` was not called, every node is complete unless a node is waiting, or only the nodes that cost
+        nothing were called.
 
         Raises:
             RuntimeError: ``end`` was not called, every node was called, no call is waiting for a person, and a
@@ -560,15 +558,10 @@ class Scheduler:
             # speed only: has_every_outcome says the same of a node inside no loop. Not calling it is worth 2% of a run of 500 chained nodes.
             elif not (has_every_outcome(self.all_outcomes, node) if node.loops else outcomes):
                 unfinished.add(node)
-        if self.going and not waiting and not unfinished:
-            self.state, self.finished = COMPLETE, frozenset(node.node_path for node in self.nodes)
-        elif self.going and not waiting and not self.only_costs_nothing:
+        if self.going and not waiting and unfinished and not self.only_costs_nothing:
             lacking = sorted(node.node_path for node in unfinished)
             raise RuntimeError(f"the scheduler has nothing to try, and no outcome for every call of {lacking}")
-        else:
-            self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
-            if self.going:
-                self.state = WAITING if waiting else READY
+        self.finished = frozenset(node.node_path for node in self.nodes if node not in waiting and node not in unfinished)
         self.reusable.drop(self.finished)  # a complete node has no call left to take them
         if self.node_events is not None:
             self.node_events.scheduler_ended()
@@ -862,7 +855,7 @@ class Scheduler:
         """Hand the host a copy of the run now, with its outcomes in item order, and set when the next is due."""
         checkpoints.next_at = time.monotonic() + checkpoints.every
         self._put_in_order()
-        checkpoints.save(self.state)
+        checkpoints.save(self.stopped)
 
 
 def _only_costs_nothing(

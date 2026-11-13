@@ -6,7 +6,7 @@ that is ready when ``run.resume()`` or ``run.stream()`` is called; ``call.py`` i
 ``node_events.py`` works out the events about each node, and ``events.py`` has the event classes ``run.stream()``
 yields; ``stream.py`` runs the scheduler on a thread for ``run.stream()``; ``results.py`` reads ``run.results`` and
 ``run.outputs``; ``progress.py`` says how far a run is and counts the calls a node will have; ``reuse.py`` reuses outcomes from a previous run; ``state.py``
-says whether a run is going on or has ended early; ``waiting.py`` is ``Waiting``, a call waiting for a person as
+says how a run stands: its status, and how ``resume()`` ended it early; ``waiting.py`` is ``Waiting``, a call waiting for a person as
 a host is shown it; ``json/`` writes a run as JSON and reads it back.
 """
 
@@ -26,7 +26,7 @@ from .events import (
 from .flat import FlatGraph
 from .json import SavedRun, codec_of
 from .progress import CallCount, Progress
-from .state import EndedEarly, Going, RunState, RunStatus
+from .state import RunStatus
 from .type import (
     NotCalled,
     Run,

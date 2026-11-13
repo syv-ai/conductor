@@ -130,7 +130,7 @@ def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_an
 
     run = Graph.compile(make_graph(wrong), registry_of(wrong)).run(text="x")
 
-    assert (run.status, run.state.cause.type, run.state.cause.ctx["reason"], run.state.cause.ctx["column"]) == ("failed", "invalid_output", reason, "name")
+    assert (run.status, run.cause.type, run.cause.ctx["reason"], run.cause.ctx["column"]) == ("failed", "invalid_output", reason, "name")
 
 
 def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
@@ -140,7 +140,7 @@ def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
 
     run = Graph.compile(make_graph(texts), registry_of(texts)).run(text="x")
 
-    assert (run.status, run.state.cause.type) == ("failed", "invalid_output")
+    assert (run.status, run.cause.type) == ("failed", "invalid_output")
 
 
 def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
@@ -162,7 +162,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
 def test_a_series_of_records_kept_as_a_table_counts_its_rows_against_the_item_limit() -> None:
     run = _graph().run(text="x", max_items=1)
 
-    assert (run.status, run.state.cause.type, run.state.cause.ctx["items"]) == ("stopped", "item_limit", 2)
+    assert (run.status, run.cause.type, run.cause.ctx["items"]) == ("stopped", "item_limit", 2)
 
 
 def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_series_input_outside_as_plain_records() -> None:
@@ -213,7 +213,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
     graph = Graph.compile(make_graph(five, greet, edges=[("five.result.name", "greet.name")]), registry_of(five, greet))
     run = graph.run(text="x")
 
-    cause = run.state.cause
+    cause = run.cause
     assert (run.status, cause.type, cause.loc, cause.ctx["record_field"]) == ("failed", "invalid_edge_value", ("greet", 2), "name")
     assert run.results["greet"]["result"][:3] == ["hi a", "hi b", None]  # the two records before it were read and called
 
