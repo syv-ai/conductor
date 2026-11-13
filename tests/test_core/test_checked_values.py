@@ -737,3 +737,37 @@ def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuse
     assert [(found.type, found.loc, found.ctx["variant"], found.ctx["type"]) for found in unwired.problems] == [
         ("invalid_value", ("first-of", "second"), "bound_default", "str"),
     ]
+
+
+@node("same-or-blank", title="Same or blank", description="For a test.")
+def _same_or_blank(value: T = None) -> T:  # type: ignore[assignment]  # None is a value of T until an edge binds it
+    return value
+
+
+@node("first-or-blank", title="First or blank", description="For a test.")
+def _first_or_blank(first: T, second: T = None) -> T:  # type: ignore[assignment]
+    return first
+
+
+@dataclass(frozen=True)
+class _Kept[V]:
+    value: V
+    other: V = None  # type: ignore[assignment]
+
+
+@node("kept", title="Kept", description="For a test.")
+def _kept(value: T) -> _Kept[T]:
+    return _Kept(value)
+
+
+def test_a_declared_default_of_none_the_bound_type_does_not_take_is_a_problem_of_the_graph_not_an_exception():
+    """``None`` is read by the bound type like any other default: compiling never raises for it."""
+    registry = registry_of(_text_a, _same_or_blank, _first_or_blank, _kept)
+    wired = Graph.compile(make_graph(_text_a, _same_or_blank, edges=[("text-a.result", "same-or-blank.value")]), registry)
+    assert wired.problems == [] and wired.run().outputs == {"result": "a"}
+    unwired = Graph.compile(make_graph(_text_a, _first_or_blank, edges=[("text-a.result", "first-or-blank.first")]), registry)
+    output = Graph.compile(make_graph(_text_a, _kept, edges=[("text-a.result", "kept.value")]), registry)
+    assert [(found.type, found.loc, found.ctx["variant"], found.ctx["type"]) for found in [*unwired.problems, *output.problems]] == [
+        ("invalid_value", ("first-or-blank", "second"), "bound_default", "str"),
+        ("invalid_value", ("kept", "other"), "bound_default", "str"),
+    ]

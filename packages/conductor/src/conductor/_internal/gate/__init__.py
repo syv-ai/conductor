@@ -15,10 +15,11 @@ The doors, with the module each is in:
     a graph record, from JSON or from what make_graph and   record
         registry.upgrade write, and the values make_graph   invalid_record, invalid_value
         writes into one
-    a default a node declares                               declared
-                                                            NodeDeclarationError default_invalid
-    a constant or default written in a record, and a        constants
-        declared default the type an edge binds refuses     invalid_value
+    a default a node declares, and the same default read    declared
+        again by the type an edge binds its type variable   NodeDeclarationError default_invalid,
+        to                                                  invalid_value (bound_default)
+    a constant or default written in a record               constants
+                                                            invalid_value
     what a compute_added_inputs or compute_outputs hook     hook
         returns                                             parameter_name_invalid, compute_hook_failed
     a caller's graph inputs, max_items, timeout and         inputs
@@ -48,9 +49,9 @@ A type's own declarations are read where the type is declared: ``Param`` reads i
 """
 
 from .answer import AnswerDoor
-from .constants import bound_field, read_constant
+from .constants import read_constant
 from .context import ContextDoor
-from .declared import declared_field
+from .declared import bound_field, declared_field
 from .edge import EdgeDoor, demands_more
 from .hook import read_hook_fields
 from .inputs import InputsDoor, check_limits

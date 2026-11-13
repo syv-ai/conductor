@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any, get_args, get_origin
 
 from pydantic import JsonValue
-from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
@@ -37,15 +36,14 @@ class Field:
     Attributes:
         name: The parameter's name, or the output's.
         hint: The annotation as written.
-        default: The default as its type holds it, already read by it (``gate.declared_field`` reads a default
-            a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an output on a branch not taken, ``None`` for a
-            blank.
+        default: The default as its type holds it, already read by it and with a JSON form (``gate.declared_field``
+            reads a default a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an output on a branch not taken,
+            ``None`` for a blank.
         param: The ``Param``s of the hint as one; an empty one when it has none.
         type: The type of one value: a ``Series``' item, else ``whole``.
         whole: The type of the field's whole value, which reads it and writes it: a ``Series``' list.
         is_series: Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input
             that takes every item of a loop as one list.
-        default_json: The default as JSON; ``None`` where there is none to propose.
     """
 
     name: str
@@ -55,14 +53,13 @@ class Field:
     type: Type = field(init=False, compare=False)
     whole: Type = field(init=False, compare=False, repr=False)
     is_series: bool = field(init=False, compare=False)
-    default_json: JsonValue = field(init=False, compare=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
-        """Reads the hint once, and writes the default as JSON, refusing what conductor can't carry.
+        """Reads the hint once, refusing a type conductor can't carry.
 
         Raises:
-            NodeDeclarationError: Naming the field: a type pydantic has no schema for, a ``Series`` of ``Series``,
-                a ``Param`` that doesn't fit, a default ``None`` the type does not take, or a default with no JSON form.
+            NodeDeclarationError: Naming the field: a type pydantic has no schema for, a ``Series`` of ``Series``, or
+                a ``Param`` that doesn't fit.
             PydanticSerializationError: The widget has no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
@@ -75,17 +72,15 @@ class Field:
             whole.schema  # noqa: B018  a type pydantic can't carry fails here
             whole.returned_schema  # noqa: B018  a Series of records may be kept as a table, whose row type fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
-            if self.default is None and not whole.optional:
-                raise NodeDeclarationError(declaration_problems.default_none_not_taken())
-            if self.default is not REQUIRED and self.default is not SKIPPED and self.default is not None:
-                try:
-                    keep("default_json", whole.to_json(self.default))
-                except (PydanticSerializationError, UnicodeDecodeError) as error:
-                    raise NodeDeclarationError(declaration_problems.default_invalid(default=repr(self.default), type=whole.id, reason=str(error))) from None
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
         if self.param.widget is not None:
             self.description  # noqa: B018  a widget with no JSON form fails here
+
+    @functools.cached_property
+    def default_json(self) -> JsonValue:
+        """The default as JSON; ``None`` where there is none to propose."""
+        return None if self.default is REQUIRED or self.default is SKIPPED else self.whole.to_json(self.default)
 
     @functools.cached_property
     def accepts_none_items(self) -> bool:
