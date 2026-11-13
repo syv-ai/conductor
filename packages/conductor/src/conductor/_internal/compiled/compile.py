@@ -43,7 +43,7 @@ from typing import Any, Literal, Protocol, TypeVar
 from pydantic import MISSING
 from typing_extensions import sentinel
 
-from conductor._internal.base import REQUIRED, Address, NodePath, place_text
+from conductor._internal.base import REQUIRED, NodePath, Source, place_text
 from conductor._internal.field import Field
 from conductor._internal.gate import (
     bound_field,
@@ -197,14 +197,14 @@ class _Compiler:
         says why.
         """
         outputs: dict[str, Edge] = {}
-        for name, address in sorted(self.record.outputs.items()):
-            source = self.nodes.get(address.node)
-            if address.node not in self.record.nodes or (source is not None and address.output not in source.outputs):
-                found = [place_text((address.node,), output) for output in source.outputs] if source is not None else []
-                self.problems.append(compile_problems.graph_output_not_found(output=name, source=place_text((address.node,), address.output), outputs=found))
-            elif source is not None:
-                field = source.outputs[address.output]
-                outputs[name] = Edge((address.node,), address.output, None, source.loops_around(address.output), field.type, series=source.loop_over(address.output) if field.is_series else None)
+        for name, source in sorted(self.record.outputs.items()):
+            node = self.nodes.get(source.node)
+            if source.node not in self.record.nodes or (node is not None and source.output not in node.outputs):
+                found = [place_text((source.node,), output) for output in node.outputs] if node is not None else []
+                self.problems.append(compile_problems.graph_output_not_found(output=name, source=place_text((source.node,), source.output), outputs=found))
+            elif node is not None:
+                field = node.outputs[source.output]
+                outputs[name] = Edge((source.node,), source.output, None, node.loops_around(source.output), field.type, series=node.loop_over(source.output) if field.is_series else None)
         return outputs
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
@@ -220,7 +220,7 @@ class _Compiler:
             return None
         return newest.version_of(record.version)
 
-    def _order(self, order: list[str], edges_into: Mapping[str, Mapping[str, tuple[Address, ...]]]) -> list[str]:
+    def _order(self, order: list[str], edges_into: Mapping[str, Mapping[str, tuple[Source, ...]]]) -> list[str]:
         """Returns the node ids in the order they are compiled: each after the nodes its edges come from, and
         by id where that leaves a choice.
 
@@ -259,7 +259,7 @@ class _Compiler:
     # -- compiling a node -------------------------------------------------------
 
     def _compile_function_node(
-        self, node_id: str, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: Mapping[str, tuple[Address, ...]],
+        self, node_id: str, record: NodeRecord, definition: FunctionDefinition[..., Any], edges: Mapping[str, tuple[Source, ...]],
     ) -> None:
         """Compiles a node whose definition is a function, and adds it to ``nodes``.
 
@@ -299,7 +299,7 @@ class _Compiler:
                 definition=definition,
             )
 
-    def _compile_subgraph_node(self, node_id: str, record: NodeRecord, definition: SubgraphDefinition, edges: Mapping[str, tuple[Address, ...]]) -> None:
+    def _compile_subgraph_node(self, node_id: str, record: NodeRecord, definition: SubgraphDefinition, edges: Mapping[str, tuple[Source, ...]]) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
 
         Example: the subgraph ``strip -> shout`` used as the node ``loud``. The subgraph's graph record is
@@ -333,7 +333,7 @@ class _Compiler:
 
     def _plan_inputs(
         self, node_id: str, record: NodeRecord, fields: Mapping[str, Field], constants: Mapping[str, Any], constant_at_compile: frozenset[str],
-        edges: Mapping[str, tuple[Address, ...]],
+        edges: Mapping[str, tuple[Source, ...]],
     ) -> _InputPlans:
         """Makes the compiled input of every input of a node, and works out which loops the node is inside.
 
@@ -525,28 +525,28 @@ class _Compiler:
 
     # -- edges ------------------------------------------------------------------
 
-    def _sources(self, node_id: str, name: str, addresses: tuple[Address, ...]) -> list[Edge] | None:
-        """Returns what the edges from ``addresses`` into one input read, by the order of their nodes' ids and then
+    def _sources(self, node_id: str, name: str, sources: tuple[Source, ...]) -> list[Edge] | None:
+        """Returns what the edges from ``sources`` into one input read, by the order of their nodes' ids and then
         of the outputs of each node. A graph output is read as the input ``name`` of ``"outputs"``.
 
         Returns:
-            The sources. ``None`` when an edge cannot be read: its node is not in the graph record, or the address
+            The edges. ``None`` when an edge cannot be read: its node is not in the graph record, or its source
             names no output of its node (the graph gets the problem), or its node was not compiled (a problem of
             its own says why, or it is on a cycle and comes later).
         """
-        sources: list[Edge] = []
-        for address in addresses:
-            if address.node not in self.record.nodes:
-                written = place_text((address.node,), address.output, address.field)
-                self.problems.append(compile_problems.edge_names_missing_node(node_id, name, missing=address.node, source=written, target=place_text((node_id,), name)))
+        edges: list[Edge] = []
+        for source in sources:
+            if source.node not in self.record.nodes:
+                written = place_text((source.node,), source.output, source.field)
+                self.problems.append(compile_problems.edge_names_missing_node(node_id, name, missing=source.node, source=written, target=place_text((node_id,), name)))
                 return None
-            source = self._source(address, node_id, name)
-            if source is None:
+            edge = self._edge(source, node_id, name)
+            if edge is None:
                 return None
-            sources.append(source)
-        if len(sources) > 1:
-            sources.sort(key=self._edge_order)
-        return sources
+            edges.append(edge)
+        if len(edges) > 1:
+            edges.sort(key=self._edge_order)
+        return edges
 
     def _edges_fit(self, node_id: str, field: Field, expected: Type, sources: list[Edge]) -> bool:
         """Whether every edge into the input ``field`` reads a value of the type ``expected``; for the first that does
@@ -561,35 +561,35 @@ class _Compiler:
                 return False
         return True
 
-    def _source(self, address: Address, node_id: str, name: str) -> Edge | None:
-        """Returns what an edge from ``address`` reads: an output, or one field of the record an output returns.
+    def _edge(self, source: Source, node_id: str, name: str) -> Edge | None:
+        """Returns the edge from ``source``, which reads an output, or one field of the record an output returns.
 
         Returns:
-            The edge's source, which reads one item per call when the output is a ``Series``. ``None``, with a
-            problem, when the address names no output of its node; ``None`` when its node was not compiled.
+            The edge, which reads one item per call when the output is a ``Series``. ``None``, with a
+            problem, when the source names no output of its node; ``None`` when its node was not compiled.
         """
-        source = self.nodes.get(address.node)
-        if source is None:  # not compiled, or on a cycle and later: a problem of its own says why
+        node = self.nodes.get(source.node)
+        if node is None:  # not compiled, or on a cycle and later: a problem of its own says why
             return None
-        node, written = (address.node,), place_text((address.node,), address.output, address.field)
-        if address.output not in source.outputs:
-            outputs = [place_text(node, output) for output in source.outputs]
+        path, written = (source.node,), place_text((source.node,), source.output, source.field)
+        if source.output not in node.outputs:
+            outputs = [place_text(path, output) for output in node.outputs]
             self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=outputs))
             return None
-        field = source.outputs[address.output]
-        if address.field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
+        field = node.outputs[source.output]
+        if source.field is not None and (parts := _taken_apart(field.type)):  # only a record has fields to wire; a whole table or list is taken apart first
             self.problems.append(compile_problems.unknown_output_make_a_series(
-                node_id, name, source=written, outputs=[place_text(node, output) for output in source.outputs],
-                record_field=address.field, whole=parts[0], fields=parts[1],
+                node_id, name, source=written, outputs=[place_text(path, output) for output in node.outputs],
+                record_field=source.field, whole=parts[0], fields=parts[1],
             ))
             return None
-        read_type = field.type if address.field is None else _field_type(field.type, address.field)
+        read_type = field.type if source.field is None else _field_type(field.type, source.field)
         if read_type is None:
-            fields = [place_text(node, address.output, f) for f in field.type.fields]
-            self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=fields, record_field=address.field))
+            fields = [place_text(path, source.output, f) for f in field.type.fields]
+            self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=fields, record_field=source.field))
             return None
-        series = source.loop_over(address.output) if field.is_series else None
-        return Edge(node, address.output, address.field, source.loops_around(address.output), read_type, series=series)
+        series = node.loop_over(source.output) if field.is_series else None
+        return Edge(path, source.output, source.field, node.loops_around(source.output), read_type, series=series)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index among the node ids, then
@@ -667,9 +667,9 @@ class _Compiler:
         return frozenset(required_branches)
 
 
-def _edges_into(record: NodeRecord) -> dict[str, tuple[Address, ...]]:
+def _edges_into(record: NodeRecord) -> dict[str, tuple[Source, ...]]:
     """The outputs the edges into each input of a node come from, by input name: in the example, ``shout``'s are
-    ``{"line": (Address("lines", "result"),)}``. An input with a constant or a default is not in it."""
+    ``{"line": (Source("lines", "result"),)}``. An input with a constant or a default is not in it."""
     return {name: entry.sources for name, entry in record.inputs.items() if entry.sources is not MISSING}
 
 

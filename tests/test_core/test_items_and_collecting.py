@@ -20,7 +20,6 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
-    Address,
     Ask,
     Graph,
     GraphRecord,
@@ -33,6 +32,7 @@ from conductor import (
     Run,
     RunsOn,
     Series,
+    Source,
     Table,
     host_type,
     make_graph,
@@ -609,11 +609,11 @@ def test_collecting_a_series_not_returned_for_a_none_item_is_not_called_not_an_e
     compiled = Graph.compile(GraphRecord(
         nodes={
             "d": NodeRecord(node="docs", inputs={"text": InputEntry(graph_input="text")}),
-            "l": NodeRecord(node="lines", inputs={"text": InputEntry(sources=[Address("d", "result")])}),
-            "c": NodeRecord(node="count", inputs={"items": InputEntry(sources=[Address("l", "result")])}),
-            "t": NodeRecord(node="total", inputs={"ns": InputEntry(sources=[Address("c", "result")])}),
-            "a": NodeRecord(node="as_table", inputs={"text": InputEntry(sources=[Address("d", "result")])}),
-            "w": NodeRecord(node="width", inputs={"table": InputEntry(sources=[Address("a", "result")])}),
+            "l": NodeRecord(node="lines", inputs={"text": InputEntry(sources=[Source("d", "result")])}),
+            "c": NodeRecord(node="count", inputs={"items": InputEntry(sources=[Source("l", "result")])}),
+            "t": NodeRecord(node="total", inputs={"ns": InputEntry(sources=[Source("c", "result")])}),
+            "a": NodeRecord(node="as_table", inputs={"text": InputEntry(sources=[Source("d", "result")])}),
+            "w": NodeRecord(node="width", inputs={"table": InputEntry(sources=[Source("a", "result")])}),
         },
     ), reg)
     run = compiled.run(text="a,b;-;c;")
@@ -1035,7 +1035,7 @@ def test_a_node_filtering_every_row_away_returns_a_table_of_no_rows():
     assert run.results["f"]["result"].height == 0
 
 
-def test_a_column_of_a_table_is_no_address_until_the_table_is_split():
+def test_a_column_of_a_table_is_no_source_until_the_table_is_split():
     compiled = graph({"id": "c", "node": "contacts"}, {"id": "u", "node": "upper"}, edges=(("c.result.email", "u.text"),))
     assert [(p.type, p.loc) for p in compiled.problems] == [("unknown_output", ("u", "text"))]
     assert problems(*CONTACTS, {"id": "u", "node": "upper"}, edges=(SPLIT_CONTACTS, ("r.result.email", "u.text"))) == []
@@ -1560,7 +1560,7 @@ def as_subgraph(node_id: str, *nodes: dict[str, Any], edges: tuple[tuple[str, st
     return subgraph(node_id, title=title, description="For a test.")(record_of(*nodes, edges=edges, registry=registry, **ports))
 
 
-def test_two_series_into_one_subgraph_node_are_one_problem_with_the_outer_graphs_addresses():
+def test_two_series_into_one_subgraph_node_are_one_problem_with_the_outer_graphs_sources():
     inner = as_subgraph("pairs", {"id": "p", "node": "pair"})
     compiled = graph({"id": "d1", "node": "split"}, {"id": "d2", "node": "split"}, {"id": "sub", "node": "pairs"},
                    edges=(("d1.result", "sub.a"), ("d2.result", "sub.b")), registry=registry_of(split, pair, inner),
@@ -1592,7 +1592,7 @@ def test_two_series_out_of_one_subgraph_are_a_problem_where_they_meet():
                     registry=registry_of(left, right, pair, inner)) == ["series_not_nested"]
 
 
-def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_address():
+def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_source():
     inner = as_subgraph("splitup", {"id": "split", "node": "split"}, {"id": "upper", "node": "upper"}, edges=(("split.result", "upper.text"),))
     compiled = graph({"id": "e", "node": "splitup"}, {"id": "split", "node": "split"}, {"id": "u2", "node": "upper"},
                    edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner),

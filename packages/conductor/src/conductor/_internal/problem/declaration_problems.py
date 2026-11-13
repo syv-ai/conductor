@@ -559,7 +559,7 @@ def input_without_type() -> str:
 def invalid_node_id(*, declared_with: str, id: str) -> str:
     """A node is declared with an id that is empty or contains ``.``, ``/``, ``@`` or ``~``.
 
-    Those characters are written in addresses (``a.result``), node paths (``loud/shout``) and waiting ids
+    Those characters are written in sources (``a.result``), node paths (``loud/shout``) and waiting ids
     (``a@1~3fa2``). Pick an id without them. The same rule holds for a node's id in a graph record, and for the names
     a hook gives inputs and outputs.
 
@@ -575,7 +575,7 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
         declaration_refused(lambda: node("a.b", title="Dotted id", description="Passes the text on as it is.")(dotted_id))
     """
     return (
-        f"{declared_with} takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in an address "
+        f"{declared_with} takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in a source "
         f"or a waiting id: {declared_with}('upper'); got {id!r}"
     )
 

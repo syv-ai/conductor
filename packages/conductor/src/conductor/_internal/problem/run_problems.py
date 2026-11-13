@@ -200,7 +200,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
 
     Args:
         loc: The call that returned the series.
-        series: The series, by address.
+        series: The series, as its source is written: ``"lines.result"``.
         items: How many items it has.
         max_items: The run's item limit.
 

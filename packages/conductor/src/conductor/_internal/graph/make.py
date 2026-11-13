@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import REQUIRED, Address
+from conductor._internal.base import REQUIRED, Source
 from conductor._internal.gate import read_record, record_values
 from conductor._internal.node import FunctionDefinition, NodeDefinition, read_by_hooks
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
@@ -77,11 +77,11 @@ def make_graph(
     default_of = _values_by_place("defaults", defaults, ids, problems)
     if edges is None:
         edges = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
-    sources_of: dict[tuple[str, str], list[Address]] = {}
+    sources_of: dict[tuple[str, str], list[Source]] = {}
     for i, (source_text, target_text) in enumerate(edges):
         source, target = _place(source_text, ("edges", i, 0), ids, problems, field=True), _place(target_text, ("edges", i, 1), ids, problems)
         if source is not None and target is not None:
-            sources_of.setdefault((target[0], target[1]), []).append(Address(*source))
+            sources_of.setdefault((target[0], target[1]), []).append(Source(*source))
     graph_input_of = _graph_inputs(definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), problems)
     entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in ids}
     for node_id, name in constant_of.keys() | default_of.keys() | sources_of.keys() | graph_input_of.keys():
@@ -164,23 +164,23 @@ def _graph_inputs(
     return {**graph_input_of, **{(node_id, name): name for node_id, name in automatic}}
 
 
-def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str, str], led_out: set[str], problems: list[Problem]) -> dict[str, Address]:
+def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str, str], led_out: set[str], problems: list[Problem]) -> dict[str, Source]:
     """The graph outputs by name: those ``named`` gives, then every output of a node no edge leaves (not in
     ``led_out``), under the output's own name. ``graph_outputs_share_a_name`` goes to ``problems`` for a name two of the
     second kind share, or one of them shares with a name in ``named``."""
-    declared: dict[str, Address] = {}
+    declared: dict[str, Source] = {}
     for name, text in named.items():
         place = _place(text, ("outputs", name), list(definitions), problems, field=True)
         if place is not None:
-            declared[name] = Address(*place)
-    taken = {(address.node, address.output) for address in declared.values()}
+            declared[name] = Source(*place)
+    taken = {(source.node, source.output) for source in declared.values()}
     leaves = [(node_id, output) for node_id, definition in definitions.items() if node_id not in led_out for output in definition.output_names if (node_id, output) not in taken]
     counts = Counter(output for _, output in leaves)
     for name, count in counts.items():
         if count > 1 or name in declared:
             places = [f"{node_id}.{output}" for node_id, output in leaves if output == name] + ([str(declared[name])] if name in declared else [])
             problems.append(call_problems.graph_outputs_share_a_name("outputs", name, name=name, outputs=places))
-    return {**declared, **{output: Address(node_id, output) for node_id, output in leaves if counts[output] == 1 and output not in declared}}
+    return {**declared, **{output: Source(node_id, output) for node_id, output in leaves if counts[output] == 1 and output not in declared}}
 
 
 def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problems: list[Problem]) -> dict[str, NodeDefinition]:

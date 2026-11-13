@@ -13,7 +13,6 @@ import polars as pl
 import pytest
 from annotated_types import Ge
 from conductor import (
-    Address,
     Choice,
     Deprecation,
     ExternalError,
@@ -29,6 +28,7 @@ from conductor import (
     Policy,
     Run,
     Series,
+    Source,
     Table,
     Upgrade,
     host_type,
@@ -58,7 +58,7 @@ def node_record(definition_id, *, version=1, constants=None, graph_inputs=(), so
     ``sources`` mapping an input to the ``(node, output)`` its edge comes from."""
     inputs: dict[str, Any] = {name: InputEntry(constant=value) for name, value in (constants or {}).items()}
     inputs |= {name: InputEntry(graph_input=name) for name in graph_inputs}
-    inputs |= {name: InputEntry(sources=(Address(*source),)) for name, source in (sources or {}).items()}
+    inputs |= {name: InputEntry(sources=(Source(*source),)) for name, source in (sources or {}).items()}
     return NodeRecord(node=definition_id, version=version, inputs=inputs)
 
 
@@ -105,7 +105,7 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_fun
     assert "@node('x') on bad" in str(raised.value)
 
 
-def test_a_node_id_must_have_something_in_it_and_no_mark_an_address_or_waiting_id_uses():
+def test_a_node_id_must_have_something_in_it_and_no_mark_a_source_or_waiting_id_uses():
     for wrong in ("", "a.b", "a/b", "a@b", "a~b"):
         with pytest.raises(NodeDeclarationError) as raised:
             node(wrong, title="Wrong", description="For a test.")
@@ -1001,7 +1001,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
     assert logged.exc_info is not None and logged.exc_info[0] is KeyError and "'h'" in logged.getMessage() and "compute_outputs" in logged.getMessage()
 
 
-def test_a_hook_adding_an_input_whose_name_an_address_cannot_carry_is_refused():
+def test_a_hook_adding_an_input_whose_name_a_source_cannot_carry_is_refused():
     @node("adds", title="Adds", description="For a test.", compute_added_inputs=lambda: {"a.b": int})
     def adds(**kwargs: Any) -> int:
         return 1

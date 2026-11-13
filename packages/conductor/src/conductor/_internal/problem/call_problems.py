@@ -485,7 +485,7 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
     bytes that are not text.
 
     Args:
-        loc: ``"saved_run"`` and the steps to the value, or ``"outputs"`` and the output's address.
+        loc: ``"saved_run"`` and the steps to the value, or ``"outputs"`` and the graph output's name.
         where: The same steps as one text.
         reason: Why the value cannot be written.
 

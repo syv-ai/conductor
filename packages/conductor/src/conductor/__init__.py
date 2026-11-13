@@ -16,7 +16,7 @@ Everything in ``conductor._internal`` is the library's own and may move.
 from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask
-from conductor._internal.base import SKIPPED, Address
+from conductor._internal.base import SKIPPED, Source
 from conductor._internal.compiled import (
     GraphDescription,
     InputSource,
@@ -92,7 +92,7 @@ __all__ = [
     "GraphRecord",
     "NodeRecord",
     "InputEntry",
-    "Address",
+    "Source",
     "make_graph",
     "Graph",
     "read_json",

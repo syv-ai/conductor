@@ -20,7 +20,7 @@ lists gets an ``InputEntry``, exactly one of three:
 - a constant, the value the input has on every call in every run: no caller can change it;
 - a graph input, the value the caller gives when a run starts, under the graph input's name, with a default for
   when the caller gives none;
-- the sources of the edges into it, each the output it comes from (an ``Address``), or one field of the record an
+- the sources of the edges into it, each a ``Source``: the output it comes from, or one field of the record an
   output returns: ``{"node": "read", "output": "result", "field": "email"}``.
 
 An input the record leaves out gets the node's own default. ``display`` is the host's own: conductor stores it and

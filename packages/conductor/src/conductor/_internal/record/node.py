@@ -9,7 +9,7 @@ from typing import Annotated, Any, Self
 from pydantic import MISSING, AfterValidator, ConfigDict, Field, JsonValue, model_validator
 from pydantic_core import PydanticCustomError
 
-from conductor._internal.base import Address, ConductorModel, Name
+from conductor._internal.base import ConductorModel, Name, Source
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
@@ -20,7 +20,7 @@ def _empty(value: Mapping[str, Any]) -> bool:
 JSON_ONLY = ConfigDict(allow_inf_nan=False)
 
 
-def _sorted_once(sources: tuple[Address, ...]) -> tuple[Address, ...]:
+def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
     """Returns ``sources`` sorted, so two records that list one input's sources in another order are equal and
     save alike.
 
@@ -57,7 +57,7 @@ class InputEntry(ConductorModel):
     constant: JsonValue | MISSING = MISSING
     graph_input: Name | MISSING = MISSING
     default: JsonValue | MISSING = MISSING
-    sources: Annotated[tuple[Address, ...], AfterValidator(_sorted_once)] | MISSING = MISSING
+    sources: Annotated[tuple[Source, ...], AfterValidator(_sorted_once)] | MISSING = MISSING
 
     @model_validator(mode="after")
     def _one_kind(self) -> Self:

@@ -20,7 +20,6 @@ import polars as pl
 import pytest
 from conductor import (
     SKIPPED,
-    Address,
     Ask,
     Graph,
     GraphRecord,
@@ -31,6 +30,7 @@ from conductor import (
     Policy,
     Run,
     Series,
+    Source,
     Table,
     host_type,
     make_graph,
@@ -51,7 +51,7 @@ def _returning(returned: Any, return_type: Any) -> Any:
         return returned
 
     definition = node("give", title="Give", description="For a test.")(give)
-    outputs = {name: Address("g", name) for name in definition.outputs}
+    outputs = {name: Source("g", name) for name in definition.outputs}
     return Graph.compile(GraphRecord(nodes={"g": NodeRecord(node="give")}, outputs=outputs), registry_of(definition)).run()
 
 
@@ -64,8 +64,8 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
     definition = node("give", title="Give", description="For a test.")(give)
     (name,) = sink.inputs
     return Graph.compile(GraphRecord(
-        nodes={"a": NodeRecord(node="give"), "b": NodeRecord(node=sink.id, inputs={name: InputEntry(sources=[Address("a", "result")])})},
-        outputs={output: Address("b", output) for output in sink.outputs},
+        nodes={"a": NodeRecord(node="give"), "b": NodeRecord(node=sink.id, inputs={name: InputEntry(sources=[Source("a", "result")])})},
+        outputs={output: Source("b", output) for output in sink.outputs},
     ), registry_of(definition, sink)).run()
 
 

@@ -106,7 +106,7 @@ class CompiledGraph:
         ``cycle`` and ``series_not_nested`` name the node.
 
         Only a node that could not be compiled has ``found`` false and no inputs or outputs, and its problems say
-        why: its definition or version is not in the registry, its id cannot be written in an address, a hook
+        why: its definition or version is not in the registry, its id cannot be written in a source, a hook
         (``compute_added_inputs`` or ``compute_outputs``) failed or needs a constant it was not given, or it is a
         subgraph that contains itself or has problems of its own. A subgraph node is one node, with the inputs and
         outputs of its subgraph. Each problem of a subgraph is a problem of this graph, with a ``loc`` that starts

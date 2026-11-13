@@ -8,7 +8,7 @@ description: Writes a conductor graph record (GraphRecord, make_graph), compiles
 A graph is data, a `GraphRecord`: its nodes by id, each naming the node definition it uses and what each of its inputs gets, and the graph's outputs by name. `Graph.compile` compiles it against a registry into a `Graph` that says what is wrong; `graph.run` runs it. To declare a node, use the **add-node** skill. The installed library is the authority: `python -m conductor.about record` (or `compiling`, `one-or-many`, `running`, `events`, `errors`).
 
 ```python
-from conductor import Address, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, RunsOn, Series
+from conductor import Source, Graph, GraphRecord, NodeRecord, NodeRegistry, InputEntry, RunsOn, Series
 
 registry = NodeRegistry(category="text")
 
@@ -31,13 +31,13 @@ def join(parts: Series[str], separator: str = "") -> str:
 record = GraphRecord(
     nodes={
         "words": NodeRecord(node="text-split", inputs={"text": InputEntry(graph_input="text")}),
-        "loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Address("words", "result"),))}),
+        "loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Source("words", "result"),))}),
         "joined": NodeRecord(node="text-join", inputs={
-            "parts": InputEntry(sources=(Address("loud", "result"),)),
+            "parts": InputEntry(sources=(Source("loud", "result"),)),
             "separator": InputEntry(constant=" + "),
         }),
     },
-    outputs={"result": Address("joined", "result")},
+    outputs={"result": Source("joined", "result")},
 )
 
 graph = Graph.compile(record, registry)

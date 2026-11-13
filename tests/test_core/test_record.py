@@ -13,7 +13,6 @@ from typing import Annotated, Any
 import pytest
 from conductor import (
     SKIPPED,
-    Address,
     Graph,
     GraphRecord,
     InputEntry,
@@ -23,6 +22,7 @@ from conductor import (
     Problem,
     Run,
     Series,
+    Source,
     Table,
     Upgrade,
     host_type,
@@ -114,7 +114,7 @@ def test_each_kind_of_input_entry_is_its_own_class_and_a_dict_reads_as_the_same(
         "yes": InputEntry(constant="y"),
         "no": InputEntry(graph_input="no", default="n"),
     })
-    edged = NodeRecord(node="upper", inputs={"text": InputEntry(sources=(Address("a", "result", "email"),))})
+    edged = NodeRecord(node="upper", inputs={"text": InputEntry(sources=(Source("a", "result", "email"),))})
 
     assert NodeRecord.model_validate({"node": "both", "inputs": {"yes": {"constant": "y"}, "no": {"graph_input": "no", "default": "n"}}}) == written
     assert NodeRecord.model_validate({"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result", "field": "email"}]}}}) == edged
@@ -126,7 +126,7 @@ def test_the_record_reads_back_what_it_saved():
     graph = GraphRecord.model_validate({"nodes": {"a": {"node": "t", "inputs": {"x": {"constant": {"refs": ["q.r"]}}}, "display": {"x": 10}}, "b": {"node": "t", "version": 2, "inputs": {"y": {"sources": [{"node": "a", "output": "result"}]}}}}})
 
     assert GraphRecord.model_validate_json(graph.model_dump_json()) == graph
-    assert graph.nodes["b"].inputs["y"] == InputEntry(sources=(Address("a", "result"),))
+    assert graph.nodes["b"].inputs["y"] == InputEntry(sources=(Source("a", "result"),))
 
 
 def test_display_is_the_hosts_own_and_takes_any_key():
@@ -145,7 +145,7 @@ def test_a_source_names_a_node_and_an_output_each_a_name(not_a_name: str):
 def test_a_field_of_a_source_may_have_dots_but_never_starts_with_one():
     record = GraphRecord.model_validate({"nodes": {"b": {"node": "b", "inputs": {"x": {"sources": [{"node": "a", "output": "result", "field": "Amount in USD."}]}}}}})
 
-    assert record.nodes["b"].inputs["x"] == InputEntry(sources=(Address("a", "result", "Amount in USD."),))
+    assert record.nodes["b"].inputs["x"] == InputEntry(sources=(Source("a", "result", "Amount in USD."),))
     with pytest.raises(ValidationError):
         GraphRecord.model_validate({"nodes": {"b": {"node": "b", "inputs": {"x": {"sources": [{"node": "a", "output": "result", "field": ".x"}]}}}}})
     with pytest.raises(ValidationError):
@@ -159,7 +159,7 @@ def test_the_json_schema_gives_an_input_one_entry_of_a_constant_a_graph_input_a_
     assert schema["$defs"]["NodeRecord"]["properties"]["inputs"]["additionalProperties"] == {"$ref": "#/$defs/InputEntry"}
     assert list(entry["properties"]) == ["constant", "graph_input", "default", "sources"] and "required" not in entry
     assert entry["additionalProperties"] is False
-    assert schema["$defs"]["Address"]["required"] == ["node", "output"]
+    assert schema["$defs"]["Source"]["required"] == ["node", "output"]
 
 
 def test_the_order_of_an_inputs_sources_never_tells_two_records_apart():
@@ -418,8 +418,8 @@ def test_make_graph_numbers_a_node_used_twice():
 
     assert list(graph.nodes) == ["hello", "shout-1", "shout-2"]
     assert [(node_id, n.inputs["text"]) for node_id, n in graph.nodes.items() if node_id != "hello"] == [
-        ("shout-1", InputEntry(sources=(Address("hello", "result"),))),
-        ("shout-2", InputEntry(sources=(Address("shout-1", "result"),))),
+        ("shout-1", InputEntry(sources=(Source("hello", "result"),))),
+        ("shout-2", InputEntry(sources=(Source("shout-1", "result"),))),
     ]
     assert Graph.compile(graph, PLAIN).run().outputs == {"result": "HELLO IDA!!!"}
 
@@ -468,7 +468,7 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
 
     record = make_graph(_hello, pad)
 
-    assert record.nodes["pad"].inputs == {"text": InputEntry(sources=(Address("hello", "result"),))}
+    assert record.nodes["pad"].inputs == {"text": InputEntry(sources=(Source("hello", "result"),))}
     graph = Graph.compile(record, registry_of(_hello, pad))
     assert list(graph.inputs) == ["name"] and [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("pad", "width"))]
     with pytest.raises(InvalidCallError) as refused:
@@ -560,7 +560,7 @@ def test_make_graph_declares_each_open_input_of_a_node_no_edge_leads_into_and_ea
 
     assert record.nodes["hello"].inputs == {"name": InputEntry(graph_input="name")}
     assert "times" not in record.nodes["shout"].inputs  # shout is led into: its optional input keeps the node's default
-    assert record.outputs == {"result": Address("shout", "result")}
+    assert record.outputs == {"result": Source("shout", "result")}
 
 
 def test_make_graph_refuses_two_graph_inputs_or_two_graph_outputs_that_would_share_a_name():
@@ -665,15 +665,15 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
     assert run.with_inputs({"text": "b"}).inputs == {"yes": "y", "no": "n", "text": "b"}
 
 
-def test_a_graph_input_is_given_by_its_name_never_by_an_address_and_an_item_limit_below_one_is_refused():
+def test_a_graph_input_is_given_by_its_name_never_by_a_source_and_an_item_limit_below_one_is_refused():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}), REGISTRY)
 
-    with pytest.raises(InvalidCallError) as by_address:
+    with pytest.raises(InvalidCallError) as by_source:
         graph.run({"text": "a", "u.text": "b"})
     with pytest.raises(InvalidCallError) as item_limit:
         graph.run(text="a", max_items=0)
 
-    assert [(p.type, p.loc) for p in by_address.value.problems] == [("not_offered", ("inputs", "u.text"))]
+    assert [(p.type, p.loc) for p in by_source.value.problems] == [("not_offered", ("inputs", "u.text"))]
     assert [p.type for p in item_limit.value.problems] == ["invalid_max_items"]
     with pytest.raises(InvalidCallError):
         graph.with_inputs(text="a").with_max_items(-1)
@@ -700,7 +700,7 @@ def _a_table_read_by_one_text(source: str) -> Problem:
         return pl.DataFrame({"name": ["a"]})
 
     node_id, output, *field = source.split(".", 2)
-    edge = InputEntry(sources=(Address(node_id, output, *field),))
+    edge = InputEntry(sources=(Source(node_id, output, *field),))
     graph = Graph.compile(GraphRecord(nodes={"r": NodeRecord(node="rows"), "u": NodeRecord(node="upper", inputs={"text": edge})}), registry_of(rows, upper))
     (problem,) = graph.problems
     return problem
@@ -775,11 +775,11 @@ def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_rec
     record = make_graph(halves)
 
     assert record.nodes["halves"].inputs == {"a": InputEntry(graph_input="a")}
-    assert record.outputs == {"x": Address("halves", "x"), "y": Address("halves", "y")}
+    assert record.outputs == {"x": Source("halves", "x"), "y": Source("halves", "y")}
     assert Graph.compile(record, registry_of(upper, tail, halves)).run(a="a").outputs == {"x": "A", "y": "B"}
 
 
-def test_a_wrong_address_on_a_subgraph_node_is_a_problem_on_it_and_never_names_an_inner_node():
+def test_a_wrong_source_on_a_subgraph_node_is_a_problem_on_it_and_never_names_an_inner_node():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}, "tail": {"sources": [{"node": "v", "output": "result"}]}}}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "e", "output": "nope"}]}}}, "v": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}), SUBGRAPHS)
 
     found = sorted((p.type, p.loc) for p in graph.problems)
@@ -890,7 +890,7 @@ def test_a_node_collecting_two_series_of_different_depths_is_called_per_item_of_
     assert graph.run(text="a,b|c").outputs == {"result": ["2/2", "2/1"]}
 
 
-def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_into_it_names_the_outer_address():
+def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_into_it_names_the_outer_source():
     with pytest.raises(InvalidCallError) as beside:
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich"}, "e/upper": {"node": "upper"}}}), SUBGRAPHS)
     ghost = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), SUBGRAPHS)
@@ -935,7 +935,7 @@ def test_collecting_downstream_of_a_series_output_not_chosen_is_skipped():
     assert graph.run(text="a,b").results["after"]["result"] is None
 
 
-def test_a_records_field_whose_name_has_a_dot_is_wired_by_its_address():
+def test_a_records_field_whose_name_has_a_dot_is_wired_by_its_source():
     from typing import TypedDict
 
     import polars as pl
@@ -1182,14 +1182,14 @@ def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_
     record = make_graph(_hello, both, edges=[("hello.result", "both.yes")])
     graph = Graph.compile(record, registry_of(_hello, both))
 
-    assert record.nodes["both"].inputs == {"yes": InputEntry(sources=(Address("hello", "result"),)), "no": InputEntry(graph_input="no")}
+    assert record.nodes["both"].inputs == {"yes": InputEntry(sources=(Source("hello", "result"),)), "no": InputEntry(graph_input="no")}
     assert list(graph.inputs) == ["name", "no"] and graph.run(name="ida", no="!").outputs == {"result": "hello ida!"}
 
 
-def test_an_address_is_an_output_of_a_node_by_its_id_and_a_path_cannot_be_written_in_one():
+def test_a_source_is_an_output_of_a_node_by_its_id_and_a_path_cannot_be_written_in_one():
     from pydantic import ValidationError
 
-    assert str(Address("read", "result", "email")) == "read.result.email"
+    assert str(Source("read", "result", "email")) == "read.result.email"
     with pytest.raises(ValidationError) as refused:
-        Address("loud/shout", "result")
+        Source("loud/shout", "result")
     assert [error["type"] for error in refused.value.errors()] == ["not_a_name"]

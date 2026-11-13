@@ -59,7 +59,7 @@ def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dic
     ``code`` as ``ctx.error`` (``failed`` when it gives none, ``external_failed`` for an ``ExternalError``) and its
     ``ctx`` as ``ctx.error_ctx``; any other exception gives its class name. A hook that gives a field a name it
     cannot have fails at that name, with ``error`` ``not_a_name``: a name is not empty and has none of ``.``, ``/``,
-    ``@`` and ``~``, the characters addresses, node paths and waiting ids are written with. Change the constant the
+    ``@`` and ``~``, the characters sources, node paths and waiting ids are written with. Change the constant the
     hook reads, or fix the hook. In the example, ``pick``'s hook raises ``ValueError`` for an empty text.
 
     Args:
@@ -206,7 +206,7 @@ def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: 
     Args:
         loc: The node the edge leads into, and the input.
         missing: The id of the node that is not in the graph record.
-        source: The edge's source, as an address.
+        source: The edge's source, as text: ``"a.result"``.
         target: The input the edge leads into, as ``node.input``.
 
     Example:
@@ -411,7 +411,7 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
     Args:
         node_id: The node.
         field: The input.
-        sources: The edges' sources, as addresses.
+        sources: The edges' sources, as text.
 
     Example:
         problems({"nodes": {
@@ -436,7 +436,7 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
     Args:
         node_id: The node at the edge's target.
         field: The input.
-        source: The edge's source, as an address.
+        source: The edge's source, as text: ``"a.result"``.
         got: The type the source gives.
         expected: The type the input takes.
 
@@ -463,7 +463,7 @@ def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got
     Args:
         node_id: The node at the edge's target.
         field: The input.
-        source: The edge's source, as an address.
+        source: The edge's source, as text: ``"a.result"``.
         got: The type the source gives.
         expected: The type the input takes.
         whole: Whether the source is a table or a list.
@@ -491,7 +491,7 @@ def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: s
     Args:
         node_id: The node at the edge's target.
         field: The input.
-        source: The edge's source, as an address.
+        source: The edge's source, as text: ``"a.result"``.
         got: The type the source gives.
         expected: The type the input takes.
         column: The first column the input needs that the table does not have.
@@ -602,13 +602,13 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
 def unknown_output(*loc: str | int, source: str, outputs: list[str], record_field: str | None = None) -> str:
     """An edge's source is an output, or a field of one, that its node does not have.
 
-    Wire from one of the addresses ``ctx.outputs`` lists. An edge may name one field of a record an output gives,
+    Wire from one of the outputs ``ctx.outputs`` lists. An edge may name one field of a record an output gives,
     ``node.output.field``; ``ctx.outputs`` lists those too.
 
     Args:
         loc: The node at the edge's target, and the input.
-        source: The edge's source, as an address.
-        outputs: The addresses the source's node has.
+        source: The edge's source, as text: ``"a.result"``.
+        outputs: The outputs the source's node has, as text.
         record_field: The field of a record the edge names, when the record has no field by that name.
 
     Example:
@@ -629,8 +629,8 @@ def unknown_output_make_a_series(*loc: str | int, source: str, outputs: list[str
 
     Args:
         loc: The node at the edge's target, and the input.
-        source: The edge's source, as an address.
-        outputs: The addresses the source's node has.
+        source: The edge's source, as text: ``"a.result"``.
+        outputs: The outputs the source's node has, as text.
         record_field: The field the edge names.
         whole: Whether the source is a table or a list.
         fields: The fields each row or item has, so an editor can offer them; empty when they are not known.

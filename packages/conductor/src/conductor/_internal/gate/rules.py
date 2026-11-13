@@ -13,7 +13,7 @@ type's schema when it builds a validator from it, once per type:
   (``not_its_class``, in ``output_schema_of``).
 
 Two more rules hold for every value and are declared where the order of imports needs them: a node id and the
-name of an input or output hold none of the characters addresses are written with (``address.is_name``), and a
+name of an input or output hold none of the characters sources are written with (``place.is_name``), and a
 set has no order, so it is never read as a list (``series.set_has_no_order``). A run's limits are read by the
 inputs door (``check_limits``).
 

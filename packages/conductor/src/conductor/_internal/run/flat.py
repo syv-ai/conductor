@@ -141,7 +141,7 @@ class FlatFunctionNode(_FlatNodeBase):
         looped_outputs: The ``Series`` outputs of the node that some edge reads one item at a time, by output
             name. A run holds each to ``max_items``. The value is the node and output that the reading node's
             graph names the list by: this node, or, when the reading node is outside a subgraph this node is
-            inside, that subgraph and the output's address in it. The item-limit problem names the list that
+            inside, that subgraph and the name of its output that gives the list. The item-limit problem names the list that
             way.
         upstream: Each function node whose outcomes a call of this node reads, with a number ``n``: the call at
             ``item_indexes`` reads that node's outcome at ``item_indexes[:n]``, or, when that node is inside

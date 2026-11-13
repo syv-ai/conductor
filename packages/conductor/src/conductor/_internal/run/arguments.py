@@ -94,8 +94,8 @@ class ResultReader:
         """
         arguments = node.constants.copy()
         graph_inputs = self.graph_inputs
-        for name, address in node.graph_inputs:
-            arguments[name] = graph_inputs[address]
+        for name, graph_input in node.graph_inputs:
+            arguments[name] = graph_inputs[graph_input]
         none_input: str | None = None
         fault: InvalidCallError | None = None
         ready = True

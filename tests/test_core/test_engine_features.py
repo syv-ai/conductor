@@ -611,8 +611,8 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
 
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
-def test_a_hook_naming_a_field_with_a_character_of_an_address_is_a_problem_as_a_node_id_is(name: str):
-    """An output name follows the node id rule: not empty, and none of the characters that addresses, locs and
+def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_node_id_is(name: str):
+    """An output name follows the node id rule: not empty, and none of the characters that sources, locs and
     waiting ids use."""
     @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {name: str})
     def dotted() -> Mapping[str, Any]:

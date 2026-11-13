@@ -548,9 +548,9 @@ def test_renaming_an_inner_node_keeps_the_subgraphs_input_and_output_names():
 def test_a_constant_for_an_input_the_subgraph_does_not_offer_is_unknown_input():
     named_like_an_output = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"constant": "a"}, "result": {"constant": "b"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), REGISTRY).problems
     assert [(p.type, p.loc) for p in named_like_an_output] == [("unknown_input", ("e", "result"))]
-    with pytest.raises(InvalidCallError) as by_inner_address:
+    with pytest.raises(InvalidCallError) as by_inner_source:
         Graph.compile(json.dumps({"nodes": {"e": {"node": "enrich", "inputs": {"upper.text": {"constant": "a"}}}}}), REGISTRY)
-    assert [(p.type, p.loc) for p in by_inner_address.value.problems] == [("invalid_record", ("record", "nodes", "e", "inputs", "upper.text", "[key]"))]
+    assert [(p.type, p.loc) for p in by_inner_source.value.problems] == [("invalid_record", ("record", "nodes", "e", "inputs", "upper.text", "[key]"))]
 
 
 def test_a_table_returned_inside_a_subgraph_is_offered_whole_as_one_value():
@@ -742,7 +742,7 @@ def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failur
     assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("d",), "added_input_taken")
 
 
-def test_a_wrong_address_on_a_subgraph_node_is_unknown_output_or_unknown_input_on_it():
+def test_a_wrong_source_on_a_subgraph_node_is_unknown_output_or_unknown_input_on_it():
     def found(record: dict[str, Any]) -> list[tuple[str, tuple[Any, ...]]]:
         return [(p.type, p.loc) for p in Graph.compile(GraphRecord.model_validate(record), OUTSIDE).problems]
 

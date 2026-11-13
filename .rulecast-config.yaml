@@ -28,7 +28,7 @@ repos:
 
       - id: touch/addresses
         name: Where JSON and place text are read
-        files: '^(packages/conductor/src/conductor/_internal/(base/address|gate/record|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
+        files: '^(packages/conductor/src/conductor/_internal/(base/place|gate/record|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
         stages: [touch]
         context:
           - "@conventions/validation.md#text-is-read-once-at-its-door"
@@ -384,7 +384,7 @@ repos:
       - id: types/no-alias-for-a-container
         name: No alias that only renames a dict, list or tuple
         files: '^packages/[^/]+/src/.*\.py$'
-        exclude: '^packages/conductor/src/conductor/_internal/base/address\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/base/place\.py$'
         detect:
           ast-grep:
             language: python
@@ -513,7 +513,7 @@ repos:
                     """A graph as a host saves it: its nodes by id, and the outputs it declares."""
 
                     nodes: dict[str, NodeRecord]
-                    outputs: dict[str, Address] = {}
+                    outputs: dict[str, Source] = {}
 
 
                 def node_ids(record: GraphRecord) -> list[str]:
@@ -523,14 +523,14 @@ repos:
                     """A graph as a host saves it: its nodes by id, and the outputs it declares."""
 
                     nodes: dict[str, NodeRecord]
-                    outputs: dict[str, Address] = {}
+                    outputs: dict[str, Source] = {}
 
 
                 class ListedGraphRecord(ConductorModel):
                     """A graph as a list of its nodes, each with its id, and the outputs it declares."""
 
                     nodes: list[NodeRecord]
-                    outputs: dict[str, Address] = {}
+                    outputs: dict[str, Source] = {}
 
 
                 def node_ids(record: GraphRecord) -> list[str]:
@@ -634,7 +634,7 @@ repos:
                 - pattern: $T.rsplit(".", $$$)
                 - pattern: $T.partition(".")
                 - pattern: $T.rpartition(".")
-        message: "{{file}}:{{line}} splits text at a dot by hand: `{{text}}`. A dotted place is read once, by make_graph; keep the Address or NodePath it gives."
+        message: "{{file}}:{{line}} splits text at a dot by hand: `{{text}}`. A dotted place is read once, by make_graph; keep the Source or NodePath it gives."
         context:
           - "@conventions/validation.md#text-is-read-once-at-its-door"
         examples:

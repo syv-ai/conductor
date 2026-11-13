@@ -14,7 +14,6 @@ from unittest import mock
 import pytest
 from conductor import (
     SKIPPED,
-    Address,
     Ask,
     Graph,
     GraphRecord,
@@ -27,6 +26,7 @@ from conductor import (
     Policy,
     Run,
     Series,
+    Source,
     Table,
     Upgrade,
     make_graph,
@@ -272,7 +272,7 @@ def test_an_upgrade_moves_an_edge_reading_a_subgraphs_output_to_the_name_the_new
     reg = registry_of(upper, lower, tail, v2)
     outer = GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "version": 1, "inputs": {"text": {"graph_input": "text"}}}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "e", "output": "result"}]}}}}, "outputs": {"result": {"node": "u", "output": "result"}}})
     newer = reg.upgrade(outer, "e")
-    assert newer.nodes["u"].inputs["text"].sources == (Address("e", "dotted"),)
+    assert newer.nodes["u"].inputs["text"].sources == (Source("e", "dotted"),)
     assert Graph.compile(newer, reg).run(text="Hi").outputs == {"result": "HI.."}
 
 
@@ -289,7 +289,7 @@ def test_upgrade_renames():
     stored = GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "g": {"node": "greet", "inputs": {"name": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "g", "output": "result"}}})
     assert Graph.compile(stored, reg).run(text="ida").outputs == {"result": "hello IDA"}
     moved = reg.upgrade(stored, "g")
-    assert moved.nodes["g"].inputs == {"who": InputEntry(sources=(Address("u", "result"),))}
+    assert moved.nodes["g"].inputs == {"who": InputEntry(sources=(Source("u", "result"),))}
     assert Graph.compile(moved, reg).run(text="ida").outputs == {"result": "hello IDA!"}
 
 

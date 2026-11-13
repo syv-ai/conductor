@@ -9,20 +9,20 @@ from typing import Annotated
 from pydantic import MISSING, AfterValidator
 from pydantic_core import PydanticCustomError
 
-from conductor._internal.base import Address, ConductorModel, Name
+from conductor._internal.base import ConductorModel, Name, Source
 
 from .node import JSON_ONLY, NodeRecord
 
 
-def _whole_output(address: Address) -> Address:
-    """Returns ``address`` when it names a whole output.
+def _whole_output(source: Source) -> Source:
+    """Returns ``source`` when it names a whole output.
 
     Raises:
         PydanticCustomError: It names one field of an output (``output_has_field``): a graph output is a whole output.
     """
-    if address.field is not None:
+    if source.field is not None:
         raise PydanticCustomError("output_has_field", "a graph output is a whole output; give a node the field through an edge")
-    return address
+    return source
 
 
 class GraphRecord(ConductorModel):
@@ -43,7 +43,7 @@ class GraphRecord(ConductorModel):
     model_config = ConductorModel.model_config | JSON_ONLY
 
     nodes: Mapping[Name, NodeRecord] = {}
-    outputs: Mapping[Name, Annotated[Address, AfterValidator(_whole_output)]] = {}
+    outputs: Mapping[Name, Annotated[Source, AfterValidator(_whole_output)]] = {}
 
     @property
     def input_names(self) -> tuple[Name, ...]:

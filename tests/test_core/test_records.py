@@ -9,7 +9,6 @@ from typing import Any, NotRequired, TypedDict
 import polars as pl
 import pytest
 from conductor import (
-    Address,
     Graph,
     GraphRecord,
     InputEntry,
@@ -18,6 +17,7 @@ from conductor import (
     NodeRecord,
     Run,
     Series,
+    Source,
     Table,
     make_graph,
     node,
@@ -80,11 +80,11 @@ def mails(found: Series[str | None]) -> int:
 def _graph(source: Any = contacts) -> Any:
     reads = {"greet": ("name", "name"), "one": ("contact", None), "every": ("found", None), "names": ("found", "name"), "mails": ("found", "email")}
     readers = {
-        node_id: NodeRecord(node=node_id, inputs={name: InputEntry(sources=[Address("c", "result", field)])}) for node_id, (name, field) in reads.items()
+        node_id: NodeRecord(node=node_id, inputs={name: InputEntry(sources=[Source("c", "result", field)])}) for node_id, (name, field) in reads.items()
     }
     return Graph.compile(GraphRecord(
         nodes={"c": NodeRecord(node=source.id, inputs={"text": InputEntry(graph_input="text")}), **readers},
-        outputs={node_id: Address(node_id, "result") for node_id in reads},
+        outputs={node_id: Source(node_id, "result") for node_id in reads},
     ), registry_of(source, greet, one, every, names, mails))
 
 

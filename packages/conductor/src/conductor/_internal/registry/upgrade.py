@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import MISSING
 
-from conductor._internal.base import Address
+from conductor._internal.base import Source
 from conductor._internal.gate import read_record, record_values
 from conductor._internal.node import NodeDefinition, gone_inputs
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
@@ -59,7 +59,7 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
             )
             for other, node in graph.nodes.items()
         }
-        outputs = {name: _renamed_source(address, node_id, upgrade.renamed_outputs) for name, address in graph.outputs.items()}
+        outputs = {name: _renamed_source(source, node_id, upgrade.renamed_outputs) for name, source in graph.outputs.items()}
         # unchecked until here: the door checks what the step wrote
         graph = read_record(GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"), written_by=f"the Upgrade of '{node_record.node}' to version {step.version}")
     return graph
@@ -98,6 +98,6 @@ def _renamed(entry: InputEntry, node_id: str, renames: Mapping[str, str]) -> Inp
     return InputEntry.model_construct(constant=entry.constant, sources=tuple(_renamed_source(source, node_id, renames) for source in entry.sources))
 
 
-def _renamed_source(source: Address, node_id: str, renames: Mapping[str, str]) -> Address:
+def _renamed_source(source: Source, node_id: str, renames: Mapping[str, str]) -> Source:
     """``source`` read under the new name of its output, when it is an output of ``node_id`` that a step renames."""
-    return Address(source.node, renames[source.output], source.field) if source.node == node_id and source.output in renames else source
+    return Source(source.node, renames[source.output], source.field) if source.node == node_id and source.output in renames else source

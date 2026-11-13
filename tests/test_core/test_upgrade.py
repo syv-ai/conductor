@@ -11,7 +11,6 @@ from typing import Annotated
 
 import pytest
 from conductor import (
-    Address,
     Graph,
     GraphRecord,
     InputEntry,
@@ -20,6 +19,7 @@ from conductor import (
     NodeRecord,
     NodeRegistry,
     Param,
+    Source,
     Upgrade,
     host_type,
     make_graph,
@@ -81,9 +81,9 @@ def _graph(version: int = 1) -> GraphRecord:
     return GraphRecord(
         nodes={
             "r": NodeRecord(node="rename", version=version, inputs={"name": InputEntry(constant="Ada Lovelace")} if version == 1 else {}),
-            "e": NodeRecord(node="echo", inputs={"text": InputEntry(sources=(Address("r", "result" if version < 3 else "text"),))}),
+            "e": NodeRecord(node="echo", inputs={"text": InputEntry(sources=(Source("r", "result" if version < 3 else "text"),))}),
         },
-        outputs={"result": Address("e", "result")},
+        outputs={"result": Source("e", "result")},
     )
 
 

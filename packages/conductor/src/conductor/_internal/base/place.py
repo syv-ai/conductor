@@ -20,14 +20,14 @@ registered as a node definition. The subgraph ``loud`` is the graph ``strip -> s
   written ``"loud@1/shout"``: the loop over ``lines.result`` is in the outer graph, where the node inside it is
   ``loud``, so the index follows ``"loud"``. A host is given a loc when it
   is told about one call, as in ``run.not_called``: ``NotCalled(loc=("loud", 1, "shout"), input="line")``.
-- An **address** names one output of a node of a graph record, or one field of the record an output returns:
-  ``Address("lines", "result")``, written ``"lines.result"``. A graph record writes where each edge comes from as
-  one. Inside the engine, an output deep in a graph is its node's path and its name: compiling names a loop and an
+- A **source** names one output of a node of a graph record, or one field of the record an output returns: where
+  an edge, or a graph output, reads from. ``Source("lines", "result")`` is written ``"lines.result"``. A graph
+  record writes where each edge comes from as one. Inside the engine, an output deep in a graph is its node's path and its name: compiling names a loop and an
   edge's source so, ``(("loud", "shout"), "result")``.
 
 Because these are written with ``.``, ``/``, ``@`` and ``~`` (``~`` comes before the fingerprint of a waiting
 call's id, ``"loud@1/shout~3f2a"``), no node id and no name of an input or output contains one of them (``is_name``).
-``Name`` holds every name in a graph record to that rule, and an ``Address`` checks its parts when it is made.
+``Name`` holds every name in a graph record to that rule, and a ``Source`` checks its parts when it is made.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ ItemIndexes = tuple[int, ...]
 Loc = tuple[str | int, ...]
 
 
-#: A node id, or the name of an input or output: not empty, and none of the characters addresses, node paths, locs
+#: A node id, or the name of an input or output: not empty, and none of the characters sources, node paths, locs
 #: and waiting ids are written with. ``"shout"`` and ``"text-split"`` are names; ``"a.b"`` and ``"loud/shout"`` are not.
 _NAME = re.compile(r"^[^./@~]+$")
 
@@ -82,13 +82,14 @@ def _a_name(text: str) -> str:
 Name = Annotated[str, AfterValidator(_a_name)]
 
 @dataclass(frozen=True, slots=True, config=ConfigDict(extra="forbid"))
-class Address:
-    """One output of a node of a graph, or one field of the record an output returns: where an edge comes from.
+class Source:
+    """One output of a node of a graph, or one field of the record an output returns: where an edge, or a graph
+    output, reads from.
 
     A graph record writes it as ``{"node": "lines", "output": "result"}``, and a field as ``{"node": "read",
     "output": "result", "field": "email"}``. A subgraph node's outputs are the graph outputs its graph record
-    declares, each a name like any other output's. Every part is checked when an address is made, from Python as
-    from JSON: ``Address("loud/shout", "result")`` raises, as a node id is a name. As text, for a person to read, it
+    declares, each a name like any other output's. Every part is checked when a source is made, from Python as
+    from JSON: ``Source("loud/shout", "result")`` raises, as a node id is a name. As text, for a person to read, it
     is what ``place_text`` writes: ``"lines.result"``, ``"read.result.email"``.
 
     Attributes:

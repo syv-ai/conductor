@@ -29,7 +29,7 @@ class RunsOn(ConductorModel):
 
     Attributes:
         mode: ``once``, or ``per_item`` of a ``Series`` output.
-        series: The address of the ``Series`` output whose items the node is called for: the list of the innermost
+        series: The ``Series`` output whose items the node is called for, as its source is written: the list of the innermost
             loop the node is inside. ``None`` for a node called once.
         msg: The same in English, for a person to read.
     """
@@ -57,7 +57,7 @@ class InputSource(ConductorModel):
             that loop gets the same value.
             ``collected``: every item of ``series``, as one list.
             ``missing``: no value; a problem of the graph says why.
-        series: The address of a ``Series`` output. For ``item`` and ``collected``, the list the items are of.
+        series: A ``Series`` output, as its source is written: ``"lines.result"``. For ``item`` and ``collected``, the list the items are of.
             For ``outer_value``, the list of the loop the value's own node is inside, and ``None`` when that node
             is inside no loop. ``None`` for every other mode, and for ``collected`` when the input is wired to
             one value, which it gets as a list of one.

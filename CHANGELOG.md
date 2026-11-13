@@ -30,7 +30,7 @@ What changes in how you work, before the name-by-name tables:
   of them otherwise, on top of that, and two of one name are refused (`graph_inputs_share_a_name`,
   `graph_outputs_share_a_name`). A node given as `(id, definition)` gets that id. `Graph.compile` takes a
   `GraphRecord`, its JSON text or that JSON as data, and `read_json(text)` reads JSON text with every key seen. New
-  public names: `InputEntry`, `Address`, `read_json`. New codes: `input_has_no_value`, `graph_input_used_two_ways`,
+  public names: `InputEntry`, `Source`, `read_json`. New codes: `input_has_no_value`, `graph_input_used_two_ways`,
   `graph_output_not_found`, `graph_inputs_share_a_name`, `graph_outputs_share_a_name`, `not_a_place`.
 - **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
   without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
@@ -368,8 +368,8 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.results.filter_all_skipped` | gone: a skipped item is `None` in `run.results` |
 | `conductor.execution.results.filter_skipped` | gone: a skipped item is `None` in `run.results` |
 | `conductor.execution.results.normalize_result` | gone: what a node returns is checked against its type |
-| `conductor.execution.results.OutputRef` | an address, `node.output` |
-| `conductor.execution.results.project_outputs` | `run.outputs`, by address |
+| `conductor.execution.results.OutputRef` | a `Source`, written `node.output` |
+| `conductor.execution.results.project_outputs` | `run.outputs`, by the names of the graph's outputs |
 | `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `cause` |
 | `execute_sync` | `graph.run(**inputs)` |
 | `execute` | `graph.run(**inputs)` returns a `Run`; `run.stream()` yields its events |
