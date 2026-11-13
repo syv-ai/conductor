@@ -76,7 +76,7 @@ class _Version:
     """What every version of a node has, whether it is a function or a subgraph.
 
     Never made on its own: a version is a ``FunctionDefinition`` or a ``SubgraphDefinition``, the two kinds of
-    ``NodeDefinition``. Each kind answers ``where_declared``, ``declared_inputs``, ``required_inputs`` and
+    ``NodeDefinition``. Each kind answers ``where_declared``, ``input_names``, ``required_inputs`` and
     ``output_names`` in its own way, so no caller asks which kind it holds to learn them.
 
     Attributes:
@@ -202,9 +202,9 @@ class FunctionDefinition[**P, R](_Version):
         return qualified_name(self.function)
 
     @property
-    def declared_inputs(self) -> Mapping[str, Field]:
-        """The inputs its signature declares, which are ``inputs``."""
-        return self.inputs
+    def input_names(self) -> tuple[str, ...]:
+        """The names of the inputs its signature declares."""
+        return tuple(self.inputs)
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
@@ -247,9 +247,9 @@ class SubgraphDefinition(_Version):
         return f"the subgraph titled {self.title!r} (versions {', '.join(map(str, self.versions))})"
 
     @property
-    def declared_inputs(self) -> Mapping[str, Field]:
-        """Empty: a subgraph declares no inputs of its own, as their types are known only when a graph using it is compiled."""
-        return {}
+    def input_names(self) -> tuple[str, ...]:
+        """The graph inputs its record names."""
+        return self.graph.input_names
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
@@ -264,6 +264,16 @@ class SubgraphDefinition(_Version):
 
 #: One version of a node: a function, or a subgraph.
 type NodeDefinition = FunctionDefinition[..., Any] | SubgraphDefinition
+
+
+def gone_inputs(older: NodeDefinition, newer: NodeDefinition) -> set[str]:
+    """The inputs of ``older`` that ``newer``, the version replacing it, neither has nor renames."""
+    return set(older.input_names) - set(newer.input_names) - newer.upgrade.renamed_inputs.keys()
+
+
+def gone_outputs(older: NodeDefinition, newer: NodeDefinition) -> set[str]:
+    """The outputs of ``older`` that ``newer``, the version replacing it, neither has nor renames."""
+    return set(older.output_names) - set(newer.output_names) - newer.upgrade.renamed_outputs.keys()
 
 
 def with_defaults(definition: NodeDefinition, *, tags: tuple[str, ...], category: str, extra: Mapping[str, JsonValue]) -> NodeDefinition:

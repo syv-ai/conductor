@@ -18,6 +18,7 @@ from .type import (
     NodeDefinition,
     SubgraphDefinition,
     Upgrade,
+    gone_inputs,
     read_by_hooks,
     with_defaults,
 )

@@ -87,6 +87,8 @@ from .type import (
     NodeFunction,
     SubgraphDefinition,
     Upgrade,
+    gone_inputs,
+    gone_outputs,
 )
 
 
@@ -201,7 +203,9 @@ def subgraph(
     The record is given as ``Graph.compile`` takes one: a ``GraphRecord`` or
     its JSON text. Text of the wrong shape raises ``InvalidCallError`` with
     ``invalid_record`` problems. The arguments mean what they mean on
-    ``@node``. There is no ``policy`` and there are no hooks: the nodes inside
+    ``@node``, and a newer version that drops an input or output of the one it
+    replaces needs an ``Upgrade`` saying where it went, as there (``upgrade_missing``).
+    There is no ``policy`` and there are no hooks: the nodes inside
     the subgraph are called by their own. It registers nothing:
     ``registry.add(enrich)`` offers it, and ``registry.subgraph`` takes
     the same arguments and adds the node too.
@@ -209,11 +213,17 @@ def subgraph(
     number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
-        return SubgraphDefinition(
+        definition = SubgraphDefinition(
             graph=read_record(record), id=id, version=number, title=title, description=description, category=category,
             tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation, replaces=replaces,
             upgrade=upgrade or Upgrade(),
         )
+        if replaces is not None:
+            try:
+                _raise_if_upgrade_is_missing(replaces, definition)
+            except NodeDeclarationError as error:
+                raise error.within(f"subgraph({id!r})") from None
+        return definition
 
     return make
 
@@ -364,21 +374,15 @@ def _check_hook(hook: Callable[..., Any], kind: HookName, inputs: Mapping[str, F
     return parameters
 
 
-def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: FunctionDefinition[..., Any]) -> None:
-    """A field name of the replaced version that is gone from the newer one needs an upgrade to say where it went.
+def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: NodeDefinition) -> None:
+    """An input or output of the replaced version that is gone from the newer one needs an upgrade to say where it
+    went, for a function and a subgraph alike.
 
     A gone input is explained by a rename or a ``rewrite``, which rewrites what is typed in; a gone output only by a
     rename, since the edges out of it are what moves.
     """
-    match older:
-        case SubgraphDefinition():  # its fields are known only when a graph using it loads
-            return
-        case FunctionDefinition():
-            gone_inputs = set(older.inputs) - set(newer.inputs)
-            gone_outputs = set(older.outputs) - set(newer.outputs)
-    upgrade = newer.upgrade
-    unexplained = gone_outputs - set(upgrade.renamed_outputs)
-    if upgrade.rewrite is None:
-        unexplained |= gone_inputs - set(upgrade.renamed_inputs)
+    unexplained = gone_outputs(older, newer)
+    if newer.upgrade.rewrite is None:
+        unexplained |= gone_inputs(older, newer)
     if unexplained:
         raise NodeDeclarationError(declaration_problems.upgrade_missing(gone=sorted(unexplained)))

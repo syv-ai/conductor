@@ -156,6 +156,11 @@ What changes in how you work, before the name-by-name tables:
   A waiting id has one spelling, the one `run.waiting` gives (or that text without `~` and its fingerprint); any other names nothing and is `not_waiting`: `e/ask@0` for `e@0/ask`, `ask@01`, `ask@0~`.
 - **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
   as their type says. `InvalidCallError` with `invalid_record` problems is what JSON text of the wrong shape raises.
+- **`registry.upgrade` drops an input the newer version doesn't have, for a subgraph as for a function.** What it gets (a constant, a graph input
+  or the edges into it) goes once a `rewrite` has read its constant or default, and a subgraph's inputs are the graph inputs its record names, so
+  a subgraph node upgraded to a version that takes fewer graph inputs compiles clean (it kept them, and compiling said `unknown_input`). A subgraph's
+  newer version that drops a graph input or output of the one it replaces needs an `Upgrade` saying where it went, as a function's does
+  (`upgrade_missing` where it is declared).
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
   complete, waiting or ended early, and whose `state` is `Going` or, for a run that failed, stopped, was cancelled or timed out,
   `EndedEarly` with its `cause` (`match run.state`). It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes

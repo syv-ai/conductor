@@ -2,7 +2,8 @@
 
 ``split`` at version 1 takes ``sep``; version 2 takes ``separator`` and says ``Upgrade(renamed_inputs={"sep":
 "separator"})``. Upgrading a record whose ``split`` is at version 1 moves what ``sep`` gets (its constant, its graph
-input or the edges into it) to ``separator`` and sets the version to 2.
+input or the edges into it) to ``separator`` and sets the version to 2. An input the newer version neither has nor
+renames goes, for a function's version and a subgraph's alike, once a ``rewrite`` has read its constant or default.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pydantic import MISSING
 
 from conductor._internal.base import Address
 from conductor._internal.gate import read_record, record_values
-from conductor._internal.node import NodeDefinition
+from conductor._internal.node import NodeDefinition, gone_inputs
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
@@ -46,13 +47,11 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
     for step, older in reversed(steps):
         upgrade = step.upgrade
-        gone = older.declared_inputs.keys() - step.declared_inputs.keys() - upgrade.renamed_inputs.keys()
-        inputs = {
-            upgrade.renamed_inputs.get(name, name): entry for name, entry in graph.nodes[node_id].inputs.items()
-            if not (name in gone and entry.sources is not MISSING)
-        }
+        gone = gone_inputs(older, step)
+        renamed = {upgrade.renamed_inputs.get(name, name): entry for name, entry in graph.nodes[node_id].inputs.items()}
+        inputs = {name: entry for name, entry in renamed.items() if name not in gone}
         if upgrade.rewrite is not None:
-            inputs = _rewritten(node_id, inputs, upgrade.rewrite)
+            inputs = _rewritten(node_id, renamed, inputs, upgrade.rewrite)
         records = {
             other: NodeRecord.model_construct(
                 node=node.node, version=step.version if other == node_id else node.version, display=node.display,
@@ -66,15 +65,18 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
     return graph
 
 
-def _rewritten(node_id: str, inputs: Mapping[str, InputEntry], rewrite: Callable[[dict[str, Any]], Mapping[str, Any]]) -> dict[str, InputEntry]:
-    """``inputs`` after an ``Upgrade``'s ``rewrite``: it is given the node's constants and its graph inputs' defaults as
-    one map, and what it returns is written as JSON. A graph input's default stays one; every other value returned is a
-    constant. A constant it does not return goes, and so does a default.
+def _rewritten(
+    node_id: str, renamed: Mapping[str, InputEntry], inputs: Mapping[str, InputEntry], rewrite: Callable[[dict[str, Any]], Mapping[str, Any]],
+) -> dict[str, InputEntry]:
+    """``inputs`` after an ``Upgrade``'s ``rewrite``: it is given the constants and graph inputs' defaults of
+    ``renamed``, which still has the inputs the step drops, as one map, and what it returns is written as JSON. A graph
+    input's default stays one; every other value returned is a constant. A constant it does not return goes, and so
+    does a default.
 
     Raises:
         InvalidCallError: A value it returns has no JSON form (``invalid_value``).
     """
-    values = {name: entry.default if entry.constant is MISSING else entry.constant for name, entry in inputs.items() if entry.constant is not MISSING or entry.default is not MISSING}
+    values = {name: entry.default if entry.constant is MISSING else entry.constant for name, entry in renamed.items() if entry.constant is not MISSING or entry.default is not MISSING}
     written = record_values(node_id, rewrite(values))
     kept = {
         name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)

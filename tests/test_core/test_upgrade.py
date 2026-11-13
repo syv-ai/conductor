@@ -22,6 +22,7 @@ from conductor import (
     Param,
     Upgrade,
     host_type,
+    make_graph,
     node,
     subgraph,
 )
@@ -183,20 +184,48 @@ def test_an_edge_into_an_input_the_step_renames_moves_with_it():
     assert _inputs(upgraded, "r") == {"full": {"sources": [{"node": "src", "output": "result"}]}}
 
 
-def test_an_edge_into_an_input_a_rewrite_removes_is_removed_and_the_graph_compiles_clean():
-    def summed_v1(a: int, b: int) -> int:
+def _versions_of_summed(kind: str, upgrade: Upgrade | None):
+    """Two versions of the node ``summed``, as functions or as subgraphs: the first takes ``a`` and ``b``, the
+    second only ``a``. Returns the newer version and the nodes the subgraphs use."""
+
+    @node("join", title="Join", description="For a test.")
+    def join(a: int, b: int) -> int:
         return a + b
 
-    @node("summed", title="Summed", description="For a test.", replaces=node("summed", title="Summed v1", description="For a test.")(summed_v1), upgrade=Upgrade(rewrite=lambda before: {k: v for k, v in before.items() if k != "b"}))
-    def summed(a: int) -> int:
+    @node("one", title="One", description="For a test.")
+    def one(a: int) -> int:
         return a
 
+    if kind == "function":
+        older = node("summed", title="Summed v1", description="For a test.")(join.function)
+        return node("summed", title="Summed", description="For a test.", replaces=older, upgrade=upgrade)(one.function), []
+    older = subgraph("summed", title="Summed v1", description="For a test.")(make_graph(join))
+    return subgraph("summed", title="Summed", description="For a test.", replaces=older, upgrade=upgrade)(make_graph(one)), [join, one]
+
+
+_KINDS = pytest.mark.parametrize("kind", ["function", "subgraph"])
+
+
+@_KINDS
+def test_a_version_that_drops_an_input_needs_an_upgrade_for_a_function_and_a_subgraph_alike(kind: str) -> None:
+    with pytest.raises(NodeDeclarationError) as raised:
+        _versions_of_summed(kind, None)
+    assert raised.value.code == "upgrade_missing" and "summed" in str(raised.value)
+
+
+@_KINDS
+@pytest.mark.parametrize("gone", [
+    {"constant": 2}, {"graph_input": "bee"}, {"sources": [{"node": "t", "output": "result"}]},
+], ids=["constant", "graph-input", "edge"])
+def test_an_input_the_upgrade_removes_loses_its_constant_its_graph_input_or_its_edges(kind: str, gone: dict) -> None:
     @node("three", title="Three", description="For a test.")
     def three() -> int:
         return 3
 
-    registry = registry_of(three, summed)
-    graph = GraphRecord.model_validate({"nodes": {"t": {"node": "three"}, "s": {"node": "summed", "inputs": {"a": {"constant": 1}, "b": {"sources": [{"node": "t", "output": "result"}]}}}}})
+    summed, used = _versions_of_summed(kind, Upgrade(rewrite=lambda before: {k: v for k, v in before.items() if k != "b"}))
+    registry = registry_of(three, summed, *used)
+    graph = GraphRecord.model_validate({"nodes": {"t": {"node": "three"}, "s": {"node": "summed", "version": 1, "inputs": {"a": {"constant": 1}, "b": gone}}}})
+    assert Graph.compile(graph, registry).problems == []
 
     upgraded = registry.upgrade(graph, "s")
     assert _inputs(upgraded, "s") == {"a": {"constant": 1}}
@@ -292,8 +321,8 @@ def test_an_edge_follows_its_output_when_a_later_step_reuses_the_outputs_old_nam
 
 
 def test_upgrading_a_subgraph_sets_only_its_version():
-    """A subgraph's versions are graph records, with no ``Upgrade`` to run: the node gets the later version and keeps
-    its inputs as saved, and compiling says whether that version accepts them."""
+    """A subgraph whose later version takes the same graph inputs, with no ``Upgrade`` to run: the node gets the later
+    version and keeps its inputs as saved."""
 
     def inner_graph(inner_id: str) -> GraphRecord:
         return GraphRecord(nodes={inner_id: NodeRecord(node="echo", inputs={"text": InputEntry(graph_input="text")})})

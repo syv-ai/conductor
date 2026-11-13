@@ -157,7 +157,11 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given:
     if given:
         values = dict(given[0])
     else:
-        values = {name: made for name, field in older.declared_inputs.items() if (made := _made_up(field)) is not _CANNOT}
+        match older:
+            case FunctionDefinition(inputs=inputs):
+                values = {name: made for name, field in inputs.items() if (made := _made_up(field)) is not _CANNOT}
+            case SubgraphDefinition():  # its inputs' types are known only when a graph using it is compiled
+                values = {}
     newest = registry[older.id].version
     try:
         record = _one_node_graph(older, values)

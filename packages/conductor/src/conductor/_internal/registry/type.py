@@ -313,8 +313,9 @@ class NodeRegistry[C]:
         Runs each newer version's ``Upgrade`` in order and sets the version. Each step first moves what the record
         gives each input it renames (a constant, a graph input or the edges into it) to the new name, then rewrites
         what is typed into the node, its constants and its graph inputs' defaults, as one map: a key that was a graph
-        input's default stays one, and every other key the rewrite returns is a constant, fixed as the author's. The
-        edges into an input the step neither keeps nor renames go. Every edge and graph output from a renamed output,
+        input's default stays one, and every other key the rewrite returns is a constant, fixed as the author's. An
+        input the newer version neither has nor renames goes, with its constant, its graph input or the edges into it,
+        whether the node is a function or a subgraph; a rewrite still reads its constant or default. Every edge and graph output from a renamed output,
         or from a field of it, reads the new name. A
         node already at ``to`` returns the record as it is. The record returned is not compiled here: compile it to
         show the author what the newer version makes of it.

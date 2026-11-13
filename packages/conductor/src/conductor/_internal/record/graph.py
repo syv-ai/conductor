@@ -46,11 +46,15 @@ class GraphRecord(ConductorModel):
     outputs: Mapping[Name, Annotated[Address, AfterValidator(_whole_output)]] = {}
 
     @property
+    def input_names(self) -> tuple[Name, ...]:
+        """The graph inputs its entries name, in the order its nodes name them. Two entries may name one."""
+        return tuple(dict.fromkeys(entry.graph_input for node in self.nodes.values() for entry in node.inputs.values() if entry.graph_input is not MISSING))
+
+    @property
     def required_inputs(self) -> tuple[Name, ...]:
         """The graph inputs a caller must give: each one that no entry naming it gives a default.
 
         Two entries may name one graph input; a default on either is the graph input's default.
         """
-        named = [(entry.graph_input, entry.default is not MISSING) for node in self.nodes.values() for entry in node.inputs.values() if entry.graph_input is not MISSING]
-        defaulted = {name for name, has_default in named if has_default}
-        return tuple(dict.fromkeys(name for name, _ in named if name not in defaulted))
+        defaulted = {entry.graph_input for node in self.nodes.values() for entry in node.inputs.values() if entry.default is not MISSING}
+        return tuple(name for name in self.input_names if name not in defaulted)
