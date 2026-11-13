@@ -21,9 +21,13 @@ Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of t
 input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
 and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
 loops. A loop is named by the list it loops over: the node path of the node that returns the list, and the output's
-name. A source names a node of the compiled graph by its id; the run's flat graph (``run/flat.py``) makes the
-arguments a call reads from these, naming function nodes by their paths (``("loud", "shout")`` for ``shout`` inside
-``loud``).
+name.
+
+An ``EdgeInput`` and a ``CollectingInput`` are made in two places, and their node paths mean a different thing in
+each. Compiling makes them with node paths from the node's own graph: a source is a node of that graph by its id
+(``("shout",)``), a loop over a subgraph's output names the subgraph node first. The run's flat graph
+(``run/flat.py``) makes them again for each use of the node, with the full path of the function node a value
+comes from (``("loud", "shout")`` for ``shout`` inside ``loud``).
 """
 
 from __future__ import annotations
@@ -153,9 +157,11 @@ class EdgeInput:
     Attributes:
         field: The input, as its node declares it.
         sources: What each edge into the input reads. With several edges, each comes from a different branch of
-            one decision, and a call gets the value from the branch that was chosen.
+            one decision, and a call gets the value from the branch that was chosen. Compiled, each names a node of
+            the node's own graph; in the flat graph, the function node it comes from by its full path.
         loops: The loops the input's node must be inside to read the value, outermost first: those of the
-            source with the most loops.
+            source with the most loops. Compiled, the loops inside the node's own graph; in the flat graph, every
+            loop, those of the subgraph nodes it is inside first.
         as_list: Whether a call gets the value as a list of one.
     """
 
@@ -175,10 +181,15 @@ class CollectingInput:
     Attributes:
         field: The input, as its node declares it.
         series: The list whose loop the input collects, as the node path and the output: ``(("lines",), "result")``.
+            Compiled, a node path from the node's own graph; in the flat graph, the full path of the function node
+            that returns the list.
         loops: The loops the input's node must be inside to read the list, outermost first: the loops the node
-            that returns ``series`` is inside. The loop over ``series`` itself is not one of them.
+            that returns ``series`` is inside. The loop over ``series`` itself is not one of them. Compiled, the
+            loops inside the node's own graph; in the flat graph, every loop, those of the subgraph nodes it is
+            inside first.
         sources: What each edge into the input reads for one item. Several edges come from different branches
-            of one decision, as for any input.
+            of one decision, as for any input. Compiled, each names a node of the node's own graph; in the flat
+            graph, the function node it comes from by its full path.
     """
 
     field: Field

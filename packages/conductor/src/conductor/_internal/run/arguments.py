@@ -33,7 +33,7 @@ arguments when some call of ``shout`` may be made.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, assert_never
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.compiled import Edge, EdgeInput
@@ -104,9 +104,9 @@ class ResultReader:
         none_input: str | None = None
         fault: RefusedError | None = None
         ready = True
-        for name, argument in node.edge_arguments.items():
+        for name, node_input in node.edge_inputs.items():
             try:
-                value = self.read_argument(argument, item_indexes)
+                value = self.read_input(node_input, item_indexes)
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
                 if fault is None:
                     reason = f"it has no field '{missing.field}'"
@@ -116,7 +116,7 @@ class ResultReader:
                 return Skipped(node.compiled_node.outputs_when_skipped)
             if value is NotReady.NOT_READY:  # keep reading: a later input may read SKIPPED, which skips the node
                 ready = False
-            elif value is None and none_input is None and not argument.field.whole.optional:
+            elif value is None and none_input is None and not node_input.field.whole.optional:
                 none_input = name
             arguments[name] = value
         if not ready:
@@ -127,20 +127,24 @@ class ResultReader:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_argument(self, argument: EdgeInput | CollectingArgument, item_indexes: ItemIndexes) -> Any:
-        """Returns what ``argument`` reads for the call at ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``,
+    def read_input(self, node_input: EdgeInput | CollectingArgument, item_indexes: ItemIndexes) -> Any:
+        """Returns what ``node_input`` reads for the call at ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``,
         ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
-        if type(argument) is CollectingArgument:
-            return self.collect(argument, item_indexes)
-        if argument.as_list:
-            return self.read_as_list(argument, item_indexes)
-        return self.read_edges(argument.sources, item_indexes)
+        match node_input:
+            case CollectingArgument():
+                return self.collect(node_input, item_indexes)
+            case EdgeInput(as_list=True):
+                return self.read_as_list(node_input, item_indexes)
+            case EdgeInput():
+                return self.read_edges(node_input.sources, item_indexes)
+            case _:
+                assert_never(node_input)
 
-    def read_as_list(self, argument: EdgeInput, item_indexes: ItemIndexes) -> Any:
+    def read_as_list(self, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any:
         """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
         ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
-        value = self.read_edges(argument.sources, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not argument.field.accepts_none_items):
+        value = self.read_edges(node_input.sources, item_indexes)
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return [value]
 
@@ -207,7 +211,7 @@ class ResultReader:
             raise NoSuchFieldError(record_field)
         return cell
 
-    def collect(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def collect(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
 
         In the example, ``collect`` for ``join.texts`` at ``()`` returns ``["A!", "B!"]``: what the edge from
@@ -220,12 +224,12 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        collecting = argument.input
+        collecting = node_input.input
         depth = len(collecting.loops)
         if len(item_indexes) < depth:
-            return self._edges_for_any_item(argument, item_indexes)
+            return self._edges_for_any_item(node_input, item_indexes)
         item_indexes = item_indexes[:depth]
-        series = self._list_looped_over(argument, item_indexes)
+        series = self._list_looped_over(node_input, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = collecting.sources
@@ -242,8 +246,8 @@ class ResultReader:
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _list_looped_over(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
-        """Returns the list whose items ``argument`` collects, when an item of it may have a value for
+    def _list_looped_over(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+        """Returns the list whose items ``node_input`` collects, when an item of it may have a value for
         the input. When no item can, returns what the input is instead, however many items the list has.
 
         In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node
@@ -252,7 +256,7 @@ class ResultReader:
         every call of ``shout`` would be skipped, so ``join.texts`` is ``SKIPPED``, with two lines as with none.
 
         Args:
-            argument: The collecting input.
+            node_input: The collecting input.
             item_indexes: The item indexes of the list.
 
         Returns:
@@ -260,23 +264,23 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        if argument.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
+        if node_input.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
             any_item = type(self)(self.outcomes, self.graph_inputs)
-            for node in argument.loop_body:  # each after the nodes it reads
+            for node in node_input.loop_body:  # each after the nodes it reads
                 any_item.for_any_item[node.node_path] = any_item.arguments_for(node, item_indexes)
-            value = any_item._edges_for_any_item(argument, item_indexes)
+            value = any_item._edges_for_any_item(node_input, item_indexes)
             if value is not MAY_HAVE_VALUE:
                 return value
-        series_node, output = argument.input.series
+        series_node, output = node_input.input.series
         outcome = self.outcomes[series_node].get(item_indexes)
         return outcome.outputs[output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
-    def _edges_for_any_item(self, argument: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def _edges_for_any_item(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
         the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
         keeps as an item (``Series[str | None]``) counts as a value."""
-        value = self.read_edges(argument.input.sources, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not argument.field.accepts_none_items):
+        value = self.read_edges(node_input.input.sources, item_indexes)
+        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return MAY_HAVE_VALUE
 
