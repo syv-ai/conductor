@@ -16,7 +16,7 @@ Pushing a `v*` tag publishes the three packages to PyPI, at one version. The two
 
 ```bash
 uv sync                      # install everything
-uv run pre-commit install    # the commit hooks (both stages): notebook outputs, imports, docstrings, no AI co-sign
+uv run pre-commit install    # the commit hooks: notebook outputs, imports, docstrings
 uv run pytest tests/ -q      # the whole suite
 uvx ruff check .             # lint, as CI runs it
 ```
