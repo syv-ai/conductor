@@ -11,7 +11,6 @@ import polars as pl
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema
 
-from conductor._internal.series import read_as_list
 from conductor._internal.types import Type
 
 from .read import table_schema
@@ -113,6 +112,3 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     def untyped_equal(one: Any, other: Any) -> bool:
         """Returns whether two frames have equal cells. ``==`` on frames returns a frame, not a bool."""
         return isinstance(other, pl.DataFrame) and one.equals(other)
-
-
-read_as_list(pl.Series, pl.Series.to_list)  # a column of a frame given for a Series is the list of its cells
