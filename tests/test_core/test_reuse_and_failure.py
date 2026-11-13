@@ -540,7 +540,7 @@ def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edi
 
 def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_before():
     """Each output checks its own columns: a graph compiled and freed before never passes its column types to another."""
-    import gc
+    import weakref
     from datetime import date
     from typing import TypedDict
 
@@ -567,8 +567,9 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
         graph = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "mk", "inputs": {"kind": {"constant": kind}}}}}), registry)
         value = Run.from_json(graph.run().to_json(), graph).results["m"]["result"]["v"][0]
         assert isinstance(value, date) == (kind == "date"), (i, value)
+        freed = weakref.ref(graph)
         del graph
-        gc.collect()
+        assert freed() is None, i  # freed at once, so the next graph can get its id
 
 
 # -- what again reuses, item by item -----------------------------------------------------------
