@@ -3,11 +3,6 @@ doubt, the function called, and what it returns read into the node's outputs by 
 
 Example: ``call(shout, {"line": "b", "mark": "!"}, None)`` returns ``({"result": "B!"}, None)``. When ``shout`` raises,
 or returns something that is not a ``str``, it returns ``(None, the exception)``.
-
-A node with an ``Asked`` parameter, ``approve(invoice, ok: Annotated[bool, Asked(approval)])``, runs the function the
-flat graph chose for it (``AskedParameter.filling``): ``ok`` from the arguments when a person's answer is there, and
-else from ``approval(invoice=...)``. When ``approval`` raises ``Ask``, ``approve`` is not called and the ``Ask`` is
-returned.
 """
 
 from __future__ import annotations
@@ -28,14 +23,12 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
     """Call the function of ``node`` with ``arguments``, by name, and ``context`` first when the node takes it.
 
     Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources
-    declare (a source of ``Any``, say), each by its type, and an ``Asked`` parameter not in ``arguments`` gets its
-    function's return value. After the call, the node's return door reads what the function returned into its
-    outputs.
+    declare (a source of ``Any``, say), each by its type. After the call, the node's return door reads what the
+    function returned into its outputs.
 
     Args:
         node: The node to call.
-        arguments: The call's arguments by input name, as ``arguments_for`` returns them, and the answer to the
-            node's ``Asked`` parameter by the parameter's name when a person gave one.
+        arguments: The call's arguments by input name, as ``arguments_for`` returns them.
         context: The run's context, as the context door let it in; passed only to a node that takes it.
 
     Returns:
@@ -49,7 +42,7 @@ def call(node: FlatFunctionNode, arguments: dict[str, Any], context: Any) -> tup
     try:
         if (edge_door := node.edge_door) is not None:
             arguments = edge_door(arguments)
-        returned = node.function(**arguments) if definition.context is None else node.function(context, **arguments)
+        returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
     except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
         if isinstance(error, (KeyboardInterrupt, SystemExit)):
             raise

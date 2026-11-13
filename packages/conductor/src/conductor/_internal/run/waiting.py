@@ -36,8 +36,7 @@ class Waiting(ConductorModel):
             runs per item of, ``("approve", 1)``; inside a subgraph,
             the subgraph node and its item first, ``("review", 0, "approve", 1)``.
         prompt: What the node's ``Ask`` said.
-        questions: One per field the answer fills (each output of a node that
-            asks in its own function, or its ``Asked`` parameter): the
+        questions: One per output of the node, which the answer fills: the
             ``FieldDescription`` its ``describe()`` gives, with the ``choices``
             and ``default`` the ``Ask`` set and ``required`` worked out from them.
         inputs: What the node received, as JSON.
@@ -51,18 +50,18 @@ class Waiting(ConductorModel):
 
 
 def waiting_questions(compiled_node: CompiledFunctionNode, overrides: Mapping[str, QuestionOverrides]) -> list[FieldDescription]:
-    """A waiting call's questions: the question about each field the answer fills, with what its ``Ask`` set.
+    """A waiting call's questions: the question about each output, which the answer fills, with what its ``Ask`` set.
 
     Args:
         compiled_node: The node that asks.
-        overrides: What the ``Ask`` set, by field name.
+        overrides: What the ``Ask`` set, by output name.
 
     Returns:
-        A question per field, in the fields' order.
+        A question per output, in the outputs' order.
     """
-    fields = compiled_node.answer_fields
+    outputs = compiled_node.outputs
     return [
-        _overridden(fields[name], question, overrides[name]) if name in overrides else question
+        _overridden(outputs[name], question, overrides[name]) if name in overrides else question
         for name, question in compiled_node.questions.items()
     ]
 
@@ -91,8 +90,8 @@ def waiting_record(compiled_node: CompiledFunctionNode, loc: Loc, waiting: Unans
 
 def question_fingerprint(compiled_node: CompiledFunctionNode, waiting: Unanswered) -> str:
     """Eight hex digits of which node asks, as which code, and what it received, so a waiting id stops matching when
-    its call asks another question. What the node received is all of its inputs, also for an ``Asked`` parameter
-    whose function takes fewer: a change to any of them asks again."""
+    its call asks another question. What the node received is all of its inputs: a change to any of them asks
+    again."""
     inputs = waiting.question.inputs
     values = [inputs[name] for name in sorted(inputs)]  # saved, so the names may come back from a store in any order
     hashed = [compiled_node.id, compiled_node.code_fingerprint, values]

@@ -4,7 +4,7 @@ adds what only the run knows.
 A waiting call is a ``Waiting`` whose ``questions`` are the field records of the node's outputs with what the ``Ask``
 set: ``approve(line: str) -> bool`` raising ``Ask("Approve b?")`` has one question, ``result``, a yes or no.
 ``run.answer`` checks an answer against the questions and the node's types, refuses every fault at once, and calls
-nothing. An ``Asked`` parameter, the other way a node asks, is tested in ``test_asked.py``.
+nothing. A node that uses the answer, wired on from the node that asks, is tested in ``test_asks.py``.
 """
 
 import datetime

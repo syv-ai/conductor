@@ -9,11 +9,9 @@ that a table written once is found where its entry says, and that an answer is f
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Any
 
 from pydantic import ValidationError
 
-from conductor._internal.ask import Answer
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.compiled import (
     CompiledGraph,
@@ -94,7 +92,6 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
             outcomes[path] = {
                 item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True) if outcome is not None
             }
-    answers = _answers_from_saved(flat, read.answers, outcomes)
     code_changed = {
         path: fingerprint for name, fingerprint in read.code.items()
         if fingerprint != flat.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
@@ -103,42 +100,8 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Comp
     reusable = {path: of_node for path, of_node in reused.items() if path not in code_changed}
     return run_type(
         graph, read.inputs, read.max_items, outcomes, reusable, _flat=flat, state=read.state, _code_changed=code_changed,
-        _finished_nodes=frozenset(parse_node_path(name) for name in read.complete), _answers=answers,
+        _finished_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
-
-
-def _answers_from_saved(
-    flat: FlatGraph, saved: Mapping[str, Mapping[int, Any]], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
-) -> dict[NodePath, dict[ItemIndexes, Answer]]:
-    """Turns each waiting call that a saved run has an answer for into that answer, kept until the node is called.
-
-    ``{"approve": {1: True}}`` with ``approve``'s second call waiting takes that ``Unanswered`` out of ``outcomes`` and
-    returns ``{("approve",): {(1,): Answer(its question, "ok", True)}}``.
-
-    Args:
-        flat: The flat graph of the run's graph.
-        saved: The saved run's ``answers``, each read by its node's ``Asked`` parameter: the codec takes them only
-            for such a node.
-        outcomes: The outcomes read so far, by node path. Changed in place.
-
-    Raises:
-        InvalidCallError: An answer names a call that is not waiting (``saved_run_unreadable``).
-    """
-    answers: dict[NodePath, dict[ItemIndexes, Answer]] = {}
-    for name, by_call_number in saved.items():
-        path = parse_node_path(name)
-        node = flat.function_nodes[path]
-        (parameter,) = node.compiled_node.answer_fields
-        every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
-        for call_number, value in by_call_number.items():
-            item_indexes = every_item_indexes[call_number] if call_number < len(every_item_indexes) else None
-            waiting = outcomes[path].get(item_indexes) if item_indexes is not None else None
-            if type(waiting) is not Unanswered or item_indexes is None:
-                reason = "it names a call that is not waiting for a person"
-                raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=f"answers.{name}.{call_number}", reason=reason)])
-            del outcomes[path][item_indexes]
-            answers.setdefault(path, {})[item_indexes] = Answer(waiting.question, parameter, value)
-    return answers
 
 
 def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> list[Outcome | None]:

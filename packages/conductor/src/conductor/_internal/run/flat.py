@@ -36,7 +36,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, assert_never
 from weakref import WeakKeyDictionary
@@ -152,8 +152,6 @@ class FlatFunctionNode(_FlatNodeBase):
             left out of every list of its group, so the lists of one group have the same items.
         edge_door: Reads before each call the inputs whose type demands more than the outputs their edges read
             declare (``gate/edge.py``); ``None`` when no input does.
-        function: What a call runs: the node's function, or for a node with an ``Asked`` parameter that function
-            with the parameter filled (``AskedParameter.filling``), chosen here so a call makes no choice.
         looped_outputs: The ``Series`` outputs of the node that some edge reads one item at a time, by output
             name. A run holds each to ``max_items``. The value is the node and output that the reading node's
             graph names the list by: this node, or, when the reading node is outside a subgraph this node is
@@ -178,7 +176,6 @@ class FlatFunctionNode(_FlatNodeBase):
     edge_arguments: dict[str, EdgeArgument | CollectingArgument]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
     edge_door: EdgeDoor | None
-    function: Callable[..., Any]
     looped_outputs: dict[str, tuple[FlatNode, str]] = dataclasses.field(default_factory=dict[str, tuple["FlatNode", str]])
     upstream: dict[FlatFunctionNode, int] = dataclasses.field(default_factory=dict["FlatFunctionNode", int])
     downstream: list[tuple[FlatFunctionNode, int]] = dataclasses.field(default_factory=list[tuple["FlatFunctionNode", int]])
@@ -397,12 +394,10 @@ def _add_flat_nodes(
             for upstream_node, shared_indexes in (*[(functions[read_path], min(read_depth, depth)) for read_path, read_depth in read], *outside_the_loop):
                 upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
         read_by_door = {name: argument.input.field for name, argument in edge_arguments.items() if _demands_more(argument)}
-        definition = compiled_node.definition
         node = FlatFunctionNode(
             compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops, policy=compiled_node.definition.policy,
             constants=constants, graph_inputs=tuple(graph_inputs), edge_arguments=edge_arguments, lists_from_same_loop=tuple(map(tuple, collecting.values())),
             edge_door=EdgeDoor(read_by_door) if read_by_door else None,
-            function=definition.function if definition.asked is None else definition.asked.filling(definition.function),
             upstream=upstream, position=len(functions),
         )
         if loops and min(node.upstream.values(), default=0) < len(loops):

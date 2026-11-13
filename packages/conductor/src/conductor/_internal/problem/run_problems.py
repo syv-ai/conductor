@@ -23,7 +23,7 @@ def ask_not_declared(*loc: str | int) -> str:
     """A node raised ``Ask`` in its own function, and its ``@node`` does not say ``asks=True``.
 
     A node that may wait for a person says so where it is declared, so a host knows before a run which graphs can
-    pause. Add ``asks=True`` to the ``@node``, or ask through an ``Asked`` parameter.
+    pause. Add ``asks=True`` to the ``@node``.
 
     Args:
         loc: The call that raised it.
@@ -36,7 +36,7 @@ def ask_not_declared(*loc: str | int) -> str:
 
         why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run(text="a"))
     """
-    return "The node asked a person, but its @node does not say asks=True. Add asks=True, or ask through an Asked parameter."
+    return "The node asked a person, but its @node does not say asks=True. Add asks=True."
 
 
 @RUN_PROBLEMS.problem()
@@ -111,9 +111,8 @@ def failed(*loc: str | int) -> str:
 def invalid_ask(*loc: str | int, reason: str) -> str:
     """A node raised an ``Ask`` whose choices or default are not values of the type its answer is read by.
 
-    The answer to an ``Ask`` is a value of the return type of the function that raised it: the node's outputs, or an
-    ``Asked`` parameter's value. So its choices and default must be of that type. Fix the ``Ask``; ``ctx.reason`` says
-    which part does not fit.
+    The answer to an ``Ask`` is the node's outputs, a value of its function's return type. So its choices and default
+    must be of that type. Fix the ``Ask``; ``ctx.reason`` says which part does not fit.
 
     Args:
         loc: The call that asked.
@@ -128,35 +127,6 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
         why_it_stopped(Graph.compile(make_graph(confirm), registry).run(text="a"))
     """
     return f"The node asked a question with choices or a default the answer's type does not take: {reason.rstrip('.')}. Fix the node's Ask."
-
-
-@RUN_PROBLEMS.problem()
-def invalid_asked_value(*loc: str | int, name: str, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
-    """The function of an ``Asked`` parameter returned a value the parameter's type refuses.
-
-    Its return value is the parameter's value, checked as a node's return is: strictly, so ``"yes"`` is never a
-    ``bool``. Return what the parameter declares.
-
-    Args:
-        loc: The call the value was for.
-        name: The parameter.
-        reason: Why the value is refused, without quoting it.
-        errors: pydantic's list of what it refused, without the value.
-        column: For a table, the column of the first value refused.
-
-    Example:
-        def says_yes(amount: int) -> bool:
-            return "yes"  # type: ignore[return-value]
-
-
-        @registry.node("pay_on_yes", title="Pay", description="Pays an amount a person approves.")
-        def pay_on_yes(amount: int, ok: Annotated[bool, Asked(says_yes)]) -> str:
-            return "paid"
-
-
-        why_it_stopped(Graph.compile(make_graph(pay_on_yes), registry).run(amount=5))
-    """
-    return f"The node's Asked function for '{name}' returned a value that is not what the parameter declares: {reason.rstrip('.')}. Fix what it returns."
 
 
 @RUN_PROBLEMS.problem()

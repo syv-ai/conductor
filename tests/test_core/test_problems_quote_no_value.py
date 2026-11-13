@@ -12,7 +12,6 @@ from typing import Annotated, Any, Literal
 import pytest
 from conductor import (
     Ask,
-    Asked,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -140,17 +139,6 @@ def _several_outputs(hint: Any, good: Any, bad: Any) -> list[Problem]:
     return _giving(node("give", title="Give", description="For a test.")(give))
 
 
-def _asked_value(hint: Any, good: Any, bad: Any) -> list[Problem]:
-    def ask(text: str) -> hint:  # type: ignore[valid-type]
-        return bad
-
-    @node("take", title="Take", description="For a test.")
-    def take(text: str, x: Annotated[hint, Asked(ask)]) -> str:  # type: ignore[valid-type]
-        return "ok"
-
-    return [Graph.compile(make_graph(take), registry_of(take)).run(text="a").state.cause]
-
-
 def _answer(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def ask(text: str) -> hint:  # type: ignore[valid-type]
         raise Ask("Which?")
@@ -193,7 +181,6 @@ DOORS = {
     "an-edge": (_edge, "invalid_edge_value"),
     "an-output": (_one_output, "invalid_output"),
     "one-of-several-outputs": (_several_outputs, "invalid_output"),
-    "an-asked-value": (_asked_value, "invalid_asked_value"),
     "an-answer": (_answer, "invalid_answer"),
     "a-saved-output": (_saved_output, "saved_run_unreadable"),
     "a-saved-input": (_saved_input, "saved_run_unreadable"),

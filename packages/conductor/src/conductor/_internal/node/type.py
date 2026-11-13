@@ -16,12 +16,10 @@ from typing import Any, Literal, Protocol, Self
 
 from pydantic import JsonValue
 
-from conductor._internal.ask import Ask
 from conductor._internal.base import REQUIRED, qualified_name
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field
-from conductor._internal.gate import AskedValueDoor, RefusedError, ReturnShape
-from conductor._internal.problem import run_problems
+from conductor._internal.gate import ReturnShape
 from conductor._internal.record import GraphRecord
 
 from .describe import FunctionNodeDescription, SubgraphDescription
@@ -71,52 +69,6 @@ class Upgrade:
     renamed_inputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
     renamed_outputs: Mapping[str, str] = dataclasses.field(default_factory=dict[str, str])
     rewrite: Callable[[dict[str, JsonValue]], Mapping[str, Any]] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AskedParameter:
-    """A node's ``Asked`` parameter, as ``@node`` reads it from the signature.
-
-    For ``approve(invoice: Invoice, ok: Annotated[bool, Asked(approval)])``, with ``approval(invoice: Invoice) -> bool``,
-    it is the parameter ``ok``, the function ``approval``, the inputs ``("invoice",)`` and no context.
-
-    Attributes:
-        field: The parameter as a field: its name, its type and its ``Param``, the type an answer is read by.
-        function: The function that gives it its value.
-        inputs: The node's inputs the function takes, by name.
-        context: The name the function takes the node's context by, or ``None`` when it takes none.
-        door: Reads what the function returns by the parameter's type (``invalid_asked_value``).
-    """
-
-    field: Field
-    function: Callable[..., Any]
-    inputs: tuple[str, ...]
-    context: str | None
-    door: AskedValueDoor
-
-    def filling(self, node_function: Callable[..., Any]) -> Callable[..., Any]:
-        """``node_function`` with this parameter filled: what a run calls for the node, once, when the graph is compiled.
-
-        Called as the node's function is (its context first, when it takes one, then its arguments by name), it
-        calls ``approval`` with the inputs it names unless a person's answer for ``ok`` is already among the
-        arguments, reads what it returns by the door, then calls ``approve`` with ``ok``. An ``Ask`` from
-        ``approval`` goes through; one from ``approve`` itself raises ``RefusedError`` with ``ask_not_declared``,
-        since a node with an ``Asked`` parameter asks through it.
-        """
-        name, asking, inputs, context_name, door = self.field.name, self.function, self.inputs, self.context, self.door
-
-        def filled(*context: Any, **arguments: Any) -> Any:
-            if name not in arguments:
-                given = {input_name: arguments[input_name] for input_name in inputs}
-                if context_name is not None:
-                    given[context_name] = context[0]
-                arguments = {**arguments, name: door(asking(**given))}
-            try:
-                return node_function(*context, **arguments)
-            except Ask:
-                raise RefusedError([run_problems.ask_not_declared()]) from None
-
-        return filled
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -222,10 +174,8 @@ class FunctionDefinition[**P, R](_Version):
             and then the parameter's: what the parameter receives. Read from the hooks' signatures once, at
             ``@node``.
         generic: Whether an input's type holds a type variable, which a graph binds from its edges as it loads.
-        asks: Whether the function itself may raise ``Ask``, as ``@node(asks=True)`` declares; the answer is then
-            its outputs.
-        asked: The parameter filled by a function that may raise ``Ask`` (``Annotated[bool, Asked(approval)]``), or
-            ``None``. It is not in ``inputs``: no edge or constant reaches it.
+        asks: Whether the function may raise ``Ask``, as ``@node(asks=True)`` declares; the answer is then its
+            outputs.
     """
 
     function: NodeFunction[P, R]
@@ -239,7 +189,6 @@ class FunctionDefinition[**P, R](_Version):
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     generic: bool = False
     asks: bool = False
-    asked: AskedParameter | None = None
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the function, as a test or a host would."""
@@ -247,9 +196,9 @@ class FunctionDefinition[**P, R](_Version):
 
     @property
     def may_ask(self) -> bool:
-        """Whether a call of the node may wait for a person's answer: ``approve`` declared with ``asks=True``, or
-        with an ``Asked`` parameter. An ``Ask`` raised from any other node fails its call (``ask_not_declared``)."""
-        return self.asks or self.asked is not None
+        """Whether a call of the node may wait for a person's answer: ``approval`` declared with ``asks=True``. An
+        ``Ask`` raised from any other node fails its call (``ask_not_declared``)."""
+        return self.asks
 
     @property
     def where_declared(self) -> str:
@@ -279,7 +228,7 @@ class FunctionDefinition[**P, R](_Version):
             FunctionNodeDescription, policy=self.policy,
             inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
             takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
-            asks=self.may_ask, asked=None if self.asked is None else self.asked.field.description,
+            asks=self.may_ask,
         )
 
 

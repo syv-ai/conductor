@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, assert_never, cast, overload
 
-from conductor._internal.ask import Answer
 from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
@@ -127,9 +126,6 @@ class Run[C]:
     _code_changed: dict[NodePath, str] = field(default_factory=dict[NodePath, str])
     #: The nodes whose every call was finished when the run was last resumed, so a later resume doesn't say them complete again.
     _finished_nodes: frozenset[NodePath] = frozenset()
-    #: A person's answers to a node's ``Asked`` parameter, by node path and item indexes, each kept until its call is
-    #: made: ``_answers[("approve",)][(1,)]`` once ``run.answer`` is given ``True`` for ``approve@1``. Never changed in place.
-    _answers: dict[NodePath, dict[ItemIndexes, Answer]] = field(default_factory=dict[NodePath, dict[ItemIndexes, Answer]])
 
     def __repr__(self) -> str:
         return f"<Run {self.status}: {sum(len(outcomes) for outcomes in self._outcomes.values())} outcomes>"
@@ -253,16 +249,11 @@ class Run[C]:
 
         flat = self._flat
         run.state, run._finished_nodes = Scheduler(
-            nodes=list(flat.function_nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable, answers=run._answers,
+            nodes=list(flat.function_nodes.values()), threads=flat.threads, outcomes=run._outcomes, reusable=run._reusable,
             finished=run._finished_nodes,
             max_items=run.max_items, arguments_for=run._reader.arguments_for, emit=emit, stop=stop, context=context,
             checkpoint=checkpoint, checkpoint_every=checkpoint_every, only_costs_nothing=only_costs_nothing,
         ).run()
-        if run._answers:  # an answer goes once its call has an outcome
-            outcomes_of = run._outcomes
-            run._answers = {
-                name: left for name, of_node in run._answers.items() if (left := {i: a for i, a in of_node.items() if i not in outcomes_of[name]})
-            }
         if emit is not None:  # a run handed back is still running: it did not end, and the host stores it to go on elsewhere
             emit(RunCheckpoint(run=run) if run.state is RUNNING else RunEnd.of(run))
         return run
@@ -280,9 +271,8 @@ class Run[C]:
         is answered with its value, several (a node with several outputs) with a mapping by question name, where a
         question with a default or a blank-taking type without choices may be left out, and of an
         ``exclusive_group`` exactly one is answered; a question limited by choices is answered unless it has a
-        default. The answer to a node's outputs is the call's outcome. The answer to an ``Asked`` parameter is
-        kept by the run, and ``resume`` calls the node with it. A run that ended early takes answers as a waiting
-        one does, a cancelled one included.
+        default. The answer is the call's outputs, and its outcome ``Answered``; ``resume`` then calls the nodes
+        that read them. A run that ended early takes answers as a waiting one does, a cancelled one included.
 
         Args:
             waiting: The call to answer, as ``run.waiting`` lists it or by its id; or the answers by waiting id.
@@ -306,7 +296,7 @@ class Run[C]:
             case _:
                 raise TypeError("run.answer takes a waiting call and its answer, or a mapping of waiting ids to answers")
         problems: list[Problem] = []
-        answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome | Answer] = {}
+        answered: dict[tuple[FlatFunctionNode, ItemIndexes], Outcome] = {}
         for waiting_id, one in given.items():
             place, _, fingerprint = waiting_id.partition("~")
             try:
@@ -334,21 +324,14 @@ class Run[C]:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found
                 continue
-            asked = compiled_node.definition.asked
-            answered[(node, item_indexes)] = Answered(read, found.question) if asked is None else Answer(found.question, asked.field.name, read[asked.field.name])
+            answered[(node, item_indexes)] = Answered(read, found.question)
         if problems:
             raise InvalidCallError(problems)
         run = self._copy(share_outcomes=True)
-        for changed in {node for node, _ in answered}:  # its own outcomes and answers for each node it changes; every other node's are shared
+        for changed in {node for node, _ in answered}:  # its own outcomes for each node it changes; every other node's are shared
             run._outcomes[changed.node_path] = dict(self._outcomes[changed.node_path])
-            if changed.compiled_node.definition.asked is not None:
-                run._answers = {**run._answers, changed.node_path: dict(self._answers.get(changed.node_path, {}))}
         for (node, item_indexes), now in answered.items():
-            if isinstance(now, Answer):  # the call has no outcome until the node is called with the answer
-                del run._outcomes[node.node_path][item_indexes]
-                run._answers[node.node_path][item_indexes] = now
-            else:
-                run._outcomes[node.node_path][item_indexes] = now
+            run._outcomes[node.node_path][item_indexes] = now
         return run
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:

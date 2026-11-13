@@ -123,18 +123,15 @@ class CompiledFunctionNode(_CompiledNodeBase):
         A run that reuses the outputs of an earlier run (``with_inputs(previous=run)``) reuses a call only while
         this is the same. So a node redeclared under the same id and version, but with other code, an input or
         output of another type, limit or choice, or inside other loops, is called again. The code is read from
-        the function's own bytecode and constants, not from the functions it calls; for a node with an ``Asked``
-        parameter, the code of the parameter's function and the parameter's type too.
+        the function's own bytecode and constants, not from the functions it calls.
         """
         definition = self.definition
-        specs = (*(node_input.field for node_input in self.inputs.values()), *self.outputs.values(), *([definition.asked.field] if definition.asked else []))
-        fields = [(spec.name, spec.whole.reads_as) for spec in specs]
-        functions: list[Callable[..., Any]] = [definition.function, *([definition.asked.function] if definition.asked else [])]
-        code = [_code_text(inspect.unwrap(function).__code__) for function in functions]
+        fields = [(field.name, field.whole.reads_as) for field in (*(node_input.field for node_input in self.inputs.values()), *self.outputs.values())]
+        code = _code_text(inspect.unwrap(definition.function).__code__)
         # each loop as place_text writes it (``"e/split.result"``), not as a repr: a waiting call's id and a saved run
         # contain the hash, so it changes only when that text does
         loops = tuple([place_text(node, output) for node, output in self.loops])
-        written = repr((definition.id, definition.version, code[0] if len(code) == 1 else code, fields, loops))
+        written = repr((definition.id, definition.version, code, fields, loops))
         return short_hash(written.encode(), 8)
 
     @functools.cached_property
@@ -156,35 +153,27 @@ class CompiledFunctionNode(_CompiledNodeBase):
         return outputs_when_not_called(self.outputs)
 
     @functools.cached_property
-    def answer_fields(self) -> dict[str, Field]:
-        """The fields a person's answer fills, by name: the ``Asked`` parameter of a node that has one, else the
-        outputs. ``{"result": Field("result", bool)}`` for ``approve(line: str) -> bool``, and ``{"ok": ...}`` for
-        ``approve(invoice: Invoice, ok: Annotated[bool, Asked(approval)]) -> str``."""
-        asked = self.definition.asked
-        return self.outputs if asked is None else {asked.field.name: asked.field}
-
-    @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:
-        """The question a person is asked about each field an answer fills, made from the field's type; the
+        """The question a person is asked about each output, which an answer fills, made from the output's type; the
         ``Ask`` can add a prompt, choices and a default to it."""
-        return field_questions(self.answer_fields)
+        return field_questions(self.outputs)
 
     @functools.cached_property
     def ask_door(self) -> Callable[[Ask, dict[str, Any]], Question]:
-        """Checks an ``Ask`` raised for the node against the fields its answer fills, and keeps it as the call's
-        question; for a node that may not ask (``definition.may_ask``), refuses it (``ask_not_declared``). Built when
+        """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and keeps it as the
+        call's question; for a node that may not ask (``definition.may_ask``), refuses it (``ask_not_declared``). Built when
         the node first asks.
 
         Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For
         ``pick[T](value: T) -> T``, ``choices=[1, 2]`` fits when ``value`` comes from an ``int`` output and is refused
         when it comes from a ``str`` one."""
-        return AskDoor(self.answer_fields) if self.definition.may_ask else undeclared_ask
+        return AskDoor(self.outputs) if self.definition.may_ask else undeclared_ask
 
     @functools.cached_property
     def answer_door(self) -> AnswerDoor:
-        """Reads a person's answer to a waiting call of the node into the fields it fills: ``{"result": True}`` for
+        """Reads a person's answer to a waiting call of the node into its outputs: ``{"result": True}`` for
         ``approve`` answered ``True``. Built when the node is first answered."""
-        return AnswerDoor(self.answer_fields, self.questions)
+        return AnswerDoor(self.outputs, self.questions)
 
 
 @typing.final

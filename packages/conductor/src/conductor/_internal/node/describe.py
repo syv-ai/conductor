@@ -56,10 +56,8 @@ class FunctionNodeDescription(_NodeDescription):
         policy: How the engine calls it.
         takes_added_inputs: Whether what is typed into it adds inputs.
         computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
-        asks: Whether a call may wait for a person: its function raises ``Ask``, or it has an ``Asked`` parameter. A
-            graph with such a node can pause, so a host can't run it unattended.
-        asked: The ``Asked`` parameter a person may be asked to fill, drawn like an input though no edge reaches it;
-            ``None`` when the node has none.
+        asks: Whether a call may wait for a person: its function raises ``Ask``. A graph with such a node can
+            pause, so a host can't run it unattended.
     """
 
     kind: Literal["function"] = "function"
@@ -67,7 +65,6 @@ class FunctionNodeDescription(_NodeDescription):
     takes_added_inputs: bool
     computes_outputs: bool
     asks: bool
-    asked: FieldDescription | None
 
 
 class SubgraphDescription(_NodeDescription):

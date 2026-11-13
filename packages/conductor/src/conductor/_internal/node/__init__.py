@@ -13,7 +13,6 @@ from .describe import (
 )
 from .policy import Deprecation, Policy
 from .type import (
-    AskedParameter,
     FunctionDefinition,
     HookName,
     NodeDefinition,

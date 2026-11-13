@@ -17,8 +17,7 @@ never reads.
 
 One output is ``result``, of whatever type is returned, a ``dict`` included;
 a frozen dataclass returned gives one output per field. ``Series[X]`` gives many values, each an item, and ``Table[R]`` one table; ``SKIPPED`` on an output
-is a branch not taken. A node that may stop a call to ask a person says so: ``asks=True`` when its own function raises
-``Ask``, or a parameter ``Annotated[bool, Asked(approval)]`` filled by a function that may raise it.
+is a branch not taken. A node whose function may raise ``Ask`` to stop a call and ask a person says ``asks=True``.
 
 A newer version of a node names the one it ``replaces``, itself a ``@node``
 of the same id, and says with ``upgrade`` how a node saved at that one moves
@@ -59,16 +58,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import Field as DataclassField
 from inspect import Parameter
 from types import MappingProxyType
-from typing import Annotated, Any, Protocol
+from typing import Any, Protocol
 
 from pydantic import JsonValue
 
-from conductor._internal.ask import Asked
 from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field
 from conductor._internal.gate import (
-    AskedValueDoor,
     HookOutputs,
     NoOutputs,
     OneResult,
@@ -80,11 +77,10 @@ from conductor._internal.gate import (
 )
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
-from conductor._internal.types import Type, split_hint
+from conductor._internal.types import Type
 
 from .policy import Deprecation, Policy
 from .type import (
-    AskedParameter,
     FunctionDefinition,
     HookName,
     HookParameter,
@@ -144,8 +140,7 @@ def node(
       graph is loaded, which shape the node from what is typed into it.
     - ``asks=True`` says the function may raise ``Ask`` to ask a person, who
       answers with its outputs. A raise from a node that doesn't say so fails
-      the call (``ask_not_declared``). A parameter a person may fill is
-      ``Asked`` instead, and needs no ``asks``.
+      the call (``ask_not_declared``).
 
     A graph record becomes a node, a subgraph, with ``subgraph``.
     """
@@ -155,9 +150,7 @@ def node(
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError(declaration_problems.async_run())
-            inputs, context, outputs, returns, asked = _read_signature(target, compute_outputs is not None)
-            if asks and asked is not None:
-                raise NodeDeclarationError(declaration_problems.asked_and_asks(), asked.field.name)
+            inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
                 raise NodeDeclarationError(declaration_problems.compute_added_inputs_without_var_keyword())
@@ -176,7 +169,7 @@ def node(
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
-                generic=any(field.whole.variables for field in inputs.values()), asks=asks, asked=asked,
+                generic=any(field.whole.variables for field in inputs.values()), asks=asks,
             )
             if replaces is not None:
                 _raise_if_upgrade_is_missing(replaces, definition)
@@ -267,14 +260,14 @@ def _version_number(
 
 def _read_signature(
     function: Callable[..., Any], computed_outputs: bool,
-) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape, AskedParameter | None]:
+) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:
     """Reads a function's signature.
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
     Returns:
         The inputs by name, the ``Context`` parameter (``None`` when the first parameter is not one), the outputs
-        by name, what kind of value the function returns them as, and the ``Asked`` parameter (``None`` for none).
+        by name, and what kind of value the function returns them as.
 
     Raises:
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
@@ -283,7 +276,6 @@ def _read_signature(
     hints = typing.get_type_hints(function, include_extras=True)
     inputs: dict[str, Field] = {}
     context: ContextParameter | None = None
-    asked: tuple[str, Any, Asked] | None = None
     for position, (name, parameter) in enumerate(parameters.items()):
         # A Context anywhere else is read as an input below, and its type refuses to be read (context_misplaced).
         if position == 0 and name in hints and is_context(hints[name]) and parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD):
@@ -298,22 +290,13 @@ def _read_signature(
             raise NodeDeclarationError(declaration_problems.parameter_not_by_name(), name)
         if name not in hints:
             raise NodeDeclarationError(declaration_problems.input_without_type(), name)
-        hint, asked_metadata = _without_asked(hints[name], name)
-        if asked_metadata is not None:
-            if asked is not None:
-                raise NodeDeclarationError(declaration_problems.asked_twice(), name)
-            if parameter.default is not Parameter.empty:
-                raise NodeDeclarationError(declaration_problems.asked_with_default(), name)
-            asked = (name, hint, asked_metadata)
-            continue
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
-        inputs[name] = declared_field(name, hint, default)
+        inputs[name] = declared_field(name, hints[name], default)
         if inputs[name].param.exclusive_group is not None:
             raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), name)
     if "return" not in hints:
         raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
-    _refuse_asked(returns, None)
     outputs: dict[str, Field] = {}
     kind: ReturnShape
     outputs_class = typing.get_origin(returns) or returns  # a generic dataclass of outputs is written with its arguments
@@ -326,8 +309,6 @@ def _read_signature(
             raise NodeDeclarationError(declaration_problems.outputs_not_frozen())
         given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(outputs_class, include_extras=True)
-        for name, hint in own.items():
-            _refuse_asked(hint, name)
         outputs = {f.name: declared_field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
         kind = OutputsClass(outputs_class)
     else:
@@ -339,83 +320,7 @@ def _read_signature(
                 raise NodeDeclarationError(declaration_problems.type_variable_constrained(variable=variable.__name__), field.name)
             if variable not in on_inputs:
                 raise NodeDeclarationError(declaration_problems.type_variable_only_in_return(variable=variable.__name__), field.name)
-    if asked is None:
-        return inputs, context, outputs, kind, None
-    name, hint, asked_metadata = asked
-    return inputs, context, outputs, kind, _asked_parameter(function, declared_field(name, hint, REQUIRED), asked_metadata, inputs, context)
-
-
-def _without_asked(hint: Any, name: str) -> tuple[Any, Asked | None]:
-    """A parameter's hint with the ``Asked`` around it taken off, and that ``Asked``.
-
-    ``Annotated[bool, Param(title="OK"), Asked(approval)]`` is ``Annotated[bool, Param(title="OK")]`` and
-    ``Asked(approval)``; a hint with no ``Asked`` around it is itself and ``None``.
-
-    Raises:
-        NodeDeclarationError: Two ``Asked`` around one parameter (``asked_twice``), or one inside its type
-            (``asked_not_on_a_parameter``).
-    """
-    asked_metadata: Asked | None = None
-    if typing.get_origin(hint) is Annotated:
-        found = [metadata for metadata in hint.__metadata__ if isinstance(metadata, Asked)]
-        if len(found) > 1:
-            raise NodeDeclarationError(declaration_problems.asked_twice(), name)
-        if found:
-            (asked_metadata,) = found
-            kept = tuple(metadata for metadata in hint.__metadata__ if not isinstance(metadata, Asked))
-            hint = Annotated[(hint.__origin__, *kept)] if kept else hint.__origin__
-    _refuse_asked(hint, name)
-    return hint, asked_metadata
-
-
-def _refuse_asked(hint: Any, name: str | None) -> None:
-    """Raises when ``hint`` holds an ``Asked``: the hint of an output, or a parameter's with the ``Asked`` around it
-    taken off.
-
-    Raises:
-        NodeDeclarationError: ``asked_not_on_a_parameter``, naming the field when there is a name.
-    """
-    if any(isinstance(m, Asked) for m in split_hint(hint)[2]):
-        raise NodeDeclarationError(declaration_problems.asked_not_on_a_parameter(), *([name] if name else []))
-
-
-def _asked_parameter(
-    function: Callable[..., Any], field: Field, asked_metadata: Asked, inputs: Mapping[str, Field], context: ContextParameter | None,
-) -> AskedParameter:
-    """Reads an ``Asked`` parameter's function against the node it is on.
-
-    For ``ok: Annotated[bool, Asked(approval)]`` on ``approve(invoice: Invoice, ok: ...)``, with
-    ``approval(invoice: Invoice) -> bool``, it is ``ok``, filled by ``approval``, which takes the input ``invoice``.
-
-    Args:
-        function: The node's function, whose signature names the parameter's type.
-        field: The parameter, read by its hint without the ``Asked``.
-        asked_metadata: The ``Asked``.
-        inputs: The node's inputs, by name.
-        context: The node's ``Context`` parameter, or ``None``.
-
-    Raises:
-        NodeDeclarationError: Naming the parameter: the function is ``async def`` (``async_run``), one of its
-            parameters is not a parameter of the node taken by name (``asking_function_parameter_unknown``), or it
-            does not return the parameter's type (``asking_function_returns_another_type``).
-    """
-    asking = asked_metadata.function
-    name = field.name
-    if inspect.iscoroutinefunction(asking) or inspect.isasyncgenfunction(asking):
-        raise NodeDeclarationError(declaration_problems.async_run(), name)
-    may_name = [*inputs, *([context.name] if context is not None else [])]
-    taken: list[str] = []
-    for parameter in inspect.signature(asking).parameters.values():
-        if parameter.name not in may_name or parameter.kind not in (parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY):
-            raise NodeDeclarationError(declaration_problems.asking_function_parameter_unknown(parameter=parameter.name, parameters=may_name), name)
-        taken.append(parameter.name)
-    returns = typing.get_type_hints(asking).get("return", Parameter.empty)
-    declared = typing.get_type_hints(function)[name]
-    if returns != declared:
-        written = "nothing declared" if returns is Parameter.empty else Type(returns).id
-        raise NodeDeclarationError(declaration_problems.asking_function_returns_another_type(returns=written, type=field.whole.id), name)
-    context_name = context.name if context is not None and context.name in taken else None
-    return AskedParameter(field, asking, tuple(n for n in taken if n != context_name), context_name, AskedValueDoor(field))
+    return inputs, context, outputs, kind
 
 
 def _declared_default(declared: DataclassField[Any]) -> Any:

@@ -11,9 +11,6 @@ outputs. Its door reads every output in one call of one validator. First the sha
 no output missing or unknown, and of an exclusive group at most one output with a value. Then each output's value,
 by its type, in the order the outputs are declared. Only the first fault is reported, as one problem.
 
-The function of an ``Asked`` parameter returns that parameter's value, and ``AskedValueDoor`` reads it the same way,
-by the parameter's type: ``approval(invoice) -> bool`` returning ``"yes"`` is refused with ``invalid_asked_value``.
-
 Every rule inside the validator raises ``PydanticCustomError``: any other exception would escape pydantic with the
 value in its message.
 """
@@ -108,38 +105,6 @@ class ReturnDoor:
         if returned is SKIPPED:
             return dict.fromkeys(self._names, SKIPPED)
         return self._read(returned)
-
-
-class AskedValueDoor:
-    """Reads what the function of an ``Asked`` parameter returned by the parameter's type, as the return door reads an
-    output. Built once per node, when ``@node`` reads the parameter.
-
-    Raises (when called):
-        RefusedError: With one ``invalid_asked_value`` problem, which names the parameter and quotes nothing of the
-            value.
-    """
-
-    def __init__(self, field: Field) -> None:
-        """Builds the door for the parameter ``field``."""
-        self._field = field
-        self._exact = exact_classes(field.whole)
-        self._validate = output_validator_of(field.whole).validate_python
-
-    def __call__(self, returned: Any) -> Any:
-        """Returns the parameter's value read from ``returned``; a value exactly of one of the type's plain classes is
-        taken as it is.
-
-        Raises:
-            RefusedError: The type refuses the value (``invalid_asked_value``).
-        """
-        if type(returned) in self._exact:
-            return returned
-        try:
-            return self._validate(returned, strict=True)
-        except ValidationError as error:
-            field = self._field
-            refused = field.whole.refusal(error)
-            raise RefusedError([run_problems.invalid_asked_value(name=field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
 
 
 def _no_outputs(returned: Any) -> dict[str, Any]:

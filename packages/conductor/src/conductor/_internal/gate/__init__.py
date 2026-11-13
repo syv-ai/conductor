@@ -27,10 +27,10 @@ The doors, with the module each is in:
                                                             invalid_input, invalid_input_make_a_series,
                                                             invalid_max_items, invalid_timeout,
                                                             invalid_checkpoint_every
-    a person's answer, to a node's outputs or to its        answer
-        Asked parameter                                     invalid_answer
-    what a node's function returns, and what the function  returned
-        of an Asked parameter returns                       invalid_output, invalid_asked_value
+    a person's answer to a node's outputs                   answer
+                                                            invalid_answer
+    what a node's function returns                          returned
+                                                            invalid_output
     a value an edge gives an input that demands more        edge
         than the edge's source declares                     invalid_edge_value
     what a node raises: an Ask's choices and default        raised
@@ -59,7 +59,6 @@ from .raised import AskDoor, undeclared_ask
 from .record import read_json, read_record, record_values
 from .refused import RefusedError
 from .returned import (
-    AskedValueDoor,
     HookOutputs,
     NoOutputs,
     OneResult,
@@ -70,7 +69,7 @@ from .returned import (
 from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
-    "AnswerDoor", "AskDoor", "AskedValueDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
+    "AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
     "RefusedError", "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
     "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_json", "read_record", "record_values",
     "undeclared_ask", "validator_of",

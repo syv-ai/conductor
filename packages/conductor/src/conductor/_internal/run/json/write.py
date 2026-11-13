@@ -7,12 +7,12 @@ which writes itself as text.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, assert_never, cast
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
 
-from conductor._internal.ask import Answer, Question
+from conductor._internal.ask import Question
 from conductor._internal.base import SKIPPED, NodePath, place_text
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
@@ -43,8 +43,8 @@ _STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Answered: SAVED
 #: The outcome classes whose outputs are written: what a function returned, or what a person answered.
 _HAS_OUTPUTS = frozenset({Done, Answered})
 
-#: The classes whose question is written: a call answered, waiting, or with an answer to its ``Asked`` parameter.
-_HAS_QUESTION = frozenset({Answered, Unanswered, Answer})
+#: The classes whose question is written: a call answered, or waiting.
+_HAS_QUESTION = frozenset({Answered, Unanswered})
 
 
 def run_to_json(run: Run) -> str:
@@ -105,7 +105,7 @@ def saved_run(run: Run) -> SavedRun:
     names = {path: place_text(path) for path in function_nodes}
     outcomes = {
         names[path]: saved_outcomes(codec.outcomes_classes[names[path]], node.compiled_node.outputs, _outcomes_by_call_number(run, node))
-        for path, node in function_nodes.items() if run._outcomes[path] or path in run._answers
+        for path, node in function_nodes.items() if run._outcomes[path]
     }
     reusable = {}
     for path, of_node in run._reusable.items():
@@ -116,35 +116,28 @@ def saved_run(run: Run) -> SavedRun:
         names[path]: run._code_changed.get(path) or node.compiled_node.code_fingerprint
         for path, node in function_nodes.items() if names[path] in outcomes or names[path] in reusable
     }
-    answers = {
-        names[path]: {call_number: answer.value for call_number, answer in enumerate(_outcomes_by_call_number(run, node)) if type(answer) is Answer}
-        for path, node in function_nodes.items() if path in run._answers
-    }
     return codec.model_construct(
         graph=run.graph.fingerprint, state=run.state, max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
         complete=[names[path] for path in function_nodes if path in run._finished_nodes],
         tables_written_once=tables_written_once(function_nodes.values(), outcomes),
-        answers=answers,
     )
 
 
-def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome | Answer | None]:
+def _outcomes_by_call_number(run: Run, node: FlatFunctionNode) -> list[Outcome | None]:
     """Returns the outcomes of ``node`` as a list with one entry per call, in the order of the calls' item indexes.
 
     For ``shout`` after its first two calls of three: ``[Done(...), Done(...), None]``. The place of an entry
-    is the call number of its call; ``None`` is a call that has no outcome yet, and an ``Answer`` one that has none
-    and a person's answer to the node's ``Asked`` parameter.
+    is the call number of its call; ``None`` is a call that has no outcome yet.
     """
     outcomes = run._outcomes[node.node_path]
     # speed only: the outcomes are in call order already, as the line below would list them. Without it to_json takes 1.3 to 1.9
     # times as long.
     if has_every_outcome(run._outcomes, node):
         return list(outcomes.values())
-    answers = run._answers.get(node.node_path, {})
-    return [outcomes.get(item_indexes) or answers.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
+    return [outcomes.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
 
 
-def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field], outcomes: list[Outcome | Answer | None]) -> SavedOutcomes:
+def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field], outcomes: list[Outcome | None]) -> SavedOutcomes:
     """Returns the outcomes of one node as a saved run writes them: a list per output, with one entry per call.
 
     ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
@@ -153,9 +146,7 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     Args:
         saved_class: The codec's class for the node's outcomes.
         outputs: The outputs of the node, by name.
-        outcomes: The outcomes in call-number order; ``None`` for a call with no outcome, and an ``Answer`` for one
-            with none that a person answered the node's ``Asked`` parameter for, whose question is written and whose
-            answer the saved run's ``answers`` has.
+        outcomes: The outcomes in call-number order; ``None`` for a call with no outcome.
     """
     classes = set(map(type, outcomes))
     values_by_output: dict[str, list[Any]] = {}
@@ -188,10 +179,14 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     else:
         values_by_output = {name: [None] * len(outcomes) for name in outputs}
     if classes & _HAS_QUESTION:
-        questions = {
-            call_number: outcome.question for call_number, outcome in enumerate(outcomes)
-            if type(outcome) is Answered or type(outcome) is Unanswered or type(outcome) is Answer
-        }
+        for call_number, outcome in enumerate(outcomes):
+            match outcome:
+                case Answered(question=question) | Unanswered(question=question):
+                    questions[call_number] = question
+                case Done() | Skipped() | NoneInput() | None:
+                    pass
+                case _:
+                    assert_never(outcome)
     if NoneInput in classes:
         not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
     return saved_class.model_construct(
@@ -251,7 +246,7 @@ def saved_reusable(
         outputs: The outputs of the node, by name.
         reusable: The outcomes the node may reuse.
     """
-    outcomes: list[Outcome | Answer | None] = [done for _, done in reusable.by_item_indexes.values()]
+    outcomes: list[Outcome | None] = [done for _, done in reusable.by_item_indexes.values()]
     fingerprints = [fingerprint for fingerprint, _ in reusable.by_item_indexes.values()]
     item_indexes = dict(enumerate(reusable.by_item_indexes))
     already_saved = set(fingerprints)  # by_fingerprint has these outcomes too: the first call that got those arguments

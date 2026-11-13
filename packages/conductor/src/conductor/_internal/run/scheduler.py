@@ -69,7 +69,7 @@ from dataclasses import dataclass, field
 from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
-from conductor._internal.ask import Answer, Ask
+from conductor._internal.ask import Ask
 from conductor._internal.base import ItemIndexes, NodePath, place_text
 from conductor._internal.gate import RefusedError
 from conductor._internal.problem import ExternalError, NodeError, Problem, run_problems
@@ -200,7 +200,6 @@ class Scheduler:
         threads: int,
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         reusable: dict[NodePath, ReusableOutcomes],
-        answers: dict[NodePath, dict[ItemIndexes, Answer]],
         finished: frozenset[NodePath],
         max_items: int | None,
         arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
@@ -219,8 +218,6 @@ class Scheduler:
             outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
             reusable: The outcomes of an earlier run that each node may take, by node path. The scheduler removes
                 what is taken and what can no longer be taken.
-            answers: A person's answers to an ``Asked`` parameter, by node path and item indexes, each for a call
-                that has no outcome yet. The scheduler only reads them.
             finished: The node paths of the nodes that were complete when the run was last resumed.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
@@ -235,12 +232,8 @@ class Scheduler:
         """
         if only_costs_nothing:
             arguments_for = _only_costs_nothing(arguments_for)
-        if answers:
-            arguments_for = _with_answers(arguments_for, answers)
         self.nodes, self.threads, self.all_outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
         self.stop, self.context, self.only_costs_nothing = stop, context, only_costs_nothing
-        #: A person's answers to an ``Asked`` parameter, by node path and item indexes.
-        self.answers = answers
 
         # 1. Choosing the next call.
         #: The state ``run`` returns: ``RUNNING`` until ``end`` or ``_close`` sets another.
@@ -739,9 +732,8 @@ class Scheduler:
     def _outcome(
         self, node: FlatFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | None
     ) -> Outcome | Problem | None:
-        """The outcome of a call from what ``call`` returned: ``Done`` with the outputs (``Answered``, with the
-        question, for a call given a person's answer to its ``Asked`` parameter), ``Unanswered`` with the question when
-        the function raised ``Ask``, or the problem the call failed with.
+        """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with the
+        question when the function raised ``Ask``, or the problem the call failed with.
 
         A ``Unanswered`` outcome has the call's arguments as JSON, to show the person. Arguments with no JSON form,
         and an ``Ask`` that does not fit the node's outputs, are problems. While only the nodes that cost nothing
@@ -749,8 +741,6 @@ class Scheduler:
         calls it again, and it fails or asks then.
         """
         if error is None:
-            if self.answers and (of_node := self.answers.get(node.node_path)) is not None and (answer := of_node.get(item_indexes)) is not None:
-                return Answered(outputs, answer.question)
             return Done(outputs)
         if self.only_costs_nothing:
             return None
@@ -872,26 +862,6 @@ class Scheduler:
         checkpoints.next_at = time.monotonic() + checkpoints.every
         self._put_in_order()
         checkpoints.save(self.state)
-
-
-def _with_answers(
-    arguments_for: Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
-    answers: dict[NodePath, dict[ItemIndexes, Answer]],
-) -> Callable[[FlatFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
-    """``arguments_for``, with a person's answer to a call's ``Asked`` parameter among its arguments.
-
-    ``approve (1,)`` answered ``True`` gets ``{"invoice": ..., "ok": True}``, so ``call`` calls ``approve`` with it and
-    not ``approval``. Such a call waited for its answer, so no earlier run has an outcome it could reuse.
-    """
-
-    def with_answer(node: FlatFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
-        arguments = arguments_for(node, item_indexes)
-        of_node = answers.get(node.node_path)
-        if of_node is not None and type(arguments) is dict and (answer := of_node.get(item_indexes)) is not None:
-            return {**arguments, answer.parameter: answer.value}
-        return arguments
-
-    return with_answer
 
 
 def _only_costs_nothing(

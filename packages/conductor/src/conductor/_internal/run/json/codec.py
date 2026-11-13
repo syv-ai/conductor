@@ -108,7 +108,7 @@ class _ExactKeys:
 
 
 def run_codec(
-    fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], asked: Mapping[str, Field], nodes: Iterable[str],
+    fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str],
 ) -> type[SavedRun]:
     """Builds the codec of one graph: a subclass of ``SavedRun`` whose fields have the graph's own keys and types.
 
@@ -127,8 +127,6 @@ def run_codec(
         fingerprint: The graph's fingerprint.
         inputs: The type of each graph input, by name.
         outputs: The outputs of each function node, by the node's name in a saved run.
-        asked: The ``Asked`` parameter of each function node that has one, by the node's name in a saved run: its
-            answers under the run's ``answers`` are read by its type, and no other node may have any.
         nodes: The name in a saved run of every function node.
     """
     # by what the classes of a node depend on: for each output its name, its type and whether it is a Series
@@ -155,7 +153,6 @@ def run_codec(
         "reusable": _ExactKeys({}, reusable_classes),
         "code": _ExactKeys({}, dict.fromkeys(outcomes_classes, str)),
         "complete": list[Literal[names]] if names else Annotated[list[str], PydanticField(max_length=0)],  # type: ignore[valid-type]  # a Literal of the node names, known once the graph is compiled
-        "answers": (_ExactKeys({}, {node: GenericAlias(dict, (NonNegativeInt, _SavedValue(field.whole))) for node, field in asked.items()}), PydanticField(default_factory=dict)),
     }
     namespace = {"outcomes_classes": outcomes_classes, "reusable_classes": reusable_classes}
     return create_model(f"SavedRun_{fingerprint}", __base__=SavedRun, __namespace__=namespace, **fields_of_run)
@@ -227,7 +224,6 @@ def codec_of(graph: CompiledGraph) -> type[SavedRun]:
             graph.fingerprint,
             inputs={name: field.whole for name, field in graph._inputs.items()},
             outputs={place_text(path): node.compiled_node.outputs for path, node in flat.function_nodes.items()},
-            asked={place_text(path): asked.field for path, node in flat.function_nodes.items() if (asked := node.compiled_node.definition.asked) is not None},
             nodes=[place_text(path) for path in flat.function_nodes],
         )
     return codec

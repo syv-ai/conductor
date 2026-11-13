@@ -56,8 +56,7 @@ class SavedOutcomes(BaseModel):
         states: For each call, ``"done"`` when it has outputs (its function returned, or a person answered),
             ``"skipped"`` when it was skipped, else ``None``.
         outputs: By output name, the value of the output for each call; ``None`` for a call that has no outputs.
-        questions: By call number, the question the call asked a person; the call is waiting unless it is done, or
-            the saved run's ``answers`` has an answer for it.
+        questions: By call number, the question the call asked a person; the call is waiting unless it is done.
         not_called_because: By call number, the input that got ``None`` and does not accept it, so that the
             call was not made.
         skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for the output.
@@ -160,9 +159,6 @@ class SavedRun(BaseModel):
             them complete again.
         tables_written_once: The outputs in ``outcomes`` written as ``null`` because another output has the
             same table.
-        answers: By node and then call number, a person's answer to the node's ``Asked`` parameter, read by the
-            parameter's type, for a call that waited and that the node is not yet called for: ``{"approve": {"1":
-            true}}``. Its question is under the node's ``questions``.
         outcomes_classes: On a graph's codec, the class of each node's ``outcomes``, by node.
         reusable_classes: On a graph's codec, the class of each node's ``reusable`` entry, by node.
     """
@@ -177,6 +173,5 @@ class SavedRun(BaseModel):
     code: dict[str, str]
     complete: list[str]
     tables_written_once: list[SameAs] = PydanticField(default_factory=list)
-    answers: dict[str, dict[NonNegativeInt, Any]] = PydanticField(default_factory=dict)
     outcomes_classes: ClassVar[dict[str, type[SavedOutcomes]]]
     reusable_classes: ClassVar[dict[str, type[SavedReusable]]]

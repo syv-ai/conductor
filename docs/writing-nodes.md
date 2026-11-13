@@ -474,39 +474,38 @@ The node isn't called again for that call: the answer is its outputs. `note` has
 
 `Ask` is a `BaseException`, so an `except Exception` in your node lets it through.
 
-### A parameter a person fills
+### Using the answer in another node
 
-The answer above is the node's outputs. When the outputs are more than the answer, say an approval that hands the invoice on, a parameter can be the question instead. `Asked(function)` in its annotation says so, and the function returns its value or raises `Ask`:
+The answer is always the outputs of the node that asks. When another node needs it, say a payment a person approves, give the question a node of its own and wire its output on. The asking node may return without asking:
 
 ```python
-from conductor import Asked
-
-
 class Bill(TypedDict):
     number: str
     amount: int
 
 
+@registry.node("approval", title="Approval", description="Approves a small bill, and asks a person about a large one.", asks=True)
 def approval(bill: Bill) -> bool:
     if bill["amount"] <= 500:
         return True
     raise Ask(f"Pay {bill['number']}, {bill['amount']} kr.?")
 
 
-@registry.node("pay", title="Pay", description="Pays a bill a person approves, and holds the rest.")
-def pay(bill: Bill, ok: Annotated[bool, Asked(approval)]) -> str:
+@registry.node("pay", title="Pay", description="Pays a bill that is approved, and holds the rest.")
+def pay(bill: Bill, ok: bool) -> str:
     return f"{'paid' if ok else 'held'} {bill['number']}"
 
 
-graph = Graph.compile(make_graph(pay), registry)
+approve_and_pay = make_graph(approval, pay, edges=[("approval.result", "pay.ok")], inputs={"bill": ["approval.bill", "pay.bill"]})
+graph = Graph.compile(approve_and_pay, registry)
 print(graph.run(bill={"number": "B-1", "amount": 100}).outputs)  # {'result': 'paid B-1'}
 
 run = graph.run(bill={"number": "B-2", "amount": 900})
-print([(question.name, question.type) for question in run.waiting[0].questions])  # [('ok', 'bool')]
+print([(question.name, question.type) for question in run.waiting[0].questions])  # [('result', 'bool')]
 print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
 ```
 
-`pay` is called once, with `ok` a real `bool`: the function's return value, or the person's answer. The function's parameters are the node's, by name (its inputs, and its context when it takes one), and it returns the parameter's type, which is what the person answers; `pay(bill, ok=True)` is the unit test. No edge reaches `ok`, so it is not an input; `describe()` shows it as `asked`. A node has one such parameter, and doesn't also say `asks=True`. Its waiting id is the node's, as for any question, made from all the node's inputs: a change to any of them asks again.
+`pay` is called once, with `ok` a real `bool`, and `pay(bill, ok=True)` is its unit test. To offer the two as one entry in a palette, make the graph a node: `registry.subgraph("approve_and_pay", title="Approve and pay", description="...")(approve_and_pay)`. Its waiting call is then `approve_and_pay/approval~...` (with `@` and an index for each item it runs for), and an answer is reused, as any answer is, when a later run gives `approval` the same bill.
 
 ## When something fails
 
