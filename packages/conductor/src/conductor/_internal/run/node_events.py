@@ -60,7 +60,7 @@ from .events import (
     NodeWaiting,
 )
 from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
-from .progress import CallCount, call_count, calls_expected, is_complete
+from .progress import CallCount, all_item_indexes, call_count, is_complete
 from .waiting import waiting_record
 
 #: The least time between two ``NodeProgress`` of one node.
@@ -208,7 +208,7 @@ class NodeEvents:
         while subgraph is not None and subgraph not in self.complete and all(inner in self.complete for inner in subgraph.inner_nodes.values()):
             self.complete.add(subgraph)
             if announce:
-                outcomes = calls_expected(self.outcomes, subgraph.loops)[0]
+                outcomes = len(all_item_indexes(self.outcomes, subgraph.loops, ())[0])
                 self.emit(NodeComplete(loc=subgraph.node_path, outcomes=outcomes, skipped=self._skipped_calls(subgraph)))
             subgraph = subgraph.parent
 

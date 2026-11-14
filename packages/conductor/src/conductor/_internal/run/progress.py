@@ -85,7 +85,8 @@ def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Bluep
     """
     of_node = outcomes[node.node_path]
     waiting = sum(1 for outcome in of_node.values() if type(outcome) is Unanswered)
-    known, final = calls_expected(outcomes, node.loops)
+    calls, final = all_item_indexes(outcomes, node.loops, ())
+    known = len(calls)
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
@@ -157,49 +158,15 @@ def all_item_indexes(
     return every_item_indexes, complete
 
 
-def calls_expected(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], loops: tuple[tuple[NodePath, str], ...]) -> tuple[int, bool]:
-    """How many calls a node inside ``loops`` will have in this run, and whether that number is final yet.
-
-    A node inside no loop has one call: for ``lines`` and ``join`` the result is ``(1, True)``. ``shout`` is
-    inside the loop over ``lines.result``: ``(3, True)`` once ``lines`` has returned three lines, ``(0, False)``
-    before. With two nested loops the inner series may differ in length; the number is the sum of their lengths.
-
-    Args:
-        outcomes: The run's outcomes, by node path and then by item indexes.
-        loops: The loops the node is inside, outermost first, as ``all_item_indexes`` takes them.
-    """
-    if not loops:
-        return 1, True
-    calls_of_series_node, complete = all_item_indexes(outcomes, loops[:-1], ())
-    series_node, output = loops[-1]
-    of_series_node = outcomes[series_node]
-    expected = 0
-    for item_indexes in calls_of_series_node:
-        outcome = of_series_node.get(item_indexes)
-        if outcome is None or not outcome.has_outputs:
-            complete = False
-        else:
-            expected += length(outcome.outputs[output])
-    return expected, complete
-
-
 def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> bool:
     """Whether ``node`` is complete: it has an outcome for every call it will have, and none of them waits for a person.
 
     ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. ``approve`` with an
     ``Unanswered`` outcome is not, until the person answers.
     """
-    return has_every_outcome(outcomes, node) and all(type(outcome) is not Unanswered for outcome in outcomes[node.node_path].values())
-
-
-def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> bool:
-    """Whether ``node`` has an outcome for every call it will have.
-
-    ``shout`` has when ``lines`` has returned and ``shout`` has three outcomes. An ``Unanswered`` outcome counts:
-    the call was made, though no answer has come.
-    """
-    expected, complete = calls_expected(outcomes, node.loops)
-    return complete and len(outcomes[node.node_path]) == expected
+    calls, every_call_known = all_item_indexes(outcomes, node.loops, ())
+    of_node = outcomes[node.node_path]
+    return every_call_known and len(of_node) == len(calls) and all(type(outcome) is not Unanswered for outcome in of_node.values())
 
 
 def length(value: Any) -> int:

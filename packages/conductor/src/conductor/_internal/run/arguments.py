@@ -257,13 +257,12 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        if node_input.loop_body:  # speed only: with no node inside the loop, the lines below return what reading the list returns. Worth 12% of a run that collects 2,000 lists.
-            any_item = type(self)(self.outcomes, self.graph_inputs)
-            for node in node_input.loop_body:  # each after the nodes it reads
-                any_item.for_any_item[node.node_path] = any_item.arguments_for(node, item_indexes)
-            value = any_item._edges_for_any_item(node_input, item_indexes)
-            if value is not MAY_HAVE_VALUE:
-                return value
+        any_item = type(self)(self.outcomes, self.graph_inputs)
+        for node in node_input.loop_body:  # each after the nodes it reads
+            any_item.for_any_item[node.node_path] = any_item.arguments_for(node, item_indexes)
+        value = any_item._edges_for_any_item(node_input, item_indexes)
+        if value is not MAY_HAVE_VALUE:
+            return value
         series_node, output = node_input.input.series
         outcome = self.outcomes[series_node].get(item_indexes)
         return outcome.outputs[output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY

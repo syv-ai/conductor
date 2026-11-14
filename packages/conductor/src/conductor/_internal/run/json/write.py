@@ -19,7 +19,7 @@ from conductor._internal.types import Type
 
 from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
-from ..progress import all_item_indexes, has_every_outcome
+from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
 from .codec import saved_type
 from .type import (
@@ -121,10 +121,6 @@ def _outcomes_by_call_number(run: Run, node: BlueprintFunctionNode) -> list[Outc
     is the call number of its call; ``None`` is a call that has no outcome yet.
     """
     outcomes = run._outcomes[node.node_path]
-    # speed only: the outcomes are in call order already, as the line below would list them. Without it to_json takes 1.3 to 1.9
-    # times as long.
-    if has_every_outcome(run._outcomes, node):
-        return list(outcomes.values())
     return [outcomes.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
 
 
