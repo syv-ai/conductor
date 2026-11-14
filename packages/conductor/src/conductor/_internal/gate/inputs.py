@@ -6,14 +6,14 @@ Example: the graph of one node, ``make_graph(shout)``, has the graph inputs ``li
 it raises ``InvalidCallError`` with every fault at once: ``not_offered`` for ``colour``, then ``invalid_input`` for
 ``line``.
 
-The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are checked by
-one function, ``check_limits``. A yes or no is not a number: ``max_items=True`` is refused, as is ``max_items=2.5``.
+The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are read by
+one function, ``read_limits``. A yes or no is not a number: ``max_items=True`` is refused, as is ``max_items=2.5``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from pydantic import ValidationError
 from pydantic_core import ErrorDetails, SchemaValidator, core_schema
@@ -105,6 +105,14 @@ def _input_schema(field: Field) -> TypedDictField:
     return core_schema.typed_dict_field(schema, required=required)
 
 
+class Limits(TypedDict):
+    """A run's limits as ``read_limits`` returns them: ``None`` for a limit the caller did not give."""
+
+    max_items: int | None
+    timeout: float | None
+    checkpoint_every: float | None
+
+
 #: Reads the limits a caller gives a run. A limit left out is ``None``, which is not checked.
 _LIMITS = SchemaValidator(core_schema.typed_dict_schema({
     "max_items": core_schema.typed_dict_field(core_schema.nullable_schema(core_schema.int_schema(strict=True, ge=1))),
@@ -112,27 +120,24 @@ _LIMITS = SchemaValidator(core_schema.typed_dict_schema({
     "checkpoint_every": core_schema.typed_dict_field(core_schema.nullable_schema(core_schema.float_schema(strict=True, gt=0, allow_inf_nan=False))),
 }))
 
-#: The problem of each limit, by its name.
-_LIMIT_PROBLEMS = {
-    "max_items": lambda value: call_problems.invalid_max_items("max_items", max_items=value),
-    "timeout": lambda value: call_problems.invalid_timeout("timeout", timeout=value),
-    "checkpoint_every": lambda value: call_problems.invalid_checkpoint_every("checkpoint_every", checkpoint_every=value),
-}
 
-
-def check_limits(*, max_items: Any = None, timeout: Any = None, checkpoint_every: Any = None) -> None:
-    """Checks the limits a caller gives a run, and returns nothing: a run keeps each limit as it was given.
+def read_limits(*, max_items: Any = None, timeout: Any = None, checkpoint_every: Any = None) -> Limits:
+    """Reads the limits a caller gives a run, and returns them as the run keeps them: ``timeout`` and
+    ``checkpoint_every`` as a ``float``, so ``timeout=Decimal("1.5")`` is ``1.5``.
 
     ``max_items`` is a whole number of at least 1. ``timeout`` and ``checkpoint_every`` are seconds, finite and
-    above 0. A yes or no is none of these. ``None`` is a limit the caller did not give. ``check_limits(max_items=0)``
+    above 0. A yes or no is none of these. ``None`` is a limit the caller did not give. ``read_limits(max_items=0)``
     raises.
 
     Raises:
-        InvalidCallError: With a problem for each limit refused, in the order above (``invalid_max_items``,
-            ``invalid_timeout``, ``invalid_checkpoint_every``), which quotes the value given.
+        InvalidCallError: With an ``invalid_limit`` for each limit refused, in the order above, which quotes the value
+            given; its variant ``seconds`` for ``timeout`` and ``checkpoint_every``.
     """
     given = {"max_items": max_items, "timeout": timeout, "checkpoint_every": checkpoint_every}
     try:
-        _LIMITS.validate_python(given)
+        return cast(Limits, _LIMITS.validate_python(given))
     except ValidationError as error:
-        raise InvalidCallError([_LIMIT_PROBLEMS[name](given[name]) for name in dict.fromkeys(str(e["loc"][0]) for e in error.errors())]) from None
+        refused = dict.fromkeys(str(e["loc"][0]) for e in error.errors())
+        raise InvalidCallError([
+            (call_problems.invalid_limit if name == "max_items" else call_problems.invalid_limit_seconds)(name, value=given[name]) for name in refused
+        ]) from None

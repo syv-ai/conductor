@@ -98,7 +98,7 @@ class Resume(BaseModel):
         max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling; it
             holds for the run from then on. Left out, the run keeps the ceiling it has. The body says only that it
             is an integer (``true`` is not one); that it is at least 1 is conductor's rule, so ``0`` is refused
-            as ``Run.with_max_items`` refuses it, with ``invalid_max_items``.
+            as ``Run.with_max_items`` refuses it, with ``invalid_limit``.
     """
 
     max_items: StrictInt | None = None

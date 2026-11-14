@@ -198,7 +198,9 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
 
         below_one = await client.post(f"/runs/{run_id}/resume", json={"max_items": 0})
         assert below_one.status_code == 422
-        assert [(problem["type"], problem["loc"]) for problem in below_one.json()["detail"]] == [("invalid_max_items", ["max_items"])]
+        assert [(problem["type"], problem["loc"], problem["ctx"]) for problem in below_one.json()["detail"]] == [
+            ("invalid_limit", ["max_items"], {"limit": "max_items", "value": 0}),
+        ]
         for not_a_whole_number in (True, 2.5, "5"):
             refused = await client.post(f"/runs/{run_id}/resume", json={"max_items": not_a_whole_number})
             assert (refused.status_code, [problem["type"] for problem in refused.json()["detail"]]) == (422, ["int_type"])

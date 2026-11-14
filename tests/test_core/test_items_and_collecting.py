@@ -1509,7 +1509,7 @@ def test_with_max_items_is_the_same_run_with_a_higher_item_limit_and_calls_nothi
     assert Run.from_json(raised.to_json(), compiled).resume().status == "complete"
     with pytest.raises(InvalidCallError) as refused:
         stopped.with_max_items(0)
-    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_max_items", ("max_items",))]
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_limit", ("max_items",))]
     for method in (stopped.resume, stopped.stream):  # the item limit is the run's, never one resume() call's
         with pytest.raises(TypeError):
             method(max_items=3)
@@ -1528,8 +1528,7 @@ def test_max_items_is_a_whole_number_of_at_least_one_and_a_bool_is_not_one(max_i
     for call in calls:
         with pytest.raises(InvalidCallError) as refused:
             call()
-        assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [("invalid_max_items", ("max_items",), {"max_items": max_items})]
-    assert refused.value.problems[0].msg == f"max_items must be a whole number of at least 1; it was {max_items}."
+        assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [("invalid_limit", ("max_items",), {"limit": "max_items", "value": max_items})]
 
 
 def test_the_item_limit_is_on_each_series_never_on_all_their_items_together():

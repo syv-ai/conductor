@@ -9,12 +9,14 @@ attempt.
 """
 
 import asyncio
+import contextlib
 import math
 import threading
 import time
 from asyncio import CancelledError
 from asyncio import Event as AsyncioEvent
 from collections.abc import Callable, Mapping, Sequence
+from decimal import Decimal
 from threading import Event as ThreadEvent
 from typing import Any, TypedDict
 
@@ -1105,7 +1107,9 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(text="a").stream(checkpoint_every=every)
-    assert [p.type for p in refused.value.problems] == ["invalid_checkpoint_every"]
+    assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
+        ("invalid_limit", ("checkpoint_every",), {"limit": "checkpoint_every", "value": every, "variant": "seconds"}),
+    ]
 
 
 @pytest.mark.parametrize("timeout", [0, -1, math.nan, True, "5"])
@@ -1114,7 +1118,30 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
             call(graph.with_inputs(text="a"))
-        assert [p.type for p in refused.value.problems] == ["invalid_timeout"]
+        assert [(p.type, p.loc, p.ctx["limit"], p.ctx["variant"]) for p in refused.value.problems] == [("invalid_limit", ("timeout",), "timeout", "seconds")]
+        if not (isinstance(timeout, float) and math.isnan(timeout)):
+            assert refused.value.problems[0].ctx["value"] == timeout
+
+
+def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_order_of_the_limits():
+    graph = Graph.compile(make_graph(split), registry_of(split))
+    with pytest.raises(InvalidCallError) as refused:
+        graph.with_inputs(text="a").stream(checkpoint_every=True, timeout=0)
+    assert [(p.type, p.ctx) for p in refused.value.problems] == [
+        ("invalid_limit", {"limit": "timeout", "value": 0, "variant": "seconds"}),
+        ("invalid_limit", {"limit": "checkpoint_every", "value": True, "variant": "seconds"}),
+    ]
+
+
+def test_seconds_given_as_a_decimal_are_read_as_a_float_and_the_run_keeps_that_float():
+    graph = Graph.compile(make_graph(split), registry_of(split))
+    assert graph.with_inputs(text="a").resume(timeout=Decimal("1.5")).status == "complete"
+
+    async def streamed() -> list[Any]:
+        async with contextlib.aclosing(graph.with_inputs(text="a").stream(timeout=Decimal("2"), checkpoint_every=Decimal("0.01"))) as events:
+            return [event async for event in events]
+
+    assert asyncio.run(streamed())[-1].run.status == "complete"
 
 
 def test_each_checkpoint_of_a_run_reusing_the_previous_runs_outcomes_resumes_without_a_call():

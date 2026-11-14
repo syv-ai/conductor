@@ -30,7 +30,7 @@ from conductor._internal.base import (
     Loc,
     NodePath,
 )
-from conductor._internal.gate import check_limits
+from conductor._internal.gate import read_limits
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .arguments import ResultReader
@@ -152,10 +152,9 @@ class Run[C]:
         ``run.with_max_items(100).resume()``. The limit is saved by ``to_json()``.
 
         Raises:
-            InvalidCallError: ``max_items`` is not a whole number of at least 1 (``invalid_max_items``).
+            InvalidCallError: ``max_items`` is not a whole number of at least 1 (``invalid_limit``).
         """
-        check_limits(max_items=max_items)
-        return dataclasses.replace(self, max_items=max_items)
+        return dataclasses.replace(self, max_items=read_limits(max_items=max_items)["max_items"])
 
     def resume(self, *, context: C | None = None, timeout: float | None = None, only_costs_nothing: bool = False) -> Run[C]:
         """Go on: call every node that is ready, until the run is complete, waits for a person, fails, reaches its
@@ -184,12 +183,12 @@ class Run[C]:
             The run after those calls.
 
         Raises:
-            InvalidCallError: ``timeout`` is not a number of seconds above 0 (``invalid_timeout``); ``context`` is not an instance of
+            InvalidCallError: ``timeout`` is not a number of seconds above 0 (``invalid_limit``); ``context`` is not an instance of
                 the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
                 (``context_missing``).
         """
-        check_limits(timeout=timeout)
-        return self._run_scheduler(self.graph._context_door(context), None, deadline(timeout), only_costs_nothing=only_costs_nothing)
+        limits = read_limits(timeout=timeout)
+        return self._run_scheduler(self.graph._context_door(context), None, deadline(limits["timeout"]), only_costs_nothing=only_costs_nothing)
 
     def stream(
         self, *, context: C | None = None, timeout: float | None = None, only_costs_nothing: bool = False,
@@ -212,11 +211,11 @@ class Run[C]:
 
         Raises:
             InvalidCallError: As ``resume`` does, and for a ``checkpoint_every`` that is not a number of seconds
-                above 0 (``invalid_checkpoint_every``), at this call, before any event.
+                above 0 (``invalid_limit``), at this call, before any event.
         """
-        check_limits(timeout=timeout, checkpoint_every=checkpoint_every)
+        limits = read_limits(timeout=timeout, checkpoint_every=checkpoint_every)
         run_scheduler = functools.partial(self._run_scheduler, only_costs_nothing=only_costs_nothing)
-        return stream(run_scheduler, self.graph._context_door(context), timeout, cancel, hand_back, checkpoint_every)
+        return stream(run_scheduler, self.graph._context_door(context), limits["timeout"], cancel, hand_back, limits["checkpoint_every"])
 
     def _run_scheduler(
         self, context: C | None, emit: Callable[[EventBase], None] | None, stop: Callable[[], LastResume] | None,

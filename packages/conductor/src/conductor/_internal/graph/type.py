@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Any
 
 from conductor._internal.compiled import CompiledGraph, compile_graph
-from conductor._internal.gate import check_limits
+from conductor._internal.gate import read_limits
 from conductor._internal.problem import InvalidCallError
 from conductor._internal.record import GraphRecord
 from conductor._internal.registry import NodeRegistry
@@ -70,13 +70,13 @@ class Graph[C](CompiledGraph):
 
         Raises:
             InvalidCallError: The graph has problems; ``max_items`` is not a whole number of at least 1
-                (``invalid_max_items``); or an input is missing, unknown, given twice or not of its type (the inputs
+                (``invalid_limit``); or an input is missing, unknown, given twice or not of its type (the inputs
                 door's problems, every one).
         """
         if self.problems:
             raise InvalidCallError(self.problems)
-        check_limits(max_items=max_items)
-        return make_run(self, self._inputs_door({**inputs, **by_name}), max_items, previous)
+        limits = read_limits(max_items=max_items)
+        return make_run(self, self._inputs_door({**inputs, **by_name}), limits["max_items"], previous)
 
     def run(
         self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,

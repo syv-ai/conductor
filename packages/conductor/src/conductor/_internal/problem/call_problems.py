@@ -102,22 +102,6 @@ def invalid_answer(*loc: str | int, waiting_id: str, reason: str, question: str 
 
 
 @CALL_PROBLEMS.problem()
-def invalid_checkpoint_every(*loc: str | int, checkpoint_every: float) -> str:
-    """A call gives ``checkpoint_every`` a value that is not a number of seconds above 0: ``0``, ``inf`` or ``True``.
-
-    Give a number above 0, or leave it out for no checkpoints.
-
-    Args:
-        loc: ``"checkpoint_every"``.
-        checkpoint_every: The value given.
-
-    Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").stream(checkpoint_every=0))
-    """
-    return f"checkpoint_every must be a number of seconds above 0; it was {checkpoint_every}."
-
-
-@CALL_PROBLEMS.problem()
 def invalid_context(*loc: str | int, expected: str, got: str) -> str:
     """A call gives ``context`` an object that is not an instance of the class the registry names.
 
@@ -196,19 +180,36 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
 
 
 @CALL_PROBLEMS.problem()
-def invalid_max_items(*loc: str | int, max_items: int) -> str:
+def invalid_limit(limit: str, /, *, value: Any) -> str:
     """A call gives ``max_items`` a value that is not a whole number of at least 1: ``0``, ``2.5`` or ``True``.
 
-    Give a whole number of 1 or more, or leave it out for no item limit.
+    A yes or no is not a number. Give a whole number of 1 or more, or leave it out for no item limit.
 
     Args:
-        loc: ``"max_items"``.
-        max_items: The value given.
+        limit: ``max_items``.
+        value: The value given, of any type: ``True`` and ``"5"`` are refused as they are.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", max_items=0))
     """
-    return f"max_items must be a whole number of at least 1; it was {max_items}."
+    return f"{limit} must be a whole number of at least 1; it was {value}."
+
+
+@CALL_PROBLEMS.problem("invalid_limit", variant="seconds")
+def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
+    """A call gives ``timeout`` or ``checkpoint_every`` a value that is not a finite number of seconds above 0.
+
+    ``0``, ``inf``, ``nan`` and ``True`` are refused: a yes or no is not a number. Give a number of seconds above 0,
+    or leave the limit out: no time limit, no checkpoints.
+
+    Args:
+        limit: ``timeout`` or ``checkpoint_every``.
+        value: The value given, of any type: ``True`` and ``"5"`` are refused as they are.
+
+    Example:
+        refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").resume(timeout=0))
+    """
+    return f"{limit} must be a finite number of seconds above 0; it was {value}."
 
 
 @CALL_PROBLEMS.problem()
@@ -231,22 +232,6 @@ def invalid_record(*loc: str | int, where: str, reason: str, error: str, written
         refused(lambda: Graph.compile('{"nodes": {"u": {"type": "upper"}}}', registry))
     """
     return f"The record is not a graph record at '{where}': {reason.rstrip('.')}. Fix {written_by or "the record's JSON"}."
-
-
-@CALL_PROBLEMS.problem()
-def invalid_timeout(*loc: str | int, timeout: float) -> str:
-    """A call gives ``timeout`` a value that is not a number of seconds above 0: ``0``, ``nan`` or ``True``.
-
-    Give a number above 0, or leave it out for no time limit.
-
-    Args:
-        loc: ``"timeout"``.
-        timeout: The value given.
-
-    Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").resume(timeout=-1))
-    """
-    return f"timeout must be a number of seconds above 0; it was {timeout}."
 
 
 @CALL_PROBLEMS.problem()

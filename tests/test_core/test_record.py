@@ -674,7 +674,7 @@ def test_a_graph_input_is_given_by_its_name_never_by_a_source_and_an_item_limit_
         graph.run(text="a", max_items=0)
 
     assert [(p.type, p.loc) for p in by_source.value.problems] == [("not_offered", ("inputs", "u.text"))]
-    assert [p.type for p in item_limit.value.problems] == ["invalid_max_items"]
+    assert [p.type for p in item_limit.value.problems] == ["invalid_limit"]
     with pytest.raises(InvalidCallError):
         graph.with_inputs(text="a").with_max_items(-1)
 

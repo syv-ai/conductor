@@ -27,8 +27,7 @@ The doors, with the module each is in:
     a caller's graph inputs, max_items, timeout and         inputs
         checkpoint_every                                    not_offered, missing_input,
                                                             invalid_input, invalid_input_make_a_series,
-                                                            invalid_max_items, invalid_timeout,
-                                                            invalid_checkpoint_every
+                                                            invalid_limit
     a person's answer to a node's outputs                   answer
                                                             invalid_answer
     what a node's function returns                          returned
@@ -56,7 +55,7 @@ from .context import ContextDoor
 from .declared import bound_field, declared_field
 from .edge import EdgeDoor, demands_more
 from .hook import read_hook_fields
-from .inputs import InputsDoor, check_limits
+from .inputs import InputsDoor, read_limits
 from .raised import AskDoor, undeclared_ask
 from .record import read_json, read_record, record_values
 from .returned import (
@@ -71,7 +70,7 @@ from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
     "AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "HookOutputs", "InputsDoor", "NoOutputs", "OneResult", "OutputsClass",
-    "ReturnDoor", "ReturnShape", "bound_field", "check_limits", "declared_field",
-    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_json", "read_record", "record_values",
+    "ReturnDoor", "ReturnShape", "bound_field", "declared_field",
+    "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_json", "read_limits", "read_record", "record_values",
     "undeclared_ask", "validator_of",
 ]
