@@ -171,7 +171,7 @@ What changes in how you work, before the name-by-name tables:
   reads it from its outcomes, so answering the last question makes a run `ready`, or `complete` when no call is left,
   before any `resume()`. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
   itself as JSON (`run.to_json()`, `Run.from_json(saved, graph)`, which reads a save from its JSON text; a save that
-  doesn't fit is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save has each node's
+  doesn't fit (it may have been changed, other code may have written it, or a value may not read back from its JSON; a new run is the remedy) is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save has each node's
   outcomes as a list per output with one entry per call, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the last resume ended early under `ended_early`, `null` for one that did not;
   a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
   calling the nodes only for the items that changed (`run.again(...)`). A run's `max_items` is a whole number of

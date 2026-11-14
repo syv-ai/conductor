@@ -444,9 +444,11 @@ def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
 
 @CALL_PROBLEMS.problem()
 def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
-    """A saved run is not what ``run.to_json()`` writes for this graph.
+    """A saved run of this graph cannot be read back.
 
-    Load what ``run.to_json()`` wrote, unchanged. ``ctx.where`` says where it stops fitting.
+    The text may have been changed after it was written; other code may have written it, another version of
+    conductor or of a node or a type in the run; or a value the run holds may have a JSON form that does not read
+    back. Start a new run. ``ctx.where`` says where the saved run stops fitting.
 
     Args:
         loc: ``"saved_run"`` and the steps to the fault inside the saved run.
@@ -459,7 +461,7 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
         changed["outcomes"] = {"upper": "not outcomes"}
         refused(lambda: Run.from_json(json.dumps(changed), uppering))
     """
-    return f"The saved run does not fit this graph at '{where}': {reason.rstrip('.')}. Load it into the graph it was saved from."
+    return f"The saved run does not fit this graph at '{where}': {reason.rstrip('.')}. The text may have been changed, other code may have written it, or a value may not read back from its JSON; start a new run."
 
 
 @CALL_PROBLEMS.problem()
