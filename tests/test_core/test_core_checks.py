@@ -192,9 +192,8 @@ def test_nested_loops_are_collected_one_level_at_a_time():
     # documents -> lines -> per-line upper -> per-document join; the lines read whole are a list per document too.
     record = {"nodes": {"docs": {"node": "split", "inputs": {"sep": {"constant": ";"}, "text": {"graph_input": "text"}}}, "lines": {"node": "split", "inputs": {"text": {"sources": [{"node": "docs", "output": "result"}]}}}, "up": {"node": "upper", "inputs": {"text": {"sources": [{"node": "lines", "output": "result"}]}}}, "per_doc": {"node": "join", "inputs": {"texts": {"sources": [{"node": "up", "output": "result"}]}}}, "all": {"node": "join", "inputs": {"texts": {"sources": [{"node": "lines", "output": "result"}]}}}}, "outputs": {"all_result": {"node": "all", "output": "result"}, "per_doc_result": {"node": "per_doc", "output": "result"}}}
     graph = Graph.compile(GraphRecord.model_validate(record), registry)
-    assert {k: (v.runs.mode, v.runs.series) for k, v in graph.describe().nodes.items()} == {
-        "docs": ("once", None), "lines": ("per_item", "docs.result"), "up": ("per_item", "lines.result"),
-        "per_doc": ("per_item", "docs.result"), "all": ("per_item", "docs.result"),
+    assert {k: v.per_item_of for k, v in graph.describe().nodes.items()} == {
+        "docs": None, "lines": "docs.result", "up": "lines.result", "per_doc": "docs.result", "all": "docs.result",
     }
     run = graph.run(text="a,b;c;")
     assert run.results["per_doc"]["result"] == ["A+B", "C", ""], run.results["per_doc"]

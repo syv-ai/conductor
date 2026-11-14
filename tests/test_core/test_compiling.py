@@ -518,7 +518,7 @@ def test_a_constant_on_a_subgraph_node_reaches_the_inner_input_it_offers():
 
 def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "defaulted"}}, "outputs": {"result": {"node": "d", "output": "result"}}}), REGISTRY)
-    assert graph.problems == [] and graph.inputs == {} and {k: v.runs.mode for k, v in graph.describe().nodes.items()} == {"d": "once"}
+    assert graph.problems == [] and graph.inputs == {} and {k: v.per_item_of for k, v in graph.describe().nodes.items()} == {"d": None}
     assert graph.run().outputs == {"result": "inside"}
 
 
@@ -694,7 +694,7 @@ def _described(graph: Any, node_id: str) -> tuple[bool, str | None, dict[str, st
     where each input gets its value, its outputs, and its problems."""
     described = graph.describe().nodes[node_id]
     return (
-        described.found, described.runs.msg if described.runs else None, {i.field.name: i.source.mode for i in described.inputs},
+        described.found, described.per_item_of, {i.field.name: i.source.mode for i in described.inputs},
         [o.name for o in described.outputs], [p.type for p in described.problems],
     )
 
@@ -704,9 +704,9 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
     are compiled as in a graph with no problem."""
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "fan"}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "f", "output": "result"}]}}}, "t": {"node": "tail", "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}}}, "j": {"node": "join", "inputs": {"texts": {"sources": [{"node": "t", "output": "result"}]}}}}, "outputs": {"result": {"node": "j", "output": "result"}}}), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("u", "text"))]
-    assert _described(graph, "u") == (True, "once", {"text": "missing"}, ["result"], ["type_mismatch"])
-    assert _described(graph, "t") == (True, "once", {"text": "one_value"}, ["result"], [])
-    assert _described(graph, "j") == (True, "once", {"texts": "collected"}, ["result"], [])
+    assert _described(graph, "u") == (True, None, {"text": "missing"}, ["result"], ["type_mismatch"])
+    assert _described(graph, "t") == (True, None, {"text": "one_value"}, ["result"], [])
+    assert _described(graph, "j") == (True, None, {"texts": "collected"}, ["result"], [])
     assert graph.describe().nodes["f"].found and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
@@ -716,16 +716,16 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
 def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inputs():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "tail", "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}}}, "a": {"node": "upper", "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}}}, "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "c", "output": "result"}}}), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("cycle", ("a",)), ("cycle", ("b",))]
-    assert _described(graph, "a") == (True, "once", {"text": "missing"}, ["result"], ["cycle"])  # the edge that closes the cycle gives it no value
-    assert _described(graph, "b") == (True, "once", {"text": "one_value"}, ["result"], ["cycle"])
-    assert _described(graph, "c") == (True, "once", {"text": "one_value"}, ["result"], [])
+    assert _described(graph, "a") == (True, None, {"text": "missing"}, ["result"], ["cycle"])  # the edge that closes the cycle gives it no value
+    assert _described(graph, "b") == (True, None, {"text": "one_value"}, ["result"], ["cycle"])
+    assert _described(graph, "c") == (True, None, {"text": "one_value"}, ["result"], [])
 
 
 def test_an_input_looping_over_a_series_not_nested_with_the_others_is_marked_missing_and_the_node_described():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"x": {"node": "fan"}, "y": {"node": "fan"}, "b": {"node": "both_ints", "inputs": {"a": {"sources": [{"node": "x", "output": "result"}]}, "b": {"sources": [{"node": "y", "output": "result"}]}}}, "t": {"node": "tail", "inputs": {"text": {"sources": [{"node": "b", "output": "result"}]}}}}, "outputs": {"result": {"node": "t", "output": "result"}}}), REGISTRY)
     assert [(p.type, p.loc) for p in graph.problems] == [("series_not_nested", ("b",))]
-    assert _described(graph, "b") == (True, "per item of x.result", {"a": "item", "b": "missing"}, ["result"], ["series_not_nested"])
-    assert _described(graph, "t") == (True, "per item of x.result", {"text": "item"}, ["result"], [])
+    assert _described(graph, "b") == (True, "x.result", {"a": "item", "b": "missing"}, ["result"], ["series_not_nested"])
+    assert _described(graph, "t") == (True, "x.result", {"text": "item"}, ["result"], [])
 
 
 def test_a_node_not_found_or_whose_hook_failed_has_no_inputs_or_outputs_and_the_nodes_downstream_keep_theirs():
@@ -734,7 +734,7 @@ def test_a_node_not_found_or_whose_hook_failed_has_no_inputs_or_outputs_and_the_
     for unknown in ("gone", "old", "r"):
         assert _described(graph, unknown)[:4] == (False, None, {}, [])
     for downstream in ("u", "t", "v"):
-        assert _described(graph, downstream) == (True, "once", {"text": "missing"}, ["result"], [])
+        assert _described(graph, downstream) == (True, None, {"text": "missing"}, ["result"], [])
 
 
 def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failure():

@@ -51,8 +51,8 @@ def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input
         ("text-split.result", "regex-extract.text"), ("regex-extract.result", "text-join.parts"),
     ], constants={"text-split.separator": ",", "regex-extract.pattern": r"\d+"}), conductor_nodes.registry)
 
-    assert graph.describe().nodes["regex-extract"].runs.msg == "per item of text-split.result"
-    assert graph.describe().nodes["text-join"].runs.msg == "per item of text-split.result"
+    assert graph.describe().nodes["regex-extract"].per_item_of == "text-split.result"
+    assert graph.describe().nodes["text-join"].per_item_of == "text-split.result"
     assert graph.run(text="a1,b2 3,c").outputs == {"result": ["1", "2, 3", ""]}
 
 

@@ -199,7 +199,7 @@ def test_scenario_1_per_invoice_approval():
         ("series-split.result.amount", "approved-total.amounts"),
         ("approve.result", "approved-total.approved"),
     ]), REGISTRY)
-    assert graph.describe().nodes["approve"].runs.series == "series-split.result" and graph.describe().nodes["approved-total"].runs.mode == "once"
+    assert graph.describe().nodes["approve"].per_item_of == "series-split.result" and graph.describe().nodes["approved-total"].per_item_of is None
 
     run = graph.run(file=INVOICES)
     assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [("approve", (1,), "Approve A2 for 900.0?")]
@@ -250,7 +250,7 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
         ("upload.result.name", "table-collect.document"),
         ("table-collect.result", "excel.table"),
     ], constants={"table-collect.constant_columns": ["document"]}), REGISTRY)
-    assert {n: graph.describe().nodes[n].runs.series for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
+    assert {n: graph.describe().nodes[n].per_item_of for n in ("find-invoices", "table-collect", "excel")} == dict.fromkeys(("find-invoices", "table-collect", "excel"), "upload.result")
     assert [c["properties"]["name"]["const"] for c in graph.describe().nodes["table-collect"].outputs[0].json_schema["properties"]["columns"]["prefixItems"]] == ["number", "vendor", "amount", "document"]
 
     sheets = graph.run(files=[A_PDF, C_PDF]).results["excel"]["result"]
@@ -346,7 +346,7 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
         ("control-decide.if_true", "excel.table"),
         ("upload.result.name", "excel.name"),
     ]), REGISTRY)
-    assert graph.describe().nodes["control-decide"].runs.series == "find-invoices.result" and graph.describe().nodes["excel"].runs.series == "upload.result"
+    assert graph.describe().nodes["control-decide"].per_item_of == "find-invoices.result" and graph.describe().nodes["excel"].per_item_of == "upload.result"
 
     only_large = File(name="d.pdf", text="D1,Dune,800")
     run = graph.run(files=[A_PDF, C_PDF, only_large])
@@ -407,7 +407,7 @@ def test_scenario_11_a_subgraph_per_item():
     graph = Graph.compile(make_graph(read_contacts, split, enrich, edges=[
         ("read-contacts.result", "series-split.value"), ("series-split.result.name", "enrich.text"),
     ]), registry_with(enrich))
-    assert graph.describe().nodes["enrich"].runs.series == "series-split.result"
+    assert graph.describe().nodes["enrich"].per_item_of == "series-split.result"
     assert graph.run(file=CONTACTS).outputs == {"result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]}
 
 
@@ -419,7 +419,7 @@ def test_scenario_12_a_subgraph_given_the_whole_table():
         make_graph(describe_table, llm, edges=[("describe-table.result", "llm.text")], constants={"llm.prompt": "Write a report on"})
     )
     graph = Graph.compile(make_graph(read_csv, table_report, edges=[("read-csv.result", "table-report.table")]), registry_with(table_report))
-    assert graph.describe().nodes["table-report"].runs.mode == "once"
+    assert graph.describe().nodes["table-report"].per_item_of is None
     assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {"result": "Write a report on 3 lines of id, text, amount"}
 
 
@@ -430,7 +430,7 @@ def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
     graph = Graph.compile(make_graph(read_csv, read_csv, join_tables, edges=[
         ("read-csv-1.result", "join-tables.left"), ("read-csv-2.result", "join-tables.right"),
     ], constants={"join-tables.on": "customer_id"}, inputs={"customers": "read-csv-1.file", "orders": "read-csv-2.file"}), REGISTRY)
-    assert all(described.runs.mode == "once" for described in graph.describe().nodes.values())
+    assert all(described.per_item_of is None for described in graph.describe().nodes.values())
     customers = File(name="customers.csv", text="customer_id,name\n1,Ann\n2,Bo\n")
     orders = File(name="orders.csv", text="customer_id,item\n2,lamp\n1,desk\n1,chair\n")
     joined = graph.run(customers=customers, orders=orders).outputs["result"]
@@ -451,7 +451,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
         ("text-list.result", "llm.prompt"),
         ("upload.result.text", "llm.text"),
     ], constants={"text-list.items": QUESTIONS}), REGISTRY)
-    assert graph.describe().nodes["text-list"].runs.series == "upload.result" and graph.describe().nodes["llm"].runs.series == "text-list.result"
+    assert graph.describe().nodes["text-list"].per_item_of == "upload.result" and graph.describe().nodes["llm"].per_item_of == "text-list.result"
     feeds = {i.field.name: (i.source.mode, i.source.series) for i in graph.describe().nodes["llm"].inputs}
     assert feeds == {"prompt": ("item", "text-list.result"), "text": ("outer_value", "upload.result")}
 

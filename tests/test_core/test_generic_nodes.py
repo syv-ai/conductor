@@ -146,7 +146,7 @@ def test_the_choices_of_an_ask_are_checked_against_the_type_the_edge_bound() -> 
 def test_a_series_wired_to_a_type_variable_is_looped_over_and_binds_the_item_type() -> None:
     graph = _compiled(texts, keep, edges=[["texts.result", "keep.value"]])
     assert _types(graph, "keep")["value"] == (False, "str")
-    assert graph.describe().nodes["keep"].runs.series == "texts.result" and graph.run().outputs == {"result": ["a", "b"]}
+    assert graph.describe().nodes["keep"].per_item_of == "texts.result" and graph.run().outputs == {"result": ["a", "b"]}
 
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:

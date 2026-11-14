@@ -9,7 +9,6 @@ from .compile import compile_graph
 from .describe import (
     GraphDescription,
     InputSource,
-    RunsOn,
 )
 from .input import (
     CollectingInput,

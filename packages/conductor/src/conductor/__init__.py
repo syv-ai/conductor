@@ -20,7 +20,6 @@ from conductor._internal.base import SKIPPED, Source
 from conductor._internal.compiled import (
     GraphDescription,
     InputSource,
-    RunsOn,
 )
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
@@ -107,7 +106,6 @@ __all__ = [
     "RegistryDescription",
     "TypeDescription",
     "GraphDescription",
-    "RunsOn",
     "InputSource",
     # Errors
     "NodeDeclarationError",

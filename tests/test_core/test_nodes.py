@@ -862,7 +862,7 @@ def test_a_hook_reads_the_element_type_a_series_input_receives():
         lengths, first, double, edges=[("lengths.result", "first.items"), ("first.result", "double.n")],
     ))
     assert graph.problems == [] and graph.describe().nodes["first"].outputs[0].type == "int"
-    assert graph.describe().nodes["first"].runs.msg == "once"
+    assert graph.describe().nodes["first"].per_item_of is None
     assert graph.run(text="ab c").results["double"]["result"] == 4
 
 

@@ -121,7 +121,7 @@ record = """{
 graph = Graph.compile(record, registry)
 print(list(graph.inputs))  # ['csv']
 print(graph.outputs)       # ['summary']
-print(graph.describe().nodes["approve"].runs)  # mode='per_item' series='read.result' msg='per item of read.result'
+print(graph.describe().nodes["approve"].per_item_of)  # read.result
 ```
 
 A graph declares what it takes and returns, as a function declares its parameters and its return value: `csv` is a graph input, and `summary` a graph output. Used as a node of another graph, those are its inputs and outputs. `approve` takes one name and one amount, so it runs once per invoice. `summary` takes every answer, so it runs once.

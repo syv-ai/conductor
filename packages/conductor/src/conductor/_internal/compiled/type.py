@@ -8,8 +8,8 @@ The example graph used in this file::
 
 Its record declares the graph input ``text`` on ``lines.text`` and the graph output ``result``, the output of
 ``join``. Compiled, it is ``<Graph of 3 nodes, runnable>``. Its ``inputs`` has the one graph input, ``text``, its
-``outputs`` are ``["result"]``, and ``describe().nodes["shout"].runs`` says ``shout`` is called once per item of
-``lines.result``. ``Graph``, the class a host uses, is a ``CompiledGraph`` that can also start a run.
+``outputs`` are ``["result"]``, and ``describe().nodes["shout"].per_item_of`` is ``"lines.result"``: ``shout`` is
+called once per item of it. ``Graph``, the class a host uses, is a ``CompiledGraph`` that can also start a run.
 
 A subgraph used as a node is one node of the graph. Its inputs and outputs are the graph inputs and outputs its
 own record declares, compiled once, on its own, and none of its nodes is copied into this graph's nodes. An edge
@@ -41,8 +41,8 @@ from .describe import (
     GraphDescription,
     GraphNodeDescription,
     NodeInputDescription,
+    innermost_series,
     input_source_of,
-    runs_on,
 )
 from .input import Edge
 from .node import (
@@ -125,7 +125,8 @@ class CompiledGraph:
                 nodes[node_id] = GraphNodeDescription(node=record.node, version=record.version, found=False, problems=own)
                 continue
             nodes[node_id] = GraphNodeDescription(
-                node=record.node, version=record.version, found=True, problems=own, runs=runs_on(compiled_node.loops),
+                node=record.node, version=record.version, found=True, problems=own,
+                per_item_of=innermost_series(compiled_node.loops),
                 inputs=[NodeInputDescription(field=node_input.field.description, source=input_source_of(compiled_node.loops, node_input)) for node_input in compiled_node.inputs.values()],
                 outputs=compiled_node.described_outputs(),
             )

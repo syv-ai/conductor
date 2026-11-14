@@ -30,7 +30,6 @@ from conductor import (
     Param,
     Policy,
     Run,
-    RunsOn,
     Series,
     Source,
     Table,
@@ -665,7 +664,7 @@ def test_each_series_output_of_a_node_starts_its_own_loop_of_its_own_length():
     run = ran({"id": "u", "node": "uneven"}, {"id": "ua", "node": "upper"}, {"id": "ub", "node": "upper"},
               edges=(("u.a", "ua.text"), ("u.b", "ub.text")), registry=registry_of(uneven, upper),
               ports={"outputs": {"a": "ua.result", "b": "ub.result"}}, text="t")
-    assert {k: v.runs.msg for k, v in run.graph.describe().nodes.items()} == {"u": "once", "ua": "per item of u.a", "ub": "per item of u.b"}
+    assert {k: v.per_item_of for k, v in run.graph.describe().nodes.items()} == {"u": None, "ua": "u.a", "ub": "u.b"}
     assert (run.results["u"]["a"], run.results["u"]["b"]) == (["x"], ["y", "z"])
     assert (run.results["ua"]["result"], run.results["ub"]["result"]) == (["X"], ["Y", "Z"])
 
@@ -700,20 +699,20 @@ def test_an_outer_value_is_the_same_on_each_call_inside_the_loop():
     run = ran({"id": "docs", "node": "split"}, {"id": "prefix", "node": "upper"}, {"id": "p", "node": "pair"},
               edges=(("prefix.result", "p.a"), ("docs.result", "p.b")),
               ports={"inputs": {"docs": "docs.text", "prefix": "prefix.text"}}, docs="a,b", prefix="p")
-    assert run.graph.describe().nodes["p"].runs.msg == "per item of docs.result"
+    assert run.graph.describe().nodes["p"].per_item_of == "docs.result"
     assert run.results["p"]["result"] == ["P:a", "P:b"]
 
 
 def test_a_document_is_the_outer_value_of_each_call_for_one_of_its_lines():
     run = ran({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "lines", "node": "split", "constants": {"sep": "/"}}, {"id": "p", "node": "pair"},
               edges=(("docs.result", "lines.text"), ("lines.result", "p.a"), ("docs.result", "p.b")), text="a/b|c")
-    assert run.graph.describe().nodes["p"].runs.msg == "per item of lines.result"
+    assert run.graph.describe().nodes["p"].per_item_of == "lines.result"
     assert run.results["p"]["result"] == [["a:a/b", "b:a/b"], ["c:c"]]
 
 
 def test_one_value_into_a_series_input_is_a_series_of_one():
     run = ran({"id": "a", "node": "upper"}, {"id": "j", "node": "join"}, edges=(("a.result", "j.texts"),), text="a")
-    assert run.graph.describe().nodes["j"].runs.msg == "once" and run.results["j"]["result"] == "A"
+    assert run.graph.describe().nodes["j"].per_item_of is None and run.results["j"]["result"] == "A"
 
 
 def test_a_series_input_given_a_constant_list_or_its_default_gets_it_whole_in_one_call():
@@ -724,7 +723,7 @@ def test_a_series_input_given_a_constant_list_or_its_default_gets_it_whole_in_on
     reg = registry_of(join, join_or_nothing)
     run = ran({"id": "typed", "node": "join", "constants": {"texts": ["a", "b"]}}, {"id": "absent", "node": "join-or-nothing"}, registry=reg,
               ports={"outputs": {"typed": "typed.result", "absent": "absent.result"}})
-    assert {k: v.runs.msg for k, v in run.graph.describe().nodes.items()} == {"typed": "once", "absent": "once"}
+    assert {k: v.per_item_of for k, v in run.graph.describe().nodes.items()} == {"typed": None, "absent": None}
     assert run.results == {"typed": {"result": "a+b"}, "absent": {"result": "nothing"}}
 
 
@@ -753,7 +752,7 @@ def test_collecting_ends_one_loop_so_a_node_reading_a_document_and_its_lines_run
 
     run = ran(*THREE_LEVELS, {"id": "d", "node": "deep"}, edges=(*THREE_EDGES, ("docs.result", "d.doc"), ("lines.result", "d.lines")),
               registry=registry_of(split, deep), text="a,b;c|d")
-    assert run.graph.describe().nodes["d"].runs.msg == "per item of paras.result"
+    assert run.graph.describe().nodes["d"].per_item_of == "paras.result"
     assert run.results["d"]["result"] == [["a,b;c:2", "a,b;c:1"], ["d:1"]]
 
 
@@ -767,7 +766,7 @@ def test_two_inputs_collecting_at_different_depths_run_the_node_in_the_deeper_lo
     """``a`` collects a document's paragraphs, ``b`` a paragraph's lines: the node is called per paragraph."""
     run = ran(*THREE_LEVELS, {"id": "n", "node": "two-series"}, edges=(*THREE_EDGES, ("paras.result", "n.a"), ("lines.result", "n.b")),
               registry=DEEP, text="a,b;c|d")
-    assert run.graph.describe().nodes["n"].runs.msg == "per item of paras.result"
+    assert run.graph.describe().nodes["n"].per_item_of == "paras.result"
     assert run.results["n"]["result"] == [["a,b,c+a,b", "a,b,c+c"], ["d+d"]]
 
 
@@ -780,7 +779,7 @@ def test_a_document_with_no_lines_is_called_with_an_empty_series():
 def test_a_series_read_whole_beside_its_own_items_is_the_whole_series_on_each_call():
     run = ran({"id": "s", "node": "split"}, {"id": "j", "node": "joined-beside"}, edges=(("s.result", "j.items"), ("s.result", "j.at")),
               registry=DEEP, text="a,b")
-    assert run.graph.describe().nodes["j"].runs.msg == "per item of s.result"
+    assert run.graph.describe().nodes["j"].per_item_of == "s.result"
     assert run.results["j"]["result"] == ["a:a+b", "b:a+b"]
 
 
@@ -815,7 +814,7 @@ def test_a_documents_keywords_collected_are_beside_each_of_its_invoices_also_aft
 
     assert run.results["b"]["result"] == [["i1[k1/k2]", "i2[k1/k2]"], ["i3[k3]"]]
     assert through_json(run).results == run.results
-    assert run.graph.describe().nodes["b"].runs.msg == "per item of p.invoices"
+    assert run.graph.describe().nodes["b"].per_item_of == "p.invoices"
 
 
 def test_two_series_outputs_of_one_node_and_two_series_under_one_document_never_pair_up():
@@ -841,18 +840,26 @@ def test_each_input_in_describe_says_how_it_receives_on_each_call_of_its_node():
                    outputs={"p": "p.result", "k": "k.result"})
     nodes = compiled.describe().nodes
 
-    def source_of(node_id: str) -> dict[str, str]:
-        return {i.field.name: i.source.msg for i in nodes[node_id].inputs}
+    def source_of(node_id: str) -> dict[str, tuple[str, str | None]]:
+        return {i.field.name: (i.source.mode, i.source.series) for i in nodes[node_id].inputs}
 
-    assert nodes["k"].inputs[0].source.model_dump() == {"mode": "outer_value", "series": None, "msg": "one value, the same for every item"}
-    assert nodes["j"].runs == RunsOn(mode="once", msg="once")
-    assert compiled.describe().nodes["u"].runs == RunsOn(mode="per_item", series="s.result", msg="per item of s.result")
-    assert source_of("u") == {"text": "per item of s.result"}
-    assert source_of("j") == {"texts": "every item of s.result"}
-    assert source_of("p") == {"a": "per item of s.result", "b": "a constant"}
-    assert source_of("k") == {"a": "one value, the same for every item", "b": "per item of s.result"}
-    assert source_of("s") == {"text": "the graph input", "sep": "a constant"}  # sep has only its default
+    assert nodes["j"].per_item_of is None
+    assert nodes["u"].per_item_of == "s.result"
+    assert source_of("u") == {"text": ("item", "s.result")}
+    assert source_of("j") == {"texts": ("collected", "s.result")}
+    assert source_of("p") == {"a": ("item", "s.result"), "b": ("constant", None)}
+    assert source_of("k") == {"a": ("outer_value", None), "b": ("item", "s.result")}
+    assert source_of("s") == {"text": ("graph_input", None), "sep": ("constant", None)}  # sep has only its default
 
+
+
+def test_describe_writes_how_often_a_node_runs_and_where_an_input_gets_its_value_as_this_json():
+    compiled = graph({"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, edges=(("s.result", "u.text"), ("u.result", "j.texts")))
+    nodes = compiled.describe().model_dump(mode="json")["nodes"]
+    assert set(nodes["u"]) == {"node", "version", "found", "problems", "per_item_of", "inputs", "outputs"}
+    assert {node_id: node["per_item_of"] for node_id, node in nodes.items()} == {"s": None, "u": "s.result", "j": None}
+    assert [node_input["source"] for node_input in nodes["u"]["inputs"]] == [{"mode": "item", "series": "s.result"}]
+    assert [node_input["source"] for node_input in nodes["j"]["inputs"]] == [{"mode": "collected", "series": "s.result"}]
 
 # -- no items, and skips upstream of a loop ----------------------------------------------------
 
@@ -923,7 +930,7 @@ def test_a_skip_for_one_document_reaches_the_calls_for_its_lines_and_the_other_d
     run = ran({"id": "d", "node": "split", "constants": {"sep": "|"}}, {"id": "g", "node": "decide"}, {"id": "l", "node": "split"},
               {"id": "t", "node": "pair"}, {"id": "u", "node": "upper"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("t.result", "u.text")), text="a,b|c,no")
-    assert run.graph.describe().nodes["u"].runs.msg == "per item of l.result"
+    assert run.graph.describe().nodes["u"].per_item_of == "l.result"
     assert run.results["u"]["result"] == [["A:A,B", "B:A,B"], None]
 
 
@@ -940,7 +947,7 @@ def test_a_skip_upstream_of_an_empty_series_skips_the_collecting_node():
               {"id": "t", "node": "pair"}, {"id": "m", "node": "split"}, {"id": "x", "node": "pair"}, {"id": "j", "node": "join"},
               edges=(("d.result", "g.text"), ("d.result", "l.text"), ("l.result", "t.a"), ("g.yes", "t.b"), ("l.result", "m.text"),
                      ("t.result", "x.a"), ("m.result", "x.b"), ("x.result", "j.texts")), text="p,no")
-    assert run.graph.describe().nodes["j"].runs.msg == "per item of l.result"
+    assert run.graph.describe().nodes["j"].per_item_of == "l.result"
     assert run.results["j"]["result"] == [None]
 
 
@@ -1023,7 +1030,7 @@ def test_a_table_wired_into_a_table_input_reaches_the_node_as_that_table():
     run = ran({"id": "c", "node": "contacts"}, {"id": "a", "node": "relay"}, {"id": "b", "node": "relay"},
               edges=(("c.result", "a.table"), ("a.result", "b.table")), registry=registry_of(contacts, relay), text=CSV)
     assert seen[0].equals(seen[1]) and seen[0].equals(run.results["c"]["result"])
-    assert {k: v.runs.msg for k, v in run.graph.describe().nodes.items()} == {"c": "once", "a": "once", "b": "once"}
+    assert {k: v.per_item_of for k, v in run.graph.describe().nodes.items()} == {"c": None, "a": None, "b": None}
 
 
 def test_a_node_filtering_every_row_away_returns_a_table_of_no_rows():
@@ -1074,9 +1081,9 @@ def test_each_invoice_of_each_document_is_checked_and_a_skipped_check_is_none_fo
     run = ran(DOCS, READ, LINES, {"id": "check", "node": "check"}, {"id": "total", "node": "total"},
               edges=(*READ_EDGES, ("lines.result.vendor", "check.vendor"), ("lines.result.amount", "total.amounts")),
               ports={"outputs": {"checks": "check.result", "totals": "total.result"}}, text="acme:10,unknown:5|beta:7")
-    assert {k: v.runs.msg for k, v in run.graph.describe().nodes.items()} == {
-        "docs": "once", "read": "per item of docs.result", "lines": "per item of docs.result", "check": "per item of lines.result",
-        "total": "per item of docs.result",
+    assert {k: v.per_item_of for k, v in run.graph.describe().nodes.items()} == {
+        "docs": None, "read": "docs.result", "lines": "docs.result", "check": "lines.result",
+        "total": "docs.result",
     }
     assert run.results["check"]["result"] == [["acme ok", None], ["beta ok"]]
     assert run.results["total"]["result"] == [15.0, 7.0]
@@ -1102,7 +1109,7 @@ def test_a_table_input_collects_each_documents_records_into_one_table_per_docume
     run = ran(DOCS, READ, LINES, {"id": "check", "node": "check"}, {"id": "x", "node": "checked"},
               edges=(*READ_EDGES, ("lines.result.vendor", "check.vendor"), ("lines.result", "x.table"), ("check.result", "x.checks")),
               registry=registry_of(docs, invoices, invoice_lines, check, checked), text="acme:10,unknown:5||gamma:7")
-    assert run.graph.describe().nodes["x"].runs.msg == "per item of docs.result"
+    assert run.graph.describe().nodes["x"].per_item_of == "docs.result"
     assert [sheet.to_dicts() for sheet in run.results["x"]["result"]] == [
         [{"vendor": "acme", "amount": 10.0, "check": "acme ok"}, {"vendor": "unknown", "amount": 5.0, "check": None}],
         [],
@@ -1125,7 +1132,7 @@ def test_a_bare_table_offers_no_columns():
 
 def test_a_constant_list_of_records_is_one_table_not_a_loop():
     run = ran({"id": "x", "node": "show", "constants": {"table": [{"a": "1"}, {"a": "2"}]}})
-    assert run.graph.describe().nodes["x"].runs.msg == "once"
+    assert run.graph.describe().nodes["x"].per_item_of is None
     assert isinstance(run.results["x"]["result"], pl.DataFrame) and run.results["x"]["result"].to_dicts() == [{"a": "1"}, {"a": "2"}]
 
 
@@ -1247,7 +1254,7 @@ def test_two_branches_wired_into_one_input_merge_back_per_item_and_the_chain_sta
               edges=(("s.result", "d.text"), ("d.yes", "u.text"), ("d.no", "u.text"), ("u.result", "after.text")), text="ok,no,fine")
 
     assert run.results["u"]["result"] == ["OK", "NO", "FINE"]
-    assert run.graph.describe().nodes["after"].runs.msg == "per item of s.result"
+    assert run.graph.describe().nodes["after"].per_item_of == "s.result"
 
 
 def test_nodes_downstream_of_two_branches_merge_back_too():
@@ -1405,7 +1412,7 @@ def test_questions_listed_per_document_are_asked_of_each_document_and_each_answe
     assert compiled.problems == []
     run = compiled.run(text="x,y")
 
-    assert compiled.describe().nodes["q"].runs.msg == "per item of l.result"
+    assert compiled.describe().nodes["q"].per_item_of == "l.result"
     assert [w.prompt for w in run.waiting] == ["x: a", "x: b", "x: c", "y: a", "y: b", "y: c"]
     assert [w.loc[1:] for w in run.waiting] == [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     saved = Run.from_json(run.to_json(), compiled)
@@ -1598,7 +1605,7 @@ def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_s
                    edges=(("e.result", "u2.text"),), registry=registry_of(split, upper, inner),
                    inputs={"text": ["e.text", "split.text"], "sep": ["e.sep", "split.sep"]}, outputs={"split": "split.result", "upper": "u2.result"})
 
-    assert {k: v.runs.msg for k, v in compiled.describe().nodes.items()} == {"e": "once", "split": "once", "u2": "per item of e/split.result"}
+    assert {k: v.per_item_of for k, v in compiled.describe().nodes.items()} == {"e": None, "split": None, "u2": "e/split.result"}
     assert compiled.describe().nodes["u2"].inputs[0].source.series == "e/split.result"
 
 
@@ -1667,7 +1674,7 @@ def test_a_series_returned_inside_a_subgraph_in_a_loop_is_returned_per_item_wire
     wired_inside = as_subgraph("splitter", {"id": "lines", "node": "split", "constants": {"sep": "/"}}, {"id": "join", "node": "join"}, edges=(("lines.result", "join.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "sub", "node": "splitter"}, edges=(("docs.result", "sub.text"),),
               registry=registry_of(split, join, wired_inside), text="a/b,c")
-    assert run.graph.describe().nodes["sub"].runs.msg == "per item of docs.result"
+    assert run.graph.describe().nodes["sub"].per_item_of == "docs.result"
     assert run.results["sub"]["result"] == ["a+b", "c"]
 
     constant_inside = as_subgraph("splitter-constant", {"id": "entered", "node": "upper"}, {"id": "lines", "node": "split", "constants": {"text": "x/y", "sep": "/"}},
@@ -1697,7 +1704,7 @@ def test_inputs_from_a_document_and_from_its_lines_call_the_subgraph_per_line():
     run = ran({"id": "docs", "node": "split", "constants": {"sep": "|"}}, {"id": "lines", "node": "split"}, {"id": "sub", "node": "pair-up"},
               edges=(("docs.result", "lines.text"), ("docs.result", "sub.word"), ("lines.result", "sub.text")),
               registry=registry_of(split, upper, pair, shout, inner), text="a,b|c")
-    assert run.graph.describe().nodes["sub"].runs.msg == "per item of lines.result"
+    assert run.graph.describe().nodes["sub"].per_item_of == "lines.result"
     assert run.results["sub"]["result"] == [["A,B:A", "A,B:B"], ["C:C"]]
 
 
@@ -1705,14 +1712,14 @@ def test_a_series_into_a_subgraphs_series_input_is_collected_and_the_subgraph_ru
     inner = as_subgraph("joiner", {"id": "join", "node": "join"})
     run = ran({"id": "docs", "node": "split"}, {"id": "sub", "node": "joiner"}, edges=(("docs.result", "sub.texts"),),
               registry=registry_of(split, join, inner), text="a,b")
-    assert run.graph.describe().nodes["sub"].runs.msg == "once" and run.results["sub"]["result"] == "a+b"
+    assert run.graph.describe().nodes["sub"].per_item_of is None and run.results["sub"]["result"] == "a+b"
 
 
 def test_a_subgraph_reading_a_series_whole_and_per_item_gets_the_whole_series_on_each_call():
     inner = as_subgraph("mixed", {"id": "u", "node": "upper"}, {"id": "j", "node": "join"}, outputs={"u": "u.result", "j": "j.result"})
     run = ran({"id": "docs", "node": "split"}, {"id": "sub", "node": "mixed"}, edges=(("docs.result", "sub.text"), ("docs.result", "sub.texts")),
               registry=registry_of(split, upper, join, inner), text="a,b")
-    assert set(run.graph.describe().nodes) == {"docs", "sub"} and run.graph.describe().nodes["sub"].runs.msg == "per item of docs.result"
+    assert set(run.graph.describe().nodes) == {"docs", "sub"} and run.graph.describe().nodes["sub"].per_item_of == "docs.result"
     assert run.results["sub"] == {"u": ["A", "B"], "j": ["a+b", "a+b"]}
 
 
@@ -1724,14 +1731,14 @@ def test_a_subgraph_in_a_loop_gives_what_its_nodes_give_in_the_outer_graph_itsel
     subgraph_run = ran({"id": "s", "node": "split"}, {"id": "e", "node": "deep"}, edges=(("s.result", "e.text"),), registry=reg, text="a/b;c,d")
     flat_run = ran({"id": "s", "node": "split"}, *nodes, edges=(("s.result", "i.text"), *edges), registry=reg, text="a/b;c,d")
     assert subgraph_run.results["e"]["result"] == flat_run.results["p"]["result"]
-    assert subgraph_run.graph.describe().nodes["e"].runs.msg == "per item of s.result"  # the loop it is wired into; its own loops are inside it
+    assert subgraph_run.graph.describe().nodes["e"].per_item_of == "s.result"  # the loop it is wired into; its own loops are inside it
 
 
 def test_an_inner_node_collecting_the_subgraphs_input_gets_a_series_of_one_per_outer_item():
     inner = as_subgraph("inner", {"id": "entering", "node": "upper"}, {"id": "collect", "node": "join"}, edges=(("entering.result", "collect.texts"),))
     run = ran({"id": "docs", "node": "split"}, {"id": "sub", "node": "inner"}, {"id": "after", "node": "join"},
               edges=(("docs.result", "sub.text"), ("sub.result", "after.texts")), registry=registry_of(split, upper, join, inner), text="a,b,c")
-    assert run.graph.describe().nodes["sub"].runs.msg == "per item of docs.result"
+    assert run.graph.describe().nodes["sub"].per_item_of == "docs.result"
     assert run.results["sub"]["result"] == ["A", "B", "C"]  # one item collected per call, never all three in one call
     assert run.results["after"]["result"] == "A+B+C"
 
@@ -1772,7 +1779,7 @@ def test_a_subgraph_with_an_output_per_inner_item_and_one_per_call_runs_per_item
     registry = registry_of(split, names, case, greet, count, shout)
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     graph = Graph.compile(make_graph(split, registry["inner"], edges=[("split.result", "inner.value")], constants={"split.text": "A-1,B-2"}), registry)
-    assert graph.describe().nodes["inner"].runs.series == "split.result"
+    assert graph.describe().nodes["inner"].per_item_of == "split.result"
     assert graph.run().results["inner"] == {"count": [2, 2], "shout": [["IDA A-1", "BO A-1"], ["IDA B-2", "BO B-2"]]}
 
 

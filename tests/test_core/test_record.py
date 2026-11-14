@@ -627,7 +627,7 @@ def test_a_compiled_graph_keeps_its_own_definitions_whatever_the_registry_does_l
 def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_is_refused():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "j": {"node": "join", "inputs": {"texts": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "j", "output": "result"}}}), REGISTRY)
 
-    assert graph.describe().nodes["u"].runs.mode == "once" and graph.run(text="a").outputs == {"result": "A"}
+    assert graph.describe().nodes["u"].per_item_of is None and graph.run(text="a").outputs == {"result": "A"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run(text=["a"])
     assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_input", ("inputs", "text"))]
@@ -886,7 +886,7 @@ def test_a_node_collecting_two_series_of_different_depths_is_called_per_item_of_
 
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"p": {"node": "parts", "inputs": {"text": {"graph_input": "text"}}}, "s": {"node": "split", "inputs": {"text": {"sources": [{"node": "p", "output": "result"}]}}}, "x": {"node": "pair-lists", "inputs": {"a": {"sources": [{"node": "p", "output": "result"}]}, "b": {"sources": [{"node": "s", "output": "result"}]}}}}, "outputs": {"result": {"node": "x", "output": "result"}}}), registry_of(parts, split, pair_lists))
 
-    assert (graph.describe().nodes["x"].runs.mode, graph.describe().nodes["x"].runs.series) == ("per_item", "p.result")  # collecting the inner series ends the inner loop, not the outer one
+    assert graph.describe().nodes["x"].per_item_of == "p.result"  # collecting the inner series ends the inner loop, not the outer one
     assert graph.run(text="a,b|c").outputs == {"result": ["2/2", "2/1"]}
 
 

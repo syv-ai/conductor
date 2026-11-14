@@ -2,8 +2,8 @@
 node is called once or once per item, where each input gets its value, the graph inputs and outputs, and the
 problems.
 
-In the graph ``lines -> shout -> join``, ``shout`` is called once per item of ``lines.result``, so its ``runs`` is
-``{"mode": "per_item", "series": "lines.result", "msg": "per item of lines.result"}``.
+In the graph ``lines -> shout -> join``, ``shout`` is called once per item of ``lines.result``, so its ``per_item_of``
+is ``"lines.result"``; ``lines`` and ``join`` are called once, and theirs is ``None``.
 """
 
 from __future__ import annotations
@@ -24,27 +24,14 @@ from .input import (
 )
 
 
-class RunsOn(ConductorModel):
-    """Whether a node is called once or once per item of a list.
-
-    Attributes:
-        mode: ``once``, or ``per_item`` of a ``Series`` output.
-        series: The ``Series`` output whose items the node is called for, as its source is written: the list of the innermost
-            loop the node is inside. ``None`` for a node called once.
-        msg: The same in English, for a person to read.
-    """
-
-    mode: Literal["once", "per_item"]
-    series: str | None = None
-    msg: str
-
-
 class InputSource(ConductorModel):
     """Where one input of a node gets its value on each call.
 
     In the graph ``lines -> shout -> join``, ``shout.line`` is wired to the list ``lines.result`` and takes one
-    text, so its source is ``{"mode": "item", "series": "lines.result", "msg": "per item of lines.result"}``.
-    ``shout.mark`` has only its default: ``{"mode": "constant", "series": None, "msg": "a constant"}``.
+    text, so its source is ``{"mode": "item", "series": "lines.result"}``. ``shout.mark`` has only its default:
+    ``{"mode": "constant", "series": None}``. A ``collected`` input with ``series`` ``None`` is wired to one value
+    and gets it as a list of one; an ``outer_value`` with ``series`` ``None`` is the output of a node called once,
+    the same value for every call.
 
     Attributes:
         mode: One of seven.
@@ -57,16 +44,15 @@ class InputSource(ConductorModel):
             that loop gets the same value.
             ``collected``: every item of ``series``, as one list.
             ``missing``: no value; a problem of the graph says why.
-        series: A ``Series`` output, as its source is written: ``"lines.result"``. For ``item`` and ``collected``, the list the items are of.
+        series: A ``Series`` output, as ``innermost_series`` writes it: ``"lines.result"``. For ``item`` and
+            ``collected``, the list the items are of.
             For ``outer_value``, the list of the loop the value's own node is inside, and ``None`` when that node
             is inside no loop. ``None`` for every other mode, and for ``collected`` when the input is wired to
             one value, which it gets as a list of one.
-        msg: The same in English, for a person to read.
     """
 
     mode: Literal["constant", "graph_input", "one_value", "item", "outer_value", "collected", "missing"]
     series: str | None = None
-    msg: str
 
 
 class NodeInputDescription(ConductorModel):
@@ -89,15 +75,17 @@ class GraphNodeDescription(ConductorModel):
         node: The id of the node definition it uses (``"shout"``).
         version: The version of that node definition.
         found: Whether the node was compiled: its definition was found at its version, and its hooks returned its
-            inputs and outputs. When it was not, ``problems`` says why and the node has no ``runs``, ``inputs``
-            or ``outputs``.
+            inputs and outputs. When it was not, ``problems`` says why, its ``per_item_of`` is ``None`` and
+            its ``inputs`` and ``outputs`` are empty.
         problems: The problems on this node. A compiled node can have some too: an input that gets no value
             because of a problem has the source ``missing``.
-        runs: Whether it is called once or once per item. ``None`` when it was not compiled (``found`` false): its
-            definition or version is not in the registry, its id is not a name, a hook failed, or it is a subgraph
-            that contains itself or has problems of its own. Whether an edge from a list puts a node inside a loop
-            depends on the type of the input it reaches (``Series[str]`` collects it, ``str`` loops over it), and
-            those types are what such a node lacks.
+        per_item_of: The ``Series`` output the node is called once per item of: the list of the innermost loop
+            the node is inside, as ``innermost_series`` writes it (``"lines.result"``, or
+            ``"per-word/split.result"`` for a list returned inside the subgraph node ``per-word``). ``None`` for a node called once,
+            and for a node that was not compiled (``found`` false): its definition or version is not in the
+            registry, its id is not a name, a hook failed, or it is a subgraph that contains itself or has problems
+            of its own. Whether an edge from a list puts a node inside a loop depends on the type of the input it
+            reaches (``Series[str]`` collects it, ``str`` loops over it), and those types are what such a node lacks.
         inputs: Its inputs as compiled; empty when it was not compiled.
         outputs: Its outputs as compiled; empty when it was not compiled.
     """
@@ -106,7 +94,7 @@ class GraphNodeDescription(ConductorModel):
     version: int
     found: bool
     problems: list[Problem]
-    runs: RunsOn | None = None
+    per_item_of: str | None = None
     inputs: list[NodeInputDescription] = []
     outputs: list[FieldDescription] = []
 
@@ -128,13 +116,15 @@ class GraphDescription(ConductorModel):
     problems: list[Problem]
 
 
-def runs_on(loops: tuple[tuple[NodePath, str], ...]) -> RunsOn:
-    """Returns whether a node inside ``loops`` is called once or once per item: ``per_item`` of the list of the
-    innermost loop, or ``once`` when ``loops`` is empty."""
-    if not loops:
-        return RunsOn(mode="once", msg="once")
-    series = place_text(*loops[-1])
-    return RunsOn(mode="per_item", series=series, msg=f"per item of {series}")
+def innermost_series(loops: tuple[tuple[NodePath, str], ...]) -> str | None:
+    """Returns the list of the innermost of ``loops`` as text, or ``None`` when ``loops`` is empty.
+
+    The text is the output's node path joined by ``/``, a dot and the output's name: ``"lines.result"`` for a
+    list in this graph, and ``"per-word/split.result"`` for the output ``result`` of the node ``split`` inside
+    the subgraph node ``per-word``. A list inside a subgraph is a place inside it: no edge of this graph can
+    name it, and it is not a key of ``describe().nodes``.
+    """
+    return place_text(*loops[-1]) if loops else None
 
 
 def input_source_of(loops: tuple[tuple[NodePath, str], ...], node_input: Input) -> InputSource:
@@ -147,22 +137,20 @@ def input_source_of(loops: tuple[tuple[NodePath, str], ...], node_input: Input) 
     """
     match node_input:
         case ConstantInput():
-            return InputSource(mode="constant", msg="a constant")
+            return InputSource(mode="constant")
         case GraphInput():
-            return InputSource(mode="graph_input", msg="the graph input")
+            return InputSource(mode="graph_input")
         case MissingInput():
-            return InputSource(mode="missing", msg="no value: a problem of the graph says why")
+            return InputSource(mode="missing")
         case CollectingInput(series=series):
-            return InputSource(mode="collected", series=place_text(*series), msg=f"every item of {place_text(*series)}")
+            return InputSource(mode="collected", series=innermost_series((series,)))
         case EdgeInput(as_list=True):
-            return InputSource(mode="collected", msg="the one value, as a Series of one")
+            return InputSource(mode="collected")
         case EdgeInput(loops=value_loops):
             if value_loops != loops:  # the value's node is inside fewer loops than this node: the same value for every item
-                if value_loops:
-                    return InputSource(mode="outer_value", series=place_text(*value_loops[-1]), msg=f"the value of the item of {place_text(*value_loops[-1])}")
-                return InputSource(mode="outer_value", msg="one value, the same for every item")
+                return InputSource(mode="outer_value", series=innermost_series(value_loops))
             if value_loops:
-                return InputSource(mode="item", series=place_text(*value_loops[-1]), msg=f"per item of {place_text(*value_loops[-1])}")
-            return InputSource(mode="one_value", msg="one value")
+                return InputSource(mode="item", series=innermost_series(value_loops))
+            return InputSource(mode="one_value")
         case _:
             assert_never(node_input)

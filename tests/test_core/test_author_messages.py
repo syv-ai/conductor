@@ -133,7 +133,7 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"read": {"node": "csv", "inputs": {"path": {"graph_input": "path"}}}, "lines": {"node": "lines", "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}}}, "send": {"node": "send", "inputs": {"to": {"sources": [{"node": "lines", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "send", "output": "result"}}}), registry)
-    assert graph.is_runnable and graph.describe().nodes["send"].runs.series == "lines.result"
+    assert graph.is_runnable and graph.describe().nodes["send"].per_item_of == "lines.result"
 
 
 # -- a column is missing ---------------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
 
 def test_the_wire_it_names_nests_them():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"docs": {"node": "documents", "inputs": {"folder": {"graph_input": "folder"}}}, "list": {"node": "questions", "inputs": {"about": {"sources": [{"node": "docs", "output": "result"}]}}}, "ask": {"node": "ask", "inputs": {"question": {"sources": [{"node": "list", "output": "result"}]}, "document": {"sources": [{"node": "docs", "output": "result"}]}}}}, "outputs": {"result": {"node": "ask", "output": "result"}}}), REGISTRY)
-    assert graph.is_runnable and graph.describe().nodes["ask"].runs.series == "list.result" and graph.describe().nodes["list"].runs.series == "docs.result"
+    assert graph.is_runnable and graph.describe().nodes["ask"].per_item_of == "list.result" and graph.describe().nodes["list"].per_item_of == "docs.result"
 
 
 # -- the row type of a table type ---------------------------------------------------------------------------

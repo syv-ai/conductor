@@ -109,7 +109,7 @@ def test_the_output_is_described_as_a_series_of_series() -> None:
     assert (described.is_series, described.type, described.json_schema) == (True, "Series[str]", {"type": "array", "items": {"type": "string"}})
     in_palette = next(entry for entry in REGISTRY.describe().nodes if entry.id == "shout-lines").outputs[0]
     assert in_palette == described
-    assert graph.describe().nodes["show"].runs.series == "shout-lines/documents.result"  # show is called once per document
+    assert graph.describe().nodes["show"].per_item_of == "shout-lines/documents.result"  # show is called once per document
 
 
 def test_an_input_of_one_value_outside_is_called_once_per_line_of_each_document() -> None:

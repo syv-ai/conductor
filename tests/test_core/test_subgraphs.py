@@ -428,7 +428,7 @@ def test_a_subgraph_that_contains_itself_is_refused_at_the_node_that_closes_the_
 
 def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     deep = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")], outputs={"n": "n.result", "x": "x.result"})
-    assert deep.is_runnable and (deep.describe().nodes["n"].runs.series, deep.describe().nodes["x"].runs.series) == ("e/w.result", "e/c.result")  # each loop is named by its series inside
+    assert deep.is_runnable and (deep.describe().nodes["n"].per_item_of, deep.describe().nodes["x"].per_item_of) == ("e/w.result", "e/c.result")  # each loop is named by its series inside
     described = {inner: compile_graph({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
     assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
     assert [output.loops for output in described.values()] == [["w.result"], ["w.result", "c.result"], ["w.result", "c.result"]]
@@ -439,7 +439,7 @@ def test_a_series_from_a_subgraph_and_a_value_per_item_of_it_pair_up_item_by_ite
     inner, inner_edges = inner_nodes("chars-and-upper-inner")
     one_graph = compile_graph({**inner, "g": "greet"}, [*inner_edges, ("c.result", "g.text"), ("up.result", "g.greeting")], outputs={"g": "g.result"})
     assert problems(inside) == problems(one_graph) == []
-    assert (inside.describe().nodes["g"].runs.series, one_graph.describe().nodes["g"].runs.series) == ("e/c.result", "c.result")  # one loop, named by its series inside
+    assert (inside.describe().nodes["g"].per_item_of, one_graph.describe().nodes["g"].per_item_of) == ("e/c.result", "c.result")  # one loop, named by its series inside
     assert inside.run(text="ab").outputs == one_graph.run(text="ab").outputs == {"g": ["A a", "B b"]}
 
 
@@ -505,7 +505,7 @@ def test_a_subgraph_runs_once_or_per_item_as_its_nodes_do_in_one_graph():
     run = compile_graph({"e": "shout-inner"}).run(text="ab")
     assert run.status == "complete" and run.outputs == {"result": "AB!"}
     graph = inside_a_loop("shout-inner")
-    assert graph.describe().nodes["e"].runs.mode == "per_item"
+    assert graph.describe().nodes["e"].per_item_of == "w.result"
     run = graph.run(text="ab cd")
     assert run.status == "complete" and run.results["e"] == {"result": ["AB!", "CD!"]}
     assert run.results["e"]["result"] == in_one_graph("shout-inner").run(text="ab cd").results["ex"]["result"]
@@ -565,7 +565,7 @@ def test_an_item_whose_branch_was_not_chosen_outside_skips_the_inner_nodes_for_t
 
 def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is_wired_to():
     graph = compile_graph({"w": "words", "up": "upper", "e": "count-inner"}, [("w.result", "up.text"), ("up.result", "e.items")])
-    assert graph.describe().nodes["e"].runs.mode == "once"
+    assert graph.describe().nodes["e"].per_item_of is None
     assert graph.run(text="ab cd ef").outputs == {"result": 3}
     per_document = compile_graph({"s": "sentences", "w": "words", "e": "count-inner"}, [("s.result", "w.text"), ("w.result", "e.items")])
     assert per_document.run(text="a b;c").outputs == {"result": [2, 1]}
@@ -849,7 +849,7 @@ def test_tables_returned_per_item_reach_a_table_input_one_per_item_wherever_they
     graph = compile_graph(nodes, edges)
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c")
-    assert (graph.describe().nodes["h"].runs.mode, graph.describe().nodes["h"].runs.series, run.status, run.results["h"]["result"]) == ("per_item", series, "complete", [2, 1])
+    assert (graph.describe().nodes["h"].per_item_of, run.status, run.results["h"]["result"]) == (series, "complete", [2, 1])
 
 
 # -- a subgraph node reads the same on a run and on that run saved and read back -------------------
@@ -947,7 +947,7 @@ def test_values_of_any_type_returned_per_item_are_collected_as_records_by_a_tabl
     graph = compile_graph(nodes, edges)
     assert not graph.problems, graph.problems
     run = graph.run(text="ab c d")
-    assert (graph.describe().nodes["h"].runs.mode, run.status, run.results["h"]["result"]) == ("once", "complete", 3)
+    assert (graph.describe().nodes["h"].per_item_of, run.status, run.results["h"]["result"]) == (None, "complete", 3)
 
 
 def _said_of(events, node_id: str) -> list[tuple[str, tuple]]:
