@@ -180,8 +180,8 @@ class ReusableOutcomes:
         """Drop every outcome the nodes at ``paths`` may reuse: a complete node has no call left to take them, and a
         forgotten node must be called again."""
         for by_node in (self.reused_freely_by_call, self.reused_freely, self.reused_in_item_order):
-            for path in [path for path in by_node if path in paths]:
-                del by_node[path]
+            for path in paths:
+                by_node.pop(path, None)
 
     def copy(self) -> ReusableOutcomes:
         """A copy to take outcomes from and drop nodes from without changing this one. The outcomes are shared."""

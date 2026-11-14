@@ -29,9 +29,11 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
     """
     if not sources:
         raise PydanticCustomError("no_sources", "an input's sources list at least one output")
-    if len(set(sources)) != len(sources):
-        twice = next(str(source) for i, source in enumerate(sources) if source in sources[:i])
-        raise PydanticCustomError("repeated_source", "{source} is listed twice", {"source": twice})
+    seen: set[Source] = set()
+    for source in sources:
+        if source in seen:
+            raise PydanticCustomError("repeated_source", "{source} is listed twice", {"source": str(source)})
+        seen.add(source)
     return tuple(sorted(sources, key=lambda source: (source.node, source.output, source.field or "")))
 
 

@@ -72,18 +72,17 @@ def make_graph(
     """
     problems: list[Problem] = []
     definitions = _by_id(nodes, problems)
-    ids = list(definitions)
-    constant_of = _values_by_place("constants", constants, ids, problems)
-    default_of = _values_by_place("defaults", defaults, ids, problems)
+    constant_of = _values_by_place("constants", constants, definitions, problems)
+    default_of = _values_by_place("defaults", defaults, definitions, problems)
     if edges is None:
         edges = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
     sources_of: dict[tuple[str, str], list[Source]] = {}
     for i, (source_text, target_text) in enumerate(edges):
-        source, target = _place(source_text, ("edges", i, 0), ids, problems, field=True), _place(target_text, ("edges", i, 1), ids, problems)
+        source, target = _place(source_text, ("edges", i, 0), definitions, problems, field=True), _place(target_text, ("edges", i, 1), definitions, problems)
         if source is not None and target is not None:
             sources_of.setdefault((target[0], target[1]), []).append(Source(*source))
     graph_input_of = _graph_inputs(definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), problems)
-    entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in ids}
+    entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in definitions}
     for node_id, name in constant_of.keys() | default_of.keys() | sources_of.keys() | graph_input_of.keys():
         place = (node_id, name)
         entries[node_id][name] = InputEntry.model_construct(  # built unchecked: the record door checks it below, an entry of two kinds too
@@ -104,7 +103,7 @@ def make_graph(
     return record
 
 
-def _place(text: str, where: tuple[str | int, ...], ids: Sequence[str], problems: list[Problem], *, field: bool = False) -> tuple[str, ...] | None:
+def _place(text: str, where: tuple[str | int, ...], definitions: Mapping[str, NodeDefinition], problems: list[Problem], *, field: bool = False) -> tuple[str, ...] | None:
     """``text``, a place in the graph, as its parts: ``"shout.mark"`` gives ``("shout", "mark")``, and with ``field``,
     ``"read.result.email"`` gives ``("read", "result", "email")``.
 
@@ -117,18 +116,18 @@ def _place(text: str, where: tuple[str | int, ...], ids: Sequence[str], problems
     if len(parts) < 2 or not all(parts):
         problems.append(call_problems.not_a_place(*where, text=text))
         return None
-    if parts[0] not in ids:
-        problems.append(call_problems.node_not_in_graph(parts[0], nodes=list(ids)))
+    if parts[0] not in definitions:
+        problems.append(call_problems.node_not_in_graph(parts[0], nodes=list(definitions)))
         return None
     return parts
 
 
-def _values_by_place(kind: str, given: Mapping[str, Any], ids: Sequence[str], problems: list[Problem]) -> dict[tuple[str, str], Any]:
+def _values_by_place(kind: str, given: Mapping[str, Any], definitions: Mapping[str, NodeDefinition], problems: list[Problem]) -> dict[tuple[str, str], Any]:
     """``given``, the ``constants`` or ``defaults`` (``kind``) of ``make_graph``, by place, each value as the record keeps
     it (``record_values``). A fault goes to ``problems``."""
     by_node: dict[str, dict[str, Any]] = {}
     for key, value in given.items():
-        place = _place(key, (kind, key), ids, problems)
+        place = _place(key, (kind, key), definitions, problems)
         if place is not None:
             by_node.setdefault(place[0], {})[place[1]] = value
     written: dict[tuple[str, str], Any] = {}
@@ -150,7 +149,7 @@ def _graph_inputs(
     graph_input_of: dict[tuple[str, str], str] = {}
     for name, texts in named.items():
         for text in [texts] if isinstance(texts, str) else texts:
-            place = _place(text, ("inputs", name), list(definitions), problems)
+            place = _place(text, ("inputs", name), definitions, problems)
             if place is not None:
                 graph_input_of[(place[0], place[1])] = name
     open_inputs = [(node_id, name) for node_id, definition in definitions.items() for name in definition.required_inputs if (node_id, name) not in filled]
@@ -170,7 +169,7 @@ def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str
     second kind share, or one of them shares with a name in ``named``."""
     declared: dict[str, Source] = {}
     for name, text in named.items():
-        place = _place(text, ("outputs", name), list(definitions), problems, field=True)
+        place = _place(text, ("outputs", name), definitions, problems, field=True)
         if place is not None:
             declared[name] = Source(*place)
     taken = {(source.node, source.output) for source in declared.values()}
