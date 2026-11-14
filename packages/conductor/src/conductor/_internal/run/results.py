@@ -15,7 +15,7 @@ from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
 from .arguments import ResultReader
-from .blueprint import BlueprintFunctionNode
+from .blueprint import BlueprintFunctionNode, function_node_in_run
 from .outcome import NotReady
 
 if TYPE_CHECKING:
@@ -84,7 +84,7 @@ class DisplayReader(ResultReader):
         ``[["A", "B"], None, ["C"]]``.
 
         Args:
-            node_path: The path of the function node that returns the output.
+            node_path: The path of the function node that returns the output, from the graph a run is of.
             output: The output's name.
             item_indexes: The index of the item in each loop of the node already entered; empty for the whole output.
 
@@ -94,7 +94,7 @@ class DisplayReader(ResultReader):
             list of such lists. ``None`` instead of a list when the list being looped over was never made,
             or when no item of it could have a value because of a skipped branch outside the loop.
         """
-        node, depth = self.function_nodes[node_path], len(item_indexes)
+        node, depth = function_node_in_run(self.function_nodes, (), node_path), len(item_indexes)
         if depth == len(node.loops):  # one call: its return value
             value = self.read_output(node, output, item_indexes)
             return None if value is SKIPPED else value

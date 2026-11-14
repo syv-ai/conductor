@@ -16,7 +16,7 @@ the ``Graph`` (``graph._blueprint``). It has the four function nodes ``lines``, 
 
 A compiled input names function nodes and loops by their path from the graph its node is in. A run keeps
 outcomes by each function node's full path, which is the path of the subgraph node that graph is used as, then
-the path from the graph (``path_in_run``):
+the path from the graph (``function_node_in_run``):
 
 - The edge into ``join.texts`` is wired to ``loud.result``, which the function node ``("loud", "shout")`` returns.
   ``join`` is in the graph a run is of, so that is also its full path.
@@ -257,8 +257,8 @@ def _add_blueprint_nodes(
     outer_loops = parent.loops if parent is not None else ()
     graph_nodes: dict[str, BlueprintNode] = {}
     for compiled_node in graph._nodes.values():
-        node_path = path_in_run(graph_path, (compiled_node.id,))
-        loops = (*outer_loops, *[_loop_in_run(graph_path, loop) for loop in compiled_node.loops])
+        node_path = _path_in_run(graph_path, (compiled_node.id,))
+        loops = (*outer_loops, *[(_path_in_run(graph_path, loop_node), output) for loop_node, output in compiled_node.loops])
         node: BlueprintNode
         if isinstance(compiled_node, CompiledSubgraphNode):
             node = BlueprintSubgraphNode(compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops)
@@ -307,11 +307,11 @@ def _function_node(
             case MissingInput(field=field):
                 raise RuntimeError(f"'{place_text(node_path, field.name)}' gets no value: a graph with problems has no blueprint")
             case EdgeInput(sources=edges, loops=value_loops):
-                read = [(source, len(source.loops)) for source in [functions[path_in_run(graph_path, edge.node)] for edge in edges]]
+                read = [(source, len(source.loops)) for source in [function_node_in_run(functions, graph_path, edge.node) for edge in edges]]
                 depth = len(outer_loops) + len(value_loops)
             case CollectingInput(field=field, series=series, sources=edges):
-                looped_over = _loop_in_run(graph_path, series)
-                series_node, sources = functions[looped_over[0]], [functions[path_in_run(graph_path, edge.node)] for edge in edges]
+                series_node, sources = function_node_in_run(functions, graph_path, series[0]), [function_node_in_run(functions, graph_path, edge.node) for edge in edges]
+                looped_over = series_node.node_path, series[1]
                 depth = len(series_node.loops)
                 read = [(series_node, depth), *[(source, len(source.loops)) for source in sources]]
                 # what a node inside the loop reads from outside it can say that no item will have a value
@@ -334,7 +334,7 @@ def _function_node(
     )
 
 
-def path_in_run(graph_path: NodePath, node_path: NodePath) -> NodePath:
+def _path_in_run(graph_path: NodePath, node_path: NodePath) -> NodePath:
     """Returns ``node_path``, a path from a compiled graph, as a run names the node: by its full path. In the
     example, ``("strip",)`` in ``loud``'s graph is ``("loud", "strip")``.
 
@@ -345,10 +345,17 @@ def path_in_run(graph_path: NodePath, node_path: NodePath) -> NodePath:
     return (*graph_path, *node_path)
 
 
-def _loop_in_run(graph_path: NodePath, loop: tuple[NodePath, str]) -> tuple[NodePath, str]:
-    """Returns a loop of a compiled graph, named by a node path from that graph, as a run names it (``path_in_run``)."""
-    node_path, output = loop
-    return path_in_run(graph_path, node_path), output
+def function_node_in_run(function_nodes: Mapping[NodePath, BlueprintFunctionNode], graph_path: NodePath, node_path: NodePath) -> BlueprintFunctionNode:
+    """Returns the function node that ``node_path``, a path from a compiled graph, names in a run. Every edge, loop and
+    collected list of a compiled input names its function node this way. In the example, ``("shout",)`` in
+    ``loud``'s graph is the function node ``loud/shout``.
+
+    Args:
+        function_nodes: The run's function nodes, by full path (``RunBlueprint.function_nodes``).
+        graph_path: The path of the subgraph node the compiled graph is used as; ``()`` for the graph a run is of.
+        node_path: The path from the compiled graph.
+    """
+    return function_nodes[_path_in_run(graph_path, node_path)]
 
 
 def _note_looped_outputs(node: BlueprintNode, functions: Mapping[NodePath, BlueprintFunctionNode], nodes: Mapping[NodePath, BlueprintNode]) -> None:
@@ -360,8 +367,8 @@ def _note_looped_outputs(node: BlueprintNode, functions: Mapping[NodePath, Bluep
             case EdgeInput(sources=edges, as_list=False):
                 for edge in edges:
                     if edge.per_item:
-                        wired_to = nodes[path_in_run(graph_path, (edge.source.node,))]
-                        functions[path_in_run(graph_path, edge.node)].looped_outputs.setdefault(edge.output, (wired_to, edge.source.output))
+                        wired_to = nodes[_path_in_run(graph_path, (edge.source.node,))]
+                        function_node_in_run(functions, graph_path, edge.node).looped_outputs.setdefault(edge.output, (wired_to, edge.source.output))
             case EdgeInput() | CollectingInput() | ConstantInput() | GraphInput() | MissingInput():
                 pass
             case _:

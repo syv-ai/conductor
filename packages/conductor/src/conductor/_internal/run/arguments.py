@@ -43,7 +43,7 @@ from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
-from .blueprint import BlueprintFunctionNode, loop_body_of, path_in_run
+from .blueprint import BlueprintFunctionNode, function_node_in_run, loop_body_of
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
 #: What a read returns in place of a value when it is asked for any item of a loop and some item may have a
@@ -157,7 +157,7 @@ class ResultReader:
         """
         best: Any = SKIPPED
         for edge in edges:
-            value = self.read_output(self.function_nodes[path_in_run(graph_path, edge.node)], edge.output, item_indexes, edge.source.field, one_item=edge.per_item)
+            value = self.read_output(function_node_in_run(self.function_nodes, graph_path, edge.node), edge.output, item_indexes, edge.source.field, one_item=edge.per_item)
             if value is NotReady.NOT_READY:
                 best = NotReady.NOT_READY
             elif value is None:
@@ -229,7 +229,7 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        depth = len(self.function_nodes[path_in_run(graph_path, node_input.series[0])].loops)
+        depth = len(function_node_in_run(self.function_nodes, graph_path, node_input.series[0]).loops)
         if len(item_indexes) < depth:
             return self._edges_for_any_item(graph_path, node_input, item_indexes)
         item_indexes = item_indexes[:depth]
@@ -269,8 +269,8 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        series_node, output = self.function_nodes[path_in_run(graph_path, node_input.series[0])], node_input.series[1]
-        sources = [self.function_nodes[path_in_run(graph_path, edge.node)] for edge in node_input.sources]
+        series_node, output = function_node_in_run(self.function_nodes, graph_path, node_input.series[0]), node_input.series[1]
+        sources = [function_node_in_run(self.function_nodes, graph_path, edge.node) for edge in node_input.sources]
         any_item = self._for_any_item_of((series_node.node_path, output), sources, item_indexes)
         value = any_item._edges_for_any_item(graph_path, node_input, item_indexes)
         if value is not MAY_HAVE_VALUE:

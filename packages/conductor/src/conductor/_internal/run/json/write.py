@@ -17,7 +17,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Type
 
-from ..blueprint import BlueprintFunctionNode
+from ..blueprint import BlueprintFunctionNode, function_node_in_run
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
@@ -66,7 +66,7 @@ def outputs_to_json(run: Run) -> str:
     for text, value in run.outputs.items():
         node, output = run.graph._node_returning(text)
         function_path, output = node.returned_by(output)
-        function = run._blueprint.function_nodes[function_path]
+        function = function_node_in_run(run._blueprint.function_nodes, (), function_path)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None
