@@ -103,7 +103,3 @@ class SeriesType(Type, of=_Series):
             if step == Records.__name__:
                 return self._table, False, None
         return super()._walked(step)
-
-    def written_once(self, stored: Any) -> Any | None:
-        """Returns the table a stored Series is kept as, if it is kept as one; else ``None``."""
-        return stored.written_once()

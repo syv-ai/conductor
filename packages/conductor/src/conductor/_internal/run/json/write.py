@@ -25,7 +25,6 @@ from .codec import saved_type
 from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
-    SameAs,
     SavedOutcomes,
     SavedOutcomeState,
     SavedReusable,
@@ -112,7 +111,6 @@ def saved_run(run: Run) -> SavedRun:
         graph=run.graph.fingerprint, ended_early=None if run._last_resume == "running" else run._last_resume,  # a resume going on is the process's, never the save's
         max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
         complete=[names[path] for path in function_nodes if path in run._complete_nodes],
-        tables_written_once=tables_written_once(function_nodes.values(), outcomes),
     )
 
 
@@ -179,40 +177,6 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
         states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions,
         not_called_because=not_called_because, skipped=skipped, skipped_items=skipped_items,
     )
-
-
-def tables_written_once(function_nodes: Iterable[BlueprintFunctionNode], outcomes: Mapping[str, SavedOutcomes]) -> list[SameAs]:
-    """Finds the outputs that have the very same table object as an output before them, and writes each such table once.
-
-    ``read.result`` is a table and ``split.result`` is a series of records made of that same table. The entry
-    of ``split.result`` in ``outcomes`` is replaced by ``None``, and the result is
-    ``[SameAs(output=("split", "result", 0), same_as=("read", "result", 0))]``.
-
-    Args:
-        function_nodes: Every function node of the run's graph, in the order they are saved.
-        outcomes: The saved outcomes of each node, as ``saved_outcomes`` returned them. Changed in place.
-
-    Returns:
-        One entry for each output replaced by ``None``.
-    """
-    first: dict[int, tuple[Any, tuple[str, str, int]]] = {}  # by id() of a table, which stays alive in ``outcomes`` during this call
-    same: list[SameAs] = []
-    for node in function_nodes:
-        name = place_text(node.node_path)
-        of_node = outcomes.get(name)
-        if of_node is None:
-            continue
-        for output, field in node.compiled_node.outputs.items():
-            values = of_node.outputs[output]
-            for call_number, stored in enumerate(values):
-                table = None if stored is None else field.whole.written_once(stored)
-                if table is None:
-                    continue
-                before = first.setdefault(id(table), (table, (name, output, call_number)))
-                if before[1] != (name, output, call_number) and before[0] is table:
-                    values[call_number] = None
-                    same.append(SameAs.model_construct(output=(name, output, call_number), same_as=before[1]))
-    return same
 
 
 def saved_reusable(

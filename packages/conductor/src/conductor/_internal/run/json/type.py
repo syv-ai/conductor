@@ -105,27 +105,6 @@ class SavedReusable(BaseModel):
     outer_item_fingerprints: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
 
 
-class SameAs(BaseModel):
-    """One output value that a saved run does not write a second time, because another output has the same table.
-
-    ``read`` returns a table and ``split`` returns that same table as a series of records. The saved run
-    writes the table under ``read``, ``null`` under ``split``, and this entry under ``tables_written_once``::
-
-        {"output": ["split", "result", 0], "same_as": ["read", "result", 0]}
-
-    Loading gives both outputs the one table again.
-
-    Attributes:
-        output: The output written as ``null``: the node's name in the saved run, the output's name, and the
-            call number.
-        same_as: The output that is written in full, in the same three parts.
-    """
-
-    model_config = _SAVED
-    output: tuple[str, str, NonNegativeInt]
-    same_as: tuple[str, str, NonNegativeInt]
-
-
 class SavedRun(BaseModel):
     r"""A saved run: everything ``run.to_json()`` writes.
 
@@ -160,8 +139,6 @@ class SavedRun(BaseModel):
             come from, so that outcomes of other code are never reused.
         complete: The nodes that were complete when the run last stopped, so that going on does not report
             them complete again.
-        tables_written_once: The outputs in ``outcomes`` written as ``null`` because another output has the
-            same table.
         outcomes_classes: On a graph's codec, the class of each node's ``outcomes``, by node.
         reusable_classes: On a graph's codec, the class of each node's ``reusable`` entry, by node.
     """
@@ -175,6 +152,5 @@ class SavedRun(BaseModel):
     reusable: dict[str, SavedReusable]
     code: dict[str, str]
     complete: list[str]
-    tables_written_once: list[SameAs] = PydanticField(default_factory=list)
     outcomes_classes: ClassVar[dict[str, type[SavedOutcomes]]]
     reusable_classes: ClassVar[dict[str, type[SavedReusable]]]

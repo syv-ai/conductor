@@ -7,7 +7,7 @@ which is ``"Ann"``. A node that returns a ``polars.DataFrame`` for a ``Series`` 
 ``Records``, which keeps the frame.
 
 Both classes have ``len(stored)``, ``stored[index]`` (the item at that index), ``columns``, ``as_list()``,
-``as_table_input()``, ``field_as_list(name)``, ``for_saving()`` and ``written_once()``, so code that reads a
+``as_table_input()``, ``field_as_list(name)`` and ``for_saving()``, so code that reads a
 stored Series never asks which of the two it has.
 """
 
@@ -102,10 +102,6 @@ class SeriesItems(list[Any]):
         skipped = [index for index, item in enumerate(self) if item is SKIPPED]
         return (SeriesItems(self.as_list()), skipped) if skipped else (self, [])
 
-    def written_once(self) -> None:
-        """Returns ``None``: a list is written wherever an output has it, unlike the frame of ``Records``."""
-        return None
-
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Returns the schema of ``SeriesItems[T]`` in a saved run: a JSON array of ``T``, read into this class."""
@@ -173,10 +169,6 @@ class Records[T]:
     def for_saving(self) -> tuple[Records[T], list[int]]:
         """Returns the Series as a saved run writes it, and no indexes: a frame has no ``SKIPPED`` row."""
         return self, []
-
-    def written_once(self) -> pl.DataFrame:
-        """Returns the frame, which a save writes once however many outputs have it."""
-        return self.frame
 
     def _as_json(self) -> dict[str, Any]:
         # Read through ``columns``, so a run saved at every checkpoint reads each column out of the frame once.

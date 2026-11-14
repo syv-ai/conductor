@@ -285,7 +285,7 @@ def test_a_table_is_written_once_however_often_it_is_hashed_and_hashes_by_its_ce
     assert hashed(frame.rename({"age": "years"})) != first
 
 
-# -- a table two outputs share is written once in a saved run------------------------------------------------
+# -- a table two outputs share is written under each in a saved run--------------------------------------------
 
 
 @node("people", title="People", description="For a test.")
@@ -293,106 +293,36 @@ def people(text: str) -> Table[Contact]:
     return FRAME.select("name", "email")
 
 
-@node("copied", title="Copied", description="For a test.")
-def copied(table: Table[Contact]) -> Table[Contact]:
-    return pl.DataFrame(table.to_dicts(), schema=table.schema)
-
-
 def _read_then_split() -> Any:
     from conductor_nodes.series import split
 
-    return Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet, copied))
+    return Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet))
 
 
-def test_a_table_split_into_records_is_written_once_in_the_saved_run_and_is_one_table_when_read_back() -> None:
+def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back_equal() -> None:
     graph = _read_then_split()
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
-    assert saved["outcomes"]["series-split"]["outputs"]["result"] == [None]
-    assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
-    assert run.to_json().count('"ida@x.dk"') == 1
-
+    assert saved["outcomes"]["series-split"]["outputs"]["result"] == saved["outcomes"]["people"]["outputs"]["result"]
     read_back = Run.from_json(run.to_json(), graph)
-    table, records = read_back._outcomes[("people",)][()].outputs["result"], read_back._outcomes[("series-split",)][()].outputs["result"]
-    assert type(records) is Records and records.frame is table
+    table, again = run.results["people"]["result"], read_back.results["people"]["result"]
+    assert again.equals(table) and again.schema == table.schema
+    assert read_back.results["series-split"]["result"] == run.results["series-split"]["result"]
     assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
     assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
 
 
-def test_a_table_with_equal_cells_that_is_another_object_is_written_in_full_and_reads_back() -> None:
-    graph = Graph.compile(make_graph(people, copied, edges=[("people.result", "copied.table")]), registry_of(people, copied))
-    run = graph.run(text="x")
-    saved = json.loads(run.to_json())
-
-    assert "tables_written_once" not in saved and saved["outcomes"]["copied"]["outputs"]["result"] == saved["outcomes"]["people"]["outputs"]["result"]
-    assert Run.from_json(run.to_json(), graph).results["copied"]["result"].equals(run.results["copied"]["result"])
-
-
-def test_the_saved_run_of_a_graph_with_no_table_has_no_tables_written_once_key() -> None:
-    graph = Graph.compile(make_graph(listed, greet, edges=[("listed.result.name", "greet.name")]), registry_of(listed, greet))
-    assert "tables_written_once" not in json.loads(graph.run(text="x").to_json())
-
-
-def test_outcomes_reused_from_a_previous_run_share_their_table_in_the_saved_run_as_the_first_run_did() -> None:
-    graph = _read_then_split()
-    again = graph.run(text="x").again(text="x")
-    saved = json.loads(again.to_json())
-
-    assert saved["tables_written_once"] == [{"output": ["series-split", "result", 0], "same_as": ["people", "result", 0]}]
-    assert Run.from_json(again.to_json(), graph).to_json() == again.to_json()
-
-
-def test_a_table_shared_inside_a_subgraph_is_written_once_under_the_inner_node_paths_in_the_saved_run() -> None:
-    from conductor_nodes.series import split
-
-    registry = registry_of(people, split, greet)
-    inner = GraphRecord.model_validate({"nodes": {"people": {"node": "people", "inputs": {"text": {"graph_input": "text"}}}, "split": {"node": split.id, "inputs": {"value": {"sources": [{"node": "people", "output": "result"}]}}}}, "outputs": {"result": {"node": "split", "output": "result"}}})
-    registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}, "greet": {"node": "greet", "inputs": {"name": {"sources": [{"node": "e", "output": "result", "field": "name"}]}}}}, "outputs": {"result": {"node": "greet", "output": "result"}}}), registry)
-    run = graph.run(text="x")
-
-    assert json.loads(run.to_json())["tables_written_once"] == [{"output": ["e/split", "result", 0], "same_as": ["e/people", "result", 0]}]
-    read_back = Run.from_json(run.to_json(), graph)
-    assert read_back.to_json() == run.to_json() and read_back.outputs == {"result": ["hi ida", "hi bo"]}
-
-
-@pytest.mark.parametrize("same_as", [
-    ["nobody", "result", 0],  # no such node
-    ["people", "result", 3],  # no such call number
-    ["people", "other", 0],  # no such output
-    ["series-split", "result", 0],  # itself, which is written as null
-    ["greet", "result", 0],  # an output that is no table
-], ids=["no such node", "no such call number", "no such output", "itself", "not a table"])
-def test_a_saved_run_whose_tables_written_once_names_an_output_not_written_in_full_as_a_table_is_refused(same_as: list[Any]) -> None:
+def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused() -> None:
     graph = _read_then_split()
     saved = json.loads(graph.run(text="x").to_json())
-    saved["tables_written_once"][0]["same_as"] = same_as
+    saved["outcomes"]["series-split"]["outputs"]["result"] = [None]  # not listed under "skipped"
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
     (found,) = refused.value.problems
-    assert found.type == "saved_run_unreadable" and found.ctx["where"] == "tables_written_once" and "'series-split.result[0]' can't be read as the table at" in found.msg and "not an output written in full" in found.msg
-
-
-def test_a_saved_run_whose_tables_written_once_names_a_table_of_other_columns_is_refused_by_the_outputs_type() -> None:
-    @node("any-table", title="Any table", description="For a test.")
-    def any_table(text: str) -> Table:
-        return FRAME.select("name", "email")
-
-    @node("as-contacts", title="As contacts", description="For a test.")
-    def as_contacts(table: Table) -> Series[Contact]:
-        return table  # type: ignore[return-value]
-
-    graph = Graph.compile(make_graph(any_table, as_contacts, edges=[("any-table.result", "as-contacts.table")]), registry_of(any_table, as_contacts))
-    saved = json.loads(graph.run(text="x").to_json())
-    assert saved["tables_written_once"] == [{"output": ["as-contacts", "result", 0], "same_as": ["any-table", "result", 0]}]
-    saved["outcomes"]["any-table"]["outputs"]["result"][0]["columns"][0]["name"] = "nom"  # a table of any columns takes it
-
-    with pytest.raises(InvalidCallError) as refused:
-        Run.from_json(json.dumps(saved), graph)
-    (found,) = refused.value.problems
-    assert found.type == "saved_run_unreadable" and "the column 'name' its row type declares is missing" in found.msg
+    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.series-split")
+    assert "call 0 is done and has null for 'result'" in found.msg
 
 
 def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> None:

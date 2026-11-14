@@ -522,11 +522,11 @@ def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quotin
     assert "secret" not in json.dumps(problem.model_dump(mode="json"))
 
 
-def test_a_null_saved_for_an_output_reads_back_as_none():
+def test_a_null_saved_for_a_done_call_whose_output_takes_no_none_is_refused():
     graph, saved = _saved_echoes()
     saved["outcomes"]["echo"]["outputs"]["result"][1] = None
 
-    assert Run.from_json(json.dumps(saved), graph).results["echo"]["result"] == ["secret-a", None, "secret-c"]
+    assert _refused(graph, saved).ctx["where"] == "outcomes.echo"
 
 
 @pytest.mark.parametrize(
@@ -565,11 +565,11 @@ def test_a_damaged_saved_run_is_refused_where_it_is_damaged(damage: str, at: str
     assert _refused(graph, saved).ctx["where"] == at
 
 
-def test_a_series_saved_as_null_is_refused_at_the_node_called_once_per_item_of_it():
+def test_a_series_saved_as_null_for_a_done_call_is_refused_at_the_node_that_returned_it():
     graph, saved = _saved_echoes()
     saved["outcomes"]["split"]["outputs"]["result"][0] = None
 
-    assert _refused(graph, saved).ctx["where"] == "outcomes.echo"
+    assert _refused(graph, saved).ctx["where"] == "outcomes.split"
 
 
 def _saved_table() -> tuple[Any, dict[str, Any]]:

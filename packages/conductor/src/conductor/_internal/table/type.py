@@ -77,10 +77,6 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         """The type of one row as a record: the ``TypedDict`` ``R``, or ``dict`` for a table of any columns."""
         return Type(dict if self._row is Any else self._row)
 
-    def written_once(self, stored: Any) -> Any | None:
-        """Returns the frame itself: a table that two outputs both have is written once in a save."""
-        return stored
-
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Takes one step of a pydantic error's ``loc`` inside a table. A word for the form the table was given in
         (``"records"``) is dropped, a row index leads to the same table, and a column name leads to the column's

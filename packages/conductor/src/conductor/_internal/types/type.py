@@ -363,12 +363,6 @@ class Type:
         answered. It is ``schema``; a ``Series`` keeps its list in a form of its own (``SeriesItems``, ``Records``)."""
         return self.schema
 
-    def written_once(self, stored: Any) -> Any | None:
-        """Returns the object inside ``stored``, a stored value of the type, that a save should write only once
-        when several outputs have that same object; ``None`` when the type has no such object. For a table
-        type it is the frame; for ``Type(int)`` and ``5`` it is ``None``."""
-        return None
-
     def to_json(self, value: Any) -> JsonValue:
         """Writes ``value``, one the type holds, in its JSON form; a float that isn't finite as its text.
 

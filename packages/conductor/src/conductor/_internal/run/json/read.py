@@ -2,8 +2,7 @@
 
 ``run_from_json`` is the door. The graph's codec validates the whole text: every key and every value. Then
 ``outcomes_from_saved`` and ``add_reusable_from_saved`` turn each node's saved lists into what a run keeps in memory, and
-``run_from_json`` checks what only the lists together can show: that the lists of each node are as long as its calls,
-and that a table written once is found where its entry says.
+``run_from_json`` checks what only the lists together can show: that the lists of each node are as long as its calls.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.field import Field
-from conductor._internal.gate import output_validator_of
 from conductor._internal.graph import (
     Graph,
     outputs_when_not_called,
@@ -31,7 +29,6 @@ from .codec import where_in
 from .type import (
     SAVED_DONE,
     SAVED_SKIPPED,
-    SameAs,
     SavedOutcomes,
     SavedReusable,
     SavedRun,
@@ -86,7 +83,6 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             add_reusable_from_saved(reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order)
     except ValueError as wrong:
         raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]) from None
-    _share_tables_written_once(blueprint, in_call_order, read.tables_written_once)
     outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {}
     for path, node in blueprint.function_nodes.items():
         outcomes[path] = {}
@@ -119,12 +115,19 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
         saved: The saved lists, each value already validated by its output's type.
 
     Raises:
-        ValueError: The list of an output is not as long as ``states``; or ``skipped``, ``skipped_items``,
+        ValueError: The list of an output is not as long as ``states``; a done call has ``null`` for an output
+            whose type takes no ``None`` and that ``skipped`` does not list; or ``skipped``, ``skipped_items``,
             ``questions`` or ``not_called_because`` names a call that does not exist or that cannot have it.
     """
     states, values_by_output = saved.states, saved.outputs
     if any(len(values) != len(states) for values in values_by_output.values()):
         raise ValueError("the list of an output is not as long as 'states'")
+    for name, values in values_by_output.items():
+        if not outputs[name].whole.optional:
+            skipped_calls = set(saved.skipped.get(name, ()))
+            for call_number, (state, value) in enumerate(zip(states, values, strict=True)):
+                if state == SAVED_DONE and value is None and call_number not in skipped_calls:
+                    raise ValueError(f"call {call_number} is done and has null for '{name}', whose type takes no None")
     try:
         for name, call_numbers in saved.skipped.items():
             for call_number in call_numbers:
@@ -152,43 +155,6 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
         message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
         raise ValueError(message) from None
     return outcomes
-
-
-def _share_tables_written_once(blueprint: RunBlueprint, outcomes: Mapping[NodePath, list[Outcome | None]], entries: list[SameAs]) -> None:
-    """Fills in the outputs that a saved run wrote as ``null`` and listed under ``tables_written_once``.
-
-    The saved run lists ``{"output": ["split", "result", 0], "same_as": ["people", "result", 0]}``. The table
-    read for ``people.result`` is validated by the type of ``split.result`` and put there, so both outputs have
-    the same table object again.
-
-    Args:
-        blueprint: The blueprint of the run's graph.
-        outcomes: Each node's outcomes in call-number order, by node path. Changed in place.
-        entries: The saved run's ``tables_written_once``.
-
-    Raises:
-        InvalidCallError: An entry names an output or a call number the saved run does not have, an output with
-            no table written in full, an output that is not ``null``, or a table the output's own type refuses
-            (``saved_run_unreadable``).
-    """
-    for entry in entries:
-        (node_name, output, call_number), (from_name, from_output, from_call_number) = entry.output, entry.same_as
-        node, from_node = parse_node_path(node_name), parse_node_path(from_name)
-        try:
-            outcome, source = outcomes[node][call_number], outcomes[from_node][from_call_number]
-            if type(outcome) is not Done or type(source) is not Done or outcome.outputs[output] is not None:
-                raise LookupError(call_number)
-            output_type = blueprint.function_nodes[node].compiled_node.outputs[output].whole
-            table = blueprint.function_nodes[from_node].compiled_node.outputs[from_output].whole.written_once(source.outputs[from_output])
-            if table is None:
-                raise LookupError(from_call_number)
-            outcome.outputs[output] = output_validator_of(output_type).validate_python(table, strict=True)
-        except (LookupError, AttributeError, ValidationError) as wrong:
-            reason = output_type.refusal(wrong).reason if isinstance(wrong, ValidationError) else "that is not an output written in full before it"
-            where = f"{place_text(node, output)}[{call_number}]"
-            same_as = f"{place_text(from_node, from_output)}[{from_call_number}]"
-            reason = f"'{where}' can't be read as the table at '{same_as}': {reason}"
-            raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where="tables_written_once", reason=reason)]) from None
 
 
 def add_reusable_from_saved(reusable: ReusableOutcomes, node: BlueprintFunctionNode, saved: SavedReusable, in_call_order: list[Outcome | None]) -> None:
