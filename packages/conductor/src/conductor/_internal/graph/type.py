@@ -51,7 +51,6 @@ from .describe import (
     innermost_series,
     input_source_of,
 )
-from .input import Edge
 from .node import (
     CompiledNode,
     CompiledSubgraphNode,
@@ -98,9 +97,6 @@ class Graph[C]:
     #: Each graph input, by name, as the caller gives a value for it: its type, and the value used when the caller
     #: gives none (``REQUIRED`` when the caller must give one).
     _inputs: dict[str, Field]
-    #: Each graph output, by name, as what an edge from it reads: ``{"result": Edge(("join",), "result", None, ...)}``.
-    #: A graph output whose source the graph cannot read is left out, and the graph has the problem.
-    _outputs: dict[str, Edge]
     #: The class the registry names with ``context_type``, which every node's ``Context[X]`` was checked against;
     #: the ``context=`` of a run is an instance of it. ``None`` when the registry names none.
     _context_type: type[C] | None
@@ -185,8 +181,8 @@ class Graph[C]:
         Where the record declares the graph output ``loud`` as ``shout.result``, it is the node ``shout`` and
         ``"result"``. The node may be a subgraph node, whose own graph says which node inside it returns the output.
         """
-        source = self._outputs[output]
-        return self._nodes[source.node[0]], source.output
+        source = self.record.outputs[output]
+        return self._nodes[source.node], source.output
 
     def _output_field(self, output: str) -> Field:
         """The graph output ``output`` as the output of a subgraph node that uses this graph: the field of the node's

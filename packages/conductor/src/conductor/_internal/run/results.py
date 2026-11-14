@@ -33,7 +33,8 @@ def outputs_of(run: Run[Any]) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
     it is."""
     reader, nodes = DisplayReader(run._outcomes, run.inputs), run._blueprint.nodes
-    return {name: reader.display_value(display_inputs_of(*nodes[edge.node].source_of(edge.output))) for name, edge in run.graph._outputs.items()}
+    sources = run.graph.record.outputs
+    return {name: reader.display_value(display_inputs_of(*nodes[(sources[name].node,)].source_of(sources[name].output))) for name in run.graph.outputs}
 
 
 class DisplayReader(ResultReader):

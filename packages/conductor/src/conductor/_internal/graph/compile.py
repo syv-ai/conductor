@@ -156,25 +156,18 @@ class Compiler:
                     self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
-        return Graph(self.record, self.problems, self.nodes, self.graph_inputs, self._graph_outputs(), self.definitions.context_type)
+        self._check_graph_outputs()
+        return Graph(self.record, self.problems, self.nodes, self.graph_inputs, self.definitions.context_type)
 
-    def _graph_outputs(self) -> dict[str, Edge]:
-        """Returns each graph output the record declares, by name, as what an edge from it reads.
-
-        A graph output whose node the record lacks, or whose node has no such output, gets the problem
-        ``graph_output_not_found``, at no node; one whose node was not compiled is left out, as a problem of its own
-        says why.
-        """
-        outputs: dict[str, Edge] = {}
+    def _check_graph_outputs(self) -> None:
+        """Gives the problem ``graph_output_not_found``, at no node, to each graph output whose node the record lacks,
+        or whose node has no such output. One whose node was not compiled has no problem here, as a problem of its own
+        says why."""
         for name, source in sorted(self.record.outputs.items()):
             node = self.nodes.get(source.node)
             if source.node not in self.record.nodes or (node is not None and source.output not in node.outputs):
                 found = [place_text((source.node,), output) for output in node.outputs] if node is not None else []
                 self.problems.append(compile_problems.graph_output_not_found(output=name, source=place_text((source.node,), source.output), outputs=found))
-            elif node is not None:
-                field = node.outputs[source.output]
-                outputs[name] = Edge((source.node,), source.output, None, node.loops_around(source.output), field.type, series=node.loop_over(source.output) if field.is_series else None)
-        return outputs
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition a node of the record names, at the record's version; ``None``, with a
@@ -296,7 +289,7 @@ class Compiler:
         fields = inner._inputs
         planned = self._plan_inputs(node_id, record, fields, self._constants_of(node_id, record, fields), frozenset(), edges)
         self.nodes[node_id] = CompiledSubgraphNode(
-            id=node_id, loops=planned.loops, inputs=planned.inputs, outputs={output: inner._output_field(output) for output in inner._outputs}, required_branches=planned.required_branches,
+            id=node_id, loops=planned.loops, inputs=planned.inputs, outputs={output: inner._output_field(output) for output in inner.outputs}, required_branches=planned.required_branches,
             definition=definition, inner=inner,
         )
 
