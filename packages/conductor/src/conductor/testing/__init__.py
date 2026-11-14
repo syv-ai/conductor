@@ -266,7 +266,9 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
     if issubclass(hint, (int, float)):
         low: Any = param.ge if param.ge is not None else param.gt  # a number's limits are numbers: the Param hook refused any other
         high: Any = param.le if param.le is not None else param.lt
-        middle = [(low + high) // 2 if issubclass(hint, int) else (low + high) / 2] if low is not None and high is not None else []
+        middle: list[Any] = []
+        if low is not None and high is not None:
+            middle = [(low + high) // 2] if issubclass(hint, int) else [(low + high) / 2]
         near = [*(() if low is None else (low, low + 1)), *(() if high is None else (high, high - 1))]
         return [*middle, *near, 1, 0, -1]
     if issubclass(hint, str):

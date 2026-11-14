@@ -60,7 +60,11 @@ def aliased(alias: Any) -> Any:
 def substituted(hint: Any, bound: Mapping[TypeVar, Any]) -> Any:
     """Gives ``hint`` with each type variable replaced by what it is bound to, else its own bound, else ``Any``."""
     if isinstance(hint, TypeVar):
-        return bound[hint] if hint in bound else Any if hint.__bound__ is None else hint.__bound__
+        if hint in bound:
+            return bound[hint]
+        if hint.__bound__ is not None:
+            return hint.__bound__
+        return Any
     if isinstance(hint, type):
         return hint
     variables = getattr(hint, "__parameters__", ())  # typing's own, on every generic hint

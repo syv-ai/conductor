@@ -40,7 +40,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
-from pydantic import MISSING
+from pydantic import MISSING, JsonValue
 from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
@@ -341,7 +341,12 @@ class Compiler:
         inputs: dict[str, Input] = {}
         for name, field in fields.items():
             entry = record.inputs.get(name)
-            value = _INVALID if name in refused_defaults else constants.get(name, field.default if entry is None else REQUIRED)
+            if name in refused_defaults:
+                value = _INVALID
+            elif entry is None:
+                value = constants.get(name, field.default)
+            else:
+                value = constants.get(name, REQUIRED)
             inputs[name] = self._plan_input(node_id, field, entry, sources.get(name), value, name in constant_at_compile)
         for name in self._inputs_with_conflicting_edges(node_id, inputs):
             inputs[name] = MissingInput(inputs[name].field)
@@ -443,7 +448,13 @@ class Compiler:
         constants: dict[str, Any] = {}
         for name, field in fields.items():
             entry = record.inputs.get(name)
-            value = MISSING if entry is None else entry.default if entry.constant is MISSING else entry.constant
+            value: JsonValue | MISSING
+            if entry is None:
+                value = MISSING
+            elif entry.constant is not MISSING:
+                value = entry.constant
+            else:
+                value = entry.default
             if value is not MISSING:
                 try:
                     constants[name] = read_constant(node_id, field, value)
@@ -664,7 +675,11 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     collects = field.is_series or (record is not None and not all(
         field.whole.fits(s.type) is not None and (s.type.bare is not Any or not s.loops_of_value) for s in sources
     ))
-    return collects, field.whole if not collects else field.type if record is None else record
+    if not collects:
+        return False, field.whole
+    if record is None:
+        return True, field.type
+    return True, record
 
 
 def _edge_input(field: Field, sources: list[Edge], *, collects: bool) -> EdgeInput | CollectingInput:

@@ -76,19 +76,28 @@ class FieldDescription(ConductorModel):
     loops: list[str] = []
 
     @model_validator(mode="after")
-    def _says_one_thing(self) -> Self:
-        """Refuses a field whose parts contradict each other, each with its own error type:
-        ``required_with_default``, since leaving out a field with a default gives the default;
-        ``required_in_exclusive_group`` and ``default_in_exclusive_group``, since an output of an exclusive group
-        left out is a branch not chosen; and ``loops_without_series``, since each loop is a level of list."""
-        group = self.exclusive_group is not None
-        clash = (
-            ("required_with_default", "a required field has no default; leaving out a field with a default gives the default") if self.required and self.default is not MISSING
-            else ("required_in_exclusive_group", "an output of an exclusive group is never required; left out, it is a branch not chosen") if self.required and group
-            else ("default_in_exclusive_group", "an output of an exclusive group has no default; left out, it is a branch not chosen") if group and self.default is not MISSING
-            else ("loops_without_series", "a field with loops is a list (is_series), one level of list per loop") if self.loops and not self.is_series
-            else None
-        )
-        if clash is not None:
-            raise PydanticCustomError(*clash)
+    def _check_invariants(self) -> Self:
+        """Refuses a field whose parts contradict each other, each with its own error type."""
+        has_default = self.default is not MISSING
+        in_group = self.exclusive_group is not None
+        if self.required and has_default:
+            raise PydanticCustomError(
+                "required_with_default",
+                "a required field has no default; leaving out a field with a default gives the default",
+            )
+        if self.required and in_group:
+            raise PydanticCustomError(
+                "required_in_exclusive_group",
+                "an output of an exclusive group is never required; left out, it is a branch not chosen",
+            )
+        if has_default and in_group:
+            raise PydanticCustomError(
+                "default_in_exclusive_group",
+                "an output of an exclusive group has no default; left out, it is a branch not chosen",
+            )
+        if self.loops and not self.is_series:
+            raise PydanticCustomError(
+                "loops_without_series",
+                "a field with loops is a list (is_series), one level of list per loop",
+            )
         return self

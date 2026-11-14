@@ -249,7 +249,12 @@ def _version_number(
         raise NodeDeclarationError(declaration_problems.upgrade_without_replaces(declared_with=declared_with, id=id))
     if replaces is not None and replaces.id != id:
         raise NodeDeclarationError(declaration_problems.replaces_another_node(declared_with=declared_with, id=id, replaces=repr(replaces)))
-    number = version if version is not None else (replaces.version + 1 if replaces is not None else 1)
+    if version is not None:
+        number = version
+    elif replaces is not None:
+        number = replaces.version + 1
+    else:
+        number = 1
     if replaces is not None and number <= replaces.version:
         raise NodeDeclarationError(declaration_problems.version_not_after(declared_with=declared_with, id=id, version=number, replaced=replaces.version))
     return number

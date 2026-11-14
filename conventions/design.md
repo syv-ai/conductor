@@ -65,3 +65,18 @@ Why: a test that reads private state pins today's design and breaks on every ref
 assert run._outcomes[("shout",)][0].outputs["result"] == "HI"   # bad
 assert run.results["shout"]["result"] == "HI"                    # good
 ```
+
+## A choice between several outcomes is written as statements
+
+Write a choice between more than two outcomes, or a check that raises one of several errors, as `if`/`elif`/`return` or `if`/`raise` statements, or as a lookup in a dict; never chain conditional expressions (`a if x else b if y else c`).
+
+Why: a chain of conditional expressions is read right to left and inside out, so a reader has to unpick it before they can tell which case wins.
+
+```python
+return "written" if isinstance(value, Mapping) else "records" if isinstance(value, list) else None   # bad
+if isinstance(value, Mapping):                                                                      # good
+    return "written"
+if isinstance(value, list):
+    return "records"
+return None
+```

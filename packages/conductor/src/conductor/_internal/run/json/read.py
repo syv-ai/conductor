@@ -130,12 +130,15 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
                 for index in indexes:
                     values_by_output[name][call_number][index] = SKIPPED
         outputs_by_call = [{name: values[call_number] for name, values in values_by_output.items()} for call_number in range(len(states))]
-        done, skipped = SAVED_DONE, SAVED_SKIPPED
         skipped_outcome = Skipped(node.outputs_when_skipped)
-        outcomes: list[Outcome | None] = [
-            Done(of_call) if state == done else skipped_outcome if state == skipped else None
-            for state, of_call in zip(states, outputs_by_call, strict=True)
-        ]
+        outcomes: list[Outcome | None] = []
+        for state, of_call in zip(states, outputs_by_call, strict=True):
+            if state == SAVED_DONE:
+                outcomes.append(Done(of_call))
+            elif state == SAVED_SKIPPED:
+                outcomes.append(skipped_outcome)
+            else:
+                outcomes.append(None)
         for call_number, waiting in saved.questions.items():
             if states[call_number] is not None:
                 raise LookupError(call_number)

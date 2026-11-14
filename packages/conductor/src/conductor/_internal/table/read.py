@@ -60,7 +60,15 @@ def _found_in_json(dtype: Any) -> Any:
     if dtype == pl.Object:
         return None
     kind = dtype.to_python()
-    return pl.Int64 if kind is int else pl.Float64 if kind is float else pl.Boolean if kind is bool else pl.Null if dtype == pl.Null else pl.String
+    if kind is int:
+        return pl.Int64
+    if kind is float:
+        return pl.Float64
+    if kind is bool:
+        return pl.Boolean
+    if dtype == pl.Null:
+        return pl.Null
+    return pl.String
 
 
 @functools.lru_cache(maxsize=1024)  # a server sees many shapes of Enum and Struct
@@ -227,7 +235,11 @@ def _table_form(value: Any) -> str | None:
     """Says which of a table's three forms ``value`` is: a frame, a list of records, or the columns conductor writes."""
     if isinstance(value, pl.DataFrame):
         return "frame"
-    return "written" if isinstance(value, Mapping) else "records" if isinstance(value, list) else None
+    if isinstance(value, Mapping):
+        return "written"
+    if isinstance(value, list):
+        return "records"
+    return None
 
 
 def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:

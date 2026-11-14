@@ -586,7 +586,12 @@ class Worker(Generic[C]):
             reads = hold.reads
             after = await asyncio.to_thread(end.row_after, hold.state)
             goes_on = after.state.is_running and not self._handing_back.is_set()
-            holder = self._mine() if goes_on else _HANDED_BACK if after.state.is_running else _UNHELD
+            if goes_on:
+                holder = self._mine()
+            elif after.state.is_running:
+                holder = _HANDED_BACK
+            else:
+                holder = _UNHELD
             changes: RunChanges = {**after.state.columns(), **after.changes, **holder}
             async with hold.lock:  # no renewal lands after the write that gives the run up
                 if hold.reads == reads and await self._write_once(hold, changes):  # decided from the state as it still is
