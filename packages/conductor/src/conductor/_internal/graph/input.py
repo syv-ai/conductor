@@ -153,8 +153,8 @@ class EdgeInput:
         field: The input, as its node declares it.
         sources: What each edge into the input reads. With several edges, each comes from a different branch of
             one decision, and a call gets the value from the branch that was chosen.
-        loops: The loops the input's node must be inside to read the value, outermost first: those of the
-            source with the most loops.
+        loops: The loops the input's node must be inside to read the value, outermost first: those of its
+            edges, which are the same for every edge.
         as_list: Whether a call gets the value as a list of one.
     """
 

@@ -14,7 +14,9 @@ When a node cannot be called, ``arguments_for`` returns why instead. The checks 
 1. An input has only ``SKIPPED`` to read, because every edge into it comes from a branch that was not chosen.
    The node is skipped, whatever its other inputs are: the result is a ``Skipped`` outcome.
 2. A value an input reads does not exist yet. The result is ``NOT_READY``, and the node is tried again later.
-3. An input reads ``None`` and its parameter does not accept ``None``. The node is not called: the result is a
+3. An edge reads a field of a record (``lines.result.name``) that the record does not have. The call fails with
+   ``invalid_edge_value``.
+4. An input reads ``None`` and its parameter does not accept ``None``. The node is not called: the result is a
    ``NoneInput`` outcome.
 
 ``join.texts`` is a collecting input: it gets one value per item of a loop, as a list. Before it reads the

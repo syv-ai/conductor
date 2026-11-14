@@ -45,7 +45,7 @@ Two more words have no outcome of their own:
 A node is **complete** when every call it will have has an outcome and none of them is unanswered; a run is
 complete when every node is.
 
-Done, skipped and not called have ``outputs``: the call's outputs by name. Unanswered has none yet. Every class says
+Done, skipped and none input have ``outputs``: the call's outputs by name. Unanswered has none yet. Every class says
 which with ``has_outputs``, so code that needs an output asks ``outcome.has_outputs`` and then reads
 ``outcome.outputs[name]``, whichever of the four classes it has.
 """
