@@ -469,3 +469,49 @@ def test_two_series_inputs_wired_to_a_subgraphs_per_word_and_per_letter_outputs_
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "words-up-and-letters", "inputs": {"text": {"graph_input": "text"}}}, "n": {"node": "both", "inputs": {"a": {"sources": [{"node": "e", "output": "words"}]}, "b": {"sources": [{"node": "e", "output": "letters"}]}}}}}), REGISTRY)
     assert not graph.problems
     assert graph.run(text="ab cd").results["n"]["result"] == ["AB:AB", "CD:CD"]
+
+
+def test_a_chain_of_a_thousand_nodes_in_a_loop_is_collected() -> None:
+    """Whether any item of the loop can have a value is worked out node by node, in the order a run calls them, so
+    a long chain inside the loop needs no deep recursion."""
+    chain = [(f"u{i}", "up") for i in range(1000)]
+    edges = [("s.result", "u0.a"), *[(f"u{i}.result", f"u{i + 1}.a") for i in range(999)], ("u999.result", "n.values")]
+    assert outcome_of(ran({"s": "items", **dict(chain), "n": "count"}, edges, text="a b"), "n") == 2
+
+
+@_node("pair-reversed")
+def pair_reversed(b: str, a: str) -> str:
+    return f"{a}+{b}"
+
+
+@_node("settings")
+def settings() -> dict[str, str]:
+    return {}
+
+
+@pytest.mark.parametrize("text", ["", "a"])
+def test_the_order_of_a_nodes_parameters_does_not_change_a_collect_over_a_loop(text: str) -> None:
+    """Inside the loop, ``t`` reads a field ``settings`` does not return, and the other input of the pair is on a branch
+    not chosen. Swapping the pair's parameters changes nothing, for an empty list as for one item."""
+    statuses = []
+    for pair_id in ("pair", "pair-reversed"):
+        nodes = {"s": "items", "c": "settings", "t": "pair", "w": "decide", "p": pair_id, "n": "count"}
+        edges = [("s.result", "t.a"), ("c.result.k", "t.b"), ("t.result", "p.a"), ("w.yes", "p.b"), ("p.result", "n.values")]
+        graph = Graph.compile(make_graph(*((node_id, REGISTRY[registry_id]) for node_id, registry_id in nodes.items()), edges=edges), REGISTRY)
+        assert not graph.problems, graph.problems
+        statuses.append(graph.run(text=text, go="no").status)
+    assert statuses[0] == statuses[1]
+
+
+def test_two_sibling_loops_joined_through_collecting_nodes() -> None:
+    """``x`` is called per letter of each word of ``first``, and reads ``inner``, which collects the words of
+    ``second`` per letter and then per word. Each collect asks about its own loop."""
+    nodes = {
+        "o": "items", "op": "items", "a": "chars", "b": "chars", "y": "pair", "w": "join", "wt": "join", "x": "pair", "j": "join", "jt": "join",
+    }
+    edges = [
+        ("o.result", "a.a"), ("op.result", "b.a"), ("b.result", "y.a"), ("op.result", "y.b"), ("y.result", "w.values"), ("w.result", "wt.values"),
+        ("a.result", "x.a"), ("wt.result", "x.b"), ("x.result", "j.values"), ("j.result", "jt.values"),
+    ]
+    run = ran(nodes, edges, inputs={"first": "o.text", "second": "op.text"}, first="ab c", second="xy")
+    assert run.results["j"]["result"] == ["a+x+xyy+xyb+x+xyy+xy", "c+x+xyy+xy"]
