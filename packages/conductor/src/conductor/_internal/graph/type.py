@@ -36,10 +36,9 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from conductor._internal.base import Loc, NodePath, json_hash, place_text, plural
-from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import ContextDoor, InputsDoor, read_limits
-from conductor._internal.node import FunctionDefinition, NodeDefinition
+from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
@@ -225,27 +224,15 @@ class Graph[C]:
     @functools.cached_property
     def _context_door(self) -> ContextDoor:
         """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
-        ``context_type`` and every node that takes the context, those inside subgraphs too."""
-        return ContextDoor(self._context_type, self._nodes_taking_context())
-
-    def _function_nodes(self) -> Iterator[tuple[NodePath, FunctionDefinition[..., Any]]]:
-        """Every function node of the graph and of its subgraphs, at any depth, as its node path (``("loud", "shout")``)
-        and its definition, in the order a run tries them."""
-        for compiled_node in self._nodes.values():
-            if isinstance(compiled_node, CompiledSubgraphNode):
-                yield from (((compiled_node.id, *path), definition) for path, definition in compiled_node.inner._function_nodes())
-            else:
-                yield (compiled_node.id,), compiled_node.definition
-
-    def _nodes_taking_context(self) -> list[tuple[NodePath, ContextParameter]]:
-        """Every function node of the graph and of its subgraphs that takes the run's context, as its node path and its
-        ``Context`` parameter, in the order a run tries them."""
-        return [(path, definition.context) for path, definition in self._function_nodes() if definition.context is not None]
+        ``context_type`` and every function node of the run blueprint that takes the context, those inside subgraphs
+        too."""
+        contexts = {path: node.compiled_node.definition.context for path, node in self._blueprint.function_nodes.items()}
+        return ContextDoor(self._context_type, [(path, context) for path, context in contexts.items() if context is not None])
 
     def _asks(self) -> bool:
         """Whether a call of a function node of the graph, or of its subgraphs at any depth, may wait for a person: the
         node declares ``asks=True``."""
-        return any(definition.asks for _, definition in self._function_nodes())
+        return any(node.inner._asks() if isinstance(node, CompiledSubgraphNode) else node.definition.asks for node in self._nodes.values())
 
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:
