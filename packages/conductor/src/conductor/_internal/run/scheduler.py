@@ -329,9 +329,10 @@ class Scheduler:
             while self.running:  # a call that was made is never made again: wait for its outcome
                 self._wait()
         finally:
-            # only when run ends by an exception are attempts left; each step is taken however another one ends
+            # only when run ends by an exception are attempts left; each step is taken however another one ends. A
+            # node's RunningCalls keeps this run only while an attempt of the node waits to start here.
             _each(list(self.running.values()), self._cancel_queued)
-            _each(list(self.waiting_to_start), lambda node: self._count_of(node).stop_waiting(self))
+            _each(self._nodes_waiting(), lambda node: self._count_of(node).stop_waiting(self))
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         self._put_in_order()
@@ -348,10 +349,11 @@ class Scheduler:
         """
         self.stopped, self.going = stopped, False
         for node, waiting in self.waiting_to_start.items():
+            # first: an exception raised here leaves the attempts waiting, so run's finally tells the node again
+            self._count_of(node).stop_waiting(self)
             for attempt in waiting:
                 self.running.pop((node, attempt.item_indexes), None)
             waiting.clear()
-            self._count_of(node).stop_waiting(self)
         for timer in self.timers:
             if timer.kind == "retry":
                 self.running.pop((timer.attempt.node, timer.attempt.item_indexes), None)
