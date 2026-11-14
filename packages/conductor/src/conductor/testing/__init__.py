@@ -106,7 +106,7 @@ def _problems_of(
     definition: NodeDefinition, registry: NodeRegistry[Any], examples: Mapping[tuple[str, int], Sequence[_Example]], context: Any,
 ) -> list[Problem]:
     found = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), context)
-    for older in definition.version_chain[1:]:
+    for older in list(definition.versions.values())[1:]:
         given = examples.get((older.id, older.version), ())
         found += _upgrade_problems(older, registry, given)
         found += _version_problems(older, registry, given, context)

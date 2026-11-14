@@ -344,7 +344,7 @@ def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
     """Every class the versions of ``definitions`` declare on their inputs and outputs, each once, node by node in declaration order."""
     found: list[type] = []
     for definition in definitions:
-        for step in definition.version_chain:
+        for step in definition.versions.values():
             match step:
                 case FunctionDefinition():
                     fields = (*step.inputs.values(), *step.outputs.values())

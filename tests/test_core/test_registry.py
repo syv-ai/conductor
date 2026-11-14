@@ -258,7 +258,7 @@ def test_every_version_of_a_node_takes_the_registrys_defaults():
     registry.add(split)
 
     for version in (1, 2):
-        version_declared = registry["split"].version_of(version)
+        version_declared = registry["split"].versions[version]
         assert (version_declared.category, version_declared.tags, dict(version_declared.extra)) == ("text", ("builtin",), {"icon": "scissors"})
 
 
@@ -300,7 +300,7 @@ def test_a_chain_is_a_plain_older_version_and_the_newest_declared_on_the_registr
         return text
 
     assert registry["up"] is up and up.version == 2
-    assert up.version_of(1).category == defaults.get("category", "")
+    assert up.versions[1].category == defaults.get("category", "")
 
 
 def test_replace_swaps_the_version_on_the_registry_for_its_successor():
@@ -318,7 +318,7 @@ def test_replace_swaps_the_version_on_the_registry_for_its_successor():
     registry.replace(up)
 
     assert registry["up"] is up
-    assert registry["up"].version_of(1) is up_v1
+    assert registry["up"].versions[1] is up_v1
 
 
 def test_a_registry_with_no_defaults_adds_a_node_as_it_is():

@@ -672,12 +672,13 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
     def v3(x: str) -> str:
         return "three"
 
-    assert v3.versions == (3, 2, 1) and v3("a") == "three"
-    assert [v3.version_of(n).policy for n in (1, 2, 3)] == [Policy(retries=1), Policy(retries=2), Policy(concurrency=3)]
-    assert v3.version_of(1).deprecation == Deprecation(header="Use v3") and v3.deprecation is None
-    assert v3.version_of(1).describe().deprecation.header == "Use v3" and v3.describe().deprecation is None
-    with pytest.raises(KeyError, match="'v' has no version 4; it has 3, 2, 1"):
-        v3.version_of(4)
+    assert list(v3.versions) == [3, 2, 1] and v3("a") == "three"
+    assert [v3.versions[n].policy for n in (1, 2, 3)] == [Policy(retries=1), Policy(retries=2), Policy(concurrency=3)]
+    assert v3.versions[1].deprecation == Deprecation(header="Use v3") and v3.deprecation is None
+    assert v3.versions[1].describe().deprecation.header == "Use v3" and v3.describe().deprecation is None
+    assert 4 not in v3.versions
+    with pytest.raises(TypeError):  # a frozen definition's versions can't be written
+        v3.versions[4] = v3  # type: ignore[index]
     for saved, body in ((1, "one"), (3, "three")):
         graph = compiled_graph(v3, record=GraphRecord(nodes={"n": node_record("v", version=saved, graph_inputs=("x",))}))
         assert graph.run(x="a").results["n"]["result"] == body
@@ -729,7 +730,7 @@ def test_a_subgraph_may_be_declared_at_a_version_of_its_own():
         return text
 
     inner = subgraph("inner", title="Inner", description="For a test.", version=3)(make_graph(read))
-    assert inner.version == 3 and inner.versions == (3,)
+    assert inner.version == 3 and list(inner.versions) == [3]
     assert next(n for n in registry_of(read, inner).describe().nodes if n.id == "inner").version == 3
     graph = compiled_graph(read, inner, record=GraphRecord(nodes={"e": node_record("inner", version=3, graph_inputs=("text",))}))
     assert graph.problems == [] and list(graph.inputs) == ["text"]

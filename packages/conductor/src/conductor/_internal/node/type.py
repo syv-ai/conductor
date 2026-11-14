@@ -116,25 +116,11 @@ class _Version:
         return f"{type(self).__name__}({', '.join(parts)})"
 
     @functools.cached_property
-    def version_chain(self) -> tuple[Self | NodeDefinition, ...]:
-        """This version, then each version it replaces, newest first."""
-        return (self,) if self.replaces is None else (self, *self.replaces.version_chain)
-
-    @functools.cached_property
-    def versions(self) -> tuple[int, ...]:
-        """Every version number, newest first."""
-        return tuple(step.version for step in self.version_chain)
-
-    def version_of(self, version: int) -> Self | NodeDefinition:
-        """Returns this node at ``version``, walking back through what each version replaces.
-
-        Raises:
-            KeyError: It has no such version, naming the versions it has; ``version in definition.versions`` asks first.
-        """
-        for found in self.version_chain:
-            if found.version == version:
-                return found
-        raise KeyError(f"{self.id!r} has no version {version!r}; it has {', '.join(map(str, self.versions))}")
+    def versions(self) -> Mapping[int, Self | NodeDefinition]:
+        """This node at each of its versions, by version number, newest first: ``{3: v3, 2: v2, 1: v1}`` for ``v3``,
+        which replaces ``v2``, which replaces ``v1``. Read-only, as the definition is frozen."""
+        older = {} if self.replaces is None else self.replaces.versions
+        return MappingProxyType({self.version: self, **older})
 
     def described_as(
         self, *, inputs: list[FieldDescription], outputs: list[FieldDescription], asks: bool, takes_added_inputs: bool, computes_outputs: bool,

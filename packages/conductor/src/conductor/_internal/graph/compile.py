@@ -187,7 +187,7 @@ class Compiler:
         if record.version not in newest.versions:
             self.problems.append(compile_problems.unknown_version(node_id, node=record.node, version=record.version, newest=newest.version))
             return None
-        return newest.version_of(record.version)
+        return newest.versions[record.version]
 
     def _order(self, order: list[str], edges_into: Mapping[str, Mapping[str, tuple[Source, ...]]]) -> list[str]:
         """Returns the node ids in the order they are compiled: each after the nodes its edges come from, and

@@ -65,7 +65,7 @@ run.results["join"]["result"]      # "A+B+C": Series[str] received every value, 
 
 ### Versions and Policies
 
-A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version, and each version names the one before it in `replaces`. The older versions are plain `@node` definitions that are never registered; only the newest goes on a registry, and an id the registry already has is `duplicate_node_id` whatever `replaces=` names (`registry.replace(newer)` swaps a held node).
+A newer version names the one it replaces, a `@node` of the same id, and the decorated function is the newest. A definition is one version, and each version names the one before it in `replaces`. The older versions are plain `@node` definitions that are never registered; only the newest goes on a registry, and an id the registry already has is `duplicate_node_id` whatever `replaces=` names (`registry.replace(newer)` swaps a held node). `definition.versions` is the node at each of its versions, a read-only mapping by version number, newest first.
 
 ```python
 @node("greet", title="Greet", description="Greets a person by name.")
@@ -80,7 +80,7 @@ def _split_name(values: dict) -> dict:
 def greet(first: str, last: str) -> str:
     return f"Hello {first} {last}"
 
-assert greet.versions == (2, 1) and greet.version_of(1) is greet_v1
+assert list(greet.versions) == [2, 1] and greet.versions[1] is greet_v1
 ```
 
 - `Policy(concurrency=None, retries=0, retry_delay=1.0, attempt_timeout=None, retry_on=(), reuse_when_inputs_match=True, costs_nothing=False)`. With `concurrency=None`, the default, a run calls the node one item at a time and takes no notice of other runs: two runs at once in one process call it at once. A node that sets `concurrency=n` has at most `n` calls running at once in the whole process, counted over every place a graph uses it and every run going on: with `concurrency=2`, two runs at once that each use `fetch` in two places make two calls of `fetch` at once, and the others wait while each run calls its other nodes; when a call ends the waiting runs ask again and the first to ask starts, and a run that just made a call gives them a moment first, so one busy run can't keep the others out; a free call is never kept for a run that isn't asking. That is how a node keeps an outside service's quota. Setting `concurrency` on a node whose function runs a graph that uses the node again, or a node that uses it back, is a deadlock once the nesting reaches `concurrency`: the outer calls hold every place and the inner run waits for one. A definition is what one `@node` made: a registry's copy of it, with its tags, counts with it, and a node declared again under the same id counts apart. A call counts until its function returns, so a call given up at its `attempt_timeout` still counts while its thread runs, and a call waiting to be retried does not count. With `concurrency` 1 or `None` and no `attempt_timeout` the node is called in order on the run's own thread; otherwise on threads. `concurrency` is at least 1 or `None`, `retries` at least 0, `retry_delay` finite seconds of at least 0 and `attempt_timeout` finite seconds above 0; anything else raises pydantic's own validation error, as `Policy` is a frozen pydantic dataclass read strictly: a yes or no, a text or `1.5` is no whole number.

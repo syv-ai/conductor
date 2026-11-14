@@ -43,8 +43,8 @@ def upgraded(nodes: Mapping[str, NodeDefinition], record: GraphRecord | str | by
             node_id,
             node=node_record.node, version=node_record.version, target=target, versions=sorted(newest.versions),
         )])
-    version_chain = newest.version_of(target).version_chain
-    steps = [(newer, older) for newer, older in zip(version_chain, version_chain[1:], strict=False) if newer.version > node_record.version]
+    newest_first = list(newest.versions[target].versions.values())
+    steps = [(newer, older) for newer, older in zip(newest_first, newest_first[1:], strict=False) if newer.version > node_record.version]
     for step, older in reversed(steps):
         upgrade = step.upgrade
         gone = gone_inputs(older, step)
