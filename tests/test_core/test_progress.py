@@ -145,6 +145,8 @@ def test_a_free_node_that_asks_or_fails_does_so_with_only_costs_nothing_as_in_a_
     assert estimated.status == status
     assert estimated.progress.nodes["pick"] == CallCount(finished=0, waiting=waiting, known=1, total=1)
     assert estimated.resume().status == status
+    full, free = (_events(graph.with_inputs(files=["d2"]), **options) for options in ({}, {"only_costs_nothing": True}))
+    assert [event for event in free if hasattr(event, "loc")] == [event for event in full if hasattr(event, "loc")]
 
 
 def test_a_graph_of_free_nodes_only_is_complete() -> None:

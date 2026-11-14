@@ -43,11 +43,12 @@ import operator
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
-from typing import Any, Literal, assert_never
+from typing import assert_never
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.problem import Problem
 
+from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, BlueprintNode, BlueprintSubgraphNode, all_upstream
 from .events import (
     EventBase,
@@ -58,7 +59,7 @@ from .events import (
     NodeStart,
     NodeWaiting,
 )
-from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
+from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from .progress import CallCount, call_count, calls_expected, is_complete
 from .waiting import waiting_record
 
@@ -76,7 +77,7 @@ class NodeEvents:
         emit: The listener: it is called with each event.
         nodes: Every function node of the graph and of its subgraphs, in topological order.
         outcomes: The run's outcomes, by node path and item indexes. The scheduler writes them; they are only read here.
-        arguments_for: Reads the arguments of a call from the run's outcomes.
+        reader: Reads the run's outcomes, for what a waiting call received.
         started: The nodes that have had ``NodeStart``, in this call or an earlier one.
         complete: The nodes that have had ``NodeComplete``, in this call or an earlier one.
         changed: The nodes with an outcome recorded since they were last looked at for ``NodeComplete``.
@@ -91,7 +92,7 @@ class NodeEvents:
         nodes: list[BlueprintFunctionNode],
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         complete: frozenset[NodePath],
-        arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+        reader: ResultReader,
     ) -> None:
         """
         Args:
@@ -100,9 +101,9 @@ class NodeEvents:
             outcomes: The run's outcomes, by node path and item indexes.
             complete: The node paths of the nodes that were complete when the last ``resume()`` ended, which a stream
                 has said, or would have said, are complete.
-            arguments_for: Reads the arguments of a call from the run's outcomes, for what a waiting call received.
+            reader: Reads the run's outcomes, for what a waiting call received.
         """
-        self.emit, self.nodes, self.outcomes, self.arguments_for = emit, nodes, outcomes, arguments_for
+        self.emit, self.nodes, self.outcomes, self.reader = emit, nodes, outcomes, reader
         with_outcomes: set[BlueprintFunctionNode] = {node for node in nodes if outcomes[node.node_path]}
         self.started: set[BlueprintNode] = set(with_outcomes)
         for node in with_outcomes:
@@ -140,7 +141,7 @@ class NodeEvents:
         if type(outcome) is not Skipped:
             self.call_starts(node)
         if type(outcome) is Unanswered:
-            self.emit(NodeWaiting(loc=node.node_path, waiting=waiting_record(node, item_indexes, outcome, self.arguments_for)))
+            self.emit(NodeWaiting(loc=node.node_path, waiting=waiting_record(node, item_indexes, outcome, self.reader)))
         if node.loops:
             self._progress(node)
 

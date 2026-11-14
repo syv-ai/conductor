@@ -9,7 +9,7 @@ set, so a host draws a question with the code that draws an input.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal, assert_never
+from typing import Any, assert_never
 
 from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath, json_hash
@@ -17,6 +17,7 @@ from conductor._internal.field import FieldDescription
 from conductor._internal.graph import CompiledFunctionNode
 from conductor._internal.problem import InvalidCallError, call_problems
 
+from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .call import jsonable
 from .outcome import NoneInput, NotReady, Skipped, Unanswered
@@ -52,16 +53,16 @@ class Waiting(ConductorModel):
     inputs: dict[str, Any]
 
 
-def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiting: Unanswered, arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]) -> Waiting:
+def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiting: Unanswered, reader: ResultReader) -> Waiting:
     """A waiting call as a host shows it.
 
     Args:
         node: The node that asks.
         item_indexes: Which call of the node waits.
         waiting: The call's outcome.
-        arguments_for: Reads the arguments of a call from the run's outcomes (``ResultReader.arguments_for``).
+        reader: Reads the run's outcomes.
     """
-    compiled_node, inputs = node.compiled_node, received(node, item_indexes, arguments_for)
+    compiled_node, inputs = node.compiled_node, received(node, item_indexes, reader)
     loc, outputs, choices, defaults = outcome_loc(node, item_indexes), compiled_node.outputs, waiting.choices, waiting.defaults
     return Waiting(
         id=write_waiting_id(loc, question_fingerprint(compiled_node, inputs)), loc=loc, prompt=waiting.prompt,
@@ -70,20 +71,20 @@ def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiti
     )
 
 
-def received(node: BlueprintFunctionNode, item_indexes: ItemIndexes, arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]) -> dict[str, Any]:
+def received(node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader) -> dict[str, Any]:
     """What a call that waits received, as JSON: its arguments read again from the outcomes it reads, which never
-    change once written. ``received(approve, (1,), reader.arguments_for)`` is ``{"line": "b"}``.
+    change once written. ``received(approve, (1,), reader)`` is ``{"line": "b"}``.
 
     Args:
         node: The node that asks.
         item_indexes: Which call of the node waits.
-        arguments_for: Reads the arguments of a call from the run's outcomes.
+        reader: Reads the run's outcomes.
 
     Raises:
         RuntimeError: The call has no arguments: it reads as skipped, not called or not ready, which a call that
             asked cannot be, since the outcomes it read are never changed once written.
     """
-    match arguments_for(node, item_indexes):
+    match reader.arguments_for(node, item_indexes):
         case dict() as arguments:
             inputs: dict[str, Any] = jsonable(arguments)
             return inputs

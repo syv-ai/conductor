@@ -88,7 +88,6 @@ from conductor._internal.problem import (
 
 from .blueprint import BlueprintFunctionNode, all_upstream, outcome_loc
 from .call import call, jsonable
-from .events import EventBase
 from .node_events import NodeEvents
 from .outcome import (
     Done,
@@ -209,10 +208,9 @@ class Scheduler:
         threads: int,
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         reusable: ReusableOutcomes,
-        complete: frozenset[NodePath],
         max_items: int | None,
         arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
-        emit: Callable[[EventBase], None] | None,
+        node_events: NodeEvents | None,
         stop: Callable[[], LastResume] | None,
         context: Any,
         checkpoint: Callable[[LastResume], None] | None = None,
@@ -226,10 +224,9 @@ class Scheduler:
             outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
             reusable: The outcomes of the previous run that a call may reuse. The scheduler takes out the outcomes
                 it reuses once each.
-            complete: The node paths of the nodes that were complete when the last ``resume()`` ended, for the listener.
             max_items: The item limit: the most items a series that a loop runs over may have. None for no limit.
             arguments_for: Returns the arguments of one call, or why it cannot be called (``run/arguments.py``).
-            emit: The listener of ``run.stream()``, called with each event about a node. None for ``run.resume()``.
+            node_events: Makes the events about each node for the listener of ``run.stream()``. None for ``run.resume()``.
             stop: Asked before each call and while waiting for threads. It returns why the scheduler must stop now:
                 an ``EndedEarly`` (cancelled, timed out), or ``"running"`` when the host takes the run back to
                 resume it elsewhere. Otherwise it returns None.
@@ -303,7 +300,7 @@ class Scheduler:
 
         # 5. Telling a listener.
         #: Makes the events about each node. None when nobody listens.
-        self.node_events = NodeEvents(emit, nodes, outcomes, complete, self.arguments_for) if emit is not None else None
+        self.node_events = node_events
 
     def run(self) -> LastResume:
         """Call every node that is ready, until none is and no attempt is on a thread, or until ``end`` is called.

@@ -99,7 +99,7 @@ class Told:
         self.nodes = {place_text(path): node for path, node in run._blueprint.function_nodes.items()}
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
-        self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths, ResultReader(self.finished_run, run.inputs).arguments_for)
+        self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths, ResultReader(self.finished_run, run.inputs))
 
     def start(self, name: str) -> None:
         """A call of the node is about to be made."""

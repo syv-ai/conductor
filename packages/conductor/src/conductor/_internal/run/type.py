@@ -44,6 +44,7 @@ from .events import (
     RunStart,
 )
 from .json import outputs_to_json, run_from_json, run_to_json
+from .node_events import NodeEvents
 from .outcome import (
     Done,
     NoneInput,
@@ -252,11 +253,12 @@ class Run[C]:
         blueprint = self._blueprint
         nodes = blueprint.function_nodes
         complete_before = run._complete_nodes
+        reader, function_nodes = run._reader, list(nodes.values())
+        node_events = NodeEvents(emit, function_nodes, run._outcomes, complete_before, reader) if emit is not None else None
         run._last_resume = stopped = Scheduler(
-            nodes=list(nodes.values()), threads=blueprint.threads, outcomes=run._outcomes, reusable=run._reusable,
-            complete=complete_before,
-            max_items=run.max_items, arguments_for=_only_costs_nothing(run._reader.arguments_for) if only_costs_nothing else run._reader.arguments_for,
-            emit=emit, stop=stop, context=context, checkpoint=checkpoint, checkpoint_every=checkpoint_every,
+            nodes=function_nodes, threads=blueprint.threads, outcomes=run._outcomes, reusable=run._reusable,
+            max_items=run.max_items, arguments_for=_only_costs_nothing(reader) if only_costs_nothing else reader.arguments_for,
+            node_events=node_events, stop=stop, context=context, checkpoint=checkpoint, checkpoint_every=checkpoint_every,
         ).run()
         outcomes = run._outcomes
         run._complete_nodes = frozenset(path for path, node in nodes.items() if path in complete_before or is_complete(outcomes, node))
@@ -307,7 +309,7 @@ class Run[C]:
                 raise TypeError("run.answer takes a waiting call and its answer, or a mapping of waiting ids to answers")
         problems: list[Problem] = []
         answered: dict[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = {}
-        arguments_for = self._reader.arguments_for
+        reader = self._reader
         status = cache(lambda: self.status)  # read from every outcome, so only when a refusal names it
         for waiting_id, one in given.items():
             try:
@@ -322,7 +324,7 @@ class Run[C]:
                 problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status(), moved_to=moved_to))
                 continue
             compiled_node = node.compiled_node
-            asked = question_fingerprint(compiled_node, received(node, item_indexes, arguments_for))
+            asked = question_fingerprint(compiled_node, received(node, item_indexes, reader))
             if fingerprint is not None and asked != fingerprint:
                 current = write_waiting_id(outcome_loc(node, item_indexes), asked)
                 problems.append(call_problems.answer_stale(*loc, waiting_id=waiting_id, current=current, moved_to=self._moved_to(nodes, fingerprint)))
@@ -352,9 +354,9 @@ class Run[C]:
         node = self._blueprint.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
         if node is None:
             return None
-        arguments_for = self._reader.arguments_for
+        reader = self._reader
         for item_indexes, outcome in self._outcomes[nodes].items():
-            if type(outcome) is Unanswered and question_fingerprint(node.compiled_node, received(node, item_indexes, arguments_for)) == fingerprint:
+            if type(outcome) is Unanswered and question_fingerprint(node.compiled_node, received(node, item_indexes, reader)) == fingerprint:
                 return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
         return None
 
@@ -401,8 +403,8 @@ class Run[C]:
     def waiting(self) -> list[Waiting]:
         """Every call waiting for a person, in node then item order; those inside a subgraph where its
         node stands."""
-        arguments_for = self._reader.arguments_for
-        return [waiting_record(node, item_indexes, outcome, arguments_for) for node, item_indexes, outcome in self._waiting_outcomes()]
+        reader = self._reader
+        return [waiting_record(node, item_indexes, outcome, reader) for node, item_indexes, outcome in self._waiting_outcomes()]
 
     def _waiting_outcomes(self) -> Iterator[tuple[BlueprintFunctionNode, ItemIndexes, Unanswered]]:
         """Every call waiting for a person, with its node and item indexes, in node then item order."""
@@ -518,15 +520,13 @@ RunEnd.model_rebuild(_types_namespace={"Run": Run})
 RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
-def _only_costs_nothing(
-    arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
-) -> Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
-    """``arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready: what
+def _only_costs_nothing(reader: ResultReader) -> Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]]:
+    """``reader.arguments_for``, with every call of a node whose ``Policy`` does not say ``costs_nothing`` not ready: what
     ``resume(only_costs_nothing=True)`` hands the scheduler, so that it calls ``lines`` and never ``shout`` when only
     ``lines`` costs nothing."""
 
     def restricted(node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
-        return arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
+        return reader.arguments_for(node, item_indexes) if node.policy.costs_nothing else NotReady.NOT_READY
 
     return restricted
 
