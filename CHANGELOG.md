@@ -9,7 +9,7 @@ released together at one version. The format follows
 
 Ships as 2.0.0, a new major. The node contract, the graph record, compiling and the engine are each
 replaced, and no alias keeps a 1.x name alive. Conductor depends on `polars>=2.0`,
-`pydantic>=2.12` and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
+`pydantic>=2.14` (the first to export `MISSING`, which a record without a value is written with) and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
 rule.
 
 What changes in how you work, before the name-by-name tables:

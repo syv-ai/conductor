@@ -235,8 +235,9 @@ class Graph[C]:
 
     @functools.cached_property
     def fingerprint(self) -> str:
-        """A short hash of what a run of this graph depends on: the graph record without each node's
-        ``display`` (which conductor never reads), and the fingerprint of every subgraph used in it.
+        """A short hash of the graph's shape: the graph record without each node's ``display`` (which conductor
+        never reads), and the fingerprint of every subgraph used in it. It leaves out the code of the nodes' functions:
+        a run checks that per call, and reuses a previous call's outcome only when the node's code is the same.
 
         Keys are sorted first, so a record that a JSON store gives back with its keys in another order has the
         same fingerprint. A saved run contains it, and loading a saved run into a graph whose fingerprint differs
