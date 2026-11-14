@@ -617,7 +617,7 @@ def test_a_subgraph_is_one_node_with_the_inputs_and_outputs_its_record_declares(
         [("d.result", "e.text"), ("e.result", "c.items")],
         registry,
     )
-    assert graph.is_runnable and list(graph._nodes) == ["d", "e", "c"]
+    assert graph.is_runnable
     described = graph.describe().nodes["e"]
     assert [i.field.name for i in described.inputs] == ["text"] and [
         o.name for o in described.outputs

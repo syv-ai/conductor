@@ -102,12 +102,22 @@ def test_the_total_is_a_floor_then_exact_with_the_waiting_calls_counted() -> Non
 
 
 def test_known_grows_while_a_series_above_is_missing_somewhere() -> None:
-    run = _invoices().with_inputs(files=["d2", "d1"]).resume(only_costs_nothing=True)
-    finished = run.resume()
-    run._outcomes[("read",)][(0,)] = finished._outcomes[("read",)][
-        (0,)
-    ]  # as a checkpoint has it: one document read
+    @node("read", title="Read", description="For a test.")
+    def read_all_but_d1(document: str) -> Series[str]:
+        if document == "d1":
+            raise NodeError("d1 cannot be read")
+        return [f"{document}#{index}" for index in range(int(document[-1]))]
 
+    graph = _graph(
+        upload,
+        read_all_but_d1,
+        approve,
+        edges=[("upload.result", "read.document"), ("read.result", "approve.invoice")],
+    )
+    # one document read, the other not
+    run = graph.with_inputs(files=["d2", "d1"]).resume()
+
+    assert run.cause is not None and run.cause.loc == ("read", 1)
     assert run.progress.nodes["approve"] == CallCount(finished=0, waiting=0, known=2, total=None)
 
 

@@ -71,7 +71,7 @@ _KINDS = [
 
 
 @pytest.mark.parametrize(
-    ("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind, _ in _KINDS]
+    ("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind.variant}" for kind, _ in _KINDS]
 )
 def test_a_kinds_example_makes_its_problem_and_no_other(
     kind: ProblemKind[...], setup: Callable[[], str], monkeypatch: MonkeyPatch, tmp_path: Path

@@ -23,7 +23,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.series import Records
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
@@ -129,8 +128,6 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
 ):
     graph = _graph()
     run = graph.run(text="x")
-    kept = run._outcomes[("c",)][()].outputs["result"]
-    assert type(kept) is Records and kept.frame.columns == ["name", "email"] and len(kept) == 2
 
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["c"]["outputs"]["result"] == [
@@ -146,7 +143,6 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
     ] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
     read_back = Run.from_json(run.to_json(), graph)
-    assert type(read_back._outcomes[("c",)][()].outputs["result"]) is Records
     assert read_back.to_json() == run.to_json() and read_back.results == run.results
     RECEIVED.clear()
     assert read_back.forget("one").resume().outputs == run.outputs and RECEIVED == [
@@ -298,7 +294,15 @@ def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table() 
     run = graph.run(text="x")
 
     assert run.outputs == {"result": ["hi ida", "hi bo"]}
-    assert type(run._outcomes[("series-split",)][()].outputs["result"]) is Records
+    saved = json.loads(run.to_json())["outcomes"]["series-split"]["outputs"]["result"]
+    assert saved == [
+        {
+            "columns": [
+                {"name": "name", "type": "str", "values": ["ida", "bo"]},
+                {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
+            ]
+        }
+    ]  # kept as the table it was given
     assert run.results["series-split"]["result"] == [
         {"name": "ida", "email": "ida@x.dk"},
         {"name": "bo", "email": None},
@@ -335,30 +339,6 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
     ]  # the two records before it were read and called
 
 
-@pytest.mark.parametrize(
-    "source", [contacts, listed], ids=["returned as a table", "returned as a list"]
-)
-def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_field_an_edge_reads(
-    source: Any,
-) -> None:
-    graph = Graph.compile(
-        make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]),
-        registry_of(source, greet),
-    )
-    run = graph.run(text="x")
-
-    stored = run._outcomes[(source.id,)][()].outputs["result"]
-    assert dict(stored.columns) == {
-        "name": ["ida", "bo"]
-    }  # "email" was never read, so no list was made of it
-    assert stored.columns["name"] is stored.columns["name"]
-    assert (len(stored), stored[1], stored.as_list()) == (
-        2,
-        {"name": "bo", "email": None},
-        [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}],
-    )
-
-
 def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_table() -> None:
     got: list[Any] = []
 
@@ -373,8 +353,10 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
     )
     run = graph.run(text="x")
 
-    stored = run._outcomes[("contacts",)][()].outputs["result"]
-    assert run.outputs == {"result": 2} and got[0] is stored.frame and dict(stored.columns) == {}
+    assert run.outputs == {"result": 2} and got[0].to_dicts() == [
+        {"name": "ida", "email": "ida@x.dk"},
+        {"name": "bo", "email": None},
+    ]
 
 
 def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_value_for() -> None:

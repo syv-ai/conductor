@@ -690,7 +690,11 @@ def test_a_node_collecting_calls_that_read_a_table_from_outside_the_loop_is_call
     description="``nothing`` returns ``None``, ``skip`` returns ``SKIPPED``.",
 )
 def maybe_template(kind: str) -> str | None:
-    return SKIPPED if kind == "skip" else None if kind == "nothing" else kind
+    if kind == "skip":
+        return SKIPPED
+    if kind == "nothing":
+        return None
+    return kind
 
 
 @node("count-texts", title="Count texts", description="For a test.")

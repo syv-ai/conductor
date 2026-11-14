@@ -39,7 +39,6 @@ from conductor import (
     subgraph,
 )
 from conductor._internal.run import Run
-from conductor._internal.run.outcome import Done, NoneInput, Skipped, Unanswered
 from pydantic import BaseModel, TypeAdapter
 from pytest import MonkeyPatch
 
@@ -1616,22 +1615,27 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
         registry_of(addresses, short_or_skipped, confirm),
     )
     run = graph.run(text="ab,,long,cd")
-    assert run.status == "waiting"
-    assert list(run._outcomes[("s",)].values()) == [
-        Done({"result": "ab"}),
-        NoneInput({"result": None}, "email"),
-        Done({"result": SKIPPED}),
-        Done({"result": "cd"}),
-    ]
-    assert [type(u) for u in run._outcomes[("c",)].values()] == [
-        Unanswered,
-        NoneInput,
-        Skipped,
-        Unanswered,
-    ]
-    assert run._outcomes[("c",)][(1,)] == NoneInput({"result": None}, "email")
+    assert run.status == "waiting" and [w.loc for w in run.waiting] == [("c", 0), ("c", 3)]
+    saved = json.loads(run.to_json())["outcomes"]
+    # s is not called for the empty address and returns SKIPPED for the long one
+    assert (saved["s"]["states"], saved["s"]["not_called_because"], saved["s"]["skipped"]) == (
+        ["done", None, "done", "done"],
+        {"1": "email"},
+        {"result": [2]},
+    )
+    assert saved["s"]["outputs"] == {"result": ["ab", None, None, "cd"]}
+    # c asks about ab and cd, is not called after s's None and is skipped after s's SKIPPED
+    assert (
+        saved["c"]["states"],
+        saved["c"]["not_called_because"],
+        list(saved["c"]["questions"]),
+    ) == (
+        [None, None, "skipped", None],
+        {"1": "email"},
+        ["0", "3"],
+    )
     read_back = Run.from_json(run.to_json(), graph)
-    assert read_back._outcomes == run._outcomes
+    assert read_back.to_json() == run.to_json() and read_back.waiting == run.waiting
     assert (
         read_back.resume().not_called
         == run.not_called

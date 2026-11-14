@@ -1976,13 +1976,12 @@ def test_a_node_display_is_the_hosts_own_kept_and_outside_the_fingerprint():
 def test_every_field_of_a_node_but_its_display_is_in_the_fingerprint(name: str):
     node_record = NodeRecord(node="hello", inputs={"name": InputEntry(constant="Ida")})
     value = getattr(node_record, name)
-    changed = (
-        value + 1
-        if isinstance(value, int)
-        else f"{value}x"
-        if isinstance(value, str)
-        else {"name": InputEntry(constant="Bo")}
-    )
+    if isinstance(value, int):
+        changed = value + 1
+    elif isinstance(value, str):
+        changed = f"{value}x"
+    else:
+        changed = {"name": InputEntry(constant="Bo")}
     other = node_record.model_copy(update={name: changed})
     assert (
         Graph.compile(GraphRecord(nodes={"h": node_record}), PLAIN).fingerprint

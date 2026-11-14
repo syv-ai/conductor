@@ -588,7 +588,7 @@ repos:
       # ---------------------------------------------------------------- design
       - id: design/no-chained-conditional-expressions
         name: A choice between several outcomes is written as statements
-        files: '^packages/[^/]+/src/.*\.py$'
+        files: '^(packages/[^/]+/src|tests)/.*\.py$'
         detect:
           ast-grep:
             language: python

@@ -204,9 +204,8 @@ def test_failure_keeps_calls_already_made():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "boom")), reg)
     run = graph.run(text="a,b,c,d")
     assert run.status == "failed" and run.cause.loc == ("boom", 2), run.cause
-    assert all(
-        run._outcomes[("boom",)].get((i,)) is not None for i in (0, 1, 3)
-    )  # d finished on its thread after c failed
+    # d finished on its thread after c failed
+    assert run.results["boom"]["result"] == ["a", "b", None, "d"]
     seen = []
 
     @node("boom", title="Fixed", description="For a test.", policy=Policy(concurrency=4))
@@ -241,7 +240,7 @@ def test_cancel_and_timeout():
 
     events = asyncio.run(go())
     assert events[-1].status == "cancelled", events[-1].status
-    assert len(events[-1].run._outcomes[("slow",)]) < 24
+    assert events[-1].run.progress.nodes["slow"].finished < 24
 
 
 def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
@@ -295,7 +294,12 @@ def test_a_run_waiting_for_a_retry_looks_at_its_queue_without_blocking_before_ea
 
     class Watched(SimpleQueue[Any]):
         def get(self, block: bool = True, timeout: float | None = None) -> Any:
-            looks.append("no wait" if not block else "timed" if timeout is not None else "wait")
+            if not block:
+                looks.append("no wait")
+            elif timeout is not None:
+                looks.append("timed")
+            else:
+                looks.append("wait")
             assert timeout is None or timeout > 0
             return super().get(block, timeout)
 

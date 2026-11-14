@@ -1,45 +1,43 @@
-"""The events about each node, worked out by ``NodeEvents`` from what a test tells it by hand.
+"""The events a stream says about each node, in the order it says them.
 
-No thread is started here and no clock is read. Each test runs a small graph to its end once, to have real
-outcomes, and then tells a new ``NodeEvents`` about those outcomes one at a time, in an order it chooses, with a
-list's ``append`` as the listener.
+Each test streams a small graph and reads the events about its nodes. A node on the stream's own thread is called
+in a fixed order, so the events come in a fixed order; where a test needs a call still running while others return,
+that call runs on a thread of its own and waits for the test to let it return.
 """
 
+import asyncio
+from asyncio import Event as AsyncioEvent
+from collections.abc import Callable
 from dataclasses import dataclass
-from types import SimpleNamespace
+from threading import Event as ThreadEvent
 from typing import Annotated, Any
 
 from conductor import (
     SKIPPED,
     Ask,
+    CallCount,
     Graph,
     GraphRecord,
     NodeRegistry,
     Param,
     Policy,
+    Run,
     Series,
     make_graph,
     node,
     subgraph,
 )
-from conductor._internal.base import ItemIndexes, NodePath, place_text
-from conductor._internal.problem import Problem, run_problems
-from conductor._internal.run import node_events as node_events_module
-from conductor._internal.run.arguments import ResultReader
-from conductor._internal.run.events import EventBase
-from conductor._internal.run.node_events import NodeEvents
-from conductor._internal.run.outcome import Outcome
-from pytest import MonkeyPatch
+from conductor.events import Event
 
 from tests.test_core.nodes import registry_of
 
 
-@node("lines", title="Lines", description="For a test.")
+@node("lines", title="Lines", description="For a test.", policy=Policy(costs_nothing=True))
 def lines(text: str) -> Series[str]:
     return text.splitlines()
 
 
-@node("shout", title="Shout", description="For a test.")
+@node("shout", title="Shout", description="For a test.", policy=Policy(costs_nothing=True))
 def shout(line: str, mark: str = "!") -> str:
     return line.upper() + mark
 
@@ -54,8 +52,15 @@ def approve(line: str) -> bool:
     raise Ask(f"Approve {line}?")
 
 
-@node("fetch", title="Fetch", description="For a test.", policy=Policy(retries=2))
+@node(
+    "fetch",
+    title="Fetch",
+    description="For a test.",
+    policy=Policy(retries=2, retry_delay=0.01, retry_on=(TimeoutError,)),
+)
 def fetch(line: str) -> str:
+    if line == "b":
+        raise TimeoutError
     return line
 
 
@@ -70,11 +75,6 @@ def decide(text: str) -> Way:
     return Way(no=text)
 
 
-@node("other", title="Other", description="For a test.")
-def other(text: str) -> str:
-    return text
-
-
 @node("both", title="Both", description="For a test.")
 def both(first: str, second: str) -> str:
     return first + second
@@ -83,96 +83,30 @@ def both(first: str, second: str) -> str:
 loud = subgraph("loud", title="Loud", description="For a test.")(make_graph(shout))
 
 
-class Told:
-    """A ``NodeEvents`` for one graph, told by node name what the scheduler would tell it, and the events it said.
+#: Set by the test once it has seen what it waits for; a gated call returns only after it.
+GATE = ThreadEvent()
+#: Set by a gated call when the call it holds has started.
+HELD = ThreadEvent()
 
-    The outcomes it is told about are those of a run of the graph run to its end first. ``finished`` names the
-    nodes that were complete when the run was last resumed: their outcomes are in the run before the
-    ``NodeEvents`` is created.
+
+def _gated(node_id: str, held: str, *, threaded: bool) -> Any:
+    """A node ``node_id`` that returns its text, holding the call given ``held`` until ``GATE`` is set.
+
+    With ``threaded`` the node is called on threads, so the other calls go on while the held one waits.
     """
+    policy = Policy(concurrency=4) if threaded else Policy()
 
-    def __init__(
-        self,
-        record: GraphRecord,
-        registry: NodeRegistry,
-        finished: tuple[str, ...] = (),
-        **inputs: Any,
-    ) -> None:
-        graph = Graph.compile(record, registry)
-        run = graph.run(inputs)
-        self.finished_run: dict[NodePath, dict[ItemIndexes, Outcome]] = run._outcomes
-        self.outcomes = {
-            path: dict(outcomes) if place_text(path) in finished else {}
-            for path, outcomes in self.finished_run.items()
-        }
-        self.nodes = {
-            place_text(path): node for path, node in run._blueprint.function_nodes.items()
-        }
-        self.said: list[EventBase] = []
-        finished_paths = frozenset(self.nodes[name].node_path for name in finished)
-        self.node_events = NodeEvents(
-            self.said.append,
-            list(self.nodes.values()),
-            self.outcomes,
-            finished_paths,
-            ResultReader(run._blueprint.function_nodes, self.finished_run, run.inputs),
-        )
+    @node(node_id, title="Gated", description="For a test.", policy=policy)
+    def gated(line: str) -> str:
+        if line == held:
+            HELD.set()
+            assert GATE.wait(5), "the test never let the held call return"
+        return line.upper() + "!"
 
-    def start(self, name: str) -> None:
-        """A call of the node is about to be made."""
-        self.node_events.call_starts(self.nodes[name])
-
-    def record(self, name: str, *item_indexes: int) -> None:
-        """The call's outcome was recorded, with no call made."""
-        path = self.nodes[name].node_path
-        self.outcomes[path][item_indexes] = self.finished_run[path][item_indexes]
-        self.node_events.outcome_recorded(
-            self.nodes[name], item_indexes, self.outcomes[path][item_indexes]
-        )
-
-    def call(self, name: str, *item_indexes: int) -> None:
-        """The call is about to be made, and then its outcome was recorded."""
-        self.start(name)
-        self.record(name, *item_indexes)
-
-    def reuse(self, name: str, *item_indexes: int) -> None:
-        """The call's outcome was reused from the previous run, and recorded."""
-        self.node_events.outcome_reused(self.nodes[name])
-        self.record(name, *item_indexes)
-
-    def retry(self, name: str, *item_indexes: int, attempt: int, delay: float) -> None:
-        """The call failed with a ``TimeoutError`` and is made again after ``delay`` seconds."""
-        self.node_events.call_retries(
-            self.nodes[name], attempt, delay, self._timed_out(name, item_indexes)
-        )
-
-    def fail(self, name: str, *item_indexes: int) -> None:
-        """The call failed with a ``TimeoutError`` and is not retried."""
-        self.node_events.call_failed(self.nodes[name], self._timed_out(name, item_indexes))
-
-    def nothing_is_ready(self, *running: tuple[str, ItemIndexes]) -> None:
-        """No call is ready to be made, and these calls are running."""
-        self.node_events.nothing_is_ready(
-            [(self.nodes[name], item_indexes) for name, item_indexes in running]
-        )
-
-    def end(self) -> None:
-        """The scheduler has ended."""
-        self.node_events.scheduler_ended()
-
-    def take(self) -> list[str]:
-        """The events said since the last ``take``, one line each (``_one_line``)."""
-        taken = [_one_line(event) for event in self.said]
-        self.said.clear()
-        return taken
-
-    def _timed_out(self, name: str, item_indexes: ItemIndexes) -> Problem:
-        return run_problems.external_failed(
-            name, *item_indexes, error="TimeoutError"
-        )  # the loc of a node of the graph itself
+    return gated
 
 
-def _one_line(event: EventBase) -> str:
+def _one_line(event: Event) -> str:
     """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc, a
     waiting call as its loc, and a count as its four numbers.
 
@@ -194,22 +128,61 @@ def _one_line(event: EventBase) -> str:
     )
 
 
-def _lines_shout_join(text: str = "a\nb\nc", finished: tuple[str, ...] = ()) -> Told:
-    return Told(
-        make_graph(lines, shout, join), registry_of(lines, shout, join), finished, text=text
-    )
+def _streamed(
+    run: Run[Any],
+    on: Callable[[list[str], AsyncioEvent], None] = lambda said, cancel: None,
+) -> tuple[list[str], Run[Any]]:
+    """The events ``run.stream()`` says about its nodes, one line each (``_one_line``), and the run it ends with.
+
+    ``on`` is handed the lines said so far each time one is said, with the stream's ``cancel``; it may set ``GATE``
+    or ``cancel``, and add a line of its own to mark when it did.
+
+    A node's first ``node_progress`` and its last are always said; one in between is said only when a quarter of a
+    second has passed since the one before, so it depends on the clock and is left out.
+    """
+
+    async def collect() -> tuple[list[str], Run[Any]]:
+        cancel = AsyncioEvent()
+        said: list[str] = []
+        async for event in run.stream(cancel=cancel):
+            if event.type == "run_end":
+                return said, event.run
+            if event.type.startswith("node_"):
+                said.append(_one_line(event))
+                on(said, cancel)
+        raise AssertionError("the stream ended with no run_end")
+
+    GATE.clear()
+    HELD.clear()
+    try:
+        said, ended = asyncio.run(collect())
+    finally:
+        GATE.set()
+    progress = [index for index, line in enumerate(said) if line.startswith("node_progress ")]
+    by_node: dict[str, list[int]] = {}
+    for index in progress:
+        by_node.setdefault(said[index].split()[1], []).append(index)
+    between = {index for indexes in by_node.values() for index in indexes[1:-1]}
+    return [line for index, line in enumerate(said) if index not in between], ended
+
+
+def _said(
+    run: Run[Any], on: Callable[[list[str], AsyncioEvent], None] = lambda said, cancel: None
+) -> list[str]:
+    """The lines of ``_streamed``, without the run."""
+    return _streamed(run, on)[0]
+
+
+def _started(record: GraphRecord, registry: NodeRegistry, **inputs: Any) -> Run[Any]:
+    return Graph.compile(record, registry).with_inputs(inputs)
+
+
+def _lines_shout_join(text: str = "a\nb\nc") -> Run[Any]:
+    return _started(make_graph(lines, shout, join), registry_of(lines, shout, join), text=text)
 
 
 def test_the_three_node_graph_says_the_events_the_module_describes():
-    told = _lines_shout_join()
-    told.call("lines")
-    told.call("shout", 0)
-    told.call("shout", 1)
-    told.call("shout", 2)
-    told.call("join")
-    told.nothing_is_ready()
-    told.end()
-    assert told.take() == [
+    assert _said(_lines_shout_join()) == [
         "node_start lines",
         "node_start shout",
         "node_progress shout finished=1 waiting=0 known=3 total=3",
@@ -222,55 +195,47 @@ def test_the_three_node_graph_says_the_events_the_module_describes():
 
 
 def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
-    told = _lines_shout_join()
-    told.call("lines")
-    told.call("shout", 0)
-    told.call("shout", 2)
-    told.take()
-    told.nothing_is_ready(("shout", (1,)))
-    assert told.take() == ["node_complete lines outcomes=1"]
-    told.call("shout", 1)
-    told.nothing_is_ready()
-    assert told.take() == [
-        "node_progress shout finished=3 waiting=0 known=3 total=3",
-        "node_complete shout outcomes=3",
-    ]
-    told.call("join")
-    told.nothing_is_ready()
-    assert told.take() == ["node_start join", "node_complete join outcomes=1"]
+    gated = _gated("shout", "b", threaded=True)
+    run = _started(make_graph(lines, gated, join), registry_of(lines, gated, join), text="a\nb\nc")
+
+    def let_b_return(said: list[str], cancel: AsyncioEvent) -> None:
+        if said[-1] == "node_complete lines outcomes=1":
+            said.append("b may return")
+            GATE.set()
+
+    said = _said(run, let_b_return)
+    let_go = said.index("b may return")
+    assert "node_complete shout outcomes=3" in said[let_go:]
+    assert not [line for line in said[:let_go] if line.startswith("node_complete shout")]
+    assert said[-2:] == ["node_complete shout outcomes=3", "node_complete join outcomes=1"]
 
 
 def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_it_is_running():
+    other = _gated("other", "b", threaded=True)
     record = make_graph(
         decide,
         other,
         both,
         edges=[("decide.yes", "both.first"), ("other.result", "both.second")],
-        inputs={"choice": "decide.text", "other": "other.text"},
+        inputs={"choice": "decide.text", "other": "other.line"},
     )
-    told = Told(record, registry_of(decide, other, both), choice="a", other="b")
-    told.call("decide")
-    # skipped as soon as decide has not chosen yes, while other is still running
-    told.record("both")
-    told.nothing_is_ready(("other", ()))
-    assert told.take() == ["node_start decide", "node_complete decide outcomes=1"]
-    told.call("other")
-    told.nothing_is_ready()
-    assert told.take() == [
-        "node_start other",
+    run = _started(record, registry_of(decide, other, both), choice="a", other="b")
+
+    def let_other_return(said: list[str], cancel: AsyncioEvent) -> None:
+        if said[-1] == "node_complete decide outcomes=1":
+            GATE.set()
+
+    said = _said(run, let_other_return)
+    assert "node_start both" not in said
+    assert said[-2:] == [
         "node_complete other outcomes=1",
         "node_complete both outcomes=1 skipped=1",
     ]
 
 
 def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
-    told = Told(make_graph(lines, approve), registry_of(lines, approve), text="a\nb")
-    told.call("lines")
-    told.call("approve", 0)
-    told.call("approve", 1)
-    told.nothing_is_ready()
-    told.end()
-    assert told.take() == [
+    run = _started(make_graph(lines, approve), registry_of(lines, approve), text="a\nb")
+    assert _said(run) == [
         "node_start lines",
         "node_start approve",
         "node_waiting approve waiting=approve/0",
@@ -281,74 +246,49 @@ def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
     ]
 
 
-def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_scheduler_ends_and_says_how_far_it_got():
-    told = _lines_shout_join()
-    told.call("lines")
-    told.call("shout", 0)
-    told.call("shout", 1)
-    told.take()
-    told.end()
-    assert told.take() == [
-        "node_complete lines outcomes=1",
-        "node_progress shout finished=2 waiting=0 known=3 total=3",
-    ]
+def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_run_ends_and_says_how_far_it_got():
+    gated = _gated("shout", "b", threaded=False)
+    run = _started(make_graph(lines, gated, join), registry_of(lines, gated, join), text="a\nb\nc")
 
+    def cancel_during_b(said: list[str], cancel: AsyncioEvent) -> None:
+        if said[-1].startswith("node_progress shout finished=1 "):
+            assert HELD.wait(5), "the call for b never started"
+            cancel.set()
+            GATE.set()
 
-def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one_has_the_final_count(
-    monkeypatch: MonkeyPatch,
-):
-    clock = [100.0]
-    monkeypatch.setattr(node_events_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
-    told = _lines_shout_join("\n".join("abcdefgh"))
-    told.call("lines")
-    for index in range(8):
-        told.call("shout", index)
-        clock[0] += 0.1
-    told.call("join")
-    told.nothing_is_ready()
-    progress = [event for event in told.take() if event.startswith("node_progress")]
-    assert progress == [
-        "node_progress shout finished=1 waiting=0 known=8 total=8",
-        "node_progress shout finished=4 waiting=0 known=8 total=8",
-        "node_progress shout finished=7 waiting=0 known=8 total=8",
-        "node_progress shout finished=8 waiting=0 known=8 total=8",
-    ]
+    said, ended = _streamed(run, cancel_during_b)
+    assert ended.status == "cancelled"
+    assert not [line for line in said if line.startswith("node_complete shout")]
+    assert ended.progress.nodes["shout"] == CallCount(finished=2, waiting=0, known=3, total=3)
+    assert said[-1] == "node_progress shout finished=2 waiting=0 known=3 total=3"
 
 
 def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_as_reused():
-    told = _lines_shout_join()
-    told.call("lines")
-    for index in range(3):
-        told.reuse("shout", index)
-    told.nothing_is_ready()
-    assert told.take() == [
+    previous = _lines_shout_join().resume()
+    run = previous.graph.with_inputs({"text": "a\nb\nc\n"}, previous=previous)
+    assert _said(run) == [
         "node_start lines",
         "node_start shout",
         "node_progress shout finished=1 waiting=0 known=3 total=3",
+        "node_start join",
         "node_complete lines outcomes=1",
         "node_progress shout finished=3 waiting=0 known=3 total=3",
         "node_complete shout outcomes=3 reused=3",
+        "node_complete join outcomes=1 reused=1",
     ]
 
 
 def test_a_node_complete_when_the_run_was_last_resumed_is_not_said_again():
-    told = _lines_shout_join(finished=("lines", "shout"))
-    told.call("join")
-    told.end()
-    assert told.take() == ["node_start join", "node_complete join outcomes=1"]
+    run = _lines_shout_join().resume(only_costs_nothing=True)
+    assert _said(run) == ["node_start join", "node_complete join outcomes=1"]
 
 
 def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgraph_node_is_complete_after_it():
     record = make_graph(
         lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.result", "join.texts")]
     )
-    told = Told(record, registry_of(lines, shout, loud, join), text="a\nb")
-    told.call("lines")
-    told.call("loud/shout", 0)
-    told.call("loud/shout", 1)
-    told.call("join")
-    told.nothing_is_ready()
-    assert told.take() == [
+    run = _started(record, registry_of(lines, shout, loud, join), text="a\nb")
+    assert _said(run) == [
         "node_start lines",
         "node_start loud",
         "node_start loud/shout",
@@ -363,14 +303,10 @@ def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgrap
 
 
 def test_a_retry_and_a_failure_name_the_node_and_their_cause_names_the_call():
-    told = Told(make_graph(lines, fetch), registry_of(lines, fetch), text="a\nb")
-    told.call("lines")
-    told.start("fetch")
-    told.retry("fetch", 1, attempt=1, delay=0.5)
-    told.fail("fetch", 1)
-    assert told.take() == [
-        "node_start lines",
-        "node_start fetch",
-        "node_retry fetch attempt=1 retries=2 delay=0.5 cause=external_failed@fetch/1",
+    run = _started(make_graph(lines, fetch), registry_of(lines, fetch), text="a\nb")
+    said = _said(run)
+    assert [line for line in said if line.startswith(("node_retry", "node_failed"))] == [
+        "node_retry fetch attempt=1 retries=2 delay=0.01 cause=external_failed@fetch/1",
+        "node_retry fetch attempt=2 retries=2 delay=0.02 cause=external_failed@fetch/1",
         "node_failed fetch cause=external_failed@fetch/1",
     ]

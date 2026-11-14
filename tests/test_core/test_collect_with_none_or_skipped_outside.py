@@ -46,7 +46,11 @@ def items(text: str) -> Series[str]:
 
 @_node("outside-value")
 def outside_value(kind: str) -> str | None:
-    return SKIPPED if kind == "skip" else None if kind == "no-value" else kind
+    if kind == "skip":
+        return SKIPPED
+    if kind == "no-value":
+        return None
+    return kind
 
 
 @dataclass(frozen=True)
@@ -87,7 +91,11 @@ def up_or_none(a: str | None) -> str:
 
 @_node("maybe")
 def maybe(a: str) -> str | None:
-    return None if a == "no-value" else SKIPPED if a == "skip" else a.upper()
+    if a == "no-value":
+        return None
+    if a == "skip":
+        return SKIPPED
+    return a.upper()
 
 
 @_node("chars")

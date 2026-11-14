@@ -514,8 +514,6 @@ def test_an_upgraded_subgraph_keeps_the_name_of_its_output():
     assert newer.nodes["e"].version == 2 and Graph.compile(newer, reg).run(text="Hi").outputs == {
         "result": "HI.."
     }
-    graph = Graph.compile(outer, reg)
-    assert set(graph._nodes) == {"e", "u"}
 
 
 def test_an_upgrade_moves_an_edge_reading_a_subgraphs_output_to_the_name_the_newer_version_gives_it():

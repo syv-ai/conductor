@@ -332,13 +332,13 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
 
     def places(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
         found = [path] if path else []
-        for key, part in (
-            value.items()
-            if isinstance(value, dict)
-            else enumerate(value)
-            if isinstance(value, list)
-            else ()
-        ):
+        if isinstance(value, dict):
+            parts = value.items()
+        elif isinstance(value, list):
+            parts = enumerate(value)
+        else:
+            parts = ()
+        for key, part in parts:
             found += places(part, (*path, key))
         return found
 

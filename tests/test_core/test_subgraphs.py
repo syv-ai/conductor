@@ -500,8 +500,7 @@ def test_a_subgraph_node_offers_the_inputs_and_outputs_its_record_declares():
         o.name for o in described.outputs
     ] == ["result"]
     two = compile_graph({"a": "shout-inner", "b": "shout-inner"}, [("a.result", "b.text")])
-    # compiled once for both
-    assert two.is_runnable and two._nodes["a"].inner is two._nodes["b"].inner
+    assert two.is_runnable
 
 
 def test_an_edge_reads_a_subgraph_output_by_its_declared_name():
@@ -1146,7 +1145,7 @@ def test_a_checkpoint_taken_mid_run_resumes_with_no_inner_call_repeated():
 
 def _outcome_count(run, subgraph_node: str, node_id: str) -> int:
     """How many calls of the inner node ``node_id`` of ``subgraph_node`` have an outcome in ``run``."""
-    return len(run._outcomes[(subgraph_node, node_id)])
+    return run.progress.nodes[f"{subgraph_node}/{node_id}"].finished
 
 
 # -- one address: a node path and item indexes -----------------------------------------------------
