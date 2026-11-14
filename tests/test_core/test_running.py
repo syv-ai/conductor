@@ -16,7 +16,9 @@ import time
 from asyncio import CancelledError
 from asyncio import Event as AsyncioEvent
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+from threading import Condition, Thread
 from threading import Event as ThreadEvent
 from typing import Any, TypedDict
 
@@ -41,6 +43,7 @@ from conductor import (
     subgraph,
 )
 from pydantic import BaseModel, model_serializer
+from pytest import MonkeyPatch
 
 from tests.test_core.nodes import place, registry_of
 
@@ -490,6 +493,477 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "slow-second", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), registry_of(slow_second))
 
     assert graph.run(text="x").outputs == {"result": "done"}
+
+
+class _AtOnce:
+    """Counts the calls of a node that run at once. Each call waits, at most ``seconds``, until more than ``cap``
+    calls run, so calls that may overlap do, and calls that may not show it by never getting there.
+
+    Attributes:
+        most: The most calls that ran at once.
+        calls: How many calls were made.
+    """
+
+    def __init__(self, cap: int, seconds: float = 0.1) -> None:
+        self.cap, self.seconds = cap, seconds
+        self.now, self.most, self.calls = 0, 0, 0
+        self.changed = Condition()
+
+    def call(self, release: ThreadEvent | None = None) -> None:
+        """One call: it runs until more than ``cap`` calls run or ``seconds`` pass, then until ``release`` is set."""
+        with self.changed:
+            self.now, self.calls = self.now + 1, self.calls + 1
+            self.most = max(self.most, self.now)
+            self.changed.notify_all()
+            self.changed.wait_for(lambda: self.now > self.cap, timeout=self.seconds)
+        if release is not None:
+            release.wait(BOUND)
+        with self.changed:
+            self.now -= 1
+            self.changed.notify_all()
+
+    def wait_until_running(self, calls: int) -> None:
+        with self.changed:
+            assert self.changed.wait_for(lambda: self.now == calls, timeout=BOUND), self.now
+
+
+def _in_two_places(definition: Any, items: int) -> Graph:
+    """A graph in which ``split`` returns ``items`` items and ``definition`` is called once per item in two places, ``a`` and ``b``."""
+    return Graph.compile(
+        make_graph(("split", split), ("a", definition), ("b", definition), edges=[("split.result", "a.text"), ("split.result", "b.text")], constants={"split.text": _numbers(items)},
+                   outputs={"a": "a.result", "b": "b.result"}),
+        registry_of(split, definition),
+    )
+
+
+def _in_threads(*functions: Callable[[], Any]) -> list[Any]:
+    """Call each of ``functions`` on a thread of its own, all at once, and return what each returned; what one
+    raised is raised here."""
+    returned: list[Any] = [None] * len(functions)
+    raised: list[BaseException] = []
+
+    def go(index: int) -> None:
+        try:
+            returned[index] = functions[index]()
+        except BaseException as error:  # noqa: BLE001  raised again on the test's thread
+            raised.append(error)
+
+    threads = [Thread(target=go, args=(index,)) for index in range(len(functions))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(BOUND)
+        assert not thread.is_alive()
+    if raised:
+        raise raised[0]
+    return returned
+
+
+@pytest.mark.parametrize("concurrency", [1, 2])
+def test_concurrency_caps_the_calls_of_a_node_in_two_places_of_two_runs_at_once(concurrency: int):
+    """``concurrency`` counts every call of the definition in the process: two places in a graph, two runs at once."""
+    at_once = _AtOnce(concurrency)
+
+    @node("capped", title="Capped", description="For a test.", policy=Policy(concurrency=concurrency))
+    def capped(text: str) -> str:
+        at_once.call()
+        return text
+
+    graph = _in_two_places(capped, 3)
+    def run() -> str:
+        return graph.with_inputs().resume(timeout=BOUND).status
+
+    assert run() == "complete" and at_once.most == concurrency  # two places in one run
+    at_once.most = 0
+    assert _in_threads(run, run) == ["complete", "complete"]
+    assert at_once.most == concurrency and at_once.calls == 3 * 2 + 3 * 2 * 2
+
+
+def test_a_node_that_sets_no_concurrency_is_called_one_item_at_a_time_in_each_run_whatever_other_runs_do():
+    """``Policy()`` limits nothing across runs: each run calls the node one item at a time, and two runs at once
+    call it at once."""
+    at_once = _AtOnce(1)
+
+    @node("free", title="Free", description="For a test.")
+    def free(text: str) -> str:
+        at_once.call()
+        return text
+
+    graph = _in_two_places(free, 3)
+
+    def run() -> str:
+        return graph.with_inputs().resume(timeout=BOUND).status
+
+    assert run() == "complete" and at_once.most == 1  # one item at a time in one run, in both places
+    at_once.most = 0
+    assert _in_threads(run, run) == ["complete", "complete"] and at_once.most == 2
+
+
+@pytest.mark.parametrize("ends", ["cancelled", "timed_out"])
+def test_a_run_waiting_for_calls_another_run_makes_starts_once_that_run_ends_early_and_its_calls_return(ends: str):
+    """Run ``first`` holds both calls ``concurrency=2`` allows, and ends early while they run; run ``second`` waits
+    for them, then makes its own calls, two at a time."""
+    at_once, release = _AtOnce(2, seconds=0.2), ThreadEvent()
+
+    @node("held", title="Held", description="For a test.", policy=Policy(concurrency=2))
+    def held(text: str) -> str:
+        at_once.call(release)
+        return text
+
+    graph = _per_item(held, 4)
+    first, second = graph.with_inputs(), graph.with_inputs()
+    cancel: list[Callable[[], None]] = []
+
+    async def stream_first() -> Any:
+        stop, loop = AsyncioEvent(), asyncio.get_running_loop()
+        cancel.append(lambda: loop.call_soon_threadsafe(stop.set))
+        return [event async for event in first.stream(cancel=stop)][-1].run
+
+    def run_first() -> Any:
+        return asyncio.run(stream_first()) if ends == "cancelled" else first.resume(timeout=0.05)
+
+    def run_second() -> Any:
+        at_once.wait_until_running(2)  # once first holds both calls
+        return second.resume(timeout=BOUND)
+
+    def end_first() -> None:
+        try:
+            at_once.wait_until_running(2)
+            if ends == "cancelled":
+                cancel[0]()
+            with at_once.changed:  # first ends, and neither run makes a third call
+                assert not at_once.changed.wait_for(lambda: at_once.now > 2, timeout=0.2)
+        finally:
+            release.set()
+
+    first_run, second_run, _ = _in_threads(run_first, run_second, end_first)
+
+    assert first_run.status == ends and sum(text is not None for text in first_run.results["slow"]["result"]) == 2
+    assert second_run.status == "complete" and second_run.results["slow"]["result"] == ["0", "1", "2", "3"]
+    assert at_once.most == 2 and at_once.calls == 2 + 4
+
+
+def test_a_run_waiting_for_a_node_another_run_calls_calls_its_other_nodes_and_can_end_while_it_waits():
+    """``gate`` has ``concurrency=1`` and is called on each run's own thread. While run ``holder`` is in a call of
+    it, run ``waiter`` calls ``other`` and times out still waiting for ``gate``, its thread never blocked; once
+    ``holder`` is done, ``waiter`` resumes and calls ``gate``."""
+    holding, release = ThreadEvent(), ThreadEvent()
+    gate_calls: list[str] = []
+
+    @node("gate", title="Gate", description="For a test.", policy=Policy(concurrency=1))
+    def gate(text: str) -> str:
+        gate_calls.append(text)
+        if text == "holder":
+            holding.set()
+            release.wait(BOUND)
+        return text
+
+    @node("other", title="Other", description="For a test.")
+    def other(text: str) -> str:
+        return text
+
+    def graph_for(name: str) -> Graph:
+        return Graph.compile(make_graph(("gate", gate), ("other", other), edges=[], constants={"gate.text": name, "other.text": name}, outputs={"gate": "gate.result", "other": "other.result"}), registry_of(gate, other))
+
+    holder, waiter = graph_for("holder").with_inputs(), graph_for("waiter").with_inputs()
+
+    def hold() -> Any:
+        return holder.resume()
+
+    def wait() -> Any:
+        assert holding.wait(BOUND)
+        returned = waiter.resume(timeout=0.1)
+        release.set()
+        return returned
+
+    held, waited = _in_threads(hold, wait)
+
+    assert waited.status == "timed_out" and waited.results["other"]["result"] == "waiter" and waited.results["gate"]["result"] is None
+    assert held.status == "complete" and gate_calls == ["holder"]
+    assert waited.resume().status == "complete" and gate_calls == ["holder", "waiter"]
+
+
+def _one_node_per_item(definition: Any) -> Graph:
+    """A graph in which ``split`` returns the items of the graph input ``text`` and ``definition``, as node ``slow``,
+    is called once per item."""
+    return Graph.compile(
+        make_graph(("split", split), ("slow", definition), edges=[("split.result", "slow.text")], outputs={"result": "slow.result"}),
+        registry_of(split, definition),
+    )
+
+
+def test_a_run_that_raises_out_of_resume_leaves_no_call_of_a_capped_node_counted():
+    """Calls handed to the pool but not yet on a thread are cancelled when ``resume()`` raises; each is counted out,
+    so a later run of the node is not kept waiting for them."""
+
+    @node("exits", title="Exits", description="For a test.", policy=Policy(concurrency=2))
+    def exits(text: str) -> str:
+        if text == "7":
+            raise SystemExit("the node exits")
+        return text
+
+    graph = _one_node_per_item(exits)
+    for _ in range(10):
+        with pytest.raises(SystemExit):
+            graph.with_inputs(text=_numbers(40)).resume(timeout=BOUND)
+    assert graph.with_inputs(text="a,b,c").resume(timeout=2).status == "complete"
+
+
+def test_a_run_woken_by_another_runs_call_stops_at_its_timeout_while_it_works_through_its_waiting_calls():
+    """``stop`` is asked before each waiting call that starts, so a run woken with 100 calls waiting ends at its
+    timeout, not after all 100."""
+    holding, made = ThreadEvent(), []
+
+    @node("one-at-a-time", title="One at a time", description="For a test.", policy=Policy(concurrency=1))
+    def one_at_a_time(text: str) -> str:
+        if text == "hold":
+            holding.set()
+            ThreadEvent().wait(0.3)  # holds the one call there may be for 0.3 s
+        else:
+            made.append(text)
+            ThreadEvent().wait(0.02)
+        return text
+
+    graph = _one_node_per_item(one_at_a_time)
+
+    def second() -> Any:
+        assert holding.wait(BOUND)
+        return graph.with_inputs(text=_numbers(100)).resume(timeout=0.6)
+
+    _, second_run = _in_threads(lambda: graph.with_inputs(text="hold").resume(), second)
+
+    assert second_run.status == "timed_out" and 0 < len(made) < 50, len(made)
+
+
+def test_a_run_that_calls_a_capped_node_on_its_own_thread_lets_a_run_waiting_for_it_have_a_turn():
+    """Run ``busy`` calls the node 200 times, one at a time on its own thread. Run ``late`` asks for one call after
+    ``busy``'s first and gets it within a few of ``busy``'s calls, not after all of them."""
+    busy_calls, busy_started, late_done = [], ThreadEvent(), ThreadEvent()
+    calls_before_late: list[int] = []
+
+    @node("shared", title="Shared", description="For a test.", policy=Policy(concurrency=1))
+    def shared(text: str) -> str:
+        if text == "late":
+            calls_before_late.append(len(busy_calls))
+            late_done.set()
+        else:
+            busy_calls.append(text)
+            busy_started.set()
+            late_done.wait(0.002)  # each of busy's calls takes 2 ms until late's call is made
+        return text
+
+    graph = _one_node_per_item(shared)
+
+    def late() -> Any:
+        assert busy_started.wait(BOUND)
+        return graph.with_inputs(text="late").resume(timeout=BOUND)
+
+    busy, late_run = _in_threads(lambda: graph.with_inputs(text=_numbers(200)).resume(timeout=BOUND), late)
+
+    assert busy.status == late_run.status == "complete"
+    assert calls_before_late[0] < 10, calls_before_late
+
+
+def test_a_run_cancelled_while_it_waits_for_another_runs_call_says_no_node_start_for_that_node():
+    """``NodeStart`` comes when a call of the node really starts: ``svc`` waits behind another run, ``after`` sets
+    the cancel, and the stream ends with no ``NodeStart`` for ``svc``."""
+    holding, release = ThreadEvent(), ThreadEvent()
+    cancel: list[Callable[[], None]] = []
+
+    @node("svc", title="Svc", description="For a test.", policy=Policy(concurrency=1))
+    def svc(text: str) -> str:
+        if text == "hold":
+            holding.set()
+            release.wait(BOUND)
+        return text
+
+    @node("after", title="After", description="For a test.")
+    def after(text: str) -> str:
+        cancel[0]()  # svc was tried before this, in graph order, and waits behind the run holding it
+        return text
+
+    holder = Graph.compile(make_graph(("svc", svc), outputs={"result": "svc.result"}), registry_of(svc)).with_inputs(text="hold")
+    waiter = Graph.compile(
+        make_graph(("svc", svc), ("after", after), edges=[], constants={"svc.text": "wait", "after.text": "x"}, outputs={"svc": "svc.result", "after": "after.result"}),
+        registry_of(svc, after),
+    ).with_inputs()
+
+    async def stream() -> list[Any]:
+        stop, loop = AsyncioEvent(), asyncio.get_running_loop()
+        cancel.append(lambda: loop.call_soon_threadsafe(stop.set))
+        return [event async for event in waiter.stream(cancel=stop)]
+
+    def wait() -> list[Any]:
+        try:
+            assert holding.wait(BOUND)
+            return asyncio.run(stream())
+        finally:
+            release.set()
+
+    _, events = _in_threads(holder.resume, wait)
+
+    assert events[-1].run.status == "cancelled"
+    assert [event.loc for event in events if event.type == "node_start"] == [("after",)]
+
+
+def _held_x() -> tuple[Any, ThreadEvent, ThreadEvent]:
+    """``x``, a node with ``concurrency=1`` whose call with the text ``"hold"`` holds it until ``release`` is set
+    (``holding`` is set once it does), with the two events."""
+    holding, release = ThreadEvent(), ThreadEvent()
+
+    @node("x", title="X", description="For a test.", policy=Policy(concurrency=1))
+    def x(text: str) -> str:
+        if text == "hold":
+            holding.set()
+            release.wait(BOUND)
+        return text
+
+    return x, holding, release
+
+
+def _x_then(x: Any, y: Any) -> Graph:
+    """A graph of ``x`` and ``y`` side by side, with no edge: a run tries ``x`` first, then calls ``y``."""
+    return Graph.compile(
+        make_graph(("x", x), ("y", y), edges=[], constants={"x.text": "first", "y.text": "y"}, outputs={"x": "x.result", "y": "y.result"}),
+        registry_of(x, y),
+    )
+
+
+def test_a_run_woken_while_its_thread_is_busy_elsewhere_holds_up_no_run_that_asked_after_it():
+    """Run ``first`` waits for ``x`` and meanwhile calls ``y`` on its own thread; ``y`` waits for run ``last`` to be
+    done. ``last`` asks for ``x`` after ``first``, and takes it as soon as it is free."""
+    x, holding, release = _held_x()
+    first_in_y, last_done = ThreadEvent(), ThreadEvent()
+
+    @node("y", title="Y", description="For a test.")
+    def y(text: str) -> str:
+        first_in_y.set()
+        return "after last" if last_done.wait(3) else "last kept waiting"
+
+    only_x = Graph.compile(make_graph(("x", x), outputs={"result": "x.result"}), registry_of(x))
+
+    def run_first() -> Any:
+        assert holding.wait(BOUND)
+        return _x_then(x, y).with_inputs().resume(timeout=BOUND)
+
+    def run_last() -> Any:
+        assert first_in_y.wait(BOUND)
+        try:
+            return only_x.with_inputs(text="last").resume(timeout=BOUND)
+        finally:
+            last_done.set()
+
+    def let_go() -> None:
+        assert first_in_y.wait(BOUND)
+        ThreadEvent().wait(0.1)  # last has asked for x by now
+        release.set()
+
+    _, first, last, _ = _in_threads(lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, run_last, let_go)
+
+    assert last.status == first.status == "complete" and first.outputs["y"] == "after last"
+
+
+def test_a_node_whose_function_runs_a_graph_using_a_capped_node_is_not_kept_from_it_by_the_run_it_was_called_by():
+    """Run ``first`` waits for ``x`` and meanwhile calls ``y``, whose function runs a graph using ``x``: that inner
+    run takes ``x`` when it is free, though ``first`` asked before it."""
+    x, holding, release = _held_x()
+    inner_starts = ThreadEvent()
+    only_x = Graph.compile(make_graph(("x", x), outputs={"result": "x.result"}), registry_of(x))
+
+    @node("y", title="Y", description="For a test.")
+    def y(text: str) -> str:
+        inner_starts.set()
+        return only_x.with_inputs(text="inner").resume(timeout=3).status
+
+    def run_first() -> Any:
+        assert holding.wait(BOUND)
+        return _x_then(x, y).with_inputs().resume(timeout=BOUND)
+
+    def let_go() -> None:
+        assert inner_starts.wait(BOUND)
+        ThreadEvent().wait(0.1)  # the inner run has asked for x by now
+        release.set()
+
+    _, first, _ = _in_threads(lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, let_go)
+
+    assert first.status == "complete" and first.outputs == {"x": "first", "y": "complete"}
+
+
+def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypatch: MonkeyPatch):
+    """A ``KeyboardInterrupt`` raised in ``ThreadPoolExecutor.submit`` after the call was handed to a thread: the
+    call is counted out once, so a later run still has at most ``concurrency`` calls at once."""
+    started = ThreadEvent()
+    at_once = _AtOnce(1)
+
+    @node("counted-once", title="Counted once", description="For a test.", policy=Policy(concurrency=1, attempt_timeout=BOUND))
+    def counted_once(text: str) -> str:
+        started.set()
+        at_once.call()
+        return text
+
+    submit = ThreadPoolExecutor.submit
+
+    def interrupted(self: ThreadPoolExecutor, *args: Any, **kwargs: Any) -> Any:
+        submit(self, *args, **kwargs)
+        assert started.wait(BOUND)
+        raise KeyboardInterrupt
+
+    graph = _one_node_per_item(counted_once)
+    monkeypatch.setattr(ThreadPoolExecutor, "submit", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        graph.with_inputs(text="a").resume()
+    monkeypatch.setattr(ThreadPoolExecutor, "submit", submit)
+    ThreadEvent().wait(0.2)  # the interrupted call returns on its thread
+    at_once.most = 0
+
+    def run() -> str:
+        return graph.with_inputs(text="b").resume(timeout=BOUND).status
+
+    assert _in_threads(run, run) == ["complete", "complete"] and at_once.most == 1  # one pool thread each: the count decides
+
+
+def test_a_run_kept_waiting_for_a_capped_node_while_its_thread_is_busy_elsewhere_slows_no_other_run_of_it():
+    """Run ``hog`` makes 200 calls of ``x`` on its own thread. Run ``busy`` asks for ``x`` while ``hog`` has it, and
+    then spends the rest of ``hog``'s run in ``y``: ``hog`` doesn't wait for it after each call, so it takes about
+    as long as alone."""
+    hog_started, hog_done = ThreadEvent(), ThreadEvent()
+
+    @node("x", title="X", description="For a test.", policy=Policy(concurrency=1))
+    def x(text: str) -> str:
+        hog_started.set()
+        ThreadEvent().wait(0.001)
+        return text
+
+    @node("y", title="Y", description="For a test.")
+    def y(text: str) -> str:
+        hog_done.wait(BOUND)
+        return text
+
+    hog = _one_node_per_item(x)
+    busy = _x_then(x, y)
+
+    def timed_hog() -> float:
+        started = time.monotonic()
+        assert hog.with_inputs(text=_numbers(200)).resume(timeout=BOUND).status == "complete"
+        return time.monotonic() - started
+
+    alone = timed_hog()
+    hog_started.clear()
+
+    def run_hog() -> float:
+        try:
+            return timed_hog()
+        finally:
+            hog_done.set()
+
+    def run_busy() -> Any:
+        assert hog_started.wait(BOUND)
+        return busy.with_inputs().resume(timeout=BOUND)
+
+    with_busy, busy_run = _in_threads(run_hog, run_busy)
+
+    assert busy_run.status == "complete"
+    assert with_busy < alone + 0.5, (alone, with_busy)
 
 
 # -- what a node may raise ---------------------------------------------------------------------

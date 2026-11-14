@@ -273,7 +273,7 @@ def test_a_validation_error_the_node_raised_is_never_retried():
     assert len(calls) == 1 and (run.cause.type, run.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
 
 
-def test_a_policy_out_of_bounds_or_of_another_type_is_refused_and_its_dump_leaves_retry_on_out():
+def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
     nan, inf = float("nan"), float("inf")
     for wrong in (
         {"concurrency": 0}, {"retries": -1}, {"retries": 1.5}, {"retry_delay": -1}, {"attempt_timeout": 0},
@@ -283,7 +283,6 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused_and_its_dump_leave
         with pytest.raises(ValidationError):
             Policy(**wrong)
     assert Policy(retry_delay=2, attempt_timeout=5).attempt_timeout == 5  # a whole number of seconds is a number
-    assert "retry_on" not in Policy(retry_on=(ConnectionError,)).model_dump()
 
 
 def test_a_failed_item_is_retried_alone():

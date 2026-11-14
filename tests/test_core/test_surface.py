@@ -36,7 +36,6 @@ from conductor import (
     NodeDeclarationError,
     NodeError,
     NodeRegistry,
-    Policy,
     Problem,
     Series,
     Table,
@@ -122,8 +121,6 @@ def test_a_compiled_graph_prints_a_one_line_summary():
 
 
 def test_a_record_prints_only_what_is_not_at_its_default():
-    assert repr(Policy()) == "Policy()"
-    assert repr(Policy(retries=2)) == "Policy(retries=2)"
     assert repr(Deprecation()) == "Deprecation()"
     assert repr(Deprecation(header="Gone")) == "Deprecation(header='Gone')"
     assert repr(Problem(type="cycle", msg="m", loc=("a",))) == "Problem(type='cycle', loc=('a',), msg='m')"
@@ -131,7 +128,6 @@ def test_a_record_prints_only_what_is_not_at_its_default():
 
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
     """The repr is the data, not the history: a value equal to the default is not news."""
-    assert repr(Policy(retries=0, concurrency=1)) == "Policy()"
     assert repr(Deprecation(header=None)) == "Deprecation()"
     assert repr(Problem(type="cycle", msg="m", ctx={})) == "Problem(type='cycle', msg='m')"
 

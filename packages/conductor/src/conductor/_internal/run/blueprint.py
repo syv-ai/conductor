@@ -292,9 +292,14 @@ class RunBlueprint:
 
     @functools.cached_property
     def threads(self) -> int:
-        """How many calls can run on threads at once during one call of ``resume()``: the sum of the
-        ``concurrency`` of every function node called on a thread."""
-        return sum(node.policy.concurrency for node in self.function_nodes.values() if node.policy.threaded)
+        """How many calls can run on threads at once during one call of ``resume()``: the sum of
+        ``policy.most_at_once`` over the nodes called on a thread, a node definition that sets ``concurrency``
+        counted once however many places use it."""
+        counted = {
+            node.compiled_node.definition.running_calls if node.policy.concurrency is not None else node: node.policy.most_at_once
+            for node in self.function_nodes.values() if node.policy.threaded
+        }
+        return sum(counted.values())
 
     @classmethod
     def of(cls, graph: Graph[Any]) -> RunBlueprint:

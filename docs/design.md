@@ -188,7 +188,8 @@ print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'result': '
 ## The engine
 
 - **A small core.** Compiling decides once, from the declared types alone, how often each node runs. A run keeps one outcome per call, keyed by node and item indexes (a tuple of numbers, one per loop). A table stays the frame it is. The parts pay off together: the core's speed comes from calling inline and from checking values only where a check can fail.
-- **Nodes are called on the run's own thread by default** (`Policy(concurrency=1)`). An author asks for threads with `concurrency` or `attempt_timeout`. Threads by default would surprise code that isn't thread-safe, and calling inline is most of the core's speed.
+- **Nodes are called on the run's own thread by default** (`Policy()`, `concurrency=None`). An author asks for threads with `concurrency` or `attempt_timeout`. Threads by default would surprise code that isn't thread-safe, and calling inline is most of the core's speed.
+- **A `concurrency` a node sets counts its calls in the whole process**, over every place a graph uses it and every run, so it keeps an outside service's quota. Left at `None`, the default, each run calls the node one item at a time and runs don't wait for each other: a lock on every call would slow every run, and serialise every server's slow nodes, for a quota no node asked for. A run that must wait for another run's call doesn't block: it calls its other nodes and is told when a call ends.
 - **Values are checked where it matters.** A node's return is read strictly against its type (`invalid_output`). An edge's value is checked again only where its source's type doesn't already guarantee it fits, decided when compiling, so a plain chain checks nothing at run time.
 - **Only `ExternalError`, or a class the node's `retry_on` names, is retried.** A `NodeError` of the node's own, an output its type refused and an `Ask` are never retried, whatever `retry_on` says: repeating the call repeats them. After a failure, calls already on threads finish and are kept, so resuming repeats none.
 - **A graph record can be a node, a subgraph:** `subgraph("id", title=..., description=...)(record)`, taking no policy or hook, as its inner nodes have their own. From outside it is one node, whose inputs and outputs are the ones its graph declares. Compiling the outer graph lays out the subgraph's inner function nodes in it, each named by its node path (`shout/upper` in a saved run), so the compiled graph and a run have function nodes only. An inner node has its calls as any node does, one per item of every loop it is inside, outside the subgraph and in it. So a `None` or a skip that arrives reaches the inner nodes wired to it, exactly as if they were drawn in the outer graph, and the subgraph node is never called, skipped or not called itself. A separate run per item of the subgraph was chosen against: a saved run of 2,000 items was 34 times the size of the same nodes drawn in one graph.
@@ -202,7 +203,7 @@ shouted = Graph.compile(make_graph(shout, join, edges=[("shout.result", "join.te
 print(list(shouted.inputs), shouted.outputs)  # ['text'] ['result']
 ```
 
-**Worth questioning:** a host whose slow nodes forget `concurrency` runs them in series. This holds because the slow node knows it's slow, and saying so is one argument.
+**Worth questioning:** a host whose slow nodes forget `concurrency` runs them in series within a run. This holds because the slow node knows it's slow, and saying so is one argument.
 
 ## Checkpoints and serving
 

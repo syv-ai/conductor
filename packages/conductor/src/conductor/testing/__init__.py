@@ -241,7 +241,7 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
         finally:
             changed.extend(name for name, value in before.items() if name not in changed and not _same(value, kwargs[name]))
 
-    return dataclasses.replace(version, function=watched, policy=version.policy.model_copy(update={"retries": 0})), changed
+    return dataclasses.replace(version, function=watched, policy=dataclasses.replace(version.policy, retries=0)), changed
 
 
 def _made_up(field: Field) -> Any:

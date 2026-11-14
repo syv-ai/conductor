@@ -23,6 +23,7 @@ from conductor._internal.record import GraphRecord
 
 from .describe import NodeDescription
 from .policy import Deprecation, Policy
+from .running_calls import RunningCalls
 
 
 class NodeFunction[**P, R](Protocol):
@@ -181,6 +182,8 @@ class FunctionDefinition[**P, R](_Version):
         asks: Whether a call may wait for a person: the function may raise ``Ask``, as ``@node(asks=True)``
             declares, and the answer is then its outputs. An ``Ask`` raised from any other node fails its call
             (``ask_not_declared``).
+        running_calls: How many calls of it are running now, in every run of the process, which ``policy``'s
+            ``concurrency`` caps when it sets one. Made by ``@node`` and shared by every copy of the definition a registry makes.
     """
 
     function: NodeFunction[P, R]
@@ -193,6 +196,7 @@ class FunctionDefinition[**P, R](_Version):
     context: ContextParameter | None = None
     hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
     asks: bool = False
+    running_calls: RunningCalls = dataclasses.field(default_factory=RunningCalls)
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the function, as a test or a host would."""

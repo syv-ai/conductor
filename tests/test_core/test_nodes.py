@@ -688,7 +688,7 @@ def test_a_version_with_no_policy_gets_the_default_of_one_call_at_a_time():
     def f(x: str) -> str:
         return x
 
-    assert f.policy == Policy() and f.policy.concurrency == 1
+    assert f.policy == Policy() and f.policy.concurrency is None
 
 
 def test_a_deprecation_is_kept_as_written_and_is_never_a_problem():

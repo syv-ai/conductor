@@ -200,7 +200,7 @@ def nodes_of(member: Member) -> NodeRegistry[AppContext]:
 
 Pass `registry=nodes_of` and a `caller` that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
 
-**What a node receives.** A node that takes the run's context takes it as its first parameter, `Context[AppContext]`, and gets the `AppContext` that `context_of` returns. A run's nodes are called on a thread of the run's own, and a node with `Policy(concurrency=4)` on four more. So the context gives a node a way to connect, and the node opens its own connection:
+**What a node receives.** A node that takes the run's context takes it as its first parameter, `Context[AppContext]`, and gets the `AppContext` that `context_of` returns. A run's nodes are called on a thread of the run's own, and a node with `Policy(concurrency=4)` on four more, with at most four calls of it at once among all the runs of the worker; a node that sets no `concurrency` is called by each run on its own, whatever the others do. So the context gives a node a way to connect, and the node opens its own connection:
 
 ```python
 from conductor import Context

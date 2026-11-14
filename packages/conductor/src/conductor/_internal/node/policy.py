@@ -8,15 +8,24 @@ import functools
 
 from pydantic import ConfigDict
 from pydantic import Field as PydanticField
+from pydantic.dataclasses import dataclass
 
 from conductor._internal.base import ConductorModel
 
 
-class Policy(ConductorModel):
+@dataclass(frozen=True, config=ConfigDict(strict=True))
+class Policy:
     """How the engine calls a node, set by its author: ``@node("fetch", policy=Policy(retries=3))``.
 
-    ``concurrency`` calls are made at once, on threads; with 1 and no
-    ``attempt_timeout`` the node is called in order, on the scheduler's thread.
+    By default (``concurrency=None``) a run calls the node one item at a
+    time, on its own thread, and takes no notice of other runs. A node that
+    sets ``concurrency`` has at most that many calls running at once in the
+    whole process, counted over every run and every place a graph uses it:
+    with ``concurrency=2``, two runs that each use the node twice make two
+    calls at once, not eight. That is how a node keeps an outside service's
+    quota. Above 1 the calls are made on threads; with 1, or ``None``, and no
+    ``attempt_timeout`` the node is called on the scheduler's own thread.
+
     A call that raises ``ExternalError``, or one of the ``retry_on`` classes
     of the node's own client, is tried ``retries`` more times, waiting from
     ``retry_delay`` seconds (the reference has the schedule); anything else
@@ -33,12 +42,16 @@ class Policy(ConductorModel):
     calls only such nodes, so a host learns how many calls the costly nodes will
     have (``run.progress``) before any of them is made.
 
-    Only a function node has one: a subgraph is never called, and each node inside it runs by its own policy. As
-    JSON it leaves ``retry_on`` out, since a class has no JSON form. Its values are read strictly: a whole number is
-    no yes or no and no text that spells one.
+    Only a function node has one: a subgraph is never called, and each node inside it runs by its own policy. It is
+    a frozen pydantic dataclass, never written as JSON, and its values are read strictly when it is made: a whole
+    number is no yes or no and no text that spells one.
 
     Attributes:
-        concurrency: How many calls are made at once; at least 1.
+        concurrency: How many calls of the node may run at once in the whole process; at least 1. ``None``, the
+            default, sets no limit across runs: each run calls the node one item at a time. Setting it on a node
+            whose function runs a graph that uses the node again (or a node that uses this one back) is a
+            deadlock: the outer calls hold every place while the inner run waits for one. ``None`` has no such
+            limit.
         retries: How many more times a call that failed outside the node's control is tried; at least 0.
         retry_delay: The seconds the first retry waits; finite and at least 0.
         attempt_timeout: The seconds one attempt may take; finite and above 0, or ``None`` for no clock.
@@ -48,20 +61,24 @@ class Policy(ConductorModel):
             that takes the run's context is refused it.
     """
 
-    model_config = ConfigDict(strict=True)
-
-    concurrency: int = PydanticField(default=1, ge=1)
+    concurrency: int | None = PydanticField(default=None, ge=1)
     retries: int = PydanticField(default=0, ge=0)
     retry_delay: float = PydanticField(default=1.0, ge=0, allow_inf_nan=False)
     attempt_timeout: float | None = PydanticField(default=None, gt=0, allow_inf_nan=False)
-    retry_on: tuple[type[BaseException], ...] = PydanticField(default=(), exclude=True)
+    retry_on: tuple[type[BaseException], ...] = ()
     reuse_when_inputs_match: bool = True
     costs_nothing: bool = False
 
     @functools.cached_property
+    def most_at_once(self) -> int:
+        """How many calls may run at once: ``concurrency``, or 1 when it is ``None``, counted then in each run and
+        place in a graph on its own."""
+        return 1 if self.concurrency is None else self.concurrency
+
+    @functools.cached_property
     def threaded(self) -> bool:
         """Whether a call goes to a thread: several at once, or a clock on each attempt."""
-        return self.concurrency > 1 or self.attempt_timeout is not None
+        return self.most_at_once > 1 or self.attempt_timeout is not None
 
 
 class Deprecation(ConductorModel):

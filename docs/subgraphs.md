@@ -57,7 +57,7 @@ print(graph.describe().nodes["shout"].per_item_of)  # split.result
 A node's `per_item_of` is the list it is called once per item of, or `None` when it is called once. The subgraph node is inside the loop over `split.result`, so its inner nodes
 are called once per word. Using a graph as a subgraph changes nothing about how its nodes behave: they run as they
 would if you drew them in the outer graph. Each inner node is called by its own `Policy` (retries, timeouts and how many calls
-run at once), so a node with `concurrency=2` has two calls at once however many items the outer graph has. A cancel, and the `timeout` of
+run at once), so a node with `concurrency=2` has two calls at once however many items the outer graph has, and however many runs are going on. A cancel, and the `timeout` of
 `resume()`, stop the inner nodes as they stop any node. `run.again(...)` reuses the previous run's outputs for inner nodes
 as it does for any node. A subgraph takes no `Policy` of its own, because it is never called itself: only its inner nodes are.
 

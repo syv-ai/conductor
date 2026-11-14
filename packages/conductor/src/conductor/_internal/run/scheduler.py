@@ -26,13 +26,22 @@ after. The scheduler then calls ``shout`` with those arguments and writes what i
    ``join ()`` does, is not tried after every ``shout``. It is tried once, when no call upstream of it is
    running (``_release_collectors``).
 
-2. **Threads, retries and timeouts.** A node whose ``Policy`` has ``concurrency`` 1, no ``attempt_timeout`` and
-   no ``retries`` is called on the scheduler's own thread, where it is tried. Any other call is made as an
-   ``_Attempt``. With ``concurrency`` above 1 or an ``attempt_timeout`` the attempt runs on a pool thread, at
-   most ``concurrency`` of one node at a time, and comes back through the queue ``returned``. A failed attempt
-   that the policy retries is made again after ``retry_delay`` seconds, doubled for each attempt before it.
-   An attempt that is still on its thread after ``attempt_timeout`` seconds fails the run; its thread cannot be
-   stopped. Only node functions run on pool threads. Outcomes are written on the scheduler's thread.
+2. **Threads, retries and timeouts.** A node whose ``Policy`` sets no ``concurrency``, no ``attempt_timeout`` and
+   no ``retries`` is called on the scheduler's own thread, where it is tried, whatever other runs do. Any other
+   call is made as an ``_Attempt``, which waits in ``waiting_to_start`` until fewer than ``most_at_once`` calls
+   of its node run (``_count_of``). A node that sets ``concurrency`` has its calls counted in the whole process,
+   whatever run and place in a graph they are for: its definition counts them (``RunningCalls``). Any other node
+   is counted by this run for each place in the graph. Meanwhile the scheduler calls other nodes; when a counted
+   call ends, in this run or another, ``None`` is put on the queue ``returned`` of every run waiting for one, and
+   each tries again, asking ``stop`` before each call it starts: the first that asks, starts. A run that has just
+   made a call on its own thread lets the runs it woke that were parked (waiting in ``_wait``) ask first; a run
+   busy elsewhere is not waited for. With ``concurrency`` above 1 or
+   an ``attempt_timeout`` the attempt runs on a pool thread and comes back through ``returned``. A call counts as running until its function
+   returns, on whatever thread it runs. A failed attempt that the policy retries is made again after
+   ``retry_delay`` seconds, doubled for each attempt before it, and does not count as running while it waits. An
+   attempt that is still on its thread after ``attempt_timeout`` seconds fails the run; its thread cannot be
+   stopped, and it counts as running until the function returns, so no run calls the node beside it. Only node
+   functions run on pool threads. Outcomes are written on the scheduler's thread.
 
 3. **Reusing in item order.** A run made with ``graph.with_inputs(previous=run)`` takes an outcome of
    the earlier run in place of a call with the same arguments (``run/reuse.py``). An outcome of a node that may
@@ -61,13 +70,14 @@ import logging
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from queue import Empty, SimpleQueue
 from typing import Any, Literal
 
 from conductor._internal.ask import Ask
 from conductor._internal.base import ItemIndexes, NodePath, place_text
+from conductor._internal.node import RunningCalls
 from conductor._internal.problem import (
     ExternalError,
     InvalidCallError,
@@ -102,7 +112,19 @@ _SECONDS_BETWEEN_STOP_CHECKS = 0.05
 _logger = logging.getLogger("conductor")
 
 
-@dataclass(slots=True)
+def _each[T](items: list[T], action: Callable[[T], object]) -> None:
+    """Call ``action`` on each of ``items``. An exception raised in this thread while it does (a
+    ``KeyboardInterrupt``) still lets the rest be done, then is raised."""
+    rest = iter(items)
+    try:
+        for item in rest:
+            action(item)
+    finally:
+        for item in rest:
+            action(item)
+
+
+@dataclass(slots=True, eq=False)  # compared and hashed by identity: ``on_threads`` is keyed by the attempt
 class _Attempt:
     """One attempt at one call that runs on a thread or may be retried.
 
@@ -113,12 +135,15 @@ class _Attempt:
         item_indexes: Which call of the node it is.
         arguments: The arguments of the call.
         number: 0 for the first attempt at the call, 1 for its first retry.
+        future: The pool's handle on the attempt once it is handed to a thread, so one still queued can be
+            cancelled; ``None`` before, and for an attempt made on the scheduler's thread.
     """
 
     node: BlueprintFunctionNode
     item_indexes: ItemIndexes
     arguments: dict[str, Any]
     number: int
+    future: Future[None] | None = None
 
 
 @dataclass(slots=True, order=True)
@@ -196,8 +221,8 @@ class Scheduler:
         """
         Args:
             nodes: Every function node of the graph and of its subgraphs, in topological order.
-            threads: How many pool threads the graph needs: the sum of ``concurrency`` over its nodes that are
-                called on threads.
+            threads: How many pool threads the graph needs: the sum of ``concurrency`` over the definitions of its
+                nodes that are called on threads.
             outcomes: The run's outcomes, by node path and item indexes. The scheduler writes into this dict.
             reusable: The outcomes of the previous run that a call may reuse. The scheduler takes out the outcomes
                 it reuses once each.
@@ -231,7 +256,7 @@ class Scheduler:
         #: The collecting calls to try once no call upstream of them is running: the node, and the item indexes
         #: that the calls it collects start with.
         self.collectors: set[tuple[BlueprintFunctionNode, ItemIndexes]] = set()
-        #: The calls with an attempt on a thread, waiting for a thread, or waiting to be retried, each with that attempt.
+        #: The calls with an attempt on a thread, waiting to start, or waiting to be retried, each with that attempt.
         #: speed only: a dict where a set would do. It is listed whenever nothing is ready, and a set that had 2,000 calls
         #: in it is slow to list for the rest of its life: 18% of a run of 6,000 calls on threads.
         self.running: dict[tuple[BlueprintFunctionNode, ItemIndexes], _Attempt] = {}
@@ -239,13 +264,20 @@ class Scheduler:
         # 2. Threads, retries and timeouts.
         #: The pool the attempts run on. It is made when the first attempt goes to a thread.
         self.pool: ThreadPoolExecutor | None = None
-        #: Each node's attempts that wait for a thread, first in first out.
-        self.waiting_for_thread: defaultdict[BlueprintFunctionNode, deque[_Attempt]] = defaultdict(deque)
-        #: How many attempts of each node are on threads. The node's ``concurrency`` is the most there may be.
-        self.on_threads: defaultdict[BlueprintFunctionNode, int] = defaultdict(int)
+        #: Each node's attempts that wait until fewer than ``concurrency`` calls of the node run, first in first out.
+        self.waiting_to_start: defaultdict[BlueprintFunctionNode, deque[_Attempt]] = defaultdict(deque)
         #: What the pool threads hand back: an attempt with what ``call`` returned for it (the node's outputs, and what
-        #: the function raised or the problem a door of the call refused it with), or an exception ``call`` itself raised.
-        self.returned: SimpleQueue[tuple[_Attempt, Any, BaseException | Problem | None] | BaseException] = SimpleQueue()
+        #: the function raised or the problem a door of the call refused it with), or an exception ``call`` itself
+        #: raised. ``None`` from any thread when a call of a node whose attempts wait here has ended.
+        self.returned: SimpleQueue[tuple[_Attempt, Any, BaseException | Problem | None] | BaseException | None] = SimpleQueue()
+        #: Whether this run's thread waits for ``returned`` now: a node's ``RunningCalls`` gives a parked run a turn.
+        self.parked = False
+        #: The attempts handed to the pool that still count among their node's running calls, each with what counts
+        #: it. Whichever of ``_on_thread``, ``_cancel_queued`` or an exception in ``_start_waiting_calls`` takes an
+        #: attempt out first counts it out (``_count_out``), so it is counted out once.
+        self.on_threads: dict[_Attempt, RunningCalls] = {}
+        #: The running calls of each node that sets no ``concurrency``, counted by this run alone, one at a time.
+        self.counted_in_this_run: defaultdict[BlueprintFunctionNode, RunningCalls] = defaultdict(RunningCalls)
         #: The retries to make and the deadlines of the attempts on threads, as a heap: the one due first is first.
         self.timers: list[_Timer] = []
         #: Gives each timer its ``order``.
@@ -300,6 +332,9 @@ class Scheduler:
             while self.running:  # a call that was made is never made again: wait for its outcome
                 self._wait()
         finally:
+            # only when run ends by an exception are attempts left; each step is taken however another one ends
+            _each(list(self.running.values()), self._cancel_queued)
+            _each(list(self.waiting_to_start), lambda node: self._count_of(node).stop_waiting(self))
             if self.pool is not None:
                 self.pool.shutdown(wait=False, cancel_futures=True)
         self._put_in_order()
@@ -308,17 +343,18 @@ class Scheduler:
         return self.stopped
 
     def end(self, stopped: EndedEarly | Literal["running"]) -> None:
-        """Start no more calls. The attempts that wait for a thread or for a retry are dropped; ``run`` waits for
-        the attempts on threads and keeps their outcomes.
+        """Start no more calls. The attempts that wait to start or for a retry are dropped; ``run`` waits for the
+        attempts on threads and keeps their outcomes.
 
         Args:
             stopped: Why: how the run ends early, with its cause, or ``"running"`` when the host takes the run back.
         """
         self.stopped, self.going = stopped, False
-        for node, waiting in self.waiting_for_thread.items():
+        for node, waiting in self.waiting_to_start.items():
             for attempt in waiting:
                 self.running.pop((node, attempt.item_indexes), None)
             waiting.clear()
+            self._count_of(node).stop_waiting(self)
         for timer in self.timers:
             if timer.kind == "retry":
                 self.running.pop((timer.attempt.node, timer.attempt.item_indexes), None)
@@ -336,7 +372,7 @@ class Scheduler:
             outcomes = self.outcomes[node]
             for item_indexes in all_item_indexes(self.all_outcomes, node.loops, ())[0]:
                 if item_indexes not in outcomes and (node, item_indexes) not in running:
-                    if not self.going or (self.stop is not None and self.stop() is not None):
+                    if not self.going or self._asked_to_stop():
                         return
                     self._start_if_ready(node, item_indexes, trying_every_call=True)
 
@@ -352,8 +388,8 @@ class Scheduler:
         - The call is skipped or not called (``arguments_for`` returns that outcome): the outcome is recorded.
         - An earlier run has an outcome for these arguments: that outcome is recorded, and the node is not called.
         - The node is called on this thread, and the outcome is recorded.
-        - The node is called on a pool thread or may be retried: an ``_Attempt`` is made, and the outcome is
-          recorded when it is back.
+        - The node is called on a pool thread, may be retried, or is being called by another run: an ``_Attempt``
+          is made, and the outcome is recorded when it is back.
 
         Args:
             node: The node to call.
@@ -381,17 +417,16 @@ class Scheduler:
             if self.node_events is not None:
                 self.node_events.outcome_reused(node)
             self._record(node, item_indexes, previous, trying_every_call)
+        elif policy.threaded or policy.retries or policy.concurrency is not None:
+            self._make_attempt(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
         else:
             if self.node_events is not None:
                 self.node_events.call_starts(node)
-            if policy.threaded or policy.retries:
-                self._make_attempt(_Attempt(node, item_indexes, arguments, 0), trying_every_call)
-            else:
-                # speed only: what `call` returns goes straight to `_outcome` and is not kept in a local here. An exception in a
-                # local of this frame is a reference cycle (its traceback has the frame of `call`, which points back to this
-                # one), left for the garbage collector. That costs 20% of a run of 2,000 calls that each ask a person.
-                outcome = self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context))
-                self._record(node, item_indexes, outcome, trying_every_call)
+            # speed only: what `call` returns goes straight to `_outcome` and is not kept in a local here. An exception in a
+            # local of this frame is a reference cycle (its traceback has the frame of `call`, which points back to this
+            # one), left for the garbage collector. That costs 20% of a run of 2,000 calls that each ask a person.
+            outcome = self._outcome(node, item_indexes, arguments, *call(node, arguments, self.context))
+            self._record(node, item_indexes, outcome, trying_every_call)
 
     def _record(
         self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem, trying_every_call: bool = False
@@ -521,49 +556,123 @@ class Scheduler:
     # -- 2. Threads, retries and timeouts -------------------------------------------------------------------------
 
     def _make_attempt(self, attempt: _Attempt, trying_every_call: bool = False) -> None:
-        """Make one attempt at a call, for a node that is called on threads or has ``retries``.
+        """Make one attempt at a call: it joins the node's attempts that wait to start, and starts at once when
+        fewer than ``most_at_once`` calls of the node run.
 
-        A node called on threads: the attempt joins the node's queue for a thread. Any other node is called here,
-        on the scheduler's thread, and its outcome is recorded unless the attempt is retried.
+        Args:
+            attempt: The attempt to make.
+            trying_every_call: True from ``_try_every_call``, which reaches the downstream calls itself.
         """
-        node, item_indexes, arguments = attempt.node, attempt.item_indexes, attempt.arguments
-        if not node.policy.threaded:
-            outputs, error = call(node, arguments, self.context)
-            if not self._retry(attempt, error):
-                if attempt.number:
-                    self.running.pop((node, item_indexes), None)
-                self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, outputs, error), trying_every_call)
-            return
-        self.running[(node, item_indexes)] = attempt
-        self.waiting_for_thread[node].append(attempt)
-        self._start_waiting_calls(node)
+        self.running[(attempt.node, attempt.item_indexes)] = attempt
+        self.waiting_to_start[attempt.node].append(attempt)
+        self._start_waiting_calls(attempt.node, trying_every_call)
 
-    def _start_waiting_calls(self, node: BlueprintFunctionNode) -> None:
-        """Put the attempts of ``node`` that wait for a thread on threads, until ``concurrency`` of them are on
-        threads. An attempt with an ``attempt_timeout`` gets its deadline timer here, when its thread starts."""
-        waiting, policy = self.waiting_for_thread[node], node.policy
-        while waiting and self.on_threads[node] < policy.concurrency and self.going:
-            attempt = waiting.popleft()
-            self.on_threads[node] += 1
-            if self.pool is None:
-                self.pool = ThreadPoolExecutor(self.threads, "conductor")
-            if policy.attempt_timeout is not None:
-                self._set_timer(policy.attempt_timeout, "deadline", attempt)
-            self.pool.submit(self._on_thread, attempt)
+    def _start_waiting_calls(self, node: BlueprintFunctionNode, trying_every_call: bool = False) -> None:
+        """Start the attempts of ``node`` that wait to start, first in first out, while fewer than ``most_at_once``
+        calls of the node run.
+
+        ``stop`` is asked before each attempt, as before each call. An attempt of a node called on threads goes to a
+        pool thread, and gets its deadline timer here when it has an ``attempt_timeout``. Any other attempt is made
+        here, on the scheduler's thread, and its outcome is recorded unless it is retried; when other runs wait for
+        the node, those that were parked (waiting for news) ask before this run asks again. While none can start,
+        the node's ``RunningCalls`` keeps this run, to ``wake`` it.
+
+        Each attempt counted by ``try_start`` is counted out once, however it ends: here when the function returns
+        or raises; on its pool thread by ``_on_thread``; or, for an attempt still queued for a thread when its
+        deadline passes or ``run`` ends, by whoever cancels it (``_cancel_queued``).
+        """
+        waiting, policy, running_calls = self.waiting_to_start[node], node.policy, self._count_of(node)
+        while waiting and self.going and not self._asked_to_stop() and running_calls.try_start(policy.most_at_once, self):
+            counted_here: RunningCalls | None = running_calls  # who counts the attempt out if this raises: here, or ``on_threads``
+            try:  # no call between try_start and here, so nothing can be raised before the attempt is counted out
+                attempt = waiting.popleft()
+                if self.node_events is not None:
+                    self.node_events.call_starts(node)
+                if policy.threaded:
+                    if self.pool is None:
+                        self.pool = ThreadPoolExecutor(self.threads, "conductor")
+                    self.on_threads[attempt] = running_calls
+                    counted_here = None
+                    attempt.future = self.pool.submit(self._on_thread, attempt)
+                else:
+                    outputs, error = call(node, attempt.arguments, self.context)
+            except BaseException:
+                if counted_here is not None:
+                    counted_here.finish()
+                else:
+                    self._count_out(attempt)
+                raise
+            if policy.threaded:
+                if policy.attempt_timeout is not None:
+                    self._set_timer(policy.attempt_timeout, "deadline", attempt)
+                continue
+            running_calls.finish(give_parked_runs_a_turn=True)
+            self._made_here(attempt, outputs, error, trying_every_call)
+
+    def _cancel_queued(self, attempt: _Attempt) -> None:
+        """Take ``attempt`` off the pool's queue if its thread has not started it, and count it out, as it will
+        never run."""
+        if attempt.future is not None and attempt.future.cancel():
+            self._count_out(attempt)
+
+    def _count_out(self, attempt: _Attempt) -> None:
+        """``attempt``, handed to the pool, is over or will never run: count it out of its node's running calls,
+        unless that was done already."""
+        if (running_calls := self.on_threads.pop(attempt, None)) is not None:
+            running_calls.finish()
+
+    def _asked_to_stop(self) -> bool:
+        """Whether ``stop`` says to start no more calls. ``run`` asks it again, and ends the run, when it next looks."""
+        return self.stop is not None and self.stop() is not None
+
+    def wake(self) -> None:
+        """A call of a node whose attempts wait here ended, in this run or another: put ``None`` on ``returned``.
+        Called by the node's ``RunningCalls``, from any thread."""
+        self.returned.put(None)
+
+    def _nodes_waiting(self) -> list[BlueprintFunctionNode]:
+        """The nodes with attempts that wait to start."""
+        return [node for node, waiting in self.waiting_to_start.items() if waiting]
+
+    def _start_every_waiting_call(self) -> None:
+        """A call of a node whose attempts wait here has ended, in this run or another: start what can start now."""
+        for node in self._nodes_waiting():
+            self._start_waiting_calls(node)
+
+    def _count_of(self, node: BlueprintFunctionNode) -> RunningCalls:
+        """What counts the running calls of ``node``: its definition's ``RunningCalls``, shared by every run of the
+        process, when its policy sets ``concurrency``; else this run's own for this place in the graph."""
+        if node.policy.concurrency is not None:
+            return node.compiled_node.definition.running_calls
+        return self.counted_in_this_run[node]
+
+    def _made_here(self, attempt: _Attempt, outputs: Any, error: BaseException | Problem | None, trying_every_call: bool) -> None:
+        """``attempt`` was made on the scheduler's thread: record its outcome unless it is retried."""
+        node, item_indexes, arguments = attempt.node, attempt.item_indexes, attempt.arguments
+        if not self._retry(attempt, error):
+            del self.running[(node, item_indexes)]
+            self._record(node, item_indexes, self._outcome(node, item_indexes, arguments, outputs, error), trying_every_call)
+
 
     def _on_thread(self, attempt: _Attempt) -> None:
-        """Runs on a pool thread: call the node and put what it returned or raised on ``returned``.
+        """Runs on a pool thread: call the node, count the call out of its node's running calls, and put what it
+        returned or raised on ``returned``.
 
         ``call`` returns a node's own exception as ``error``. What ``call`` itself raises (``SystemExit``, a bug in
         a type's own validation) is put on ``returned`` as it is, and ``_wait`` raises it on the scheduler's
-        thread, as it would be raised for a node called there.
+        thread, as it would be raised for a node called there. The call is counted out first, so the node's next
+        waiting attempt can start when the scheduler reads what is back.
         """
+        returned: tuple[_Attempt, Any, BaseException | Problem | None] | BaseException
         try:
             outputs, error = call(attempt.node, attempt.arguments, self.context)
         except BaseException as raised:  # noqa: BLE001  the pool would swallow it, and the scheduler would wait for the attempt for ever
-            self.returned.put(raised)
+            returned = raised
         else:
-            self.returned.put((attempt, outputs, error))
+            returned = (attempt, outputs, error)
+        finally:
+            self._count_out(attempt)
+        self.returned.put(returned)
 
     def _wait(self) -> None:
         """Wait until an attempt is back from its thread, a timer is due, or it is time to ask ``stop`` again.
@@ -572,20 +681,29 @@ class Scheduler:
         if self.stop is not None:
             timeout = _SECONDS_BETWEEN_STOP_CHECKS if timeout is None else min(timeout, _SECONDS_BETWEEN_STOP_CHECKS)
         try:
-            if timeout is None:
-                returned = self.returned.get()
+            self.parked = True
+            try:
+                if timeout is None:
+                    returned = self.returned.get()
+                else:
+                    try:
+                        # CPython 3.12's SimpleQueue.get(timeout=) never returns when its timeout runs out before its
+                        # first look at an empty queue, so the first look is one that doesn't wait.
+                        returned = self.returned.get(block=False)
+                    except Empty:
+                        if timeout <= 0:
+                            raise
+                        returned = self.returned.get(timeout=timeout)
+            finally:
+                self.parked = False
+            if returned is None:
+                self._start_every_waiting_call()
             else:
-                try:
-                    # CPython 3.12's SimpleQueue.get(timeout=) never returns when its timeout runs out before its first
-                    # look at an empty queue, so the first look is one that doesn't wait.
-                    returned = self.returned.get(block=False)
-                except Empty:
-                    if timeout <= 0:
-                        raise
-                    returned = self.returned.get(timeout=timeout)
-            if isinstance(returned, BaseException):
-                raise returned
-            self._call_returned(returned)
+                for node in self._nodes_waiting():  # busy with other news: a run that woke it does not wait for its turn
+                    self._count_of(node).turned_away(self)
+                if isinstance(returned, BaseException):
+                    raise returned
+                self._call_returned(returned)
         except Empty:
             pass
         now = time.monotonic()
@@ -593,8 +711,8 @@ class Scheduler:
             self._due(heapq.heappop(self.timers))
 
     def _call_returned(self, returned: tuple[_Attempt, Any, BaseException | Problem | None]) -> None:
-        """An attempt is back from its thread: start the node's next waiting attempt, then retry this one or
-        record its outcome.
+        """An attempt is back from its thread: start the node's next waiting attempt, then retry this one or record
+        its outcome.
 
         The outcome is dropped when the attempt's deadline has passed, since the run has failed with ``timeout``
         for it, or when ``end`` dropped the call. One case is kept: the deadline has passed, the function returned
@@ -603,7 +721,6 @@ class Scheduler:
         """
         attempt, outputs, error = returned
         node, item_indexes = attempt.node, attempt.item_indexes
-        self.on_threads[node] -= 1
         self._start_waiting_calls(node)
         if self.running.get((node, item_indexes)) is not attempt:  # only a deadline that passed takes an attempt on a thread out of ``running``
             if error is None and not self.going and item_indexes not in self.outcomes[node]:
@@ -652,6 +769,7 @@ class Scheduler:
                 self._make_attempt(attempt)
         elif self.running.get((node, item_indexes)) is attempt:
             del self.running[(node, item_indexes)]
+            self._cancel_queued(attempt)
             self._record(node, item_indexes, run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
 
     def _outcome(
