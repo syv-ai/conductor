@@ -52,7 +52,6 @@ from typing import Any, Concatenate, overload
 
 from pydantic import JsonValue
 
-from conductor._internal.base import comma_separated, plural, qualified_name
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
     FunctionDefinition,
@@ -66,6 +65,7 @@ from conductor._internal.node import (
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, NodeRecord
 from conductor._internal.types import Type
+from conductor._internal.utils import comma_separated, plural, qualified_name
 
 from .describe import RegistryDescription, TypeDescription
 from .upgrade import upgraded

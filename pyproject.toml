@@ -85,6 +85,7 @@ layers = [
     "types",
     "problem",
     "base",
+    "utils",
 ]
 # The one import up a layer: a graph starts runs, and a run reads the graph's nodes. graph/type.py may import from
 # run/; it does so inside three methods, never when it loads: Graph.with_inputs (make_run), Graph._blueprint

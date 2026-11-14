@@ -22,8 +22,9 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaValue
 from pydantic_core import PydanticOmit
 from pydantic_core.core_schema import IsSubclassSchema, ModelFieldsSchema, ModelSchema
 
+from conductor._internal.utils import comma_separated, qualified_name
+
 from .json import NON_FINITE_FLOATS
-from .text import comma_separated, qualified_name
 
 
 class _JsonFormSchema(GenerateJsonSchema):

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from conductor._internal.base import comma_separated
+from conductor._internal.utils import comma_separated
 
 from .type import ProblemCatalogue
 

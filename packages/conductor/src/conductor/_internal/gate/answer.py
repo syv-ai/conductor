@@ -23,10 +23,11 @@ from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError
 
 from conductor._internal.ask import as_asked
-from conductor._internal.base import SKIPPED, Loc, comma_separated, validate_as_json
+from conductor._internal.base import SKIPPED, Loc, validate_as_json
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Choice, Type, untyped_as_json
+from conductor._internal.utils import comma_separated
 
 from .rules import output_validator_of
 

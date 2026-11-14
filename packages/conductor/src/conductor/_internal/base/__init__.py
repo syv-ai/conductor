@@ -1,10 +1,10 @@
-"""The building blocks every package of conductor uses; nothing here imports anything of conductor's.
+"""The building blocks every package of conductor uses; nothing here imports anything of conductor's but ``utils``.
 
 ``model.py`` is ``ConductorModel``, the base class of every record a host saves or sends as JSON; ``place.py``
 names a place in a graph or a run, as tuples and as text; ``json.py`` the rules of JSON for every value (how a
 float that is not finite is written, a value as plain JSON, a Python value validated as its JSON text is);
-``hashing.py`` is ``short_hash`` and ``json_hash``, the one way a value is hashed; ``text.py`` the English messages are written with; ``sentinels.py``
-is ``REQUIRED`` and ``SKIPPED``.
+``hashing.py`` is ``short_hash`` and ``json_hash``, the one way a value is hashed; ``sentinels.py`` is ``REQUIRED``
+and ``SKIPPED``.
 """
 
 from .hashing import json_hash, short_hash
@@ -21,7 +21,6 @@ from .place import (
     place_text,
 )
 from .sentinels import REQUIRED, SKIPPED
-from .text import comma_separated, plural, qualified_name
 
 __all__ = [
     "NON_FINITE_FLOATS",
@@ -33,14 +32,11 @@ __all__ = [
     "Name",
     "NodePath",
     "Source",
-    "comma_separated",
     "is_name",
     "json_hash",
     "parse_node_path",
     "place_text",
     "plain_json",
-    "plural",
-    "qualified_name",
     "short_hash",
     "validate_as_json",
 ]

@@ -25,12 +25,13 @@ from pydantic_core import (
     SchemaSerializer,
 )
 
-from conductor._internal.base import NON_FINITE_FLOATS, plain_json, qualified_name
+from conductor._internal.base import NON_FINITE_FLOATS, plain_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     declaration_problems,
     value_free_errors,
 )
+from conductor._internal.utils import qualified_name
 
 from .choice import Choice, read_choices
 from .fit import fit

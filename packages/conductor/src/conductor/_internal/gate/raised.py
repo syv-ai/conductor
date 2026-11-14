@@ -20,10 +20,11 @@ from pydantic import JsonValue
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.ask import Ask
-from conductor._internal.base import REQUIRED, comma_separated
+from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import Choice, read_choices
+from conductor._internal.utils import comma_separated
 
 from .answer import answer_value
 from .rules import output_validator_of

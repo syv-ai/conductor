@@ -35,13 +35,14 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
-from conductor._internal.base import Loc, NodePath, json_hash, place_text, plural
+from conductor._internal.base import Loc, NodePath, json_hash, place_text
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import ContextDoor, InputsDoor, read_limits
 from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
+from conductor._internal.utils import plural
 
 from .describe import (
     GraphDescription,

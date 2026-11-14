@@ -16,10 +16,11 @@ from typing import Any, Literal, Protocol, Self
 
 from pydantic import JsonValue
 
-from conductor._internal.base import REQUIRED, qualified_name
+from conductor._internal.base import REQUIRED
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.record import GraphRecord
+from conductor._internal.utils import qualified_name
 
 from .describe import NodeDescription
 from .policy import Deprecation, Policy

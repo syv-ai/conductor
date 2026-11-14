@@ -28,9 +28,10 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import SKIPPED, comma_separated
+from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
+from conductor._internal.utils import comma_separated
 
 from .rules import exact_classes, output_schema_of, output_validator_of
 
