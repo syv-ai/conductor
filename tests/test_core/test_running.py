@@ -1295,6 +1295,50 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
     assert ended.status == "cancelled" and len(calls) < 6
 
 
+@pytest.mark.parametrize("stop", ["cancel", "timeout"])
+@pytest.mark.parametrize(("ends", "cause"), [("failed", "execution_failed"), ("stopped", "item_limit")])
+def test_a_cancel_or_a_timeout_after_a_call_ended_the_run_leaves_the_run_as_that_call_ended_it(stop: str, ends: str, cause: str):
+    """``lines`` sets ``cancel``, or sleeps past ``timeout``, and then fails, or returns more items than
+    ``max_items``. It runs on the scheduler's own thread, so the run has ended before ``stop`` could be asked again:
+    the first reason to stop stands, and the run is not ``cancelled`` or ``timed_out``."""
+    stop_now: list[Callable[[], None]] = []
+
+    @node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        stop_now[0]()
+        if ends == "failed":
+            raise ValueError("no lines")
+        return ["a", "b", "c"]
+
+    @node("echo", title="Echo", description="For a test.")
+    def echo(line: str) -> str:
+        return line
+
+    prepared = Graph.compile(make_graph(lines, echo), registry_of(lines, echo)).with_inputs(text="x", max_items=2)
+
+    async def stream_with_a_cancel() -> Any:
+        loop, cancel, cancel_is_set = asyncio.get_running_loop(), AsyncioEvent(), ThreadEvent()
+
+        def set_the_cancel() -> None:
+            cancel.set()
+            cancel_is_set.set()
+
+        def cancel_and_wait() -> None:
+            loop.call_soon_threadsafe(set_the_cancel)
+            assert cancel_is_set.wait(BOUND)
+
+        stop_now.append(cancel_and_wait)
+        return [event async for event in prepared.stream(cancel=cancel)][-1].run
+
+    if stop == "cancel":
+        ended = _bounded(stream_with_a_cancel())
+    else:
+        stop_now.append(lambda: time.sleep(0.05))
+        ended = prepared.resume(timeout=0.01)
+
+    assert (ended.status, ended.cause.type) == (ends, cause)
+
+
 def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one():
     @node("echo", title="Echo", description="For a test.")
     def echo(text: str) -> str:
