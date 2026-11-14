@@ -126,7 +126,6 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
 
     Attributes:
         compiled_node: The node as its own graph compiled it.
-        policy: The node's policy, as its definition declares it.
         constants: Every input by name, in the order declared: the value of an input that is a constant, and
             ``None`` for every other input. The arguments of a call start as a copy of it.
         graph_inputs: The inputs the caller gives a value for: the input's name, and the name of the graph input
@@ -156,7 +155,6 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
     """
 
     compiled_node: CompiledFunctionNode
-    policy: Policy
     constants: dict[str, Any]
     graph_inputs: tuple[tuple[str, str], ...]
     edge_inputs: dict[str, EdgeInput | CollectingArgument]
@@ -168,6 +166,11 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
     position: int = 0
     all_upstream: frozenset[BlueprintFunctionNode] | None = None
     display_inputs: dict[str, tuple[EdgeInput | CollectingArgument, ...]] = dataclasses.field(default_factory=dict[str, tuple[EdgeInput | CollectingArgument, ...]])
+
+    @property
+    def policy(self) -> Policy:
+        """The node's policy, as its definition declares it."""
+        return self.compiled_node.definition.policy
 
     def source_of(self, output: str) -> tuple[BlueprintFunctionNode, str]:
         """Returns the function node that returns ``output``, and the output's name there: this node and
@@ -385,7 +388,7 @@ def _add_blueprint_nodes(
             upstream.setdefault(functions[loops[-1][0]], len(loops) - 1)
         read_by_door = {name: edge_input.field for name, edge_input in edge_inputs.items() if _demands_more(edge_input)}
         node = BlueprintFunctionNode(
-            compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops, policy=compiled_node.definition.policy,
+            compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops,
             constants=constants, graph_inputs=tuple(graph_inputs), edge_inputs=edge_inputs, lists_from_same_loop=tuple(map(tuple, collecting.values())),
             edge_door=EdgeDoor(read_by_door) if read_by_door else None,
             upstream=upstream, position=len(functions),
