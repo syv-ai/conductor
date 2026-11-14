@@ -18,25 +18,23 @@ Each input of a compiled node is an ``Input``, of one of five kinds:
 - A ``MissingInput`` gets no value, because the graph has a problem at this input; such a graph is never run.
 
 Every kind has ``field``, ``sources`` and ``loops``, so code that needs one of them does not ask which kind of
-input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge comes from,
-and whether the edge reads the whole output or one item of it. An input no edge leads to has no sources and no
-loops. A loop is named by the list it loops over: the node path of the function node that returns the list, and
-the output's name, also when the list is an output of a subgraph node (``(("loud", "split"), "result")``).
+input it has. ``sources`` has one ``Edge`` for each edge into the input: the output the edge is wired to, the
+function node that returns it, and whether the edge reads the whole output or one item of it. An input no edge
+leads to has no sources and no loops. A loop is named by the list it loops over: the path of the function node
+that returns the list, and the output's name, also when the list is an output of a subgraph node
+(``(("loud", "split"), "result")``).
 
-An ``EdgeInput`` and a ``CollectingInput`` are made in two places, and their node paths mean a different thing in
-each. Compiling makes them with node paths from the node's own graph: a source is a node of that graph by its id
-(``("shout",)``, or ``("loud",)`` for a subgraph node), and a loop is named from that graph. The run blueprint
-(``run/blueprint.py``) makes them again for each use of the node, with the full path of the function node a value
-comes from (``("loud", "shout")`` for ``shout`` inside ``loud``), and every loop by its full path.
+Everything here is named from the graph the node is in, and a node path names a function node, never a subgraph
+node: a subgraph is never called, only the functions inside it. A subgraph is compiled once and may be used as a
+node in many places; the run blueprint (``run/blueprint.py``) reads its inputs in each of those places.
 """
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 from typing import Any, ClassVar, final
 
-from conductor._internal.base import NodePath
+from conductor._internal.base import NodePath, Source
 from conductor._internal.field import Field
 from conductor._internal.types import Type
 
@@ -44,47 +42,41 @@ from conductor._internal.types import Type
 @final
 @dataclass(frozen=True, slots=True)
 class Edge:
-    """What one edge reads from an output, as compiled: the input it leads to holds one per edge.
+    """What one edge reads, as compiled: the input it leads to holds one per edge.
 
     Example, in ``lines -> shout -> join``: the edge from ``lines.result`` reads one item of the list per call of
-    ``shout``, so it is ``Edge(("lines",), "result", None, (), Type(str), series=(("lines",), "result"))``. The edge
-    from ``shout.result`` reads the value one call of ``shout`` returned, ``Edge(("shout",), "result", None,
-    ((("lines",), "result"),), Type(str), series=None)``, with ``depth`` 1: a call of ``shout`` is found by one item
-    index. An edge from the field ``email`` of the record ``split.result`` is ``Edge(("split",), "result", "email",
-    ...)``.
+    ``shout``, so it is ``Edge(Source("lines", "result"), ("lines",), "result", (), Type(str), per_item=True)``. The
+    edge from ``shout.result`` reads the value one call of ``shout`` returned, ``Edge(Source("shout", "result"),
+    ("shout",), "result", ((("lines",), "result"),), Type(str), per_item=False)``. Wired to ``loud.result``, where
+    ``shout`` inside the subgraph node ``loud`` returns it, an edge is ``Edge(Source("loud", "result"), ("loud",
+    "shout"), "result", ...)``. An edge from the field ``email`` of the record ``split.result`` has
+    ``Source("split", "result", "email")``.
 
     Attributes:
-        node: The path of the node the edge comes from. In a compiled graph it is the node's id alone; in the
-            blueprint, the function node's path (``("loud", "shout")`` for ``shout`` inside the subgraph node ``loud``).
-        output: The name of the output the edge reads.
-        record_field: The field of the record the output returns that the edge reads; ``None`` for the whole output.
-        loops: The loops that node is inside, outermost first, each as the node path and the output of the list
-            looped over.
+        source: The output the graph record wires the edge to, and the field of the record it returns that the
+            edge reads (``None`` for the whole output). A problem names the edge by it.
+        node: The path of the function node that returns the output: ``("shout",)``, or ``("loud", "shout")`` for
+            an output of the subgraph node ``loud``.
+        output: The name of the output, as that function node names it.
+        loops: The loops that function node is inside, outermost first, each as the node path and the output of
+            the list looped over.
         type: The type of the value the edge reads.
-        series: When the output is a ``Series``, the edge reads one item of it, and this is the loop over it, named
-            as every loop is: by the node path of the function node that returns the list, and its output there
-            (``(("e", "chars"), "result")`` for an output of the subgraph node ``e`` that ``chars`` inside returns).
-            The node the edge leads to is then inside that loop, and an item is found by one more item index than
-            ``depth``. ``None`` when the edge reads the whole output.
-        depth: How many loops the node is inside: the number of item indexes that say which call of it.
+        per_item: Whether the output is a ``Series`` the edge reads one item of per call. The node the edge leads
+            to is then inside the loop over it, ``(node, output)``.
     """
 
+    source: Source
     node: NodePath
     output: str
-    record_field: str | None
     loops: tuple[tuple[NodePath, str], ...]
     type: Type
-    series: tuple[NodePath, str] | None
-    depth: int = dataclasses.field(init=False, compare=False, repr=False)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "depth", len(self.loops))
+    per_item: bool
 
     @property
     def loops_of_value(self) -> tuple[tuple[NodePath, str], ...]:
         """The loops a node must be inside to read one value from this edge, outermost first: the loops of the
-        node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
-        return self.loops if self.series is None else (*self.loops, self.series)
+        function node it comes from, and for an item of a ``Series`` also the loop over that ``Series``."""
+        return (*self.loops, (self.node, self.output)) if self.per_item else self.loops
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -160,11 +152,9 @@ class EdgeInput:
     Attributes:
         field: The input, as its node declares it.
         sources: What each edge into the input reads. With several edges, each comes from a different branch of
-            one decision, and a call gets the value from the branch that was chosen. Compiled, each names a node of
-            the node's own graph; in the blueprint, the function node it comes from by its full path.
+            one decision, and a call gets the value from the branch that was chosen.
         loops: The loops the input's node must be inside to read the value, outermost first: those of the
-            source with the most loops. Compiled, the loops inside the node's own graph; in the blueprint, every
-            loop, those of the subgraph nodes it is inside first.
+            source with the most loops.
         as_list: Whether a call gets the value as a list of one.
     """
 
@@ -184,15 +174,10 @@ class CollectingInput:
     Attributes:
         field: The input, as its node declares it.
         series: The list whose loop the input collects, as the node path and the output: ``(("lines",), "result")``.
-            Compiled, a node path from the node's own graph; in the blueprint, the full path of the function node
-            that returns the list.
         loops: The loops the input's node must be inside to read the list, outermost first: the loops the node
-            that returns ``series`` is inside. The loop over ``series`` itself is not one of them. Compiled, the
-            loops inside the node's own graph; in the blueprint, every loop, those of the subgraph nodes it is
-            inside first.
+            that returns ``series`` is inside. The loop over ``series`` itself is not one of them.
         sources: What each edge into the input reads for one item. Several edges come from different branches
-            of one decision, as for any input. Compiled, each names a node of the node's own graph; in the
-            blueprint, the function node it comes from by its full path.
+            of one decision, as for any input.
     """
 
     field: Field

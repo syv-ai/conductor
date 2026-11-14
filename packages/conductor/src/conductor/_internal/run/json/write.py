@@ -64,8 +64,9 @@ def outputs_to_json(run: Run) -> str:
     """
     written = {}
     for text, value in run.outputs.items():
-        source = run.graph.record.outputs[text]
-        function, output = run._blueprint.nodes[(source.node,)].source_of(source.output)
+        node, output = run.graph._node_returning(text)
+        function_path, output = node.returned_by(output)
+        function = run._blueprint.function_nodes[function_path]
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
         for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
             hint = list[hint] | None

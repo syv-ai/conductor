@@ -24,7 +24,7 @@ from conductor._internal.types import Type
 from .rules import exact_classes, validator_of
 
 
-def demands_more(field: Field, sources: Iterable[Type], *, per_item: bool) -> bool:
+def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bool) -> bool:
     """Whether the input ``field`` demands more of a value than the types of the outputs its edges read declare,
     so that each call reads the value by the input's type first.
 
@@ -35,11 +35,11 @@ def demands_more(field: Field, sources: Iterable[Type], *, per_item: bool) -> bo
     Args:
         field: The input.
         sources: The types of the outputs its edges read.
-        per_item: Whether each source gives the input one item of its value: an input that collects a loop, or
+        sources_are_items: Whether each source gives the input one item of its value: an input that collects a loop, or
             that takes a list wired to an output of one value. A table input then always reads its rows, since
             each row is checked against the table's columns.
     """
-    if per_item:
+    if sources_are_items:
         return field.whole.record is not None or not all(field.type.holds(source) for source in sources)
     return not all(field.whole.holds(source) for source in sources)
 

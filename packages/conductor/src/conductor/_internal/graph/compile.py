@@ -550,20 +550,19 @@ class Compiler:
             fields = [place_text(path, source.output, f) for f in field.type.fields]
             self.problems.append(compile_problems.unknown_output(node_id, name, source=written, outputs=fields, record_field=source.field))
             return None
-        series = node.loop_over(source.output) if field.is_series else None
-        return Edge(path, source.output, source.field, node.loops_around(source.output), read_type, series=series)
+        return Edge(source, *node.returned_by(source.output), node.loops_around(source.output), read_type, per_item=field.is_series)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index among the node ids, then
         by its output's index in that node, then by the record field it reads, the whole output first."""
-        node_id = edge.node[0]
-        return self.position[node_id], list(self.nodes[node_id].outputs).index(edge.output), edge.record_field or ""
+        source = edge.source
+        return self.position[source.node], list(self.nodes[source.node].outputs).index(source.output), source.field or ""
 
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
         """The branches that must be chosen for the output ``edge`` reads to have a value."""
-        return self.nodes[edge.node[0]].branches_required_for(edge.output)
+        return self.nodes[edge.source.node].branches_required_for(edge.source.output)
 
     def _inputs_with_conflicting_edges(
         self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
@@ -593,7 +592,7 @@ class Compiler:
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[place_text(s.node, s.output, s.record_field) for s in sources]))
+                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [place_text(*loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
@@ -672,7 +671,7 @@ def _edge_input(
     """
     if not collects:
         return EdgeInput(field, tuple(sources), deepest)
-    if deepest == loops[: len(deepest)] and all(s.series is None for s in sources):
+    if deepest == loops[: len(deepest)] and not any(s.per_item for s in sources):
         return EdgeInput(field, tuple(sources), deepest, as_list=True)
     return CollectingInput(field, deepest[-1], deepest[:-1], tuple(sources))
 
@@ -735,8 +734,8 @@ def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
     one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
     that column added.
     """
-    written, expected = place_text(source.node, source.output, source.record_field), field.whole.id
-    got = source.type.text if source.series is None else f"Series[{source.type.text}]"
+    written, expected = str(source.source), field.whole.id
+    got = f"Series[{source.type.text}]" if source.per_item else source.type.text
     parts = _taken_apart(source.type)
     if field.whole.record is not None:
         has = (source.type.record or source.type).fields

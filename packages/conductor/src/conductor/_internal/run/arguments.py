@@ -38,12 +38,12 @@ from typing import Any, Literal, assert_never
 from typing_extensions import sentinel
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.graph import Edge, EdgeInput
+from conductor._internal.graph import CollectingInput, Edge, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of
 
-from .blueprint import BlueprintFunctionNode, CollectingArgument
+from .blueprint import BlueprintFunctionNode, loop_body_of, path_in_run
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
 #: What a read returns in place of a value when it is asked for any item of a loop and some item may have a
@@ -55,18 +55,21 @@ class ResultReader:
     """Reads what a call needs from the outcomes of a run, and returns the call's arguments.
 
     Attributes:
+        function_nodes: The run blueprint's function nodes, by node path (``RunBlueprint.function_nodes``).
         outcomes: The run's outcomes, by node path and then by item indexes.
         graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``).
         for_any_item: Empty in the reader a run calls its nodes with. A reader made to answer "can any item of
-            this loop have a value?" (``_list_looped_over``) keeps here what ``arguments_for`` returned for each
-            node inside the loop, by node path.
+            this loop have a value?" (``_for_any_item_of``) has here what ``arguments_for`` returned for each node
+            inside the loop, by node.
     """
 
-    __slots__ = ("for_any_item", "graph_inputs", "outcomes")
+    __slots__ = ("for_any_item", "function_nodes", "graph_inputs", "outcomes")
 
-    def __init__(self, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any]) -> None:
-        self.outcomes, self.graph_inputs = outcomes, graph_inputs
-        self.for_any_item: dict[NodePath, dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]] = {}
+    def __init__(
+        self, function_nodes: Mapping[NodePath, BlueprintFunctionNode], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    ) -> None:
+        self.function_nodes, self.outcomes, self.graph_inputs = function_nodes, outcomes, graph_inputs
+        self.for_any_item: dict[BlueprintFunctionNode, dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]] = {}
 
     def arguments_for(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
         """Returns the arguments of the call of ``node`` for ``item_indexes``, or why the node is not called.
@@ -99,9 +102,9 @@ class ResultReader:
         none_input: str | None = None
         fault: InvalidCallError | None = None
         ready = True
-        for name, node_input in node.edge_inputs.items():
+        for name, (graph_path, node_input) in node.edge_inputs.items():
             try:
-                value = self.read_input(node_input, item_indexes)
+                value = self.read_input(graph_path, node_input, item_indexes)
             except NoSuchFieldError as missing:  # keep reading: a later input may read SKIPPED, which skips the node
                 if fault is None:
                     reason = f"it has no field '{missing.field}'"
@@ -122,27 +125,28 @@ class ResultReader:
             return NoneInput(node.compiled_node.outputs_when_not_called, none_input)
         return self.align_lists(node, arguments) if node.lists_from_same_loop else arguments
 
-    def read_input(self, node_input: EdgeInput | CollectingArgument, item_indexes: ItemIndexes) -> Any:
-        """Returns what ``node_input`` reads for the call at ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``,
-        ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
+    def read_input(self, graph_path: NodePath, node_input: EdgeInput | CollectingInput, item_indexes: ItemIndexes) -> Any:
+        """Returns what ``node_input``, compiled in the graph at ``graph_path``, reads for the call at
+        ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``, ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
         match node_input:
             case EdgeInput():
-                return self.read_as_list(node_input, item_indexes) if node_input.as_list else self.read_edges(node_input.sources, item_indexes)
-            case CollectingArgument():
-                return self.collect(node_input, item_indexes)
+                return self.read_as_list(graph_path, node_input, item_indexes) if node_input.as_list else self.read_edges(graph_path, node_input.sources, item_indexes)
+            case CollectingInput():
+                return self.collect(graph_path, node_input, item_indexes)
             case _:
                 assert_never(node_input)
 
-    def read_as_list(self, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any:
+    def read_as_list(self, graph_path: NodePath, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any:
         """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
         ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
-        value = self.read_edges(node_input.sources, item_indexes)
+        value = self.read_edges(graph_path, node_input.sources, item_indexes)
         if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return [value]
 
-    def read_edges(self, edges: tuple[Edge, ...], item_indexes: ItemIndexes) -> Any:
-        """Returns what the edges into an input read for ``item_indexes``: with one edge, what ``read_output`` reads.
+    def read_edges(self, graph_path: NodePath, edges: tuple[Edge, ...], item_indexes: ItemIndexes) -> Any:
+        """Returns what ``edges``, the edges into an input compiled in the graph at ``graph_path``, read for
+        ``item_indexes``: with one edge, what ``read_output`` reads of the output the edge comes from.
 
         Several edges come from different branches of one decision, so for one call at most one of them has a
         value. Asked for any item, several may have one.
@@ -153,7 +157,7 @@ class ResultReader:
         """
         best: Any = SKIPPED
         for edge in edges:
-            value = self.read_output(edge, item_indexes)
+            value = self.read_output(self.function_nodes[path_in_run(graph_path, edge.node)], edge.output, item_indexes, edge.source.field, one_item=edge.per_item)
             if value is NotReady.NOT_READY:
                 best = NotReady.NOT_READY
             elif value is None:
@@ -163,11 +167,20 @@ class ResultReader:
                 return value
         return best
 
-    def read_output(self, edge: Edge, item_indexes: ItemIndexes) -> Any:
-        """Returns what one edge reads from its output for the call at ``item_indexes``.
+    def read_output(
+        self, node: BlueprintFunctionNode, output: str, item_indexes: ItemIndexes, record_field: str | None = None, *, one_item: bool = False,
+    ) -> Any:
+        """Returns what an edge reads from the output ``output`` of ``node`` for the call at ``item_indexes``.
 
         In the example, the edge into ``shout.line`` reads one item of ``lines.result``: for ``(1,)`` it reads
         ``"b"``. The edge into ``join.texts`` reads ``shout.result``: for ``(1,)`` it reads ``"B!"``.
+
+        Args:
+            node: The function node that returns the output.
+            output: The output's name.
+            item_indexes: The item indexes of the call that reads it.
+            record_field: The field of the record the output returns that the edge reads; ``None`` for all of it.
+            one_item: Whether the output is a ``Series`` of which the edge reads one item.
 
         Returns:
             The value. ``None`` or ``SKIPPED`` when the output is that. ``NOT_READY`` when the node that returns
@@ -178,8 +191,8 @@ class ResultReader:
         Raises:
             NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
         """
-        depth, node, output = edge.depth, edge.node, edge.output
-        outcome = self.outcomes[node].get(item_indexes[:depth])
+        depth = len(node.loops)
+        outcome = self.outcomes[node.node_path].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if len(item_indexes) < depth:  # asked for any item of a loop the source's node is inside
                 would_be = self.for_any_item[node]
@@ -190,8 +203,7 @@ class ResultReader:
         value = outcome.outputs[output]
         if value is None or value is SKIPPED:
             return value
-        record_field = edge.record_field
-        if edge.series is None:
+        if not one_item:
             return value if record_field is None else field_of(value, record_field)
         try:  # ``value`` is a stored Series: one item of it, or one field of that item
             index = item_indexes[depth]
@@ -204,7 +216,7 @@ class ResultReader:
             raise NoSuchFieldError(record_field)
         return cell
 
-    def collect(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def collect(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
 
         In the example, ``collect`` for ``join.texts`` at ``()`` returns ``["A!", "B!"]``: what the edge from
@@ -217,29 +229,28 @@ class ResultReader:
             read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
             returns.
         """
-        collecting = node_input.input
-        depth = len(collecting.loops)
+        depth = len(self.function_nodes[path_in_run(graph_path, node_input.series[0])].loops)
         if len(item_indexes) < depth:
-            return self._edges_for_any_item(node_input, item_indexes)
+            return self._edges_for_any_item(graph_path, node_input, item_indexes)
         item_indexes = item_indexes[:depth]
-        series = self._list_looped_over(node_input, item_indexes)
+        series = self._list_looped_over(graph_path, node_input, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
-        edges = collecting.sources
-        if len(edges) == 1 and edges[0].series is not None:  # the input collects the list itself: its items, or one field of each
-            record_field = edges[0].record_field
+        edges = node_input.sources
+        if len(edges) == 1 and edges[0].per_item:  # the input collects the list itself: its items, or one field of each
+            record_field = edges[0].source.field
             if record_field is not None:
                 return series.field_as_list(record_field)
-            return series.as_table_input() if collecting.field.whole.record is not None else series.as_list()
+            return series.as_table_input() if node_input.field.whole.record is not None else series.as_list()
         items = []
         for index in range(len(series)):
-            value = self.read_edges(edges, (*item_indexes, index))
+            value = self.read_edges(graph_path, edges, (*item_indexes, index))
             if value is NotReady.NOT_READY:
                 return NotReady.NOT_READY
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _list_looped_over(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def _list_looped_over(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list whose items ``node_input`` collects, when an item of it may have a value for
         the input. When no item can, returns what the input is instead, however many items the list has.
 
@@ -249,6 +260,7 @@ class ResultReader:
         every call of ``shout`` would be skipped, so ``join.texts`` is ``SKIPPED``, with two lines as with none.
 
         Args:
+            graph_path: The path of the graph the input was compiled in.
             node_input: The collecting input.
             item_indexes: The item indexes of the list.
 
@@ -257,21 +269,35 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        any_item = type(self)(self.outcomes, self.graph_inputs)
-        for node in node_input.loop_body:  # each after the nodes it reads
-            any_item.for_any_item[node.node_path] = any_item.arguments_for(node, item_indexes)
-        value = any_item._edges_for_any_item(node_input, item_indexes)
+        series_node, output = self.function_nodes[path_in_run(graph_path, node_input.series[0])], node_input.series[1]
+        sources = [self.function_nodes[path_in_run(graph_path, edge.node)] for edge in node_input.sources]
+        any_item = self._for_any_item_of((series_node.node_path, output), sources, item_indexes)
+        value = any_item._edges_for_any_item(graph_path, node_input, item_indexes)
         if value is not MAY_HAVE_VALUE:
             return value
-        series_node, output = node_input.input.series
-        outcome = self.outcomes[series_node].get(item_indexes)
+        outcome = self.outcomes[series_node.node_path].get(item_indexes)
         return outcome.outputs[output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
-    def _edges_for_any_item(self, node_input: CollectingArgument, item_indexes: ItemIndexes) -> Any:
+    def _for_any_item_of(self, series: tuple[NodePath, str], sources: list[BlueprintFunctionNode], item_indexes: ItemIndexes) -> ResultReader:
+        """Returns a new reader that reads ``sources`` for any item of the loop over ``series``: its
+        ``for_any_item`` has what ``arguments_for`` returns, with ``item_indexes``, for each node inside the loop
+        that ``sources`` read, worked out each after the nodes upstream of it (``loop_body_of``).
+
+        Args:
+            series: The list looped over, as a run names it.
+            sources: The function nodes a value is read from.
+            item_indexes: The item indexes of the list.
+        """
+        any_item = type(self)(self.function_nodes, self.outcomes, self.graph_inputs)
+        for node in loop_body_of(series, sources):
+            any_item.for_any_item[node] = any_item.arguments_for(node, item_indexes)
+        return any_item
+
+    def _edges_for_any_item(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
         the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
         keeps as an item (``Series[str | None]``) counts as a value."""
-        value = self.read_edges(node_input.input.sources, item_indexes)
+        value = self.read_edges(graph_path, node_input.sources, item_indexes)
         if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
             return value
         return MAY_HAVE_VALUE

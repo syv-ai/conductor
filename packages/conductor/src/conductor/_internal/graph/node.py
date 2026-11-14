@@ -89,10 +89,10 @@ class _CompiledNodeBase:
         ``lines.result``."""
         return self.loops
 
-    def loop_over(self, output: str) -> tuple[NodePath, str]:
-        """Returns the loop over the list ``output`` returns, named as every loop is: by the path of the function
-        node that returns the list, and its output. In the example, ``lines.loop_over("result")`` is
-        ``(("lines",), "result")``."""
+    def returned_by(self, output: str) -> tuple[NodePath, str]:
+        """Returns the function node that returns ``output``, by its path from this graph, and the output's name
+        there: for a function node, the node itself and ``output``. In the example, ``lines.returned_by("result")``
+        is ``(("lines",), "result")``, which is also how the loop over that list is named."""
         return (self.id,), output
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
@@ -228,17 +228,18 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside = source.loops_around(output_inside)
         return (*self.loops, *[((self.id, *node), name) for node, name in inside])
 
-    def loop_over(self, output: str) -> tuple[NodePath, str]:
-        """Returns the loop over the list ``output`` returns, named by the function node inside that returns it.
+    def returned_by(self, output: str) -> tuple[NodePath, str]:
+        """Returns the function node inside the subgraph that returns ``output``, by its path from this graph, and
+        the output's name there.
 
         Example: the subgraph ``s`` is ``chars -> upper``, and its record declares ``chars.result`` as the graph
-        output ``parts``. ``s.loop_over("parts")`` is ``(("s", "chars"), "result")``, the loop ``loops_around`` names
-        for ``upper``'s output, so a node outside that reads one item of ``parts`` and the value of ``upper`` for
-        that item is called once per item with both.
+        output ``parts``. ``s.returned_by("parts")`` is ``(("s", "chars"), "result")``. That is also the loop over
+        ``parts``, as ``loops_around`` names it for ``upper``'s output, so a node outside that reads one item of
+        ``parts`` and the value of ``upper`` for that item is called once per item with both.
         """
         source, output_inside = self.inner._node_returning(output)
-        node, name = source.loop_over(output_inside)
-        return (self.id, *node), name
+        path, returned = source.returned_by(output_inside)
+        return (self.id, *path), returned
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value: those this node needs to be
@@ -274,7 +275,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
                 described.append(field.description)
                 continue
             if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
-                node, output = self.loop_over(name)
+                node, output = self.returned_by(name)
                 loops.append(place_text(node[1:], output))
             item: Any = field.type.hint
             for _ in loops[1:]:

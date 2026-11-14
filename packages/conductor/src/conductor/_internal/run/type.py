@@ -495,7 +495,7 @@ class Run[C]:
     @property
     def _reader(self) -> ResultReader:
         """Reads this run's outcomes for one item: what a call of a node receives there."""
-        return ResultReader(self._outcomes, self.inputs)
+        return ResultReader(self._blueprint.function_nodes, self._outcomes, self.inputs)
 
     # -- JSON -------------------------------------------------------------------
 
