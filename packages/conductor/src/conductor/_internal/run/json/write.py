@@ -7,7 +7,7 @@ which writes itself as text.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
@@ -146,14 +146,7 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     questions: dict[int, Unanswered] = {}
     not_called_because: dict[int, str] = {}
     if Done in classes:
-        if classes == {Done}:  # speed only: every call is done, as in a node that is complete
-            with_outputs = cast("list[Done]", outcomes)
-            values_by_output = {name: [outcome.outputs[name] for outcome in with_outputs] for name in outputs}
-        else:
-            values_by_output = {
-                name: [outcome.outputs[name] if type(outcome) is Done else None for outcome in outcomes]
-                for name in outputs
-            }
+        values_by_output = {name: [outcome.outputs[name] if type(outcome) is Done else None for outcome in outcomes] for name in outputs}
         for name, output in outputs.items():
             values = values_by_output[name]
             skipped_calls = [call_number for call_number, value in enumerate(values) if value is SKIPPED]

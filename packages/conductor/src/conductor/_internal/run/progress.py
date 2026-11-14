@@ -142,8 +142,6 @@ def all_item_indexes(
         The item indexes of each call known so far, and ``True`` when every series the node loops over exists.
     """
     start, deepest = len(prefix), len(loops)
-    if start == deepest:  # A shortcut: the loop below returns the same. It saves about 1% of a run of a chain of 500 nodes.
-        return [prefix], True
     every_item_indexes, complete = [prefix], True
     for depth in range(start, deepest):
         series_node, output = loops[depth]
@@ -191,10 +189,7 @@ def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Blue
     ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. ``approve`` with an
     ``Unanswered`` outcome is not, until the person answers.
     """
-    of_node = outcomes[node.node_path]
-    if not node.loops:  # A shortcut: one call, so its one outcome decides. It saves 2% of a run of a chain of 500 nodes.
-        return bool(of_node) and type(of_node[()]) is not Unanswered
-    return has_every_outcome(outcomes, node) and all(type(outcome) is not Unanswered for outcome in of_node.values())
+    return has_every_outcome(outcomes, node) and all(type(outcome) is not Unanswered for outcome in outcomes[node.node_path].values())
 
 
 def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> bool:
@@ -203,8 +198,6 @@ def has_every_outcome(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node
     ``shout`` has when ``lines`` has returned and ``shout`` has three outcomes. An ``Unanswered`` outcome counts:
     the call was made, though no answer has come.
     """
-    if not node.loops:  # A shortcut: calls_expected says one call, so any outcome is every outcome. It saves 2% of to_json on a chain of 500 nodes.
-        return bool(outcomes[node.node_path])
     expected, complete = calls_expected(outcomes, node.loops)
     return complete and len(outcomes[node.node_path]) == expected
 

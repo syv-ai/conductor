@@ -483,9 +483,6 @@ class Scheduler:
         for downstream, shared_indexes in node.downstream:
             if shared_indexes < depth:
                 self.collectors.add((downstream, item_indexes[:shared_indexes]))
-            # speed only: the branch below finds this one call too. Worth about 2% of a run whose 6,000 calls all come back from threads.
-            elif len(downstream.loops) == depth:
-                heapq.heappush(self.ready, (downstream.position, item_indexes))
             else:
                 for downstream_indexes in all_item_indexes(self.all_outcomes, downstream.loops, item_indexes)[0]:
                     heapq.heappush(self.ready, (downstream.position, downstream_indexes))
