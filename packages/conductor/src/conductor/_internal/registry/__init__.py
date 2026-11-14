@@ -4,3 +4,9 @@ palette reads it; ``upgrade.py`` moves one node of a graph record to a newer ver
 
 from .describe import RegistryDescription, TypeDescription
 from .type import NodeRegistry
+
+__all__ = [
+    "NodeRegistry",
+    "RegistryDescription",
+    "TypeDescription",
+]
