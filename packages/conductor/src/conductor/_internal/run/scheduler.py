@@ -634,7 +634,7 @@ class Scheduler:
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)
         if self.node_events is not None:
-            self.node_events.call_retries(node, item_indexes, attempt.number + 1, delay, self._failure(node, item_indexes, error))
+            self.node_events.call_retries(node, attempt.number + 1, delay, self._failure(node, item_indexes, error))
         return True
 
     def _set_timer(self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt) -> None:

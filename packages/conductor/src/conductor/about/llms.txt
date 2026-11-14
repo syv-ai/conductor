@@ -250,12 +250,12 @@ A failed call ends the run `failed`, its problem the run's `cause`: nothing more
 
 | Event | Carries |
 |---|---|
-| `node_start` | `loc`: the node's id, behind the id of each subgraph's node it is inside, `("emb", "upper")` |
+| `node_start` | `loc`: the node's id, behind the id of each subgraph's node it is inside, `("emb", "upper")`; every event about a node has it, and names the node, never one call |
 | `node_progress` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it; at most four a second per node |
 | `node_complete` | `loc`, `outcomes` (how many calls it had), `skipped` (how many of them were skipped: a branch not chosen, or `SKIPPED` returned on every output; a node was skipped when `outcomes > 0` and `skipped` equals `outcomes`, and one skipped by a branch not chosen was never called, so it has no `node_start`), `not_called` (how many were not called for a `None`), `reused`; the values are in the run (`run.results`) |
-| `node_retry` | `loc` (the call's: the node's id, then its item indexes; inside a subgraph the subgraph node and its index first, `("emb", 1, "upper")`), `attempt`, `retries`, `delay`, `cause` |
+| `node_retry` | `loc`, `attempt`, `retries`, `delay`, `cause` (a `Problem`, whose `loc` names the call: the node's id, then its item indexes; inside a subgraph the subgraph node and its index first, `("emb", 1, "upper")`) |
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the call) |
-| `node_waiting` | `waiting` (a `Waiting`) |
+| `node_waiting` | `loc`, `waiting` (a `Waiting`, whose `loc` names the call) |
 | `run_start` | `waiting` |
 | `run_checkpoint` | `run` (status `running`, or how the run stopped; read back from its JSON, what its outcomes say), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when the run is stopped with calls on threads; and as the last event of a run handed back (`stream(hand_back=)`), `running`, in place of `run_end` |
 | `run_end` | `status`, `cause`, and `run`, which it does not write |

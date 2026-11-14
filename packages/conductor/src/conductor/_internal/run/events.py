@@ -68,8 +68,8 @@ class _NodeEvent(EventBase):
         loc: Which node: its id, ``("shout",)``. For a node inside a subgraph, the id of the subgraph node comes
             first: ``("loud", "shout")`` for ``shout`` inside the subgraph node ``loud``. The loc names the node,
             not one of its calls: a node inside a loop has one ``NodeStart``, one ``NodeComplete`` and one
-            ``NodeFailed`` for all its calls, not one per call. Only ``NodeRetry`` is about one call, and its loc
-            says which.
+            ``NodeFailed`` for all its calls, not one per call. An event about one call says which in a record it
+            carries: the ``loc`` of a ``Problem`` or of a ``Waiting``.
     """
 
     loc: Loc
@@ -179,17 +179,14 @@ class NodeRetry(_NodeEvent):
     """A call failed with an error its node's ``Policy`` retries, and will be made again.
 
     For a node ``fetch`` with ``Policy(retries=1)`` whose first call raises ``ExternalError``:
-    ``NodeRetry(loc=("fetch", 0), attempt=1, retries=1, delay=1.0, cause=Problem(type="external_failed", ...))``.
+    ``NodeRetry(loc=("fetch",), attempt=1, retries=1, delay=1.0, cause=Problem(type="external_failed", loc=("fetch", 0), ...))``.
     If the retry succeeds, the node goes on to ``NodeProgress`` and ``NodeComplete`` as any other node.
-
-    Unlike the other node events, its ``loc`` says which call, as the ``loc`` of ``cause`` does: the node's id,
-    then the call's item indexes. Inside a subgraph, the subgraph node's id and item indexes come first.
 
     Attributes:
         attempt: Which retry will be made: 1 for the first.
         retries: How many retries the node's ``Policy`` allows.
         delay: How many seconds from now the retry is made.
-        cause: Why the call failed.
+        cause: Why the call failed. Its ``loc`` says which call, as a ``NodeFailed``'s does.
     """
 
     type: Literal["node_retry"] = "node_retry"
@@ -199,7 +196,7 @@ class NodeRetry(_NodeEvent):
     cause: Problem
 
 
-class NodeWaiting(EventBase):
+class NodeWaiting(_NodeEvent):
     """A call asked a person a question, by raising ``Ask``, and is waiting for the answer.
 
     It comes as soon as the call's outcome is written. The calls downstream of the waiting call are not made until
@@ -207,8 +204,8 @@ class NodeWaiting(EventBase):
     in this stream, and the stream ends with ``RunEnd(status="waiting")``. After ``run.answer(...)`` the next stream
     has the node's ``NodeComplete``.
 
-    The event has no ``loc`` of its own: ``waiting.loc`` says which call, ``("approve", 1)`` for the call of a node
-    ``approve`` for the second line.
+    For a node ``approve`` that asks about each line, the call for the second line has
+    ``NodeWaiting(loc=("approve",), waiting=Waiting(loc=("approve", 1), ...))``: ``waiting.loc`` says which call.
 
     Attributes:
         waiting: The question and which call asked it. Its ``id`` is what ``run.answer`` takes.

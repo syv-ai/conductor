@@ -48,13 +48,7 @@ from typing import Any, Literal, assert_never
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.problem import Problem
 
-from .blueprint import (
-    BlueprintFunctionNode,
-    BlueprintNode,
-    BlueprintSubgraphNode,
-    all_upstream,
-    outcome_loc,
-)
+from .blueprint import BlueprintFunctionNode, BlueprintNode, BlueprintSubgraphNode, all_upstream
 from .events import (
     EventBase,
     NodeComplete,
@@ -146,13 +140,14 @@ class NodeEvents:
         if type(outcome) is not Skipped:
             self.call_starts(node)
         if type(outcome) is Unanswered:
-            self.emit(NodeWaiting(waiting=waiting_record(node, item_indexes, outcome, self.arguments_for)))
+            self.emit(NodeWaiting(loc=node.node_path, waiting=waiting_record(node, item_indexes, outcome, self.arguments_for)))
         if node.loops:
             self._progress(node)
 
-    def call_retries(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, attempt: int, delay: float, cause: Problem) -> None:
-        """A call failed and is made again after ``delay`` seconds, as try number ``attempt`` after the first."""
-        self.emit(NodeRetry(loc=outcome_loc(node, item_indexes), attempt=attempt, retries=node.policy.retries, delay=delay, cause=cause))
+    def call_retries(self, node: BlueprintFunctionNode, attempt: int, delay: float, cause: Problem) -> None:
+        """A call of ``node`` failed with ``cause`` and is made again after ``delay`` seconds, as try number
+        ``attempt`` after the first."""
+        self.emit(NodeRetry(loc=node.node_path, attempt=attempt, retries=node.policy.retries, delay=delay, cause=cause))
 
     def call_failed(self, node: BlueprintFunctionNode, cause: Problem) -> None:
         """A call of ``node`` failed and is not retried: the run fails with ``cause``."""

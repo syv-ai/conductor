@@ -715,7 +715,7 @@ def test_an_inner_node_is_retried_by_its_own_policy():
     assert events[-1].run.status == "complete" and events[-1].run.results["e"]["result"] == ["a~", "b~"]
     assert CALLS["flaky"] == 4
     retries = sorted((e.loc, e.attempt, e.cause.loc) for e in events if isinstance(e, NodeRetry))
-    assert retries == [(("e", 0, "f"), 1, ("e", 0, "f")), (("e", 1, "f"), 1, ("e", 1, "f"))]
+    assert retries == [(("e", "f"), 1, ("e", 0, "f")), (("e", "f"), 1, ("e", 1, "f"))]  # the event names the node, and its cause the call
 
 
 def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_node_path_and_keeps_the_other_items_outcomes():
@@ -766,6 +766,8 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
     assert [e.loc for e in flat_events if isinstance(e, NodeStart)] == [("outer",), ("up",), ("q",)]
     waiting = [e.waiting for e in events if isinstance(e, NodeWaiting)]
     assert [w.id for w in waiting] == [w.id for w in events[-1].run.waiting] and waiting[1].loc == ("e", 1, "q")
+    assert {e.loc for e in events if isinstance(e, (NodeStart, NodeComplete, NodeWaiting))} == {("w",), ("e",), ("e", "up"), ("e", "q")}  # node paths only, no item index
+    assert {e.loc for e in events if isinstance(e, NodeWaiting)} == {("e", "q")}  # the event names the node, and its waiting call the call
     assert isinstance(events[-1], RunEnd) and events[-1].status == "waiting"
     answered = events[-1].run.answer({w.id: "yes" for w in waiting})
     later = stream(answered)

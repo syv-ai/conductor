@@ -26,7 +26,7 @@ from conductor._internal.base import ItemIndexes, NodePath, place_text
 from conductor._internal.problem import Problem, run_problems
 from conductor._internal.run import node_events as node_events_module
 from conductor._internal.run.arguments import ResultReader
-from conductor._internal.run.events import EventBase, NodeWaiting
+from conductor._internal.run.events import EventBase
 from conductor._internal.run.node_events import NodeEvents
 from conductor._internal.run.outcome import Outcome
 from pytest import MonkeyPatch
@@ -123,7 +123,7 @@ class Told:
 
     def retry(self, name: str, *item_indexes: int, attempt: int, delay: float) -> None:
         """The call failed with a ``TimeoutError`` and is made again after ``delay`` seconds."""
-        self.node_events.call_retries(self.nodes[name], item_indexes, attempt, delay, self._timed_out(name, item_indexes))
+        self.node_events.call_retries(self.nodes[name], attempt, delay, self._timed_out(name, item_indexes))
 
     def fail(self, name: str, *item_indexes: int) -> None:
         """The call failed with a ``TimeoutError`` and is not retried."""
@@ -148,18 +148,19 @@ class Told:
 
 
 def _one_line(event: EventBase) -> str:
-    """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc, and
-    a count as its four numbers.
+    """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc, a
+    waiting call as its loc, and a count as its four numbers.
 
     Example: ``NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=3, total=3))`` is
     ``"node_progress shout finished=1 waiting=0 known=3 total=3"``.
     """
-    loc = event.waiting.loc if isinstance(event, NodeWaiting) else event.loc
-    fields = event.model_dump(exclude={"type", "loc", "waiting"}, exclude_defaults=True)
+    fields = event.model_dump(exclude={"type", "loc"}, exclude_defaults=True)
+    if "waiting" in fields:
+        fields["waiting"] = "/".join(map(str, fields["waiting"]["loc"]))
     fields.update(fields.pop("count", {}))
     if "cause" in fields:
         fields["cause"] = f"{fields['cause']['type']}@{'/'.join(map(str, fields['cause']['loc']))}"
-    return " ".join([event.type, "/".join(map(str, loc)), *(f"{name}={value}" for name, value in fields.items())])
+    return " ".join([event.type, "/".join(map(str, event.loc)), *(f"{name}={value}" for name, value in fields.items())])
 
 
 def _lines_shout_join(text: str = "a\nb\nc", finished: tuple[str, ...] = ()) -> Told:
@@ -225,9 +226,9 @@ def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
     assert told.take() == [
         "node_start lines",
         "node_start approve",
-        "node_waiting approve/0",
+        "node_waiting approve waiting=approve/0",
         "node_progress approve finished=0 waiting=1 known=2 total=2",
-        "node_waiting approve/1",
+        "node_waiting approve waiting=approve/1",
         "node_complete lines outcomes=1",
         "node_progress approve finished=0 waiting=2 known=2 total=2",
     ]
@@ -307,7 +308,7 @@ def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgrap
     ]
 
 
-def test_a_retry_names_the_call_and_a_failure_names_the_node():
+def test_a_retry_and_a_failure_name_the_node_and_their_cause_names_the_call():
     told = Told(make_graph(lines, fetch), registry_of(lines, fetch), text="a\nb")
     told.call("lines")
     told.start("fetch")
@@ -316,6 +317,6 @@ def test_a_retry_names_the_call_and_a_failure_names_the_node():
     assert told.take() == [
         "node_start lines",
         "node_start fetch",
-        "node_retry fetch/1 attempt=1 retries=2 delay=0.5 cause=external_failed@fetch/1",
+        "node_retry fetch attempt=1 retries=2 delay=0.5 cause=external_failed@fetch/1",
         "node_failed fetch cause=external_failed@fetch/1",
     ]

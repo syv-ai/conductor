@@ -154,6 +154,8 @@ What changes in how you work, before the name-by-name tables:
   of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
   `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a call's is a
   problem's (`("e", 0, "ask")`), a node's its id behind the subgraph node's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
+  Every node event's `loc` names the node, `node_waiting` and `node_retry` included; the call is in the `loc` of
+  its `waiting` or its `cause`.
   An id with an index that is not a number is `not_waiting` at the place read up to it: `e@1/ask@x` at `("e", 1, "ask")`.
   A waiting id has one spelling, the one `run.waiting` gives (or that text without `~` and its fingerprint); any other names nothing and is `not_waiting`: `e/ask@0` for `e@0/ask`, `ask@01`, `ask@0~`.
 - **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
@@ -509,11 +511,11 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | `flow_cancelled` | `run_end`, `status` `cancelled` |
 | `flow_timeout` | `run_end`, `status` `timed_out` |
 | `flow_paused` | `node_waiting` per waiting call, then `run_end`, `status` `waiting` |
-| `node_retry` | `node_retry`: `loc`, `attempt`, `retries`, `delay`, `cause` |
+| `node_retry` | `node_retry`: `loc` (the node), `attempt`, `retries`, `delay`, `cause` (its `loc` the call) |
 | `compensation_start` | gone with compensation |
 | `compensation_complete` | gone with compensation |
 | `compensation_failed` | gone with compensation |
-| `signal_waiting` | `node_waiting` |
+| `signal_waiting` | `node_waiting`: `loc` (the node), `waiting` (its `loc` the call) |
 
 ## [1.12.2]
 

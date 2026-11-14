@@ -289,7 +289,8 @@ def test_retries_external_failures_then_succeeds():
     events = collect(graph.with_inputs(text="a,b"))
     retries = [e for e in events if e.type == "node_retry"]
     assert events[-1].status == "complete" and events[-1].run.results["client"]["result"] == ["a!", "b!"], events[-1].run.cause
-    assert sorted((e.loc[0], e.loc[1:], e.attempt) for e in retries) == [("client", (0,), 1), ("client", (1,), 1), ("fetch", (0,), 1), ("fetch", (0,), 2), ("fetch", (1,), 1), ("fetch", (1,), 2)]
+    assert {e.loc for e in retries} == {("client",), ("fetch",)}  # the node; its cause names the call
+    assert sorted((e.cause.loc[0], e.cause.loc[1:], e.attempt) for e in retries) == [("client", (0,), 1), ("client", (1,), 1), ("fetch", (0,), 1), ("fetch", (0,), 2), ("fetch", (1,), 1), ("fetch", (1,), 2)]
     assert retries[0].cause.type == "external_failed" and retries[0].delay == 0.01
 
 

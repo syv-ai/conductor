@@ -266,7 +266,7 @@ SHAPES = {
     "node_complete": ["loc", "not_called", "outcomes", "reused", "skipped", "type"],
     "node_failed": ["cause", "loc", "type"],
     "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
-    "node_waiting": ["type", "waiting"],
+    "node_waiting": ["loc", "type", "waiting"],
     "run_checkpoint": ["type"],
     "run_end": ["cause", "status", "type"],
 }
@@ -334,7 +334,7 @@ def _every_event() -> list[Any]:
         NodeProgress(loc=("n",), count=CallCount(finished=1, waiting=0, known=1, total=None)),
         NodeFailed(loc=("n",), cause=cause),
         NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),
-        NodeWaiting(waiting=waiting),
+        NodeWaiting(loc=("n",), waiting=waiting),
         RunCheckpoint(run=streamed[-1].run),
     ]
     return [*streamed, *built]
