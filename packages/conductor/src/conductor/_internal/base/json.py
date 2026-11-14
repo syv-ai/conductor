@@ -1,13 +1,14 @@
 """The rules of JSON that hold for every value conductor writes or reads, whatever its type.
 
 ``NON_FINITE_FLOATS`` is how all JSON conductor writes holds a float that is not finite; ``plain_json`` writes a
-Python value as the plain data its JSON text reads back as; ``validate_as_json`` validates a Python value as
-pydantic validates its JSON text.
+Python value as the plain data its JSON text reads back as; ``canonical_json`` is the JSON text two values are compared
+and hashed by; ``validate_as_json`` validates a Python value as pydantic validates its JSON text.
 """
 
 from __future__ import annotations
 
 import functools
+import json
 from collections.abc import Callable
 from typing import Any, Final
 
@@ -43,6 +44,24 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
     """
     plain: JsonValue = from_json(to_json(value, inf_nan_mode=NON_FINITE_FLOATS, fallback=fallback))
     return plain
+
+
+def canonical_json(value: Any) -> str:
+    """The text two values are compared and hashed by: ``value``'s JSON text as conductor writes it, with the keys
+    of every dict sorted and no spaces, so two values are the same JSON when their texts are.
+
+    ``canonical_json({"b": 1, "a": [2]})`` returns ``'{"a":[2],"b":1}'``, as does
+    ``canonical_json({"a": [2], "b": 1})``. ``value`` is plain data, as ``plain_json`` writes it or as pydantic's
+    ``to_python(mode="json")`` does, which keeps a float that is not finite a float; such a float is written as its
+    text (``NON_FINITE_FLOATS``), as all JSON conductor writes holds it, so ``float("inf")`` and ``"Infinity"`` are
+    one text.
+    """
+    try:
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+    except ValueError:  # a float that is not finite, which JSON has no number for
+        return canonical_json(plain_json(value))
 
 
 def validate_as_json(

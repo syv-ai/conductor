@@ -26,7 +26,7 @@ from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import Choice, read_choices
 from conductor._internal.utils import comma_separated
 
-from .answer import answer_value
+from .answer import check_picks, read_as_answer
 from .rules import output_validator_of
 
 
@@ -135,7 +135,8 @@ def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) ->
         InvalidCallError: An answer could not be the default (``invalid_ask``).
     """
     try:
-        written: JsonValue = field.whole.to_json(answer_value(field, default, choices))
+        written: JsonValue = field.whole.to_json(read_as_answer(field.whole, default))
+        check_picks(field, written, choices)
     except PydanticCustomError as refused:
         raise InvalidCallError(
             [

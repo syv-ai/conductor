@@ -209,12 +209,133 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
     _, run = _once(assign, ticket="T-1")
     assert run.waiting[0].questions[0].choices == (Choice("ida", "Ida B."), Choice("bo", "bo"))
     (fault,) = _refused(lambda: run.answer("q", "carl"))
-    assert fault.msg == "That is not a valid answer: the answer is not one of the choices"
+    assert fault.msg == "That is not a valid answer: the value is not one of the choices"
     assert run.answer("q", "bo").resume().outputs == {"result": "bo"}
+
+
+def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_float_choice_1_0():
+    """Pins what an answer is compared by: the JSON form of the value its type reads, not of the value given."""
+
+    @node("rate", title="Rate", description="For a test.", asks=True)
+    def rate(ticket: str) -> float:
+        raise Ask(f"Rate {ticket}", choices=[1.0, 2.5])
+
+    _, run = _once(rate, ticket="T-1")
+    # JSON from a browser writes 1.0 as 1
+    assert run.answer("q", 1).resume().outputs == {"result": 1.0}
+    assert (
+        _refused(lambda: run.answer("q", 2))[0].msg
+        == "That is not a valid answer: the value is not one of the choices"
+    )
+
+
+def test_an_input_is_held_to_its_choices_by_their_json_as_an_answer_is():
+    @node("take", title="Take", description="For a test.")
+    def take(x: Annotated[Any, Param(choices=[1, {"a": 1, "b": 2}])]) -> str:
+        return "taken"
+
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"q": {"node": "take", "inputs": {"x": {"graph_input": "x"}}}},
+                "outputs": {"result": {"node": "q", "output": "result"}},
+            }
+        ),
+        registry_of(take),
+    )
+    for taken in (1, {"b": 2, "a": 1}, None):
+        assert graph.run(x=taken).outputs == {"result": "taken"}
+    for refused in (True, 1.0, {"a": True, "b": 2}):
+        with pytest.raises(InvalidCallError) as raised:
+            graph.run(x=refused)
+        assert "the value is not one of the choices" in raised.value.problems[0].msg
+
+
+def test_two_fields_whose_choices_python_takes_as_equal_each_hold_a_value_to_their_own():
+    """``True == 1`` in Python, but their JSON differs, so ``choices=[True]`` is never ``choices=[1]``."""
+
+    def taking(choice: Any) -> Any:
+        @node(f"take_{choice}".lower(), title="Take", description="For a test.")
+        def take(x: Annotated[Any, Param(choices=[choice])]) -> str:
+            return "taken"
+
+        return Graph.compile(
+            GraphRecord.model_validate(
+                {
+                    "nodes": {"q": {"node": take.id, "inputs": {"x": {"graph_input": "x"}}}},
+                    "outputs": {"result": {"node": "q", "output": "result"}},
+                }
+            ),
+            registry_of(take),
+        )
+
+    for choice, other in ((1, True), (True, 1)):
+        graph = taking(choice)
+        assert graph.run(x=choice).outputs == {"result": "taken"}
+        with pytest.raises(InvalidCallError):
+            graph.run(x=other)
+
+
+def test_a_series_whose_items_take_none_is_answered_with_none_beside_its_picks():
+    @node("tags", title="Tags", description="For a test.", asks=True)
+    def tags(text: str) -> Series[str | None]:
+        raise Ask(f"Tag {text}", choices=["a", "b"])
+
+    _, run = _once(tags, text="x")
+    assert run.answer("q", ["a", None, "b", None]).resume().outputs == {
+        "result": ["a", None, "b", None]
+    }
+    assert (
+        _refused(lambda: run.answer("q", ["a", None, "a"]))[0].msg
+        == "That is not a valid answer: a choice is picked twice"
+    )
+
+
+def test_a_choice_that_is_not_a_finite_float_is_picked_by_its_json_text():
+    @node("cap", title="Cap", description="For a test.", asks=True)
+    def cap(ticket: str) -> float:
+        raise Ask(f"Cap {ticket}", choices=[1.5, float("inf")])
+
+    _, run = _once(cap, ticket="T-1")
+    assert run.waiting[0].questions[0].choices == (Choice(1.5, "1.5"), Choice("Infinity", "inf"))
+    assert run.answer("q", float("inf")).resume().outputs == {"result": float("inf")}
+
+
+def test_a_series_that_takes_none_is_answered_none_beside_its_choices():
+    @node("tags", title="Tags", description="For a test.", asks=True)
+    def tags(text: str) -> Series[str] | None:
+        raise Ask(f"Tag {text}", choices=["a", "b"])
+
+    _, run = _once(tags, text="x")
+    assert run.answer("q", None).resume().outputs == {"result": None}
+    assert run.answer("q", ["a"]).resume().outputs == {"result": ["a"]}
+
+
+def test_an_ask_proposing_none_for_a_series_that_takes_none_waits_with_that_default():
+    @node("tags", title="Tags", description="For a test.", asks=True)
+    def tags(text: str) -> Series[str] | None:
+        raise Ask(f"Tag {text}", choices=["a"], default=None)
+
+    _, run = _once(tags, text="x")
+    (question,) = run.waiting[0].questions
+    assert (question.default, question.required) == (None, False)
 
 
 class Person(Choice):
     team: str = ""
+
+
+def test_a_field_whose_choices_are_a_hosts_own_keeps_their_class_beside_one_with_the_same_json():
+    @node("plain", title="Plain", description="For a test.")
+    def plain(x: Annotated[str, Param(choices=[Choice("ida", "Ida", team="s")])]) -> str:
+        return x
+
+    @node("own", title="Own", description="For a test.")
+    def own(x: Annotated[str, Param(choices=[Person("ida", "Ida", team="s")])]) -> str:
+        return x
+
+    assert [type(c) for c in plain.describe().inputs[0].choices or ()] == [Choice]
+    assert [type(c) for c in own.describe().inputs[0].choices or ()] == [Person]
 
 
 def test_a_hosts_own_choice_carries_its_fields_to_the_question():
@@ -288,6 +409,27 @@ def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_w
         "invalid_ask",
         "the choices for 'result' are refused: "
         + ("none is given" if not choices else "one is given twice"),
+    )
+
+
+def test_two_dict_choices_with_their_keys_in_another_order_are_one_choice_given_twice():
+    twice = [{"a": 1, "b": 2}, {"b": 2, "a": 1}]
+    with pytest.raises(NodeDeclarationError) as declared:
+
+        @node("pick_declared", title="Pick", description="For a test.")
+        def pick_declared(n: Annotated[dict[str, int], Param(choices=twice)]) -> int:
+            return 0
+
+    assert declared.value.problems[0].type == "choices_invalid"
+
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick() -> dict[str, int]:
+        raise Ask("Which?", choices=twice)
+
+    cause = _once(pick)[1].cause
+    assert (cause.type, cause.ctx["reason"]) == (
+        "invalid_ask",
+        "the choices for 'result' are refused: one is given twice",
     )
 
 
@@ -572,7 +714,7 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_held_to():
     assert [
         f.msg for f in _refused(lambda: run.answer("q", {"note": "fine", "escalate": "ceo"}))
     ] == [
-        "That is not a valid answer: 'escalate': the answer is not one of the choices",
+        "That is not a valid answer: 'escalate': the value is not one of the choices",
     ]
 
 
@@ -850,7 +992,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
     )
     assert (
         _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg
-        == "That is not a valid answer: the answer is not one of the choices"
+        == "That is not a valid answer: the value is not one of the choices"
     )
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
@@ -868,7 +1010,7 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
     assert one.answer("q", {"b": 2, "a": 1}).resume().outputs == {"result": {"b": 2, "a": 1}}
     assert (
         _refused(lambda: one.answer("q", {"c": 4}))[0].msg
-        == "That is not a valid answer: the answer is not one of the choices"
+        == "That is not a valid answer: the value is not one of the choices"
     )
     _, several = _once(picks, ticket="t")
     assert several.answer("q", [[3], [1, 2]]).resume().outputs == {"result": [[3], [1, 2]]}
@@ -878,7 +1020,7 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
     )
     assert (
         _refused(lambda: several.answer("q", [[3], [3], [4]]))[0].msg
-        == "That is not a valid answer: the answer is not one of the choices"
+        == "That is not a valid answer: the value is not one of the choices"
     )
 
 
@@ -923,7 +1065,7 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
         ),
         (
             lambda: Ask("?", choices=["a"], default="b"),
-            "the default for 'result' is not an answer it takes: the answer is not one of the choices",
+            "the default for 'result' is not an answer it takes: the value is not one of the choices",
         ),
         (
             lambda: Ask("?", choices=["a", object()]),
@@ -1026,7 +1168,7 @@ def test_a_node_of_several_outputs_asks_by_output_name(ask, reason):
     assert _once(wrong)[1].cause.ctx["reason"] == reason
 
 
-def test_a_default_obeys_what_an_answer_must():
+def test_a_default_obeys_what_an_answer_must_and_none_is_no_pick():
     @node("blank", title="Blank", description="For a test.", asks=True)
     def blank() -> str | None:
         raise Ask("?", choices=["a", "b"], default=None)
@@ -1035,10 +1177,9 @@ def test_a_default_obeys_what_an_answer_must():
     def twice() -> Series[str]:
         raise Ask("?", choices=["t1", "t2"], default=["t1", "t1"])
 
-    assert (
-        _once(blank)[1].cause.ctx["reason"]
-        == "the default for 'result' is not an answer it takes: the answer is not one of the choices"
-    )
+    # None is no pick: a type that takes None takes it beside its choices, as an input's Param does
+    (question,) = _once(blank)[1].waiting[0].questions
+    assert (question.default, question.required) == (None, False)
     assert (
         _once(twice)[1].cause.ctx["reason"]
         == "the default for 'result' is not an answer it takes: a choice is picked twice"

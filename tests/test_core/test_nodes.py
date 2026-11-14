@@ -1610,6 +1610,31 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
         assert str(raised.value).endswith("; give each choice once, as a value of the field's type")
 
 
+def test_the_choices_of_a_literal_are_its_values_by_their_text_and_none_is_never_one() -> None:
+    from conductor import make_graph
+
+    with pytest.raises(NodeDeclarationError) as raised:
+
+        @node("bad", title="Bad", description="For a test.")
+        def bad(level: Annotated[Literal["low", "high"] | str, Param(choices=["low", "x"])]) -> str:
+            return level
+
+    assert raised.value.problems[0].type == "choices_invalid"
+    registry = NodeRegistry()
+    for hint, node_id in ((Literal["low", None], "spelt-in"), (Literal["low"] | None, "beside")):
+
+        @node(node_id, title="Level", description="For a test.")
+        def level(given: Annotated[hint, Param(choices=["low"])]) -> str:  # type: ignore[valid-type]
+            return str(given)
+
+        registry.add(level)
+        graph = Graph.compile(make_graph(level), registry)
+        assert [graph.run(given=value).outputs for value in ("low", None)] == [
+            {"result": "low"},
+            {"result": "None"},
+        ]
+
+
 def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_code():
     from conductor import NodeError
 

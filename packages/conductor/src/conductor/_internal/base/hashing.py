@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Callable
 from typing import Any
 
 from pydantic_core import to_jsonable_python
+
+from .json import canonical_json
 
 
 def short_hash(data: bytes, size: int) -> str:
@@ -24,8 +25,8 @@ def json_hash(value: Any, size: int, *, fallback: Callable[[Any], Any] | None = 
     """The ``short_hash`` of ``value``'s JSON text, in ``size`` bytes, with the keys of every dict sorted.
 
     ``json_hash({"b": 1, "a": 2}, 4)`` hashes ``b'{"a":2,"b":1}'``. A database may give a JSON object back with its
-    keys in another order, so the keys are sorted, by ``json.dumps(sort_keys=True)``, and a value read back from
-    a store hashes as it did before it was saved.
+    keys in another order, so the text is ``canonical_json``'s, with the keys sorted, and a value read back
+    from a store hashes as it did before it was saved.
 
     Args:
         value: What to hash.
@@ -35,10 +36,4 @@ def json_hash(value: Any, size: int, *, fallback: Callable[[Any], Any] | None = 
     Raises:
         PydanticSerializationError: A value has no JSON form, and ``fallback`` gave none.
     """
-    text = json.dumps(
-        to_jsonable_python(value, fallback=fallback),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    return short_hash(text.encode(), size)
+    return short_hash(canonical_json(to_jsonable_python(value, fallback=fallback)).encode(), size)

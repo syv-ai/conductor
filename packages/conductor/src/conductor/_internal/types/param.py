@@ -14,13 +14,19 @@ from typing import Annotated, Any, Literal, get_args, get_origin
 from pydantic import Field as PydanticField
 from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, JsonValue, TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema, PydanticCustomError, core_schema, to_json
+from pydantic_core import (
+    CoreSchema,
+    PydanticCustomError,
+    PydanticSerializationError,
+    core_schema,
+    to_jsonable_python,
+)
 
-from conductor._internal.base import plain_json
+from conductor._internal.base import canonical_json
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
-from .choice import read_choices
+from .choice import check_one_of, choice_texts, pick_texts, read_choices
 from .hint import READ_AS, union_members, union_of
 
 #: The limits ``Param`` takes, by the words pydantic's ``Field`` uses.
@@ -30,7 +36,7 @@ _LIMITS = ("ge", "gt", "le", "lt", "multiple_of", "min_length", "max_length", "p
 _Bound = float | Decimal | datetime.date | datetime.time | datetime.timedelta
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True, kw_only=True, eq=False)
 class Param:
     """What a person reads about a field, and the limits a value must keep, inside ``Annotated``::
 
@@ -72,9 +78,34 @@ class Param:
     pattern: str | None = None
 
     def __post_init__(self) -> None:
-        """Holds the choices as a tuple, so a ``Param`` hashes and an equal hint is read once."""
+        """Holds the choices as a tuple, as given."""
         if self.choices is not None:
             object.__setattr__(self, "choices", tuple(self.choices))
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Param) and self._compared == other._compared
+
+    def __hash__(self) -> int:
+        return hash(self._compared)
+
+    @functools.cached_property
+    def _compared(self) -> tuple[Any, ...]:
+        """The fields two ``Param``s are compared by, the choices as their JSON text (``canonical_json``) and the
+        class of each, so a ``Choice`` subclass keeps its class in what a host is shown."""
+        choices: Any = self.choices
+        if choices is not None:
+            try:
+                choices = (
+                    canonical_json(to_jsonable_python(choices)),
+                    tuple(type(choice) for choice in choices),
+                )
+            # no JSON form: compared as given, and refused where its type is read (choices_invalid)
+            except PydanticSerializationError:
+                pass
+        return (
+            *(getattr(self, f.name) for f in dataclasses.fields(self) if f.name != "choices"),
+            choices,
+        )
 
     @functools.cached_property
     def limits(self) -> dict[str, Any]:
@@ -123,10 +154,11 @@ class Param:
         reader = TypeAdapter(limited_hint)
 
         def as_json(value: Any) -> JsonValue:
-            return plain_json(reader.dump_python(value, mode="json"))
+            """``value`` as plain data; a float that is not finite stays a float, which ``canonical_json`` writes."""
+            return reader.dump_python(value, mode="json")
 
         try:
-            ids = [choice.id for choice in read_choices(self.choices, reader, as_json)]
+            texts = choice_texts(read_choices(self.choices, reader, as_json))
         except PydanticCustomError as refused:
             match refused.type:
                 case "no_json_form":
@@ -139,13 +171,14 @@ class Param:
                     ) from None
                 case _:  # none, or an id twice
                     raise NodeDeclarationError(declaration_problems.choices_invalid()) from None
-        literal = [
+        literal = [  # None is no pick, so it is never a choice
             value
             for option in union_members(source)
             if get_origin(option) is Literal
             for value in get_args(option)
+            if value is not None
         ]
-        if literal and {to_json(i) for i in ids} != {to_json(value) for value in literal}:
+        if literal and texts != {canonical_json(as_json(value)) for value in literal}:
             raise NodeDeclarationError(
                 declaration_problems.choices_invalid_on_a_literal(values=literal)
             )
@@ -153,8 +186,7 @@ class Param:
             return limited
 
         def one_of_the_choices(value: Any) -> Any:
-            if value is not None and as_json(value) not in ids:
-                raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
+            check_one_of(texts, pick_texts(as_json(value), several=False))
             return value
 
         return core_schema.no_info_after_validator_function(one_of_the_choices, limited)
@@ -162,7 +194,8 @@ class Param:
     def __get_pydantic_json_schema__(
         self, schema: CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
-        """Gives the JSON schema of the limited type, with this ``title`` and ``description`` where a model's field carries them."""
+        """Gives the JSON schema of the limited type, with this ``title`` and ``description`` where a model's field
+        carries them."""
         written = handler(schema)
         for key in ("title", "description"):
             if getattr(self, key) is not None:
