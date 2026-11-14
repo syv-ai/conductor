@@ -82,7 +82,7 @@ class ResultReader:
         its record lacks fails the call, the first such input in the signature; else an input that reads ``None``
         and does not accept it makes the call a ``NoneInput``, naming the first such input.
 
-        ``_list_looped_over`` calls this with item indexes one index shorter than the node's own. The result
+        ``_for_any_item_of`` calls this with item indexes one index shorter than the node's own. The result
         then says what a call of the node would be for any item: ``Skipped`` or ``NoneInput`` when every item
         would be, and arguments (some of them ``MAY_HAVE_VALUE``) when an item may be called.
 
@@ -140,9 +140,7 @@ class ResultReader:
         """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
         ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
         value = self.read_edges(graph_path, node_input.sources, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
-            return value
-        return [value]
+        return [value] if _may_have_value(value, node_input.field.accepts_none_items) is MAY_HAVE_VALUE else value
 
     def read_edges(self, graph_path: NodePath, edges: tuple[Edge, ...], item_indexes: ItemIndexes) -> Any:
         """Returns what ``edges``, the edges into an input compiled in the graph at ``graph_path``, read for
@@ -226,14 +224,18 @@ class ResultReader:
             The list, with one entry per item of the loop and ``None`` for an item with no value (its call was
             skipped or not called). ``SKIPPED`` or ``None`` instead of a list when no item can have a value,
             however many items there are (``_list_looped_over``). ``NOT_READY`` until every item has been
-            read. Asked for any item of a loop this input's loop is inside: what ``_edges_for_any_item``
-            returns.
+            read. Asked for any item of a loop this input's loop is inside: ``MAY_HAVE_VALUE``, or the
+            ``SKIPPED``, ``NOT_READY`` or ``None`` that every item reads.
         """
-        depth = len(function_node_in_run(self.function_nodes, graph_path, node_input.series[0]).loops)
+        series_node = function_node_in_run(self.function_nodes, graph_path, node_input.series[0])
+        depth, accepts_none_items = len(series_node.loops), node_input.field.accepts_none_items
         if len(item_indexes) < depth:
-            return self._edges_for_any_item(graph_path, node_input, item_indexes)
+            return _may_have_value(self.read_edges(graph_path, node_input.sources, item_indexes), accepts_none_items)
         item_indexes = item_indexes[:depth]
-        series = self._list_looped_over(graph_path, node_input, item_indexes)
+        loop = series_node.node_path, node_input.series[1]
+        sources = [function_node_in_run(self.function_nodes, graph_path, edge.node) for edge in node_input.sources]
+        for_any_item = self._for_any_item_of(loop, sources, item_indexes).read_edges(graph_path, node_input.sources, item_indexes)
+        series = self._list_looped_over(loop, for_any_item, accepts_none_items, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = node_input.sources
@@ -250,18 +252,21 @@ class ResultReader:
             items.append(None if value is SKIPPED else value)
         return items
 
-    def _list_looped_over(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
-        """Returns the list whose items ``node_input`` collects, when an item of it may have a value for
-        the input. When no item can, returns what the input is instead, however many items the list has.
+    def _list_looped_over(self, loop: tuple[NodePath, str], for_any_item: Any, accepts_none_items: bool, item_indexes: ItemIndexes) -> Any:
+        """Returns the list looped over, when an item of it may have a value. When no item can, returns what
+        every item reads instead, however many items the list has.
 
         In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node
-        inside that loop. ``arguments_for(shout, ())`` is asked first: ``()`` is the item indexes of the list,
-        one index short of a call of ``shout``. If ``shout.mark`` reads ``SKIPPED``, the answer is ``Skipped``:
-        every call of ``shout`` would be skipped, so ``join.texts`` is ``SKIPPED``, with two lines as with none.
+        inside that loop. ``for_any_item`` is what ``shout.result`` reads for any line (``_for_any_item_of``). If
+        ``shout.mark`` reads ``SKIPPED``, every call of ``shout`` would be skipped, so ``for_any_item`` is
+        ``SKIPPED`` and so is ``join.texts``, with two lines as with none.
 
         Args:
-            graph_path: The path of the graph the input was compiled in.
-            node_input: The collecting input.
+            loop: The list looped over, as a run names it: the path of the function node that returns it, and
+                the output.
+            for_any_item: What a read returns for any item of the loop: ``MAY_HAVE_VALUE``, or the ``SKIPPED``,
+                ``NOT_READY`` or ``None`` that every item reads.
+            accepts_none_items: Whether a ``None`` item counts as a value (``Series[str | None]``).
             item_indexes: The item indexes of the list.
 
         Returns:
@@ -269,38 +274,27 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        series_node, output = function_node_in_run(self.function_nodes, graph_path, node_input.series[0]), node_input.series[1]
-        sources = [function_node_in_run(self.function_nodes, graph_path, edge.node) for edge in node_input.sources]
-        any_item = self._for_any_item_of((series_node.node_path, output), sources, item_indexes)
-        value = any_item._edges_for_any_item(graph_path, node_input, item_indexes)
+        value = _may_have_value(for_any_item, accepts_none_items)
         if value is not MAY_HAVE_VALUE:
             return value
-        outcome = self.outcomes[series_node.node_path].get(item_indexes)
+        node_path, output = loop
+        outcome = self.outcomes[node_path].get(item_indexes)
         return outcome.outputs[output] if outcome is not None and outcome.has_outputs else NotReady.NOT_READY
 
-    def _for_any_item_of(self, series: tuple[NodePath, str], sources: list[BlueprintFunctionNode], item_indexes: ItemIndexes) -> ResultReader:
-        """Returns a new reader that reads ``sources`` for any item of the loop over ``series``: its
-        ``for_any_item`` has what ``arguments_for`` returns, with ``item_indexes``, for each node inside the loop
-        that ``sources`` read, worked out each after the nodes upstream of it (``loop_body_of``).
+    def _for_any_item_of(self, loop: tuple[NodePath, str], sources: list[BlueprintFunctionNode], item_indexes: ItemIndexes) -> ResultReader:
+        """Returns a new reader that reads ``sources`` for any item of ``loop``: its ``for_any_item`` has what
+        ``arguments_for`` returns, with ``item_indexes``, for each node inside the loop that ``sources`` read,
+        worked out each after the nodes upstream of it (``loop_body_of``).
 
         Args:
-            series: The list looped over, as a run names it.
+            loop: The list looped over, as a run names it.
             sources: The function nodes a value is read from.
             item_indexes: The item indexes of the list.
         """
         any_item = type(self)(self.function_nodes, self.outcomes, self.graph_inputs)
-        for node in loop_body_of(series, sources):
+        for node in loop_body_of(loop, sources):
             any_item.for_any_item[node] = any_item.arguments_for(node, item_indexes)
         return any_item
-
-    def _edges_for_any_item(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
-        """Returns what the edges into a collecting input read for any item of its loop: ``MAY_HAVE_VALUE``, or
-        the ``SKIPPED`` or ``None`` that every item would read, or ``NOT_READY``. A ``None`` that the input
-        keeps as an item (``Series[str | None]``) counts as a value."""
-        value = self.read_edges(graph_path, node_input.sources, item_indexes)
-        if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not node_input.field.accepts_none_items):
-            return value
-        return MAY_HAVE_VALUE
 
     def align_lists(self, node: BlueprintFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
         """Returns ``arguments`` with the lists collected from one loop cut to the same items.
@@ -319,3 +313,13 @@ class ResultReader:
                     if arguments[name] is not None:
                         arguments[name] = without_indexes(arguments[name], dropped)
         return arguments
+
+
+def _may_have_value(value: Any, accepts_none_items: bool) -> Any:
+    """Returns ``MAY_HAVE_VALUE`` when ``value``, what an input's edges read, can be an item of the input's list;
+    else ``value``: the ``SKIPPED``, ``NOT_READY`` or ``None`` the input gets in place of a list. A ``None`` counts
+    as an item where the items accept ``None`` (``Series[str | None]``). Read for any item of a loop, the answer
+    says whether some item of the loop may have a value."""
+    if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not accepts_none_items):
+        return value
+    return MAY_HAVE_VALUE

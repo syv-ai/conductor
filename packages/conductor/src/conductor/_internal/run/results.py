@@ -63,9 +63,9 @@ class DisplayReader(ResultReader):
             return None
         return value.as_list() if isinstance(value, StoredSeries) else value
 
-    def _list_looped_over(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def _list_looped_over(self, loop: tuple[NodePath, str], for_any_item: Any, accepts_none_items: bool, item_indexes: ItemIndexes) -> Any:
         """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
-        looped_over = ResultReader._list_looped_over(self, graph_path, node_input, item_indexes)
+        looped_over = ResultReader._list_looped_over(self, loop, for_any_item, accepts_none_items, item_indexes)
         return None if looped_over is NotReady.NOT_READY else looped_over
 
     def collect(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
@@ -96,13 +96,11 @@ class DisplayReader(ResultReader):
         """
         node, depth = function_node_in_run(self.function_nodes, (), node_path), len(item_indexes)
         if depth == len(node.loops):  # one call: its return value
-            value = self.read_output(node, output, item_indexes)
+            value = self.read_output(node, output, item_indexes, None, one_item=False)
             return None if value is SKIPPED else value
-        if self._for_any_item_of(node.loops[depth], [node], item_indexes).read_output(node, output, item_indexes) is SKIPPED:  # asked for any item of the loop
-            return None
-        series_node, series_output = node.loops[depth]
-        outcome = self.outcomes[series_node].get(item_indexes)
-        looped_over = outcome.outputs[series_output] if outcome is not None and outcome.has_outputs else None
+        loop = node.loops[depth]
+        for_any_item = self._for_any_item_of(loop, [node], item_indexes).read_output(node, output, item_indexes, None, one_item=False)
+        looped_over = self._list_looped_over(loop, for_any_item, True, item_indexes)  # a host is shown None for an item with no value
         if looped_over is None or looped_over is SKIPPED:
             return None
         return [self.display_value(node_path, output, (*item_indexes, index)) for index in range(len(looped_over))]
