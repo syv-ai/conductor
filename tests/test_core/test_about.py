@@ -12,6 +12,8 @@ import typing
 import pytest
 from conductor import about
 
+from tests.test_core.test_doors import PUBLIC_MODULES
+
 
 def test_get_content_returns_non_empty_text():
     text = about.get_content()
@@ -104,10 +106,10 @@ def test_cli_help_flag():
 
 
 #: The public modules that list names; ``conductor.about`` has none, so it has no section of them.
-PUBLIC_MODULES = ("conductor", "conductor.widgets", "conductor.events", "conductor.testing")
+NAMED_MODULES = [name for name in PUBLIC_MODULES if importlib.import_module(name).__all__]
 
 
-@pytest.mark.parametrize("module_name", PUBLIC_MODULES)
+@pytest.mark.parametrize("module_name", NAMED_MODULES)
 def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_exports_them(module_name):
     section = about.get_section(module_name.replace(".", "-"))
     assert section is not None
@@ -149,10 +151,10 @@ def test_the_cli_prints_a_modules_names():
 
 
 def _library_names() -> set[str]:
-    """Every name a reader can import: what the doors list, typing's and the builtins."""
+    """Every name a reader can import: what the public modules list, typing's and the builtins."""
     names = set(dir(typing)) | set(dir(builtins))
-    for door in ("conductor", "conductor.widgets", "conductor.events", "conductor.testing"):
-        names.update(importlib.import_module(door).__all__)
+    for module_name in PUBLIC_MODULES:
+        names.update(importlib.import_module(module_name).__all__)
     return names
 
 

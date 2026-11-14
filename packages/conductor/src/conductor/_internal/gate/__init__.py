@@ -11,39 +11,29 @@ problem as the outcome of the call it belongs to.
 Every door reads values with the validators of ``rules.py``, built there from a type's schema with the rules every
 type is held to (a yes or no is not a number); no module outside the gate builds a validator of a type.
 
-The doors, with the module each is in:
+The doors, with the module each is in (the problems page has the codes each refuses with):
 
-    door                                                    module, then its problem codes
-    a graph record, from JSON or from what make_graph and   record
-        registry.upgrade write, and the values make_graph   invalid_record, invalid_value
+    door                                                        module
+    a graph record, from JSON or from what make_graph and       record
+        registry.upgrade write, and the values make_graph
         writes into one
-    a default a node declares, and the same default read    declared
-        again by the type an edge binds its type variable   NodeDeclarationError default_invalid,
-        to                                                  invalid_value (bound_default)
-    a constant or default written in a record               constants
-                                                            invalid_value
-    what a compute_added_inputs or compute_outputs hook     hook
-        returns                                             compute_hook_failed
-    a caller's graph inputs, max_items, timeout and         inputs
-        checkpoint_every                                    not_offered, missing_input,
-                                                            invalid_input, invalid_input_make_a_series,
-                                                            invalid_limit
-    a person's answer to a node's outputs                   answer
-                                                            invalid_answer
-    what a node's function returns                          returned
-                                                            invalid_output
-    a value an edge gives an input that demands more        edge
-        than the edge's source declares                     invalid_edge_value
-    what a node raises: an Ask's choices and default        raised
-                                                            invalid_ask
-    what a node raises: a NodeError's ctx                   problem/errors.py, which stays there: NodeError
-                                                            reads it when the node makes one
-                                                            (pydantic's ValidationError at the node's raise)
-    the context= a host passes to start or resume a run     context
-                                                            invalid_context, context_missing
-    a saved run                                             run/json/, which stays there: its reader and its
-                                                            writer are one schema, with the rules of rules.py
-                                                            saved_run_unreadable, saved_run_of_another_graph
+    a default a node declares, and the same default read        declared
+        again by the type an edge binds its type variable to
+    a constant or default written in a record                   constants
+    what a compute_added_inputs or compute_outputs hook         hook
+        returns
+    a caller's graph inputs, max_items, timeout and             inputs
+        checkpoint_every
+    a person's answer to a node's outputs                       answer
+    what a node's function returns                              returned
+    a value an edge gives an input that demands more than       edge
+        the edge's source declares
+    what a node raises: an Ask's choices and default            raised
+    what a node raises: a NodeError's ctx                       problem/errors.py, which stays there: NodeError
+                                                                reads it when the node makes one
+    the context= a host passes to start or resume a run         context
+    a saved run                                                 run/json/, which stays there: its reader and its
+                                                                writer are one schema, with the rules of rules.py
 
 A type's own declarations are read where the type is declared: ``Param`` reads its choices by the type it limits
 (``types/param.py``), and ``@host_type`` its arguments.
