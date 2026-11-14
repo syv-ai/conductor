@@ -199,8 +199,8 @@ class BlueprintSubgraphNode(_BlueprintNodeBase):
         ``loud.source_of("result")`` is ``(loud/shout, "result")``. When the node inside is itself a subgraph, the
         answer is a function node inside that one.
         """
-        source = self.compiled_node.inner._outputs[output]
-        return self.inner_nodes[source.node[0]].source_of(source.output)
+        node, name = self.compiled_node.inner._node_returning(output)
+        return self.inner_nodes[node.id].source_of(name)
 
 
 #: A node of the blueprint: a function, or a subgraph.

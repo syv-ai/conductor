@@ -224,7 +224,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside, from this graph, and its output, so two outputs returned in the same loop inside name the same loop,
         and a node outside that reads both is called once per item with the two values of that item.
         """
-        inside = self.inner._loops_around(output)
+        source, output_inside = self.inner._node_returning(output)
+        inside = source.loops_around(output_inside)
         return (*self.loops, *[((self.id, *node), name) for node, name in inside])
 
     def loop_over(self, output: str) -> tuple[NodePath, str]:
@@ -235,8 +236,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         for ``upper``'s output, so a node outside that reads one item of ``parts`` and the value of ``upper`` for
         that item is called once per item with both.
         """
-        source = self.inner._outputs[output]
-        node, name = self.inner._nodes[source.node[0]].loop_over(source.output)
+        source, output_inside = self.inner._node_returning(output)
+        node, name = source.loop_over(output_inside)
         return (self.id, *node), name
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
@@ -249,7 +250,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         0)`` and that of ``quiet`` names ``short``, so one input outside may be wired to both, as it may with the same
         nodes drawn in the outer graph. A branch inside is named by the path of its node, from this graph.
         """
-        inside = self.inner._branches_required_for(output)
+        source, output_inside = self.inner._node_returning(output)
+        inside = source.branches_required_for(output_inside)
         depth = len(self.loops)
         return self.required_branches | {
             RequiredBranch((self.id, *branch.node), branch.group, branch.output, depth + branch.depth)

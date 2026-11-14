@@ -55,7 +55,6 @@ from .input import Edge
 from .node import (
     CompiledNode,
     CompiledSubgraphNode,
-    RequiredBranch,
 )
 
 if TYPE_CHECKING:
@@ -180,6 +179,15 @@ class Graph[C]:
 
     # -- what a subgraph node that uses this graph reads ------------------------
 
+    def _node_returning(self, output: str) -> tuple[CompiledNode, str]:
+        """Returns the node of this graph that returns the graph output ``output``, and the output's name on that node.
+
+        Where the record declares the graph output ``loud`` as ``shout.result``, it is the node ``shout`` and
+        ``"result"``. The node may be a subgraph node, whose own graph says which node inside it returns the output.
+        """
+        source = self._outputs[output]
+        return self._nodes[source.node[0]], source.output
+
     def _output_field(self, output: str) -> Field:
         """The graph output ``output`` as the output of a subgraph node that uses this graph: the field of the node's
         output it is, under the graph output's name.
@@ -187,8 +195,8 @@ class Graph[C]:
         An exclusive group is named by the path of the node that chooses it, from this graph (``route.length``,
         ``g/route.length`` for a node inside the subgraph node ``g``), so the groups of two nodes stay apart.
         """
-        source = self._outputs[output]
-        field = self._nodes[source.node[0]].outputs[source.output]
+        node, name = self._node_returning(output)
+        field = node.outputs[name]
         group = self._group_of(output)
         hint = Annotated[field.hint, Param(exclusive_group=place_text(*group))] if group is not None else field.hint
         return Field(output, hint, field.default)
@@ -196,25 +204,12 @@ class Graph[C]:
     def _group_of(self, output: str) -> tuple[NodePath, str] | None:
         """Returns the exclusive group the graph output ``output`` is in: the path of the function node that chooses
         it, from this graph, and the group's name; ``None`` for an output in no group."""
-        source = self._outputs[output]
-        node = self._nodes[source.node[0]]
+        node, name = self._node_returning(output)
         if isinstance(node, CompiledSubgraphNode):
-            inside = node.inner._group_of(source.output)
+            inside = node.inner._group_of(name)
             return None if inside is None else ((node.id, *inside[0]), inside[1])
-        group = node.outputs[source.output].param.exclusive_group
-        return None if group is None else (source.node, group)
-
-    def _loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
-        """Returns the loops inside this graph that the graph output ``output`` has one value per item of, outermost
-        first."""
-        source = self._outputs[output]
-        return self._nodes[source.node[0]].loops_around(source.output)
-
-    def _branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
-        """Returns the branches inside this graph that must be chosen for the graph output ``output`` to have a
-        value."""
-        source = self._outputs[output]
-        return self._nodes[source.node[0]].branches_required_for(source.output)
+        group = node.outputs[name].param.exclusive_group
+        return None if group is None else ((node.id,), group)
 
     # -- what a run uses --------------------------------------------------------
 
