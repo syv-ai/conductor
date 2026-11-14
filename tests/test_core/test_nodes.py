@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 from annotated_types import Ge
 from conductor import (
+    SKIPPED,
     Choice,
     Deprecation,
     ExternalError,
@@ -765,6 +766,60 @@ def test_a_compute_added_inputs_hook_needs_a_var_keyword_parameter():
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f, compute_added_inputs=lambda: {})
     assert raised.value.problems[0].type == "compute_added_inputs_without_var_keyword"
+
+
+def test_an_added_input_in_an_exclusive_group_is_the_hooks_failure_as_on_a_parameter():
+    def added() -> dict[str, Any]:
+        return {"extra": (Annotated[str, Param(exclusive_group="x")], "")}
+
+    @node("adds", title="Adds", description="For a test.", compute_added_inputs=added)
+    def adds(text: str, **extra: str) -> str:
+        return text
+
+    [problem] = compiled_graph(adds).problems
+    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("adds",), "exclusive_group_on_input")
+
+
+def test_an_output_of_an_exclusive_group_with_a_default_is_refused_on_a_dataclass_and_from_a_hook():
+    @dataclass(frozen=True)
+    class Kept:
+        keep: Annotated[str, Param(exclusive_group="way")] = "kept"
+        drop: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+
+    def keep(text: str) -> Kept:
+        return Kept(drop=text)
+
+    with pytest.raises(NodeDeclarationError) as refused:
+        node("keep", title="Keep", description="For a test.")(keep)
+    assert (refused.value.problems[0].type, refused.value.problems[0].ctx["variant"]) == ("default_invalid", "on_exclusive_group")
+
+    def outputs() -> dict[str, Any]:
+        return {"keep": (Annotated[str, Param(exclusive_group="way")], "kept"), "drop": (Annotated[str, Param(exclusive_group="way")], SKIPPED)}
+
+    @node("routes", title="Routes", description="For a test.", compute_outputs=outputs)
+    def routes(text: str) -> dict[str, Any]:
+        return {"drop": text}
+
+    [problem] = compiled_graph(routes).problems
+    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("routes",), "default_invalid")
+
+
+def test_an_added_input_whose_default_is_skipped_is_the_hooks_failure_and_the_function_is_never_called():
+    called = []
+
+    def added() -> dict[str, Any]:
+        return {"extra": (str, SKIPPED)}
+
+    @node("adds", title="Adds", description="For a test.", compute_added_inputs=added)
+    def adds(text: str, **extra: str) -> str:
+        called.append(extra)
+        return text
+
+    [problem] = compiled_graph(adds).problems
+    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("adds",), "default_invalid")
+    with pytest.raises(InvalidCallError):
+        compiled_graph(adds).run(text="a")
+    assert called == []
 
 
 def test_a_hook_gets_the_constant_or_else_the_declared_default():

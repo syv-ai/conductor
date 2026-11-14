@@ -64,6 +64,16 @@ What changes in how you work, before the name-by-name tables:
   as JSON raises `NodeDeclarationError` where the node is declared, with the code `widget_without_json_form`,
   `ctx.widget` the widget's class and the field's name in front of the message (it raised pydantic's
   `PydanticSerializationError`, which named no field).
+- **An input added by `compute_added_inputs` is held to what `@node` holds a parameter to.** An `exclusive_group`
+  on it, or the default `SKIPPED`, is the hook's failure, `compute_hook_failed` with `ctx.error`
+  `exclusive_group_on_input` or `default_invalid` (it was accepted, and a `SKIPPED` default reached the function as
+  the sentinel). A parameter whose default is `SKIPPED` raises `NodeDeclarationError` with `default_invalid`,
+  variant `skipped_on_input`: only an output on a branch not chosen is `SKIPPED`.
+- **An output of an `exclusive_group` has no default but `SKIPPED`.** A field of a returned dataclass in a group
+  with any other default raises `NodeDeclarationError` with `default_invalid`, variant `on_exclusive_group`, and a
+  `compute_outputs` hook that gives one is the hook's failure, `compute_hook_failed` with `ctx.error`
+  `default_invalid`. It was accepted and shown as the output's default, while leaving the output out gave a branch
+  not chosen, and returning the other branch failed with `invalid_output`.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,

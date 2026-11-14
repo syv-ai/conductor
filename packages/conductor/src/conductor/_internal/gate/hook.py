@@ -10,6 +10,7 @@ of the characters places in a graph are written with (``Name``, the rule every n
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -18,19 +19,21 @@ from conductor._internal.base import REQUIRED, Name
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, NodeDeclarationError, compile_problems
 
-from .declared import declared_field
-
 #: What a hook returns: a type, or ``(type, default)``, for each name.
 _HOOK_FIELDS = TypeAdapter(dict[Name, Any])
 
 
-def read_hook_fields(node_id: str, kind: str, returned: Any) -> dict[str, Field]:
-    """Returns what the hook ``kind`` of the node ``node_id`` returned, as fields by name.
+def read_hook_fields(node_id: str, kind: str, returned: Any, read_field: Callable[[str, Any, Any], Field]) -> dict[str, Field]:
+    """Returns what the hook ``kind`` of the node ``node_id`` returned, as fields by name, each read by
+    ``read_field`` as ``@node`` reads one: ``declared_input`` for ``compute_added_inputs``, ``declared_output`` for
+    ``compute_outputs``.
 
     Raises:
         InvalidCallError: ``compute_hook_failed``, one at each name that cannot be one (``error`` ``not_a_name``), or
-            one at the node when the hook returned no mapping (``error`` ``not_a_mapping``) or a type conductor does
-            not support (``error`` the declaration code, as ``type_not_carried``).
+            one at the node when the hook returned no mapping (``error`` ``not_a_mapping``), or a field ``@node``
+            would refuse (``error`` the declaration code: ``type_not_carried`` for a type conductor does not support,
+            ``exclusive_group_on_input`` or ``default_invalid`` for an added input that is a branch, ``default_invalid``
+            for an output of an exclusive group with a default other than ``SKIPPED``).
     """
     try:
         hints = _HOOK_FIELDS.validate_python(returned)
@@ -43,8 +46,8 @@ def read_hook_fields(node_id: str, kind: str, returned: Any) -> dict[str, Field]
             for fault in invalid.errors()
         ) from None
     try:
-        return {name: declared_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
-    except NodeDeclarationError as error:  # a type conductor does not support is the hook's failure
+        return {name: read_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
+    except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
         raise InvalidCallError([compile_problems.compute_hook_failed(node_id, reason=str(error), error=error.problems[0].type)]) from None
 
 

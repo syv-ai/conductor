@@ -53,6 +53,44 @@ def declared_field(name: str, hint: Any, default: Any) -> Field:
         raise NodeDeclarationError(refused, name) from None
 
 
+def declared_input(name: str, hint: Any, default: Any) -> Field:
+    """Returns the input ``name`` that a node declares with the type hint ``hint`` and ``default``, as
+    ``declared_field`` does, refusing what only an output can have: an input is never a branch.
+
+    ``@node`` reads each parameter of the function with it, and the hook door each input a ``compute_added_inputs``
+    hook returns, so ``text: Annotated[str, Param(exclusive_group="x")]`` is refused in both places.
+
+    Raises:
+        NodeDeclarationError: Naming the input: what ``declared_field`` refuses, an ``exclusive_group``
+            (``exclusive_group_on_input``), or the default ``SKIPPED`` (``default_invalid``, variant
+            ``skipped_on_input``).
+    """
+    if default is SKIPPED:
+        raise NodeDeclarationError(declaration_problems.default_skipped_on_input(), name)
+    field = declared_field(name, hint, default)
+    if field.param.exclusive_group is not None:
+        raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), name)
+    return field
+
+
+def declared_output(name: str, hint: Any, default: Any) -> Field:
+    """Returns the output ``name`` that a node declares with the type hint ``hint`` and ``default``, as
+    ``declared_field`` does, refusing a default an output of an exclusive group cannot have: left out of an answer,
+    or not returned, it is a branch not chosen, so its default is ``SKIPPED`` or none.
+
+    ``@node`` reads each field of a returned dataclass with it, and the hook door each output a ``compute_outputs``
+    hook returns, so ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in both places.
+
+    Raises:
+        NodeDeclarationError: Naming the output: what ``declared_field`` refuses, or a default other than
+            ``SKIPPED`` on an output of an exclusive group (``default_invalid``, variant ``on_exclusive_group``).
+    """
+    field = declared_field(name, hint, default)
+    if field.param.exclusive_group is not None and default is not REQUIRED and default is not SKIPPED:
+        raise NodeDeclarationError(declaration_problems.default_on_exclusive_group(), name)
+    return field
+
+
 def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Field:
     """Returns ``field`` with its type variables replaced by what the edges into the node ``node_id`` bind them to
     (``bound``), and its default read by the type it then has; ``field`` itself when its type has no variable.

@@ -368,6 +368,46 @@ def default_none_not_taken() -> str:
     return "the default is None, and the type does not take None; write the type with | None"
 
 
+@DECLARATION_PROBLEMS.problem("default_invalid", variant="on_exclusive_group")
+def default_on_exclusive_group() -> str:
+    """An output of an exclusive group has a default other than ``SKIPPED``.
+
+    Of an exclusive group a call gives one output, and every other is a branch not chosen: left out of an answer,
+    or not returned, it is ``SKIPPED``, never a default. Give the output the default ``SKIPPED``, or none.
+
+    Example:
+        @dataclass(frozen=True)
+        class Kept:
+            keep: Annotated[str, Param(exclusive_group="way")] = "kept"
+            drop: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+
+
+        def keep(text: str) -> Kept:
+            return Kept(keep=text)
+
+
+        declaration_refused(lambda: node("keep", title="Keep", description="Keeps the text.")(keep))
+    """
+    return "an output of an exclusive group is a branch not chosen when it is left out; give it the default SKIPPED, or none"
+
+
+@DECLARATION_PROBLEMS.problem("default_invalid", variant="skipped_on_input")
+def default_skipped_on_input() -> str:
+    """An input's default is ``SKIPPED``.
+
+    ``SKIPPED`` is the value of an output on a branch that was not chosen, so only an output's default can be it.
+    Give the input a value of its type, or no default.
+
+    Example:
+        def carried(text: str = SKIPPED) -> str:
+            return text
+
+
+        declaration_refused(lambda: node("carried", title="Carried", description="Passes the text on as it is.")(carried))
+    """
+    return "the default is SKIPPED, which only an output on a branch not chosen has; give the input a value of its type, or none"
+
+
 @DECLARATION_PROBLEMS.problem()
 def duplicate_node_id(*, id: str, first: str, second: str) -> str:
     """Two nodes added to one registry have the same id.

@@ -47,6 +47,8 @@ from conductor._internal.base import REQUIRED, NodePath, Source, place_text
 from conductor._internal.field import Field
 from conductor._internal.gate import (
     bound_field,
+    declared_input,
+    declared_output,
     read_constant,
     read_hook_fields,
     read_record,
@@ -237,7 +239,7 @@ class Compiler:
         constants = self._constants_of(node_id, record, fields)
         added: dict[str, Field] = {}
         if definition.compute_added_inputs is not None:
-            made = self._hook(node_id, definition, "compute_added_inputs", definition.compute_added_inputs, constants, {}, ())
+            made = self._hook(node_id, definition, "compute_added_inputs", definition.compute_added_inputs, declared_input, constants, {}, ())
             if made is None:
                 return
             added = made
@@ -255,7 +257,7 @@ class Compiler:
             self.problems += [found for problems in refused.values() for found in problems]
         if definition.compute_outputs is not None:
             arriving = {name: node_input.sources[0].type.bare for name, node_input in planned.inputs.items() if node_input.sources}
-            outputs = self._hook(node_id, definition, "compute_outputs", definition.compute_outputs, constants, arriving, tuple(added))
+            outputs = self._hook(node_id, definition, "compute_outputs", definition.compute_outputs, declared_output, constants, arriving, tuple(added))
         if outputs is not None:
             self.nodes[node_id] = CompiledFunctionNode(
                 id=node_id, loops=planned.loops, inputs=planned.inputs, outputs=outputs, required_branches=planned.required_branches,
@@ -452,7 +454,7 @@ class Compiler:
 
     def _hook(
         self, node_id: str, definition: FunctionDefinition[..., Any], kind: HookName, hook: Callable[..., Mapping[Any, Any]],
-        constants: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
+        read_field: Callable[[str, Any, Any], Field], constants: Mapping[str, Any], arriving: Mapping[str, Any], added: tuple[str, ...],
     ) -> dict[str, Field] | None:
         """Calls one of a node's hooks and returns what it returned, as fields by name; ``None``, with a
         problem, when the hook cannot be called, fails, or returns something that is not fields.
@@ -466,6 +468,8 @@ class Compiler:
             definition: The node's definition.
             kind: Which hook it is: ``compute_added_inputs`` or ``compute_outputs``.
             hook: The hook.
+            read_field: How each field it returns is read: ``declared_input`` or ``declared_output``, as ``@node``
+                reads a parameter or a returned field.
             constants: The constant or default the record gives each input, read by the input's type, by name.
             arriving: The type the edges into each input read, by input name.
             added: The inputs ``compute_added_inputs`` added.
@@ -496,7 +500,7 @@ class Compiler:
             self.problems.append(compile_problems.compute_hook_failed(node_id, reason=str(error), error=type(error).__name__))
             return None
         try:
-            return read_hook_fields(node_id, kind, returned)
+            return read_hook_fields(node_id, kind, returned, read_field)
         except InvalidCallError as refused:
             self.problems += refused.problems
             return None

@@ -65,7 +65,7 @@ from pydantic import JsonValue
 from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field
-from conductor._internal.gate import declared_field, read_record
+from conductor._internal.gate import declared_input, declared_output, read_record
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Type
@@ -289,9 +289,7 @@ def _read_signature(
         if name not in hints:
             raise NodeDeclarationError(declaration_problems.input_without_type(), name)
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
-        inputs[name] = declared_field(name, hints[name], default)
-        if inputs[name].param.exclusive_group is not None:
-            raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), name)
+        inputs[name] = declared_input(name, hints[name], default)
     if "return" not in hints:
         raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
@@ -305,10 +303,10 @@ def _read_signature(
             raise NodeDeclarationError(declaration_problems.outputs_not_frozen())
         given = dict(zip(getattr(returned_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
         own = typing.get_type_hints(returned_class, include_extras=True)
-        outputs = {f.name: declared_field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(returned_class)}
+        outputs = {f.name: declared_output(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(returned_class)}
         outputs_dataclass = returned_class
     else:
-        outputs = {"result": Field("result", returns)}
+        outputs = {"result": declared_output("result", returns, REQUIRED)}
     on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
     for field in (*inputs.values(), *outputs.values()):
         for variable in field.whole.variables:
