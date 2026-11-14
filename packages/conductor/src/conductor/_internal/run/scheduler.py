@@ -578,6 +578,9 @@ class Scheduler:
                 continue
             running_calls.finish(give_parked_runs_a_turn=True)
             self._made_here(attempt, outputs, error)
+            # An exception held in a local of this frame makes a cycle through its traceback, which keeps the frames
+            # of the call and their values alive until the garbage collector runs.
+            del error
 
     def _cancel_queued(self, attempt: _Attempt) -> None:
         """Take ``attempt`` off the pool's queue if its thread has not started it, and count it out, as it will
