@@ -82,8 +82,11 @@ class Field:
 
     @functools.cached_property
     def accepts_none_items(self) -> bool:
-        """Whether a field that gathers keeps the place of an item with no value, as a blank: a ``Series`` whose
-        item type takes one. A table never does, as a record is never blank."""
+        """Whether a ``Series`` input that collects a loop keeps an item that is ``None``, or drops it.
+
+        A loop over ``["a", "b", "c"]`` whose node returns ``None`` for ``"b"``: an input ``Series[str | None]``
+        collects ``["a", None, "c"]``, and an input ``Series[str]`` collects ``["a", "c"]``. True only for a
+        ``Series`` whose item type takes ``None``; never for a table, as a record is never ``None``."""
         return self.is_series and self.type.optional
 
     @functools.cached_property
