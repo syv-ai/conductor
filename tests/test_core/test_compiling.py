@@ -506,7 +506,7 @@ def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
 def test_a_subgraph_node_offers_its_inner_graph_input_and_output_as_its_own():
     assert enrich.title == "Enrich"
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "enrich", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), REGISTRY)
-    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].title == "Text"
+    assert graph.problems == [] and list(graph.inputs) == ["text"] and graph.inputs["text"].title is None
     run = graph.run(text="hi")
     assert graph.outputs == ["result"] and run.outputs == {"result": "HI."} and run.results["e"] == {"result": "HI."}
 

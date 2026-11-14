@@ -265,7 +265,7 @@ def test_a_number_and_a_date_are_read_from_their_json_form_into_the_outputs_type
     assert _refused(lambda: run.answer("q", "next tuesday"))[0].type == "invalid_answer"
 
 
-def test_a_lone_output_is_titled_by_its_own_label_never_by_the_node():
+def test_a_lone_output_is_titled_by_its_own_param_never_by_the_node():
     @node("ask", description="For a test.", title="Approve the invoice", asks=True)
     def ask() -> str:
         raise Ask("?")
@@ -274,7 +274,7 @@ def test_a_lone_output_is_titled_by_its_own_label_never_by_the_node():
     def named() -> Annotated[str, Param(title="Decision", description="What you decided")]:
         raise Ask("?")
 
-    assert _once(ask)[1].waiting[0].questions[0].title == "Result"
+    assert _once(ask)[1].waiting[0].questions[0].title is None
     question = _once(named)[1].waiting[0].questions[0]
     assert (question.title, question.description) == ("Decision", "What you decided")
 
@@ -1052,7 +1052,7 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
     assert run.cause.ctx["reason"] == "the choices for 'result' are refused: Input should be a valid string"
 
 
-def test_a_lone_output_is_asked_under_the_label_describe_shows_for_it():
+def test_a_lone_output_is_asked_under_the_title_describe_shows_for_it():
     @node("reason", title="Closing reason", description="Asks why a ticket was closed.", asks=True)
     def reason(ticket: str) -> str:
         raise Ask("Why was it closed?")
@@ -1061,7 +1061,7 @@ def test_a_lone_output_is_asked_under_the_label_describe_shows_for_it():
     (output,) = graph.describe().nodes["reason"].outputs
     (waiting,) = graph.run(ticket="t").waiting
 
-    assert waiting.questions[0].title == output.title == "Result"
+    assert waiting.questions[0].title is output.title is None
 
 
 def test_a_declared_choice_is_answered_by_the_id_its_question_shows() -> None:

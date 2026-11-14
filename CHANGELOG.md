@@ -56,6 +56,10 @@ What changes in how you work, before the name-by-name tables:
   `computes_outputs` are false, and its fields are listed by `registry.describe()` only. A palette carries no policy:
   `PolicyDescription` is gone, and a host reads a function's `Policy` from its definition. `Policy` is a frozen
   pydantic dataclass, never written as JSON, and a policy out of bounds raises pydantic's validation error.
+- **A field's `title` is what its `Param(title=)` says, and `null` without one.** Nothing is guessed from the
+  field's name: `case_sensitive` with no title has `"title": null` in `describe()`, `graph.describe()`, a graph
+  input and a waiting call's question (it was "Case sensitive", and a lone output's "Result"). A host that shows a
+  label for an untitled field writes its own from `name`.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,

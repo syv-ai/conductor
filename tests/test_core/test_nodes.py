@@ -325,18 +325,18 @@ def test_each_of_several_outputs_carries_its_own_type_and_title():
 
     outputs = {f.name: f for f in parts.describe().outputs}
     assert {n: f.type for n, f in outputs.items()} == {"name": "str", "count": "int", "case_sensitive": "bool", "renamed": "float"}
-    assert {n: f.title for n, f in outputs.items()} == {"name": "Name", "count": "Count", "case_sensitive": "Case sensitive", "renamed": "Score"}
+    assert {n: f.title for n, f in outputs.items()} == {"name": None, "count": None, "case_sensitive": None, "renamed": "Score"}
     # the output typed `| None` may be None, the one beside it may not
     assert {"type": "null"} in outputs["count"].json_schema["anyOf"] and "anyOf" not in outputs["name"].json_schema
     assert compiled_graph(parts).run(text="a").results["parts"] == {"name": "a", "count": None, "case_sensitive": True, "renamed": 1.0}
 
 
-def test_an_untitled_field_reads_as_its_name_in_everyday_words():
+def test_an_untitled_field_has_no_title_and_none_is_guessed_from_its_name():
     @node("f", title="F", description="For a test.")
     def f(case_sensitive: bool, texts: Series[str], titled: Annotated[str, Param(title="Given")]) -> str:
         return ""
 
-    assert [i.title for i in f.describe().inputs] == ["Case sensitive", "Texts", "Given"]
+    assert [i.title for i in f.describe().inputs] == [None, None, "Given"]
 
 
 # -- the type of an input or output ------------------------------------------------------------
@@ -505,7 +505,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         return ""
 
     assert json.loads(f.describe().model_dump_json(exclude_none=True))["inputs"][0] == {
-        "name": "x", "title": "X", "is_series": False, "required": True, "type": "Any", "type_variables": [], "schema": {}, "loops": [],
+        "name": "x", "is_series": False, "required": True, "type": "Any", "type_variables": [], "schema": {}, "loops": [],
     }
 
 

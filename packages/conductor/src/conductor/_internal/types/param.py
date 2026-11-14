@@ -41,7 +41,7 @@ class Param:
     (``pydantic_field_in_hint``).
 
     Attributes:
-        title: What a person reads for the field; its name in everyday words when not given.
+        title: What a person reads for the field; ``None`` when not given, and nothing is guessed from its name.
         description: A longer text about the field, for its help.
         widget: The ``conductor.widgets`` control a person edits the field with (on an output, answers it with); a
             host's own is a subclass of ``Widget``. Carried to the host and never read here.

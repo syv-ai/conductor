@@ -93,7 +93,7 @@ class Field:
         """The field as an editor reads it, made once."""
         widget = self.param.widget
         return FieldDescription(
-            name=self.name, title=self.param.title or self.name.replace("-", " ").replace("_", " ").strip().capitalize(),
+            name=self.name, title=self.param.title,
             description=self.param.description, is_series=self.is_series, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
             schema=self.type.json_schema, required=self.default is REQUIRED, default=self.default_json,
             choices=self.type.choices,

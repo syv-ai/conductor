@@ -16,7 +16,7 @@ class FieldDescription(ConductorModel):
 
     Attributes:
         name: The parameter's name, or the output's.
-        title: What a person reads as its name.
+        title: What a person reads as its name, as its ``Param(title=)`` declares; ``None`` when it declares none.
         description: A longer text for its help.
         is_series: Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input
             that takes every item of a loop as one list.
@@ -39,7 +39,7 @@ class FieldDescription(ConductorModel):
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True, serialize_by_alias=True)
 
     name: str
-    title: str
+    title: str | None = None
     description: str | None = None
     is_series: bool
     type: str
