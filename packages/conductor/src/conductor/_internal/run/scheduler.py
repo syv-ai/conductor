@@ -13,7 +13,9 @@ A run of it has five calls. A call is a node and item indexes: ``lines ()``, ``s
 ``shout (2,)`` and ``join ()``. For each, the scheduler asks ``arguments_for(node, item_indexes)``. For
 ``shout (1,)`` the answer is ``NOT_READY`` until ``lines`` has an outcome, and ``{"line": "b", "mark": "!"}``
 after. The scheduler then calls ``shout`` with those arguments and writes what it returns as the outcome
-``outcomes[("shout",)][(1,)] = Done({"result": "B!"})``. Outcomes are the only thing it changes in a run.
+``outcomes[("shout",)][(1,)] = Done({"result": "B!"})``. Outcomes are the only thing it writes into a run. The
+one other thing it changes in a run is the outcomes of an earlier run that its calls may reuse: an outcome of a
+node that may ask a person is taken out once a call reuses it (job 3).
 
 ``Scheduler``'s jobs follow, and its methods are in the same order.
 
@@ -253,8 +255,7 @@ class Scheduler:
         #: that the calls it collects start with.
         self.collectors: set[tuple[BlueprintFunctionNode, ItemIndexes]] = set()
         #: The calls with an attempt on a thread, waiting to start, or waiting to be retried, each with that attempt.
-        #: speed only: a dict where a set would do. It is listed whenever nothing is ready, and a set that had 2,000 calls
-        #: in it is slow to list for the rest of its life: 18% of a run of 6,000 calls on threads.
+        #: An attempt back from its thread, or whose deadline is due, counts only while it is still the call's attempt.
         self.running: dict[tuple[BlueprintFunctionNode, ItemIndexes], _Attempt] = {}
 
         # 2. Threads, retries and timeouts.
