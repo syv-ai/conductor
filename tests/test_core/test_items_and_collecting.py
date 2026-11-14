@@ -973,8 +973,8 @@ def test_collecting_waits_for_the_branch_upstream_of_its_loop_before_it_is_calle
                    registry=registry_of(split, delayed, join))
     CALLED.clear()
     timer = Timer(0.2, release.set)
-    timer.start()
     started = time.monotonic()
+    timer.start()
     run = compiled.run(text="a|slow-no")
     assert time.monotonic() - started >= 0.2 and run.status == "complete", run.cause
     assert run.results["j"]["result"] == ["a", None]
