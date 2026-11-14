@@ -180,6 +180,30 @@ def test_a_dataclass_whose_one_field_is_named_result_is_spread_like_any_dataclas
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("g",)) and "OnlyResult" in run.cause.ctx["reason"]
 
 
+@dataclass(frozen=True)
+class NoFields:
+    pass
+
+
+def test_a_dataclass_with_no_fields_is_returned_as_itself_and_none_is_refused():
+    """It declares no outputs, as ``-> None`` does, but the node returns the dataclass, never ``None``."""
+    assert _returning(NoFields(), NoFields).results["g"] == {}
+
+    run = _returning(None, NoFields)
+
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("g",)) and "NoFields" in run.cause.ctx["reason"]
+
+
+def test_a_hook_that_gives_the_one_output_result_is_returned_as_a_mapping():
+    @node("named-result", title="Named result", description="For a test.", compute_outputs=lambda: {"result": str})
+    def named_result() -> Any:
+        return {"result": "hi"}
+
+    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "named-result"}}, "outputs": {"result": {"node": "c", "output": "result"}}}), registry_of(named_result))
+
+    assert graph.run().results["c"] == {"result": "hi"}
+
+
 def test_a_call_whose_second_output_is_invalid_writes_none_of_its_outputs():
     run = _returning(Pair("ok", "many"), Pair)  # type: ignore[arg-type]
 

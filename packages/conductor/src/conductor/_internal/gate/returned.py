@@ -18,7 +18,6 @@ value in its message.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from pydantic import ValidationError
@@ -36,36 +35,6 @@ from conductor._internal.problem import InvalidCallError, run_problems
 from .rules import exact_classes, output_schema_of, output_validator_of
 
 
-@dataclass(frozen=True, slots=True)
-class OneResult:
-    """The function returns one value, its output ``result``."""
-
-
-@dataclass(frozen=True, slots=True)
-class OutputsClass:
-    """The function returns a frozen dataclass, one output per field.
-
-    Attributes:
-        cls: The dataclass.
-    """
-
-    cls: type
-
-
-@dataclass(frozen=True, slots=True)
-class HookOutputs:
-    """The function returns a mapping of the outputs its ``compute_outputs`` hook gave when the graph was compiled."""
-
-
-@dataclass(frozen=True, slots=True)
-class NoOutputs:
-    """The function returns ``None``: the node has no outputs."""
-
-
-#: How a node's function returns its outputs, read from its signature by ``@node`` and read back by the door.
-ReturnShape = OneResult | OutputsClass | HookOutputs | NoOutputs
-
-
 class ReturnDoor:
     """Reads what one node's function returned into the node's outputs by name, as a run keeps them.
 
@@ -76,24 +45,27 @@ class ReturnDoor:
             nothing of the value.
     """
 
-    def __init__(self, returns: ReturnShape, outputs: Mapping[str, Field]) -> None:
-        """Builds the door for a node whose function returns its outputs as ``returns`` says.
+    def __init__(self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]) -> None:
+        """Builds the door for a node whose function returns ``outputs``.
+
+        The function returns them as a frozen dataclass when it declares one, as a mapping when its
+        ``compute_outputs`` hook gave them, as ``None`` when there are none, and otherwise as one value, ``result``.
 
         Args:
-            returns: How the function returns its outputs: one value, a dataclass, a mapping, or nothing.
+            outputs_dataclass: The frozen dataclass the function returns its outputs as, or ``None``.
+            computes_outputs: Whether the node's ``compute_outputs`` hook gave its outputs.
             outputs: The node's outputs, by name.
         """
         self._names = tuple(outputs)
         self._read: Callable[[Any], dict[str, Any]]
-        match returns:
-            case NoOutputs():
-                self._read = _no_outputs
-            case OneResult():
-                self._read = _one_output(outputs["result"])
-            case OutputsClass(cls=cls):
-                self._read = _several_outputs(outputs, _dataclass_fields(cls, self._names))
-            case HookOutputs():
-                self._read = _several_outputs(outputs, _mapping_items(self._names))
+        if outputs_dataclass is not None:
+            self._read = _several_outputs(outputs, _dataclass_fields(outputs_dataclass, self._names))
+        elif computes_outputs:
+            self._read = _several_outputs(outputs, _mapping_items(self._names))
+        elif not outputs:
+            self._read = _no_outputs
+        else:
+            self._read = _one_output(outputs["result"])
 
     def __call__(self, returned: Any) -> dict[str, Any]:
         """Returns the outputs of the node that returned ``returned``.

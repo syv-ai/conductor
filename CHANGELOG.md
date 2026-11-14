@@ -94,7 +94,7 @@ What changes in how you work, before the name-by-name tables:
   keeps (pydantic metadata, so its limits and choices apply inside your own `BaseModel` or dataclass
   too, and a field's `schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
   winning, and a `Param` on a `Series` item is the field's; a table's column
-  typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several. A
+  typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several (kept as the definition's `outputs_dataclass`). A
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
   `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
   auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, whose

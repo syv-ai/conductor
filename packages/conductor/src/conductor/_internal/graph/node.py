@@ -142,7 +142,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
     def return_door(self) -> ReturnDoor:
         """Reads what the node's function returns into its outputs by name: ``{"result": "B!"}`` for ``shout``
         returning ``"B!"``. Built on the node's first call."""
-        return ReturnDoor(self.definition.returns, self.outputs)
+        return ReturnDoor(self.definition.outputs_dataclass, self.definition.compute_outputs is not None, self.outputs)
 
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:

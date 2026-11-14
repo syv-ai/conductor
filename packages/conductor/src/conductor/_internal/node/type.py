@@ -19,7 +19,6 @@ from pydantic import JsonValue
 from conductor._internal.base import REQUIRED, qualified_name
 from conductor._internal.context import ContextParameter
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import ReturnShape
 from conductor._internal.record import GraphRecord
 
 from .describe import NodeDescription
@@ -167,8 +166,8 @@ class FunctionDefinition[**P, R](_Version):
         inputs: Each input by name, as its signature declares it. The ``Context`` parameter is not an input: it is
             ``context``. An input a hook adds is not here either; a compiled graph's node has it.
         outputs: Each output by name: ``result`` for one value, a field each for a frozen dataclass returned.
-        returns: What the function returns: one ``result``, a frozen dataclass of outputs, the mapping of outputs a
-            ``compute_outputs`` hook gave, or nothing.
+        outputs_dataclass: The frozen dataclass the function returns its outputs as, one output per field. ``None``
+            when it returns one value (``result``), the mapping of outputs its ``compute_outputs`` hook gave, or nothing.
         policy: How it runs: how many calls at once, its retries and time limit, whether it reuses earlier work.
         compute_added_inputs: A hook run at load that adds inputs from the values typed into it; the function takes
             them as ``**kwargs``.
@@ -187,7 +186,7 @@ class FunctionDefinition[**P, R](_Version):
     function: NodeFunction[P, R]
     inputs: Mapping[str, Field]
     outputs: Mapping[str, Field]
-    returns: ReturnShape
+    outputs_dataclass: type | None
     policy: Policy = Policy()
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None

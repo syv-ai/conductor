@@ -65,15 +65,7 @@ from pydantic import JsonValue
 from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field
-from conductor._internal.gate import (
-    HookOutputs,
-    NoOutputs,
-    OneResult,
-    OutputsClass,
-    ReturnShape,
-    declared_field,
-    read_record,
-)
+from conductor._internal.gate import declared_field, read_record
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Type
@@ -151,7 +143,7 @@ def node(
         try:
             if inspect.iscoroutinefunction(target) or inspect.isasyncgenfunction(target):
                 raise NodeDeclarationError(declaration_problems.async_run())
-            inputs, context, outputs, returns = _read_signature(target, compute_outputs is not None)
+            inputs, context, outputs, outputs_dataclass = _read_signature(target, compute_outputs is not None)
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
                 raise NodeDeclarationError(declaration_problems.compute_added_inputs_without_var_keyword())
@@ -165,7 +157,7 @@ def node(
                 for kind, hook in hooks.items() if hook is not None
             }
             definition = FunctionDefinition(
-                function=target, inputs=inputs, outputs=outputs, returns=returns, context=context,
+                function=target, inputs=inputs, outputs=outputs, outputs_dataclass=outputs_dataclass, context=context,
                 id=id, version=number, title=title, description=description,
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
                 replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
@@ -265,14 +257,15 @@ def _version_number(
 
 def _read_signature(
     function: Callable[..., Any], computed_outputs: bool,
-) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], ReturnShape]:
+) -> tuple[dict[str, Field], ContextParameter | None, dict[str, Field], type | None]:
     """Reads a function's signature.
 
     A type variable in it (``def keep[T](value: T) -> T``) stays in the field's hint, to be bound when a graph loads.
 
     Returns:
         The inputs by name, the ``Context`` parameter (``None`` when the first parameter is not one), the outputs
-        by name, and what kind of value the function returns them as.
+        by name, and the frozen dataclass the function returns its outputs as (``None`` when it returns one value, a
+        mapping or nothing).
 
     Raises:
         NodeDeclarationError: A parameter or the return type is declared in a way a node can't have.
@@ -302,22 +295,20 @@ def _read_signature(
     if "return" not in hints:
         raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
-    outputs: dict[str, Field] = {}
-    kind: ReturnShape
-    outputs_class = typing.get_origin(returns) or returns  # a generic dataclass of outputs is written with its arguments
-    if computed_outputs:
-        kind = HookOutputs()
-    elif returns is None or returns is type(None):
-        kind = NoOutputs()
-    elif isinstance(outputs_class, type) and dataclasses.is_dataclass(outputs_class):
-        if not outputs_class.__dataclass_params__.frozen:  # type: ignore[attr-defined]
+    outputs: dict[str, Field]
+    outputs_dataclass: type | None = None
+    returned_class = typing.get_origin(returns) or returns  # a generic dataclass of outputs is written with its arguments
+    if computed_outputs or returns is None or returns is type(None):
+        outputs = {}
+    elif isinstance(returned_class, type) and dataclasses.is_dataclass(returned_class):
+        if not returned_class.__dataclass_params__.frozen:  # type: ignore[attr-defined]
             raise NodeDeclarationError(declaration_problems.outputs_not_frozen())
-        given = dict(zip(getattr(outputs_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
-        own = typing.get_type_hints(outputs_class, include_extras=True)
-        outputs = {f.name: declared_field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(outputs_class)}
-        kind = OutputsClass(outputs_class)
+        given = dict(zip(getattr(returned_class, "__parameters__", ()), typing.get_args(returns), strict=True))  # the class's variables as the signature names them
+        own = typing.get_type_hints(returned_class, include_extras=True)
+        outputs = {f.name: declared_field(f.name, Type(own[f.name]).bind(given).hint if given else own[f.name], _declared_default(f)) for f in dataclasses.fields(returned_class)}
+        outputs_dataclass = returned_class
     else:
-        outputs, kind = {"result": Field("result", returns)}, OneResult()
+        outputs = {"result": Field("result", returns)}
     on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
     for field in (*inputs.values(), *outputs.values()):
         for variable in field.whole.variables:
@@ -325,7 +316,7 @@ def _read_signature(
                 raise NodeDeclarationError(declaration_problems.type_variable_constrained(variable=variable.__name__), field.name)
             if variable not in on_inputs:
                 raise NodeDeclarationError(declaration_problems.type_variable_only_in_return(variable=variable.__name__), field.name)
-    return inputs, context, outputs, kind
+    return inputs, context, outputs, outputs_dataclass
 
 
 def _declared_default(declared: DataclassField[Any]) -> Any:
