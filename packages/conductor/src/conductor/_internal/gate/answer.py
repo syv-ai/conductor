@@ -23,7 +23,7 @@ from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError
 
 from conductor._internal.ask import as_asked
-from conductor._internal.base import SKIPPED, Loc, validate_as_json
+from conductor._internal.base import SKIPPED, Loc, json_hash, validate_as_json
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Choice, Type, untyped_as_json
@@ -118,7 +118,8 @@ def answer_value(field: Field, value: Any, choices: tuple[Choice, ...] | None) -
     """Reads one question's answer into the form a run keeps, held to ``choices``.
 
     ``answer_value(field, "bo", (Choice("ida", "Ida B."), Choice("bo", "Bo K.")))`` for a field ``str`` is ``"bo"``;
-    ``"al"`` is not one of the choices. A ``Series`` output picks several, each once.
+    ``"al"`` is not one of the choices. A ``Series`` output picks several, each once. A pick and a choice are the
+    same when their JSON texts are, with the keys of a dict in any order, so an id may be a list or a dict.
 
     Args:
         field: The field the question is about.
@@ -132,11 +133,17 @@ def answer_value(field: Field, value: Any, choices: tuple[Choice, ...] | None) -
     read = read_as_answer(field.whole, value)
     if choices is not None:
         picked: Any = field.whole.to_json(read)
-        picks = picked if field.is_series else [picked]
-        ids = [choice.id for choice in choices]
-        if any(item not in ids for item in picks):
+        ids = {json_hash(choice.id, 16) for choice in choices}  # an id may be a list or a dict, so it is keyed by its JSON
+        seen: set[str] = set()
+        not_a_choice = picked_twice = False
+        for item in picked if field.is_series else [picked]:
+            key = json_hash(item, 16)
+            not_a_choice = not_a_choice or key not in ids
+            picked_twice = picked_twice or key in seen
+            seen.add(key)
+        if not_a_choice:
             raise PydanticCustomError("not_a_choice", "the answer is not one of the choices")
-        if len({repr(item) for item in picks}) != len(picks):
+        if picked_twice:
             raise PydanticCustomError("picked_twice", "a choice is picked twice")
     return read
 

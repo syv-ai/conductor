@@ -498,6 +498,24 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
 
+def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
+    @node("pick", title="Pick", description="For a test.", asks=True)
+    def pick(ticket: str) -> dict[str, int]:
+        raise Ask("Which?", choices=[{"a": 1, "b": 2}, {"c": 3}])
+
+    @node("picks", title="Picks", description="For a test.", asks=True)
+    def picks(ticket: str) -> Series[list[int]]:
+        raise Ask("Which?", choices=[[1, 2], [3]])
+
+    _, one = _once(pick, ticket="t")
+    assert one.answer("q", {"b": 2, "a": 1}).resume().outputs == {"result": {"b": 2, "a": 1}}
+    assert _refused(lambda: one.answer("q", {"c": 4}))[0].msg == "That is not a valid answer: the answer is not one of the choices"
+    _, several = _once(picks, ticket="t")
+    assert several.answer("q", [[3], [1, 2]]).resume().outputs == {"result": [[3], [1, 2]]}
+    assert _refused(lambda: several.answer("q", [[3], [3]]))[0].msg == "That is not a valid answer: a choice is picked twice"
+    assert _refused(lambda: several.answer("q", [[3], [3], [4]]))[0].msg == "That is not a valid answer: the answer is not one of the choices"
+
+
 def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and_after_resume():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"q": {"node": "colours", "inputs": {"name": {"constant": "x"}}}, "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}), registry_of(colours, upper))
     answered = graph.run().answer("q", [])
