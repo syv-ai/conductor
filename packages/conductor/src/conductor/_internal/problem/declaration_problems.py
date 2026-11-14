@@ -1049,3 +1049,38 @@ def widget_outside_param() -> str:
         declaration_refused(lambda: node("note", title="Note", description="Hands a note on.")(note))
     """
     return "a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]"
+
+
+@DECLARATION_PROBLEMS.problem()
+def widget_without_json_form(*, widget: str) -> str:
+    """A field's widget holds a value with no JSON form, so it cannot be sent to an editor.
+
+    A widget is sent to an editor as JSON. A field of a widget class typed ``Any`` takes any value, and one pydantic
+    cannot write as JSON (an object of a class of your own) is found here, where the node is declared. Give the
+    widget's fields values that write as JSON, such as the id of what the control shows.
+
+    Args:
+        widget: The widget's class.
+
+    Example:
+        from typing import Any, Literal
+
+        from conductor.widgets import Widget
+
+
+        class Shelf:
+            pass
+
+
+        class ShelfPicker(Widget):
+            type: Literal["shelf-picker"] = "shelf-picker"
+            shelf: Any = None
+
+
+        def pick_from_shelf(book: Annotated[str, Param(widget=ShelfPicker(shelf=Shelf()))]) -> str:
+            return book
+
+
+        declaration_refused(lambda: node("pick_from_shelf", title="Pick a book", description="Picks a book from a shelf.")(pick_from_shelf))
+    """
+    return f"the widget {widget} holds a value with no JSON form; give its fields values that write as JSON"

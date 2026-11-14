@@ -23,7 +23,7 @@ from conductor import (
 )
 from conductor.widgets import Widget
 from pydantic import BaseModel, GetCoreSchemaHandler, JsonValue, model_validator
-from pydantic_core import CoreSchema, PydanticSerializationError, core_schema
+from pydantic_core import CoreSchema, core_schema
 
 from tests.test_core.nodes import registry_of
 
@@ -134,7 +134,7 @@ def test_a_bug_in_a_hosts_schema_hook_is_raised_as_itself() -> None:
                 return cls.no_such_helper()  # type: ignore[attr-defined]
 
 
-def test_a_widget_with_no_json_form_fails_where_the_node_is_declared() -> None:
+def test_a_widget_with_no_json_form_is_a_declaration_problem_naming_the_field() -> None:
     class Catalogue:
         pass
 
@@ -142,11 +142,12 @@ def test_a_widget_with_no_json_form_fails_where_the_node_is_declared() -> None:
         type: Literal["picker"] = "picker"
         source: Any = None
 
-    with pytest.raises(PydanticSerializationError):
+    def pick(value: Annotated[str, Param(widget=Picker(source=Catalogue()))]) -> str:
+        return value
 
-        @node("pick", title="Pick", description="For a test.")
-        def pick(value: Annotated[str, Param(widget=Picker(source=Catalogue()))]) -> str:
-            return value
+    with pytest.raises(NodeDeclarationError, match=r"@node\('pick'\) on .*pick: value: the widget Picker holds a value with no JSON form") as raised:
+        node("pick", title="Pick", description="For a test.")(pick)
+    assert [(p.type, p.ctx["widget"]) for p in raised.value.problems] == [("widget_without_json_form", "Picker")]
 
 
 def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:

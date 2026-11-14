@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any, get_args, get_origin
 
 from pydantic import JsonValue
+from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
@@ -58,9 +59,8 @@ class Field:
         """Reads the hint once, refusing a type conductor can't carry.
 
         Raises:
-            NodeDeclarationError: Naming the field: a type pydantic has no schema for, a ``Series`` of ``Series``, or
-                a ``Param`` that doesn't fit.
-            PydanticSerializationError: The widget has no JSON form.
+            NodeDeclarationError: Naming the field: a type pydantic has no schema for, a ``Series`` of ``Series``, a
+                ``Param`` that doesn't fit, or a widget with no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
         try:
@@ -74,8 +74,6 @@ class Field:
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
-        if self.param.widget is not None:
-            self.description  # noqa: B018  a widget with no JSON form fails here
 
     @functools.cached_property
     def default_json(self) -> JsonValue:
@@ -109,8 +107,8 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
     the hint they were written.
 
     Raises:
-        NodeDeclarationError: A ``Series`` of ``Series`` (``nested_series``), or a widget in ``Annotated`` that is
-            not on a ``Param`` (``widget_outside_param``).
+        NodeDeclarationError: A ``Series`` of ``Series`` (``nested_series``), a widget in ``Annotated`` that is
+            not on a ``Param`` (``widget_outside_param``), or a widget with no JSON form (``widget_without_json_form``).
     """
     bare, param, others = split_hint(hint)
     beside_param = others  # what Annotated holds that is no Param, on the field and on a Series' item
@@ -124,6 +122,11 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
     if any(isinstance(metadata, Widget) for metadata in beside_param):  # pydantic would pass it by, and the field would show no control
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
+    if param.widget is not None:
+        try:
+            param.widget.model_dump(mode="json")
+        except PydanticSerializationError:
+            raise NodeDeclarationError(declaration_problems.widget_without_json_form(widget=type(param.widget).__name__)) from None
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)

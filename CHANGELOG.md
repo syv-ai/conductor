@@ -60,6 +60,10 @@ What changes in how you work, before the name-by-name tables:
   field's name: `case_sensitive` with no title has `"title": null` in `describe()`, `graph.describe()`, a graph
   input and a waiting call's question (it was "Case sensitive", and a lone output's "Result"). A host that shows a
   label for an untitled field writes its own from `name`.
+- **A widget with no JSON form is a declaration problem.** A widget given a value its `Any` field cannot write
+  as JSON raises `NodeDeclarationError` where the node is declared, with the code `widget_without_json_form`,
+  `ctx.widget` the widget's class and the field's name in front of the message (it raised pydantic's
+  `PydanticSerializationError`, which named no field).
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,
