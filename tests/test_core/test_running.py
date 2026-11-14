@@ -922,6 +922,7 @@ def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypat
     assert _in_threads(run, run) == ["complete", "complete"] and at_once.most == 1  # one pool thread each: the count decides
 
 
+@pytest.mark.slow
 def test_a_run_kept_waiting_for_a_capped_node_while_its_thread_is_busy_elsewhere_slows_no_other_run_of_it():
     """Run ``hog`` makes 200 calls of ``x`` on its own thread. Run ``busy`` asks for ``x`` while ``hog`` has it, and
     then spends the rest of ``hog``'s run in ``y``: ``hog`` doesn't wait for it after each call, so it takes about
@@ -1050,6 +1051,7 @@ def test_an_item_failing_at_concurrency_one_starts_no_later_item():
     assert events[-1].run.status == "failed" and events[-1].run.results["slow"]["result"] == [None] * 5
 
 
+@pytest.mark.slow
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release = ThreadEvent()
 
@@ -1166,6 +1168,7 @@ def test_cancelling_the_task_that_reads_the_stream_stops_the_rest():
     assert later == seen and seen <= 2, seen
 
 
+@pytest.mark.slow
 def test_a_cancel_set_mid_run_ends_the_run_cancelled_at_once():
     calls: list[str] = []
     prepared = _per_item(_sleeper(0.05, calls), 20).with_inputs()

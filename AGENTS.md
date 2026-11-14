@@ -22,7 +22,7 @@ uvx ruff check .             # lint, as CI runs it
 uv run mypy packages         # type-check, as CI runs it
 ```
 
-CI runs ruff, mypy and pytest on every PR. Tests marked `slow` time the wall clock and are skipped when `CI` is set.
+CI runs ruff, mypy and pytest on every PR. A test whose point is a wall-clock bound is marked `slow`, and CI deselects those (`-m "not slow"`), since a busy runner misses the bound.
 
 ## Rules
 

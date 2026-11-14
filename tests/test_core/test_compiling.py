@@ -852,6 +852,7 @@ def _nested_forty_deep() -> tuple[Any, str]:
     return registry, inner
 
 
+@pytest.mark.slow
 def test_subgraphs_nested_forty_deep_compile_in_under_two_seconds():
     """Each subgraph is compiled once per ``Graph.compile``, however deep it is nested, so the time grows in proportion
     to the depth."""

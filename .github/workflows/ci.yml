@@ -32,4 +32,4 @@ jobs:
       - name: Mypy
         run: uv run mypy packages
       - name: Pytest
-        run: uv run pytest tests/ -q
+        run: uv run pytest tests/ -q -m "not slow"
