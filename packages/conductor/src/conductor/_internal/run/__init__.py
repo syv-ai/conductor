@@ -17,7 +17,6 @@ from .events import (
     NodeFailed,
     NodeProgress,
     NodeRetry,
-    NodeSkipped,
     NodeStart,
     NodeWaiting,
     RunCheckpoint,

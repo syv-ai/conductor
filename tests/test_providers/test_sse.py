@@ -55,7 +55,7 @@ def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
 
 
 def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
-    assert _payload(NodeComplete(loc=("n",), outcomes=3, not_called=1)) == {"type": "node_complete", "loc": ["n"], "outcomes": 3, "not_called": 1, "reused": 0}
+    assert _payload(NodeComplete(loc=("n",), outcomes=3, not_called=1)) == {"type": "node_complete", "loc": ["n"], "outcomes": 3, "skipped": 0, "not_called": 1, "reused": 0}
     waiting = NodeWaiting(waiting=Waiting(id="n", loc=("n",), prompt="?", questions=[], inputs={"x": float("nan")}))
     assert _payload(waiting)["waiting"]["inputs"] == {"x": "NaN"}
 

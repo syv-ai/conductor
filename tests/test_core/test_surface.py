@@ -49,7 +49,6 @@ from conductor.events import (
     NodeFailed,
     NodeProgress,
     NodeRetry,
-    NodeSkipped,
     NodeStart,
     NodeWaiting,
     RunCheckpoint,
@@ -264,8 +263,7 @@ SHAPES = {
     "run_start": ["type", "waiting"],
     "node_start": ["loc", "type"],
     "node_progress": ["count", "loc", "type"],
-    "node_complete": ["loc", "not_called", "outcomes", "reused", "type"],
-    "node_skipped": ["loc", "type"],
+    "node_complete": ["loc", "not_called", "outcomes", "reused", "skipped", "type"],
     "node_failed": ["cause", "loc", "type"],
     "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
     "node_waiting": ["type", "waiting"],
@@ -334,7 +332,6 @@ def _every_event() -> list[Any]:
     built = [
         RunStart(waiting=(waiting,)),
         NodeProgress(loc=("n",), count=CallCount(finished=1, waiting=0, known=1, total=None)),
-        NodeSkipped(loc=("n",)),
         NodeFailed(loc=("n",), cause=cause),
         NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),
         NodeWaiting(waiting=waiting),
@@ -346,7 +343,7 @@ def _every_event() -> list[Any]:
 def test_a_node_complete_of_a_frame_with_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
     by_node = {event.loc[0]: event for event in _streamed_events() if isinstance(event, NodeComplete)}
 
-    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "outcomes": 1, "not_called": 0, "reused": 0}
+    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "outcomes": 1, "skipped": 0, "not_called": 0, "reused": 0}
 
 
 @pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)

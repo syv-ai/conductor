@@ -21,7 +21,7 @@ The example graph, the first in conductor's README::
 
 ``RunStart`` is always first and ``RunEnd`` last (a stream stopped with ``hand_back`` ends with ``RunCheckpoint``
 instead). In between, a node's ``NodeStart``, when it has one, comes before every other event about it, and its
-``NodeComplete`` (or ``NodeSkipped``) after every other one. Events about different nodes interleave, and two
+``NodeComplete`` after every other one. Events about different nodes interleave, and two
 rules explain the order above:
 
 - ``NodeProgress`` comes at most four times a second per node, so ``shout``'s second call was made before
@@ -93,8 +93,9 @@ class NodeStart(_NodeEvent):
 
     An outcome is written without a call when it is reused from the previous run (the run that
     ``run.with_inputs(...)`` or ``run.again(...)`` was called on), or when the function is not called because an
-    argument is ``None``. A node whose every call is skipped because of a branch that was not
-    chosen has no ``NodeStart``, only ``NodeSkipped``. A node inside a subgraph has its ``NodeStart`` right after the subgraph node's:
+    argument is ``None``. A node whose every call is skipped because of a branch that was not chosen has no
+    ``NodeStart``: only ``NodeComplete``, after ``NodeProgress`` when it is inside a loop. A node whose function
+    returned ``SKIPPED`` was called, so it has its ``NodeStart``. A node inside a subgraph has its ``NodeStart`` right after the subgraph node's:
     ``NodeStart(loc=("loud",))``, then ``NodeStart(loc=("loud", "shout"))``.
 
     A node has at most one ``NodeStart`` in a run, however many streams the run takes. A node that already had an
@@ -126,16 +127,21 @@ class NodeComplete(_NodeEvent):
     """Every call of a node has an outcome.
 
     None of the outcomes is waiting, and no call of the node or of a node upstream of it is running. The outcomes
-    may be done, answered or not called, and some may be skipped; a node whose every call is skipped has
-    ``NodeSkipped`` instead. A node has at most one ``NodeComplete`` in a run.
+    may be done, answered, not called or skipped. A node has at most one ``NodeComplete`` in a run.
 
     The values are not in the event: they are in the run (``run.results``, ``run.not_called``), so the event is
     small however large the values are. With ``text="a\\n \\nb"`` and a node ``strip`` before ``shout`` that
     returns ``None`` for the line ``" "``, ``shout`` has ``NodeComplete(loc=("shout",), outcomes=3, not_called=1)``.
+    A node was skipped when it has outcomes and every one is skipped: ``outcomes > 0`` and ``skipped`` equal to
+    ``outcomes``, as in ``NodeComplete(loc=("shout",), outcomes=3, skipped=3)``. A node inside a loop over an empty
+    list has ``outcomes=0, skipped=0``, and was not skipped.
 
     Attributes:
         outcomes: How many outcomes the node has: 1 for a node inside no loop, else one per call. For a subgraph
             node, one per call of the subgraph.
+        skipped: How many of the outcomes are skipped: the node is downstream of a branch that was not chosen, or
+            its function returned ``SKIPPED`` for every output. For a subgraph node, how many calls of the
+            subgraph had every call inside it skipped.
         not_called: How many of the outcomes are not called: the function was not called because an argument was
             ``None`` and its input does not accept ``None``. Always 0 for a subgraph node: the nodes inside it
             have their own counts.
@@ -145,20 +151,9 @@ class NodeComplete(_NodeEvent):
 
     type: Literal["node_complete"] = "node_complete"
     outcomes: int
+    skipped: int = 0
     not_called: int = 0
     reused: int = 0
-
-
-class NodeSkipped(_NodeEvent):
-    """Every call of a node was skipped: the node is downstream of a branch that was not chosen, or its function
-    returned ``SKIPPED``.
-
-    It comes in place of ``NodeComplete``, when the node is complete. A node skipped because of a branch was never
-    called, so it has no ``NodeStart``. A subgraph node has ``NodeSkipped`` when every node inside it was skipped.
-    A node with some calls skipped and some not has ``NodeComplete``.
-    """
-
-    type: Literal["node_skipped"] = "node_skipped"
 
 
 class NodeFailed(_NodeEvent):
@@ -282,7 +277,7 @@ class RunCheckpoint(EventBase):
 
 
 Event = Annotated[
-    RunStart | NodeStart | NodeProgress | NodeComplete | NodeSkipped | NodeFailed | NodeRetry | NodeWaiting | RunCheckpoint | RunEnd,
+    RunStart | NodeStart | NodeProgress | NodeComplete | NodeFailed | NodeRetry | NodeWaiting | RunCheckpoint | RunEnd,
     Field(discriminator="type"),
 ]
 Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON."

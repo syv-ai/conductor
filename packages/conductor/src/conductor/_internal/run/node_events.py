@@ -26,9 +26,9 @@ ready, and the scheduler has ended. ``NodeEvents`` decides which events follow:
 - ``NodeWaiting``, with every ``Unanswered`` outcome.
 - ``NodeProgress``, for a node inside a loop: after an outcome, at most four times a second, and a last one with
   the final count.
-- ``NodeComplete`` or ``NodeSkipped``, once per node, when the scheduler says that no call is ready or that it
-  has ended: every call of the node has an outcome, none is waiting for a person, and no call of the node or of
-  a node upstream of it is running. Above, no node is called on a thread, so the scheduler first says "no call
+- ``NodeComplete``, once per node, when the scheduler says that no call is ready or that it has ended: every
+  call of the node has an outcome, none is waiting for a person, and no call of the node or of a node upstream of
+  it is running. Above, no node is called on a thread, so the scheduler first says "no call
   is ready" after ``join``: that is why ``lines`` is complete only after ``join`` has started.
 - ``NodeRetry`` and ``NodeFailed``, as the scheduler says them.
 
@@ -48,14 +48,19 @@ from typing import Any, Literal, assert_never
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
 from conductor._internal.problem import Problem
 
-from .blueprint import BlueprintFunctionNode, BlueprintNode, all_upstream, outcome_loc
+from .blueprint import (
+    BlueprintFunctionNode,
+    BlueprintNode,
+    BlueprintSubgraphNode,
+    all_upstream,
+    outcome_loc,
+)
 from .events import (
     EventBase,
     NodeComplete,
     NodeFailed,
     NodeProgress,
     NodeRetry,
-    NodeSkipped,
     NodeStart,
     NodeWaiting,
 )
@@ -79,8 +84,7 @@ class NodeEvents:
         outcomes: The run's outcomes, by node path and item indexes. The scheduler writes them; they are only read here.
         arguments_for: Reads the arguments of a call from the run's outcomes.
         started: The nodes that have had ``NodeStart``, in this call or an earlier one.
-        complete: The nodes that have had ``NodeComplete`` or ``NodeSkipped``, in this call or an earlier one.
-        skipped: The nodes that had ``NodeSkipped`` in this call.
+        complete: The nodes that have had ``NodeComplete``, in this call or an earlier one.
         changed: The nodes with an outcome recorded since they were last looked at for ``NodeComplete``.
         reused: How many outcomes each node took from the previous run, for ``NodeComplete.reused``.
         progress_at: When each node last had ``NodeProgress``, as ``time.monotonic()``.
@@ -116,7 +120,6 @@ class NodeEvents:
         self.complete: set[BlueprintNode] = set(complete_before)
         for node in complete_before:
             self._complete_subgraphs_around(node, announce=False)
-        self.skipped: set[BlueprintNode] = set()
         self.changed = with_outcomes - complete_before
         self.reused: defaultdict[BlueprintFunctionNode, int] = defaultdict(int)
         self.progress_at: dict[BlueprintFunctionNode, float] = {}
@@ -156,7 +159,7 @@ class NodeEvents:
         self.emit(NodeFailed(loc=node.node_path, cause=cause))
 
     def nothing_is_ready(self, running: Iterable[tuple[BlueprintFunctionNode, ItemIndexes]]) -> None:
-        """No call is ready to be made: say ``NodeComplete`` or ``NodeSkipped`` for every node that is now complete.
+        """No call is ready to be made: say ``NodeComplete`` for every node that is now complete.
 
         Args:
             running: The calls that are on a thread, waiting for one, or waiting to be retried.
@@ -174,12 +177,9 @@ class NodeEvents:
             self.complete.add(node)
             if node.loops and node in self.progress_count:
                 self._progress(node, last=True)
-            if outcomes and all(_is_skipped(outcome) for outcome in outcomes.values()):
-                self.skipped.add(node)
-                self.emit(NodeSkipped(loc=node.node_path))
-            else:
-                not_called = sum(type(outcome) is NoneInput for outcome in outcomes.values())
-                self.emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), not_called=not_called, reused=self.reused[node]))
+            skipped = sum(_is_skipped(outcome) for outcome in outcomes.values())
+            not_called = sum(type(outcome) is NoneInput for outcome in outcomes.values())
+            self.emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), skipped=skipped, not_called=not_called, reused=self.reused[node]))
             self._complete_subgraphs_around(node, announce=True)
 
     def scheduler_ended(self) -> None:
@@ -206,19 +206,39 @@ class NodeEvents:
         """Mark the subgraph node ``node`` is inside as complete when every node inside it is, then the subgraph
         node that one is inside, and so on.
 
-        With ``announce``, each gets ``NodeSkipped`` when every node inside it was skipped, else ``NodeComplete``
-        with one outcome per call of the subgraph.
+        With ``announce``, each gets ``NodeComplete`` with one outcome per call of the subgraph.
         """
         subgraph = node.parent
         while subgraph is not None and subgraph not in self.complete and all(inner in self.complete for inner in subgraph.inner_nodes.values()):
             self.complete.add(subgraph)
             if announce:
-                if all(inner in self.skipped for inner in subgraph.inner_nodes.values()):
-                    self.skipped.add(subgraph)
-                    self.emit(NodeSkipped(loc=subgraph.node_path))
-                else:
-                    self.emit(NodeComplete(loc=subgraph.node_path, outcomes=calls_expected(self.outcomes, subgraph.loops)[0]))
+                outcomes = calls_expected(self.outcomes, subgraph.loops)[0]
+                self.emit(NodeComplete(loc=subgraph.node_path, outcomes=outcomes, skipped=self._skipped_calls(subgraph)))
             subgraph = subgraph.parent
+
+    def _skipped_calls(self, subgraph: BlueprintSubgraphNode) -> int:
+        """How many calls of ``subgraph`` had every call inside them skipped.
+
+        A call of the subgraph node is one item of each loop the node is inside, and the calls inside it are the
+        outcomes of the function nodes inside, at any depth, whose item indexes start with that item's. For a
+        subgraph node inside no loop it is 1 when every call inside it was skipped, else 0.
+        """
+        depth = len(subgraph.loops)
+        every_call_skipped: dict[ItemIndexes, bool] = {}
+        for inner in _function_nodes_inside(subgraph):
+            for item_indexes, outcome in self.outcomes[inner.node_path].items():
+                call = item_indexes[:depth]
+                every_call_skipped[call] = every_call_skipped.get(call, True) and _is_skipped(outcome)
+        return sum(every_call_skipped.values())
+
+
+def _function_nodes_inside(subgraph: BlueprintSubgraphNode) -> Iterable[BlueprintFunctionNode]:
+    """The function nodes inside ``subgraph``, and inside every subgraph inside it."""
+    for inner in subgraph.inner_nodes.values():
+        if isinstance(inner, BlueprintSubgraphNode):
+            yield from _function_nodes_inside(inner)
+        else:
+            yield inner
 
 
 def _is_skipped(outcome: Outcome) -> bool:

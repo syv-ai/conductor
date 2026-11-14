@@ -156,7 +156,8 @@ def test_waiting_and_skipped_events():
     graph = Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"graph_input": "text"}}}, "gate": {"node": "gate", "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}, "never": {"node": "never", "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}}, "outputs": {"gate_result": {"node": "gate", "output": "result"}, "never_result": {"node": "never", "output": "result"}}}), reg)
     events = collect(graph.with_inputs(text="a,b,c"))
     kinds = [e.type for e in events]
-    assert "node_waiting" in kinds and "node_skipped" in kinds and events[-1].status == "waiting", kinds
+    assert "node_waiting" in kinds and events[-1].status == "waiting", kinds
+    assert [(e.outcomes, e.skipped) for e in events if e.type == "node_complete" and e.loc == ("never",)] == [(3, 3)]
     waiting = [e.waiting for e in events if e.type == "node_waiting"]
     assert [place(w) for w in waiting] == ["gate@1"]
     assert not any(e.type == "node_complete" and e.loc[0] == "gate" for e in events)

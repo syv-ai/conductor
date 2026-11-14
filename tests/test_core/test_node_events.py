@@ -212,7 +212,7 @@ def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_i
     assert told.take() == ["node_start decide", "node_complete decide outcomes=1"]
     told.call("other")
     told.nothing_is_ready()
-    assert told.take() == ["node_start other", "node_complete other outcomes=1", "node_skipped both"]
+    assert told.take() == ["node_start other", "node_complete other outcomes=1", "node_complete both outcomes=1 skipped=1"]
 
 
 def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():

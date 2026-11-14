@@ -29,7 +29,7 @@ DOORS: dict[str, list[str]] = {
         "TextInput", "Textarea", "Widget",
     ],
     "conductor.events": [
-        "Event", "NodeComplete", "NodeFailed", "NodeProgress", "NodeRetry", "NodeSkipped", "NodeStart", "NodeWaiting", "RunCheckpoint",
+        "Event", "NodeComplete", "NodeFailed", "NodeProgress", "NodeRetry", "NodeStart", "NodeWaiting", "RunCheckpoint",
         "RunEnd", "RunStart",
     ],
     "conductor.testing": ["check_registry"],

@@ -232,7 +232,7 @@ What changes in how you work, before the name-by-name tables:
 - **A whole table or list wired where one value is taken says to make a series.** `type_mismatch` and `unknown_output` have the variant `make_a_series` for it, as `invalid_input` has for a list given to an input of one value: put a node between that returns the rows or items as a `Series`.
 - **A row type's fields are all required.** A `Table[R]` or a `Series[R]` of records whose `R` has a `NotRequired` field, or is declared `total=False`, is refused when the node is declared (`row_field_optional`, a new declaration code); a node returning such a `Series` failed its run with pydantic's own schema error. Declare the field `X | None`.
 - **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`, and one that gives a field a name a graph cannot have is `compute_hook_failed` at that name with `error: not_a_name`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
-- **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. `node_skipped` is said for a node whose every call is downstream of a branch not chosen, a decision whose every output is `SKIPPED` included; a node with no output that returns `SKIPPED` says `node_complete`.
+- **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. `node_complete` counts a node's skipped calls in `skipped`: a call downstream of a branch not chosen, or one whose every output is `SKIPPED`; a node with no output that returns `SKIPPED` is not counted. A node was skipped when `outcomes > 0` and `skipped` equals `outcomes`, and a subgraph node counts each of its calls whose every call inside was skipped.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early. The run saved in the row is its last checkpoint, which reads back as its outcomes say: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and resumes the run, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`not_waiting`, `invalid_answer`), and only a `complete` run is a 409. Answers queued while the run is running are given to the run it stopped as, whatever its status; a resume that raised keeps them queued. The code `run_not_waiting` is gone.
 - **How a run stopped is stored once, when the router has decided what it is.** A run handed back at shutdown stores no `run_end` (it read `cancelled`, for a run nobody cancelled that another worker then finished), so a follower's stream goes on into the next worker's events. A resume that raised outside a node reads `failed` with a cause, `resume_failed`, in `GET /runs/{id}` and on its `run_end` (the cause was null). The router's own codes are a catalogue, `conductor_providers.fastapi.ROUTER_PROBLEMS`, a function per code as conductor's `PROBLEMS` is.
@@ -360,7 +360,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.events.NodeErrorEvent` | `NodeFailed`, its `cause` a `Problem` |
 | `conductor.execution.events.NodeProgressEvent` | `NodeProgress` |
 | `conductor.execution.events.NodeRetryEvent` | `NodeRetry` |
-| `conductor.execution.events.NodeSkippedEvent` | `NodeSkipped` |
+| `conductor.execution.events.NodeSkippedEvent` | `NodeComplete` with `outcomes > 0` and `skipped` equal to `outcomes` |
 | `conductor.execution.events.NodeStartEvent` | `NodeStart` |
 | `conductor.execution.events.RuntimeWarningEvent` | gone: a type fault is a problem in `graph.problems` |
 | `conductor.execution.events.SignalWaitingEvent` | `NodeWaiting` |
@@ -499,8 +499,8 @@ Events are frozen pydantic models in `conductor.events`, told apart by `type`. T
 | 1.12.2 `type` | 2.0 |
 |---|---|
 | `node_start` | `node_start` |
-| `node_complete` | `node_complete`: `outcomes`, `not_called`, `reused`, counts only; the values are `run.results` |
-| `node_skipped` | `node_skipped` |
+| `node_complete` | `node_complete`: `outcomes`, `skipped`, `not_called`, `reused`, counts only; the values are `run.results` |
+| `node_skipped` | `node_complete` with `outcomes > 0` and `skipped` equal to `outcomes` |
 | `node_error` | `node_failed`, `cause` a `Problem` |
 | `node_progress` | `node_progress`: `count`, the node's `CallCount` (`finished`, `waiting`, `known`, `total`), as `run.progress` has it |
 | `runtime_warning` | gone: a type fault is a problem in `graph.problems` |

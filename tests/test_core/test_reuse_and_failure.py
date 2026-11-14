@@ -935,7 +935,7 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
     assert [(e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
     assert again.results == first.results == read_back_again.results and first.not_called == []
     nothing_long = _events(graph.with_inputs(items=["a", "b"]))
-    assert [e.loc for e in nothing_long if e.type == "node_skipped"] == [("o",), ("s",)]  # every call ended with no value, whether the node was called or not
+    assert [(e.loc, e.outcomes, e.skipped) for e in nothing_long if e.type == "node_complete" and e.loc != ("each",)] == [(("o",), 2, 2), (("s",), 2, 2)]  # every call ended with no value, whether the node was called or not
 
 
 def test_a_first_run_reports_no_reuse():

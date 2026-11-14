@@ -273,6 +273,11 @@ INNER = {
     "two-asks-inner": side_by_side(("f", "asking-inner"), ("g", "asking-inner")),
     "three-asks-inner": side_by_side(("f", "asking-inner"), ("g", "asking-inner"), ("h", "asking-inner")),
     "wrapping": chain(("in", "asking-inner")),  # a subgraph inside a subgraph
+    "shout-wrapping": chain(("in", "shout-inner")),  # a subgraph inside a subgraph, with no question
+    "greet-each-word-inner": {  # a loop inside over its text's words; each call greets with the subgraph's greeting
+        "nodes": {"w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}}, "g": {"node": "greet", "inputs": {"text": _sources("w", "result"), "greeting": {"graph_input": "greeting"}}}},
+        "outputs": {"result": {"node": "g", "output": "result"}},
+    },
     "deep-inner": chain(("w", "words"), ("c", "chars"), ("up", "upper")),  # its output is inside two loops
     "series-per-item-inner": chain(("w", "words"), ("c", "chars")),  # a Series returned per word
     "chars-and-upper-inner": {  # a Series, and a value per item of it
@@ -561,6 +566,30 @@ def test_an_item_whose_branch_was_not_chosen_outside_skips_the_inner_nodes_for_t
     assert run.status == "complete" and run.results["e"] == {"result": ["AB!", None, "CD!"]}
     assert run.results["n"]["result"] == 2 and run.not_called == []  # skipped, not None: the item is left out of what count collects
     assert CALLS["upper"] == 2 and CALLS["exclaim"] == 2
+
+
+def test_a_subgraph_node_counts_as_skipped_each_item_whose_every_inner_call_was_skipped_as_a_node_counts_its_calls():
+    graph = compile_graph({"w": "words", "d": "decide", "e": "shout-inner", "x": "exclaim"}, [("w.result", "d.text"), ("d.short", "e.text"), ("d.short", "x.text")], outputs={"e": "e.result", "x": "x.result"})
+
+    def complete(text: str) -> dict[tuple, tuple[int, int]]:
+        return {e.loc: (e.outcomes, e.skipped) for e in stream(graph.with_inputs(text=text)) if isinstance(e, NodeComplete) and e.loc not in {("w",), ("d",)}}
+
+    assert complete("ab long cd") == {("x",): (3, 1), ("e", "up"): (3, 1), ("e", "ex"): (3, 1), ("e",): (3, 1)}
+    every_one_skipped = stream(graph.with_inputs(text="long longer"))
+    assert [e.loc for e in every_one_skipped if isinstance(e, NodeStart)] == [("w",), ("d",)]  # a skipped node is never started
+    assert {e.loc: (e.outcomes, e.skipped) for e in every_one_skipped if isinstance(e, NodeComplete)} == {
+        ("w",): (1, 0), ("d",): (2, 0), ("x",): (2, 2), ("e", "up"): (2, 2), ("e", "ex"): (2, 2), ("e",): (2, 2),
+    }
+    once = compile_graph({"e": "words-deciding-inner"}, inputs={"text": "e.text"})
+    assert [(e.outcomes, e.skipped) for e in stream(once.with_inputs(text="ab long")) if isinstance(e, NodeComplete) and e.loc == ("e",)] == [(1, 0)]  # its one call made some calls inside
+    skipped_once = compile_graph({"d": "decide", "e": "shout-inner"}, [("d.short", "e.text")], inputs={"text": "d.text"})
+    assert [(e.outcomes, e.skipped) for e in stream(skipped_once.with_inputs(text="long")) if isinstance(e, NodeComplete) and e.loc == ("e",)] == [(1, 1)]
+    nested = compile_graph({"w": "words", "d": "decide", "e": "shout-wrapping"}, [("w.result", "d.text"), ("d.short", "e.text")])
+    nested_complete = {e.loc: (e.outcomes, e.skipped) for e in stream(nested.with_inputs(text="ab long")) if isinstance(e, NodeComplete)}
+    assert (nested_complete[("e", "in")], nested_complete[("e",)]) == ((2, 1), (2, 1))  # the calls inside a subgraph inside count too
+    greeted = compile_graph({"s": "sentences", "d": "decide", "e": "greet-each-word-inner"}, [("s.result", "d.text"), ("s.result", "e.text"), ("d.short", "e.greeting")])
+    greeted_complete = {e.loc: (e.outcomes, e.skipped) for e in stream(greeted.with_inputs(text="hi;long one")) if isinstance(e, NodeComplete)}
+    assert (greeted_complete[("e", "g")], greeted_complete[("e",)]) == ((3, 2), (2, 0))  # "long one" split its words, so its call was not skipped, though both greetings were
 
 
 def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is_wired_to():

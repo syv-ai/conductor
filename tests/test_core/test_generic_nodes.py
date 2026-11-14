@@ -193,10 +193,10 @@ def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -
     run = graph.run()
     assert run.results["maybe"] == {"result": None} and [n.loc for n in run.not_called] == [("decision",)]
 
-    async def said() -> list[tuple[str, tuple[str, ...]]]:
-        return [(event.type, event.loc) async for event in graph.with_inputs().stream() if event.type in ("node_complete", "node_skipped")]
+    async def said() -> list[tuple[tuple[str, ...], int, int]]:
+        return [(event.loc, event.skipped, event.not_called) async for event in graph.with_inputs().stream() if event.type == "node_complete"]
 
-    assert asyncio.run(said())[-2:] == [("node_complete", ("decision",)), ("node_skipped", ("maybe",))]  # skipped, where a None would leave it not called
+    assert asyncio.run(said())[-2:] == [(("decision",), 0, 1), (("maybe",), 1, 0)]  # skipped, where a None would leave it not called
 
 
 def test_one_variable_on_two_inputs_binds_the_union_of_what_arrives() -> None:
