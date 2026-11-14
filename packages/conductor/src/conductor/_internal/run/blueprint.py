@@ -367,8 +367,8 @@ def _note_looped_outputs(node: BlueprintNode, functions: Mapping[NodePath, Bluep
             case EdgeInput(sources=edges, as_list=False):
                 for edge in edges:
                     if edge.per_item:
-                        wired_to = nodes[_path_in_run(graph_path, (edge.source.node,))]
-                        function_node_in_run(functions, graph_path, edge.node).looped_outputs.setdefault(edge.output, (wired_to, edge.source.output))
+                        wired_to = nodes[_path_in_run(graph_path, (edge.wired_to.node,))]
+                        function_node_in_run(functions, graph_path, edge.node).looped_outputs.setdefault(edge.output, (wired_to, edge.wired_to.output))
             case EdgeInput() | CollectingInput() | ConstantInput() | GraphInput() | MissingInput():
                 pass
             case _:

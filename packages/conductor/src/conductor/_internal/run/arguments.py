@@ -155,7 +155,7 @@ class ResultReader:
         """
         best: Any = SKIPPED
         for edge in edges:
-            value = self.read_output(function_node_in_run(self.function_nodes, graph_path, edge.node), edge.output, item_indexes, edge.source.field, one_item=edge.per_item)
+            value = self.read_output(function_node_in_run(self.function_nodes, graph_path, edge.node), edge.output, item_indexes, edge.wired_to.field, one_item=edge.per_item)
             if value is NotReady.NOT_READY:
                 best = NotReady.NOT_READY
             elif value is None:
@@ -166,7 +166,7 @@ class ResultReader:
         return best
 
     def read_output(
-        self, node: BlueprintFunctionNode, output: str, item_indexes: ItemIndexes, record_field: str | None = None, *, one_item: bool = False,
+        self, node: BlueprintFunctionNode, output: str, item_indexes: ItemIndexes, record_field: str | None, *, one_item: bool,
     ) -> Any:
         """Returns what an edge reads from the output ``output`` of ``node`` for the call at ``item_indexes``.
 
@@ -240,7 +240,7 @@ class ResultReader:
             return series
         edges = node_input.sources
         if len(edges) == 1 and edges[0].per_item:  # the input collects the list itself: its items, or one field of each
-            record_field = edges[0].source.field
+            record_field = edges[0].wired_to.field
             if record_field is not None:
                 return series.field_as_list(record_field)
             return series.as_table_input() if node_input.field.whole.record is not None else series.as_list()

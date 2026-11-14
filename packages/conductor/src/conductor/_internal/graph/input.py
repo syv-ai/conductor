@@ -53,7 +53,7 @@ class Edge:
     ``Source("split", "result", "email")``.
 
     Attributes:
-        source: The output the graph record wires the edge to, and the field of the record it returns that the
+        wired_to: The output the graph record wires the edge to, and the field of the record it returns that the
             edge reads (``None`` for the whole output). A problem names the edge by it.
         node: The path of the function node that returns the output: ``("shout",)``, or ``("loud", "shout")`` for
             an output of the subgraph node ``loud``.
@@ -65,7 +65,7 @@ class Edge:
             to is then inside the loop over it, ``(node, output)``.
     """
 
-    source: Source
+    wired_to: Source
     node: NodePath
     output: str
     loops: tuple[tuple[NodePath, str], ...]

@@ -50,7 +50,7 @@ class DisplayReader(ResultReader):
     __slots__ = ()
 
     def read_output(
-        self, node: BlueprintFunctionNode, output: str, item_indexes: ItemIndexes, record_field: str | None = None, *, one_item: bool = False,
+        self, node: BlueprintFunctionNode, output: str, item_indexes: ItemIndexes, record_field: str | None, *, one_item: bool,
     ) -> Any:
         """Returns what ``ResultReader.read_output`` returns, as a host is shown it: ``None`` when the node has
         not returned yet, or when the edge names a field the record does not have, and the value of a

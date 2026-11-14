@@ -555,14 +555,14 @@ class Compiler:
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge falls among several into one input: by its node's index among the node ids, then
         by its output's index in that node, then by the record field it reads, the whole output first."""
-        source = edge.source
-        return self.position[source.node], list(self.nodes[source.node].outputs).index(source.output), source.field or ""
+        wired_to = edge.wired_to
+        return self.position[wired_to.node], list(self.nodes[wired_to.node].outputs).index(wired_to.output), wired_to.field or ""
 
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
         """The branches that must be chosen for the output ``edge`` reads to have a value."""
-        return self.nodes[edge.source.node].branches_required_for(edge.source.output)
+        return self.nodes[edge.wired_to.node].branches_required_for(edge.wired_to.output)
 
     def _inputs_with_conflicting_edges(
         self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
@@ -592,7 +592,7 @@ class Compiler:
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
-                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s.source) for s in sources]))
+                self.problems.append(compile_problems.several_edges_into_one_input(node_id, name, sources=[str(s.wired_to) for s in sources]))
                 refused.add(name)
             elif len(loops_of_inputs) > 1:
                 series = [place_text(*loops[-1]) if loops else None for loops in loops_of_inputs[:2]]
@@ -727,18 +727,18 @@ def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
     return None
 
 
-def _mismatch(node_id: str, field: Field, source: Edge) -> Problem:
-    """Returns the ``type_mismatch`` problem of an edge from ``source`` into the input ``field``.
+def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
+    """Returns the ``type_mismatch`` problem of ``edge`` into the input ``field``.
 
     Where one mistake explains it, the problem says the fix: a whole table or list wired to an input that takes
     one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
     that column added.
     """
-    written, expected = str(source.source), field.whole.id
-    got = f"Series[{source.type.text}]" if source.per_item else source.type.text
-    parts = _taken_apart(source.type)
+    written, expected = str(edge.wired_to), field.whole.id
+    got = f"Series[{edge.type.text}]" if edge.per_item else edge.type.text
+    parts = _taken_apart(edge.type)
     if field.whole.record is not None:
-        has = (source.type.record or source.type).fields
+        has = (edge.type.record or edge.type).fields
         missing = [column for column in field.whole.fields if column not in has]
         if has and missing:
             column_type = Type(field.whole.fields[missing[0]]).id
