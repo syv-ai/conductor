@@ -23,8 +23,6 @@ from .make import make_graph
 from .node import (
     CompiledFunctionNode,
     CompiledSubgraphNode,
-    outputs_when_not_called,
-    outputs_when_skipped,
 )
 from .type import Graph
 
@@ -42,6 +40,4 @@ __all__ = [
     "InputSource",
     "MissingInput",
     "make_graph",
-    "outputs_when_not_called",
-    "outputs_when_skipped",
 ]

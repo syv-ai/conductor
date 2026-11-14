@@ -7,18 +7,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any, assert_never
 
 from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
-from conductor._internal.field import Field
-from conductor._internal.graph import (
-    Graph,
-    outputs_when_not_called,
-    outputs_when_skipped,
-)
+from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
 from ..blueprint import BlueprintFunctionNode, RunBlueprint
@@ -75,10 +70,10 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     try:
         for name, saved_outcomes in read.outcomes.items():
             where, path = f"outcomes.{name}", parse_node_path(name)
-            in_call_order[path] = outcomes_from_saved(blueprint.function_nodes[path].compiled_node.outputs, saved_outcomes)
+            in_call_order[path] = outcomes_from_saved(blueprint.function_nodes[path].compiled_node, saved_outcomes)
         for name, saved_reusable in read.reusable.items():
             where, path = f"reusable.{name}.outcomes", parse_node_path(name)
-            reusable_in_call_order = outcomes_from_saved(blueprint.function_nodes[path].compiled_node.outputs, saved_reusable.outcomes)
+            reusable_in_call_order = outcomes_from_saved(blueprint.function_nodes[path].compiled_node, saved_reusable.outcomes)
             where = f"reusable.{name}"
             add_reusable_from_saved(reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order)
     except ValueError as wrong:
@@ -101,7 +96,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     )
 
 
-def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> list[Outcome | None]:
+def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> list[Outcome | None]:
     """Returns one node's outcomes from their saved lists, in call-number order; ``None`` for a call with no outcome.
 
     For ``shout`` not called for its second line::
@@ -111,7 +106,7 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
     it returns ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``.
 
     Args:
-        outputs: The outputs of the node, by name.
+        node: The node, as compiled.
         saved: The saved lists, each value already validated by its output's type.
 
     Raises:
@@ -123,7 +118,7 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
     if any(len(values) != len(states) for values in values_by_output.values()):
         raise ValueError("the list of an output is not as long as 'states'")
     for name, values in values_by_output.items():
-        if not outputs[name].whole.optional:
+        if not node.outputs[name].whole.optional:
             skipped_calls = set(saved.skipped.get(name, ()))
             for call_number, (state, value) in enumerate(zip(states, values, strict=True)):
                 if state == SAVED_DONE and value is None and call_number not in skipped_calls:
@@ -138,7 +133,7 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
                     values_by_output[name][call_number][index] = SKIPPED
         outputs_by_call = [{name: values[call_number] for name, values in values_by_output.items()} for call_number in range(len(states))]
         done, skipped = SAVED_DONE, SAVED_SKIPPED
-        skipped_outcome = Skipped(outputs_when_skipped(outputs))
+        skipped_outcome = Skipped(node.outputs_when_skipped)
         outcomes: list[Outcome | None] = [
             Done(of_call) if state == done else skipped_outcome if state == skipped else None
             for state, of_call in zip(states, outputs_by_call, strict=True)
@@ -150,7 +145,7 @@ def outcomes_from_saved(outputs: Mapping[str, Field], saved: SavedOutcomes) -> l
         for call_number, input_name in saved.not_called_because.items():
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)
-            outcomes[call_number] = NoneInput(outputs_when_not_called(outputs), input_name)
+            outcomes[call_number] = NoneInput(node.outputs_when_not_called, input_name)
     except (LookupError, TypeError, AttributeError):  # a call number past the end of the lists, or a call of another kind
         message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
         raise ValueError(message) from None

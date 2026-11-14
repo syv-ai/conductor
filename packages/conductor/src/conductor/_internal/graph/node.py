@@ -18,7 +18,7 @@ import dis
 import functools
 import inspect
 import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -147,14 +147,19 @@ class CompiledFunctionNode(_CompiledNodeBase):
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:
         """The outputs of the node where it was not called because it is on a branch that was not chosen:
-        ``SKIPPED`` for each."""
-        return outputs_when_skipped(self.outputs)
+        ``SKIPPED`` for each. For ``shout``: ``{"result": SKIPPED}``."""
+        return dict.fromkeys(self.outputs, SKIPPED)
 
     @functools.cached_property
     def outputs_when_not_called(self) -> dict[str, Any]:
         """The outputs of the node where it was not called because an argument was ``None`` and its parameter
-        does not accept ``None``."""
-        return outputs_when_not_called(self.outputs)
+        does not accept ``None``.
+
+        For ``shout``: ``{"result": None}``. For ``route``, whose two outputs are branches, and a node with one more
+        output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. An output is a branch
+        when its ``Param`` gives it an ``exclusive_group``.
+        """
+        return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in self.outputs.items()}
 
     @functools.cached_property
     def questions(self) -> dict[str, FieldDescription]:
@@ -276,24 +281,6 @@ class CompiledSubgraphNode(_CompiledNodeBase):
             series_field = field if field.is_series else Field(name, series_of[field.hint])
             described.append(series_field.description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema, "loops": loops}))
         return described
-
-
-def outputs_when_skipped(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The outputs of a call that was skipped, of a node with these outputs: ``SKIPPED`` for each.
-
-    For ``shout``: ``{"result": SKIPPED}``.
-    """
-    return dict.fromkeys(outputs, SKIPPED)
-
-
-def outputs_when_not_called(outputs: Mapping[str, Field]) -> dict[str, Any]:
-    """The outputs of a call that was not made because an argument was ``None``, of a node with these outputs.
-
-    For ``shout``: ``{"result": None}``. For ``route``, whose two outputs are branches, and a node with one more
-    output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. An output is a branch
-    when its ``Param`` gives it an ``exclusive_group``.
-    """
-    return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in outputs.items()}
 
 
 #: One node of a compiled graph: a function, or a subgraph.
