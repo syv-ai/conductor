@@ -32,7 +32,7 @@ assert registry["greet"] is greet
 ## Rules, checked by `@node`
 
 - The id, `title=` and `description=` are required: they are what a person reads in the palette, written for someone who is not a developer. The docstring is for developers and never shown. A field's title is its `Param(title=)`, and `None` without one; nothing is guessed from its name.
-- An input without a widget gets no control in an editor; an edge fills it, or a value set in code. A default makes it optional. `Param(ge=0, max_length=31, ...)` sets pydantic's limits on a value, and a limit that can't apply to the type is refused at `@node`. Never write pydantic's `Field(...)` in a node's hint: it is refused (`pydantic_field_in_hint`). `Any` is a value passed on unread.
+- An input without a widget gets no control in an editor; an edge fills it, or a value set in code. A default makes it optional, and the palette shows it as `default` (`null` is the value `None`); an input without one is `required` and has no `default` key. Only an output can default to `SKIPPED` or have an `exclusive_group`, in a hook too. `Param(ge=0, max_length=31, ...)` sets pydantic's limits on a value, and a limit that can't apply to the type is refused at `@node`. Never write pydantic's `Field(...)` in a node's hint: it is refused (`pydantic_field_in_hint`). `Any` is a value passed on unread.
 - The function is a plain `def` returning a value of its declared type. A mistake raises `NodeDeclarationError`, whose one problem in `problems` has the code as its `type`.
 
 ## Quick reference

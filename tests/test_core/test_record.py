@@ -30,7 +30,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import ValidationError
+from pydantic import MISSING, ValidationError
 
 from tests.test_core.nodes import registry_of
 
@@ -339,7 +339,7 @@ def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required
     }, "outputs": {"a_result": {"node": "a", "output": "result"}, "b_result": {"node": "b", "output": "result"}}}), REGISTRY)
 
     assert graph.problems == []
-    assert {name: (i.required, i.default) for name, i in graph.inputs.items()} == {"x": (True, None)}
+    assert {name: (i.required, i.default) for name, i in graph.inputs.items()} == {"x": (True, MISSING)}
     assert graph.run(x="q").outputs == {"a_result": "q", "b_result": "Q"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run()

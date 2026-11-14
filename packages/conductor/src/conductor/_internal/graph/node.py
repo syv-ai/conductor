@@ -24,13 +24,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import JsonValue
 
-from conductor._internal.ask import Ask, answer_required
+from conductor._internal.ask import Ask
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
-from conductor._internal.series import Series
-from conductor._internal.types import Choice, Type
+from conductor._internal.types import Choice
 
 from .input import Input
 
@@ -102,7 +101,8 @@ class _CompiledNodeBase:
         return self.required_branches | {RequiredBranch((self.id,), group, output, len(self.loops))} if group else self.required_branches
 
     def described_outputs(self) -> list[FieldDescription]:
-        """Returns each output as an editor shows it."""
+        """Returns each output as an editor shows it, the description a waiting call asks it by when its ``Ask``
+        sets no choices or default."""
         return [field.description for field in self.outputs.values()]
 
 
@@ -162,16 +162,6 @@ class CompiledFunctionNode(_CompiledNodeBase):
         return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in self.outputs.items()}
 
     @functools.cached_property
-    def questions(self) -> dict[str, FieldDescription]:
-        """The question a person is asked about each output, which an answer fills, by name, as the output's type
-        sets it: its description, and whether an answer must give it. A field of a returned dataclass with a default
-        proposes it. The ``Ask`` can add a prompt, choices and a default to it."""
-        return {
-            name: output.description.model_copy(update={"required": answer_required(output, {}, limited=output.description.choices is not None)})
-            for name, output in self.outputs.items()
-        }
-
-    @functools.cached_property
     def ask_door(self) -> Callable[[Ask], tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
         """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and reads its choices
         and default by output name; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
@@ -186,7 +176,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
     def answer_door(self) -> AnswerDoor:
         """Reads a person's answer to a waiting call of the node into its outputs: ``{"result": True}`` for
         ``approve`` answered ``True``. Built when the node is first answered."""
-        return AnswerDoor(self.outputs, self.questions)
+        return AnswerDoor(self.outputs)
 
 
 @typing.final
@@ -204,8 +194,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     ``shouted``, the output ``result`` of ``shout``. ``lines`` is called once per document and ``shout`` once per
     line. So a node outside wired to ``e.shouted`` that takes one ``str`` is called once
     per line of each document, and one that takes a ``Series[str]`` once per document. ``outputs`` has the output
-    as ``shout`` declares it (``str``), and ``loops_around`` names the two loops. Its description says
-    ``Series[Series[str]]``, one ``Series`` per loop.
+    as ``shout`` declares it (``str``), and ``loops_around`` names the two loops. Its description says it is a list
+    (``is_series``) of the type ``str``, with one level of list per entry of its ``loops``.
 
     Attributes:
         definition: The node definition, as its author declared it with ``subgraph(...)``.
@@ -260,29 +250,24 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         }
 
     def described_outputs(self) -> list[FieldDescription]:
-        """Returns each output as an editor shows it: as a list with one level per loop inside the subgraph, with
-        those loops by name.
+        """Returns each output as an editor shows it: as the question the output of the node inside sets, and, for
+        one returned inside loops in the subgraph, as a list (``is_series``) with one level per entry of ``loops``.
 
-        Example: ``shouted`` of ``e`` above is described with ``is_series`` true, the item type
-        ``Series[str]`` (so the whole output is ``Series[Series[str]]``), and the ``loops``
-        ``["documents.result", "lines.result"]``.
+        Example: ``shouted`` of ``e`` above is described as ``shout``'s ``result``, with the type ``str``,
+        ``is_series`` true and the ``loops`` ``["documents.result", "lines.result"]``: a list per document of a
+        list per line of ``str``. Were ``shout`` to return a ``Series[str]``, ``loops`` would end with
+        ``"shout.result"`` too, a third level.
         """
         described = []
-        series_of: Any = Series  # typed Any: the type checker cannot follow ``Series[...]`` built at run time
         for name, field in self.outputs.items():
             loops = [place_text(node[1:], output) for node, output in self.loops_around(name)[len(self.loops) :]]
             if not loops:
                 described.append(field.description)
                 continue
-            if field.is_series:  # an output that is itself a Series adds the innermost level, the list it is inside
+            if field.is_series:  # an output that is itself a Series adds the innermost level, the list it returns
                 node, output = self.returned_by(name)
                 loops.append(place_text(node[1:], output))
-            item: Any = field.type.hint
-            for _ in loops[1:]:
-                item = series_of[item]
-            item_type = Type(item)
-            series_field = field if field.is_series else Field(name, series_of[field.hint])
-            described.append(series_field.description.model_copy(update={"type": item_type.id, "json_schema": item_type.json_schema, "loops": loops}))
+            described.append(field.description.model_copy(update={"is_series": True, "loops": loops}))
         return described
 
 

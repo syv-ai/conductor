@@ -42,7 +42,8 @@ class Waiting(ConductorModel):
         prompt: What the node's ``Ask`` said.
         questions: One per output of the node, which the answer fills: the
             ``FieldDescription`` its ``describe()`` gives, with the ``choices``
-            and ``default`` the ``Ask`` set and ``required`` worked out from them.
+            and ``default`` the ``Ask`` set, and ``required`` and ``default``
+            saying what an answer that leaves it out gives.
         inputs: What the node received, as JSON, read from the outcomes the call reads.
     """
 
@@ -66,7 +67,7 @@ def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiti
     loc, outputs, choices, defaults = outcome_loc(node, item_indexes), compiled_node.outputs, waiting.choices, waiting.defaults
     return Waiting(
         id=write_waiting_id(loc, question_fingerprint(compiled_node, inputs)), loc=loc, prompt=waiting.prompt,
-        questions=[as_asked(outputs[name], question, choices, defaults) for name, question in compiled_node.questions.items()],
+        questions=[as_asked(output, choices, defaults) for output in outputs.values()],
         inputs=inputs,
     )
 

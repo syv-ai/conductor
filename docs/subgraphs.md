@@ -159,13 +159,16 @@ run = graph.run(text="a,b;c")
 print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
 print(run.results["join"]["result"])            # ['A B', 'C']
 print(graph.describe().nodes["join"].per_item_of)    # per-line/documents.result
-print(graph.describe().nodes["per-line"].outputs[0].type)  # Series[str]
+print(graph.describe().nodes["per-line"].outputs[0].type)  # str
+print(graph.describe().nodes["per-line"].outputs[0].loops)  # ['documents.result', 'lines.result']
 ```
 
 `join` takes a `Series[str]`, so it collects one loop, the inner one: it is called once per document, with that document's lines.
 A node that takes one `str` would be called once per line. Both are what the same four nodes do drawn in one
-graph. In the description the output's `type` is `Series[str]` and `is_series` is true: together they say `Series[Series[str]]`.
-Its `loops` are `["documents.result", "lines.result"]`, outermost first.
+graph. In the description the output's `type` is `str`, the value `upper` returns for one line, and `is_series` is true.
+Its `loops`, `["documents.result", "lines.result"]`, outermost first, say how deep: one level of list per entry, a list
+per document of a list per line, `Series[Series[str]]`. A `Series` a subgraph returns outside every loop has
+`loops` `[]` and is one list, as `is_series` says.
 
 ## A `None` or a skip coming in
 

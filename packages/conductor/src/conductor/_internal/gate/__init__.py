@@ -42,7 +42,7 @@ A type's own declarations are read where the type is declared: ``Param`` reads i
 from .answer import AnswerDoor
 from .constants import read_constant
 from .context import ContextDoor
-from .declared import bound_field, declared_field, declared_input, declared_output
+from .declared import bound_field, declared_input, declared_output
 from .edge import EdgeDoor, demands_more
 from .hook import read_hook_fields
 from .inputs import InputsDoor, read_limits
@@ -52,7 +52,7 @@ from .returned import ReturnDoor
 from .rules import numbers_refuse_bools, output_validator_of, validator_of
 
 __all__ = [
-    "AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "ReturnDoor", "bound_field", "declared_field", "declared_input", "declared_output",
+    "AnswerDoor", "AskDoor", "ContextDoor", "EdgeDoor", "InputsDoor", "ReturnDoor", "bound_field", "declared_input", "declared_output",
     "demands_more", "numbers_refuse_bools", "output_validator_of", "read_constant", "read_hook_fields", "read_json", "read_limits", "read_record", "record_values",
     "undeclared_ask", "validator_of",
 ]

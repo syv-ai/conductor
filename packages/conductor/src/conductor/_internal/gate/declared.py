@@ -1,7 +1,7 @@
 """The declaration door: a default a node author declares, read by its input's or output's type when the node is
 declared, and read again by the type an edge binds its type variable to when a graph is compiled.
 
-Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and ``declared_field("mark", str, "!")``
+Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and ``declared_input("mark", str, "!")``
 gives the input ``mark`` with that default. ``times: Annotated[int, Param(ge=0)] = -1`` is refused when the module
 that declares the node is imported: ``NodeDeclarationError`` with the code ``default_invalid``, naming the input.
 ``first(one: T, other: T = 0)`` wired from an output of ``str`` binds ``T`` to ``str``, and ``bound_field`` refuses
@@ -32,7 +32,7 @@ from conductor._internal.types import Type
 from .rules import validator_of
 
 
-def declared_field(name: str, hint: Any, default: Any) -> Field:
+def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> Field:
     """Returns the input or output ``name`` that a node declares with the type hint ``hint`` and ``default``, the
     default read by the field's type.
 
@@ -40,14 +40,15 @@ def declared_field(name: str, hint: Any, default: Any) -> Field:
         name: The parameter's name, or the output's.
         hint: The annotation as written.
         default: The default as written: ``REQUIRED`` for none, ``SKIPPED`` for an output on a branch not taken.
+        is_output: Whether it is an output.
 
     Raises:
         NodeDeclarationError: Naming the field: what ``Field`` refuses of the hint, or a default the type refuses or
             that has no JSON form (``default_invalid``).
     """
-    whole = Field(name, hint).whole
+    whole = Field(name, hint, is_output=is_output).whole
     try:
-        return Field(name, hint, _read_default(whole, default))
+        return Field(name, hint, _read_default(whole, default), is_output=is_output)
     except ValidationError as error:
         refused = declaration_problems.default_none_not_taken() if default is None else declaration_problems.default_invalid(default=repr(default), type=whole.id, reason=whole.refusal(error).reason)
         raise NodeDeclarationError(refused, name) from None
@@ -55,19 +56,19 @@ def declared_field(name: str, hint: Any, default: Any) -> Field:
 
 def declared_input(name: str, hint: Any, default: Any) -> Field:
     """Returns the input ``name`` that a node declares with the type hint ``hint`` and ``default``, as
-    ``declared_field`` does, refusing what only an output can have: an input is never a branch.
+    ``_declared_field`` does, refusing what only an output can have: an input is never a branch.
 
     ``@node`` reads each parameter of the function with it, and the hook door each input a ``compute_added_inputs``
     hook returns, so ``text: Annotated[str, Param(exclusive_group="x")]`` is refused in both places.
 
     Raises:
-        NodeDeclarationError: Naming the input: what ``declared_field`` refuses, an ``exclusive_group``
+        NodeDeclarationError: Naming the input: what ``_declared_field`` refuses, an ``exclusive_group``
             (``exclusive_group_on_input``), or the default ``SKIPPED`` (``default_invalid``, variant
             ``skipped_on_input``).
     """
     if default is SKIPPED:
         raise NodeDeclarationError(declaration_problems.default_skipped_on_input(), name)
-    field = declared_field(name, hint, default)
+    field = _declared_field(name, hint, default, is_output=False)
     if field.param.exclusive_group is not None:
         raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), name)
     return field
@@ -75,17 +76,17 @@ def declared_input(name: str, hint: Any, default: Any) -> Field:
 
 def declared_output(name: str, hint: Any, default: Any) -> Field:
     """Returns the output ``name`` that a node declares with the type hint ``hint`` and ``default``, as
-    ``declared_field`` does, refusing a default an output of an exclusive group cannot have: left out of an answer,
+    ``_declared_field`` does, refusing a default an output of an exclusive group cannot have: left out of an answer,
     or not returned, it is a branch not chosen, so its default is ``SKIPPED`` or none.
 
     ``@node`` reads each field of a returned dataclass with it, and the hook door each output a ``compute_outputs``
     hook returns, so ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in both places.
 
     Raises:
-        NodeDeclarationError: Naming the output: what ``declared_field`` refuses, or a default other than
+        NodeDeclarationError: Naming the output: what ``_declared_field`` refuses, or a default other than
             ``SKIPPED`` on an output of an exclusive group (``default_invalid``, variant ``on_exclusive_group``).
     """
-    field = declared_field(name, hint, default)
+    field = _declared_field(name, hint, default, is_output=True)
     if field.param.exclusive_group is not None and default is not REQUIRED and default is not SKIPPED:
         raise NodeDeclarationError(declaration_problems.default_on_exclusive_group(), name)
     return field
@@ -105,9 +106,9 @@ def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Fie
     if not field.whole.variables:
         return field
     hint = Type(field.hint).bind(bound).hint
-    whole = Field(field.name, hint).whole
+    whole = Field(field.name, hint, is_output=field.is_output).whole
     try:
-        return Field(field.name, hint, _read_default(whole, field.default))
+        return Field(field.name, hint, _read_default(whole, field.default), is_output=field.is_output)
     except ValidationError as error:
         refused = whole.refusal(error)
         raise InvalidCallError([compile_problems.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None

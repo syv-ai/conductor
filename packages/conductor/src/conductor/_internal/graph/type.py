@@ -195,7 +195,7 @@ class Graph[C]:
         field = node.outputs[name]
         group = self._group_of(output)
         hint = Annotated[field.hint, Param(exclusive_group=place_text(*group))] if group is not None else field.hint
-        return Field(output, hint, field.default)
+        return Field(output, hint, field.default, is_output=True)
 
     def _group_of(self, output: str) -> tuple[NodePath, str] | None:
         """Returns the exclusive group the graph output ``output`` is in: the path of the function node that chooses

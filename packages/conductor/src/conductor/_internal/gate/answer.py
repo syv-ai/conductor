@@ -5,9 +5,9 @@ door ``True``, and it returns ``{"result": True}``, the outputs the call then ha
 ``invalid_answer``, "Input should be a valid boolean": an answer is read strictly, as its JSON text would be, so a
 yes or no is ``true`` or ``false``, never a text that spells one.
 
-A node with several outputs is answered with a mapping by output name, one question per output. A question may be
-left out when it has a default (its field's, or one the ``Ask`` set), is one of an exclusive group, or takes
-``None`` and has no choices; of an exclusive group exactly one is answered. Choices, the type's or the ``Ask``'s,
+A node with several outputs is answered with a mapping by output name, one question per output. A question left
+out gives what the question says (``as_asked``): its default, a branch not chosen when it is not ``required``, else
+it is a fault; of an exclusive group exactly one is answered. Choices, the type's or the ``Ask``'s,
 limit what an answer may be.
 
 An answer is read as its JSON text would be (``validate_as_json``), by the validator that reads what a node returns
@@ -19,12 +19,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import JsonValue, ValidationError
+from pydantic import MISSING, JsonValue, ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError
 
 from conductor._internal.ask import as_asked
 from conductor._internal.base import SKIPPED, Loc, json_hash, validate_as_json
-from conductor._internal.field import Field, FieldDescription
+from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, call_problems
 from conductor._internal.types import Choice, Type, untyped_as_json
 from conductor._internal.utils import comma_separated
@@ -42,15 +42,13 @@ class AnswerDoor:
             or two of an exclusive group.
     """
 
-    def __init__(self, outputs: Mapping[str, Field], questions: Mapping[str, FieldDescription]) -> None:
+    def __init__(self, outputs: Mapping[str, Field]) -> None:
         """Builds the door for a node.
 
         Args:
             outputs: The node's outputs, which the answer fills, by name.
-            questions: The question about each output as its type sets it (``CompiledFunctionNode.questions``), by name.
         """
         self._outputs = outputs
-        self._questions = questions
 
     def __call__(
         self, answer: Any, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue], *, loc: Loc, waiting_id: str
@@ -76,12 +74,13 @@ class AnswerDoor:
         self, answer: Any, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue]
     ) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
         """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
-        fault of the whole answer."""
-        outputs, questions = self._outputs, self._questions
+        fault of the whole answer. A question left out gives what it says: its default, else a branch not chosen
+        when it is not ``required``, else nothing, which is a fault."""
+        outputs = self._outputs
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
-                return {name: answer_value(field, answer, as_asked(field, questions[name], choices, defaults).choices)}, []
+                return {name: answer_value(field, answer, as_asked(field, choices, defaults).choices)}, []
             except PydanticCustomError as refused:
                 return {}, [(None, refused.message())]
         if answer is None and not outputs:
@@ -92,16 +91,14 @@ class AnswerDoor:
         read: dict[str, Any] = {}
         groups: dict[str, list[str]] = {}
         for name, field in outputs.items():
-            question, group = as_asked(field, questions[name], choices, defaults), field.param.exclusive_group
+            question, group = as_asked(field, choices, defaults), field.param.exclusive_group
             try:
                 if name in answer:
                     read[name] = answer_value(field, answer[name], question.choices)
-                elif group is not None:
-                    read[name] = SKIPPED
-                elif field.default is SKIPPED and name not in defaults:
-                    read[name] = SKIPPED  # left out, a field whose default is SKIPPED is a branch not taken
+                elif question.default is not MISSING:
+                    read[name] = read_as_answer(field.whole, question.default)
                 elif not question.required:
-                    read[name] = read_as_answer(field.whole, question.default)  # its default, else None for a type that takes it
+                    read[name] = SKIPPED
                 else:
                     faults.append((name, f"'{name}' was not answered"))
             except PydanticCustomError as refused:

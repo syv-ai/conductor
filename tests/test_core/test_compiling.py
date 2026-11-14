@@ -956,7 +956,7 @@ def test_a_graph_input_has_its_field_and_writes_as_json():
     registry.add(u)
     graph = Graph.compile(make_graph(u, defaults={"u.n": 1}), registry)
     assert isinstance(graph.inputs["t"], FieldDescription) and graph.describe().inputs == graph.inputs
-    assert json.loads(json.dumps({name: i.default for name, i in graph.inputs.items()})) == {"t": None, "n": 1}
+    assert {name: json.loads(i.model_dump_json()).get("default", "no default") for name, i in graph.inputs.items()} == {"t": "no default", "n": 1}
     assert (graph.inputs["t"].name, graph.inputs["t"].required) == ("t", True)
 
 

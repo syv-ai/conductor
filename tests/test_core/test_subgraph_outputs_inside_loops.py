@@ -103,10 +103,11 @@ def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
     assert run.results["shout-lines"]["result"] == run.results["as-given"]["result"] == [["A", "B"], None, ["C"]]
 
 
-def test_the_output_is_described_as_a_series_of_series() -> None:
+def test_the_output_is_described_as_a_list_per_loop_of_the_value_returned_inside() -> None:
     graph = Graph.compile(make_graph(REGISTRY["shout-lines"], show, edges=[("shout-lines.result", "show.values")]), REGISTRY)
     described = graph.describe().nodes["shout-lines"].outputs[0]
-    assert (described.is_series, described.type, described.json_schema) == (True, "Series[str]", {"type": "array", "items": {"type": "string"}})
+    assert (described.is_series, described.type, described.json_schema) == (True, "str", {"type": "string"})
+    assert described.loops == ["documents.result", "lines.result"]  # a list per document of a list per line
     in_palette = next(entry for entry in REGISTRY.describe().nodes if entry.id == "shout-lines").outputs[0]
     assert in_palette == described
     assert graph.describe().nodes["show"].per_item_of == "shout-lines/documents.result"  # show is called once per document
@@ -134,7 +135,7 @@ def test_a_series_returned_once_per_document_is_offered_as_a_series_of_series_to
         through_subgraph = results([REGISTRY["split-lines"], reader], [("split-lines.result", f"{reader_id}.{input_name}")], reader_id, "a,b;;c")
         assert in_one_graph == through_subgraph == expected
     described = Graph.compile(make_graph(REGISTRY["split-lines"]), REGISTRY).describe().nodes["split-lines"].outputs[0]
-    assert (described.is_series, described.type) == (True, "Series[str]")
+    assert (described.is_series, described.type, described.loops) == (True, "str", ["documents.result", "lines.result"])
 
 
 def test_two_outputs_returned_per_line_are_collected_per_document_by_one_node() -> None:

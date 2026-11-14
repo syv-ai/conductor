@@ -14,14 +14,7 @@ A host is shown a waiting call as a ``Waiting`` (``run/waiting.py``). The ``Ask`
 door (``gate/answer.py``).
 """
 
-from .question import (
-    answer_required,
-    as_asked,
-)
+from .question import as_asked
 from .type import Ask
 
-__all__ = [
-    "Ask",
-    "answer_required",
-    "as_asked",
-]
+__all__ = ["Ask", "as_asked"]

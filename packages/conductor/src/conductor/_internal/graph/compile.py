@@ -430,8 +430,8 @@ class Compiler:
             return MissingInput(field)
         found = self.graph_inputs.get(name)
         if found is None or (found.default is REQUIRED and found.hint == field.hint):
-            self.graph_inputs[name] = Field(name, field.hint, default if found is None or default is not REQUIRED else found.default)
-        elif found.hint != field.hint or (default is not REQUIRED and Field(name, field.hint, default).default_json != found.default_json):
+            self.graph_inputs[name] = Field(name, field.hint, default if found is None or default is not REQUIRED else found.default, is_output=False)
+        elif found.hint != field.hint or (default is not REQUIRED and Field(name, field.hint, default, is_output=False).default_json != found.default_json):
             self.problems.append(compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name))
             return MissingInput(field)
         return GraphInput(field, name)
@@ -732,7 +732,7 @@ def _bind(node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any
         try:
             bound_fields[name] = bound_field(node_id, field, bound)
         except InvalidCallError as error:
-            bound_fields[name] = Field(name, Type(field.hint).bind(bound).hint)
+            bound_fields[name] = Field(name, Type(field.hint).bind(bound).hint, is_output=field.is_output)
             refused[name] = error.problems
     return bound_fields, refused
 

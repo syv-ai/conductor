@@ -68,6 +68,9 @@ class AskDoor:
                     raise InvalidCallError([run_problems.invalid_ask(reason=f"the choices for '{name}' are refused: {refused.message()}")]) from None
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
+                if outputs[name].param.exclusive_group is not None:  # left out, a branch is not chosen, so nothing can be proposed for it
+                    reason = f"'{name}' is one of an exclusive group, and left out it is a branch not chosen; an Ask proposes no default for it"
+                    raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
         return choices, defaults
 

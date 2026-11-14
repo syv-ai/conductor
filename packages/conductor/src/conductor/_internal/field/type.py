@@ -7,12 +7,13 @@ import functools
 from dataclasses import dataclass, field
 from typing import Annotated, Any, get_args, get_origin
 
-from pydantic import JsonValue
+from pydantic import MISSING, JsonValue
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.types import (
+    Choice,
     Param,
     Type,
     split_hint,
@@ -26,7 +27,8 @@ from .describe import FieldDescription
 
 @dataclass(frozen=True, eq=False)
 class Field:
-    """One input or output of a node: ``Field("times", Annotated[int, Param(ge=0)], 1)``.
+    """One input or output of a node: ``Field("times", Annotated[int, Param(ge=0)], 1, is_output=False)``, and
+    ``Field("result", str | None, is_output=True)``.
 
     The constructor is the only way to a field: one renamed, given another default or bound to a type variable
     is a new ``Field`` of the changed ``name``, ``default`` or ``hint``, so nothing it holds can go stale. Two fields
@@ -37,23 +39,24 @@ class Field:
     Attributes:
         name: The parameter's name, or the output's.
         hint: The annotation as written.
-        default: The default as its type holds it, already read by it and with a JSON form (``gate.declared_field``
-            reads a default a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an output on a branch not taken,
-            ``None`` for a blank.
+        default: The default as its type holds it, already read by it and with a JSON form (``gate.declared_input``
+            and ``gate.declared_output`` read a default a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an
+            output on a branch not taken, ``None`` for a blank.
+        is_output: Whether it is an output, which its description shows as the question an answer to the node fills.
+            Every field says which it is, since an input and an output whose type takes ``None`` differ in what
+            leaving them out gives.
         param: The ``Param``s of the hint as one; an empty one when it has none.
         type: The type of one value: a ``Series``' item, else ``whole``.
         whole: The type of the field's whole value, which reads it and writes it: a ``Series``' list.
-        is_series: Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input
-            that takes every item of a loop as one list.
     """
 
     name: str
     hint: Any = field(repr=False)
     default: Any = REQUIRED
+    is_output: bool = field(kw_only=True)
     param: Param = field(init=False, compare=False, repr=False)
     type: Type = field(init=False, compare=False)
     whole: Type = field(init=False, compare=False, repr=False)
-    is_series: bool = field(init=False, compare=False)
 
     def __post_init__(self) -> None:
         """Reads the hint once, refusing a type conductor can't carry.
@@ -68,17 +71,23 @@ class Field:
             keep("param", param)
             keep("whole", whole)
             keep("type", one)
-            keep("is_series", one is not whole)
             whole.schema  # noqa: B018  a type pydantic can't carry fails here
             whole.returned_schema  # noqa: B018  a Series of records may be kept as a table, whose row type fails here
             whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
 
+    @property
+    def is_series(self) -> bool:
+        """Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input that
+        takes every item of a loop as one list."""
+        return self.type is not self.whole
+
     @functools.cached_property
-    def default_json(self) -> JsonValue:
-        """The default as JSON; ``None`` where there is none to propose."""
-        return None if self.default is REQUIRED or self.default is SKIPPED else self.whole.to_json(self.default)
+    def default_json(self) -> JsonValue | MISSING:
+        """The default as JSON: ``"!"`` for ``mark: str = "!"``, ``None`` for ``note: str | None = None``, and
+        ``MISSING`` for no default (``REQUIRED``) and for ``SKIPPED``, which have no JSON form."""
+        return MISSING if self.default is REQUIRED or self.default is SKIPPED else self.whole.to_json(self.default)
 
     @functools.cached_property
     def accepts_none_items(self) -> bool:
@@ -91,13 +100,37 @@ class Field:
 
     @functools.cached_property
     def description(self) -> FieldDescription:
-        """The field as an editor reads it, made once."""
+        """The field as it is declared, as an editor reads it, made once: ``description_with`` the choices its type
+        names.
+        A palette shows it so, and a waiting call asks an output so unless its ``Ask`` sets choices or a default."""
+        return self.description_with(self.type.choices)
+
+    def description_with(self, choices: tuple[Choice, ...] | None) -> FieldDescription:
+        """The field as an editor reads it, its values limited to ``choices`` (``None`` for none), with
+        ``required`` and ``default`` saying what leaving it out gives:
+
+        - its own default, as JSON: ``mark: str = "!"`` gives ``"!"``;
+        - ``None`` for an output that has no default, whose type takes ``None``, that no choices limit, and that is
+          neither of an exclusive group nor a ``Series``: ``-> str | None``;
+        - a branch not chosen (no default, ``required`` false) for an output of an exclusive group or whose default
+          is ``SKIPPED``;
+        - else nothing: leaving it out is refused (no default, ``required`` true), as for ``text: str`` and ``-> str``.
+
+        An input whose type takes ``None`` and that has no default is ``required``: an edge or a constant gives it.
+        """
+        branch = self.param.exclusive_group is not None or self.default is SKIPPED
+        default: JsonValue | MISSING
+        if self.default is not REQUIRED:
+            default = self.default_json  # MISSING for SKIPPED
+        elif self.is_output and not branch and not self.is_series and self.whole.optional and choices is None:
+            default = None
+        else:
+            default = MISSING
         widget = self.param.widget
         return FieldDescription(
             name=self.name, title=self.param.title,
             description=self.param.description, is_series=self.is_series, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
-            schema=self.type.json_schema, required=self.default is REQUIRED, default=self.default_json,
-            choices=self.type.choices,
+            schema=self.type.json_schema, required=default is MISSING and not branch, default=default, choices=choices,
             widget=None if widget is None else widget.model_dump(mode="json"), exclusive_group=self.param.exclusive_group,
         )
 

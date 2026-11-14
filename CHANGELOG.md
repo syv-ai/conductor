@@ -74,6 +74,25 @@ What changes in how you work, before the name-by-name tables:
   `compute_outputs` hook that gives one is the hook's failure, `compute_hook_failed` with `ctx.error`
   `default_invalid`. It was accepted and shown as the output's default, while leaving the output out gave a branch
   not chosen, and returning the other branch failed with `invalid_output`.
+- **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
+  (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
+  `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
+  `"required": false` it is a branch not chosen (an output in an `exclusive_group`, or a form field whose default
+  is `SKIPPED`). `"default": null` is a default of `None`. A `FieldDescription` that is `required` and has a
+  `default` is refused (`required_with_default`), and so is an output of an `exclusive_group` that is `required` or
+  has a `default` (`required_in_exclusive_group`, `default_in_exclusive_group`) and `loops` without `is_series`
+  (`loops_without_series`). A host that writes these records with `exclude_none` turns `"default": null` into a
+  branch not chosen. An output in `describe()`, `registry.describe()` and
+  `graph.describe()` is the question its type sets, the same record a waiting call shows without an `Ask`: `-> str
+  | None` is `"required": false, "default": null` (it was `"required": true` in the palette and `false` in the
+  question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `schema` and
+  `choices` are the value the node inside returns (`"type": "str"`, where it was `"Series[str]"` for an output
+  inside two loops); its `loops` give one level of list per entry, and a `Series` it returns outside every loop
+  has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
+  `Outcome`), written before this change no longer loads: a required question there has `"default": null`.
+  There is no migration.
+  An `Ask` that proposes a default for an output of an `exclusive_group` fails the node (`invalid_ask`): left
+  out, a group member is a branch not chosen, so the question showed a default an answer never gave.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,

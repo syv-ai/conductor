@@ -435,7 +435,7 @@ def test_an_output_returned_inside_loops_is_offered_as_one_series_per_loop():
     deep = compile_graph({"e": "deep-inner", "n": "count", "x": "exclaim"}, [("e.result", "n.items"), ("e.result", "x.text")], outputs={"n": "n.result", "x": "x.result"})
     assert deep.is_runnable and (deep.describe().nodes["n"].per_item_of, deep.describe().nodes["x"].per_item_of) == ("e/w.result", "e/c.result")  # each loop is named by its series inside
     described = {inner: compile_graph({"e": inner}).describe().nodes["e"].outputs[0] for inner in ("lines-inner", "deep-inner", "series-per-item-inner")}
-    assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "Series[str]"), (True, "Series[str]")]
+    assert [(output.is_series, output.type) for output in described.values()] == [(True, "str"), (True, "str"), (True, "str")]  # the value inside; loops says how deep
     assert [output.loops for output in described.values()] == [["w.result"], ["w.result", "c.result"], ["w.result", "c.result"]]
 
 

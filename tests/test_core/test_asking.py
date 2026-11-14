@@ -21,6 +21,7 @@ from conductor import (
     Ask,
     Choice,
     ExternalError,
+    FieldDescription,
     Graph,
     GraphRecord,
     InvalidCallError,
@@ -32,11 +33,13 @@ from conductor import (
     Run,
     Series,
     Table,
+    Waiting,
     make_graph,
     node,
     subgraph,
 )
 from conductor.widgets import Textarea
+from pydantic import MISSING, ValidationError
 
 from tests.test_core.nodes import place, registry_of
 
@@ -99,7 +102,7 @@ def test_a_text_return_with_a_bare_ask_is_a_free_text_question():
     _, run = _once(reason, ticket="T-1")
     (waiting,) = run.waiting
     (question,) = waiting.questions
-    assert (waiting.prompt, question.type, question.choices, question.default, question.required) == ("Why was T-1 closed?", "str", None, None, True)
+    assert (waiting.prompt, question.type, question.choices, question.default, question.required) == ("Why was T-1 closed?", "str", None, MISSING, True)
     assert run.answer(waiting, "a duplicate").resume().outputs == {"result": "a duplicate"}
 
 
@@ -113,7 +116,7 @@ def test_how_a_question_looks_is_its_types_so_a_hook_can_give_each_output_a_widg
 
     _, run = _once(notes, names="a,b")
     assert [(q.name, q.widget, q.default, q.required) for q in run.waiting[0].questions] == [
-        ("a", {"type": "textarea", "rows": 2}, "none", False), ("b", {"type": "textarea", "rows": 2}, None, True),
+        ("a", {"type": "textarea", "rows": 2}, "none", False), ("b", {"type": "textarea", "rows": 2}, MISSING, True),
     ]
 
 
@@ -339,13 +342,84 @@ def route(text: str) -> Routed:
 def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_a_branch_not_taken():
     _, run = _waiting_outcomes(route)
     note, escalate = run.waiting[0].questions
-    assert (note.required, escalate.required, escalate.default) == (True, False, None)
+    assert (note.required, escalate.required, escalate.default) == (True, False, MISSING)  # no default: left out, a branch not taken
+    assert "default" not in escalate.model_dump(mode="json")
     run.to_json()
 
     answered = run.answer({"q@0": {"note": "fine"}, "q@1": {"note": "late", "escalate": "boss"}}).resume()
 
     assert answered.results["q"] == {"note": ["fine", "late"], "escalate": [None, "boss"]}
     assert answered.results["q"] == Run.from_json(answered.to_json(), run.graph).results["q"]
+
+
+@dataclass(frozen=True)
+class Triage:
+    note: str
+    comment: str | None
+    escalate: str = SKIPPED
+    keep: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    drop: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+
+
+@node("triage", title="Triage", description="For a test.", asks=True)
+def triage(text: str) -> Triage:
+    raise Ask(f"Triage {text}")
+
+
+def test_default_in_json_is_what_leaving_the_question_out_gives_and_null_is_only_none():
+    _, run = _once(triage, text="a")
+    written = {q["name"]: (q["required"], q.get("default", "no default")) for q in run.waiting[0].model_dump(mode="json")["questions"]}
+    assert written == {
+        "note": (True, "no default"),  # must be answered
+        "comment": (False, None),  # left out, it is None
+        "escalate": (False, "no default"),  # left out, a branch not taken
+        "keep": (False, "no default"),
+        "drop": (False, "no default"),
+    }
+    assert Waiting.model_validate_json(run.waiting[0].model_dump_json()) == run.waiting[0]
+    answered = run.answer(run.waiting[0], {"note": "n", "keep": "k"}).resume()
+    assert answered.results["q"] == {"note": "n", "comment": None, "escalate": None, "keep": "k", "drop": None}
+
+
+def test_an_output_in_the_palette_is_the_question_its_type_sets():
+    @node("maybe", title="Maybe", description="For a test.", asks=True)
+    def maybe(text: str) -> str | None:
+        raise Ask("Anything?")
+
+    (in_palette,) = maybe.describe().outputs
+    _, run = _once(maybe, text="a")
+    assert (in_palette.required, in_palette.default) == (False, None)
+    assert in_palette == run.waiting[0].questions[0] == run.graph.describe().nodes["q"].outputs[0]
+
+
+def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node():
+    @node("route", title="Route", description="For a test.", asks=True)
+    def route(text: str) -> Route:
+        raise Ask(f"Keep {text}?", default={"keep": "a"})
+
+    _, run = _once(route, text="a")
+    assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
+    assert run.cause.ctx["reason"] == "'keep' is one of an exclusive group, and left out it is a branch not chosen; an Ask proposes no default for it"
+
+
+@pytest.mark.parametrize(("written", "error"), [
+    ({"required": True, "default": None}, "required_with_default"),
+    ({"required": True, "exclusive_group": "way"}, "required_in_exclusive_group"),
+    ({"required": False, "exclusive_group": "way", "default": "a"}, "default_in_exclusive_group"),
+    ({"required": False, "default": None, "loops": ["s.result"]}, "loops_without_series"),
+])
+def test_a_field_whose_parts_contradict_each_other_is_refused(written, error):
+    one = {"name": "x", "is_series": False, "type": "str", "schema": {"type": "string"}}
+    with pytest.raises(ValidationError) as refused:
+        FieldDescription.model_validate({**one, **written})
+    assert refused.value.errors()[0]["type"] == error
+
+
+def test_a_field_whose_parts_agree_reads_back():
+    one = {"name": "x", "is_series": False, "type": "str", "schema": {"type": "string"}}
+    assert FieldDescription.model_validate({**one, "required": False, "default": None}).default is None
+    assert FieldDescription.model_validate({**one, "required": False, "exclusive_group": "way"}).default is MISSING
+    assert FieldDescription.model_validate({**one, "required": False, "is_series": True, "loops": ["s.result"]}).loops == ["s.result"]
 
 
 @node("route_to", title="Route to", description="For a test.", asks=True)
@@ -356,7 +430,7 @@ def route_to(text: str) -> Routed:
 def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_held_to():
     _, run = _once(route_to, text="a")
     note, escalate = run.waiting[0].questions
-    assert (note.required, note.choices, note.default) == (True, None, None)
+    assert (note.required, note.choices, note.default) == (True, None, MISSING)
     assert ([c.id for c in escalate.choices], escalate.default, escalate.required) == (["boss", "team"], "team", False)
 
     assert run.answer("q", {"note": "fine"}).resume().outputs == {"note": "fine", "escalate": "team"}  # the Ask's default, not SKIPPED
