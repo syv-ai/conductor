@@ -270,7 +270,7 @@ class Graph[C]:
         saved or read, and kept."""
         from conductor._internal.run import codec_of
 
-        return codec_of(self, self._blueprint)
+        return codec_of(self)
 
     # -- what a host calls to run it ---------------------------------------------
 

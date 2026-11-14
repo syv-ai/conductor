@@ -27,12 +27,15 @@ Nothing here is saved or counted as the run goes: every count is read from the r
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes, NodePath, place_text
 
-from .blueprint import BlueprintFunctionNode, BlueprintSubgraphNode, RunBlueprint
+from .blueprint import BlueprintFunctionNode, BlueprintSubgraphNode
 from .outcome import Outcome, Unanswered
+
+if TYPE_CHECKING:
+    from .type import Run
 
 
 class CallCount(ConductorModel):
@@ -90,25 +93,22 @@ def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Bluep
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
 
 
-def progress_of(blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]]) -> RunProgress:
-    """The progress of a run with these outcomes: what ``run.progress`` returns.
-
-    Args:
-        blueprint: The blueprint of the run's graph.
-        outcomes: The run's outcomes, by node path and then by item indexes.
+def progress_of(run: Run[Any]) -> RunProgress:
+    """The progress of ``run``: what ``run.progress`` returns.
 
     Returns:
         The count of each node, in the order of the blueprint with a subgraph node after the nodes inside it,
         and their sums.
     """
+    blueprint, outcomes = run._blueprint, run._outcomes
     nodes: dict[str, CallCount] = {}
     for path, node in blueprint.nodes.items():
         if isinstance(node, BlueprintSubgraphNode):  # the nodes inside it come before it, so their counts are made
             nodes[place_text(path)] = _sum(nodes[place_text(inner.node_path)] for inner in node.inner_nodes.values())
         else:
             nodes[place_text(path)] = call_count(outcomes, node)
-    run = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
-    return RunProgress.model_construct(finished=run.finished, waiting=run.waiting, known=run.known, total=run.total, nodes=nodes)
+    whole = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
+    return RunProgress.model_construct(finished=whole.finished, waiting=whole.waiting, known=whole.known, total=whole.total, nodes=nodes)
 
 
 def _sum(counts: Iterable[CallCount]) -> CallCount:

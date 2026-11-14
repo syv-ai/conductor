@@ -16,7 +16,7 @@ from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
-from ..blueprint import BlueprintFunctionNode, RunBlueprint
+from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 from ..progress import all_item_indexes
 from ..reuse import ReusableOutcomes
@@ -26,11 +26,10 @@ from .type import (
     SAVED_SKIPPED,
     SavedOutcomes,
     SavedReusable,
-    SavedRun,
 )
 
 
-def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Graph[Any], blueprint: RunBlueprint, codec: type[SavedRun]) -> R:
+def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Graph[Any]) -> R:
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
     For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the
@@ -45,14 +44,13 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
         saved: The JSON text.
         graph: The graph the run was made on.
-        blueprint: The graph's blueprint.
-        codec: The graph's codec.
 
     Raises:
         InvalidCallError: ``saved`` was written for another graph (``saved_run_of_another_graph``), or is not a
             saved run of this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the output
             and the call number, and which quotes no value).
     """
+    blueprint, codec = graph._blueprint, graph._codec
     try:
         read = codec.model_validate_json(saved)
     except ValidationError as error:

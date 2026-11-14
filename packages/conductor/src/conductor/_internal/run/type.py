@@ -133,12 +133,12 @@ class Run[C]:
         left, how the last ``resume()`` ended it early: ``failed``, ``stopped`` (at the item limit), ``cancelled`` or
         ``timed_out``. A failed call and a series over the item limit stand until a ``resume()``; an answer reads a
         cancelled or timed-out run from its outcomes again."""
-        return status_of(self._last_resume, self._blueprint.function_nodes.values(), self._outcomes)[0]
+        return status_of(self)[0]
 
     @property
     def cause(self) -> Problem | None:
         """The problem that ended the run early, with its ``loc`` and its code; ``None`` when the run did not end early."""
-        return status_of(self._last_resume, self._blueprint.function_nodes.values(), self._outcomes)[1]
+        return status_of(self)[1]
 
     # -- going on ---------------------------------------------------------------
 
@@ -424,7 +424,7 @@ class Run[C]:
         invoices there are is known once ``read`` has returned. ``run.resume(only_costs_nothing=True)`` calls ``read``
         first when its ``Policy`` says ``costs_nothing``.
         """
-        return progress_of(self._blueprint, self._outcomes)
+        return progress_of(self)
 
     @property
     def not_called(self) -> list[NotCalled]:
@@ -445,15 +445,16 @@ class Run[C]:
         ``[["A", "B"], None, ["C"]]``. ``None`` instead of a list means the list being looped over was never
         made, or no item of it could have a value.
         """
-        return results_of(self.graph, self._blueprint, self._outcomes, self.inputs)
+        return results_of(self)
 
     @property
     def outputs(self) -> dict[str, Any]:
         """The graph's outputs (``graph.outputs``), by name, once the run is complete; ``results`` reads a run in any state."""
-        if (status := self.status) != "complete":
-            reason = cause.msg if (cause := self.cause) is not None else ""
+        status, cause = status_of(self)
+        if status != "complete":
+            reason = cause.msg if cause is not None else ""
             raise InvalidCallError([call_problems.run_not_complete("outputs", status=status, reason=reason)])
-        return outputs_of(self.graph, self._blueprint, self._outcomes, self.inputs)
+        return outputs_of(self)
 
     def outputs_to_json(self) -> str:
         """Returns ``run.outputs`` as JSON text, by name: ``{"result":"A!+B!+C!"}`` for the README graph.
@@ -491,7 +492,7 @@ class Run[C]:
         """
         if graph.problems:
             raise InvalidCallError(graph.problems)
-        return run_from_json(Run, saved, graph, graph._blueprint, graph._codec)
+        return run_from_json(Run, saved, graph)
 
     def to_json(self) -> str:
         """Returns the whole run as JSON text: its inputs, how the last ``resume()`` left it, every node's outcomes, and the outcomes

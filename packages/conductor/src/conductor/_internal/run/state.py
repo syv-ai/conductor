@@ -13,18 +13,19 @@ its outcomes, as is a run whose every call returned however the resume ended.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import ConfigDict
 
-from conductor._internal.base import ItemIndexes, NodePath
 from conductor._internal.problem import Problem, run_problems
 
-from .blueprint import BlueprintFunctionNode
-from .outcome import Outcome, Unanswered
+from .outcome import Unanswered
 from .progress import is_complete
+
+if TYPE_CHECKING:
+    from .type import Run
 
 #: The status of a run: ``run.status``. ``ready``, ``waiting`` and ``complete`` are read from its outcomes;
 #: ``running`` is a copy made while a ``resume()`` went on; ``failed``, ``stopped``, ``cancelled`` and ``timed_out``
@@ -52,23 +53,17 @@ class EndedEarly:
 LastResume = EndedEarly | Literal["running"] | None
 
 
-def status_of(
-    last_resume: LastResume, nodes: Iterable[BlueprintFunctionNode], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
-) -> tuple[RunStatus, Problem | None]:
-    """The status of a run, and the problem that ended it early when that is its status.
+def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
+    """The status of ``run``, and the problem that ended it early when that is its status.
 
-    ``running`` in a copy made while a ``resume()`` went on; else ``complete`` once every node is complete
-    (``is_complete``); else how the last ``resume()`` ended early, with its cause; else
-    ``waiting`` while a call waits for a person, and ``ready`` before that.
-
-    Args:
-        last_resume: How the last ``resume()`` left the run.
-        nodes: Every function node of the run's graph and of its subgraphs.
-        outcomes: The run's outcomes, by node path and item indexes.
+    ``running`` in a copy made while a ``resume()`` went on; else ``complete`` once every function node of the graph
+    and of its subgraphs is complete (``is_complete``); else how the last ``resume()`` ended early, with its cause;
+    else ``waiting`` while a call waits for a person, and ``ready`` before that.
     """
+    last_resume, outcomes = run._last_resume, run._outcomes
     if last_resume == "running":
         return "running", None
-    if all(is_complete(outcomes, node) for node in nodes):
+    if all(is_complete(outcomes, node) for node in run._blueprint.function_nodes.values()):
         return "complete", None
     if last_resume is not None:
         return last_resume.status, last_resume.cause

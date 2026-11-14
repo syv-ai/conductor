@@ -44,7 +44,7 @@ from conductor._internal.base import ConductorModel, Loc
 from conductor._internal.problem import Problem
 
 from .progress import CallCount
-from .state import RunStatus
+from .state import RunStatus, status_of
 from .waiting import Waiting
 
 if TYPE_CHECKING:
@@ -238,7 +238,8 @@ class RunEnd(EventBase):
     @classmethod
     def of(cls, run: Run) -> RunEnd:
         """Returns the ``RunEnd`` of ``run``: its status, and its cause when the run ended early."""
-        return cls(status=run.status, cause=run.cause, run=run)
+        status, cause = status_of(run)
+        return cls(status=status, cause=cause, run=run)
 
 
 class RunCheckpoint(EventBase):
