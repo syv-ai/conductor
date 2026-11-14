@@ -49,7 +49,7 @@ repos:
 
       - id: touch/engine-paths
         name: The engine's rules and hot paths
-        files: '^packages/conductor/src/conductor/_internal/(run|compiled|graph|registry|node)/'
+        files: '^packages/conductor/src/conductor/_internal/(run|graph|registry|node)/'
         stages: [touch]
         context:
           - "@conventions/design.md#one-rule-one-place"

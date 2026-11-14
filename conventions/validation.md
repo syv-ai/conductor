@@ -7,7 +7,7 @@ Validate untyped outside data once, with pydantic, at its door in `_internal/gat
 Why: a value checked once at its door can be trusted everywhere inside, so checks inside are noise that hides the real ones.
 
 ```python
-if not is_name(node_id): problems.append(...)   # bad: in compiled/compile.py
+if not is_name(node_id): problems.append(...)   # bad: in graph/compile.py
 # good: the record door in gate/record.py finds it; compile trusts the record
 ```
 
@@ -18,6 +18,6 @@ Read text once where it enters and keep what it gives (JSON through `read_json`,
 Why: text split or parsed in several places has several spellings and several sets of faults.
 
 ```python
-node, output = target.split(".", 1)          # bad: in compiled/compile.py
+node, output = target.split(".", 1)          # bad: in graph/compile.py
 node, output = source.node, source.output    # good: the record holds a Source
 ```
