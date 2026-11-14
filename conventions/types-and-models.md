@@ -8,8 +8,7 @@ Why: a check for a state the types rule out hides the bug that made it, and make
 
 ```python
 def add(self, definition: NodeDefinition) -> None:
-    if not isinstance(definition, NodeDefinition):
-        raise NodeDeclarationError(...)  # bad: delete the check
+    if not isinstance(definition, NodeDefinition): raise NodeDeclarationError(...)   # bad: delete the check
 ```
 
 ## Fail loud
@@ -19,11 +18,9 @@ Let an unexpected state raise: no `except Exception: return None`, no silent def
 Why: a silent default turns a bug into a wrong result found much later; a loud failure points at the cause.
 
 ```python
-try:
-    return to_json(value)
-except Exception:
-    return None  # bad
-return to_json(value)  # good
+try: return to_json(value)
+except Exception: return None    # bad
+return to_json(value)            # good
 ```
 
 ## Invalid states cannot be written
@@ -33,17 +30,9 @@ Split a record whose fields hide an either/or into two types, give no field a `N
 Why: a union of several shapes for one field means the shape was not decided where the value is made.
 
 ```python
-class Version:
-    function: Callable | None
-    graph: GraphRecord | None  # bad
-
-
-class FunctionVersion:
-    function: Callable  # good, with
-
-
-class SubgraphVersion:
-    graph: GraphRecord
+class Version: function: Callable | None; graph: GraphRecord | None   # bad
+class FunctionVersion: function: Callable                            # good, with
+class SubgraphVersion: graph: GraphRecord
 ```
 
 ## What a person sees is declared

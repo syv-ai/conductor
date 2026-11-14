@@ -19,6 +19,12 @@ line-length = 100
 target-version = "py312"
 # A stub in a syntax 3.13 has; only a type checker reads it.
 extend-exclude = ["examples/*.ipynb", "node.ipynb", "**/table_as_a_type_checker_reads_it.pyi"]
+# Excluded paths stay excluded when pre-commit names them.
+force-exclude = true
+
+[tool.ruff.format]
+# The docs' and conventions' examples are laid out by hand: a bad and a good line side by side.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
 # Conservative baseline: pyflakes + pycodestyle + isort. Expand later if desired.

@@ -26,9 +26,7 @@ def words(text: str) -> Series[str]:
     return text.split()
 
 
-@text.node(
-    "upper", title="Uppercase", description="Turns a text into capital letters.", tags=("case",)
-)
+@text.node("upper", title="Uppercase", description="Turns a text into capital letters.", tags=("case",))
 def upper(text: str) -> str:
     return text.upper()
 
@@ -61,9 +59,7 @@ print(sorted(d.id for d in free))  # ['join', 'upper', 'words']
 
 ```python
 record = make_graph(words, upper, join)
-print(
-    record.model_dump_json()
-)  # {"nodes":{"words":{"node":"words","inputs":{"text":{"graph_input":"text"}}},"upper":{"node":"upper","inputs":{"text":{"sources":[{"node":"words","output":"result"}]}}},"join":{"node":"join","inputs":{"texts":{"sources":[{"node":"upper","output":"result"}]}}}},"outputs":{"result":{"node":"join","output":"result"}}}
+print(record.model_dump_json())  # {"nodes":{"words":{"node":"words","inputs":{"text":{"graph_input":"text"}}},"upper":{"node":"upper","inputs":{"text":{"sources":[{"node":"words","output":"result"}]}}},"join":{"node":"join","inputs":{"texts":{"sources":[{"node":"upper","output":"result"}]}}}},"outputs":{"result":{"node":"join","output":"result"}}}
 
 
 @registry.node("half", title="Half", description="Halves a number.")
@@ -116,15 +112,11 @@ def greet(name: str, greeting: str) -> str:
 
 
 names_and_greetings = make_graph(
-    words,
-    words,
-    greet,
+    words, words, greet,
     edges=[("words-1.result", "greet.name"), ("words-2.result", "greet.greeting")],
     inputs={"names": "words-1.text", "greetings": "words-2.text"},
 )
-print(
-    [problem.type for problem in Graph.compile(names_and_greetings, registry).problems]
-)  # ['series_not_nested']
+print([problem.type for problem in Graph.compile(names_and_greetings, registry).problems])  # ['series_not_nested']
 
 try:
     graph.run(text=["a", "b"])
@@ -147,11 +139,7 @@ except InvalidCallError as e:
 middle = {"Ida": "Marie"}
 
 
-@registry.node(
-    "middle-name",
-    title="Middle name",
-    description="Looks up a person's middle name, if there is one.",
-)
+@registry.node("middle-name", title="Middle name", description="Looks up a person's middle name, if there is one.")
 def middle_name(name: str) -> str | None:
     return middle.get(name)
 
@@ -184,9 +172,7 @@ from typing import Literal
 from conductor import Ask
 
 
-@registry.node(
-    "tone", title="Tone", description="Asks a person which tone a text should have.", asks=True
-)
+@registry.node("tone", title="Tone", description="Asks a person which tone a text should have.", asks=True)
 def tone(text: str) -> Literal["formal", "casual"]:
     raise Ask(f"Which tone for {text!r}?")
 
@@ -211,9 +197,7 @@ print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'result': '
 ```python
 from conductor import subgraph
 
-shout = subgraph("shout", title="Shout", description="Turns a text into capital letters.")(
-    make_graph(upper)
-)
+shout = subgraph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
 shouted = Graph.compile(make_graph(shout, join, edges=[("shout.result", "join.texts")]), registry)
 print(list(shouted.inputs), shouted.outputs)  # ['text'] ['result']
@@ -268,9 +252,7 @@ class Settings(BaseModel):
     temperature: Annotated[float, Param(ge=0, le=2)] = 1.0
 
 
-print(
-    Settings.model_json_schema()["properties"]["temperature"]
-)  # {'default': 1.0, 'maximum': 2, 'minimum': 0, 'title': 'Temperature', 'type': 'number'}
+print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 1.0, 'maximum': 2, 'minimum': 0, 'title': 'Temperature', 'type': 'number'}
 ```
 
 **Worth questioning:** `@host_type` is a decorator, not a base class. A base class runs before the class is finished, which breaks pydantic's `Box[int]`, `@dataclass(slots=True)` and enums, and a library's class can't be given one. The decorator gives a subclass of a builtin (`class Email(str)`) the schema it lacks, on the class, so conductor still knows no host type.
@@ -295,9 +277,7 @@ from conductor import Param
 
 @registry.node("times", title="Times", description="Repeats a mark a number of times.")
 def times(n: Annotated[int, Param(ge=1)]) -> str:
-    return (
-        "x" * n
-    )  # n is an int of at least 1 here: the inputs door read it, and nothing checks it again
+    return "x" * n  # n is an int of at least 1 here: the inputs door read it, and nothing checks it again
 
 
 counted = Graph.compile(make_graph(times), registry)
@@ -305,9 +285,7 @@ print(counted.run(n="3").outputs)  # {'result': 'xxx'}
 try:
     counted.run(n=True)
 except InvalidCallError as refused:
-    print(
-        [found.type for found in refused.problems]
-    )  # ['invalid_input']: a yes or no is not a number
+    print([found.type for found in refused.problems])  # ['invalid_input']: a yes or no is not a number
 ```
 
 **Worth questioning:** a door reports the first fault of a node's return, but every fault of a caller's inputs. A return is one call's outcome, one problem; a caller fixes all their inputs at once.

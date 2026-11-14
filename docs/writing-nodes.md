@@ -21,12 +21,7 @@ from conductor.widgets import NumberInput, TextInput
 text_nodes = NodeRegistry(category="text", tags=["acme"])
 
 
-@text_nodes.node(
-    "repeat",
-    title="Repeat",
-    description="Repeats a text.",
-    extra={"docs_url": "https://example.com/repeat"},
-)
+@text_nodes.node("repeat", title="Repeat", description="Repeats a text.", extra={"docs_url": "https://example.com/repeat"})
 def repeat(
     text: Annotated[str, Param(title="Text", widget=TextInput())],
     times: Annotated[int, Param(title="Times", ge=1, le=10, widget=NumberInput())] = 2,
@@ -57,12 +52,7 @@ A second node under an id the host already has raises. `extra` is your own JSON 
 
 ```python
 drawn = {  # as an editor saves it
-    "nodes": {
-        "repeat": {
-            "node": "repeat",
-            "inputs": {"text": {"graph_input": "text"}, "times": {"constant": 20}},
-        }
-    },
+    "nodes": {"repeat": {"node": "repeat", "inputs": {"text": {"graph_input": "text"}, "times": {"constant": 20}}}},
     "outputs": {"result": {"node": "repeat", "output": "result"}},
 }
 graph = Graph.compile(GraphRecord.model_validate(drawn), host)
@@ -168,9 +158,7 @@ def reachable(contacts: Table[Contact]) -> Table[Contact]:
     return contacts.filter(pl.col("email").is_not_null())
 
 
-run = Graph.compile(make_graph(contacts, reachable), tables).run(
-    csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n"
-)
+run = Graph.compile(make_graph(contacts, reachable), tables).run(csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n")
 print(run.outputs["result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
 ```
 
@@ -227,9 +215,7 @@ def report(temperature: Temperature) -> str:
     return f"{temperature.degrees} degrees"
 
 
-print(
-    Graph.compile(make_graph(measure, report), tables).run().outputs
-)  # {'result': '21.5 degrees'}
+print(Graph.compile(make_graph(measure, report), tables).run().outputs)  # {'result': '21.5 degrees'}
 ```
 
 `accepts` only lets the edge be drawn. Your class reads the value itself, so it has to be able to: here `from_attributes` does it.
@@ -268,19 +254,10 @@ def count(texts: Series[str]) -> int:
     return len(texts)
 
 
-letter = make_graph(
-    open_letter,
-    tag,
-    count,
-    edges=[
-        ("open.lines", "tag.line"),
-        ("open.sender", "tag.sender"),
-        ("tag.result", "count.texts"),
-    ],
-)
+letter = make_graph(open_letter, tag, count, edges=[("open.lines", "tag.line"), ("open.sender", "tag.sender"), ("tag.result", "count.texts")])
 run = Graph.compile(letter, registry).run(text="Ida\nhello\nsee you")
 print(run.results["tag"]["result"])  # ['Ida: hello', 'Ida: see you']
-print(run.outputs)  # {'result': 2}
+print(run.outputs)                   # {'result': 2}
 ```
 
 - `open` returns the lines as a `Series`, and `tag` takes one line, so `tag` runs once per line: it is inside the loop over `open.lines`. Every node downstream of `tag` would run once per line too.
@@ -302,42 +279,19 @@ def shout(line: str) -> str:
     return line.upper()
 
 
-@registry.node(
-    "compare", title="Compare", description="Says how many other texts a line is compared with."
-)
+@registry.node("compare", title="Compare", description="Says how many other texts a line is compared with.")
 def compare(line: str, others: Series[str]) -> str:
     return f"{line} against {len(others)}"
 
 
-own = make_graph(
-    open_letter,
-    shout,
-    compare,
-    edges=[
-        ("open.lines", "shout.line"),
-        ("open.lines", "compare.line"),
-        ("shout.result", "compare.others"),
-    ],
-)
-print(
-    Graph.compile(own, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"]
-)  # ['hello against 1', 'see you against 1']
+own = make_graph(open_letter, shout, compare, edges=[("open.lines", "shout.line"), ("open.lines", "compare.line"), ("shout.result", "compare.others")])
+print(Graph.compile(own, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 1', 'see you against 1']
 
 every = make_graph(
-    open_letter,
-    shout,
-    collect,
-    compare,
-    edges=[
-        ("open.lines", "shout.line"),
-        ("shout.result", "series-collect.values"),
-        ("open.lines", "compare.line"),
-        ("series-collect.result", "compare.others"),
-    ],
+    open_letter, shout, collect, compare,
+    edges=[("open.lines", "shout.line"), ("shout.result", "series-collect.values"), ("open.lines", "compare.line"), ("series-collect.result", "compare.others")],
 )
-print(
-    Graph.compile(every, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"]
-)  # ['hello against 2', 'see you against 2']
+print(Graph.compile(every, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 2', 'see you against 2']
 ```
 
 - In `own`, `compare` runs once per line for its `line`, and `shout` returned one text for that same line: `others` is that one text.
@@ -375,7 +329,7 @@ def notify(amount: int) -> str:
 
 graph = Graph.compile(make_graph(route, notify, edges=[("route.large", "notify.amount")]), registry)
 print(graph.run(amount=5000).results["notify"])  # {'result': 'told the manager about 5000'}
-print(graph.run(amount=5).results["notify"])  # {'result': None}
+print(graph.run(amount=5).results["notify"])     # {'result': None}
 ```
 
 A skipped node's outputs read as `None` in `run.results` and `run.outputs`.
@@ -390,14 +344,9 @@ def keep[T](value: T) -> T:
     return value
 
 
-graph = Graph.compile(
-    make_graph(
-        route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]
-    ),
-    registry,
-)
+graph = Graph.compile(make_graph(route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]), registry)
 print(graph.describe().nodes["keep"].outputs[0].type)  # int
-print(graph.run(amount=5000).outputs)  # {'result': 'told the manager about 5000'}
+print(graph.run(amount=5000).outputs)                  # {'result': 'told the manager about 5000'}
 ```
 
 `route.large` is an `int`, so in this graph `keep` takes an `int` and returns one, and `notify.amount` may be wired to it. In a graph where a text arrives, `keep` returns a text. What the node returns is checked against the type that arrived. `None` is taken only by a hint that says so: where a `str | None` arrives, `value: T` is a `str` input and the node isn't called for a `None`, and a node that passes `None` on writes `value: T | None`.
@@ -408,15 +357,9 @@ A variable can stand inside another type. This node takes a table or a list apar
 from typing import cast
 
 
-@registry.node(
-    "each",
-    title="Each",
-    description="Gives the records of a table, or the items of a list, one at a time.",
-)
+@registry.node("each", title="Each", description="Gives the records of a table, or the items of a list, one at a time.")
 def each[T](value: Table[T] | list[T]) -> Series[T]:
-    return cast(
-        "list[T]", value
-    )  # conductor reads a table returned for a Series as its records; the cast tells the type checker
+    return cast("list[T]", value)  # conductor reads a table returned for a Series as its records; the cast tells the type checker
 
 
 @registry.node("address-book", title="Address book", description="Reads contacts from a CSV text.")
@@ -429,18 +372,8 @@ def greet_contact(name: str) -> str:
     return f"Hello {name}"
 
 
-graph = Graph.compile(
-    make_graph(
-        address_book,
-        each,
-        greet_contact,
-        edges=[("address-book.result", "each.value"), ("each.result.name", "greet-contact.name")],
-    ),
-    registry,
-)
-print(
-    graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs
-)  # {'result': ['Hello Ida', 'Hello Bo']}
+graph = Graph.compile(make_graph(address_book, each, greet_contact, edges=[("address-book.result", "each.value"), ("each.result.name", "greet-contact.name")]), registry)
+print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'result': ['Hello Ida', 'Hello Bo']}
 ```
 
 A `Table[Contact]` arrived, so `T` is `Contact` and the edge may name its field, `each.result.name`. Wired to a `list[int]`, the same node returns a `Series[int]`.
@@ -454,11 +387,7 @@ class Checked[T]:
     failed: Annotated[T, Param(exclusive_group="check")]
 
 
-@registry.node(
-    "check",
-    title="Check",
-    description="Sends a value one way if it passed and the other if it failed.",
-)
+@registry.node("check", title="Check", description="Sends a value one way if it passed and the other if it failed.")
 def check[T](value: T, ok: bool) -> Checked[T]:
     return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
 ```
@@ -474,26 +403,17 @@ def outputs_by_name(names: list[str]) -> dict[str, type]:
     return {name: str for name in names}
 
 
-@registry.node(
-    "cells",
-    title="Cells",
-    description="Gives each cell of a CSV line under a name of its own.",
-    compute_outputs=outputs_by_name,
-)
+@registry.node("cells", title="Cells", description="Gives each cell of a CSV line under a name of its own.", compute_outputs=outputs_by_name)
 def cells(line: str, names: list[str]) -> dict[str, str]:
     return dict(zip(names, line.split(",")))
 
 
 graph = Graph.compile(
-    make_graph(
-        cells,
-        constants={"cells.names": ["name", "city"]},
-        outputs={"name": "cells.name", "city": "cells.city"},
-    ),
+    make_graph(cells, constants={"cells.names": ["name", "city"]}, outputs={"name": "cells.name", "city": "cells.city"}),
     registry,
 )
-print(graph.outputs)  # ['city', 'name']
-print(graph.run(line="Ida,Aarhus").outputs)  # {'city': 'Aarhus', 'name': 'Ida'}
+print(graph.outputs)                           # ['city', 'name']
+print(graph.run(line="Ida,Aarhus").outputs)    # {'city': 'Aarhus', 'name': 'Ida'}
 ```
 
 The hook is called when the graph is compiled, with the constant of `names`, so that input must be a constant in the graph record: no edge or caller can give it. The node returns its outputs as a dict by name. Since the outputs are known only once the graph is compiled, `make_graph` declares no graph output on them by itself: `outputs=` names the ones the graph returns. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises is a problem on the node, `compute_hook_failed`, with your message if you raise a `NodeError`.
@@ -512,17 +432,13 @@ With no more than a prompt, `-> str` asks for a line of free text: `raise Ask(f"
 from conductor import Ask
 
 
-@registry.node(
-    "assign", title="Assign", description="Asks a person who should take a ticket.", asks=True
-)
+@registry.node("assign", title="Assign", description="Asks a person who should take a ticket.", asks=True)
 def assign(ticket: str) -> str:
     raise Ask(f"Who takes {ticket}?", choices=["ida", "bo"], default="ida")
 
 
 run = Graph.compile(make_graph(assign), registry).run(ticket="T-1")
-print(
-    run.waiting[0].questions[0].choices
-)  # (Choice(id='ida', title='ida'), Choice(id='bo', title='bo'))
+print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='bo', title='bo'))
 ```
 
 A node with several outputs is answered by output name, so `choices` and `default` go by output name too, naming only the outputs they are for. A `Choice(id, title)` gives a choice a title of its own:
@@ -539,13 +455,9 @@ class Review:
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
-@registry.node(
-    "review", title="Review", description="Asks a person to review a proposal.", asks=True
-)
+@registry.node("review", title="Review", description="Asks a person to review a proposal.", asks=True)
 def review(proposal: str) -> Review:
-    raise Ask(
-        f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]}
-    )
+    raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
 
 
 graph = Graph.compile(make_graph(review), registry)
@@ -574,12 +486,7 @@ class Bill(TypedDict):
     amount: int
 
 
-@registry.node(
-    "approval",
-    title="Approval",
-    description="Approves a small bill, and asks a person about a large one.",
-    asks=True,
-)
+@registry.node("approval", title="Approval", description="Approves a small bill, and asks a person about a large one.", asks=True)
 def approval(bill: Bill) -> bool:
     if bill["amount"] <= 500:
         return True
@@ -591,19 +498,12 @@ def pay(bill: Bill, ok: bool) -> str:
     return f"{'paid' if ok else 'held'} {bill['number']}"
 
 
-approve_and_pay = make_graph(
-    approval,
-    pay,
-    edges=[("approval.result", "pay.ok")],
-    inputs={"bill": ["approval.bill", "pay.bill"]},
-)
+approve_and_pay = make_graph(approval, pay, edges=[("approval.result", "pay.ok")], inputs={"bill": ["approval.bill", "pay.bill"]})
 graph = Graph.compile(approve_and_pay, registry)
 print(graph.run(bill={"number": "B-1", "amount": 100}).outputs)  # {'result': 'paid B-1'}
 
 run = graph.run(bill={"number": "B-2", "amount": 900})
-print(
-    [(question.name, question.type) for question in run.waiting[0].questions]
-)  # [('result', 'bool')]
+print([(question.name, question.type) for question in run.waiting[0].questions])  # [('result', 'bool')]
 print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
 ```
 
@@ -626,9 +526,7 @@ def parse(text: str) -> int:
 
 run = Graph.compile(make_graph(parse), registry).run(text="twelve")
 if run.cause is not None:  # a run that failed, stopped or timed out says why
-    print(
-        run.status, run.cause.type, run.cause.msg
-    )  # failed not_a_number The text is not a number.
+    print(run.status, run.cause.type, run.cause.msg)  # failed not_a_number The text is not a number.
 ```
 
 `ctx=` takes what a host needs beyond the text, as JSON values: text, numbers, `True`/`False`, `None`, lists and dicts of them. The host reads it as `cause.ctx`. A problem is saved and streamed as JSON, so a `ctx` with anything else in it (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at your `raise`, and the node fails as `execution_failed`. A run's `cause` is that problem when it failed, stopped, was cancelled or timed out, and `None` otherwise.
@@ -643,12 +541,7 @@ from conductor import ExternalError, Policy
 attempts: list[str] = []
 
 
-@registry.node(
-    "fetch",
-    title="Fetch",
-    description="Fetches a page from an address.",
-    policy=Policy(retries=2, retry_delay=0.01),
-)
+@registry.node("fetch", title="Fetch", description="Fetches a page from an address.", policy=Policy(retries=2, retry_delay=0.01))
 def fetch(url: str) -> str:
     attempts.append(url)
     if len(attempts) < 3:
@@ -667,12 +560,7 @@ print(run.status, len(attempts))  # complete 3
 A host wants to tell a person how long a run will take before it starts: "this will make 33 calls to a language model". How many calls a node has depends on how many items the node before it returns, so the host can know it only once that node is called. Mark a node whose call costs nothing, and touches nothing outside the run, with `Policy(costs_nothing=True)`: one that hands on an upload's files, splits a table, or returns a list given to it. The host can then call those nodes first:
 
 ```python
-@registry.node(
-    "files",
-    title="Files",
-    description="The files a person uploaded, one item each.",
-    policy=Policy(costs_nothing=True),
-)
+@registry.node("files", title="Files", description="The files a person uploaded, one item each.", policy=Policy(costs_nothing=True))
 def files(names: list[str]) -> Series[str]:
     return names
 
@@ -682,14 +570,12 @@ def summarize(name: str) -> str:
     return f"A summary of {name}"  # yours: the call that costs something
 
 
-ready = Graph.compile(make_graph(files, summarize), registry).with_inputs(
-    names=["a.pdf", "b.pdf", "c.pdf"]
-)
+ready = Graph.compile(make_graph(files, summarize), registry).with_inputs(names=["a.pdf", "b.pdf", "c.pdf"])
 estimated = ready.resume(only_costs_nothing=True)
 
-print(estimated.status)  # ready
+print(estimated.status)                       # ready
 print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 known=3 total=3
-print(estimated.resume().progress.finished)  # 4
+print(estimated.resume().progress.finished)   # 4
 ```
 
 `run.resume(only_costs_nothing=True)` calls only the marked nodes, with the same `context` and `timeout` as any `resume()`, and `run.stream(only_costs_nothing=True)` does the same with its events; the run is `ready` afterwards. The next `resume()` calls the rest and makes none of those calls again. A marked node that raises `Ask` or fails does so as in `resume()`: the run is `waiting` or `failed`, and the next `resume()` calls a failed call again. A node that takes the run's context is refused `costs_nothing=True` ([`costs_nothing_takes_context`](problems.md#costs_nothing_takes_context)): it uses the host's objects, so its call is not free.
@@ -719,9 +605,7 @@ class AppContext:
 signing = NodeRegistry(context_type=AppContext)
 
 
-@signing.node(
-    "sign", title="Sign", description="Signs a text with the name of the person running it."
-)
+@signing.node("sign", title="Sign", description="Signs a text with the name of the person running it.")
 def sign(ctx: Context[AppContext], text: str) -> str:
     return f"{text}, {ctx.caller.name}"
 
@@ -766,26 +650,16 @@ def greet_v1(name: str) -> str:
     return f"Hello {name}"
 
 
-@registry.node(
-    "greet",
-    title="Greet",
-    description="Greets a person by name.",
-    replaces=greet_v1,
-    upgrade=Upgrade(renamed_inputs={"name": "person"}),
-)
+@registry.node("greet", title="Greet", description="Greets a person by name.", replaces=greet_v1, upgrade=Upgrade(renamed_inputs={"name": "person"}))
 def greet(person: str, greeting: str = "Hello") -> str:
     return f"{greeting} {person}"
 
 
 saved = make_graph(greet_v1, constants={"greet.name": "Ida"})
-print(
-    Graph.compile(saved, registry).run().outputs
-)  # {'result': 'Hello Ida'}: it still runs version 1
+print(Graph.compile(saved, registry).run().outputs)  # {'result': 'Hello Ida'}: it still runs version 1
 
 moved = registry.upgrade(saved, "greet")
-print(
-    moved.nodes["greet"].version, moved.nodes["greet"].inputs
-)  # 2 {'person': InputEntry(constant='Ida')}
+print(moved.nodes["greet"].version, moved.nodes["greet"].inputs)  # 2 {'person': InputEntry(constant='Ida')}
 ```
 
 Compiling never upgrades. A host calls `registry.upgrade` and shows the author the result. `@node(..., deprecation=Deprecation(header=..., description=..., alternative=...))` tells an editor a version is going away, and which node id to use instead.
@@ -797,22 +671,19 @@ Calling a node tests its body. `check_registry` tests what a host relies on and 
 ```python
 from conductor.testing import check_registry
 
-problems = check_registry(
-    registry,
-    examples={
-        "review": [{"proposal": "Move the server"}],
-        "parse": [{"text": "12"}],
-        "fetch": [{"url": "https://example.com"}],
-        "greet": [{"person": "Ida"}],
-        "route": [{"amount": 5}],
-        "assign": [{"ticket": "T-1"}],
-        "notify": [{"amount": 5}],
-        "open": [{"text": "Ida\nhello"}],
-        "tag": [{"line": "hello", "sender": "Ida"}],
-        "count": [{"texts": ["hello"]}],
-        "cells": [{"line": "Ida,Aarhus", "names": ["name", "city"]}],
-    },
-)
+problems = check_registry(registry, examples={
+    "review": [{"proposal": "Move the server"}],
+    "parse": [{"text": "12"}],
+    "fetch": [{"url": "https://example.com"}],
+    "greet": [{"person": "Ida"}],
+    "route": [{"amount": 5}],
+    "assign": [{"ticket": "T-1"}],
+    "notify": [{"amount": 5}],
+    "open": [{"text": "Ida\nhello"}],
+    "tag": [{"line": "hello", "sender": "Ida"}],
+    "count": [{"texts": ["hello"]}],
+    "cells": [{"line": "Ida,Aarhus", "names": ["name", "city"]}],
+})
 print(problems)  # []
 print(check_registry(signing, examples={"sign": [{"text": "Done"}]}, context=ida))  # []
 ```

@@ -18,8 +18,8 @@ Import another package only through its `__init__.py` and only from a lower laye
 Why: a module that reaches into another package's files ties the two together and mixes layers.
 
 ```python
-from conductor._internal.run.outcome import Done  # bad: a file inside another package
-from conductor._internal.run import Done  # good; inside run/: from .outcome import Done
+from conductor._internal.run.outcome import Done   # bad: a file inside another package
+from conductor._internal.run import Done           # good; inside run/: from .outcome import Done
 ```
 
 ## JSON in and out is one concept
@@ -29,8 +29,8 @@ Keep reading and writing JSON apart from the class it is about (a run's JSON for
 Why: JSON read or written in several places is several rules that can disagree.
 
 ```python
-def from_json(text: str) -> dict[str, Any]: ...  # bad: in gate/answer.py
-def read_as_answer(value: Any) -> dict[str, Any]: ...  # good: the door reads a value
+def from_json(text: str) -> dict[str, Any]: ...         # bad: in gate/answer.py
+def read_as_answer(value: Any) -> dict[str, Any]: ...   # good: the door reads a value
 ```
 
 ## Classes are imported by name
@@ -51,9 +51,6 @@ Fold a helper with one caller and no work of its own into its caller, and use th
 Why: a helper that only renames a call, or wraps one line, is one more name to learn and nothing to gain.
 
 ```python
-def _name_of_route(route):
-    return route.name  # bad
-
-
-generate_unique_id_function = attrgetter("name")  # good
+def _name_of_route(route): return route.name   # bad
+generate_unique_id_function=attrgetter("name")  # good
 ```

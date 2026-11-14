@@ -15,9 +15,7 @@ from conductor import Graph, NodeRegistry, make_graph
 registry = NodeRegistry()
 registry.add_subregistry(conductor_nodes.text.registry)
 
-graph = Graph.compile(
-    make_graph(conductor_nodes.text.split, conductor_nodes.text.uppercase), registry
-)
+graph = Graph.compile(make_graph(conductor_nodes.text.split, conductor_nodes.text.uppercase), registry)
 print(graph.run(text="a\nb").outputs)  # {'result': ['A', 'B']}
 ```
 
@@ -48,9 +46,7 @@ registry.add_subregistry(conductor_nodes.series.registry)
 registry.add_subregistry(conductor_nodes.tables.registry)
 
 
-@registry.node(
-    "read-contacts", title="Read contacts", description="Reads contacts from a CSV text."
-)
+@registry.node("read-contacts", title="Read contacts", description="Reads contacts from a CSV text.")
 def read_contacts(csv: str) -> Table:
     return pl.read_csv(io.StringIO(csv))
 
@@ -60,26 +56,13 @@ def greet(name: str) -> str:
     return f"Hello {name}"
 
 
-contacts = Graph.compile(
-    make_graph(
-        read_contacts,
-        split,
-        greet,
-        collect,
-        edges=[
-            ("read-contacts.result", "series-split.value"),
-            ("series-split.result.name", "greet.name"),
-            ("series-split.result", "table-collect.records"),
-            ("greet.result", "table-collect.greeting"),
-        ],
-        constants={"table-collect.columns": ["greeting"]},
-        outputs={"contacts": "table-collect.result"},
-    ),
-    registry,
-)
-print(
-    contacts.run(csv="name\nIda\nBo\n").outputs["contacts"].to_dicts()
-)  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
+contacts = Graph.compile(make_graph(read_contacts, split, greet, collect, edges=[
+    ("read-contacts.result", "series-split.value"),
+    ("series-split.result.name", "greet.name"),
+    ("series-split.result", "table-collect.records"),
+    ("greet.result", "table-collect.greeting"),
+], constants={"table-collect.columns": ["greeting"]}, outputs={"contacts": "table-collect.result"}), registry)
+print(contacts.run(csv="name\nIda\nBo\n").outputs["contacts"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 
 - `series-split.result.name` is one field of each record. `table-collect` works out its output when the graph is compiled, from `columns`, so `make_graph` is told the graph returns it: `outputs={"contacts": "table-collect.result"}`. `greet` takes one name, so it runs once per contact.
@@ -98,14 +81,7 @@ When a whole table or list is wired to an input that takes one value, compiling 
 ```python
 from conductor_nodes.control import decision
 
-graph = Graph.compile(
-    make_graph(
-        conductor_nodes.text.length,
-        decision,
-        edges=[("text-length.result", "control-decide.value")],
-    ),
-    conductor_nodes.registry,
-)
+graph = Graph.compile(make_graph(conductor_nodes.text.length, decision, edges=[("text-length.result", "control-decide.value")]), conductor_nodes.registry)
 print([field.type for field in graph.describe().nodes["control-decide"].outputs])  # ['int', 'int']
 ```
 

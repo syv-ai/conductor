@@ -44,7 +44,7 @@ def join(texts: Series[str]) -> str:
 graph = Graph.compile(make_graph(lines, shout, join), registry)
 run = graph.run(text="a\nb\nc")
 print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
-print(run.outputs)  # {'result': 'A!+B!+C!'}
+print(run.outputs)                     # {'result': 'A!+B!+C!'}
 ```
 
 `lines` returns three texts. `shout` takes one, so it was called three times. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python, and declares what the graph takes and returns: `text`, the one required input nothing in the graph gives a value, and `result`, the output of the node no edge leaves. An editor writes the same thing as JSON, as the rest of this page shows.
@@ -82,9 +82,7 @@ def read(csv: str) -> Series[Invoice]:
     return [Invoice(name=name, amount=int(amount)) for name, amount in found]
 
 
-@registry.node(
-    "approve", title="Approve", description="Approves an invoice, or asks a person to.", asks=True
-)
+@registry.node("approve", title="Approve", description="Approves an invoice, or asks a person to.", asks=True)
 def approve(name: str, amount: int) -> bool:
     if amount < 1000:
         return True
@@ -122,7 +120,7 @@ record = """{
 
 graph = Graph.compile(record, registry)
 print(list(graph.inputs))  # ['csv']
-print(graph.outputs)  # ['summary']
+print(graph.outputs)       # ['summary']
 print(graph.describe().nodes["approve"].per_item_of)  # read.result
 ```
 
@@ -133,16 +131,13 @@ A graph declares what it takes and returns, as a function declares its parameter
 A half-finished graph still compiles. Everything wrong is a problem with a place, so an editor can mark it on the node. Only JSON that isn't a graph record at all, such as a misspelled key, raises `InvalidCallError`:
 
 ```python
-unfinished = Graph.compile(
-    """{
+unfinished = Graph.compile("""{
   "nodes": {
     "read": {"node": "read", "inputs": {"csv": {"graph_input": "csv"}}},
     "approve": {"node": "approve", "inputs": {"name": {"sources": [{"node": "read", "output": "result", "field": "name"}]}}},
     "mail": {"node": "send-mail"}
   }
-}""",
-    registry,
-)
+}""", registry)
 
 print(unfinished.is_runnable)  # False
 for problem in unfinished.problems:
@@ -183,7 +178,7 @@ Days later, in another process, compile the same graph record, read the run back
 run = Run.from_json(saved, Graph.compile(record, registry))
 run = run.answer(run.waiting[0], True).resume()
 
-print(run.status)  # complete
+print(run.status)   # complete
 print(run.outputs)  # {'summary': '2 of 2 approved'}
 ```
 
