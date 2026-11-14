@@ -67,10 +67,6 @@ from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
 from conductor.testing import problems
 
-#: One call's inputs, by name.
-_Example = Mapping[str, Any]
-
-
 #: What ``_made_up`` gives for a field no value can be made for.
 _CANNOT = sentinel("_CANNOT")
 
@@ -79,12 +75,12 @@ def check_registry[C](
     registry: NodeRegistry[C],
     /,
     *,
-    examples: Mapping[str | tuple[str, int], Sequence[_Example]] = MappingProxyType({}),
+    examples: Mapping[str | tuple[str, int], Sequence[Mapping[str, Any]]] = MappingProxyType({}),
     context: C | None = None,
 ) -> list[Problem]:
     """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
     found: list[Problem] = []
-    by_version: dict[tuple[str, int], list[_Example]] = {}
+    by_version: dict[tuple[str, int], list[Mapping[str, Any]]] = {}
     for key, calls in examples.items():
         if isinstance(key, str):  # the newest version, by the id alone
             if key not in registry:
@@ -105,7 +101,7 @@ def check_registry[C](
 def _problems_of(
     definition: NodeDefinition,
     registry: NodeRegistry[Any],
-    examples: Mapping[tuple[str, int], Sequence[_Example]],
+    examples: Mapping[tuple[str, int], Sequence[Mapping[str, Any]]],
     context: Any,
 ) -> list[Problem]:
     found = _version_problems(
@@ -119,7 +115,10 @@ def _problems_of(
 
 
 def _version_problems(
-    version: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example], context: Any
+    version: NodeDefinition,
+    registry: NodeRegistry[Any],
+    given: Sequence[Mapping[str, Any]],
+    context: Any,
 ) -> list[Problem]:
     """The hooks checked when there is no example, else each example run: what went wrong."""
     if not given:
@@ -177,7 +176,7 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
 
 
 def _upgrade_problems(
-    older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example]
+    older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[Mapping[str, Any]]
 ) -> list[Problem]:
     """Place the node at ``older`` with an example's values, or made-up ones, move it to the newest version and load it."""
     if given:
@@ -224,7 +223,7 @@ def _upgrade_problems(
 
 
 def _run_problems(
-    version: NodeDefinition, registry: NodeRegistry[Any], example: _Example, context: Any
+    version: NodeDefinition, registry: NodeRegistry[Any], example: Mapping[str, Any], context: Any
 ) -> list[Problem]:
     """Run one example through the engine: what went wrong."""
     match version:

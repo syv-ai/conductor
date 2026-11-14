@@ -511,7 +511,13 @@ repos:
             language: python
             rule:
               kind: except_clause
-              has: { regex: '^(json\.)?JSONDecodeError$', stopBy: end, any: [ { kind: identifier }, { kind: attribute } ] }
+              has: { regex: '^(json\.)?JSONDecodeError$', stopBy: { kind: block }, any: [ { kind: identifier }, { kind: attribute } ] }
+              not:
+                any:
+                  # the same clause catches ValueError too: except (JSONDecodeError, ValueError)
+                  - has: { kind: identifier, regex: '^ValueError$', stopBy: { kind: block } }
+                  # a later clause of the same try catches ValueError, to word the two apart
+                  - precedes: { kind: except_clause, stopBy: end, has: { kind: identifier, regex: '^ValueError$', stopBy: { kind: block } } }
         message: "{{file}}:{{line}} catches JSONDecodeError, but json.loads also raises plain ValueErrors (a number of more than 4,300 digits, bytes that are not UTF-8), which then get past it. Catch ValueError."
         context:
           - "@conventions/validation.md#validation-is-the-wall"
@@ -524,6 +530,13 @@ repos:
                 except JSONDecodeError as not_json:
                     raise InvalidCallError([]) from None
               expect: { lines: [3] }
+            - path: packages/conductor/src/conductor/_internal/gate/record.py
+              code: |
+                try:
+                    return json.loads(text)
+                except JSONDecodeError as not_json:
+                    raise ValueError("not JSON") from None
+              expect: { lines: [3] }
           good:
             - path: packages/conductor/src/conductor/_internal/gate/record.py
               code: |
@@ -531,6 +544,14 @@ repos:
                     return json.loads(text)
                 except ValueError as not_json:
                     raise InvalidCallError([]) from None
+            - path: packages/conductor-nodes/src/conductor_nodes/json_ops.py
+              code: |
+                try:
+                    parsed = json.loads(text)
+                except JSONDecodeError as error:
+                    raise NodeError(f"not JSON at character {error.pos}") from None
+                except ValueError as error:
+                    raise NodeError(f"not JSON: {error}") from None
 
       # ---------------------------------------------------------------- modules
       - id: modules/kind-test-chain
@@ -565,6 +586,43 @@ repos:
                     pass
 
       # ---------------------------------------------------------------- design
+      - id: design/no-chained-conditional-expressions
+        name: A choice between several outcomes is written as statements
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: conditional_expression
+              has: { kind: conditional_expression, stopBy: end }
+              not: { inside: { kind: conditional_expression, stopBy: end } }
+        message: "{{file}}:{{line}} chains conditional expressions. Write the cases as if/elif/return or if/raise statements, or look the value up in a dict."
+        context:
+          - "@conventions/design.md#a-choice-between-several-outcomes-is-written-as-statements"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/table/read.py
+              code: |
+                def form(value):
+                    return "written" if isinstance(value, dict) else "records" if isinstance(value, list) else None
+              expect: { lines: [2] }
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                value = default if entry is None else constants.get(name, field.default if entry.empty else REQUIRED)
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/table/read.py
+              code: |
+                def form(value):
+                    if isinstance(value, dict):
+                        return "written"
+                    if isinstance(value, list):
+                        return "records"
+                    return None
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                middle = (low + high) // 2 if whole else (low + high) / 2
+
       - id: design/no-build-then-drop
         name: Nothing is built only to be dropped when empty
         files: '^packages/[^/]+/src/.*\.py$'
