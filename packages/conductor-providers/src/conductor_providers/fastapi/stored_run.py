@@ -197,7 +197,11 @@ class StoredState(BaseModel):
             The state without them in ``refused`` and ``queued_answers``.
         """
         left = {
-            name: {waiting_id: held for waiting_id, held in column.items() if waiting_id not in waiting_ids}
+            name: {
+                waiting_id: held
+                for waiting_id, held in column.items()
+                if waiting_id not in waiting_ids
+            }
             for name, column in (("queued_answers", self.queued_answers), ("refused", self.refused))
         }
         return self.model_copy(update=left)

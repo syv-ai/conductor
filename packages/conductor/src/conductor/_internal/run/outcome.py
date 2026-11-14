@@ -81,7 +81,6 @@ class NotReady(Enum):
     NOT_ITS_TURN = "not_its_turn"
 
 
-
 @final
 @dataclass(frozen=True, slots=True)
 class Done:
@@ -164,7 +163,9 @@ class Unanswered:
     """
 
     prompt: str
-    choices: Mapping[str, tuple[SerializeAsAny[Choice], ...]] = dataclasses.field(default_factory=dict)
+    choices: Mapping[str, tuple[SerializeAsAny[Choice], ...]] = dataclasses.field(
+        default_factory=dict
+    )
     defaults: Mapping[str, JsonValue] = dataclasses.field(default_factory=dict)
     has_outputs: ClassVar[Literal[False]] = False
 

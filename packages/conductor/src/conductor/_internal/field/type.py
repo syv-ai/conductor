@@ -87,7 +87,11 @@ class Field:
     def default_json(self) -> JsonValue | MISSING:
         """The default as JSON: ``"!"`` for ``mark: str = "!"``, ``None`` for ``note: str | None = None``, and
         ``MISSING`` for no default (``REQUIRED``) and for ``SKIPPED``, which have no JSON form."""
-        return MISSING if self.default is REQUIRED or self.default is SKIPPED else self.whole.to_json(self.default)
+        return (
+            MISSING
+            if self.default is REQUIRED or self.default is SKIPPED
+            else self.whole.to_json(self.default)
+        )
 
     @functools.cached_property
     def accepts_none_items(self) -> bool:
@@ -122,16 +126,30 @@ class Field:
         default: JsonValue | MISSING
         if self.default is not REQUIRED:
             default = self.default_json  # MISSING for SKIPPED
-        elif self.is_output and not branch and not self.is_series and self.whole.optional and choices is None:
+        elif (
+            self.is_output
+            and not branch
+            and not self.is_series
+            and self.whole.optional
+            and choices is None
+        ):
             default = None
         else:
             default = MISSING
         widget = self.param.widget
         return FieldDescription(
-            name=self.name, title=self.param.title,
-            description=self.param.description, is_series=self.is_series, type=self.type.id, type_variables=[variable.__name__ for variable in self.whole.variables],
-            schema=self.type.json_schema, required=default is MISSING and not branch, default=default, choices=choices,
-            widget=None if widget is None else widget.model_dump(mode="json"), exclusive_group=self.param.exclusive_group,
+            name=self.name,
+            title=self.param.title,
+            description=self.param.description,
+            is_series=self.is_series,
+            type=self.type.id,
+            type_variables=[variable.__name__ for variable in self.whole.variables],
+            schema=self.type.json_schema,
+            required=default is MISSING and not branch,
+            default=default,
+            choices=choices,
+            widget=None if widget is None else widget.model_dump(mode="json"),
+            exclusive_group=self.param.exclusive_group,
         )
 
 
@@ -147,7 +165,9 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
             not on a ``Param`` (``widget_outside_param``), or a widget with no JSON form (``widget_without_json_form``).
     """
     bare, param, others = split_hint(hint)
-    beside_param = others  # what Annotated holds that is no Param, on the field and on a Series' item
+    beside_param = (
+        others  # what Annotated holds that is no Param, on the field and on a Series' item
+    )
     written, of_items = bare, Type(bare).item is not None
     if of_items:  # the item as written, its type variables still open
         (items,) = (option for option in union_members(written) if option is not type(None))
@@ -155,18 +175,32 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         beside_param = (*beside_param, *others)
         if Type(bare).item is not None:
             raise NodeDeclarationError(declaration_problems.nested_series())
-        param = dataclasses.replace(of_item, **{f.name: value for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None})
-    if any(isinstance(metadata, Widget) for metadata in beside_param):  # pydantic would pass it by, and the field would show no control
+        param = dataclasses.replace(
+            of_item,
+            **{
+                f.name: value
+                for f in dataclasses.fields(param)
+                if (value := getattr(param, f.name)) is not None
+            },
+        )
+    if any(
+        isinstance(metadata, Widget) for metadata in beside_param
+    ):  # pydantic would pass it by, and the field would show no control
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
     if param.widget is not None:
         try:
             param.widget.model_dump(mode="json")
         except PydanticSerializationError:
-            raise NodeDeclarationError(declaration_problems.widget_without_json_form(widget=type(param.widget).__name__)) from None
+            raise NodeDeclarationError(
+                declaration_problems.widget_without_json_form(widget=type(param.widget).__name__)
+            ) from None
     kept = {**param.limits, **({} if param.choices is None else {"choices": param.choices})}
     metadata = (*others, *([Param(**kept)] if kept else []))
     one = Type(Annotated[(bare, *metadata)] if metadata else bare)
     if not of_items:
         return param, one, one
-    whole = union_of((get_origin(option) or option)[one.hint] if option is not type(None) else option for option in union_members(written))
+    whole = union_of(
+        (get_origin(option) or option)[one.hint] if option is not type(None) else option
+        for option in union_members(written)
+    )
     return param, Type(whole), one

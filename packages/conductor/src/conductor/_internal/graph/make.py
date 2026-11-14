@@ -78,32 +78,61 @@ def make_graph(
         edges = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
     sources_of: dict[tuple[str, str], list[Source]] = {}
     for i, (source_text, target_text) in enumerate(edges):
-        source, target = _place(source_text, ("edges", i, 0), definitions, problems, field=True), _place(target_text, ("edges", i, 1), definitions, problems)
+        source, target = (
+            _place(source_text, ("edges", i, 0), definitions, problems, field=True),
+            _place(target_text, ("edges", i, 1), definitions, problems),
+        )
         if source is not None and target is not None:
             sources_of.setdefault((target[0], target[1]), []).append(Source(*source))
-    graph_input_of = _graph_inputs(definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), problems)
+    graph_input_of = _graph_inputs(
+        definitions, inputs, constant_of.keys() | sources_of.keys(), set(default_of), problems
+    )
     entries: dict[str, dict[str, InputEntry]] = {node_id: {} for node_id in definitions}
-    for node_id, name in constant_of.keys() | default_of.keys() | sources_of.keys() | graph_input_of.keys():
+    for node_id, name in (
+        constant_of.keys() | default_of.keys() | sources_of.keys() | graph_input_of.keys()
+    ):
         place = (node_id, name)
-        entries[node_id][name] = InputEntry.model_construct(  # built unchecked: the record door checks it below, an entry of two kinds too
-            constant=constant_of.get(place, MISSING), graph_input=graph_input_of.get(place, MISSING), default=default_of.get(place, MISSING),
-            sources=tuple(sources_of[place]) if place in sources_of else MISSING,
+        entries[node_id][name] = (
+            InputEntry.model_construct(  # built unchecked: the record door checks it below, an entry of two kinds too
+                constant=constant_of.get(place, MISSING),
+                graph_input=graph_input_of.get(place, MISSING),
+                default=default_of.get(place, MISSING),
+                sources=tuple(sources_of[place]) if place in sources_of else MISSING,
+            )
         )
-    declared = _graph_outputs(definitions, outputs, {source.node for found in sources_of.values() for source in found}, problems)
+    declared = _graph_outputs(
+        definitions,
+        outputs,
+        {source.node for found in sources_of.values() for source in found},
+        problems,
+    )
     written = GraphRecord.model_construct(
-        nodes={node_id: NodeRecord.model_construct(node=definition.id, version=definition.version, inputs=entries[node_id]) for node_id, definition in definitions.items()},
+        nodes={
+            node_id: NodeRecord.model_construct(
+                node=definition.id, version=definition.version, inputs=entries[node_id]
+            )
+            for node_id, definition in definitions.items()
+        },
         outputs=declared,
     )
     try:
         record = read_record(written.model_dump(mode="json"), written_by="make_graph's arguments")
-    except InvalidCallError as refused:  # an input given a value and an edge, an edge given twice, a name that is not one
+    # an input given a value and an edge, an edge given twice, a name that is not one
+    except InvalidCallError as refused:
         problems += refused.problems
     if problems:
         raise InvalidCallError(problems)
     return record
 
 
-def _place(text: str, where: tuple[str | int, ...], definitions: Mapping[str, NodeDefinition], problems: list[Problem], *, field: bool = False) -> tuple[str, ...] | None:
+def _place(
+    text: str,
+    where: tuple[str | int, ...],
+    definitions: Mapping[str, NodeDefinition],
+    problems: list[Problem],
+    *,
+    field: bool = False,
+) -> tuple[str, ...] | None:
     """``text``, a place in the graph, as its parts: ``"shout.mark"`` gives ``("shout", "mark")``, and with ``field``,
     ``"read.result.email"`` gives ``("read", "result", "email")``.
 
@@ -122,7 +151,12 @@ def _place(text: str, where: tuple[str | int, ...], definitions: Mapping[str, No
     return parts
 
 
-def _values_by_place(kind: str, given: Mapping[str, Any], definitions: Mapping[str, NodeDefinition], problems: list[Problem]) -> dict[tuple[str, str], Any]:
+def _values_by_place(
+    kind: str,
+    given: Mapping[str, Any],
+    definitions: Mapping[str, NodeDefinition],
+    problems: list[Problem],
+) -> dict[tuple[str, str], Any]:
     """``given``, the ``constants`` or ``defaults`` (``kind``) of ``make_graph``, by place, each value as the record keeps
     it (``record_values``). A fault goes to ``problems``."""
     by_node: dict[str, dict[str, Any]] = {}
@@ -133,14 +167,20 @@ def _values_by_place(kind: str, given: Mapping[str, Any], definitions: Mapping[s
     written: dict[tuple[str, str], Any] = {}
     for node_id, named in by_node.items():
         try:
-            written |= {(node_id, name): value for name, value in record_values(node_id, named).items()}
+            written |= {
+                (node_id, name): value for name, value in record_values(node_id, named).items()
+            }
         except InvalidCallError as refused:
             problems += refused.problems
     return written
 
 
 def _graph_inputs(
-    definitions: Mapping[str, NodeDefinition], named: Mapping[str, str | Sequence[str]], filled: set[tuple[str, str]], defaulted: set[tuple[str, str]], problems: list[Problem],
+    definitions: Mapping[str, NodeDefinition],
+    named: Mapping[str, str | Sequence[str]],
+    filled: set[tuple[str, str]],
+    defaulted: set[tuple[str, str]],
+    problems: list[Problem],
 ) -> dict[tuple[str, str], str]:
     """The graph input each input is, by place: those ``named`` gives, then, under the input's own name, every key of
     ``defaults`` (``defaulted``) and every required input that gets nothing else (not in ``filled``).
@@ -152,18 +192,38 @@ def _graph_inputs(
             place = _place(text, ("inputs", name), definitions, problems)
             if place is not None:
                 graph_input_of[(place[0], place[1])] = name
-    open_inputs = [(node_id, name) for node_id, definition in definitions.items() for name in definition.required_inputs if (node_id, name) not in filled]
-    automatic = [place for place in dict.fromkeys([*defaulted, *open_inputs]) if place not in graph_input_of]
+    open_inputs = [
+        (node_id, name)
+        for node_id, definition in definitions.items()
+        for name in definition.required_inputs
+        if (node_id, name) not in filled
+    ]
+    automatic = [
+        place for place in dict.fromkeys([*defaulted, *open_inputs]) if place not in graph_input_of
+    ]
     counts = Counter([name for _, name in automatic])
     for name, count in counts.items():
         if count > 1 or name in named:
-            places = [f"{node_id}.{input_name}" for node_id, input_name in automatic if input_name == name]
-            places += [f"{node_id}.{input_name}" for (node_id, input_name), given in graph_input_of.items() if given == name]
-            problems.append(call_problems.graph_inputs_share_a_name("inputs", name, name=name, inputs=places))
+            places = [
+                f"{node_id}.{input_name}" for node_id, input_name in automatic if input_name == name
+            ]
+            places += [
+                f"{node_id}.{input_name}"
+                for (node_id, input_name), given in graph_input_of.items()
+                if given == name
+            ]
+            problems.append(
+                call_problems.graph_inputs_share_a_name("inputs", name, name=name, inputs=places)
+            )
     return {**graph_input_of, **{(node_id, name): name for node_id, name in automatic}}
 
 
-def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str, str], led_out: set[str], problems: list[Problem]) -> dict[str, Source]:
+def _graph_outputs(
+    definitions: Mapping[str, NodeDefinition],
+    named: Mapping[str, str],
+    led_out: set[str],
+    problems: list[Problem],
+) -> dict[str, Source]:
     """The graph outputs by name: those ``named`` gives, then every output of a node no edge leaves (not in
     ``led_out``), under the output's own name. ``graph_outputs_share_a_name`` goes to ``problems`` for a name two of the
     second kind share, or one of them shares with a name in ``named``."""
@@ -173,16 +233,35 @@ def _graph_outputs(definitions: Mapping[str, NodeDefinition], named: Mapping[str
         if place is not None:
             declared[name] = Source(*place)
     taken = {(source.node, source.output) for source in declared.values()}
-    leaves = [(node_id, output) for node_id, definition in definitions.items() if node_id not in led_out for output in definition.output_names if (node_id, output) not in taken]
+    leaves = [
+        (node_id, output)
+        for node_id, definition in definitions.items()
+        if node_id not in led_out
+        for output in definition.output_names
+        if (node_id, output) not in taken
+    ]
     counts = Counter(output for _, output in leaves)
     for name, count in counts.items():
         if count > 1 or name in declared:
-            places = [f"{node_id}.{output}" for node_id, output in leaves if output == name] + ([str(declared[name])] if name in declared else [])
-            problems.append(call_problems.graph_outputs_share_a_name("outputs", name, name=name, outputs=places))
-    return {**declared, **{output: Source(node_id, output) for node_id, output in leaves if counts[output] == 1 and output not in declared}}
+            places = [f"{node_id}.{output}" for node_id, output in leaves if output == name] + (
+                [str(declared[name])] if name in declared else []
+            )
+            problems.append(
+                call_problems.graph_outputs_share_a_name("outputs", name, name=name, outputs=places)
+            )
+    return {
+        **declared,
+        **{
+            output: Source(node_id, output)
+            for node_id, output in leaves
+            if counts[output] == 1 and output not in declared
+        },
+    }
 
 
-def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problems: list[Problem]) -> dict[str, NodeDefinition]:
+def _by_id(
+    nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problems: list[Problem]
+) -> dict[str, NodeDefinition]:
     """Each node's definition by its id in the graph: the id given with it, or its definition's, numbered ``-1``,
     ``-2`` for a definition used more than once with no id given. One id given to two nodes goes to ``problems``."""
     given = [node[0] for node in nodes if isinstance(node, tuple)]
@@ -192,18 +271,34 @@ def _by_id(nodes: Sequence[NodeDefinition | tuple[str, NodeDefinition]], problem
     by_id: dict[str, NodeDefinition] = {}
     for node in nodes:
         node_id, definition = node if isinstance(node, tuple) else (node.id, node)
-        while not isinstance(node, tuple) and bare[definition.id] > 1 and (node_id == definition.id or node_id in taken):
+        while (
+            not isinstance(node, tuple)
+            and bare[definition.id] > 1
+            and (node_id == definition.id or node_id in taken)
+        ):
             numbered[definition.id] += 1
             node_id = f"{definition.id}-{numbered[definition.id]}"
         if node_id in by_id:
             reason = f"the id {node_id!r} is given to two nodes"
-            problems.append(call_problems.invalid_record("record", "nodes", node_id, where=f"nodes.{node_id}", reason=reason, error="repeated_key", written_by="make_graph's arguments"))
+            problems.append(
+                call_problems.invalid_record(
+                    "record",
+                    "nodes",
+                    node_id,
+                    where=f"nodes.{node_id}",
+                    reason=reason,
+                    error="repeated_key",
+                    written_by="make_graph's arguments",
+                )
+            )
         taken.add(node_id)
         by_id[node_id] = definition
     return by_id
 
 
-def _chain_edges(definitions: Mapping[str, NodeDefinition], filled: set[tuple[str, str]], problems: list[Problem]) -> list[tuple[str, str]]:
+def _chain_edges(
+    definitions: Mapping[str, NodeDefinition], filled: set[tuple[str, str]], problems: list[Problem]
+) -> list[tuple[str, str]]:
     """The one edge from each node into the next, given the inputs that already get a constant or a default
     (``filled``); ``not_a_chain`` added to ``problems`` for each pair without exactly one, with the variant
     ``read_by_a_hook`` when the only required inputs left are ones a hook reads."""
@@ -213,15 +308,31 @@ def _chain_edges(definitions: Mapping[str, NodeDefinition], filled: set[tuple[st
         match before, after:
             case FunctionDefinition(), FunctionDefinition():
                 outputs = list(before.outputs)
-                open_inputs = [name for name in after.required_inputs if (after_id, name) not in filled]
+                open_inputs = [
+                    name for name in after.required_inputs if (after_id, name) not in filled
+                ]
                 hooked = read_by_hooks(after)
-                needs_constant = [name for name, field in after.inputs.items() if name in hooked and field.default is REQUIRED and (after_id, name) not in filled]
+                needs_constant = [
+                    name
+                    for name, field in after.inputs.items()
+                    if name in hooked
+                    and field.default is REQUIRED
+                    and (after_id, name) not in filled
+                ]
             case _:  # a subgraph's types are known only when it is compiled, so a chain can't be drawn through it
                 outputs, open_inputs, needs_constant = [], [], []
         if len(outputs) == 1 and len(open_inputs) == 1:
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
         elif not open_inputs and needs_constant:
-            problems.append(call_problems.not_a_chain_read_by_a_hook(after_id, before=before_id, read_by_hooks=needs_constant))
+            problems.append(
+                call_problems.not_a_chain_read_by_a_hook(
+                    after_id, before=before_id, read_by_hooks=needs_constant
+                )
+            )
         else:
-            problems.append(call_problems.not_a_chain(after_id, before=before_id, inputs=open_inputs, outputs=outputs))
+            problems.append(
+                call_problems.not_a_chain(
+                    after_id, before=before_id, inputs=open_inputs, outputs=outputs
+                )
+            )
     return edges

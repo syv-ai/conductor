@@ -1,4 +1,5 @@
 """Nodes the programs share: what a node author writes."""
+
 import os
 from dataclasses import dataclass
 from io import StringIO
@@ -18,8 +19,6 @@ def note_call(name: str) -> None:
     if "CALLS" in os.environ:
         with open(os.environ["CALLS"], "a") as calls:
             calls.write(f"{name}\n")
-
-
 
 
 def registry_of(*definitions):
@@ -113,4 +112,8 @@ def place(waiting):
 def calls_without_outcome(run):
     """The nodes of ``run`` with a call that has no outcome yet, or whose calls are not all known, as ``run.progress``
     counts them: ``["t"]``. A call waiting for a person has an outcome. A complete run has none."""
-    return [name for name, count in run.progress.nodes.items() if count.total is None or count.finished + count.waiting < count.total]
+    return [
+        name
+        for name, count in run.progress.nodes.items()
+        if count.total is None or count.finished + count.waiting < count.total
+    ]

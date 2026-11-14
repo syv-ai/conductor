@@ -72,7 +72,11 @@ def _a_name(text: str) -> str:
         PydanticCustomError: It is not one (``not_a_name``).
     """
     if not is_name(text):
-        raise PydanticCustomError("not_a_name", "'{text}' is not a name: a name is not empty and has none of '.', '/', '@' and '~'", {"text": text})
+        raise PydanticCustomError(
+            "not_a_name",
+            "'{text}' is not a name: a name is not empty and has none of '.', '/', '@' and '~'",
+            {"text": text},
+        )
     return text
 
 
@@ -80,6 +84,7 @@ def _a_name(text: str) -> str:
 #: a node's id, an input's, an output's and a graph input's or output's. Read from a graph record, anything else is
 #: refused (``is_name``).
 Name = Annotated[str, AfterValidator(_a_name)]
+
 
 @dataclass(frozen=True, slots=True, config=ConfigDict(extra="forbid"))
 class Source:
@@ -112,7 +117,11 @@ class Source:
             PydanticCustomError: It is empty or starts with a dot (``not_a_field``).
         """
         if text is not None and (not text or text.startswith(".")):
-            raise PydanticCustomError("not_a_field", "'{text}' is not the name of a field: a field's name is not empty and does not start with '.'", {"text": text})
+            raise PydanticCustomError(
+                "not_a_field",
+                "'{text}' is not the name of a field: a field's name is not empty and does not start with '.'",
+                {"text": text},
+            )
         return text
 
     def __str__(self) -> str:

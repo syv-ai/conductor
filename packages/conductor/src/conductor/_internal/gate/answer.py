@@ -51,7 +51,13 @@ class AnswerDoor:
         self._outputs = outputs
 
     def __call__(
-        self, answer: Any, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue], *, loc: Loc, waiting_id: str
+        self,
+        answer: Any,
+        choices: Mapping[str, tuple[Choice, ...]],
+        defaults: Mapping[str, JsonValue],
+        *,
+        loc: Loc,
+        waiting_id: str,
     ) -> dict[str, Any]:
         """Returns the outputs the answer fills, by name, read from ``answer``.
 
@@ -67,11 +73,19 @@ class AnswerDoor:
         """
         read, faults = self._read(answer, choices, defaults)
         if faults:
-            raise InvalidCallError(call_problems.invalid_answer(*loc, waiting_id=waiting_id, reason=reason, question=question or None) for question, reason in faults)
+            raise InvalidCallError(
+                call_problems.invalid_answer(
+                    *loc, waiting_id=waiting_id, reason=reason, question=question or None
+                )
+                for question, reason in faults
+            )
         return read
 
     def _read(
-        self, answer: Any, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue]
+        self,
+        answer: Any,
+        choices: Mapping[str, tuple[Choice, ...]],
+        defaults: Mapping[str, JsonValue],
     ) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
         """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer. A question left out gives what it says: its default, else a branch not chosen
@@ -80,14 +94,26 @@ class AnswerDoor:
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
-                return {name: answer_value(field, answer, as_asked(field, choices, defaults).choices)}, []
+                return {
+                    name: answer_value(field, answer, as_asked(field, choices, defaults).choices)
+                }, []
             except PydanticCustomError as refused:
                 return {}, [(None, refused.message())]
         if answer is None and not outputs:
-            return {}, []  # a node that returns nothing is answered with nothing: the person only says to go on
+            return (
+                {},
+                [],
+            )  # a node that returns nothing is answered with nothing: the person only says to go on
         if not isinstance(answer, Mapping):
-            return {}, [(None, f"answer each question by name: a mapping of {comma_separated(outputs, empty='nothing')}")]
-        faults: list[tuple[str | None, str]] = [(str(name), f"there is no question '{name}'") for name in answer if name not in outputs]
+            return {}, [
+                (
+                    None,
+                    f"answer each question by name: a mapping of {comma_separated(outputs, empty='nothing')}",
+                )
+            ]
+        faults: list[tuple[str | None, str]] = [
+            (str(name), f"there is no question '{name}'") for name in answer if name not in outputs
+        ]
         read: dict[str, Any] = {}
         groups: dict[str, list[str]] = {}
         for name, field in outputs.items():
@@ -130,7 +156,9 @@ def answer_value(field: Field, value: Any, choices: tuple[Choice, ...] | None) -
     read = read_as_answer(field.whole, value)
     if choices is not None:
         picked: Any = field.whole.to_json(read)
-        ids = {json_hash(choice.id, 16) for choice in choices}  # an id may be a list or a dict, so it is keyed by its JSON
+        ids = {
+            json_hash(choice.id, 16) for choice in choices
+        }  # an id may be a list or a dict, so it is keyed by its JSON
         seen: set[str] = set()
         not_a_choice = picked_twice = False
         for item in picked if field.is_series else [picked]:
@@ -166,4 +194,3 @@ def read_as_answer(value_type: Type, value: Any) -> Any:
         raise PydanticCustomError("not_its_type", refused.message()) from None
     except ValidationError as error:
         raise PydanticCustomError("not_its_type", value_type.refusal(error).reason) from None
-

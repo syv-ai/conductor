@@ -65,14 +65,31 @@ def ask(question: str, document: str) -> str: ...
 
 
 REGISTRY = NodeRegistry()
-for _definition in (contacts, csv, tags, people, records, send, report, count, documents, questions, ask):
+for _definition in (
+    contacts,
+    csv,
+    tags,
+    people,
+    records,
+    send,
+    report,
+    count,
+    documents,
+    questions,
+    ask,
+):
     REGISTRY.add(_definition)
 
 
 def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
     """The one problem of ``make_graph`` of ``nodes`` (id to node) wired by ``edges`` (``"node.output[.field]"``,
     ``"node.input"``), with no graph outputs."""
-    graph = Graph.compile(make_graph(*((node_id, REGISTRY[name]) for node_id, name in nodes.items()), edges=edges, outputs={}), REGISTRY)
+    graph = Graph.compile(
+        make_graph(
+            *((node_id, REGISTRY[name]) for node_id, name in nodes.items()), edges=edges, outputs={}
+        ),
+        REGISTRY,
+    )
     (found,) = graph.problems
     return found
 
@@ -84,8 +101,14 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
     found = problem({"read": "contacts", "send": "send"}, [("read.result", "send.to")])
     assert (found.type, found.loc) == ("type_mismatch", ("send", "to"))
     assert found.ctx == {
-        "node_id": "send", "field": "to", "source": "read.result", "got": "Table[name: str, email: str]", "expected": "str",
-        "variant": "make_a_series", "whole": "table", "fields": ["name", "email"],
+        "node_id": "send",
+        "field": "to",
+        "source": "read.result",
+        "got": "Table[name: str, email: str]",
+        "expected": "str",
+        "variant": "make_a_series",
+        "whole": "table",
+        "fields": ["name", "email"],
     }
     assert found.msg == (
         "'read.result' is a whole table, and 'send.to' takes one str. To call 'send' once per row or item, "
@@ -95,14 +118,26 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
 
 def test_a_table_of_any_columns_says_to_make_a_series_and_knows_no_fields():
     found = problem({"read": "csv", "send": "send"}, [("read.result", "send.to")])
-    assert (found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("make_a_series", "table", [])
+    assert (found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == (
+        "make_a_series",
+        "table",
+        [],
+    )
 
 
 def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
     found = problem({"tags": "tags", "send": "send"}, [("tags.result", "send.to")])
-    assert (found.type, found.loc, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("type_mismatch", ("send", "to"), "make_a_series", "list", [])
+    assert (
+        found.type,
+        found.loc,
+        found.ctx["variant"],
+        found.ctx["whole"],
+        found.ctx["fields"],
+    ) == ("type_mismatch", ("send", "to"), "make_a_series", "list", [])
     assert found.msg.startswith("'tags.result' is a whole list, and 'send.to' takes one str.")
-    assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx["fields"] == ["name", "email"]
+    assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx[
+        "fields"
+    ] == ["name", "email"]
 
 
 def test_a_whole_list_into_a_series_input_is_the_ordinary_mismatch():
@@ -113,7 +148,14 @@ def test_a_whole_list_into_a_series_input_is_the_ordinary_mismatch():
 def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series():
     found = problem({"read": "contacts", "send": "send"}, [("read.result.email", "send.to")])
     assert (found.type, found.loc) == ("unknown_output", ("send", "to"))
-    assert found.ctx == {"source": "read.result.email", "outputs": ["read.result"], "record_field": "email", "variant": "make_a_series", "whole": "table", "fields": ["name", "email"]}
+    assert found.ctx == {
+        "source": "read.result.email",
+        "outputs": ["read.result"],
+        "record_field": "email",
+        "variant": "make_a_series",
+        "whole": "table",
+        "fields": ["name", "email"],
+    }
     assert found.msg == (
         "'read.result.email' names a field of a whole table, which has no fields to wire. Put a node after it that returns "
         "its rows or items as a Series, and wire the field from that node's result."
@@ -122,7 +164,12 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series()
 
 def test_a_field_named_on_a_whole_list_says_to_make_a_series_too():
     found = problem({"people": "people", "send": "send"}, [("people.result.email", "send.to")])
-    assert (found.type, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == ("unknown_output", "make_a_series", "list", ["name", "email"])
+    assert (found.type, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == (
+        "unknown_output",
+        "make_a_series",
+        "list",
+        ["name", "email"],
+    )
 
 
 def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrives():
@@ -132,7 +179,29 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(lines)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"read": {"node": "csv", "inputs": {"path": {"graph_input": "path"}}}, "lines": {"node": "lines", "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}}}, "send": {"node": "send", "inputs": {"to": {"sources": [{"node": "lines", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "send", "output": "result"}}}), registry)
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "read": {"node": "csv", "inputs": {"path": {"graph_input": "path"}}},
+                    "lines": {
+                        "node": "lines",
+                        "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
+                    },
+                    "send": {
+                        "node": "send",
+                        "inputs": {
+                            "to": {
+                                "sources": [{"node": "lines", "output": "result", "field": "email"}]
+                            }
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "send", "output": "result"}},
+            }
+        ),
+        registry,
+    )
     assert graph.is_runnable and graph.describe().nodes["send"].per_item_of == "lines.result"
 
 
@@ -143,15 +212,33 @@ def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_
     found = problem({"read": "contacts", "report": "report"}, [("read.result", "report.table")])
     assert (found.type, found.loc) == ("type_mismatch", ("report", "table"))
     assert found.ctx == {
-        "node_id": "report", "field": "table", "source": "read.result", "got": "Table[name: str, email: str]", "expected": "Table[name: str, amount: float]",
-        "variant": "add_column", "column": "amount", "column_type": "float", "has": ["name", "email"],
+        "node_id": "report",
+        "field": "table",
+        "source": "read.result",
+        "got": "Table[name: str, email: str]",
+        "expected": "Table[name: str, amount: float]",
+        "variant": "add_column",
+        "column": "amount",
+        "column_type": "float",
+        "has": ["name", "email"],
     }
-    assert found.msg == "'report.table' needs the column 'amount' (float); 'read.result' has name, email. Add the column in a node between, or connect a table that has it."
+    assert (
+        found.msg
+        == "'report.table' needs the column 'amount' (float); 'read.result' has name, email. Add the column in a node between, or connect a table that has it."
+    )
 
 
 def test_records_collected_without_a_column_the_table_input_names_say_the_same():
-    found = problem({"read": "contacts", "records": "records", "report": "report"}, [("read.result", "records.table"), ("records.result", "report.table")])
-    assert (found.ctx["variant"], found.ctx["column"], found.ctx["has"], found.ctx["source"]) == ("add_column", "amount", ["name", "email"], "records.result")
+    found = problem(
+        {"read": "contacts", "records": "records", "report": "report"},
+        [("read.result", "records.table"), ("records.result", "report.table")],
+    )
+    assert (found.ctx["variant"], found.ctx["column"], found.ctx["has"], found.ctx["source"]) == (
+        "add_column",
+        "amount",
+        ["name", "email"],
+        "records.result",
+    )
 
 
 def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_columns():
@@ -161,8 +248,26 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(amounts)
-    (found,) = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "amounts", "inputs": {"path": {"graph_input": "path"}}}, "r": {"node": "report", "inputs": {"table": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "r", "output": "result"}}}), registry).problems
-    assert found.type == "type_mismatch" and "variant" not in found.ctx and found.ctx["got"] == "Table[name: str, amount: str]"
+    (found,) = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "a": {"node": "amounts", "inputs": {"path": {"graph_input": "path"}}},
+                    "r": {
+                        "node": "report",
+                        "inputs": {"table": {"sources": [{"node": "a", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "r", "output": "result"}},
+            }
+        ),
+        registry,
+    ).problems
+    assert (
+        found.type == "type_mismatch"
+        and "variant" not in found.ctx
+        and found.ctx["got"] == "Table[name: str, amount: str]"
+    )
 
 
 # -- two Series that don't nest ---------------------------------------------------------------------------
@@ -170,9 +275,16 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
 
 def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
     """The wire suggested is from the list of the node compiled first, by id, so it makes no cycle."""
-    found = problem({"docs": "documents", "list": "questions", "ask": "ask"}, [("list.result", "ask.question"), ("docs.result", "ask.document")])
+    found = problem(
+        {"docs": "documents", "list": "questions", "ask": "ask"},
+        [("list.result", "ask.question"), ("docs.result", "ask.document")],
+    )
     assert (found.type, found.loc) == ("series_not_nested", ("ask",))
-    assert found.ctx == {"node_id": "ask", "series": ["list.result", "docs.result"], "inputs": ["question", "document"]}
+    assert found.ctx == {
+        "node_id": "ask",
+        "series": ["list.result", "docs.result"],
+        "inputs": ["question", "document"],
+    }
     assert found.msg == (
         "'ask' reads items of list.result, docs.result, and neither is inside the loop over the other, so nothing says which items go together. "
         "Wire an item of one into the node that returns the other, or give one of them whole to a Series input."
@@ -180,8 +292,33 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
 
 
 def test_the_wire_it_names_nests_them():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"docs": {"node": "documents", "inputs": {"folder": {"graph_input": "folder"}}}, "list": {"node": "questions", "inputs": {"about": {"sources": [{"node": "docs", "output": "result"}]}}}, "ask": {"node": "ask", "inputs": {"question": {"sources": [{"node": "list", "output": "result"}]}, "document": {"sources": [{"node": "docs", "output": "result"}]}}}}, "outputs": {"result": {"node": "ask", "output": "result"}}}), REGISTRY)
-    assert graph.is_runnable and graph.describe().nodes["ask"].per_item_of == "list.result" and graph.describe().nodes["list"].per_item_of == "docs.result"
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "docs": {"node": "documents", "inputs": {"folder": {"graph_input": "folder"}}},
+                    "list": {
+                        "node": "questions",
+                        "inputs": {"about": {"sources": [{"node": "docs", "output": "result"}]}},
+                    },
+                    "ask": {
+                        "node": "ask",
+                        "inputs": {
+                            "question": {"sources": [{"node": "list", "output": "result"}]},
+                            "document": {"sources": [{"node": "docs", "output": "result"}]},
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "ask", "output": "result"}},
+            }
+        ),
+        REGISTRY,
+    )
+    assert (
+        graph.is_runnable
+        and graph.describe().nodes["ask"].per_item_of == "list.result"
+        and graph.describe().nodes["list"].per_item_of == "docs.result"
+    )
 
 
 # -- the row type of a table type ---------------------------------------------------------------------------
@@ -201,5 +338,19 @@ def test_a_hook_reads_the_row_type_of_the_table_arriving():
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(look)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"read": {"node": "contacts", "inputs": {"path": {"graph_input": "path"}}}, "look": {"node": "look", "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}}}}, "outputs": {"result": {"node": "look", "output": "result"}}}), registry)
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "read": {"node": "contacts", "inputs": {"path": {"graph_input": "path"}}},
+                    "look": {
+                        "node": "look",
+                        "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "look", "output": "result"}},
+            }
+        ),
+        registry,
+    )
     assert graph.is_runnable and seen == [(Contact,)]

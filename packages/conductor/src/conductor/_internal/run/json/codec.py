@@ -61,21 +61,31 @@ class _SavedValue:
     def __init__(self, value_type: Type) -> None:
         schema = numbers_refuse_bools(value_type.schema)
         if _holds_a_model(schema):
-            as_json = core_schema.plain_serializer_function_ser_schema(functools.partial(value_type.serializer.to_python, mode="json"))
-            if schema["type"] == "definitions":  # what pydantic defined beside the type stays beside it
-                schema = core_schema.definitions_schema(core_schema.chain_schema([schema["schema"]], serialization=as_json), schema["definitions"])
+            as_json = core_schema.plain_serializer_function_ser_schema(
+                functools.partial(value_type.serializer.to_python, mode="json")
+            )
+            # what pydantic defined beside the type stays beside it
+            if schema["type"] == "definitions":
+                schema = core_schema.definitions_schema(
+                    core_schema.chain_schema([schema["schema"]], serialization=as_json),
+                    schema["definitions"],
+                )
             else:
                 schema = core_schema.chain_schema([schema], serialization=as_json)
         self.schema = schema
 
-    def __get_pydantic_core_schema__(self, _source: Any, _handler: GetCoreSchemaHandler) -> CoreSchema:
+    def __get_pydantic_core_schema__(
+        self, _source: Any, _handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
         return self.schema
 
 
 def _holds_a_model(schema: Any) -> bool:
     """Says whether a core schema has a pydantic model or a dataclass anywhere in it."""
     if isinstance(schema, dict):
-        return schema.get("type") in ("model", "dataclass") or any(map(_holds_a_model, schema.values()))
+        return schema.get("type") in ("model", "dataclass") or any(
+            map(_holds_a_model, schema.values())
+        )
     return isinstance(schema, list) and any(map(_holds_a_model, schema))
 
 
@@ -94,19 +104,34 @@ class _ExactKeys:
 
     __slots__ = ("optional", "required")
 
-    def __init__(self, required: Mapping[str, Any], optional: Mapping[str, Any] = MappingProxyType({})) -> None:
+    def __init__(
+        self, required: Mapping[str, Any], optional: Mapping[str, Any] = MappingProxyType({})
+    ) -> None:
         self.required, self.optional = required, optional
 
-    def __get_pydantic_core_schema__(self, _source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-        hints = {id(hint): hint for hint in (*self.required.values(), *self.optional.values())}  # each alive in required or optional
+    def __get_pydantic_core_schema__(
+        self, _source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        hints = {
+            id(hint): hint for hint in (*self.required.values(), *self.optional.values())
+        }  # each alive in required or optional
         schemas = {key: handler.generate_schema(hint) for key, hint in hints.items()}
-        fields = {name: core_schema.typed_dict_field(schemas[id(hint)]) for name, hint in self.required.items()}
-        fields.update((name, core_schema.typed_dict_field(schemas[id(hint)], required=False)) for name, hint in self.optional.items())
+        fields = {
+            name: core_schema.typed_dict_field(schemas[id(hint)])
+            for name, hint in self.required.items()
+        }
+        fields.update(
+            (name, core_schema.typed_dict_field(schemas[id(hint)], required=False))
+            for name, hint in self.optional.items()
+        )
         return core_schema.typed_dict_schema(fields, extra_behavior="forbid")
 
 
 def run_codec(
-    fingerprint: str, inputs: Mapping[str, Type], outputs: Mapping[str, Mapping[str, Field]], nodes: Iterable[str],
+    fingerprint: str,
+    inputs: Mapping[str, Type],
+    outputs: Mapping[str, Mapping[str, Field]],
+    nodes: Iterable[str],
 ) -> type[SavedRun]:
     """Builds the codec of one graph: a subclass of ``SavedRun`` whose fields have the graph's own keys and types.
 
@@ -128,32 +153,65 @@ def run_codec(
         nodes: The name in a saved run of every function node.
     """
     # by what the classes of a node depend on: for each output its name, its type and whether it is a Series
-    of_same_outputs: dict[tuple[tuple[str, Type, bool], ...], tuple[type[SavedOutcomes], type[SavedReusable]]] = {}
+    of_same_outputs: dict[
+        tuple[tuple[str, Type, bool], ...], tuple[type[SavedOutcomes], type[SavedReusable]]
+    ] = {}
     outcomes_classes, reusable_classes = {}, {}
     for node, node_outputs in outputs.items():
         value_types = {name: saved_type(output) for name, output in node_outputs.items()}
-        same_outputs = tuple((name, value_types[name], output.is_series) for name, output in node_outputs.items())
+        same_outputs = tuple(
+            (name, value_types[name], output.is_series) for name, output in node_outputs.items()
+        )
         if same_outputs not in of_same_outputs:
             suffix = f"{len(of_same_outputs)}_{fingerprint}"
-            fields_of_node: dict[str, Any] = {  # hints of several kinds: pydantic's create_model takes any hint
-                "outputs": _ExactKeys({name: GenericAlias(list, (_SavedValue(value_type),)) for name, value_type in value_types.items()}),
-                "skipped": (_ExactKeys({}, dict.fromkeys(node_outputs, list[NonNegativeInt])), PydanticField(default_factory=dict)),
-                "skipped_items": (_ExactKeys({}, {name: dict[NonNegativeInt, list[NonNegativeInt]] for name, output in node_outputs.items() if output.is_series}), PydanticField(default_factory=dict)),
+            fields_of_node: dict[
+                str, Any
+            ] = {  # hints of several kinds: pydantic's create_model takes any hint
+                "outputs": _ExactKeys(
+                    {
+                        name: GenericAlias(list, (_SavedValue(value_type),))
+                        for name, value_type in value_types.items()
+                    }
+                ),
+                "skipped": (
+                    _ExactKeys({}, dict.fromkeys(node_outputs, list[NonNegativeInt])),
+                    PydanticField(default_factory=dict),
+                ),
+                "skipped_items": (
+                    _ExactKeys(
+                        {},
+                        {
+                            name: dict[NonNegativeInt, list[NonNegativeInt]]
+                            for name, output in node_outputs.items()
+                            if output.is_series
+                        },
+                    ),
+                    PydanticField(default_factory=dict),
+                ),
             }
-            of_node = create_model(f"SavedOutcomes_{suffix}", __base__=SavedOutcomes, **fields_of_node)
-            of_same_outputs[same_outputs] = of_node, create_model(f"SavedReusable_{suffix}", __base__=SavedReusable, outcomes=of_node)
+            of_node = create_model(
+                f"SavedOutcomes_{suffix}", __base__=SavedOutcomes, **fields_of_node
+            )
+            of_same_outputs[same_outputs] = (
+                of_node,
+                create_model(f"SavedReusable_{suffix}", __base__=SavedReusable, outcomes=of_node),
+            )
         outcomes_classes[node], reusable_classes[node] = of_same_outputs[same_outputs]
     names = tuple(nodes)
+    # a Literal of the node names, known once the graph is compiled
+    complete = list[Literal[names]] if names else Annotated[list[str], PydanticField(max_length=0)]  # type: ignore[valid-type]
     fields_of_run: dict[str, Any] = {  # as fields_of_node
         "graph": Literal[fingerprint],
         "inputs": _ExactKeys({name: _SavedValue(of_input) for name, of_input in inputs.items()}),
         "outcomes": _ExactKeys({}, outcomes_classes),
         "reusable": _ExactKeys({}, reusable_classes),
         "code": _ExactKeys({}, dict.fromkeys(outcomes_classes, str)),
-        "complete": list[Literal[names]] if names else Annotated[list[str], PydanticField(max_length=0)],  # type: ignore[valid-type]  # a Literal of the node names, known once the graph is compiled
+        "complete": complete,
     }
     namespace = {"outcomes_classes": outcomes_classes, "reusable_classes": reusable_classes}
-    return create_model(f"SavedRun_{fingerprint}", __base__=SavedRun, __namespace__=namespace, **fields_of_run)
+    return create_model(
+        f"SavedRun_{fingerprint}", __base__=SavedRun, __namespace__=namespace, **fields_of_run
+    )
 
 
 def where_in(codec: type[SavedRun], loc: Sequence[str | int]) -> str:
@@ -178,7 +236,10 @@ def where_in(codec: type[SavedRun], loc: Sequence[str | int]) -> str:
 def _inside(hint: Any, step: str | int) -> Any:
     """Returns the hint that ``step`` leads to inside ``hint``, one of the hints of a codec's fields; ``None`` when
     ``hint`` is a value's. A step a class or an exact-keys object does not declare leads to ``Any``."""
-    if get_origin(hint) in (Union, UnionType):  # an optional key, ``X | None``: what it is when it is there
+    if get_origin(hint) in (
+        Union,
+        UnionType,
+    ):  # an optional key, ``X | None``: what it is when it is there
         (hint,) = (member for member in get_args(hint) if member is not NoneType)
     if isinstance(hint, _ExactKeys):
         return {**hint.required, **hint.optional}.get(str(step), Any)
@@ -209,6 +270,9 @@ def codec_of(graph: Graph[Any]) -> type[SavedRun]:
     return run_codec(
         graph.fingerprint,
         inputs={name: field.whole for name, field in graph._inputs.items()},
-        outputs={place_text(path): node.compiled_node.outputs for path, node in blueprint.function_nodes.items()},
+        outputs={
+            place_text(path): node.compiled_node.outputs
+            for path, node in blueprint.function_nodes.items()
+        },
         nodes=[place_text(path) for path in blueprint.function_nodes],
     )

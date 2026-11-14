@@ -100,13 +100,19 @@ def record_of(
     return make_graph(
         *((n[0], reg[n[1]]) for n in nodes),
         edges=list(edges),
-        constants={f"{n[0]}.{name}": value for n in nodes for name, value in (n[2] if len(n) == 3 else {}).items()},
+        constants={
+            f"{n[0]}.{name}": value
+            for n in nodes
+            for name, value in (n[2] if len(n) == 3 else {}).items()
+        },
         inputs=inputs or {},
         outputs=outputs or {},
     )
 
 
-def ran(record: GraphRecord, reg: NodeRegistry = registry, max_items: int | None = None, **inputs: Any) -> Any:
+def ran(
+    record: GraphRecord, reg: NodeRegistry = registry, max_items: int | None = None, **inputs: Any
+) -> Any:
     """The run of a graph record that compiles with no problems, its calls counted afresh in ``CALLS``."""
     CALLS.clear()
     graph = Graph.compile(record, reg)
@@ -117,12 +123,31 @@ def ran(record: GraphRecord, reg: NodeRegistry = registry, max_items: int | None
 FILES = [f"k{i}" for i in range(11)]
 UPLOAD = ("upload.result", "read.file")
 FILES_IN = {"files": "upload.files"}
-PER = record_of(("upload", "upload"), ("read", "read"), ("review", "review"), edges=(UPLOAD, ("read.result", "review.text")),
-                inputs=FILES_IN, outputs={"result": "review.result"})
-TOGETHER = record_of(("upload", "upload"), ("read", "read"), ("overall", "overall"), edges=(UPLOAD, ("read.result", "overall.texts")),
-                     inputs=FILES_IN, outputs={"result": "overall.result"})
-BOTH = record_of(("upload", "upload"), ("read", "read"), ("review", "review"), ("overall", "overall"),
-                 edges=(UPLOAD, ("read.result", "review.text"), ("review.result", "overall.texts")), inputs=FILES_IN, outputs={"result": "overall.result"})
+PER = record_of(
+    ("upload", "upload"),
+    ("read", "read"),
+    ("review", "review"),
+    edges=(UPLOAD, ("read.result", "review.text")),
+    inputs=FILES_IN,
+    outputs={"result": "review.result"},
+)
+TOGETHER = record_of(
+    ("upload", "upload"),
+    ("read", "read"),
+    ("overall", "overall"),
+    edges=(UPLOAD, ("read.result", "overall.texts")),
+    inputs=FILES_IN,
+    outputs={"result": "overall.result"},
+)
+BOTH = record_of(
+    ("upload", "upload"),
+    ("read", "read"),
+    ("review", "review"),
+    ("overall", "overall"),
+    edges=(UPLOAD, ("read.result", "review.text"), ("review.result", "overall.texts")),
+    inputs=FILES_IN,
+    outputs={"result": "overall.result"},
+)
 
 
 # -- the scenario weighted highest: 11 contracts, one review each, all in one, or both ----------------------------
@@ -135,7 +160,9 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     assert run.graph.describe().nodes["review"].per_item_of == "upload.result"
 
     run = ran(PER, files=FILES[:1])
-    assert CALLS == {"read": 1, "review": 1} and run.outputs == {"result": ["rev(K0)"]}  # a list of one
+    assert CALLS == {"read": 1, "review": 1} and run.outputs == {
+        "result": ["rev(K0)"]
+    }  # a list of one
     assert run.graph.describe().nodes["review"].per_item_of == "upload.result"
     assert ran(PER, files=[]).outputs == {"result": []} and CALLS == {}
 
@@ -148,7 +175,9 @@ def test_eleven_contracts_reviewed_all_together_make_one_call_and_one_file_is_co
 
 def test_both_in_one_graph_review_each_contract_and_then_all_of_them_once():
     run = ran(BOTH, files=FILES)
-    assert CALLS == {"read": 11, "review": 11, "overall": 1} and run.outputs == {"result": "overall(11)"}
+    assert CALLS == {"read": 11, "review": 11, "overall": 1} and run.outputs == {
+        "result": "overall(11)"
+    }
     assert ran(BOTH, files=FILES[:1]).outputs == {"result": "overall(1)"}
 
 
@@ -157,25 +186,49 @@ def test_a_compiled_graph_stays_the_same_graph_however_many_files_a_run_is_given
     fingerprint = graph.fingerprint
     for files in ([], ["a"], ["a", "b"]):
         run = graph.run(json.loads(json.dumps({"files": files})))
-        assert run.graph is graph and run.outputs == {"result": [f"rev({f.upper()})" for f in files]}
+        assert run.graph is graph and run.outputs == {
+            "result": [f"rev({f.upper()})" for f in files]
+        }
     assert graph.fingerprint == fingerprint
 
 
 # -- two uploads ---------------------------------------------------------------------------------------------------
 
 
-TWO = record_of(("c", "upload"), ("a", "upload"), ("cmp", "compare"), edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")),
-                inputs={"contracts": "c.files", "appendices": "a.files"}, outputs={"result": "cmp.result"})
-ONE_CONTRACT = record_of(("c", "read"), ("a", "upload"), ("cmp", "compare"), edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")),
-                         inputs={"file": "c.file", "files": "a.files"}, outputs={"result": "cmp.result"})
-COLLECTED = record_of(("c", "upload"), ("a", "upload"), ("w", "with_appendices"), edges=(("c.result", "w.contract"), ("a.result", "w.appendices")),
-                      inputs={"contracts": "c.files", "appendices": "a.files"}, outputs={"result": "w.result"})
+TWO = record_of(
+    ("c", "upload"),
+    ("a", "upload"),
+    ("cmp", "compare"),
+    edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")),
+    inputs={"contracts": "c.files", "appendices": "a.files"},
+    outputs={"result": "cmp.result"},
+)
+ONE_CONTRACT = record_of(
+    ("c", "read"),
+    ("a", "upload"),
+    ("cmp", "compare"),
+    edges=(("c.result", "cmp.contract"), ("a.result", "cmp.appendix")),
+    inputs={"file": "c.file", "files": "a.files"},
+    outputs={"result": "cmp.result"},
+)
+COLLECTED = record_of(
+    ("c", "upload"),
+    ("a", "upload"),
+    ("w", "with_appendices"),
+    edges=(("c.result", "w.contract"), ("a.result", "w.appendices")),
+    inputs={"contracts": "c.files", "appendices": "a.files"},
+    outputs={"result": "w.result"},
+)
 
 
 def test_two_uploads_meeting_at_a_node_are_a_problem_and_one_contract_meets_each_appendix():
     """Which contract goes with which appendix is for the graph's author to wire, never guessed."""
     (problem,) = Graph.compile(TWO, registry).problems
-    assert (problem.type, problem.loc, problem.ctx["series"]) == ("series_not_nested", ("cmp",), ["c.result", "a.result"])
+    assert (problem.type, problem.loc, problem.ctx["series"]) == (
+        "series_not_nested",
+        ("cmp",),
+        ["c.result", "a.result"],
+    )
     assert ran(ONE_CONTRACT, file="c", files=["a1", "a2"]).outputs == {"result": ["C~a1", "C~a2"]}
     assert CALLS == {"read": 1, "compare": 2}
 
@@ -204,25 +257,56 @@ def _refused(call: Any) -> list[tuple[str, tuple[str, ...]]]:
 
 
 def test_a_list_given_or_set_as_a_constant_at_an_input_of_one_value_is_refused_and_starts_no_loop():
-    graph = Graph.compile(record_of(("r", "review"), inputs={"text": "r.text"}, outputs={"result": "r.result"}), registry)
+    graph = Graph.compile(
+        record_of(("r", "review"), inputs={"text": "r.text"}, outputs={"result": "r.result"}),
+        registry,
+    )
     assert _refused(lambda: graph.run(text=["a", "b"])) == [("invalid_input", ("inputs", "text"))]
     assert _refused(lambda: graph.run(text=["a"])) == [("invalid_input", ("inputs", "text"))]
     assert graph.run(text="a").outputs == {"result": "rev(a)"}
 
-    with_constant = Graph.compile(record_of(("cmp", "compare", {"contract": ["c1", "c2"], "appendix": "a"}), outputs={"result": "cmp.result"}), registry)
-    assert [(p.type, p.loc) for p in with_constant.problems] == [("invalid_value", ("cmp", "contract"))]
+    with_constant = Graph.compile(
+        record_of(
+            ("cmp", "compare", {"contract": ["c1", "c2"], "appendix": "a"}),
+            outputs={"result": "cmp.result"},
+        ),
+        registry,
+    )
+    assert [(p.type, p.loc) for p in with_constant.problems] == [
+        ("invalid_value", ("cmp", "contract"))
+    ]
 
 
 def test_an_input_whose_type_takes_a_list_takes_it_as_one_value_and_a_series_input_takes_only_a_list():
-    assert ran(record_of(("t", "tags"), inputs={"tags": "t.tags"}, outputs={"result": "t.result"}), tags=["x", "y"]).outputs == {"result": 2}
-    assert ran(record_of(("v", "anything"), inputs={"value": "v.value"}, outputs={"result": "v.result"}), value=["x", "y"]).outputs == {"result": "list"}
-    overall_alone = Graph.compile(record_of(("o", "overall"), inputs={"texts": "o.texts"}, outputs={"result": "o.result"}), registry)
+    assert ran(
+        record_of(("t", "tags"), inputs={"tags": "t.tags"}, outputs={"result": "t.result"}),
+        tags=["x", "y"],
+    ).outputs == {"result": 2}
+    assert ran(
+        record_of(("v", "anything"), inputs={"value": "v.value"}, outputs={"result": "v.result"}),
+        value=["x", "y"],
+    ).outputs == {"result": "list"}
+    overall_alone = Graph.compile(
+        record_of(("o", "overall"), inputs={"texts": "o.texts"}, outputs={"result": "o.result"}),
+        registry,
+    )
     assert overall_alone.run(texts=["one"]).outputs == {"result": "overall(1)"}
-    assert _refused(lambda: overall_alone.run(texts="one")) == [("invalid_input", ("inputs", "texts"))]
+    assert _refused(lambda: overall_alone.run(texts="one")) == [
+        ("invalid_input", ("inputs", "texts"))
+    ]
 
 
 def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
-    graph = Graph.compile(record_of(("s", "split"), ("q", "approve"), edges=(("s.result", "q.text"),), inputs={"text": "s.text"}, outputs={"result": "q.result"}), registry)
+    graph = Graph.compile(
+        record_of(
+            ("s", "split"),
+            ("q", "approve"),
+            edges=(("s.result", "q.text"),),
+            inputs={"text": "s.text"},
+            outputs={"result": "q.result"},
+        ),
+        registry,
+    )
     run = graph.run(text="a,b")
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = Run.from_json(run.to_json(), graph)
@@ -237,13 +321,42 @@ def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
 def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_reviews_each_or_all():
     reg = NodeRegistry()
     reg.add_subregistry(registry)
-    per = record_of(("read", "read"), ("review", "review"), edges=(("read.result", "review.text"),), inputs={"file": "read.file"}, outputs={"result": "review.result"})
-    together = record_of(("read", "read"), ("overall", "overall"), edges=(("read.result", "overall.texts"),), inputs={"file": "read.file"}, outputs={"result": "overall.result"})
-    reg.add(subgraph("per", title="Per", description="For a test.")(per), subgraph("together", title="Together", description="For a test.")(together))
-    for inner, results in (("per", ["rev(X)", "rev(Y)", "rev(Z)"]), ("together", ["overall(1)", "overall(1)", "overall(1)"])):
-        outer = record_of(("s", "split"), ("e", inner), edges=(("s.result", "e.file"),), inputs={"text": "s.text"}, outputs={"result": "e.result"}, reg=reg)
+    per = record_of(
+        ("read", "read"),
+        ("review", "review"),
+        edges=(("read.result", "review.text"),),
+        inputs={"file": "read.file"},
+        outputs={"result": "review.result"},
+    )
+    together = record_of(
+        ("read", "read"),
+        ("overall", "overall"),
+        edges=(("read.result", "overall.texts"),),
+        inputs={"file": "read.file"},
+        outputs={"result": "overall.result"},
+    )
+    reg.add(
+        subgraph("per", title="Per", description="For a test.")(per),
+        subgraph("together", title="Together", description="For a test.")(together),
+    )
+    for inner, results in (
+        ("per", ["rev(X)", "rev(Y)", "rev(Z)"]),
+        ("together", ["overall(1)", "overall(1)", "overall(1)"]),
+    ):
+        outer = record_of(
+            ("s", "split"),
+            ("e", inner),
+            edges=(("s.result", "e.file"),),
+            inputs={"text": "s.text"},
+            outputs={"result": "e.result"},
+            reg=reg,
+        )
         assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]
-    assert ran(record_of(("e", "per"), inputs={"file": "e.file"}, outputs={"result": "e.result"}, reg=reg), reg, file="a").outputs == {"result": "rev(A)"}
+    assert ran(
+        record_of(("e", "per"), inputs={"file": "e.file"}, outputs={"result": "e.result"}, reg=reg),
+        reg,
+        file="a",
+    ).outputs == {"result": "rev(A)"}
 
 
 # -- what a yes or no, and a limit, land on ------------------------------------------------------------------------
@@ -251,7 +364,12 @@ def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_revie
 
 def _one(node: str, graph_input: str, reg: NodeRegistry) -> GraphRecord:
     """A graph of one node ``x``, its input ``graph_input`` given by the caller and its output ``result`` returned."""
-    return record_of(("x", node), inputs={graph_input: f"x.{graph_input}"}, outputs={"result": "x.result"}, reg=reg)
+    return record_of(
+        ("x", node),
+        inputs={graph_input: f"x.{graph_input}"},
+        outputs={"result": "x.result"},
+        reg=reg,
+    )
 
 
 def _checked_registry() -> NodeRegistry:
@@ -301,8 +419,13 @@ def test_a_yes_or_no_never_lands_on_a_union_a_number_is_in_and_a_yes_or_no_is_no
         graph = Graph.compile(_one(node_id, "n", local_registry), local_registry)
         assert _refused_as(lambda: graph.run(n=True)) == [("invalid_input", "bool_is_not_a_number")]
         assert graph.run(n=2).outputs == {"result": "2"}
-    assert Graph.compile(_one("or-flag", "n", local_registry), local_registry).run(n=True).outputs == {"result": "True"}
-    assert Graph.compile(_one("returns-yes", "n", local_registry), local_registry).run(n=1).status == "failed"
+    assert Graph.compile(_one("or-flag", "n", local_registry), local_registry).run(
+        n=True
+    ).outputs == {"result": "True"}
+    assert (
+        Graph.compile(_one("returns-yes", "n", local_registry), local_registry).run(n=1).status
+        == "failed"
+    )
 
 
 class Order(BaseModel):
@@ -313,7 +436,11 @@ def test_a_param_keeps_its_limits_inside_a_hosts_own_model_and_its_schema_says_t
     with pytest.raises(ValidationError) as refused:
         Order(count=-1)
     assert refused.value.errors()[0]["type"] == "greater_than_equal"
-    assert Order.model_json_schema()["properties"]["count"] == {"type": "integer", "minimum": 0, "title": "Count"}
+    assert Order.model_json_schema()["properties"]["count"] == {
+        "type": "integer",
+        "minimum": 0,
+        "title": "Count",
+    }
 
 
 Tree = TypeAliasType("Tree", "dict[str, Tree] | list[Tree] | int")
@@ -344,13 +471,23 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
         share: float
 
     wrong, right = {"n": True, "share": 0.5}, {"n": 1, "share": 0.5}
-    for hint, value in ((Row, wrong), (list[Row], [right, wrong]), (dict[str, Row], {"a": wrong}), (Table[Row], [right, wrong]), (Row, {"n": 1, "share": False})):
+    for hint, value in (
+        (Row, wrong),
+        (list[Row], [right, wrong]),
+        (dict[str, Row], {"a": wrong}),
+        (Table[Row], [right, wrong]),
+        (Row, {"n": 1, "share": False}),
+    ):
         with pytest.raises(ValidationError) as refused:
             validator_of(Type(hint)).validate_python(value)
         assert refused.value.errors()[0]["type"] == "bool_is_not_a_number", hint
-    assert validator_of(Type(Row)).validate_python(right) == right and validator_of(Type(list[Row])).validate_python([right]) == [right]
+    assert validator_of(Type(Row)).validate_python(right) == right and validator_of(
+        Type(list[Row])
+    ).validate_python([right]) == [right]
     assert validator_of(Type(Row)).validate_json(json.dumps(right), strict=True) == right
-    with pytest.raises(ValidationError, match="valid integer"):  # from JSON, strictly, the refusal is pydantic's own
+    with pytest.raises(
+        ValidationError, match="valid integer"
+    ):  # from JSON, strictly, the refusal is pydantic's own
         validator_of(Type(Row)).validate_json(json.dumps(wrong), strict=True)
 
 
@@ -369,7 +506,11 @@ def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
     def read(hint: Any, value: Any) -> Any:
         return validator_of(Type(hint)).validate_python(value)
 
-    assert read(Level, 1) is Level.LOW and read(list[Level], [1]) == [Level.LOW] and read(Share, 0.5) is Share.HALF
+    assert (
+        read(Level, 1) is Level.LOW
+        and read(list[Level], [1]) == [Level.LOW]
+        and read(Share, 0.5) is Share.HALF
+    )
     for hint, value in ((Level, True), (list[Level], [True])):
         with pytest.raises(ValidationError) as refused:
             read(hint, value)

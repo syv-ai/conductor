@@ -104,14 +104,18 @@ class NodeEvents:
             reader: Reads the run's outcomes, for what a waiting call received.
         """
         self.emit, self.nodes, self.outcomes, self.reader = emit, nodes, outcomes, reader
-        with_outcomes: set[BlueprintFunctionNode] = {node for node in nodes if outcomes[node.node_path]}
+        with_outcomes: set[BlueprintFunctionNode] = {
+            node for node in nodes if outcomes[node.node_path]
+        }
         self.started: set[BlueprintNode] = set(with_outcomes)
         for node in with_outcomes:
             subgraph = node.parent
             while subgraph is not None:
                 self.started.add(subgraph)
                 subgraph = subgraph.parent
-        complete_before: set[BlueprintFunctionNode] = {node for node in nodes if node.node_path in complete}
+        complete_before: set[BlueprintFunctionNode] = {
+            node for node in nodes if node.node_path in complete
+        }
         self.complete: set[BlueprintNode] = set(complete_before)
         for node in complete_before:
             self._complete_subgraphs_around(node, announce=False)
@@ -132,7 +136,9 @@ class NodeEvents:
         """The outcome recorded next for ``node`` is taken from the previous run."""
         self.reused[node] += 1
 
-    def outcome_recorded(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome) -> None:
+    def outcome_recorded(
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome
+    ) -> None:
         """``outcome`` was written for the call ``item_indexes`` of ``node``.
 
         An outcome that was not a call (reused, or ``NoneInput``) starts its node as a call does. ``Skipped`` does not.
@@ -145,22 +151,39 @@ class NodeEvents:
                 self.call_starts(node)
             case Unanswered():
                 self.call_starts(node)
-                self.emit(NodeWaiting(loc=node.node_path, waiting=waiting_record(node, item_indexes, outcome, self.reader)))
+                self.emit(
+                    NodeWaiting(
+                        loc=node.node_path,
+                        waiting=waiting_record(node, item_indexes, outcome, self.reader),
+                    )
+                )
             case _:
                 assert_never(outcome)
         if node.loops:
             self._progress(node)
 
-    def call_retries(self, node: BlueprintFunctionNode, attempt: int, delay: float, cause: Problem) -> None:
+    def call_retries(
+        self, node: BlueprintFunctionNode, attempt: int, delay: float, cause: Problem
+    ) -> None:
         """A call of ``node`` failed with ``cause`` and is made again after ``delay`` seconds, as try number
         ``attempt`` after the first."""
-        self.emit(NodeRetry(loc=node.node_path, attempt=attempt, retries=node.policy.retries, delay=delay, cause=cause))
+        self.emit(
+            NodeRetry(
+                loc=node.node_path,
+                attempt=attempt,
+                retries=node.policy.retries,
+                delay=delay,
+                cause=cause,
+            )
+        )
 
     def call_failed(self, node: BlueprintFunctionNode, cause: Problem) -> None:
         """A call of ``node`` failed and is not retried: the run fails with ``cause``."""
         self.emit(NodeFailed(loc=node.node_path, cause=cause))
 
-    def nothing_is_ready(self, running: Iterable[tuple[BlueprintFunctionNode, ItemIndexes]]) -> None:
+    def nothing_is_ready(
+        self, running: Iterable[tuple[BlueprintFunctionNode, ItemIndexes]]
+    ) -> None:
         """No call is ready to be made: say ``NodeComplete`` for every node that is now complete.
 
         Args:
@@ -188,7 +211,15 @@ class NodeEvents:
                         skipped += _is_skipped(outcome)
                     case _:
                         assert_never(outcome)
-            self.emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), skipped=skipped, not_called=not_called, reused=self.reused[node]))
+            self.emit(
+                NodeComplete(
+                    loc=node.node_path,
+                    outcomes=len(outcomes),
+                    skipped=skipped,
+                    not_called=not_called,
+                    reused=self.reused[node],
+                )
+            )
             self._complete_subgraphs_around(node, announce=True)
 
     def scheduler_ended(self) -> None:
@@ -218,11 +249,21 @@ class NodeEvents:
         With ``announce``, each gets ``NodeComplete`` with one outcome per call of the subgraph.
         """
         subgraph = node.parent
-        while subgraph is not None and subgraph not in self.complete and all(inner in self.complete for inner in subgraph.inner_nodes.values()):
+        while (
+            subgraph is not None
+            and subgraph not in self.complete
+            and all(inner in self.complete for inner in subgraph.inner_nodes.values())
+        ):
             self.complete.add(subgraph)
             if announce:
                 outcomes = len(all_item_indexes(self.outcomes, subgraph.loops, ())[0])
-                self.emit(NodeComplete(loc=subgraph.node_path, outcomes=outcomes, skipped=self._skipped_calls(subgraph)))
+                self.emit(
+                    NodeComplete(
+                        loc=subgraph.node_path,
+                        outcomes=outcomes,
+                        skipped=self._skipped_calls(subgraph),
+                    )
+                )
             subgraph = subgraph.parent
 
     def _skipped_calls(self, subgraph: BlueprintSubgraphNode) -> int:
@@ -237,7 +278,9 @@ class NodeEvents:
         for inner in _function_nodes_inside(subgraph):
             for item_indexes, outcome in self.outcomes[inner.node_path].items():
                 call = item_indexes[:depth]
-                every_call_skipped[call] = every_call_skipped.get(call, True) and _is_skipped(outcome)
+                every_call_skipped[call] = every_call_skipped.get(call, True) and _is_skipped(
+                    outcome
+                )
         return sum(every_call_skipped.values())
 
 
@@ -257,7 +300,9 @@ def _is_skipped(outcome: Outcome) -> bool:
         case Skipped():
             return True
         case Done():
-            return bool(outcome.outputs) and all(value is SKIPPED for value in outcome.outputs.values())
+            return bool(outcome.outputs) and all(
+                value is SKIPPED for value in outcome.outputs.values()
+            )
         case NoneInput() | Unanswered():
             return False
         case _:

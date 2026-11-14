@@ -96,14 +96,24 @@ class NodeRegistry[C]:
 
     @overload
     def __init__(
-        self: NodeRegistry[None], *, category: str = "", tags: list[str] | tuple[str, ...] = (),
-        extra: Mapping[str, JsonValue] = MappingProxyType({}), types: Iterable[type] = (), context_type: None = None,
+        self: NodeRegistry[None],
+        *,
+        category: str = "",
+        tags: list[str] | tuple[str, ...] = (),
+        extra: Mapping[str, JsonValue] = MappingProxyType({}),
+        types: Iterable[type] = (),
+        context_type: None = None,
     ) -> None: ...
 
     @overload
     def __init__(
-        self: NodeRegistry[C], *, category: str = "", tags: list[str] | tuple[str, ...] = (),
-        extra: Mapping[str, JsonValue] = MappingProxyType({}), types: Iterable[type] = (), context_type: type[C],
+        self: NodeRegistry[C],
+        *,
+        category: str = "",
+        tags: list[str] | tuple[str, ...] = (),
+        extra: Mapping[str, JsonValue] = MappingProxyType({}),
+        types: Iterable[type] = (),
+        context_type: type[C],
     ) -> None: ...
 
     def __init__(
@@ -205,14 +215,21 @@ class NodeRegistry[C]:
         """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
-        nodes = {**self._nodes, definition.id: with_defaults(definition, tags=self._tags, category=self._category, extra=self._extra)}
+        nodes = {
+            **self._nodes,
+            definition.id: with_defaults(
+                definition, tags=self._tags, category=self._category, extra=self._extra
+            ),
+        }
         self._set_contents(nodes, self._named_types)
 
     def remove(self, node_id: str) -> None:
         """Take out the node registered under ``node_id``; an id not here is a ``KeyError``."""
         if node_id not in self._nodes:
             raise self._not_here(node_id)
-        nodes = {held_id: definition for held_id, definition in self._nodes.items() if held_id != node_id}
+        nodes = {
+            held_id: definition for held_id, definition in self._nodes.items() if held_id != node_id
+        }
         self._set_contents(nodes, self._named_types)
 
     def add_subregistry(self, subregistry: NodeRegistry[C] | NodeRegistry[None]) -> None:
@@ -230,16 +247,32 @@ class NodeRegistry[C]:
         """
         if subregistry._context_type not in (None, self._context_type):
             if self._context_type is None:
-                raise NodeDeclarationError(declaration_problems.context_type_on_subregistry_only(subregistry_type=subregistry._context_type.__name__))
-            raise NodeDeclarationError(declaration_problems.context_type_differs(subregistry_type=subregistry._context_type.__name__, registry_type=self._context_type.__name__))
-        named = (*self._named_types, *(dtype for dtype in subregistry._named_types if dtype not in self._named_types))
+                raise NodeDeclarationError(
+                    declaration_problems.context_type_on_subregistry_only(
+                        subregistry_type=subregistry._context_type.__name__
+                    )
+                )
+            raise NodeDeclarationError(
+                declaration_problems.context_type_differs(
+                    subregistry_type=subregistry._context_type.__name__,
+                    registry_type=self._context_type.__name__,
+                )
+            )
+        named = (
+            *self._named_types,
+            *(dtype for dtype in subregistry._named_types if dtype not in self._named_types),
+        )
         added = tuple(subregistry)
         self._set_contents(self._nodes_with(added), named)
 
     def filter(self, predicate: Callable[[NodeDefinition], bool]) -> NodeRegistry[C]:
         """A new registry with this one's defaults, named types and ``context_type``, holding the nodes ``predicate`` keeps."""
         kept = copy.copy(self)
-        nodes = {definition.id: definition for definition in self._nodes.values() if predicate(definition)}
+        nodes = {
+            definition.id: definition
+            for definition in self._nodes.values()
+            if predicate(definition)
+        }
         kept._set_contents(nodes, self._named_types)
         return kept
 
@@ -249,18 +282,30 @@ class NodeRegistry[C]:
         for definition in definitions:
             held = nodes.get(definition.id)
             if held is not None:
-                raise NodeDeclarationError(declaration_problems.duplicate_node_id(id=definition.id, first=held.where_declared, second=definition.where_declared))
-            nodes[definition.id] = with_defaults(definition, tags=self._tags, category=self._category, extra=self._extra)
+                raise NodeDeclarationError(
+                    declaration_problems.duplicate_node_id(
+                        id=definition.id,
+                        first=held.where_declared,
+                        second=definition.where_declared,
+                    )
+                )
+            nodes[definition.id] = with_defaults(
+                definition, tags=self._tags, category=self._category, extra=self._extra
+            )
         return nodes
 
-    def _set_contents(self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...]) -> None:
+    def _set_contents(
+        self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...]
+    ) -> None:
         """Hold exactly ``nodes`` and ``named_types``, and the types they give: each node's declared ones in order, then the named ones."""
         self._types = _by_id((*_types_declared_by(nodes.values()), *named_types))
         self._nodes, self._named_types = nodes, named_types
         self._graph_descriptions = {}
 
     def _not_here(self, node_id: str) -> KeyError:
-        return KeyError(f"{node_id!r} is not registered here; the ids are {comma_separated(self._nodes)}")
+        return KeyError(
+            f"{node_id!r} is not registered here; the ids are {comma_separated(self._nodes)}"
+        )
 
     # -- the types ---------------------------------------------------------------
 
@@ -284,7 +329,15 @@ class NodeRegistry[C]:
         return RegistryDescription(
             nodes=[self._described(definition) for definition in self._nodes.values()],
             types=[
-                TypeDescription(id=type_id_, title=Type(held).title, accepted_as=[landing for landing, target in types if Type(target).fits(Type(held)) is not None])
+                TypeDescription(
+                    id=type_id_,
+                    title=Type(held).title,
+                    accepted_as=[
+                        landing
+                        for landing, target in types
+                        if Type(target).fits(Type(held)) is not None
+                    ],
+                )
                 for type_id_, held in types
             ],
         )
@@ -298,18 +351,25 @@ class NodeRegistry[C]:
             case SubgraphDefinition():
                 pass
         if definition.id not in self._graph_descriptions:
-            record = GraphRecord(nodes={"node": NodeRecord(node=definition.id, version=definition.version)})
+            record = GraphRecord(
+                nodes={"node": NodeRecord(node=definition.id, version=definition.version)}
+            )
             compiled = Graph.compile(record, self)
             described = compiled.describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
-                inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,
-                asks=compiled._asks(), takes_added_inputs=False, computes_outputs=False,
+                inputs=[described_input.field for described_input in described.inputs],
+                outputs=described.outputs,
+                asks=compiled._asks(),
+                takes_added_inputs=False,
+                computes_outputs=False,
             )
         return self._graph_descriptions[definition.id]
 
     # -- graphs ------------------------------------------------------------------
 
-    def upgrade(self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None) -> GraphRecord:
+    def upgrade(
+        self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None
+    ) -> GraphRecord:
         """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
 
         Runs each newer version's ``Upgrade`` in order and sets the version. Each step first moves what the record
@@ -336,7 +396,11 @@ def _by_id(types: Iterable[type]) -> dict[str, type]:
     for held in types:
         existing = by_id.setdefault(Type(held).id, held)
         if existing is not held:
-            raise NodeDeclarationError(declaration_problems.duplicate_type_id(id=Type(held).id, first=qualified_name(existing), second=qualified_name(held)))
+            raise NodeDeclarationError(
+                declaration_problems.duplicate_type_id(
+                    id=Type(held).id, first=qualified_name(existing), second=qualified_name(held)
+                )
+            )
     return by_id
 
 

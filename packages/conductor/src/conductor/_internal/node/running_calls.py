@@ -47,7 +47,9 @@ class RunningCalls:
         self._turns_taken = Condition(self._lock)  # notified when a run leaves ``_turns``
         self._running = 0
         self._waiting: dict[Waiter, None] = {}  # a dict, not a set: woken in the order they asked
-        self._turns: set[Waiter] = set()  # parked runs woken by a finish that have not asked, left or turned away
+        self._turns: set[Waiter] = (
+            set()
+        )  # parked runs woken by a finish that have not asked, left or turned away
 
     def try_start(self, concurrency: int, waiter: Waiter) -> bool:
         """Count one more running call, if fewer than ``concurrency`` are running.
@@ -78,7 +80,11 @@ class RunningCalls:
         with self._lock:
             self._running -= 1
             waiting = list(self._waiting)
-            parked = {waiter for waiter in waiting if waiter.parked} if give_parked_runs_a_turn else set()
+            parked = (
+                {waiter for waiter in waiting if waiter.parked}
+                if give_parked_runs_a_turn
+                else set()
+            )
             self._turns |= parked
         rest = iter(waiting)
         try:

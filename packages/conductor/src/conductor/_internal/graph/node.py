@@ -98,7 +98,11 @@ class _CompiledNodeBase:
         """Returns the branches that must be chosen for ``output`` to have a value: those the node needs to be
         called, and ``output`` itself when it is in an exclusive group."""
         group = self.outputs[output].param.exclusive_group
-        return self.required_branches | {RequiredBranch((self.id,), group, output, len(self.loops))} if group else self.required_branches
+        return (
+            self.required_branches | {RequiredBranch((self.id,), group, output, len(self.loops))}
+            if group
+            else self.required_branches
+        )
 
     def described_outputs(self) -> list[FieldDescription]:
         """Returns each output as an editor shows it, the description a waiting call asks it by when its ``Ask``
@@ -130,7 +134,13 @@ class CompiledFunctionNode(_CompiledNodeBase):
         the function's own bytecode and constants, not from the functions it calls.
         """
         definition = self.definition
-        fields = [(field.name, field.whole.reads_as) for field in (*(node_input.field for node_input in self.inputs.values()), *self.outputs.values())]
+        fields = [
+            (field.name, field.whole.reads_as)
+            for field in (
+                *(node_input.field for node_input in self.inputs.values()),
+                *self.outputs.values(),
+            )
+        ]
         code = _code_text(inspect.unwrap(definition.function).__code__)
         # each loop as place_text writes it (``"e/split.result"``), not as a repr: a waiting call's id and a saved run
         # contain the hash, so it changes only when that text does
@@ -142,7 +152,11 @@ class CompiledFunctionNode(_CompiledNodeBase):
     def return_door(self) -> ReturnDoor:
         """Reads what the node's function returns into its outputs by name: ``{"result": "B!"}`` for ``shout``
         returning ``"B!"``. Built on the node's first call."""
-        return ReturnDoor(self.definition.outputs_dataclass, self.definition.compute_outputs is not None, self.outputs)
+        return ReturnDoor(
+            self.definition.outputs_dataclass,
+            self.definition.compute_outputs is not None,
+            self.outputs,
+        )
 
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:
@@ -159,10 +173,15 @@ class CompiledFunctionNode(_CompiledNodeBase):
         output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. An output is a branch
         when its ``Param`` gives it an ``exclusive_group``.
         """
-        return {name: SKIPPED if output.param.exclusive_group is not None else None for name, output in self.outputs.items()}
+        return {
+            name: SKIPPED if output.param.exclusive_group is not None else None
+            for name, output in self.outputs.items()
+        }
 
     @functools.cached_property
-    def ask_door(self) -> Callable[[Ask], tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
+    def ask_door(
+        self,
+    ) -> Callable[[Ask], tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
         """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and reads its choices
         and default by output name; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
         the node first asks.
@@ -245,7 +264,9 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         inside = source.branches_required_for(output_inside)
         depth = len(self.loops)
         return self.required_branches | {
-            RequiredBranch((self.id, *branch.node), branch.group, branch.output, depth + branch.depth)
+            RequiredBranch(
+                (self.id, *branch.node), branch.group, branch.output, depth + branch.depth
+            )
             for branch in inside
         }
 
@@ -260,14 +281,20 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """
         described = []
         for name, field in self.outputs.items():
-            loops = [place_text(node[1:], output) for node, output in self.loops_around(name)[len(self.loops) :]]
+            loops = [
+                place_text(node[1:], output)
+                for node, output in self.loops_around(name)[len(self.loops) :]
+            ]
             if not loops:
                 described.append(field.description)
                 continue
-            if field.is_series:  # an output that is itself a Series adds the innermost level, the list it returns
+            # an output that is itself a Series adds the innermost level, the list it returns
+            if field.is_series:
                 node, output = self.returned_by(name)
                 loops.append(place_text(node[1:], output))
-            described.append(field.description.model_copy(update={"is_series": True, "loops": loops}))
+            described.append(
+                field.description.model_copy(update={"is_series": True, "loops": loops})
+            )
         return described
 
 
@@ -291,14 +318,21 @@ def _code_text(code: Any) -> str:
     if not code.co_flags & inspect.CO_NEWLOCALS:
         instructions = list(dis.get_instructions(code))
         kept = [
-            instruction for index, instruction in enumerate(instructions)
+            instruction
+            for index, instruction in enumerate(instructions)
             if not (instruction.opname == "STORE_NAME" and instruction.argval == "__doc__")
-            and not (instruction.opname == "LOAD_CONST" and index + 1 < len(instructions) and instructions[index + 1].argval == "__doc__")
+            and not (
+                instruction.opname == "LOAD_CONST"
+                and index + 1 < len(instructions)
+                and instructions[index + 1].argval == "__doc__"
+            )
         ]
         return f"{[(i.opname, _constant_text(i.argval) if i.opname == 'LOAD_CONST' else repr(i.argval)) for i in kept]}"
     constants = list(code.co_consts)
     if _HAS_DOCSTRING_FLAG is None:
-        has_docstring = bool(constants) and isinstance(constants[0], str) and code.co_name != "<genexpr>"
+        has_docstring = (
+            bool(constants) and isinstance(constants[0], str) and code.co_name != "<genexpr>"
+        )
     else:
         has_docstring = bool(code.co_flags & _HAS_DOCSTRING_FLAG)
     if has_docstring:

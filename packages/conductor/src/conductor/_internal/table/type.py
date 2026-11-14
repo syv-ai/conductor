@@ -70,7 +70,13 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
         """The table's id, which names its columns, its title, and no class."""
         columns = typing.get_type_hints(self._row) if typing.is_typeddict(self._row) else {}
-        return f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]" if columns else "Table", "Table", ()
+        return (
+            f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]"
+            if columns
+            else "Table",
+            "Table",
+            (),
+        )
 
     @functools.cached_property
     def record(self) -> Type:
@@ -89,7 +95,11 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     def _fault_in(self, part: str, kind: str, msg: str) -> str:
         """Returns the error message ``msg`` with the column ``part`` named in it."""
-        return f"the column '{part}' its row type declares is missing" if kind == "missing" else f"column '{part}': {msg}"
+        return (
+            f"the column '{part}' its row type declares is missing"
+            if kind == "missing"
+            else f"column '{part}': {msg}"
+        )
 
     @staticmethod
     def untyped_as_json(value: Any) -> Any:

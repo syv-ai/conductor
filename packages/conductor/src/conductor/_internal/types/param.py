@@ -81,7 +81,9 @@ class Param:
         """The limits set, by pydantic's words, as ``pydantic.Field`` takes them."""
         return {key: value for key in _LIMITS if (value := getattr(self, key)) is not None}
 
-    def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+    def __get_pydantic_core_schema__(
+        self, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
         """Gives the schema of ``source`` held to these limits and choices.
 
         Args:
@@ -95,7 +97,9 @@ class Param:
             NodeDeclarationError: A limit pydantic holds no rule for on ``source`` (``bound_invalid``), or choices
                 that aren't each one value of it, once (``choices_invalid``).
         """
-        limited_hint: Any = Annotated[source, PydanticField(**self.limits)] if self.limits else source
+        limited_hint: Any = (
+            Annotated[source, PydanticField(**self.limits)] if self.limits else source
+        )
         limited = handler(limited_hint)
         # A limit pydantic holds no rule for on a type becomes a function of its own round the type's schema, which
         # fails on every value. A further function is a host's own schema, whose values only the host knows.
@@ -108,8 +112,12 @@ class Param:
             layer = layer["schema"]  # type: ignore[typeddict-item]  # every schema that wraps another names it so
         unheld = sorted(self.limits.keys() - held)
         if unheld and functions <= len(unheld):
-            written = source.__name__ if isinstance(source, type) else str(source)  # as its developer wrote it
-            raise NodeDeclarationError(declaration_problems.bound_invalid(unheld=unheld, type=written))
+            written = (
+                source.__name__ if isinstance(source, type) else str(source)
+            )  # as its developer wrote it
+            raise NodeDeclarationError(
+                declaration_problems.bound_invalid(unheld=unheld, type=written)
+            )
         if self.choices is None:
             return limited
         reader = TypeAdapter(limited_hint)
@@ -122,14 +130,25 @@ class Param:
         except PydanticCustomError as refused:
             match refused.type:
                 case "no_json_form":
-                    raise NodeDeclarationError(declaration_problems.choices_invalid_no_json_form()) from None
+                    raise NodeDeclarationError(
+                        declaration_problems.choices_invalid_no_json_form()
+                    ) from None
                 case "not_its_type":
-                    raise NodeDeclarationError(declaration_problems.choices_invalid_not_a_value(reason=refused.message())) from None
+                    raise NodeDeclarationError(
+                        declaration_problems.choices_invalid_not_a_value(reason=refused.message())
+                    ) from None
                 case _:  # none, or an id twice
                     raise NodeDeclarationError(declaration_problems.choices_invalid()) from None
-        literal = [value for option in union_members(source) if get_origin(option) is Literal for value in get_args(option)]
+        literal = [
+            value
+            for option in union_members(source)
+            if get_origin(option) is Literal
+            for value in get_args(option)
+        ]
         if literal and {to_json(i) for i in ids} != {to_json(value) for value in literal}:
-            raise NodeDeclarationError(declaration_problems.choices_invalid_on_a_literal(values=literal))
+            raise NodeDeclarationError(
+                declaration_problems.choices_invalid_on_a_literal(values=literal)
+            )
         if literal:  # a Literal's choices title its values
             return limited
 
@@ -140,7 +159,9 @@ class Param:
 
         return core_schema.no_info_after_validator_function(one_of_the_choices, limited)
 
-    def __get_pydantic_json_schema__(self, schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
+    def __get_pydantic_json_schema__(
+        self, schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
         """Gives the JSON schema of the limited type, with this ``title`` and ``description`` where a model's field carries them."""
         written = handler(schema)
         for key in ("title", "description"):
@@ -162,7 +183,9 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
         The hint with every ``Annotated`` taken off its members, the ``Param``s as one (an empty one for none),
         and whatever else ``Annotated`` held, which pydantic reads.
     """
-    if type(hint) is type and hint not in READ_AS:  # a plain class has nothing to take off, and most hints are one
+    if (
+        type(hint) is type and hint not in READ_AS
+    ):  # a plain class has nothing to take off, and most hints are one
         return hint, _NO_PARAM, ()
     options, params, others = [], list[Param](), list[Any]()
     for option in union_members(hint):
@@ -173,5 +196,10 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
             inner, inner_param, inner_others = split_hint(option)
             option, params, others = inner, [inner_param, *params], [*inner_others, *others]
         options.append(READ_AS.get(option, option) if type(option) is type else option)
-    merged = {f.name: value for param in params for f in dataclasses.fields(param) if (value := getattr(param, f.name)) is not None}
+    merged = {
+        f.name: value
+        for param in params
+        for f in dataclasses.fields(param)
+        if (value := getattr(param, f.name)) is not None
+    }
     return union_of(options), Param(**merged) if merged else _NO_PARAM, tuple(others)

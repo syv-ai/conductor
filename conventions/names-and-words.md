@@ -7,7 +7,8 @@ Write every name, docstring and comment so a Python developer who has never seen
 Why: a name or a sentence that needs the plans to be understood is not understood; if it cannot be said simply, the idea is not clear yet.
 
 ```python
-"""Going on is one leg of the run, as it stands."""                                   # bad
+"""Going on is one leg of the run, as it stands."""  # bad
+
 """Whether the run can go on: it has calls left to make and nobody has cancelled it."""  # good
 ```
 
@@ -18,8 +19,8 @@ Never use these names, and rename one on any line you edit: `WrongAsk`, `Referre
 Why: these names were read wrong or said nothing; a plain name says the job.
 
 ```python
-wanted_args, held_args = get_args(target), get_args(source)      # bad
-expected_args, given_args = get_args(target), get_args(source)   # good
+wanted_args, held_args = get_args(target), get_args(source)  # bad
+expected_args, given_args = get_args(target), get_args(source)  # good
 ```
 
 ## Conductor stands alone
@@ -29,7 +30,7 @@ Write no host's words (flow, app), imports, access model or concrete types into 
 Why: conductor is a library for any host; a host's words or types in it fit it to one application.
 
 ```python
-def run_flow(flow: FlowRecord) -> None: ...      # bad
+def run_flow(flow: FlowRecord) -> None: ...  # bad
 def run_graph(record: GraphRecord) -> None: ...  # good
 ```
 
@@ -40,7 +41,9 @@ Name every exception class for what went wrong and end it in `Error`; `Ask` is t
 Why: the suffix tells a reader the class is a real error, unlike `Ask`, which is raised to ask a person.
 
 ```python
-class WrongAsk(Exception): ...         # bad
+class WrongAsk(Exception): ...  # bad
+
+
 class InvalidAskError(Exception): ...  # good
 ```
 
@@ -52,7 +55,8 @@ Why: one docstring format, saying what a thing does and what each field means, i
 
 ```python
 def read_answer(waiting, answer):
-    """Reads it."""                                       # bad
+    """Reads it."""  # bad
+
 
 def read_answer(waiting: Waiting, answer: Any) -> dict[str, Any]:
     """Reads a person's answer into the outputs of the node that asked.
@@ -60,7 +64,7 @@ def read_answer(waiting: Waiting, answer: Any) -> dict[str, Any]:
     Args:
         waiting: The call waiting for the answer.
         answer: The answer as the host received it.
-    """                                                   # good
+    """  # good
 ```
 
 ## No history in code

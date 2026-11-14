@@ -82,7 +82,10 @@ def test_a_node_prints_what_it_declares():
     def greet(name: str) -> str:
         return name
 
-    assert repr(greet) == "FunctionDefinition(id='greet', version=1, title='Greeting', category='text')"
+    assert (
+        repr(greet)
+        == "FunctionDefinition(id='greet', version=1, title='Greeting', category='text')"
+    )
 
 
 def test_a_node_prints_its_tags_only_when_it_has_them():
@@ -116,14 +119,36 @@ def test_a_registry_prints_its_nodes_each_as_its_own_repr():
 def test_a_compiled_graph_prints_a_one_line_summary():
     registry = _registry()
 
-    assert repr(Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "scale", "inputs": {"value": {"graph_input": "value"}}}}}), registry)) == "<Graph of 1 node, runnable>"
-    assert repr(Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "nope"}}}), registry)) == "<Graph of 1 node, 1 problem>"
+    assert (
+        repr(
+            Graph.compile(
+                GraphRecord.model_validate(
+                    {
+                        "nodes": {
+                            "s": {"node": "scale", "inputs": {"value": {"graph_input": "value"}}}
+                        }
+                    }
+                ),
+                registry,
+            )
+        )
+        == "<Graph of 1 node, runnable>"
+    )
+    assert (
+        repr(
+            Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "nope"}}}), registry)
+        )
+        == "<Graph of 1 node, 1 problem>"
+    )
 
 
 def test_a_record_prints_only_what_is_not_at_its_default():
     assert repr(Deprecation()) == "Deprecation()"
     assert repr(Deprecation(header="Gone")) == "Deprecation(header='Gone')"
-    assert repr(Problem(type="cycle", msg="m", loc=("a",))) == "Problem(type='cycle', loc=('a',), msg='m')"
+    assert (
+        repr(Problem(type="cycle", msg="m", loc=("a",)))
+        == "Problem(type='cycle', loc=('a',), msg='m')"
+    )
 
 
 def test_a_record_prints_a_field_set_back_to_its_default_value_as_absent():
@@ -143,12 +168,29 @@ def test_skipped_is_one_object_that_prints_as_its_name():
 
 
 def test_a_problem_dumps_to_json_and_reads_back():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "scale", "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}}}}}), _registry())
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {
+                        "node": "scale",
+                        "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
+                    }
+                }
+            }
+        ),
+        _registry(),
+    )
     (told,) = graph.problems
 
     dumped = json.loads(told.model_dump_json())
 
-    assert dumped == {"type": "unknown_input", "loc": ["s", "facter"], "msg": told.msg, "ctx": {"node_id": "s", "field": "facter", "inputs": ["value", "factor"]}}
+    assert dumped == {
+        "type": "unknown_input",
+        "loc": ["s", "facter"],
+        "msg": told.msg,
+        "ctx": {"node_id": "s", "field": "facter", "inputs": ["value", "factor"]},
+    }
     assert Problem.model_validate(dumped) == told
 
 
@@ -170,7 +212,23 @@ def test_a_problem_read_back_refuses_a_key_it_does_not_have():
 
 
 def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "hello", "inputs": {"name": {"constant": "x"}}}, "b": {"node": "scale", "inputs": {"facter": {"constant": 2}, "value": {"sources": [{"node": "a", "output": "reslt"}]}}}}}), _registry())
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "a": {"node": "hello", "inputs": {"name": {"constant": "x"}}},
+                    "b": {
+                        "node": "scale",
+                        "inputs": {
+                            "facter": {"constant": 2},
+                            "value": {"sources": [{"node": "a", "output": "reslt"}]},
+                        },
+                    },
+                }
+            }
+        ),
+        _registry(),
+    )
 
     assert {problem.type for problem in graph.problems} == {"unknown_output", "unknown_input"}
     for problem in graph.problems:
@@ -179,14 +237,43 @@ def test_a_problems_message_is_its_sentence_filled_from_the_ctx_it_keeps():
 
 
 def test_an_edge_to_a_missing_output_says_what_the_node_has():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"a": {"node": "hello", "inputs": {"name": {"constant": "x"}}}, "b": {"node": "scale", "inputs": {"value": {"sources": [{"node": "a", "output": "reslt"}]}}}}}), _registry())
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "a": {"node": "hello", "inputs": {"name": {"constant": "x"}}},
+                    "b": {
+                        "node": "scale",
+                        "inputs": {"value": {"sources": [{"node": "a", "output": "reslt"}]}},
+                    },
+                }
+            }
+        ),
+        _registry(),
+    )
 
     (found,) = graph.problems
-    assert found.type == "unknown_output" and found.ctx["outputs"] == ["a.result"] and "it has a.result" in found.msg
+    assert (
+        found.type == "unknown_output"
+        and found.ctx["outputs"] == ["a.result"]
+        and "it has a.result" in found.msg
+    )
 
 
 def test_an_unknown_input_names_the_inputs_the_node_has():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "scale", "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}}}}}), _registry())
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {
+                        "node": "scale",
+                        "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
+                    }
+                }
+            }
+        ),
+        _registry(),
+    )
 
     (found,) = graph.problems
     assert found.msg == "'s' has no input 'facter'; it has value, factor."
@@ -194,7 +281,19 @@ def test_an_unknown_input_names_the_inputs_the_node_has():
 
 def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
     """A host streams problems to a browser, so what a person typed stays out of them."""
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "scale", "inputs": {"value": {"constant": 1.0}, "factor": {"constant": "seventy"}}}}}), _registry())
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {
+                        "node": "scale",
+                        "inputs": {"value": {"constant": 1.0}, "factor": {"constant": "seventy"}},
+                    }
+                }
+            }
+        ),
+        _registry(),
+    )
 
     (found,) = graph.problems
     assert (found.type, found.loc) == ("invalid_value", ("s", "factor"))
@@ -203,12 +302,27 @@ def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
 
 
 def test_a_refused_run_lists_each_problem_with_its_place_and_code():
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "scale", "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}}}}}), _registry())
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {
+                        "node": "scale",
+                        "inputs": {"value": {"constant": 1.0}, "facter": {"constant": 3}},
+                    }
+                }
+            }
+        ),
+        _registry(),
+    )
 
     with pytest.raises(InvalidCallError) as raised:
         graph.run()
 
-    assert str(raised.value) == "1 problem(s):\n  s.facter — unknown_input: 's' has no input 'facter'; it has value, factor."
+    assert (
+        str(raised.value)
+        == "1 problem(s):\n  s.facter — unknown_input: 's' has no input 'facter'; it has value, factor."
+    )
 
 
 def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did():
@@ -224,7 +338,21 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
             raise ValueError("no")
         return n
 
-    run = Graph.compile(GraphRecord.model_validate({"nodes": {"n": {"node": "numbers", "inputs": {"upto": {"graph_input": "upto"}}}, "e": {"node": "each", "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), registry).run(upto=3)
+    run = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "n": {"node": "numbers", "inputs": {"upto": {"graph_input": "upto"}}},
+                    "e": {
+                        "node": "each",
+                        "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "e", "output": "result"}},
+            }
+        ),
+        registry,
+    ).run(upto=3)
 
     assert run.status == "failed" and run.cause is not None and run.cause.loc == ("e", 1)
     with pytest.raises(InvalidCallError) as raised:
@@ -238,7 +366,11 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
 
 
 def test_the_errors_a_caller_catches_share_one_base():
-    (base,) = set(NodeDeclarationError.__mro__) & set(InvalidCallError.__mro__) & set(NodeError.__mro__) - {Exception, BaseException, object}
+    (base,) = (
+        set(NodeDeclarationError.__mro__)
+        & set(InvalidCallError.__mro__)
+        & set(NodeError.__mro__) - {Exception, BaseException, object}
+    )
 
     assert base.__name__ == "ConductorError"
     assert issubclass(InvalidCallError, ValueError)
@@ -271,7 +403,10 @@ SHAPES = {
 def test_every_event_names_its_fields_and_requires_them_in_the_schema():
     definitions = TypeAdapter(Event).json_schema(mode="serialization")["$defs"]
     shapes = {
-        schema["properties"]["type"]["const"]: (sorted(schema["properties"]), sorted(schema.get("required", [])))
+        schema["properties"]["type"]["const"]: (
+            sorted(schema["properties"]),
+            sorted(schema.get("required", [])),
+        )
         for schema in definitions.values()
         if "const" in schema.get("properties", {}).get("type", {})
     }
@@ -289,9 +424,17 @@ def test_an_event_is_frozen_and_refuses_a_key_it_does_not_have():
 
 
 def test_the_union_reads_an_event_back_by_its_type():
-    progress = TypeAdapter(Event).validate_python({"type": "node_progress", "loc": ["a"], "count": {"finished": 1, "waiting": 0, "known": 1, "total": None}})
+    progress = TypeAdapter(Event).validate_python(
+        {
+            "type": "node_progress",
+            "loc": ["a"],
+            "count": {"finished": 1, "waiting": 0, "known": 1, "total": None},
+        }
+    )
 
-    assert progress == NodeProgress(loc=("a",), count=CallCount(finished=1, waiting=0, known=1, total=None))
+    assert progress == NodeProgress(
+        loc=("a",), count=CallCount(finished=1, waiting=0, known=1, total=None)
+    )
 
 
 def _strict(document: str | bytes) -> Any:
@@ -313,17 +456,49 @@ def _streamed_events() -> list[Any]:
     def same(x: float) -> float:
         return x
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "frame", "inputs": {"x": {"graph_input": "f_x"}}}, "s": {"node": "same", "inputs": {"x": {"graph_input": "s_x"}}}}, "outputs": {"f_result": {"node": "f", "output": "result"}, "s_result": {"node": "s", "output": "result"}}}), registry)
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "f": {"node": "frame", "inputs": {"x": {"graph_input": "f_x"}}},
+                    "s": {"node": "same", "inputs": {"x": {"graph_input": "s_x"}}},
+                },
+                "outputs": {
+                    "f_result": {"node": "f", "output": "result"},
+                    "s_result": {"node": "s", "output": "result"},
+                },
+            }
+        ),
+        registry,
+    )
 
     async def stream() -> list[Any]:
-        return [event async for event in graph.with_inputs({"f_x": math.nan, "s_x": math.inf}).stream()]
+        return [
+            event async for event in graph.with_inputs({"f_x": math.nan, "s_x": math.inf}).stream()
+        ]
 
     return asyncio.run(stream())
 
 
 def _every_event() -> list[Any]:
     streamed = _streamed_events()
-    waiting = Waiting(id="n", loc=("n",), prompt="Q?", questions=[{"name": "result", "title": "Result", "is_series": False, "type": "float", "schema": {"type": "number"}, "required": False, "default": 1.5}], inputs={"x": "a"})
+    waiting = Waiting(
+        id="n",
+        loc=("n",),
+        prompt="Q?",
+        questions=[
+            {
+                "name": "result",
+                "title": "Result",
+                "is_series": False,
+                "type": "float",
+                "schema": {"type": "number"},
+                "required": False,
+                "default": 1.5,
+            }
+        ],
+        inputs={"x": "a"},
+    )
     cause = Problem(type="external_failed", msg="e", loc=("n",), ctx={"error": "OSError"})
     built = [
         RunStart(waiting=(waiting,)),
@@ -337,9 +512,18 @@ def _every_event() -> list[Any]:
 
 
 def test_a_node_complete_of_a_frame_with_floats_that_are_not_finite_is_a_small_summary_in_strict_json():
-    by_node = {event.loc[0]: event for event in _streamed_events() if isinstance(event, NodeComplete)}
+    by_node = {
+        event.loc[0]: event for event in _streamed_events() if isinstance(event, NodeComplete)
+    }
 
-    assert _strict(by_node["f"].model_dump_json()) == {"type": "node_complete", "loc": ["f"], "outcomes": 1, "skipped": 0, "not_called": 0, "reused": 0}
+    assert _strict(by_node["f"].model_dump_json()) == {
+        "type": "node_complete",
+        "loc": ["f"],
+        "outcomes": 1,
+        "skipped": 0,
+        "not_called": 0,
+        "reused": 0,
+    }
 
 
 @pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)
@@ -361,7 +545,7 @@ def test_every_event_type_is_covered_above():
 
 def _quick_start() -> str:
     reference = (files("conductor.about") / "llms.txt").read_text()
-    section = reference[reference.index("## Quick Start"):reference.index("## Core Concepts")]
+    section = reference[reference.index("## Quick Start") : reference.index("## Core Concepts")]
     (block,) = re.findall(r"```python\n(.*?)```", section, flags=re.S)
     return block
 
@@ -390,19 +574,34 @@ def test_the_quick_start_runs_inside_a_running_loop_as_in_a_notebook():
 IMPORTS = {
     "conductor": {"conductor", "pydantic", "pydantic_core", "polars", "typing_extensions"},
     "conductor-nodes": {"conductor_nodes", "conductor", "pydantic", "polars", "regex"},
-    "conductor-providers": {"conductor_providers", "conductor", "fastapi", "pydantic", "pydantic_core", "polars"},
+    "conductor-providers": {
+        "conductor_providers",
+        "conductor",
+        "fastapi",
+        "pydantic",
+        "pydantic_core",
+        "polars",
+    },
 }
 
 #: What each ``pyproject.toml`` declares, extras included, so a host's package cannot arrive unseen.
 DISTRIBUTIONS = {
-    "conductor": {"pydantic", "polars", "typing-extensions", "syv-conductor-nodes", "syv-conductor-providers"},
+    "conductor": {
+        "pydantic",
+        "polars",
+        "typing-extensions",
+        "syv-conductor-nodes",
+        "syv-conductor-providers",
+    },
     "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex"},
     "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
 }
 
-SOURCES = sorted(p for p in PACKAGES.glob("*/src/**/*") if p.is_file() and p.suffix in {".py", ".pyi", ".txt", ".md"}) + sorted(
-    PACKAGES.glob("*/pyproject.toml")
-)
+SOURCES = sorted(
+    p
+    for p in PACKAGES.glob("*/src/**/*")
+    if p.is_file() and p.suffix in {".py", ".pyi", ".txt", ".md"}
+) + sorted(PACKAGES.glob("*/pyproject.toml"))
 
 #: A line as words: identifiers split at case and underscores, lowercased, so
 #: ``FlowStore``, ``run_flow`` and ``flowId`` read "flow store", "run flow" and "flow id".
@@ -442,13 +641,22 @@ def _imports_outside(package: str, source: str) -> list[str]:
             names += [alias.name for alias in found.names]
         elif isinstance(found, ImportFrom) and found.level == 0 and found.module is not None:
             names.append(found.module)
-    return [name for name in names if name.split(".")[0] not in IMPORTS[package] | sys.stdlib_module_names]
+    return [
+        name
+        for name in names
+        if name.split(".")[0] not in IMPORTS[package] | sys.stdlib_module_names
+    ]
 
 
 def _declared(pyproject: Path) -> set[str]:
     project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
-    requirements = project.get("dependencies", []) + [r for extra in project.get("optional-dependencies", {}).values() for r in extra]
-    return {re.split(r"[^A-Za-z0-9_.-]", requirement, maxsplit=1)[0].lower() for requirement in requirements}
+    requirements = project.get("dependencies", []) + [
+        r for extra in project.get("optional-dependencies", {}).values() for r in extra
+    ]
+    return {
+        re.split(r"[^A-Za-z0-9_.-]", requirement, maxsplit=1)[0].lower()
+        for requirement in requirements
+    }
 
 
 @pytest.mark.parametrize("package", IMPORTS)
@@ -486,11 +694,29 @@ def test_no_host_vocabulary_in_the_library():
 @pytest.mark.parametrize(
     "line",
     [
-        "class FlowStore:", "def run_flow(x):", "workflow_id = 1", "flowId: str", "Flows run here",
-        "app_id = 1", "an app runs", "AppVersion", "Apps are published",
-        "AKA", "akademikerne", "owner_id", "org_wide", "resource_share", "ResourceShare",
-        "user_group", "UserGroup", "RunnerIdentity", "UserRole.ADMIN", "COMPLIANCE_OFFICER",
-        "godkendelse", "Risikovurdering", "«Kør herfra»",
+        "class FlowStore:",
+        "def run_flow(x):",
+        "workflow_id = 1",
+        "flowId: str",
+        "Flows run here",
+        "app_id = 1",
+        "an app runs",
+        "AppVersion",
+        "Apps are published",
+        "AKA",
+        "akademikerne",
+        "owner_id",
+        "org_wide",
+        "resource_share",
+        "ResourceShare",
+        "user_group",
+        "UserGroup",
+        "RunnerIdentity",
+        "UserRole.ADMIN",
+        "COMPLIANCE_OFFICER",
+        "godkendelse",
+        "Risikovurdering",
+        "«Kør herfra»",
     ],
 )
 def test_a_host_word_is_found_in_any_spelling(line):
@@ -500,8 +726,15 @@ def test_a_host_word_is_found_in_any_spelling(line):
 @pytest.mark.parametrize(
     "line",
     [
-        "data flow and control flow", "app = FastAPI()", "app.include_router(router)", "append the rows",
-        "Mapping[str, Any]", "require_admin", "what a developer wrote", "overflow", "the first group of each",
+        "data flow and control flow",
+        "app = FastAPI()",
+        "app.include_router(router)",
+        "append the rows",
+        "Mapping[str, Any]",
+        "require_admin",
+        "what a developer wrote",
+        "overflow",
+        "the first group of each",
     ],
 )
 def test_english_and_other_libraries_words_are_not_a_host_word(line):
@@ -511,7 +744,9 @@ def test_english_and_other_libraries_words_are_not_a_host_word(line):
 def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
     from conductor import NodeRegistry
 
-    empty = Graph.compile(GraphRecord.model_validate({"nodes": {"x": {"node": "read"}}}), NodeRegistry()).problems[0]
+    empty = Graph.compile(
+        GraphRecord.model_validate({"nodes": {"x": {"node": "read"}}}), NodeRegistry()
+    ).problems[0]
     assert (empty.ctx["choices"], empty.msg) == ([], "There is no node 'read'; the nodes are none.")
 
 
@@ -532,9 +767,24 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
     registry = NodeRegistry()
     registry.add(upper)
     described = registry.describe()
-    assert isinstance(described, RegistryDescription) and isinstance(described.nodes[0], NodeDescription)
-    assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[0].json_schema == {"type": "string"}
-    assert isinstance(Graph.compile(GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "u", "output": "result"}}}), registry).describe(), GraphDescription)
+    assert isinstance(described, RegistryDescription) and isinstance(
+        described.nodes[0], NodeDescription
+    )
+    assert isinstance(described.nodes[0].inputs[0], FieldDescription) and described.nodes[0].inputs[
+        0
+    ].json_schema == {"type": "string"}
+    assert isinstance(
+        Graph.compile(
+            GraphRecord.model_validate(
+                {
+                    "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
+                    "outputs": {"result": {"node": "u", "output": "result"}},
+                }
+            ),
+            registry,
+        ).describe(),
+        GraphDescription,
+    )
     for record in (RegistryDescription, GraphDescription):
         assert "schema" in json.dumps(record.model_json_schema(mode="serialization"))
     assert RegistryDescription.model_validate_json(described.model_dump_json()) == described

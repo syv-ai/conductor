@@ -13,7 +13,7 @@ from .type import ProblemCatalogue
 RUN_PROBLEMS = ProblemCatalogue(
     "Why a run stopped",
     "The `run.cause` of a run that ended early, and the `problem` of a `node_failed` event. For a call that failed, "
-    '`loc` is the node\'s id and the call\'s item indexes: `("shout", 1)`; inside a subgraph, the subgraph node\'s id '
+    "`loc` is the node's id and the call's item indexes: `(\"shout\", 1)`; inside a subgraph, the subgraph node's id "
     "comes first. For the run as a whole, `loc` is `()`. `resume()` goes on from where the run stopped.",
 )
 
@@ -131,7 +131,12 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
 
 @RUN_PROBLEMS.problem()
 def invalid_edge_value(
-    *loc: str | int, name: str, reason: str, record_field: str | None = None, errors: list[dict[str, Any]] | None = None, column: str | None = None,
+    *loc: str | int,
+    name: str,
+    reason: str,
+    record_field: str | None = None,
+    errors: list[dict[str, Any]] | None = None,
+    column: str | None = None,
 ) -> str:
     """The value an edge gives an input is refused by the input's type, just before the call.
 
@@ -168,7 +173,13 @@ def invalid_edge_value(
 
 
 @RUN_PROBLEMS.problem()
-def invalid_output(*loc: str | int, reason: str, name: str | None = None, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
+def invalid_output(
+    *loc: str | int,
+    reason: str,
+    name: str | None = None,
+    errors: list[dict[str, Any]] | None = None,
+    column: str | None = None,
+) -> str:
     """A node returned a value its return type does not declare.
 
     Return what the node declares. Return values are checked strictly: ``"12"`` is never an ``int``.
@@ -297,4 +308,6 @@ def timeout(*loc: str | int, seconds: float) -> str:
 
         why_it_stopped(Graph.compile(make_graph(stuck), registry).run(text="a"))
     """
-    return "The node did not return in time; its Policy(attempt_timeout=) sets how long it may take."
+    return (
+        "The node did not return in time; its Policy(attempt_timeout=) sets how long it may take."
+    )

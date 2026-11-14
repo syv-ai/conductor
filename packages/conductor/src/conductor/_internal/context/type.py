@@ -57,7 +57,9 @@ class _Context:
     """The metadata ``Context[X]`` puts beside ``X``: ``Context[X]`` is ``Annotated[X, _Context()]``. ``@node`` takes
     it off a node's first parameter; anywhere else in a hint it refuses to be read."""
 
-    def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+    def __get_pydantic_core_schema__(
+        self, source: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
         """Refuses a ``Context`` read as an input's or output's type: on a later or keyword-only parameter, inside
         ``| None`` or a list, or as the return type.
 
@@ -66,6 +68,7 @@ class _Context:
         """
         raise NodeDeclarationError(declaration_problems.context_misplaced())
 
+
 #: ``Context[X]``: the type of a node's first parameter that is the run's context, the object the host passes as
 #: ``context=``. To a type checker the parameter is an ``X``.
 Context = Annotated[_T, _Context()]
@@ -73,7 +76,9 @@ Context = Annotated[_T, _Context()]
 
 def is_context(hint: Any) -> bool:
     """Whether ``hint`` is ``Context[X]`` for some ``X``."""
-    return typing.get_origin(hint) is Annotated and any(isinstance(metadata, _Context) for metadata in typing.get_args(hint)[1:])
+    return typing.get_origin(hint) is Annotated and any(
+        isinstance(metadata, _Context) for metadata in typing.get_args(hint)[1:]
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +93,6 @@ class ContextParameter:
 
     name: str
     cls: type
-
 
     def fit(self, node_id: str, context_type: type | None) -> Problem | None:
         """Says whether the class a registry names as its context, ``context_type``, is what this parameter asks for.
@@ -108,11 +112,25 @@ class ContextParameter:
         """
         needs = self.cls.__name__
         if context_type is None:
-            return compile_problems.context_does_not_fit_no_context_type(node_id, self.name, needs=needs)
+            return compile_problems.context_does_not_fit_no_context_type(
+                node_id, self.name, needs=needs
+            )
         if not is_protocol(self.cls):
-            return None if issubclass(context_type, self.cls) else compile_problems.context_does_not_fit(node_id, self.name, needs=needs, context_type=context_type.__name__)
+            return (
+                None
+                if issubclass(context_type, self.cls)
+                else compile_problems.context_does_not_fit(
+                    node_id, self.name, needs=needs, context_type=context_type.__name__
+                )
+            )
         lacks = _lacks(context_type, self.cls)
-        return compile_problems.context_does_not_fit_lacks(node_id, self.name, needs=needs, context_type=context_type.__name__, lacks=lacks) if lacks else None
+        return (
+            compile_problems.context_does_not_fit_lacks(
+                node_id, self.name, needs=needs, context_type=context_type.__name__, lacks=lacks
+            )
+            if lacks
+            else None
+        )
 
 
 def _lacks(context_type: type, protocol: type) -> list[str]:
@@ -125,4 +143,8 @@ def _lacks(context_type: type, protocol: type) -> list[str]:
     checker's job.
     """
     annotated = typing.get_type_hints(context_type)
-    return [member for member in sorted(get_protocol_members(protocol)) if not hasattr(context_type, member) and member not in annotated]
+    return [
+        member
+        for member in sorted(get_protocol_members(protocol))
+        if not hasattr(context_type, member) and member not in annotated
+    ]

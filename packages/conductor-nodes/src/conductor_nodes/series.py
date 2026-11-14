@@ -28,20 +28,34 @@ from conductor import NodeRegistry, Series, Table
 registry = NodeRegistry(category="series")
 
 
-@registry.node("series-split", title="Split", description="Takes a table or a list apart, so what follows runs once for each record or item.")
+@registry.node(
+    "series-split",
+    title="Split",
+    description="Takes a table or a list apart, so what follows runs once for each record or item.",
+)
 def split[T](value: Table[T] | list[T]) -> Series[T]:
     """Returns a table's records, or a list's items, as a ``Series``: ``["a", "b"]`` gives the items ``"a"`` and ``"b"``."""
-    return typing.cast("list[T]", value)  # the engine reads a table returned for a Series as the Series of its records
+    return typing.cast(
+        "list[T]", value
+    )  # the engine reads a table returned for a Series as the Series of its records
 
 
-@registry.node("series-collect", title="Collect", description="Puts the result of each item into one list, so the next node gets all of them at once.")
+@registry.node(
+    "series-collect",
+    title="Collect",
+    description="Puts the result of each item into one list, so the next node gets all of them at once.",
+)
 def collect[T](values: Series[T]) -> Series[T]:
     """Returns the values of every item, in the order of the items, as one list (a ``Series``, which is a list to the
     function): ``["A", "B"]``."""
     return values
 
 
-@registry.node("series-stack", title="Stack", description="Puts the table of each item into one table, one under the other.")
+@registry.node(
+    "series-stack",
+    title="Stack",
+    description="Puts the table of each item into one table, one under the other.",
+)
 def stack[R](tables: Series[Table[R]]) -> Table[R]:
     """Returns one table of the rows of every table, in the order of the items. No tables give a table with no columns."""
     return pl.concat(tables, how="vertical_relaxed") if tables else pl.DataFrame()

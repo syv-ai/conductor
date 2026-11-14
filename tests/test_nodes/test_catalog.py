@@ -54,12 +54,32 @@ def test_every_node_has_an_example_so_no_body_goes_untried() -> None:
 def test_every_node_says_what_it_does_and_where_it_is_listed() -> None:
     for definition in conductor_nodes.registry:
         assert definition.description, definition.id
-        assert definition.category in {"control", "json", "logic", "math", "regex", "series", "table", "text"}, definition.id
+        assert definition.category in {
+            "control",
+            "json",
+            "logic",
+            "math",
+            "regex",
+            "series",
+            "table",
+            "text",
+        }, definition.id
 
 
 def test_each_module_offers_its_own_nodes_and_the_package_all_of_them() -> None:
-    modules = (conductor_nodes.text, conductor_nodes.math, conductor_nodes.logic, conductor_nodes.json_ops, conductor_nodes.regex_ops, conductor_nodes.tables, conductor_nodes.series, conductor_nodes.control)
+    modules = (
+        conductor_nodes.text,
+        conductor_nodes.math,
+        conductor_nodes.logic,
+        conductor_nodes.json_ops,
+        conductor_nodes.regex_ops,
+        conductor_nodes.tables,
+        conductor_nodes.series,
+        conductor_nodes.control,
+    )
     assert sum(len(module.registry) for module in modules) == len(conductor_nodes.registry)
     for module in modules:
         (category,) = {d.category for d in module.registry}
-        assert {d.id for d in conductor_nodes.registry.filter(lambda d, c=category: d.category == c)} == {d.id for d in module.registry}
+        assert {
+            d.id for d in conductor_nodes.registry.filter(lambda d, c=category: d.category == c)
+        } == {d.id for d in module.registry}

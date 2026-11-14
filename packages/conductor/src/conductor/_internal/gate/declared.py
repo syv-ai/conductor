@@ -50,7 +50,13 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
     try:
         return Field(name, hint, _read_default(whole, default), is_output=is_output)
     except ValidationError as error:
-        refused = declaration_problems.default_none_not_taken() if default is None else declaration_problems.default_invalid(default=repr(default), type=whole.id, reason=whole.refusal(error).reason)
+        refused = (
+            declaration_problems.default_none_not_taken()
+            if default is None
+            else declaration_problems.default_invalid(
+                default=repr(default), type=whole.id, reason=whole.refusal(error).reason
+            )
+        )
         raise NodeDeclarationError(refused, name) from None
 
 
@@ -87,7 +93,11 @@ def declared_output(name: str, hint: Any, default: Any) -> Field:
             ``SKIPPED`` on an output of an exclusive group (``default_invalid``, variant ``on_exclusive_group``).
     """
     field = _declared_field(name, hint, default, is_output=True)
-    if field.param.exclusive_group is not None and default is not REQUIRED and default is not SKIPPED:
+    if (
+        field.param.exclusive_group is not None
+        and default is not REQUIRED
+        and default is not SKIPPED
+    ):
         raise NodeDeclarationError(declaration_problems.default_on_exclusive_group(), name)
     return field
 
@@ -108,10 +118,18 @@ def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Fie
     hint = Type(field.hint).bind(bound).hint
     whole = Field(field.name, hint, is_output=field.is_output).whole
     try:
-        return Field(field.name, hint, _read_default(whole, field.default), is_output=field.is_output)
+        return Field(
+            field.name, hint, _read_default(whole, field.default), is_output=field.is_output
+        )
     except ValidationError as error:
         refused = whole.refusal(error)
-        raise InvalidCallError([compile_problems.invalid_value_bound_default(node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors)]) from None
+        raise InvalidCallError(
+            [
+                compile_problems.invalid_value_bound_default(
+                    node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors
+                )
+            ]
+        ) from None
 
 
 def _read_default(whole: Type, default: Any) -> Any:
@@ -130,5 +148,7 @@ def _read_default(whole: Type, default: Any) -> Any:
         whole.to_json(read)
     except (PydanticSerializationError, UnicodeDecodeError):
         no_json_form = PydanticCustomError("no_json_form", "it has no JSON form")
-        raise ValidationError.from_exception_data(whole.id, [{"type": no_json_form, "loc": (), "input": default}]) from None
+        raise ValidationError.from_exception_data(
+            whole.id, [{"type": no_json_form, "loc": (), "input": default}]
+        ) from None
     return read

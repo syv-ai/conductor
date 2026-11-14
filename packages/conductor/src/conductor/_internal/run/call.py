@@ -19,7 +19,9 @@ from conductor._internal.types import untyped_as_json
 from .blueprint import BlueprintFunctionNode
 
 
-def call(node: BlueprintFunctionNode, arguments: dict[str, Any], context: Any) -> tuple[Any, BaseException | Problem | None]:
+def call(
+    node: BlueprintFunctionNode, arguments: dict[str, Any], context: Any
+) -> tuple[Any, BaseException | Problem | None]:
     """Call the function of ``node`` with ``arguments``, by name, and ``context`` first when the node takes it.
 
     Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources
@@ -45,13 +47,18 @@ def call(node: BlueprintFunctionNode, arguments: dict[str, Any], context: Any) -
         if (edge_door := node.edge_door) is not None:
             arguments = edge_door(arguments)
         try:
-            returned = definition.function(**arguments) if definition.context is None else definition.function(context, **arguments)
+            returned = (
+                definition.function(**arguments)
+                if definition.context is None
+                else definition.function(context, **arguments)
+            )
         except BaseException as error:  # noqa: BLE001  the scheduler turns it into a problem or a Waiting outcome
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
             return None, error
         return compiled_node.return_door(returned), None
-    except InvalidCallError as refused:  # the edge door or the return door, each of which reports its first fault
+    # the edge door or the return door, each of which reports its first fault
+    except InvalidCallError as refused:
         (problem,) = refused.problems
         return None, problem
 
@@ -73,5 +80,7 @@ def jsonable(arguments: dict[str, Any]) -> Any:
             try:
                 plain_json(value, fallback=untyped_as_json)
             except (TypeError, ValueError, PydanticSerializationError) as unwritable:
-                raise InvalidCallError([run_problems.question_unwritable(reason=str(unwritable), input=name)]) from None
+                raise InvalidCallError(
+                    [run_problems.question_unwritable(reason=str(unwritable), input=name)]
+                ) from None
         raise error

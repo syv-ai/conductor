@@ -32,9 +32,13 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
     seen: set[Source] = set()
     for source in sources:
         if source in seen:
-            raise PydanticCustomError("repeated_source", "{source} is listed twice", {"source": str(source)})
+            raise PydanticCustomError(
+                "repeated_source", "{source} is listed twice", {"source": str(source)}
+            )
         seen.add(source)
-    return tuple(sorted(sources, key=lambda source: (source.node, source.output, source.field or "")))
+    return tuple(
+        sorted(sources, key=lambda source: (source.node, source.output, source.field or ""))
+    )
 
 
 class InputEntry(ConductorModel):
@@ -66,9 +70,15 @@ class InputEntry(ConductorModel):
         """Refuses an entry with more or less than one of a constant, a graph input and sources
         (``one_of_constant_graph_input_sources``), or a default without a graph input (``default_without_graph_input``)."""
         if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
-            raise PydanticCustomError("one_of_constant_graph_input_sources", "an input gets exactly one of a constant, a graph input or sources")
+            raise PydanticCustomError(
+                "one_of_constant_graph_input_sources",
+                "an input gets exactly one of a constant, a graph input or sources",
+            )
         if self.default is not MISSING and self.graph_input is MISSING:
-            raise PydanticCustomError("default_without_graph_input", "a default is the default of a graph input; give the input a graph_input")
+            raise PydanticCustomError(
+                "default_without_graph_input",
+                "a default is the default of a graph input; give the input a graph_input",
+            )
         return self
 
 

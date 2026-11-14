@@ -51,7 +51,9 @@ class InputSource(ConductorModel):
             one value, which it gets as a list of one.
     """
 
-    mode: Literal["constant", "graph_input", "one_value", "item", "outer_value", "collected", "missing"]
+    mode: Literal[
+        "constant", "graph_input", "one_value", "item", "outer_value", "collected", "missing"
+    ]
     series: str | None = None
 
 
@@ -147,7 +149,8 @@ def input_source_of(loops: tuple[tuple[NodePath, str], ...], node_input: Input) 
         case EdgeInput(as_list=True):
             return InputSource(mode="collected")
         case EdgeInput(loops=value_loops):
-            if value_loops != loops:  # the value's node is inside fewer loops than this node: the same value for every item
+            # the value's node is inside fewer loops than this node: the same value for every item
+            if value_loops != loops:
                 return InputSource(mode="outer_value", series=innermost_series(value_loops))
             if value_loops:
                 return InputSource(mode="item", series=innermost_series(value_loops))

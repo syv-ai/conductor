@@ -81,13 +81,18 @@ def output_schema_of(value_type: Type) -> CoreSchema:
     """
     schema = numbers_refuse_bools(value_type.returned_schema)
     exact = exact_classes(value_type)
-    if all(cls in NAMES for cls in exact):  # conductor's own classes, which pydantic always reads as themselves
+    # conductor's own classes, which pydantic always reads as themselves
+    if all(cls in NAMES for cls in exact):
         return schema
     type_id = value_type.id
 
     def of_its_class(read: Any) -> Any:
         if not isinstance(read, exact):
-            raise PydanticCustomError("not_its_class", "its type's own check gave a {got}, not a {type}", {"got": type(read).__name__, "type": type_id})
+            raise PydanticCustomError(
+                "not_its_class",
+                "its type's own check gave a {got}, not a {type}",
+                {"got": type(read).__name__, "type": type_id},
+            )
         return read
 
     return core_schema.no_info_after_validator_function(of_its_class, schema)
@@ -110,7 +115,11 @@ def exact_classes(value_type: Type) -> tuple[type, ...]:
     """
     options = union_members(value_type.bare)
     plain = all(
-        isinstance(option, type) and not typing.is_typeddict(option) and option is not Any and Type(option).item is None and Type(option).record is None
+        isinstance(option, type)
+        and not typing.is_typeddict(option)
+        and option is not Any
+        and Type(option).item is None
+        and Type(option).record is None
         for option in options
     )
     return options if plain and not value_type.limited else ()
@@ -119,7 +128,9 @@ def exact_classes(value_type: Type) -> tuple[type, ...]:
 def _not_a_bool(value: Any) -> Any:
     """Raises for a ``bool``; returns any other value unchanged, for pydantic to read as a number."""
     if isinstance(value, bool):
-        raise PydanticCustomError("bool_is_not_a_number", "a yes or no is not a number; give a number")
+        raise PydanticCustomError(
+            "bool_is_not_a_number", "a yes or no is not a number; give a number"
+        )
     return value
 
 
@@ -165,16 +176,27 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
         return {key: _walked(part, definitions) for key, part in schema.items()}
     if kind in _HOSTS_OWN or _guarded_already(schema):
         return schema
-    if kind == "definitions":  # each schema declared here is changed once, here; a reference to it below is left as it is
-        declared = {**definitions, **{definition["ref"]: definition for definition in schema["definitions"]}}
+    # each schema declared here is changed once, here; a reference to it below is left as it is
+    if kind == "definitions":
+        declared = {
+            **definitions,
+            **{definition["ref"]: definition for definition in schema["definitions"]},
+        }
         return {
             **schema,
             "schema": _walked(schema["schema"], declared),
-            "definitions": [definition if _a_number_schema(definition) else _walked_inside(definition, declared) for definition in schema["definitions"]],
+            "definitions": [
+                definition if _a_number_schema(definition) else _walked_inside(definition, declared)
+                for definition in schema["definitions"]
+            ],
         }
     if kind == "definition-ref":
         referred = definitions[schema["schema_ref"]]
-        return _guarded(schema, json_too=referred["type"] not in ("int", "float")) if _a_number_schema(referred) else schema
+        return (
+            _guarded(schema, json_too=referred["type"] not in ("int", "float"))
+            if _a_number_schema(referred)
+            else schema
+        )
     if _a_number_schema(schema):
         return _guarded(schema, json_too=kind not in ("int", "float"))
     return _walked_inside(schema, definitions)
@@ -182,7 +204,10 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
 
 def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:
     """``schema`` with every schema inside it walked, the schema itself kept."""
-    return {key: part if key in _NOT_VALIDATORS else _walked(part, definitions) for key, part in schema.items()}
+    return {
+        key: part if key in _NOT_VALIDATORS else _walked(part, definitions)
+        for key, part in schema.items()
+    }
 
 
 def _guarded_already(schema: dict[str, Any]) -> bool:
@@ -198,7 +223,9 @@ def _a_number_schema(schema: Any) -> bool:
     kind = schema.get("type")
     if kind == "literal":
         return all(a_number(type(value)) for value in schema["expected"])
-    return kind in ("int", "float") or (kind == "enum" and schema.get("sub_type") in ("int", "float"))
+    return kind in ("int", "float") or (
+        kind == "enum" and schema.get("sub_type") in ("int", "float")
+    )
 
 
 def _guarded(number: Any, *, json_too: bool) -> CoreSchema:
@@ -212,4 +239,8 @@ def _guarded(number: Any, *, json_too: bool) -> CoreSchema:
             which pydantic reads ``true`` as 1 from JSON as well.
     """
     refusing = core_schema.no_info_before_validator_function(_not_a_bool, number)
-    return refusing if json_too else core_schema.json_or_python_schema(json_schema=number, python_schema=refusing)
+    return (
+        refusing
+        if json_too
+        else core_schema.json_or_python_schema(json_schema=number, python_schema=refusing)
+    )

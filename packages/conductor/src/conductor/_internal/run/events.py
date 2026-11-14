@@ -58,7 +58,9 @@ class EventBase(ConductorModel):
     ``model_dump`` always writes them: a client generated from the schema can rely on every field being there.
     """
 
-    model_config = ConfigDict(json_schema_serialization_defaults_required=True, arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        json_schema_serialization_defaults_required=True, arbitrary_types_allowed=True
+    )
 
 
 class _NodeEvent(EventBase):
@@ -275,7 +277,15 @@ class RunCheckpoint(EventBase):
 
 
 Event = Annotated[
-    RunStart | NodeStart | NodeProgress | NodeComplete | NodeFailed | NodeRetry | NodeWaiting | RunCheckpoint | RunEnd,
+    RunStart
+    | NodeStart
+    | NodeProgress
+    | NodeComplete
+    | NodeFailed
+    | NodeRetry
+    | NodeWaiting
+    | RunCheckpoint
+    | RunEnd,
     Field(discriminator="type"),
 ]
 Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON."

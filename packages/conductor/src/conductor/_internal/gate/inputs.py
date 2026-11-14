@@ -48,9 +48,12 @@ class InputsDoor:
                 (``REQUIRED`` for none).
         """
         self._inputs = dict(inputs)
-        self._validator = SchemaValidator(core_schema.typed_dict_schema(
-            {name: _input_schema(field) for name, field in inputs.items()}, extra_behavior="forbid",
-        ))
+        self._validator = SchemaValidator(
+            core_schema.typed_dict_schema(
+                {name: _input_schema(field) for name, field in inputs.items()},
+                extra_behavior="forbid",
+            )
+        )
 
     def __call__(self, given: Mapping[Any, Any]) -> dict[str, Any]:
         """Returns the value of every graph input by name, in the graph's order: the caller's, read by the input's
@@ -76,23 +79,47 @@ class InputsDoor:
         for fault in error.errors():
             key = fault["loc"][0]
             if fault["type"] in ("extra_forbidden", "invalid_key"):
-                names.append(call_problems.not_offered("inputs", key, name=str(key), inputs=list(self._inputs)))
+                names.append(
+                    call_problems.not_offered(
+                        "inputs", key, name=str(key), inputs=list(self._inputs)
+                    )
+                )
             else:
                 first_faults.setdefault(str(key), fault)
-        return names + [self._input_problem(name, given, error, first_faults[name]) for name in self._inputs if name in first_faults]
+        return names + [
+            self._input_problem(name, given, error, first_faults[name])
+            for name in self._inputs
+            if name in first_faults
+        ]
 
-    def _input_problem(self, name: str, given: Mapping[Any, Any], error: ValidationError, first: ErrorDetails) -> Problem:
+    def _input_problem(
+        self, name: str, given: Mapping[Any, Any], error: ValidationError, first: ErrorDetails
+    ) -> Problem:
         """The problem of one graph input whose value is missing or refused by its type; ``first`` is the first
         fault of pydantic's ``error`` that is in this input."""
         field = self._inputs[name]
         key, *inside = first["loc"]
-        if first["type"] == "missing" and not inside:  # the input itself, not a field inside its value
+        # the input itself, not a field inside its value
+        if first["type"] == "missing" and not inside:
             return call_problems.missing_input("inputs", name, name=name)
         refused = field.whole.refusal(error, under=(key,))
         value = given[name]
-        if not field.is_series and type(value) is list and all(not error["loc"] for error in refused.errors):
-            return call_problems.invalid_input_make_a_series("inputs", name, name=name, expected=field.whole.id, length=len(value))  # the one mistake whose fix is in the graph
-        return call_problems.invalid_input("inputs", name, name=name, reason=refused.reason, errors=refused.errors, column=refused.column)
+        if (
+            not field.is_series
+            and type(value) is list
+            and all(not error["loc"] for error in refused.errors)
+        ):
+            return call_problems.invalid_input_make_a_series(
+                "inputs", name, name=name, expected=field.whole.id, length=len(value)
+            )  # the one mistake whose fix is in the graph
+        return call_problems.invalid_input(
+            "inputs",
+            name,
+            name=name,
+            reason=refused.reason,
+            errors=refused.errors,
+            column=refused.column,
+        )
 
 
 def _input_schema(field: Field) -> TypedDictField:
@@ -101,7 +128,9 @@ def _input_schema(field: Field) -> TypedDictField:
     required = field.default is REQUIRED
     if not required:
         default = field.default
-        schema = core_schema.with_default_schema(schema, default_factory=lambda: default)  # the default itself, never a copy
+        schema = core_schema.with_default_schema(
+            schema, default_factory=lambda: default
+        )  # the default itself, never a copy
     return core_schema.typed_dict_field(schema, required=required)
 
 
@@ -114,14 +143,30 @@ class Limits(TypedDict):
 
 
 #: Reads the limits a caller gives a run. A limit left out is ``None``, which is not checked.
-_LIMITS = SchemaValidator(core_schema.typed_dict_schema({
-    "max_items": core_schema.typed_dict_field(core_schema.nullable_schema(core_schema.int_schema(strict=True, ge=1))),
-    "timeout": core_schema.typed_dict_field(core_schema.nullable_schema(core_schema.float_schema(strict=True, gt=0, allow_inf_nan=False))),
-    "checkpoint_every": core_schema.typed_dict_field(core_schema.nullable_schema(core_schema.float_schema(strict=True, gt=0, allow_inf_nan=False))),
-}))
+_LIMITS = SchemaValidator(
+    core_schema.typed_dict_schema(
+        {
+            "max_items": core_schema.typed_dict_field(
+                core_schema.nullable_schema(core_schema.int_schema(strict=True, ge=1))
+            ),
+            "timeout": core_schema.typed_dict_field(
+                core_schema.nullable_schema(
+                    core_schema.float_schema(strict=True, gt=0, allow_inf_nan=False)
+                )
+            ),
+            "checkpoint_every": core_schema.typed_dict_field(
+                core_schema.nullable_schema(
+                    core_schema.float_schema(strict=True, gt=0, allow_inf_nan=False)
+                )
+            ),
+        }
+    )
+)
 
 
-def read_limits(*, max_items: Any = None, timeout: Any = None, checkpoint_every: Any = None) -> Limits:
+def read_limits(
+    *, max_items: Any = None, timeout: Any = None, checkpoint_every: Any = None
+) -> Limits:
     """Reads the limits a caller gives a run, and returns them as the run keeps them: ``timeout`` and
     ``checkpoint_every`` as a ``float``, so ``timeout=Decimal("1.5")`` is ``1.5``.
 
@@ -138,6 +183,13 @@ def read_limits(*, max_items: Any = None, timeout: Any = None, checkpoint_every:
         return cast(Limits, _LIMITS.validate_python(given))
     except ValidationError as error:
         refused = dict.fromkeys(str(e["loc"][0]) for e in error.errors())
-        raise InvalidCallError([
-            (call_problems.invalid_limit if name == "max_items" else call_problems.invalid_limit_seconds)(name, value=given[name]) for name in refused
-        ]) from None
+        raise InvalidCallError(
+            [
+                (
+                    call_problems.invalid_limit
+                    if name == "max_items"
+                    else call_problems.invalid_limit_seconds
+                )(name, value=given[name])
+                for name in refused
+            ]
+        ) from None

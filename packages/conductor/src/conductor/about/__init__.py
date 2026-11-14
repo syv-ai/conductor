@@ -97,7 +97,10 @@ def _kind_docs(kind: ProblemKind[...]) -> _KindDocs:
     pieces = _ARGUMENT.split(by_name.get("Args", ""))
     return _KindDocs(
         text=text.strip().replace("``", "`"),
-        arguments={name: " ".join(line.split()).replace("``", "`") for name, line in zip(pieces[1::2], pieces[2::2])},
+        arguments={
+            name: " ".join(line.split()).replace("``", "`")
+            for name, line in zip(pieces[1::2], pieces[2::2])
+        },
         example=inspect.cleandoc(by_name.get("Example", "")),
     )
 
@@ -129,20 +132,38 @@ def _problems(catalogue: ProblemCatalogue) -> str:
         rows = []
         for key, hint in typing.get_type_hints(kind.ctx_type).items():
             if key == "variant":
-                rows.append(f"| `variant` | `'{kind.variant}'` | always | Which of the code's sentences this is. |")
+                rows.append(
+                    f"| `variant` | `'{kind.variant}'` | always | Which of the code's sentences this is. |"
+                )
                 continue
             if key not in docs.arguments:
-                raise LookupError(f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'")
+                raise LookupError(
+                    f"{kind.code}: the docstring of its function has no Args line for the ctx key '{key}'"
+                )
             given = "always" if key in kind.ctx_type.__required_keys__ else "when it applies"
-            rows.append(f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {docs.arguments[key]} |")
-        out.append("\n\n".join([
-            f"### `{kind.code}`" + (f", variant `{kind.variant}`" if kind.variant else ""),
-            docs.text,
-            *([f"```python\n{docs.example}\n```"] if docs.example else []),
-            f"> {kind.sentence}",
-            *([f"`loc`: {docs.arguments['loc']}"] if "loc" in docs.arguments else []),
-            *(["\n".join(["| `ctx` | type | given | meaning |", "|---|---|---|---|", *rows])] if rows else []),
-        ]))
+            rows.append(
+                f"| `{key}` | `{inspect.formatannotation(hint)}` | {given} | {docs.arguments[key]} |"
+            )
+        out.append(
+            "\n\n".join(
+                [
+                    f"### `{kind.code}`" + (f", variant `{kind.variant}`" if kind.variant else ""),
+                    docs.text,
+                    *([f"```python\n{docs.example}\n```"] if docs.example else []),
+                    f"> {kind.sentence}",
+                    *([f"`loc`: {docs.arguments['loc']}"] if "loc" in docs.arguments else []),
+                    *(
+                        [
+                            "\n".join(
+                                ["| `ctx` | type | given | meaning |", "|---|---|---|---|", *rows]
+                            )
+                        ]
+                        if rows
+                        else []
+                    ),
+                ]
+            )
+        )
     return "\n\n".join(out)
 
 
@@ -165,24 +186,30 @@ def _parse_sections(text: str) -> dict[str, str]:
         level = len(m.group(1))
         start = m.start()
         end = len(text)
-        for nxt in matches[i + 1:]:
+        for nxt in matches[i + 1 :]:
             if len(nxt.group(1)) <= level:
                 end = nxt.start()
                 break
         slug = re.sub(r"[^a-z0-9]+", "-", m.group(2).lower()).strip("-")
-        out.setdefault(slug, text[start:end].rstrip() + "\n")  # a code with several kinds, or in two catalogues, is found by its first
+        out.setdefault(
+            slug, text[start:end].rstrip() + "\n"
+        )  # a code with several kinds, or in two catalogues, is found by its first
     return out
 
 
 def get_content() -> str:
     """The rules, ``llms.txt``, with each public module's names written in."""
-    return fill_placeholders(files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8"))
+    return fill_placeholders(
+        files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8")
+    )
 
 
 def problems_page() -> str:
     """The problems page, ``problems.md``, with every kind of problem of the core, of a declaration and of ``check_registry``
     written in."""
-    return fill_placeholders(files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8"))
+    return fill_placeholders(
+        files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8")
+    )
 
 
 def _both_pages() -> list[dict[str, str]]:

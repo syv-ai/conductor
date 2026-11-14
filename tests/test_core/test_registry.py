@@ -47,7 +47,14 @@ def echo_v1(text: Annotated[Txt, Param(title="Input", widget=Textarea())]) -> Ou
     return text
 
 
-@node("echo", title="Echo", description="Returns input unchanged", category="test", replaces=node("echo", title="Echo v1", description="For a test.")(echo_v1), upgrade=Upgrade())
+@node(
+    "echo",
+    title="Echo",
+    description="Returns input unchanged",
+    category="test",
+    replaces=node("echo", title="Echo v1", description="For a test.")(echo_v1),
+    upgrade=Upgrade(),
+)
 def echo(
     text: Annotated[Txt, Param(title="Input", widget=Textarea())],
     prefix: Annotated[Txt, Param(title="Prefix", widget=Textarea())] = Txt(""),
@@ -131,7 +138,13 @@ def test_declaring_an_id_the_registry_has_is_a_duplicate_even_when_replaces_name
 
     with pytest.raises(NodeDeclarationError, match="two nodes have the id 'upper'"):
 
-        @registry.node("upper", title="Other", description="For a test.", replaces=_node("upper"), upgrade=Upgrade())
+        @registry.node(
+            "upper",
+            title="Other",
+            description="For a test.",
+            replaces=_node("upper"),
+            upgrade=Upgrade(),
+        )
         def other(x: str = "") -> str:
             return x
 
@@ -139,11 +152,19 @@ def test_declaring_an_id_the_registry_has_is_a_duplicate_even_when_replaces_name
 
 
 def test_two_nodes_built_from_graphs_under_one_id_are_told_apart_by_title():
-    inner = GraphRecord.model_validate({"nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "a", "output": "result"}}})
+    inner = GraphRecord.model_validate(
+        {
+            "nodes": {"a": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}},
+            "outputs": {"result": {"node": "a", "output": "result"}},
+        }
+    )
     registry = NodeRegistry()
     registry.add(subgraph("g", description="For a test.", title="First")(inner))
 
-    with pytest.raises(NodeDeclarationError, match=r"the subgraph titled 'First' \(versions 1\) and the subgraph titled 'Second' \(versions 1\)"):
+    with pytest.raises(
+        NodeDeclarationError,
+        match=r"the subgraph titled 'First' \(versions 1\) and the subgraph titled 'Second' \(versions 1\)",
+    ):
         registry.add(subgraph("g", description="For a test.", title="Second")(inner))
 
 
@@ -223,7 +244,14 @@ def test_a_deprecation_may_name_an_alternative_the_registry_does_not_have():
 def test_a_node_takes_the_registrys_defaults_its_own_winning():
     registry = NodeRegistry(category="text", tags=["builtin"], extra={"tier": "free", "icon": "a"})
 
-    @registry.node("own", title="Own", description="For a test.", category="mine", tags=["fast"], extra={"icon": "b"})
+    @registry.node(
+        "own",
+        title="Own",
+        description="For a test.",
+        category="mine",
+        tags=["fast"],
+        extra={"icon": "b"},
+    )
     def own(text: str) -> str:
         return text
 
@@ -231,8 +259,16 @@ def test_a_node_takes_the_registrys_defaults_its_own_winning():
     def bare(text: str) -> str:
         return text
 
-    assert (own.category, own.tags, dict(own.extra)) == ("mine", ("builtin", "fast"), {"tier": "free", "icon": "b"})
-    assert (bare.category, bare.tags, dict(bare.extra)) == ("text", ("builtin",), {"tier": "free", "icon": "a"})
+    assert (own.category, own.tags, dict(own.extra)) == (
+        "mine",
+        ("builtin", "fast"),
+        {"tier": "free", "icon": "b"},
+    )
+    assert (bare.category, bare.tags, dict(bare.extra)) == (
+        "text",
+        ("builtin",),
+        {"tier": "free", "icon": "a"},
+    )
 
 
 def test_add_applies_the_defaults_to_a_plain_node_and_leaves_the_plain_one_as_it_was():
@@ -259,11 +295,17 @@ def test_every_version_of_a_node_takes_the_registrys_defaults():
 
     for version in (1, 2):
         version_declared = registry["split"].versions[version]
-        assert (version_declared.category, version_declared.tags, dict(version_declared.extra)) == ("text", ("builtin",), {"icon": "scissors"})
+        assert (version_declared.category, version_declared.tags, dict(version_declared.extra)) == (
+            "text",
+            ("builtin",),
+            {"icon": "scissors"},
+        )
 
 
 @pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
-def test_declaring_a_node_on_a_registry_that_has_its_id_is_a_duplicate_whatever_it_replaces(defaults: dict[str, Any]):
+def test_declaring_a_node_on_a_registry_that_has_its_id_is_a_duplicate_whatever_it_replaces(
+    defaults: dict[str, Any],
+):
     registry = NodeRegistry(**defaults)
 
     @registry.node("up", title="Up", description="For a test.")
@@ -284,11 +326,17 @@ def test_declaring_a_node_on_a_registry_that_has_its_id_is_a_duplicate_whatever_
         def newer(x: str = "") -> str:
             return x
 
-    assert from_the_decorator.value.problems[0].type == from_add.value.problems[0].type == "duplicate_node_id"
+    assert (
+        from_the_decorator.value.problems[0].type
+        == from_add.value.problems[0].type
+        == "duplicate_node_id"
+    )
 
 
 @pytest.mark.parametrize("defaults", [{}, {"category": "text"}])
-def test_a_chain_is_a_plain_older_version_and_the_newest_declared_on_the_registry(defaults: dict[str, Any]):
+def test_a_chain_is_a_plain_older_version_and_the_newest_declared_on_the_registry(
+    defaults: dict[str, Any],
+):
     @node("up", title="Up", description="For a test.")
     def up_v1(text: str) -> str:
         return text
@@ -411,7 +459,9 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
     registry.add(_node("kept"), _node("dropped"))
     narrowed = registry.filter(lambda definition: definition.id == "kept")
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "dropped"}}, "outputs": {}}), narrowed)
+    graph = Graph.compile(
+        GraphRecord.model_validate({"nodes": {"d": {"node": "dropped"}}, "outputs": {}}), narrowed
+    )
 
     assert [problem.type for problem in graph.problems] == ["unknown_node"]
 
@@ -420,7 +470,12 @@ def test_a_filtered_registry_compiles_only_what_it_kept():
 
 
 def test_extra_is_json_kept_and_described_but_never_read():
-    @node("tagged", title="Tagged", description="For a test.", extra={"icon": "star", "order": [1, 2], "beta": None})
+    @node(
+        "tagged",
+        title="Tagged",
+        description="For a test.",
+        extra={"icon": "star", "order": [1, 2], "beta": None},
+    )
     def tagged(text: str) -> str:
         return text
 
@@ -457,7 +512,12 @@ def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
     """``**values`` gets the inputs a ``compute_added_inputs`` hook adds; the hook declares them, so a ``**values``
     without the hook is refused."""
 
-    @node("varkw", title="Var kw", description="For a test.", compute_added_inputs=lambda: {"extra_one": str})
+    @node(
+        "varkw",
+        title="Var kw",
+        description="For a test.",
+        compute_added_inputs=lambda: {"extra_one": str},
+    )
     def var_kw(text: Annotated[Txt, Param(title="Text", widget=Textarea())], **values: Any) -> Out:
         return text
 
@@ -476,7 +536,9 @@ def test_var_positional_is_refused():
     with pytest.raises(NodeDeclarationError, match="passed by name"):
 
         @node("varpos", title="VarPos", description="Dynamic", category="test")
-        def var_pos(text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any) -> Out:
+        def var_pos(
+            text: Annotated[Txt, Param(title="Text", widget=Textarea())], *args: Any
+        ) -> Out:
             return text
 
 
@@ -496,7 +558,6 @@ class Number(float):
 @host_type("text", title="Text")
 class AnotherText(str):
     """A second class claiming ``text``: what a second library, or a notebook cell run again, makes."""
-
 
 
 def _declare_text() -> type:
@@ -521,7 +582,9 @@ def test_a_new_registry_has_no_types():
 def test_a_hosts_type_is_described_by_its_own_id_and_title():
     registry = NodeRegistry(types=[Text])
 
-    assert [t.model_dump() for t in registry.describe().types] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
+    assert [t.model_dump() for t in registry.describe().types] == [
+        {"id": "text", "title": "Text", "accepted_as": ["text"]}
+    ]
 
 
 def test_a_hosts_type_is_described_by_the_id_and_title_it_declares_and_conductors_by_its_table():
@@ -583,16 +646,32 @@ def test_every_class_an_input_or_output_type_names_is_on_the_registry_and_a_tabl
         weight: Number
 
     @node("mix", title="Mix", description="For a test.")
-    def mix(either: Cash | Text | None, level: Literal["low", "high"], weights: Series[Number], rows: Table[Row], tags: list[str] = []) -> Text:  # noqa: B006
+    def mix(
+        either: Cash | Text | None,
+        level: Literal["low", "high"],
+        weights: Series[Number],
+        rows: Table[Row],
+        tags: list[str] = [],
+    ) -> Text:  # noqa: B006
         return Text("")
 
     registry = NodeRegistry()
     registry.add(mix)
 
     [described] = registry.describe().nodes
-    shown = {named for field in (*described.inputs, *described.outputs) for named in field.type.split(" | ")}
+    shown = {
+        named
+        for field in (*described.inputs, *described.outputs)
+        for named in field.type.split(" | ")
+    }
     assert shown == {"cash", "text", "str", "number", "list[str]", "Table[weight: number]"}
-    assert dict(registry.types) == {"cash": Cash, "text": Text, "str": str, "number": Number, "list": list}
+    assert dict(registry.types) == {
+        "cash": Cash,
+        "text": Text,
+        "str": str,
+        "number": Number,
+        "list": list,
+    }
 
 
 def test_an_any_input_adds_no_type():
@@ -604,7 +683,9 @@ def test_an_any_input_adds_no_type():
     registry.add(passes)
 
     assert dict(registry.types) == {"text": Text}
-    assert [t.model_dump() for t in registry.describe().types] == [{"id": "text", "title": "Text", "accepted_as": ["text"]}]
+    assert [t.model_dump() for t in registry.describe().types] == [
+        {"id": "text", "title": "Text", "accepted_as": ["text"]}
+    ]
 
 
 def test_two_classes_may_claim_one_id_until_one_registry_has_both():
@@ -705,9 +786,15 @@ def test_a_subgraph_given_json_text_reads_it_as_a_graph_record_and_refuses_an_un
     from conductor import InvalidCallError, subgraph
 
     with pytest.raises(InvalidCallError) as refused:
-        subgraph("e", title="E", description="For a test.")(json.dumps({"nodes": {"a": {"node": "x", "vaules": {}}}}))
-    assert [(p.type, p.loc) for p in refused.value.problems] == [("invalid_record", ("record", "nodes", "a", "vaules"))]
-    assert subgraph("e", title="E", description="For a test.")('{"nodes": {"a": {"node": "x"}}}').graph == GraphRecord.model_validate({"nodes": {"a": {"node": "x"}}})
+        subgraph("e", title="E", description="For a test.")(
+            json.dumps({"nodes": {"a": {"node": "x", "vaules": {}}}})
+        )
+    assert [(p.type, p.loc) for p in refused.value.problems] == [
+        ("invalid_record", ("record", "nodes", "a", "vaules"))
+    ]
+    assert subgraph("e", title="E", description="For a test.")(
+        '{"nodes": {"a": {"node": "x"}}}'
+    ).graph == GraphRecord.model_validate({"nodes": {"a": {"node": "x"}}})
 
 
 def test_an_infinite_default_writes_as_text():
@@ -735,10 +822,14 @@ def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_de
     listed = next(n for n in registry.describe().nodes if n.id == "shout")
     assert not hasattr(shout, "describe")
     assert (listed.takes_added_inputs, listed.computes_outputs) == (False, False)
-    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == ["result"]
+    assert [f.name for f in listed.inputs] == ["text"] and [f.name for f in listed.outputs] == [
+        "result"
+    ]
 
 
-def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(monkeypatch: MonkeyPatch) -> None:
+def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(
+    monkeypatch: MonkeyPatch,
+) -> None:
     """An editor calls ``describe()`` each time it opens its list of nodes, so a subgraph's inputs and outputs are
     worked out once."""
     registry = NodeRegistry()
@@ -747,10 +838,27 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(mon
     def shout(text: str) -> str:
         return text.upper()
 
-    registry.add(subgraph("loud", title="Loud", description="For a test.")(GraphRecord.model_validate({"nodes": {"s": {"node": "shout", "inputs": {"words": {"graph_input": "words"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}})))
+    registry.add(
+        subgraph("loud", title="Loud", description="For a test.")(
+            GraphRecord.model_validate(
+                {
+                    "nodes": {
+                        "s": {"node": "shout", "inputs": {"words": {"graph_input": "words"}}}
+                    },
+                    "outputs": {"result": {"node": "s", "output": "result"}},
+                }
+            )
+        )
+    )
     compiled_records = []
     original_compile = Graph.compile
-    monkeypatch.setattr(Graph, "compile", staticmethod(lambda record, *rest: compiled_records.append(record) or original_compile(record, *rest)))
+    monkeypatch.setattr(
+        Graph,
+        "compile",
+        staticmethod(
+            lambda record, *rest: compiled_records.append(record) or original_compile(record, *rest)
+        ),
+    )
 
     first, second = registry.describe(), registry.describe()
     assert first == second and len(compiled_records) == 1
@@ -766,7 +874,9 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(mon
 
 def test_the_modules_own_example_runs():
     after = registry_module.__doc__.split("::\n", 1)[1].splitlines()
-    block = textwrap.dedent("\n".join(itertools.takewhile(lambda line: not line or line.startswith("    "), after)))
+    block = textwrap.dedent(
+        "\n".join(itertools.takewhile(lambda line: not line or line.startswith("    "), after))
+    )
     scope: dict[str, Any] = {"NodeRegistry": NodeRegistry, "shout": _node("shout")}
     exec(block, scope)  # noqa: S102  the docstring's own code, as a reader runs it
     assert [definition.id for definition in scope["registry"]] == ["upper", "shout"]

@@ -10,4 +10,13 @@ from .stored import (
 )
 from .type import Series, SeriesType
 
-__all__ = ["Records", "Series", "SeriesItems", "SeriesType", "StoredSeries", "indexes_of_none", "set_has_no_order", "without_indexes"]
+__all__ = [
+    "Records",
+    "Series",
+    "SeriesItems",
+    "SeriesType",
+    "StoredSeries",
+    "indexes_of_none",
+    "set_has_no_order",
+    "without_indexes",
+]

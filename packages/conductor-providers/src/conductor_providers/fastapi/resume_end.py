@@ -91,12 +91,24 @@ class Ended(ResumeEnd):
                 refused[waiting_id] = error.problems
             except Exception as error:
                 log.exception("the answer queued for %s could not be checked", waiting_id)
-                refused[waiting_id] = [router_problems.answer_check_failed(waiting_id=waiting_id, error=type(error).__name__)]
+                refused[waiting_id] = [
+                    router_problems.answer_check_failed(
+                        waiting_id=waiting_id, error=type(error).__name__
+                    )
+                ]
         settled = state.answered(taken)
         unheard = state.cancel_asked and bool(taken) and self.run.status != "cancelled"
         stopped = settled.running() if taken else settled.stopped(self.run)
-        after = stopped.model_copy(update={"queued_answers": {}, "refused": {**settled.refused, **refused}, "cancel_asked": unheard})
-        return RowAfterResume(after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome})
+        after = stopped.model_copy(
+            update={
+                "queued_answers": {},
+                "refused": {**settled.refused, **refused},
+                "cancel_asked": unheard,
+            }
+        )
+        return RowAfterResume(
+            after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome}
+        )
 
 
 @dataclass(frozen=True)
@@ -128,7 +140,11 @@ class Raised(ResumeEnd):
         Returns:
             The end, with its ``run_end`` saying ``failed`` and the cause.
         """
-        return cls(cause, held.model_dump_json(), RunEnd.model_construct(status="failed", cause=cause).model_dump_json())
+        return cls(
+            cause,
+            held.model_dump_json(),
+            RunEnd.model_construct(status="failed", cause=cause).model_dump_json(),
+        )
 
     @classmethod
     def refused(cls, refusal: InvalidCallError, held: Outcome) -> Raised:
@@ -183,6 +199,8 @@ def end_of(run_end: RunEnd, held: Outcome) -> ResumeEnd:
     """
     run = run_end.run
     try:
-        return Ended(run, run.to_json(), Outcome.of_stopped(run).model_dump_json(), run_end.model_dump_json())
+        return Ended(
+            run, run.to_json(), Outcome.of_stopped(run).model_dump_json(), run_end.model_dump_json()
+        )
     except InvalidCallError as unwritable:
         return Raised.refused(unwritable, held)

@@ -96,10 +96,18 @@ def upper(text: str) -> str:
     return text.upper()
 
 
-def _compiled(*definitions: Any, edges: list[list[str]], constants: dict[str, dict[str, Any]] | None = None) -> Any:
+def _compiled(
+    *definitions: Any, edges: list[list[str]], constants: dict[str, dict[str, Any]] | None = None
+) -> Any:
     """Each definition as a node named by its id, wired by ``edges``; ``constants`` are given per node id."""
-    given = {f"{node_id}.{name}": value for node_id, named in (constants or {}).items() for name, value in named.items()}
-    record = make_graph(*definitions, edges=[(source, target) for source, target in edges], constants=given)
+    given = {
+        f"{node_id}.{name}": value
+        for node_id, named in (constants or {}).items()
+        for name, value in named.items()
+    }
+    record = make_graph(
+        *definitions, edges=[(source, target) for source, target in edges], constants=given
+    )
     return Graph.compile(record, registry_of(*definitions))
 
 
@@ -110,9 +118,19 @@ def _types(graph: Any, node_id: str) -> dict[str, tuple[bool, str]]:
 
 
 def test_a_type_variable_is_what_arrives_on_the_edge_in_every_input_and_in_the_return() -> None:
-    graph = _compiled(text, decision, upper, edges=[["text.result", "decision.value"], ["decision.if_true", "upper.text"]])
+    graph = _compiled(
+        text,
+        decision,
+        upper,
+        edges=[["text.result", "decision.value"], ["decision.if_true", "upper.text"]],
+    )
     assert graph.problems == []
-    assert _types(graph, "decision") == {"value": (False, "str"), "when": (False, "bool"), "if_true": (False, "str"), "if_false": (False, "str")}
+    assert _types(graph, "decision") == {
+        "value": (False, "str"),
+        "when": (False, "bool"),
+        "if_true": (False, "str"),
+        "if_false": (False, "str"),
+    }
     assert graph.run().outputs == {"result": "A"}
 
 
@@ -120,7 +138,9 @@ def test_only_an_edge_binds_a_type_variable_so_a_constant_and_a_graph_input_read
     with_constant = _compiled(keep, edges=[], constants={"keep": {"value": 3}})
     assert _types(with_constant, "keep") == {"value": (False, "Any"), "result": (False, "Any")}
     assert with_constant.run().outputs == {"result": 3}
-    assert Graph.compile(make_graph(keep), registry_of(keep)).run(value="x").outputs == {"result": "x"}
+    assert Graph.compile(make_graph(keep), registry_of(keep)).run(value="x").outputs == {
+        "result": "x"
+    }
 
 
 def test_an_output_is_checked_against_the_type_the_edge_bound() -> None:
@@ -146,20 +166,33 @@ def test_the_choices_of_an_ask_are_checked_against_the_type_the_edge_bound() -> 
 def test_a_series_wired_to_a_type_variable_is_looped_over_and_binds_the_item_type() -> None:
     graph = _compiled(texts, keep, edges=[["texts.result", "keep.value"]])
     assert _types(graph, "keep")["value"] == (False, "str")
-    assert graph.describe().nodes["keep"].per_item_of == "texts.result" and graph.run().outputs == {"result": ["a", "b"]}
+    assert graph.describe().nodes["keep"].per_item_of == "texts.result" and graph.run().outputs == {
+        "result": ["a", "b"]
+    }
 
 
 def test_in_a_union_the_option_shaped_like_the_arriving_type_binds() -> None:
     from_table = _compiled(rows, split, edges=[["rows.result", "split.value"]])
-    assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs["result"] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
-    from_list = _compiled(keep, split, edges=[["keep.result", "split.value"]], constants={"keep": {"value": [1, 2]}})
+    assert _types(from_table, "split")["result"] == (True, "record") and from_table.run().outputs[
+        "result"
+    ] == [{"name": "a", "age": 1}, {"name": "b", "age": 2}]
+    from_list = _compiled(
+        keep, split, edges=[["keep.result", "split.value"]], constants={"keep": {"value": [1, 2]}}
+    )
     assert _types(from_list, "split")["result"] == (True, "Any")
     graph = _compiled(text, split, edges=[["text.result", "split.value"]])
-    assert [(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems] == [("type_mismatch", ("split", "value"), "str", "Table | list")]
+    assert [(p.type, p.loc, p.ctx["got"], p.ctx["expected"]) for p in graph.problems] == [
+        ("type_mismatch", ("split", "value"), "str", "Table | list")
+    ]
 
 
 def test_a_table_of_unknown_columns_binds_any() -> None:
-    graph = _compiled(anything, split, upper, edges=[["anything.result", "split.value"], ["split.result.name", "upper.text"]])
+    graph = _compiled(
+        anything,
+        split,
+        upper,
+        edges=[["anything.result", "split.value"], ["split.result.name", "upper.text"]],
+    )
     assert graph.problems == [] and _types(graph, "split")["result"] == (True, "Any")
     assert graph.run().outputs == {"result": ["A"]}
 
@@ -179,28 +212,49 @@ def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called
         return value
 
     graph = _compiled(returns_none, seen, edges=[["returns-none.result", "seen.value"]])
-    assert graph.problems == [] and _types(graph, "seen") == {"value": (False, "str"), "result": (False, "str")}
+    assert graph.problems == [] and _types(graph, "seen") == {
+        "value": (False, "str"),
+        "result": (False, "str"),
+    }
     assert not graph.describe().nodes["seen"].inputs[0].field.json_schema.get("anyOf")
     run = graph.run()
     assert calls == [] and [(n.loc, n.input) for n in run.not_called] == [(("seen",), "value")]
-    inside_a_list = _compiled(keep, seen, edges=[["keep.result", "seen.value"]], constants={"keep": {"value": 1}})
+    inside_a_list = _compiled(
+        keep, seen, edges=[["keep.result", "seen.value"]], constants={"keep": {"value": 1}}
+    )
     assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any takes None, and says so
 
 
 def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -> None:
-    graph = _compiled(returns_none, decision, maybe, edges=[["returns-none.result", "decision.value"], ["decision.if_true", "maybe.value"]])
+    graph = _compiled(
+        returns_none,
+        decision,
+        maybe,
+        edges=[["returns-none.result", "decision.value"], ["decision.if_true", "maybe.value"]],
+    )
     assert graph.problems == []
     run = graph.run()
-    assert run.results["maybe"] == {"result": None} and [n.loc for n in run.not_called] == [("decision",)]
+    assert run.results["maybe"] == {"result": None} and [n.loc for n in run.not_called] == [
+        ("decision",)
+    ]
 
     async def said() -> list[tuple[tuple[str, ...], int, int]]:
-        return [(event.loc, event.skipped, event.not_called) async for event in graph.with_inputs().stream() if event.type == "node_complete"]
+        return [
+            (event.loc, event.skipped, event.not_called)
+            async for event in graph.with_inputs().stream()
+            if event.type == "node_complete"
+        ]
 
-    assert asyncio.run(said())[-2:] == [(("decision",), 0, 1), (("maybe",), 1, 0)]  # skipped, where a None would leave it not called
+    assert asyncio.run(said())[-2:] == [
+        (("decision",), 0, 1),
+        (("maybe",), 1, 0),
+    ]  # skipped, where a None would leave it not called
 
 
 def test_one_variable_on_two_inputs_binds_the_union_of_what_arrives() -> None:
-    graph = _compiled(number, text, either, edges=[["number.result", "either.a"], ["text.result", "either.b"]])
+    graph = _compiled(
+        number, text, either, edges=[["number.result", "either.a"], ["text.result", "either.b"]]
+    )
     assert graph.problems == [] and _types(graph, "either")["result"] == (False, "int | str")
 
 
@@ -210,11 +264,17 @@ def test_what_arrives_outside_a_variables_bound_is_a_type_mismatch() -> None:
         return value
 
     assert _types(_compiled(count, edges=[]), "count")["value"] == (False, "int | float")
-    assert [p.type for p in _compiled(text, count, edges=[["text.result", "count.value"]]).problems] == ["type_mismatch"]
-    assert _types(_compiled(number, count, edges=[["number.result", "count.value"]]), "count")["result"] == (False, "int")
+    assert [
+        p.type for p in _compiled(text, count, edges=[["text.result", "count.value"]]).problems
+    ] == ["type_mismatch"]
+    assert _types(_compiled(number, count, edges=[["number.result", "count.value"]]), "count")[
+        "result"
+    ] == (False, "int")
 
 
-def test_a_variable_on_no_input_and_a_constrained_one_are_refused_where_the_node_is_declared() -> None:
+def test_a_variable_on_no_input_and_a_constrained_one_are_refused_where_the_node_is_declared() -> (
+    None
+):
     with pytest.raises(NodeDeclarationError) as only_in_return:
 
         @node("make", title="Make", description="For a test.")
@@ -227,30 +287,63 @@ def test_a_variable_on_no_input_and_a_constrained_one_are_refused_where_the_node
         def pick[T: (int, str)](value: T) -> T:
             return value
 
-    assert (only_in_return.value.problems[0].type, constrained.value.problems[0].type) == ("type_variable_only_in_return", "type_variable_constrained")
+    assert (only_in_return.value.problems[0].type, constrained.value.problems[0].type) == (
+        "type_variable_only_in_return",
+        "type_variable_constrained",
+    )
 
 
 def test_a_generic_dataclass_of_outputs_returns_one_branch_at_run_time() -> None:
-    graph = _compiled(text, decision, upper, edges=[["text.result", "decision.value"], ["decision.if_false", "upper.text"]])
+    graph = _compiled(
+        text,
+        decision,
+        upper,
+        edges=[["text.result", "decision.value"], ["decision.if_false", "upper.text"]],
+    )
     run = graph.run()
-    assert run.status == "complete" and run.results["decision"] == {"if_true": "a", "if_false": None} and run.outputs == {"result": None}
+    assert (
+        run.status == "complete"
+        and run.results["decision"] == {"if_true": "a", "if_false": None}
+        and run.outputs == {"result": None}
+    )
 
 
 def test_a_generic_definition_describes_any_and_its_compiled_node_the_bound_types() -> None:
-    assert [(field.name, field.type) for field in decision.describe().inputs] == [("value", "Any"), ("when", "bool")]
-    assert [(field.name, field.type) for field in decision.describe().outputs] == [("if_true", "Any"), ("if_false", "Any")]
+    assert [(field.name, field.type) for field in decision.describe().inputs] == [
+        ("value", "Any"),
+        ("when", "bool"),
+    ]
+    assert [(field.name, field.type) for field in decision.describe().outputs] == [
+        ("if_true", "Any"),
+        ("if_false", "Any"),
+    ]
     assert decision.describe().inputs[0].type_variables == ["T"]
-    compiled_node = _compiled(text, decision, edges=[["text.result", "decision.value"]]).describe().nodes["decision"]
-    assert [node_input.field.type_variables for node_input in compiled_node.inputs] == [[], []] and [output.type_variables for output in compiled_node.outputs] == [[], []]
+    compiled_node = (
+        _compiled(text, decision, edges=[["text.result", "decision.value"]])
+        .describe()
+        .nodes["decision"]
+    )
+    assert [node_input.field.type_variables for node_input in compiled_node.inputs] == [
+        [],
+        [],
+    ] and [output.type_variables for output in compiled_node.outputs] == [[], []]
 
 
 def test_an_input_a_hook_adds_with_a_type_variable_is_bound_by_its_edge() -> None:
     variable = TypeVar("variable")
 
-    @node("echo", title="Echo", description="For a test.", compute_added_inputs=lambda: {"value": variable})
+    @node(
+        "echo",
+        title="Echo",
+        description="For a test.",
+        compute_added_inputs=lambda: {"value": variable},
+    )
     def echo(**added: Any) -> str:
         return repr(added["value"])
 
     graph = _compiled(text, echo, edges=[["text.result", "echo.value"]])
-    assert [(node_input.field.type, node_input.field.type_variables) for node_input in graph.describe().nodes["echo"].inputs] == [("str", [])]
+    assert [
+        (node_input.field.type, node_input.field.type_variables)
+        for node_input in graph.describe().nodes["echo"].inputs
+    ] == [("str", [])]
     assert graph.run().outputs == {"result": "'a'"}

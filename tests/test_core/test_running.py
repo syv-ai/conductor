@@ -65,15 +65,37 @@ def _numbers(count: int) -> str:
     return ",".join(str(i) for i in range(count))
 
 
-def _record(registry: NodeRegistry, nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], constants: Mapping[str, Any]) -> GraphRecord:
+def _record(
+    registry: NodeRegistry,
+    nodes: Mapping[str, str],
+    edges: Sequence[tuple[str, str]],
+    constants: Mapping[str, Any],
+) -> GraphRecord:
     """``make_graph`` of ``nodes`` (node id to the id of its definition in ``registry``), joined by exactly ``edges``,
     with ``constants`` by ``"node.input"``."""
-    return make_graph(*((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()), edges=list(edges), constants=constants)
+    return make_graph(
+        *((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()),
+        edges=list(edges),
+        constants=constants,
+    )
 
 
 def _per_item(definition: Any, items: int, *more: Any) -> Any:
     """A graph in which ``split`` returns ``items`` items and ``definition``, as node ``slow``, is called once per item."""
-    return Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"constant": _numbers(items)}}}, "slow": {"node": definition.id, "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}}}), registry_of(split, definition, *more))
+    return Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "split": {"node": "split", "inputs": {"text": {"constant": _numbers(items)}}},
+                    "slow": {
+                        "node": definition.id,
+                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
+                    },
+                }
+            }
+        ),
+        registry_of(split, definition, *more),
+    )
 
 
 def _events(run: Any, **kwargs: Any) -> list[Any]:
@@ -143,7 +165,32 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
     def meet(a: str, b: str) -> str:
         return f"{a}|{b}"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "source", "inputs": {"text": {"graph_input": "text"}}}, "l": {"node": "left", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "r": {"node": "right", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "m": {"node": "meet", "inputs": {"a": {"sources": [{"node": "l", "output": "result"}]}, "b": {"sources": [{"node": "r", "output": "result"}]}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry_of(source, left, right, meet))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {"node": "source", "inputs": {"text": {"graph_input": "text"}}},
+                    "l": {
+                        "node": "left",
+                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
+                    },
+                    "r": {
+                        "node": "right",
+                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
+                    },
+                    "m": {
+                        "node": "meet",
+                        "inputs": {
+                            "a": {"sources": [{"node": "l", "output": "result"}]},
+                            "b": {"sources": [{"node": "r", "output": "result"}]},
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "m", "output": "result"}},
+            }
+        ),
+        registry_of(source, left, right, meet),
+    )
 
     events = _events(graph.with_inputs(text="abc"))
 
@@ -159,12 +206,19 @@ def test_a_failed_item_fails_the_node_naming_the_item_and_the_node_collecting_it
             raise ValueError("not this one")
         return text
 
-    graph = Graph.compile(make_graph(split, picky, join, constants={"split.text": "0,1,2"}), registry_of(split, picky, join))
+    graph = Graph.compile(
+        make_graph(split, picky, join, constants={"split.text": "0,1,2"}),
+        registry_of(split, picky, join),
+    )
 
     events = _events(graph.with_inputs())
 
     (failed,) = [e for e in events if e.type == "node_failed"]
-    assert (failed.loc[0], failed.cause.type, failed.cause.loc) == ("picky", "execution_failed", ("picky", 1))
+    assert (failed.loc[0], failed.cause.type, failed.cause.loc) == (
+        "picky",
+        "execution_failed",
+        ("picky", 1),
+    )
     assert not [e for e in events if getattr(e, "loc", None) == ("join",)]
     assert events[-1].run.status == "failed" and events[-1].run.results["join"]["result"] is None
 
@@ -180,7 +234,15 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
             raise ValueError("no c")
         return text
 
-    skipping = Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "only-short", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry_of(only_short))
+    skipping = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"o": {"node": "only-short", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "o", "output": "result"}},
+            }
+        ),
+        registry_of(only_short),
+    )
     assert skipping.run(text="long").outputs == {"result": None}
     assert skipping.run(text="ab").outputs == {"result": "ab"}
 
@@ -198,8 +260,14 @@ def test_progress_counts_items_between_start_and_complete_with_the_total_once_th
 
     kinds = [(e.type, getattr(e, "loc", None)) for e in events]
     progress = [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
-    assert progress and all(e.count.total == 3 for e in progress) and progress[-1].count.finished >= 1
-    assert kinds.index(("node_start", ("slow",))) < kinds.index(("node_progress", ("slow",))) < kinds.index(("node_complete", ("slow",)))
+    assert (
+        progress and all(e.count.total == 3 for e in progress) and progress[-1].count.finished >= 1
+    )
+    assert (
+        kinds.index(("node_start", ("slow",)))
+        < kinds.index(("node_progress", ("slow",)))
+        < kinds.index(("node_complete", ("slow",)))
+    )
 
 
 def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_ending_on_its_last_count():
@@ -214,9 +282,10 @@ def test_a_fast_node_over_many_items_reports_progress_a_few_times_a_second_endin
     progress = [e for e in events if e.type == "node_progress" and e.loc[0] == "slow"]
     assert len(progress) <= took / 0.25 + 2
     assert (progress[-1].count.finished, progress[-1].count.total) == (20_000, 20_000)
-    complete = next(i for i, e in enumerate(events) if e.type == "node_complete" and e.loc[0] == "slow")
+    complete = next(
+        i for i, e in enumerate(events) if e.type == "node_complete" and e.loc[0] == "slow"
+    )
     assert events.index(progress[-1]) < complete
-
 
 
 def test_a_run_that_ends_waiting_reports_the_last_progress_of_the_node_that_waits():
@@ -226,7 +295,9 @@ def test_a_run_that_ends_waiting_reports_the_last_progress_of_the_node_that_wait
             raise Ask("Is this right?")
         return text
 
-    graph = Graph.compile(make_graph(split, maybe, constants={"split.text": "ask,b,c"}), registry_of(split, maybe))
+    graph = Graph.compile(
+        make_graph(split, maybe, constants={"split.text": "ask,b,c"}), registry_of(split, maybe)
+    )
 
     events = _events(graph.with_inputs())
 
@@ -252,21 +323,60 @@ def test_a_node_in_a_loop_over_an_empty_series_reports_no_progress():
 def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys():
     calls: list[int] = []
 
-    @node("fetch", title="Fetch one", description="For a test.", policy=Policy(retries=2, retry_delay=0.01))
+    @node(
+        "fetch",
+        title="Fetch one",
+        description="For a test.",
+        policy=Policy(retries=2, retry_delay=0.01),
+    )
     def fetch_one(text: str) -> str:
         calls.append(1)
         if len(calls) < 3:
             raise ExternalError("try again")
         return "one"
 
-    @node("fetch", title="Fetch two", description="For a test.", replaces=fetch_one, policy=Policy(retries=0))
+    @node(
+        "fetch",
+        title="Fetch two",
+        description="For a test.",
+        replaces=fetch_one,
+        policy=Policy(retries=0),
+    )
     def fetch_two(text: str) -> str:
         calls.append(2)
         raise ExternalError("never retried")
 
     registry = registry_of(fetch_two)
-    pinned = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "fetch", "version": 1, "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "f", "output": "result"}}}), registry)
-    newest = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "fetch", "version": 2, "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "f", "output": "result"}}}), registry)
+    pinned = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "f": {
+                        "node": "fetch",
+                        "version": 1,
+                        "inputs": {"text": {"graph_input": "text"}},
+                    }
+                },
+                "outputs": {"result": {"node": "f", "output": "result"}},
+            }
+        ),
+        registry,
+    )
+    newest = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "f": {
+                        "node": "fetch",
+                        "version": 2,
+                        "inputs": {"text": {"graph_input": "text"}},
+                    }
+                },
+                "outputs": {"result": {"node": "f", "output": "result"}},
+            }
+        ),
+        registry,
+    )
 
     assert pinned.run(text="x").outputs == {"result": "one"} and calls == [1, 1, 1]
     calls.clear()
@@ -314,7 +424,12 @@ def test_the_retry_delay_doubles_each_time_and_another_item_is_called_while_a_re
     tries: dict[str, int] = {}
     finished: list[str] = []
 
-    @node("flaky", title="Flaky", description="For a test.", policy=Policy(concurrency=1, retries=3, retry_delay=0.02))
+    @node(
+        "flaky",
+        title="Flaky",
+        description="For a test.",
+        policy=Policy(concurrency=1, retries=3, retry_delay=0.02),
+    )
     def flaky(text: str) -> str:
         tries[text] = tries.get(text, 0) + 1
         if text == "flaky" and tries[text] <= 3:
@@ -322,7 +437,10 @@ def test_the_retry_delay_doubles_each_time_and_another_item_is_called_while_a_re
         finished.append(text)
         return text
 
-    graph = Graph.compile(make_graph(split, flaky, constants={"split.text": "flaky,steady"}), registry_of(split, flaky))
+    graph = Graph.compile(
+        make_graph(split, flaky, constants={"split.text": "flaky,steady"}),
+        registry_of(split, flaky),
+    )
 
     events = _events(graph.with_inputs())
 
@@ -344,7 +462,25 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
     def instant(texts: Series[str]) -> str:
         return "now"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"constant": _numbers(40)}}}, "slow": {"node": "sleeper", "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}, "i": {"node": "instant", "inputs": {"texts": {"sources": [{"node": "split", "output": "result"}]}}}}, "outputs": {"result": {"node": "i", "output": "result"}}}), registry_of(split, sleeper, instant))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "split": {"node": "split", "inputs": {"text": {"constant": _numbers(40)}}},
+                    "slow": {
+                        "node": "sleeper",
+                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
+                    },
+                    "i": {
+                        "node": "instant",
+                        "inputs": {"texts": {"sources": [{"node": "split", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "i", "output": "result"}},
+            }
+        ),
+        registry_of(split, sleeper, instant),
+    )
 
     run = graph.run()
 
@@ -354,7 +490,12 @@ def test_an_instant_node_beside_forty_slow_items_does_not_time_out():
 def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the_run_a_checkpoint_and_a_saved_run():
     """Calls on threads return in any order; what a run says of a node's calls is in item order all the same."""
 
-    @node("first-is-last", title="First is last", description="For a test.", policy=Policy(concurrency=4))
+    @node(
+        "first-is-last",
+        title="First is last",
+        description="For a test.",
+        policy=Policy(concurrency=4),
+    )
     def first_is_last(text: str) -> str | None:
         if text == "0":
             time.sleep(0.3)  # the first item returns after every other
@@ -364,7 +505,24 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
     def needs_text(text: str) -> str:
         return text
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"split": {"node": "split", "inputs": {"text": {"constant": _numbers(4)}}}, "slow": {"node": "first-is-last", "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}}}, "after": {"node": "needs-text", "inputs": {"text": {"sources": [{"node": "slow", "output": "result"}]}}}}}), registry_of(split, first_is_last, needs_text))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "split": {"node": "split", "inputs": {"text": {"constant": _numbers(4)}}},
+                    "slow": {
+                        "node": "first-is-last",
+                        "inputs": {"text": {"sources": [{"node": "split", "output": "result"}]}},
+                    },
+                    "after": {
+                        "node": "needs-text",
+                        "inputs": {"text": {"sources": [{"node": "slow", "output": "result"}]}},
+                    },
+                }
+            }
+        ),
+        registry_of(split, first_is_last, needs_text),
+    )
     in_item_order = [("after", 0), ("after", 1), ("after", 2), ("after", 3)]
 
     async def streamed() -> list[Any]:
@@ -376,8 +534,14 @@ def test_calls_returning_out_of_order_on_threads_are_listed_in_item_order_in_the
 
     assert [call.loc for call in run.not_called] == in_item_order
     assert [call.loc for call in Run.from_json(run.to_json(), graph).not_called] == in_item_order
-    assert checkpoints and all([call.loc for call in checkpoint.not_called] == sorted(call.loc for call in checkpoint.not_called) for checkpoint in checkpoints)
-    assert any(len(checkpoint.not_called) > 1 for checkpoint in checkpoints)  # some checkpoint has later items before the first
+    assert checkpoints and all(
+        [call.loc for call in checkpoint.not_called]
+        == sorted(call.loc for call in checkpoint.not_called)
+        for checkpoint in checkpoints
+    )
+    assert any(
+        len(checkpoint.not_called) > 1 for checkpoint in checkpoints
+    )  # some checkpoint has later items before the first
 
 
 @pytest.mark.parametrize("items", [None, 3])
@@ -385,7 +549,12 @@ def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(item
     """A call that returns on a thread makes its downstream nodes ready; a call made ready twice is still one call."""
     calls: list[tuple[str, str]] = []
 
-    @node("from-a-thread", title="From a thread", description="For a test.", policy=Policy(concurrency=2))
+    @node(
+        "from-a-thread",
+        title="From a thread",
+        description="For a test.",
+        policy=Policy(concurrency=2),
+    )
     def from_a_thread(text: str) -> str:
         time.sleep(0.01)
         return text
@@ -403,24 +572,41 @@ def test_a_node_made_ready_by_each_of_its_two_upstream_nodes_is_called_once(item
         calls.append((left, right))
         return left + right
 
-    first, constants = ({}, {"s.text": "x"}) if items is None else ({"split": "split"}, {"split.text": _numbers(items)})
+    first, constants = (
+        ({}, {"s.text": "x"})
+        if items is None
+        else ({"split": "split"}, {"split.text": _numbers(items)})
+    )
     registry = registry_of(split, from_a_thread, left, right, both)
-    graph = Graph.compile(_record(
+    graph = Graph.compile(
+        _record(
+            registry,
+            {**first, "s": "from-a-thread", "a": "left", "b": "right", "r": "both"},
+            [
+                *([] if items is None else [("split.result", "s.text")]),
+                ("s.result", "a.text"),
+                ("s.result", "b.text"),
+                ("a.result", "r.left"),
+                ("b.result", "r.right"),
+            ],
+            constants,
+        ),
         registry,
-        {**first, "s": "from-a-thread", "a": "left", "b": "right", "r": "both"},
-        [*([] if items is None else [("split.result", "s.text")]), ("s.result", "a.text"), ("s.result", "b.text"), ("a.result", "r.left"), ("b.result", "r.right")],
-        constants,
-    ), registry)
+    )
 
     run = graph.run()
 
     assert run.status == "complete"
-    assert sorted(calls) == ([("xa", "xb")] if items is None else [(f"{i}a", f"{i}b") for i in range(items)])
+    assert sorted(calls) == (
+        [("xa", "xb")] if items is None else [(f"{i}a", f"{i}b") for i in range(items)]
+    )
 
 
 @pytest.mark.parametrize("concurrency", [1, 4])
 @pytest.mark.parametrize("shape", ["chain", "per_item_then_collected"])
-def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume_calls_nothing(shape: str, concurrency: int):
+def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume_calls_nothing(
+    shape: str, concurrency: int
+):
     """``resume()`` tries each node after its upstream nodes, so one call of it completes a graph that asks no person,
     whether the first node is called on the caller's thread or on others."""
     calls: list[str] = []
@@ -445,7 +631,10 @@ def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume
         edges = [("f.result", "t0.text"), *((f"t{i}.result", f"t{i + 1}.text") for i in range(4))]
         expected, outputs = 6, {"result": "x!!!!!"}
     else:
-        nodes, constants = {"split": "split", "f": "first", "t": "then", "l": "last"}, {"split.text": _numbers(4)}
+        nodes, constants = (
+            {"split": "split", "f": "first", "t": "then", "l": "last"},
+            {"split.text": _numbers(4)},
+        )
         edges = [("split.result", "f.text"), ("f.result", "t.text"), ("t.result", "l.texts")]
         expected, outputs = 9, {"result": "0!+1!+2!+3!"}
     registry = registry_of(split, first, then, last)
@@ -455,7 +644,11 @@ def test_one_resume_calls_every_node_its_own_calls_make_ready_and_another_resume
 
     assert run.status == "complete" and run.outputs == outputs and len(calls) == expected
     assert all(value is not None for values in run.results.values() for value in values.values())
-    assert run.resume().outputs == outputs and Run.from_json(run.to_json(), graph).resume().outputs == outputs and len(calls) == expected
+    assert (
+        run.resume().outputs == outputs
+        and Run.from_json(run.to_json(), graph).resume().outputs == outputs
+        and len(calls) == expected
+    )
 
 
 def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight():
@@ -463,7 +656,12 @@ def test_concurrency_one_with_an_attempt_timeout_never_has_two_calls_in_flight()
     in_flight, most = 0, 0
     lock = threading.Lock()
 
-    @node("slow-items", title="Slow items", description="For a test.", policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01))
+    @node(
+        "slow-items",
+        title="Slow items",
+        description="For a test.",
+        policy=Policy(concurrency=1, attempt_timeout=0.2, retries=2, retry_delay=0.01),
+    )
     def slow_items(text: str) -> str:
         nonlocal in_flight, most
         with lock:
@@ -490,7 +688,17 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
         time.sleep(1.0)
         return "done"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "slow-second", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}}), registry_of(slow_second))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {"node": "slow-second", "inputs": {"text": {"graph_input": "text"}}}
+                },
+                "outputs": {"result": {"node": "s", "output": "result"}},
+            }
+        ),
+        registry_of(slow_second),
+    )
 
     assert graph.run(text="x").outputs == {"result": "done"}
 
@@ -530,8 +738,14 @@ class _AtOnce:
 def _in_two_places(definition: Any, items: int) -> Graph:
     """A graph in which ``split`` returns ``items`` items and ``definition`` is called once per item in two places, ``a`` and ``b``."""
     return Graph.compile(
-        make_graph(("split", split), ("a", definition), ("b", definition), edges=[("split.result", "a.text"), ("split.result", "b.text")], constants={"split.text": _numbers(items)},
-                   outputs={"a": "a.result", "b": "b.result"}),
+        make_graph(
+            ("split", split),
+            ("a", definition),
+            ("b", definition),
+            edges=[("split.result", "a.text"), ("split.result", "b.text")],
+            constants={"split.text": _numbers(items)},
+            outputs={"a": "a.result", "b": "b.result"},
+        ),
         registry_of(split, definition),
     )
 
@@ -564,12 +778,15 @@ def test_concurrency_caps_the_calls_of_a_node_in_two_places_of_two_runs_at_once(
     """``concurrency`` counts every call of the definition in the process: two places in a graph, two runs at once."""
     at_once = _AtOnce(concurrency)
 
-    @node("capped", title="Capped", description="For a test.", policy=Policy(concurrency=concurrency))
+    @node(
+        "capped", title="Capped", description="For a test.", policy=Policy(concurrency=concurrency)
+    )
     def capped(text: str) -> str:
         at_once.call()
         return text
 
     graph = _in_two_places(capped, 3)
+
     def run() -> str:
         return graph.with_inputs().resume(timeout=BOUND).status
 
@@ -594,13 +811,17 @@ def test_a_node_that_sets_no_concurrency_is_called_one_item_at_a_time_in_each_ru
     def run() -> str:
         return graph.with_inputs().resume(timeout=BOUND).status
 
-    assert run() == "complete" and at_once.most == 1  # one item at a time in one run, in both places
+    assert (
+        run() == "complete" and at_once.most == 1
+    )  # one item at a time in one run, in both places
     at_once.most = 0
     assert _in_threads(run, run) == ["complete", "complete"] and at_once.most == 2
 
 
 @pytest.mark.parametrize("ends", ["cancelled", "timed_out"])
-def test_a_run_waiting_for_calls_another_run_makes_starts_once_that_run_ends_early_and_its_calls_return(ends: str):
+def test_a_run_waiting_for_calls_another_run_makes_starts_once_that_run_ends_early_and_its_calls_return(
+    ends: str,
+):
     """Run ``first`` holds both calls ``concurrency=2`` allows, and ends early while they run; run ``second`` waits
     for them, then makes its own calls, two at a time."""
     at_once, release = _AtOnce(2, seconds=0.2), ThreadEvent()
@@ -638,8 +859,16 @@ def test_a_run_waiting_for_calls_another_run_makes_starts_once_that_run_ends_ear
 
     first_run, second_run, _ = _in_threads(run_first, run_second, end_first)
 
-    assert first_run.status == ends and sum(text is not None for text in first_run.results["slow"]["result"]) == 2
-    assert second_run.status == "complete" and second_run.results["slow"]["result"] == ["0", "1", "2", "3"]
+    assert (
+        first_run.status == ends
+        and sum(text is not None for text in first_run.results["slow"]["result"]) == 2
+    )
+    assert second_run.status == "complete" and second_run.results["slow"]["result"] == [
+        "0",
+        "1",
+        "2",
+        "3",
+    ]
     assert at_once.most == 2 and at_once.calls == 2 + 4
 
 
@@ -663,7 +892,16 @@ def test_a_run_waiting_for_a_node_another_run_calls_calls_its_other_nodes_and_ca
         return text
 
     def graph_for(name: str) -> Graph:
-        return Graph.compile(make_graph(("gate", gate), ("other", other), edges=[], constants={"gate.text": name, "other.text": name}, outputs={"gate": "gate.result", "other": "other.result"}), registry_of(gate, other))
+        return Graph.compile(
+            make_graph(
+                ("gate", gate),
+                ("other", other),
+                edges=[],
+                constants={"gate.text": name, "other.text": name},
+                outputs={"gate": "gate.result", "other": "other.result"},
+            ),
+            registry_of(gate, other),
+        )
 
     holder, waiter = graph_for("holder").with_inputs(), graph_for("waiter").with_inputs()
 
@@ -678,7 +916,11 @@ def test_a_run_waiting_for_a_node_another_run_calls_calls_its_other_nodes_and_ca
 
     held, waited = _in_threads(hold, wait)
 
-    assert waited.status == "timed_out" and waited.results["other"]["result"] == "waiter" and waited.results["gate"]["result"] is None
+    assert (
+        waited.status == "timed_out"
+        and waited.results["other"]["result"] == "waiter"
+        and waited.results["gate"]["result"] is None
+    )
     assert held.status == "complete" and gate_calls == ["holder"]
     assert waited.resume().status == "complete" and gate_calls == ["holder", "waiter"]
 
@@ -687,7 +929,12 @@ def _one_node_per_item(definition: Any) -> Graph:
     """A graph in which ``split`` returns the items of the graph input ``text`` and ``definition``, as node ``slow``,
     is called once per item."""
     return Graph.compile(
-        make_graph(("split", split), ("slow", definition), edges=[("split.result", "slow.text")], outputs={"result": "slow.result"}),
+        make_graph(
+            ("split", split),
+            ("slow", definition),
+            edges=[("split.result", "slow.text")],
+            outputs={"result": "slow.result"},
+        ),
         registry_of(split, definition),
     )
 
@@ -714,7 +961,12 @@ def test_a_run_woken_by_another_runs_call_stops_at_its_timeout_while_it_works_th
     timeout, not after all 100."""
     holding, made = ThreadEvent(), []
 
-    @node("one-at-a-time", title="One at a time", description="For a test.", policy=Policy(concurrency=1))
+    @node(
+        "one-at-a-time",
+        title="One at a time",
+        description="For a test.",
+        policy=Policy(concurrency=1),
+    )
     def one_at_a_time(text: str) -> str:
         if text == "hold":
             holding.set()
@@ -758,7 +1010,9 @@ def test_a_run_that_calls_a_capped_node_on_its_own_thread_lets_a_run_waiting_for
         assert busy_started.wait(BOUND)
         return graph.with_inputs(text="late").resume(timeout=BOUND)
 
-    busy, late_run = _in_threads(lambda: graph.with_inputs(text=_numbers(200)).resume(timeout=BOUND), late)
+    busy, late_run = _in_threads(
+        lambda: graph.with_inputs(text=_numbers(200)).resume(timeout=BOUND), late
+    )
 
     assert busy.status == late_run.status == "complete"
     assert calls_before_late[0] < 10, calls_before_late
@@ -779,12 +1033,22 @@ def test_a_run_cancelled_while_it_waits_for_another_runs_call_says_no_node_start
 
     @node("after", title="After", description="For a test.")
     def after(text: str) -> str:
-        cancel[0]()  # svc was tried before this, in graph order, and waits behind the run holding it
+        cancel[
+            0
+        ]()  # svc was tried before this, in graph order, and waits behind the run holding it
         return text
 
-    holder = Graph.compile(make_graph(("svc", svc), outputs={"result": "svc.result"}), registry_of(svc)).with_inputs(text="hold")
+    holder = Graph.compile(
+        make_graph(("svc", svc), outputs={"result": "svc.result"}), registry_of(svc)
+    ).with_inputs(text="hold")
     waiter = Graph.compile(
-        make_graph(("svc", svc), ("after", after), edges=[], constants={"svc.text": "wait", "after.text": "x"}, outputs={"svc": "svc.result", "after": "after.result"}),
+        make_graph(
+            ("svc", svc),
+            ("after", after),
+            edges=[],
+            constants={"svc.text": "wait", "after.text": "x"},
+            outputs={"svc": "svc.result", "after": "after.result"},
+        ),
         registry_of(svc, after),
     ).with_inputs()
 
@@ -824,7 +1088,13 @@ def _held_x() -> tuple[Any, ThreadEvent, ThreadEvent]:
 def _x_then(x: Any, y: Any) -> Graph:
     """A graph of ``x`` and ``y`` side by side, with no edge: a run tries ``x`` first, then calls ``y``."""
     return Graph.compile(
-        make_graph(("x", x), ("y", y), edges=[], constants={"x.text": "first", "y.text": "y"}, outputs={"x": "x.result", "y": "y.result"}),
+        make_graph(
+            ("x", x),
+            ("y", y),
+            edges=[],
+            constants={"x.text": "first", "y.text": "y"},
+            outputs={"x": "x.result", "y": "y.result"},
+        ),
         registry_of(x, y),
     )
 
@@ -858,7 +1128,9 @@ def test_a_run_woken_while_its_thread_is_busy_elsewhere_holds_up_no_run_that_ask
         ThreadEvent().wait(0.1)  # last has asked for x by now
         release.set()
 
-    _, first, last, _ = _in_threads(lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, run_last, let_go)
+    _, first, last, _ = _in_threads(
+        lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, run_last, let_go
+    )
 
     assert last.status == first.status == "complete" and first.outputs["y"] == "after last"
 
@@ -884,7 +1156,9 @@ def test_a_node_whose_function_runs_a_graph_using_a_capped_node_is_not_kept_from
         ThreadEvent().wait(0.1)  # the inner run has asked for x by now
         release.set()
 
-    _, first, _ = _in_threads(lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, let_go)
+    _, first, _ = _in_threads(
+        lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, let_go
+    )
 
     assert first.status == "complete" and first.outputs == {"x": "first", "y": "complete"}
 
@@ -895,7 +1169,12 @@ def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypat
     started = ThreadEvent()
     at_once = _AtOnce(1)
 
-    @node("counted-once", title="Counted once", description="For a test.", policy=Policy(concurrency=1, attempt_timeout=BOUND))
+    @node(
+        "counted-once",
+        title="Counted once",
+        description="For a test.",
+        policy=Policy(concurrency=1, attempt_timeout=BOUND),
+    )
     def counted_once(text: str) -> str:
         started.set()
         at_once.call()
@@ -919,7 +1198,9 @@ def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypat
     def run() -> str:
         return graph.with_inputs(text="b").resume(timeout=BOUND).status
 
-    assert _in_threads(run, run) == ["complete", "complete"] and at_once.most == 1  # one pool thread each: the count decides
+    assert (
+        _in_threads(run, run) == ["complete", "complete"] and at_once.most == 1
+    )  # one pool thread each: the count decides
 
 
 @pytest.mark.slow
@@ -980,13 +1261,25 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
     def raises(text: str) -> str:
         raise raised
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "raises", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "r", "output": "result"}}}), registry_of(raises))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"r": {"node": "raises", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "r", "output": "result"}},
+            }
+        ),
+        registry_of(raises),
+    )
 
     run = graph.run(text="x")
     streamed = _events(graph.with_inputs(text="x"))[-1].run
 
     for ended in (run, streamed):
-        assert (ended.status, ended.cause.type, ended.cause.loc) == ("failed", "execution_failed", ("r",))
+        assert (ended.status, ended.cause.type, ended.cause.loc) == (
+            "failed",
+            "execution_failed",
+            ("r",),
+        )
 
 
 def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
@@ -996,7 +1289,15 @@ def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_strea
     def echo(text: str) -> str:
         return text
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}}), registry_of(echo))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "e", "output": "result"}},
+            }
+        ),
+        registry_of(echo),
+    )
     prepared = graph.with_inputs(text="x")
 
     def broken(*args: Any, **kwargs: Any) -> Any:
@@ -1016,7 +1317,12 @@ def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list
     calls: list[str] = []
     release = ThreadEvent()
 
-    @node("mail", title="Mail", description="For a test.", policy=Policy(concurrency=concurrency, **policy))
+    @node(
+        "mail",
+        title="Mail",
+        description="For a test.",
+        policy=Policy(concurrency=concurrency, **policy),
+    )
     def mail(text: str) -> str:
         calls.append(text)
         if text == "0":
@@ -1027,7 +1333,9 @@ def _item_zero_fails_at_once(concurrency: int, **policy: Any) -> tuple[Any, list
     return mail, calls, release
 
 
-def _releasing_on_failure(prepared: Any, release: ThreadEvent, cancel: AsyncioEvent | None = None) -> list[Any]:
+def _releasing_on_failure(
+    prepared: Any, release: ThreadEvent, cancel: AsyncioEvent | None = None
+) -> list[Any]:
     async def collect() -> list[Any]:
         seen = []
         async for event in prepared.stream(cancel=cancel):
@@ -1048,14 +1356,21 @@ def test_an_item_failing_at_concurrency_one_starts_no_later_item():
     events = _releasing_on_failure(_per_item(mail, 5).with_inputs(), release)
 
     assert _count_twice(calls) == (1, 1) and calls == ["0"]
-    assert events[-1].run.status == "failed" and events[-1].run.results["slow"]["result"] == [None] * 5
+    assert (
+        events[-1].run.status == "failed" and events[-1].run.results["slow"]["result"] == [None] * 5
+    )
 
 
 @pytest.mark.slow
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release = ThreadEvent()
 
-    @node("hangs-or-fails", title="Hangs or fails", description="For a test.", policy=Policy(concurrency=2, attempt_timeout=0.2))
+    @node(
+        "hangs-or-fails",
+        title="Hangs or fails",
+        description="For a test.",
+        policy=Policy(concurrency=2, attempt_timeout=0.2),
+    )
     def hangs_or_fails(text: str) -> str:
         if text == "0":
             raise ValueError("no")
@@ -1069,7 +1384,9 @@ def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_
         release.set()
     took = time.monotonic() - started
 
-    assert run.status == "failed" and run.cause.type == "execution_failed", "the first failure stands"
+    assert run.status == "failed" and run.cause.type == "execution_failed", (
+        "the first failure stands"
+    )
     assert 0.15 < took < 1.0, took
 
 
@@ -1077,7 +1394,9 @@ def test_a_question_or_a_second_failure_from_a_call_still_running_after_a_failur
     """A person's question is kept like any finished call; a second failure goes to the log, not onto the run."""
     release = ThreadEvent()
 
-    @node("mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4), asks=True)
+    @node(
+        "mixed", title="Mixed", description="For a test.", policy=Policy(concurrency=4), asks=True
+    )
     def mixed(text: str) -> str:
         if text == "0":
             raise ValueError("first")
@@ -1101,7 +1420,12 @@ def test_no_retry_starts_once_the_run_has_failed():
     release = ThreadEvent()
     calls: list[str] = []
 
-    @node("flaky-beside-a-failure", title="Flaky", description="For a test.", policy=Policy(concurrency=2, retries=3, retry_delay=0.01))
+    @node(
+        "flaky-beside-a-failure",
+        title="Flaky",
+        description="For a test.",
+        policy=Policy(concurrency=2, retries=3, retry_delay=0.01),
+    )
     def flaky(text: str) -> str:
         calls.append(text)
         if text == "0":
@@ -1112,7 +1436,9 @@ def test_no_retry_starts_once_the_run_has_failed():
     events = _releasing_on_failure(_per_item(flaky, 2).with_inputs(), release)
 
     assert _count_twice(calls)[0] == 2 and sorted(calls) == ["0", "1"]
-    assert events[-1].run.cause.type == "execution_failed" and not [e for e in events if e.type == "node_retry"]
+    assert events[-1].run.cause.type == "execution_failed" and not [
+        e for e in events if e.type == "node_retry"
+    ]
 
 
 # -- leaving, cancelling, timing out -----------------------------------------------------------
@@ -1213,7 +1539,9 @@ def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run
     def source(tag: int = 0) -> Series[Line]:
         return [Line(text=str(n)) for n in range(100)]
 
-    graph = Graph.compile(make_graph(source, echo, defaults={"source.tag": 0}), registry_of(source, echo))
+    graph = Graph.compile(
+        make_graph(source, echo, defaults={"source.tag": 0}), registry_of(source, echo)
+    )
     prepared = graph.run(tag=0).with_inputs(tag=1)
 
     async def go() -> Any:
@@ -1240,7 +1568,9 @@ def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run
     ended = _bounded(go())
 
     assert ended.status == "cancelled"
-    assert len([r for r in ended.run.results["echo"]["result"] if r is not None]) == 10  # the item being written, and none after it
+    assert (
+        len([r for r in ended.run.results["echo"]["result"] if r is not None]) == 10
+    )  # the item being written, and none after it
 
 
 def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
@@ -1251,7 +1581,9 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
         release.wait(BOUND)
         return text
 
-    prepared = _per_item(late, 4).with_inputs()  # two calls on threads when the cancel comes, two never started
+    prepared = _per_item(
+        late, 4
+    ).with_inputs()  # two calls on threads when the cancel comes, two never started
 
     async def go() -> list[Any]:
         cancel, seen = AsyncioEvent(), []
@@ -1275,12 +1607,22 @@ def test_exactly_one_run_end_comes_last_when_a_call_returns_after_a_cancel():
 def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run():
     calls: list[int] = []
 
-    @node("flaky", title="Flaky", description="For a test.", policy=Policy(retries=5, retry_delay=0.2))
+    @node(
+        "flaky", title="Flaky", description="For a test.", policy=Policy(retries=5, retry_delay=0.2)
+    )
     def flaky(text: str) -> str:
         calls.append(1)
         raise ExternalError("try again")
 
-    prepared = Graph.compile(GraphRecord.model_validate({"nodes": {"f": {"node": "flaky", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "f", "output": "result"}}}), registry_of(flaky)).with_inputs(text="x")
+    prepared = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"f": {"node": "flaky", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "f", "output": "result"}},
+            }
+        ),
+        registry_of(flaky),
+    ).with_inputs(text="x")
 
     async def go() -> Any:
         cancel, last = AsyncioEvent(), None
@@ -1296,8 +1638,12 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
 
 
 @pytest.mark.parametrize("stop", ["cancel", "timeout"])
-@pytest.mark.parametrize(("ends", "cause"), [("failed", "execution_failed"), ("stopped", "item_limit")])
-def test_a_cancel_or_a_timeout_after_a_call_ended_the_run_leaves_the_run_as_that_call_ended_it(stop: str, ends: str, cause: str):
+@pytest.mark.parametrize(
+    ("ends", "cause"), [("failed", "execution_failed"), ("stopped", "item_limit")]
+)
+def test_a_cancel_or_a_timeout_after_a_call_ended_the_run_leaves_the_run_as_that_call_ended_it(
+    stop: str, ends: str, cause: str
+):
     """``lines`` sets ``cancel``, or sleeps past ``timeout``, and then fails, or returns more items than
     ``max_items``. It runs on the scheduler's own thread, so the run has ended before ``stop`` could be asked again:
     the first reason to stop stands, and the run is not ``cancelled`` or ``timed_out``."""
@@ -1314,7 +1660,9 @@ def test_a_cancel_or_a_timeout_after_a_call_ended_the_run_leaves_the_run_as_that
     def echo(line: str) -> str:
         return line
 
-    prepared = Graph.compile(make_graph(lines, echo), registry_of(lines, echo)).with_inputs(text="x", max_items=2)
+    prepared = Graph.compile(make_graph(lines, echo), registry_of(lines, echo)).with_inputs(
+        text="x", max_items=2
+    )
 
     async def stream_with_a_cancel() -> Any:
         loop, cancel, cancel_is_set = asyncio.get_running_loop(), AsyncioEvent(), ThreadEvent()
@@ -1374,7 +1722,28 @@ def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_t
     def width(reading: Reading, checked: str) -> str:
         return f"{reading.low}..{reading.high} {checked}"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "measure", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "check", "inputs": {"reading": {"sources": [{"node": "m", "output": "result"}]}}}, "w": {"node": "width", "inputs": {"reading": {"sources": [{"node": "m", "output": "result"}]}, "checked": {"sources": [{"node": "c", "output": "result"}]}}}}, "outputs": {"result": {"node": "w", "output": "result"}}}), registry_of(measure, check, width))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "m": {"node": "measure", "inputs": {"text": {"graph_input": "text"}}},
+                    "c": {
+                        "node": "check",
+                        "inputs": {"reading": {"sources": [{"node": "m", "output": "result"}]}},
+                    },
+                    "w": {
+                        "node": "width",
+                        "inputs": {
+                            "reading": {"sources": [{"node": "m", "output": "result"}]},
+                            "checked": {"sources": [{"node": "c", "output": "result"}]},
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "w", "output": "result"}},
+            }
+        ),
+        registry_of(measure, check, width),
+    )
     paused = graph.run(text="x")
 
     read_back = Run.from_json(paused.to_json(), graph)
@@ -1403,7 +1772,29 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
     def greet(email: str) -> str:
         return email
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "bare", "inputs": {"text": {"graph_input": "text"}}}, "r": {"node": "contact-records", "inputs": {"table": {"sources": [{"node": "b", "output": "result"}]}}}, "g": {"node": "greet", "inputs": {"email": {"sources": [{"node": "r", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(bare, contact_records, greet))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "b": {"node": "bare", "inputs": {"text": {"graph_input": "text"}}},
+                    "r": {
+                        "node": "contact-records",
+                        "inputs": {"table": {"sources": [{"node": "b", "output": "result"}]}},
+                    },
+                    "g": {
+                        "node": "greet",
+                        "inputs": {
+                            "email": {
+                                "sources": [{"node": "r", "output": "result", "field": "email"}]
+                            }
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "g", "output": "result"}},
+            }
+        ),
+        registry_of(bare, contact_records, greet),
+    )
 
     run = graph.run(text="x")
 
@@ -1424,12 +1815,37 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
     def records(table: Table[Reachable]) -> Series[Reachable]:
         return table.to_dicts()
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}}, "r": {"node": "records", "inputs": {"table": {"sources": [{"node": "c", "output": "result"}]}}}, "m": {"node": "send", "inputs": {"email": {"sources": [{"node": "r", "output": "result", "field": "email"}]}}}}, "outputs": {"result": {"node": "m", "output": "result"}}}), registry_of(contacts, records, send))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "c": {"node": "contacts", "inputs": {"text": {"graph_input": "text"}}},
+                    "r": {
+                        "node": "records",
+                        "inputs": {"table": {"sources": [{"node": "c", "output": "result"}]}},
+                    },
+                    "m": {
+                        "node": "send",
+                        "inputs": {
+                            "email": {
+                                "sources": [{"node": "r", "output": "result", "field": "email"}]
+                            }
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "m", "output": "result"}},
+            }
+        ),
+        registry_of(contacts, records, send),
+    )
     run = graph.run(text="x")
 
     read_back = Run.from_json(run.to_json(), graph)
 
-    assert read_back.results["c"]["result"].to_dicts() == [{"name": "ida", "email": "ida@a.dk"}, {"name": "bo", "email": None}]
+    assert read_back.results["c"]["result"].to_dicts() == [
+        {"name": "ida", "email": "ida@a.dk"},
+        {"name": "bo", "email": None},
+    ]
     assert read_back.not_called == [NotCalled(loc=("m", 1), input="email")]
 
 
@@ -1467,7 +1883,21 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
         time.sleep(0.2)
         return ["a", "b", "c", "d"]
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "boom", "inputs": {"text": {"graph_input": "b_text"}}}, "m": {"node": "many", "inputs": {"text": {"graph_input": "m_text"}}}}, "outputs": {"b_result": {"node": "b", "output": "result"}, "m_result": {"node": "m", "output": "result"}}}), registry_of(boom, many))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "b": {"node": "boom", "inputs": {"text": {"graph_input": "b_text"}}},
+                    "m": {"node": "many", "inputs": {"text": {"graph_input": "m_text"}}},
+                },
+                "outputs": {
+                    "b_result": {"node": "b", "output": "result"},
+                    "m_result": {"node": "m", "output": "result"},
+                },
+            }
+        ),
+        registry_of(boom, many),
+    )
     run = graph.run(b_text="x", m_text="y", max_items=2)
 
     assert (run.status, run.cause.type) == ("failed", "execution_failed")
@@ -1476,7 +1906,12 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
 def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_never_called_again():
     effects: list[str] = []
 
-    @node("late", title="Late", description="For a test.", policy=Policy(attempt_timeout=0.2, concurrency=2))
+    @node(
+        "late",
+        title="Late",
+        description="For a test.",
+        policy=Policy(attempt_timeout=0.2, concurrency=2),
+    )
     def late(text: str) -> str:
         time.sleep(0.4)
         effects.append(text)
@@ -1487,9 +1922,27 @@ def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_ne
         time.sleep(0.9)
         return text
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"l": {"node": "late", "inputs": {"text": {"graph_input": "l_text"}}}, "o": {"node": "long", "inputs": {"text": {"graph_input": "o_text"}}}}, "outputs": {"l_result": {"node": "l", "output": "result"}, "o_result": {"node": "o", "output": "result"}}}), registry_of(late, long))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "l": {"node": "late", "inputs": {"text": {"graph_input": "l_text"}}},
+                    "o": {"node": "long", "inputs": {"text": {"graph_input": "o_text"}}},
+                },
+                "outputs": {
+                    "l_result": {"node": "l", "output": "result"},
+                    "o_result": {"node": "o", "output": "result"},
+                },
+            }
+        ),
+        registry_of(late, long),
+    )
     run = graph.run(l_text="mail", o_text="x")
-    assert (run.status, run.cause, run.outputs) == ("complete", None, {"l_result": "mail", "o_result": "x"}) and effects == ["mail"]
+    assert (run.status, run.cause, run.outputs) == (
+        "complete",
+        None,
+        {"l_result": "mail", "o_result": "x"},
+    ) and effects == ["mail"]
 
     resumed = run.resume()
 
@@ -1521,7 +1974,9 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
         saved, start = None, time.monotonic()
         async for event in graph.with_inputs(n=list(range(400))).stream(checkpoint_every=0.05):
             if event.type == "run_checkpoint":
-                assert event.run.status == "running" and event.model_dump(mode="json") == {"type": "run_checkpoint"}
+                assert event.run.status == "running" and event.model_dump(mode="json") == {
+                    "type": "run_checkpoint"
+                }
                 saved = event.run.to_json()
             if time.monotonic() - start > 0.25 and saved is not None:
                 break  # the process dies here
@@ -1534,7 +1989,9 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
     resumed = Run.from_json(saved, graph).resume()
 
     assert 0 < kept <= before < 400
-    assert resumed.status == "complete" and resumed.results["llm"]["result"] == [n * 2 for n in range(400)]
+    assert resumed.status == "complete" and resumed.results["llm"]["result"] == [
+        n * 2 for n in range(400)
+    ]
     assert len(calls) == 400 - kept  # only the calls the checkpoint has no outcome for
 
 
@@ -1549,12 +2006,22 @@ def test_a_checkpoint_is_running_while_calls_go_on_and_read_back_is_what_its_out
     graph = Graph.compile(make_graph(numbers, q), registry_of(numbers, q))
 
     async def copies() -> list[Run[Any]]:
-        return [event.run async for event in graph.with_inputs(n=[0, 1, 2, 3]).stream(checkpoint_every=0.005) if event.type in ("run_checkpoint", "run_end")]
+        return [
+            event.run
+            async for event in graph.with_inputs(n=[0, 1, 2, 3]).stream(checkpoint_every=0.005)
+            if event.type in ("run_checkpoint", "run_end")
+        ]
 
     *checkpoints, end = _bounded(copies())
-    assert checkpoints and {c.status for c in checkpoints} == {"running"} and end.status == "waiting"
-    read_back = [Run.from_json(c.to_json(), graph) for c in checkpoints]  # the process that made them is gone
-    assert {r.status for r in read_back} == {"waiting"} and '"running"' not in checkpoints[-1].to_json()
+    assert (
+        checkpoints and {c.status for c in checkpoints} == {"running"} and end.status == "waiting"
+    )
+    read_back = [
+        Run.from_json(c.to_json(), graph) for c in checkpoints
+    ]  # the process that made them is gone
+    assert {r.status for r in read_back} == {"waiting"} and '"running"' not in checkpoints[
+        -1
+    ].to_json()
 
 
 def test_a_run_whose_every_call_returned_is_complete_though_the_timeout_passed_while_it_waited_for_a_thread():
@@ -1562,7 +2029,11 @@ def test_a_run_whose_every_call_returned_is_complete_though_the_timeout_passed_w
     llm = _counting_llm(calls, 0.1)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
     run = graph.with_inputs(n=[1]).resume(timeout=0.02)
-    assert (run.status, run.cause, run.outputs) == ("complete", None, {"result": [2]}) and calls == [1]
+    assert (run.status, run.cause, run.outputs) == (
+        "complete",
+        None,
+        {"result": [2]},
+    ) and calls == [1]
 
 
 def test_a_cancelled_stream_with_calls_on_threads_yields_a_checkpoint_before_waiting_for_them():
@@ -1572,7 +2043,9 @@ def test_a_cancelled_stream_with_calls_on_threads_yields_a_checkpoint_before_wai
 
     async def cancelled() -> list[Any]:
         cancel, seen = AsyncioEvent(), []
-        async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(cancel=cancel, checkpoint_every=60):
+        async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(
+            cancel=cancel, checkpoint_every=60
+        ):
             seen.append(event)
             if event.type == "node_start" and event.loc[0] == "llm":
                 cancel.set()
@@ -1582,7 +2055,10 @@ def test_a_cancelled_stream_with_calls_on_threads_yields_a_checkpoint_before_wai
     kinds = [e.type for e in seen]
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
     assert kinds[-1] == "run_end" and seen[-1].run.status == "cancelled"
-    assert checkpoint.run.status == "cancelled" and checkpoint.run.results["llm"]["result"] == [None] * 6  # taken when the cancel was set, before the calls in flight returned
+    assert (
+        checkpoint.run.status == "cancelled"
+        and checkpoint.run.results["llm"]["result"] == [None] * 6
+    )  # taken when the cancel was set, before the calls in flight returned
     assert 0 < sum(v is not None for v in seen[-1].run.results["llm"]["result"]) == len(calls) < 6
 
 
@@ -1602,10 +2078,15 @@ def test_a_stream_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoi
     seen = _bounded(handed_back())
     assert "run_end" not in [e.type for e in seen] and seen[-1].type == "run_checkpoint"
     left = seen[-1].run
-    assert left.status == "running" and 0 < sum(v is not None for v in left.results["llm"]["result"]) == len(calls) < 6  # the calls in flight returned and are kept
+    assert (
+        left.status == "running"
+        and 0 < sum(v is not None for v in left.results["llm"]["result"]) == len(calls) < 6
+    )  # the calls in flight returned and are kept
 
     calls.clear()
-    resumed = Run.from_json(left.to_json(), graph).resume()  # another process resumes it, repeating no call
+    resumed = Run.from_json(
+        left.to_json(), graph
+    ).resume()  # another process resumes it, repeating no call
     assert resumed.status == "complete" and resumed.results["llm"]["result"] == [2, 4, 6, 8, 10, 12]
     assert len(calls) == 6 - sum(v is not None for v in left.results["llm"]["result"])
 
@@ -1617,7 +2098,10 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
         cancel, hand_back = AsyncioEvent(), AsyncioEvent()
         cancel.set()
         hand_back.set()
-        return [event async for event in graph.with_inputs(n=[1]).stream(cancel=cancel, hand_back=hand_back)][-1]
+        return [
+            event
+            async for event in graph.with_inputs(n=[1]).stream(cancel=cancel, hand_back=hand_back)
+        ][-1]
 
     last = _bounded(both())
     assert last.type == "run_end" and last.run.status == "cancelled"
@@ -1629,17 +2113,25 @@ def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     with pytest.raises(InvalidCallError) as refused:
         graph.with_inputs(text="a").stream(checkpoint_every=every)
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
-        ("invalid_limit", ("checkpoint_every",), {"limit": "checkpoint_every", "value": every, "variant": "seconds"}),
+        (
+            "invalid_limit",
+            ("checkpoint_every",),
+            {"limit": "checkpoint_every", "value": every, "variant": "seconds"},
+        ),
     ]
 
 
 @pytest.mark.parametrize("timeout", [0, -1, math.nan, True, "5"])
-def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zero_is_refused(timeout: Any) -> None:
+def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zero_is_refused(
+    timeout: Any,
+) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
             call(graph.with_inputs(text="a"))
-        assert [(p.type, p.loc, p.ctx["limit"], p.ctx["variant"]) for p in refused.value.problems] == [("invalid_limit", ("timeout",), "timeout", "seconds")]
+        assert [
+            (p.type, p.loc, p.ctx["limit"], p.ctx["variant"]) for p in refused.value.problems
+        ] == [("invalid_limit", ("timeout",), "timeout", "seconds")]
         if not (isinstance(timeout, float) and math.isnan(timeout)):
             assert refused.value.problems[0].ctx["value"] == timeout
 
@@ -1659,7 +2151,11 @@ def test_seconds_given_as_a_decimal_are_read_as_a_float_and_the_run_keeps_that_f
     assert graph.with_inputs(text="a").resume(timeout=Decimal("1.5")).status == "complete"
 
     async def streamed() -> list[Any]:
-        async with contextlib.aclosing(graph.with_inputs(text="a").stream(timeout=Decimal("2"), checkpoint_every=Decimal("0.01"))) as events:
+        async with contextlib.aclosing(
+            graph.with_inputs(text="a").stream(
+                timeout=Decimal("2"), checkpoint_every=Decimal("0.01")
+            )
+        ) as events:
             return [event async for event in events]
 
     assert asyncio.run(streamed())[-1].run.status == "complete"
@@ -1674,7 +2170,11 @@ def test_each_checkpoint_of_a_run_reusing_the_previous_runs_outcomes_resumes_wit
     calls.clear()
 
     async def checkpoints() -> list[Any]:
-        return [e.run async for e in first.with_inputs().stream(checkpoint_every=0.0001) if e.type == "run_checkpoint"]
+        return [
+            e.run
+            async for e in first.with_inputs().stream(checkpoint_every=0.0001)
+            if e.type == "run_checkpoint"
+        ]
 
     taken = _bounded(checkpoints())
     assert len(taken) > 5 and calls == []
@@ -1694,7 +2194,9 @@ def test_a_failed_stream_with_calls_on_threads_yields_a_checkpoint_saying_it_fai
     graph = Graph.compile(make_graph(numbers, flaky), registry_of(numbers, flaky))
 
     async def streamed() -> list[Any]:
-        return [e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)]
+        return [
+            e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)
+        ]
 
     seen = _bounded(streamed())
     (checkpoint,) = [e for e in seen if e.type == "run_checkpoint"]
@@ -1711,14 +2213,48 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one
     def upper(text: str) -> str:
         return text.upper()
 
-    inner = subgraph("twice", title="Twice", description="For a test.")(GraphRecord.model_validate({"nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}}, "v": {"node": "upper", "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}}}}, "outputs": {"result": {"node": "v", "output": "result"}}}))
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}}, "sub": {"node": "twice", "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}}}}, "outputs": {"result": {"node": "sub", "output": "result"}}}), registry_of(words, upper, inner))
+    inner = subgraph("twice", title="Twice", description="For a test.")(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                    "v": {
+                        "node": "upper",
+                        "inputs": {"text": {"sources": [{"node": "u", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "v", "output": "result"}},
+            }
+        )
+    )
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+                    "sub": {
+                        "node": "twice",
+                        "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "sub", "output": "result"}},
+            }
+        ),
+        registry_of(words, upper, inner),
+    )
     events = _events(graph.with_inputs(text="a _ b _"))
 
     complete = {e.loc: (e.outcomes, e.not_called) for e in events if e.type == "node_complete"}
-    assert complete == {("w",): (1, 0), ("sub", "u"): (4, 2), ("sub", "v"): (4, 2), ("sub",): (4, 0)}  # the subgraph node is never called: its inner nodes are
+    assert complete == {
+        ("w",): (1, 0),
+        ("sub", "u"): (4, 2),
+        ("sub", "v"): (4, 2),
+        ("sub",): (4, 0),
+    }  # the subgraph node is never called: its inner nodes are
     assert events[-1].run.not_called == [
-        NotCalled(loc=("sub", 1, "u"), input="text"), NotCalled(loc=("sub", 3, "u"), input="text"),
-        NotCalled(loc=("sub", 1, "v"), input="text"), NotCalled(loc=("sub", 3, "v"), input="text"),
+        NotCalled(loc=("sub", 1, "u"), input="text"),
+        NotCalled(loc=("sub", 3, "u"), input="text"),
+        NotCalled(loc=("sub", 1, "v"), input="text"),
+        NotCalled(loc=("sub", 3, "v"), input="text"),
     ]
     assert events[-1].run.results["sub"] == {"result": ["A", None, "B", None]}

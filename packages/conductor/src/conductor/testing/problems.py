@@ -70,7 +70,9 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
         checked.add(coded)
         check_registry(checked)
     """
-    return f"its hooks read {inputs}, and no value can be made up for them; give the node an example"
+    return (
+        f"its hooks read {inputs}, and no value can be made up for them; give the node an example"
+    )
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -121,7 +123,9 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
-def upgrade_broken(*loc: str | int, newest: int, reason: str, problems: list[dict[str, Any]]) -> str:
+def upgrade_broken(
+    *loc: str | int, newest: int, reason: str, problems: list[dict[str, Any]]
+) -> str:
     """A node moved from an older version to the newest has problems when compiled.
 
     Fix the newest version's ``Upgrade``, so a graph saved with the older version compiles cleanly after the move. In

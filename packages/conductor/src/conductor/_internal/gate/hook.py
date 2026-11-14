@@ -23,7 +23,9 @@ from conductor._internal.problem import InvalidCallError, NodeDeclarationError, 
 _HOOK_FIELDS = TypeAdapter(dict[Name, Any])
 
 
-def read_hook_fields(node_id: str, kind: str, returned: Any, read_field: Callable[[str, Any, Any], Field]) -> dict[str, Field]:
+def read_hook_fields(
+    node_id: str, kind: str, returned: Any, read_field: Callable[[str, Any, Any], Field]
+) -> dict[str, Field]:
     """Returns what the hook ``kind`` of the node ``node_id`` returned, as fields by name, each read by
     ``read_field`` as ``@node`` reads one: ``declared_input`` for ``compute_added_inputs``, ``declared_output`` for
     ``compute_outputs``.
@@ -40,15 +42,32 @@ def read_hook_fields(node_id: str, kind: str, returned: Any, read_field: Callabl
     except ValidationError as invalid:
         if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
             reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
-            raise InvalidCallError([compile_problems.compute_hook_failed(node_id, reason=reason, error="not_a_mapping")]) from None
+            raise InvalidCallError(
+                [
+                    compile_problems.compute_hook_failed(
+                        node_id, reason=reason, error="not_a_mapping"
+                    )
+                ]
+            ) from None
         raise InvalidCallError(
-            compile_problems.compute_hook_failed(node_id, str(fault["loc"][0]), reason=f"what its {kind} hook returned has a field name it cannot have ({fault['msg']})", error="not_a_name")
+            compile_problems.compute_hook_failed(
+                node_id,
+                str(fault["loc"][0]),
+                reason=f"what its {kind} hook returned has a field name it cannot have ({fault['msg']})",
+                error="not_a_name",
+            )
             for fault in invalid.errors()
         ) from None
     try:
         return {name: read_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
     except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
-        raise InvalidCallError([compile_problems.compute_hook_failed(node_id, reason=str(error), error=error.problems[0].type)]) from None
+        raise InvalidCallError(
+            [
+                compile_problems.compute_hook_failed(
+                    node_id, reason=str(error), error=error.problems[0].type
+                )
+            ]
+        ) from None
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:

@@ -97,8 +97,14 @@ def test_the_context_is_recognised_by_its_metadata_whatever_the_parameter_is_cal
     def signed(app: Context[AppContext], /, text: str) -> str:
         return f"{text}, {app.caller.name}"
 
-    assert signed.context is not None and signed.context.name == "app" and list(signed.inputs) == ["text"]
-    assert Graph.compile(make_graph(signed), app_registry(signed)).run(text="Done", context=IDA).outputs == {"result": "Done, Ida"}
+    assert (
+        signed.context is not None
+        and signed.context.name == "app"
+        and list(signed.inputs) == ["text"]
+    )
+    assert Graph.compile(make_graph(signed), app_registry(signed)).run(
+        text="Done", context=IDA
+    ).outputs == {"result": "Done, Ida"}
 
 
 def _second(text: str, ctx: Context[AppContext]) -> str:
@@ -122,7 +128,9 @@ def _returned() -> Context[AppContext]:
 
 
 @pytest.mark.parametrize("function", [_second, _keyword_only, _optional, _in_a_list, _returned])
-def test_the_context_anywhere_but_the_whole_first_parameter_is_refused_at_declaration(function: Any):
+def test_the_context_anywhere_but_the_whole_first_parameter_is_refused_at_declaration(
+    function: Any,
+):
     with pytest.raises(NodeDeclarationError, match="Context") as raised:
         node("x", title="X", description="For a test.")(function)
     assert raised.value.problems[0].type == "context_misplaced"
@@ -146,8 +154,14 @@ def test_an_added_input_named_as_the_context_parameter_is_the_hooks_failure():
     def adds(ctx: Context[AppContext], formula: str, **values: str) -> str:
         return formula
 
-    [problem] = Graph.compile(make_graph(adds, constants={"adds.formula": "x"}), app_registry(adds)).problems
-    assert (problem.type, problem.loc, problem.ctx["error"]) == ("compute_hook_failed", ("adds",), "added_input_taken")
+    [problem] = Graph.compile(
+        make_graph(adds, constants={"adds.formula": "x"}), app_registry(adds)
+    ).problems
+    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+        "compute_hook_failed",
+        ("adds",),
+        "added_input_taken",
+    )
 
 
 # -- the registry names the class --------------------------------------------------------------
@@ -165,7 +179,11 @@ def test_a_subregistry_naming_the_same_class_or_none_is_added():
     prebuilt = NodeRegistry()
     prebuilt.add(upper)
     registry.add_subregistry(prebuilt)
-    assert registry.context_type is AppContext and [definition.id for definition in registry] == ["sign", "fetch", "upper"]
+    assert registry.context_type is AppContext and [definition.id for definition in registry] == [
+        "sign",
+        "fetch",
+        "upper",
+    ]
 
 
 def test_a_subregistry_naming_another_class_or_one_a_registry_with_none_lacks_is_refused():
@@ -195,11 +213,20 @@ def test_a_node_may_ask_for_the_class_a_base_of_it_or_a_protocol_it_satisfies():
 
     registry = NodeRegistry(context_type=TenantContext)
     registry.add(caller_of, fetch)
-    record = make_graph(caller_of, fetch, constants={"fetch.url": "a"}, edges=[], outputs={"caller": "caller_of.result", "fetched": "fetch.result"})
+    record = make_graph(
+        caller_of,
+        fetch,
+        constants={"fetch.url": "a"},
+        edges=[],
+        outputs={"caller": "caller_of.result", "fetched": "fetch.result"},
+    )
     graph = Graph.compile(record, registry)
     assert graph.problems == []
-    assert graph.run(context=TenantContext(caller=Caller("Bo"), http_client=HttpClient(), tenant="t")).outputs == {
-        "caller": "Bo", "fetched": "<a>",
+    assert graph.run(
+        context=TenantContext(caller=Caller("Bo"), http_client=HttpClient(), tenant="t")
+    ).outputs == {
+        "caller": "Bo",
+        "fetched": "<a>",
     }
 
 
@@ -215,11 +242,19 @@ def test_a_node_asking_for_what_the_class_lacks_is_a_problem_at_the_node_and_par
     graph = Graph.compile(make_graph(count), app_registry(count))
     [problem] = graph.problems
     assert (problem.type, problem.loc) == ("context_does_not_fit", ("count", "ctx"))
-    assert problem.ctx == {"node_id": "count", "parameter": "ctx", "needs": "HasDatabase", "context_type": "AppContext", "lacks": ["database"], "variant": "lacks"}
+    assert problem.ctx == {
+        "node_id": "count",
+        "parameter": "ctx",
+        "needs": "HasDatabase",
+        "context_type": "AppContext",
+        "lacks": ["database"],
+        "variant": "lacks",
+    }
 
 
 def test_a_protocol_is_checked_by_its_members_names_only_so_a_member_of_another_type_fits():
     """Whether the member's type fits is the host's type checker's job, not compiling's."""
+
     @dataclass(frozen=True)
     class TextContext:
         http_client: str
@@ -235,7 +270,15 @@ def test_a_class_that_is_not_the_registrys_nor_a_base_of_it_does_not_fit():
         return ctx.name
 
     [problem] = Graph.compile(make_graph(caller_of), app_registry(caller_of)).problems
-    assert (problem.type, problem.ctx) == ("context_does_not_fit", {"node_id": "caller_of", "parameter": "ctx", "needs": "Caller", "context_type": "AppContext"})
+    assert (problem.type, problem.ctx) == (
+        "context_does_not_fit",
+        {
+            "node_id": "caller_of",
+            "parameter": "ctx",
+            "needs": "Caller",
+            "context_type": "AppContext",
+        },
+    )
     assert "AppContext is not a Caller" in problem.msg
 
 
@@ -243,7 +286,11 @@ def test_a_node_that_takes_a_context_on_a_registry_that_names_no_class_is_a_prob
     registry = NodeRegistry()
     registry.add(sign)
     [problem] = Graph.compile(make_graph(sign), registry).problems
-    assert (problem.type, problem.loc, problem.ctx["variant"]) == ("context_does_not_fit", ("sign", "ctx"), "no_context_type")
+    assert (problem.type, problem.loc, problem.ctx["variant"]) == (
+        "context_does_not_fit",
+        ("sign", "ctx"),
+        "no_context_type",
+    )
     assert "NodeRegistry(context_type=" in problem.msg
 
 
@@ -257,22 +304,40 @@ def test_a_node_inside_a_subgraph_is_checked_with_the_rest_and_its_problem_is_at
         return len(text)
 
     counted = subgraph("counted", title="Counted", description="For a test.")(make_graph(count))
-    assert problems_of(Graph.compile(make_graph(counted), app_registry(count, counted))) == [("context_does_not_fit", ("counted", "count", "ctx"))]
+    assert problems_of(Graph.compile(make_graph(counted), app_registry(count, counted))) == [
+        ("context_does_not_fit", ("counted", "count", "ctx"))
+    ]
 
 
 # -- starting a run checks the object -----------------------------------------------------------
 
 
 def test_every_node_that_takes_the_context_gets_the_one_object_inside_a_subgraph_too():
-    signed = subgraph("signed", title="Signed", description="For a test.")(make_graph(lines, sign, edges=[("lines.result", "sign.text")]))
-    record = make_graph(signed, sign, edges=[], inputs={"inner": "signed.text", "outer": "sign.text"}, outputs={"inner": "signed.result", "outer": "sign.result"})
-    run = Graph.compile(record, app_registry(lines, sign, signed)).run(inner="a\nb", outer="c", context=IDA)
+    signed = subgraph("signed", title="Signed", description="For a test.")(
+        make_graph(lines, sign, edges=[("lines.result", "sign.text")])
+    )
+    record = make_graph(
+        signed,
+        sign,
+        edges=[],
+        inputs={"inner": "signed.text", "outer": "sign.text"},
+        outputs={"inner": "signed.result", "outer": "sign.result"},
+    )
+    run = Graph.compile(record, app_registry(lines, sign, signed)).run(
+        inner="a\nb", outer="c", context=IDA
+    )
     assert run.outputs == {"inner": ["a, Ida", "b, Ida"], "outer": "c, Ida"}
 
 
 def test_a_run_whose_nodes_take_the_context_and_is_given_none_is_refused_before_any_call():
     signed = subgraph("signed", title="Signed", description="For a test.")(make_graph(sign))
-    record = make_graph(signed, sign, edges=[], inputs={"inner": "signed.text", "outer": "sign.text"}, outputs={"inner": "signed.result", "outer": "sign.result"})
+    record = make_graph(
+        signed,
+        sign,
+        edges=[],
+        inputs={"inner": "signed.text", "outer": "sign.text"},
+        outputs={"inner": "signed.result", "outer": "sign.result"},
+    )
     graph = Graph.compile(record, app_registry(sign, signed))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(inner="a", outer="b")
@@ -297,12 +362,16 @@ def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
     registry.add(upper)
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(make_graph(upper), registry).run(text="a", context=IDA)  # type: ignore[arg-type]
-    assert [(p.type, p.ctx) for p in refused.value.problems] == [("invalid_context", {"got": "AppContext", "variant": "no_context_type"})]
+    assert [(p.type, p.ctx) for p in refused.value.problems] == [
+        ("invalid_context", {"got": "AppContext", "variant": "no_context_type"})
+    ]
 
 
 def test_a_graph_none_of_whose_nodes_takes_the_context_runs_with_it_or_without():
     graph = Graph.compile(make_graph(upper), app_registry(upper, sign))
-    assert graph.run(text="a").outputs == graph.run(text="a", context=IDA).outputs == {"result": "A"}
+    assert (
+        graph.run(text="a").outputs == graph.run(text="a", context=IDA).outputs == {"result": "A"}
+    )
 
 
 def test_resume_and_stream_are_checked_as_run_is():
@@ -314,7 +383,11 @@ def test_resume_and_stream_are_checked_as_run_is():
     async def events() -> list[Any]:
         return [event async for event in ready.stream(context=IDA)]
 
-    assert asyncio.run(events())[-1].run.outputs == ready.resume(context=IDA).outputs == {"result": "a, Ida"}
+    assert (
+        asyncio.run(events())[-1].run.outputs
+        == ready.resume(context=IDA).outputs
+        == {"result": "a, Ida"}
+    )
 
 
 # -- never saved, and no part of reuse ---------------------------------------------------------
@@ -331,7 +404,9 @@ def test_the_context_is_never_saved_and_is_passed_again_on_each_resume():
     graph = Graph.compile(make_graph(ask_once), app_registry(ask_once))
     saved = graph.with_inputs(text="a").to_json()
     assert "Ida" not in saved
-    assert Run.from_json(saved, graph).resume(context=IDA).outputs == {"result": "a"} and calls == ["Ida"]
+    assert Run.from_json(saved, graph).resume(context=IDA).outputs == {"result": "a"} and calls == [
+        "Ida"
+    ]
 
 
 def test_a_run_again_with_another_context_reuses_what_the_node_returned():
@@ -354,4 +429,8 @@ def test_check_registry_runs_each_example_with_the_context_it_is_given():
     registry = app_registry(sign, upper)
     assert check_registry(registry, examples={"sign": [{"text": "a"}]}, context=IDA) == []
     [problem] = check_registry(registry, examples={"sign": [{"text": "a"}]})
-    assert (problem.type, problem.loc, [one["type"] for one in problem.ctx["problems"]]) == ("run_failed", ("sign", 1), ["context_missing"])
+    assert (problem.type, problem.loc, [one["type"] for one in problem.ctx["problems"]]) == (
+        "run_failed",
+        ("sign", 1),
+        ["context_missing"],
+    )

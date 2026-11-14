@@ -124,7 +124,9 @@ def _each[T](items: list[T], action: Callable[[T], object]) -> None:
             action(item)
 
 
-@dataclass(slots=True, eq=False)  # compared and hashed by identity: ``on_threads`` is keyed by the attempt
+@dataclass(
+    slots=True, eq=False
+)  # compared and hashed by identity: ``on_threads`` is keyed by the attempt
 class _Attempt:
     """One attempt at one call: the first, or a retry.
 
@@ -210,7 +212,10 @@ class Scheduler:
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         reusable: ReusableOutcomes,
         max_items: int | None,
-        arguments_for: Callable[[BlueprintFunctionNode, ItemIndexes], dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]],
+        arguments_for: Callable[
+            [BlueprintFunctionNode, ItemIndexes],
+            dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY],
+        ],
         node_events: NodeEvents | None,
         stop: Callable[[], LastResume] | None,
         context: Any,
@@ -235,7 +240,13 @@ class Scheduler:
             checkpoint: Called with why the scheduler stopped, if it did, to hand the host a copy of the run.
             checkpoint_every: The least number of seconds between two checkpoints. None for no checkpoints.
         """
-        self.nodes, self.threads, self.outcomes, self.max_items, self.arguments_for = nodes, threads, outcomes, max_items, arguments_for
+        self.nodes, self.threads, self.outcomes, self.max_items, self.arguments_for = (
+            nodes,
+            threads,
+            outcomes,
+            max_items,
+            arguments_for,
+        )
         self.stop, self.context = stop, context
 
         # 1. Choosing the next call.
@@ -259,11 +270,15 @@ class Scheduler:
         #: The pool the attempts run on. It is made when the first attempt goes to a thread.
         self.pool: ThreadPoolExecutor | None = None
         #: Each node's attempts that wait until fewer than ``concurrency`` calls of the node run, first in first out.
-        self.waiting_to_start: defaultdict[BlueprintFunctionNode, deque[_Attempt]] = defaultdict(deque)
+        self.waiting_to_start: defaultdict[BlueprintFunctionNode, deque[_Attempt]] = defaultdict(
+            deque
+        )
         #: What the pool threads hand back: an attempt with what ``call`` returned for it (the node's outputs, and what
         #: the function raised or the problem a door of the call refused it with), or an exception ``call`` itself
         #: raised. ``None`` from any thread when a call of a node whose attempts wait here has ended.
-        self.returned: SimpleQueue[tuple[_Attempt, Any, BaseException | Problem | None] | BaseException | None] = SimpleQueue()
+        self.returned: SimpleQueue[
+            tuple[_Attempt, Any, BaseException | Problem | None] | BaseException | None
+        ] = SimpleQueue()
         #: Whether this run's thread waits for ``returned`` now: a node's ``RunningCalls`` gives a parked run a turn.
         self.parked = False
         #: The attempts handed to the pool that still count among their node's running calls, each with what counts
@@ -271,7 +286,9 @@ class Scheduler:
         #: attempt out first counts it out (``_count_out``), so it is counted out once.
         self.on_threads: dict[_Attempt, RunningCalls] = {}
         #: The running calls of each node that sets no ``concurrency``, counted by this run alone, one at a time.
-        self.counted_in_this_run: defaultdict[BlueprintFunctionNode, RunningCalls] = defaultdict(RunningCalls)
+        self.counted_in_this_run: defaultdict[BlueprintFunctionNode, RunningCalls] = defaultdict(
+            RunningCalls
+        )
         #: The retries to make and the deadlines of the attempts on threads, as a heap: the one due first is first.
         self.timers: list[_Timer] = []
         #: Gives each timer its ``order``.
@@ -319,7 +336,8 @@ class Scheduler:
                         break
                 else:
                     self._wait()
-            if self.checkpoints is not None and self.running:  # the process may die before the attempts on threads are back
+            # the process may die before the attempts on threads are back
+            if self.checkpoints is not None and self.running:
                 self._checkpoint(self.checkpoints)
             while self.running:  # a call that was made is never made again: wait for its outcome
                 self._wait()
@@ -394,7 +412,8 @@ class Scheduler:
             return
         try:
             arguments = self.arguments_for(node, item_indexes)
-        except InvalidCallError as missing:  # an edge reads a field that the record it reads from does not have
+        # an edge reads a field that the record it reads from does not have
+        except InvalidCallError as missing:
             (problem,) = missing.problems
             self._record(node, item_indexes, self._failure(node, item_indexes, problem))
             return
@@ -402,7 +421,15 @@ class Scheduler:
             return
         if not isinstance(arguments, dict):  # a Skipped or NoneInput outcome
             self._record(node, item_indexes, arguments)
-        elif (previous := self.reusable.take(node, item_indexes, arguments, self.outcomes, lambda: self._in_turn(node, item_indexes))) is not None:
+        elif (
+            previous := self.reusable.take(
+                node,
+                item_indexes,
+                arguments,
+                self.outcomes,
+                lambda: self._in_turn(node, item_indexes),
+            )
+        ) is not None:
             if previous is NotReady.NOT_ITS_TURN:
                 self.out_of_turn = True
                 return
@@ -412,7 +439,9 @@ class Scheduler:
         else:
             self._make_attempt(_Attempt(node, item_indexes, arguments, 0))
 
-    def _record(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem) -> None:
+    def _record(
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Outcome | Problem
+    ) -> None:
         """One call is over: write its outcome into the run, and do what follows from it.
 
         Example: ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` writes ``outcomes[("lines",)][()]`` and
@@ -433,7 +462,9 @@ class Scheduler:
             return
         self.outcomes[node.node_path][item_indexes] = outcome
         self.recorded_since_last_pass = self.changed = True
-        if (checkpoints := self.checkpoints) is not None and time.monotonic() >= checkpoints.next_at:
+        if (
+            checkpoints := self.checkpoints
+        ) is not None and time.monotonic() >= checkpoints.next_at:
             self._checkpoint(checkpoints)
         if self.max_items is not None and node.looped_outputs and outcome.has_outputs:
             if self._stop_if_over_item_limit(node, item_indexes, outcome, self.max_items):
@@ -450,7 +481,9 @@ class Scheduler:
             if self.node_events is not None:
                 self.node_events.call_failed(node, cause)
 
-    def _make_downstream_ready(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> None:
+    def _make_downstream_ready(
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes
+    ) -> None:
         """Put the calls that read the outcome of ``node`` for ``item_indexes`` on ``ready``, or on ``collectors``.
 
         Example: after ``shout (1,)``, the downstream node ``join`` collects every call of ``shout``, so
@@ -463,7 +496,9 @@ class Scheduler:
             if shared_indexes < depth:
                 self.collectors.add((downstream, item_indexes[:shared_indexes]))
             else:
-                for downstream_indexes in all_item_indexes(self.outcomes, downstream.loops, item_indexes)[0]:
+                for downstream_indexes in all_item_indexes(
+                    self.outcomes, downstream.loops, item_indexes
+                )[0]:
                     heapq.heappush(self.ready, (downstream.position, downstream_indexes))
 
     def _when_nothing_is_ready(self) -> bool:
@@ -506,7 +541,10 @@ class Scheduler:
         released = False
         for node, item_indexes in list(self.collectors):
             upstream, depth = all_upstream(node), len(item_indexes)
-            if not any(running_node in upstream and running_indexes[:depth] == item_indexes for running_node, running_indexes in running):
+            if not any(
+                running_node in upstream and running_indexes[:depth] == item_indexes
+                for running_node, running_indexes in running
+            ):
                 self.collectors.discard((node, item_indexes))
                 released = True
                 for call_indexes in all_item_indexes(self.outcomes, node.loops, item_indexes)[0]:
@@ -548,9 +586,19 @@ class Scheduler:
         or raises; on its pool thread by ``_on_thread``; or, for an attempt still queued for a thread when its
         deadline passes or ``run`` ends, by whoever cancels it (``_cancel_queued``).
         """
-        waiting, policy, running_calls = self.waiting_to_start[node], node.policy, self._count_of(node)
-        while waiting and not self._stop_if_asked() and running_calls.try_start(policy.most_at_once, self):
-            counted_here: RunningCalls | None = running_calls  # who counts the attempt out if this raises: here, or ``on_threads``
+        waiting, policy, running_calls = (
+            self.waiting_to_start[node],
+            node.policy,
+            self._count_of(node),
+        )
+        while (
+            waiting
+            and not self._stop_if_asked()
+            and running_calls.try_start(policy.most_at_once, self)
+        ):
+            counted_here: RunningCalls | None = (
+                running_calls  # who counts the attempt out if this raises: here, or ``on_threads``
+            )
             try:  # no call between try_start and here, so nothing can be raised before the attempt is counted out
                 attempt = waiting.popleft()
                 if self.node_events is not None:
@@ -627,13 +675,19 @@ class Scheduler:
             return node.compiled_node.definition.running_calls
         return self.counted_in_this_run[node]
 
-    def _attempt_over(self, attempt: _Attempt, outputs: Any, error: BaseException | Problem | None) -> None:
+    def _attempt_over(
+        self, attempt: _Attempt, outputs: Any, error: BaseException | Problem | None
+    ) -> None:
         """``attempt`` is over, on the scheduler's thread or back from its own: record its outcome unless it is
         retried. It is still the call's attempt in ``running``."""
         node, item_indexes = attempt.node, attempt.item_indexes
         if not self._retry(attempt, error):
             del self.running[(node, item_indexes)]
-            self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, error))
+            self._record(
+                node,
+                item_indexes,
+                self._outcome(node, item_indexes, attempt.arguments, outputs, error),
+            )
 
     def _on_thread(self, attempt: _Attempt) -> None:
         """Runs on a pool thread: call the node, count the call out of its node's running calls, and put what it
@@ -660,7 +714,11 @@ class Scheduler:
         Then handle the attempt that is back, if any, and every timer that is due."""
         timeout = self.timers[0].when - time.monotonic() if self.timers else None
         if self.stop is not None:
-            timeout = _SECONDS_BETWEEN_STOP_CHECKS if timeout is None else min(timeout, _SECONDS_BETWEEN_STOP_CHECKS)
+            timeout = (
+                _SECONDS_BETWEEN_STOP_CHECKS
+                if timeout is None
+                else min(timeout, _SECONDS_BETWEEN_STOP_CHECKS)
+            )
         try:
             self.parked = True
             try:
@@ -680,7 +738,9 @@ class Scheduler:
             if returned is None:
                 self._start_every_waiting_call()
             else:
-                for node in self._nodes_waiting():  # busy with other news: a run that woke it does not wait for its turn
+                for node in (
+                    self._nodes_waiting()
+                ):  # busy with other news: a run that woke it does not wait for its turn
                     self._count_of(node).turned_away(self)
                 if isinstance(returned, BaseException):
                     raise returned
@@ -691,7 +751,9 @@ class Scheduler:
         while self.timers and self.timers[0].when <= now:
             self._due(heapq.heappop(self.timers))
 
-    def _call_returned(self, returned: tuple[_Attempt, Any, BaseException | Problem | None]) -> None:
+    def _call_returned(
+        self, returned: tuple[_Attempt, Any, BaseException | Problem | None]
+    ) -> None:
         """An attempt is back from its thread: start the node's next waiting attempt, then retry this one or record
         its outcome.
 
@@ -703,9 +765,19 @@ class Scheduler:
         attempt, outputs, error = returned
         node, item_indexes = attempt.node, attempt.item_indexes
         self._start_waiting_calls(node)
-        if self.running.get((node, item_indexes)) is not attempt:  # only a deadline that passed takes an attempt on a thread out of ``running``
-            if error is None and not self.going and item_indexes not in self.outcomes[node.node_path]:
-                self._record(node, item_indexes, self._outcome(node, item_indexes, attempt.arguments, outputs, None))
+        if (
+            self.running.get((node, item_indexes)) is not attempt
+        ):  # only a deadline that passed takes an attempt on a thread out of ``running``
+            if (
+                error is None
+                and not self.going
+                and item_indexes not in self.outcomes[node.node_path]
+            ):
+                self._record(
+                    node,
+                    item_indexes,
+                    self._outcome(node, item_indexes, attempt.arguments, outputs, None),
+                )
             return
         self._attempt_over(attempt, outputs, error)
 
@@ -721,22 +793,36 @@ class Scheduler:
         """
         node, item_indexes = attempt.node, attempt.item_indexes
         policy = node.policy
-        if error is None or isinstance(error, Problem) or attempt.number >= policy.retries or not self.going:
+        if (
+            error is None
+            or isinstance(error, Problem)
+            or attempt.number >= policy.retries
+            or not self.going
+        ):
             return False
-        if not isinstance(error, ExternalError) and (isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)):
+        if not isinstance(error, ExternalError) and (
+            isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)
+        ):
             return False
         delay = policy.retry_delay * 2**attempt.number
         retry = _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1)
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)
         if self.node_events is not None:
-            self.node_events.call_retries(node, attempt.number + 1, delay, self._failure(node, item_indexes, error))
+            self.node_events.call_retries(
+                node, attempt.number + 1, delay, self._failure(node, item_indexes, error)
+            )
         return True
 
-    def _set_timer(self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt) -> None:
+    def _set_timer(
+        self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt
+    ) -> None:
         """Set a timer that is due ``seconds`` from now: ``"retry"`` to make ``attempt``, or ``"deadline"`` for
         the ``attempt_timeout`` of ``attempt``, which starts on a thread now."""
-        heapq.heappush(self.timers, _Timer(time.monotonic() + seconds, next(self.timer_order), kind, attempt, seconds))
+        heapq.heappush(
+            self.timers,
+            _Timer(time.monotonic() + seconds, next(self.timer_order), kind, attempt, seconds),
+        )
 
     def _due(self, timer: _Timer) -> None:
         """A timer is due. A retry: make the attempt, unless ``end`` was called. A deadline: if the attempt is
@@ -749,10 +835,19 @@ class Scheduler:
         elif self.running.get((node, item_indexes)) is attempt:
             del self.running[(node, item_indexes)]
             self._cancel_queued(attempt)
-            self._record(node, item_indexes, run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds))
+            self._record(
+                node,
+                item_indexes,
+                run_problems.timeout(*outcome_loc(node, item_indexes), seconds=timer.seconds),
+            )
 
     def _outcome(
-        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outputs: Any, error: BaseException | Problem | None
+        self,
+        node: BlueprintFunctionNode,
+        item_indexes: ItemIndexes,
+        arguments: dict[str, Any],
+        outputs: Any,
+        error: BaseException | Problem | None,
     ) -> Outcome | Problem:
         """The outcome of a call from what ``call`` returned: ``Done`` with the outputs, ``Unanswered`` with what the
         ``Ask`` said when the function raised one, or the problem the call failed with.
@@ -764,7 +859,8 @@ class Scheduler:
             return Done(outputs)
         if isinstance(error, Ask):
             try:
-                jsonable(arguments)  # a person is shown what the call received with the question (run.waiting)
+                # a person is shown what the call received with the question (run.waiting)
+                jsonable(arguments)
                 choices, defaults = node.compiled_node.ask_door(error)
             except InvalidCallError as refused:  # arguments with no JSON form, or the Ask door
                 (problem,) = refused.problems
@@ -772,7 +868,9 @@ class Scheduler:
             return Unanswered(error.prompt, choices, defaults)
         return self._failure(node, item_indexes, error)
 
-    def _failure(self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem) -> Problem:
+    def _failure(
+        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem
+    ) -> Problem:
         """The problem a call failed with, with the call's loc: a door's problem, or one for what the function raised.
 
         A door's problem is kept, and so is the one a ``NodeError`` made when it was raised. Any other exception, an
@@ -785,7 +883,9 @@ class Scheduler:
             error = error.problems[0]
         if isinstance(error, Problem):
             return error.model_copy(update={"loc": loc})
-        _logger.error("node %r failed for item %r", place_text(node.node_path), item_indexes, exc_info=error)
+        _logger.error(
+            "node %r failed for item %r", place_text(node.node_path), item_indexes, exc_info=error
+        )
         if isinstance(error, node.policy.retry_on):
             return run_problems.external_failed(*loc, error=type(error).__name__)
         return run_problems.execution_failed(*loc, error=type(error).__name__)
@@ -809,7 +909,9 @@ class Scheduler:
             order, every_call_known = all_item_indexes(self.outcomes, node.loops, ())
             if not every_call_known:
                 return False
-            turn = self.item_orders[node] = _ItemOrder(order, {indexes: position for position, indexes in enumerate(order)})
+            turn = self.item_orders[node] = _ItemOrder(
+                order, {indexes: position for position, indexes in enumerate(order)}
+            )
         order, outcomes, reached = turn.order, self.outcomes[node.node_path], turn.reached
         while reached < len(order):
             next_indexes = order[reached]
@@ -830,11 +932,17 @@ class Scheduler:
         for node in self.nodes:
             if node.looped_outputs:
                 for item_indexes, outcome in self.outcomes[node.node_path].items():
-                    if outcome.has_outputs and self._stop_if_over_item_limit(node, item_indexes, outcome, item_limit):
+                    if outcome.has_outputs and self._stop_if_over_item_limit(
+                        node, item_indexes, outcome, item_limit
+                    ):
                         return
 
     def _stop_if_over_item_limit(
-        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, outcome: Done | Skipped | NoneInput, item_limit: int
+        self,
+        node: BlueprintFunctionNode,
+        item_indexes: ItemIndexes,
+        outcome: Done | Skipped | NoneInput,
+        item_limit: int,
     ) -> bool:
         """End the run as ``stopped`` with the problem ``item_limit`` if a series in ``outcome`` that a loop runs over
         has more items than ``item_limit``, unless ``end`` was called before: the first cause stays.
@@ -850,9 +958,19 @@ class Scheduler:
             items = length(outcome.outputs[output])
             if items > item_limit:
                 if self.going:
-                    loc = outcome_loc(named, item_indexes[: len(named.parent.loops) if named.parent is not None else 0])
+                    loc = outcome_loc(
+                        named,
+                        item_indexes[: len(named.parent.loops) if named.parent is not None else 0],
+                    )
                     series = place_text((named.compiled_node.id,), series_output)
-                    self.end(EndedEarly("stopped", run_problems.item_limit(*loc, series=series, items=items, max_items=item_limit)))
+                    self.end(
+                        EndedEarly(
+                            "stopped",
+                            run_problems.item_limit(
+                                *loc, series=series, items=items, max_items=item_limit
+                            ),
+                        )
+                    )
                 return True
         return False
 
@@ -861,4 +979,3 @@ class Scheduler:
         checkpoints.next_at = time.monotonic() + checkpoints.every
         self._put_in_order()
         checkpoints.save(self.stopped)
-

@@ -76,7 +76,9 @@ def run_complete() -> str:
     A 409 from ``POST /runs/{run_id}/answers``. Nothing waits; ``POST /runs/{run_id}/again`` starts a new run with some
     inputs changed.
     """
-    return "The run is complete, so nothing in it waits for an answer; start a new run to ask again."
+    return (
+        "The run is complete, so nothing in it waits for an answer; start a new run to ask again."
+    )
 
 
 @ROUTER_PROBLEMS.problem()

@@ -463,7 +463,9 @@ def duplicate_type_id(*, id: str, first: str, second: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
-def empty_title_or_description(*, declared_with: str, id: str, empty: Literal["title", "description"]) -> str:
+def empty_title_or_description(
+    *, declared_with: str, id: str, empty: Literal["title", "description"]
+) -> str:
     """A node is declared with an empty title or description.
 
     Give the node a title and a description: they are what a person reads for it in a palette.
@@ -1004,7 +1006,9 @@ def upgrade_missing(*, gone: list[str]) -> str:
 
         declaration_refused(lambda: node("hello", title="Hello", description="Says hello to a person.", replaces=hello_v1)(hello))
     """
-    return f"the version it replaces has {gone}, gone from this one; its Upgrade says where they went"
+    return (
+        f"the version it replaces has {gone}, gone from this one; its Upgrade says where they went"
+    )
 
 
 @DECLARATION_PROBLEMS.problem()

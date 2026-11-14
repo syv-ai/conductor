@@ -40,10 +40,14 @@ class _JsonFormSchema(GenerateJsonSchema):
     def __init__(self) -> None:
         super().__init__()
         self.refused: list[str] = []
-        self._models: list[type[BaseModel]] = []  # the model whose fields are being written, innermost last
+        self._models: list[
+            type[BaseModel]
+        ] = []  # the model whose fields are being written, innermost last
 
     def is_subclass_schema(self, schema: IsSubclassSchema) -> JsonSchemaValue:
-        return self.handle_invalid_for_json_schema(schema, f"core_schema.IsSubclassSchema ({schema['cls']})")
+        return self.handle_invalid_for_json_schema(
+            schema, f"core_schema.IsSubclassSchema ({schema['cls']})"
+        )
 
     def model_schema(self, schema: ModelSchema) -> JsonSchemaValue:
         self._models.append(schema["cls"])
@@ -107,6 +111,7 @@ class ConductorModel(BaseModel):
             field = fields.get(name) if name is not None else None
             if field is not None and not field.is_required():
                 default = field.get_default(call_default_factory=True)
-                if value is default or (default is not None and value == default):  # a frame's == compares cell by cell, so ``is`` is tried first
+                # a frame's == compares cell by cell, so ``is`` is tried first
+                if value is default or default is not None and value == default:
                     continue
             yield name, value

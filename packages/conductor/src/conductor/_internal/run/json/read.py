@@ -55,27 +55,50 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         read = codec.model_validate_json(saved)
     except ValidationError as error:
         first = error.errors()[0]
-        if first["type"] == "literal_error" and first["loc"] == ("graph",):  # the fingerprint under "graph" is not this graph's
-            raise InvalidCallError([call_problems.saved_run_of_another_graph("saved_run", saved=first["input"], graph=graph.fingerprint)]) from None
+        # the fingerprint under "graph" is not this graph's
+        if first["type"] == "literal_error" and first["loc"] == ("graph",):
+            raise InvalidCallError(
+                [
+                    call_problems.saved_run_of_another_graph(
+                        "saved_run", saved=first["input"], graph=graph.fingerprint
+                    )
+                ]
+            ) from None
         reason = value_free_errors(error)[0]["msg"]
-        raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where_in(codec, first["loc"]), reason=reason)]) from None
+        raise InvalidCallError(
+            [
+                call_problems.saved_run_unreadable(
+                    "saved_run", where=where_in(codec, first["loc"]), reason=reason
+                )
+            ]
+        ) from None
     in_call_order: dict[NodePath, list[Outcome | None]] = {}
     code_changed = {
-        path: fingerprint for name, fingerprint in read.code.items()
-        if fingerprint != blueprint.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
+        path: fingerprint
+        for name, fingerprint in read.code.items()
+        if fingerprint
+        != blueprint.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
     }
     reusable = ReusableOutcomes(code_changed=code_changed)
     try:
         for name, saved_outcomes in read.outcomes.items():
             where, path = f"outcomes.{name}", parse_node_path(name)
-            in_call_order[path] = outcomes_from_saved(blueprint.function_nodes[path].compiled_node, saved_outcomes)
+            in_call_order[path] = outcomes_from_saved(
+                blueprint.function_nodes[path].compiled_node, saved_outcomes
+            )
         for name, saved_reusable in read.reusable.items():
             where, path = f"reusable.{name}.outcomes", parse_node_path(name)
-            reusable_in_call_order = outcomes_from_saved(blueprint.function_nodes[path].compiled_node, saved_reusable.outcomes)
+            reusable_in_call_order = outcomes_from_saved(
+                blueprint.function_nodes[path].compiled_node, saved_reusable.outcomes
+            )
             where = f"reusable.{name}"
-            add_reusable_from_saved(reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order)
+            add_reusable_from_saved(
+                reusable, blueprint.function_nodes[path], saved_reusable, reusable_in_call_order
+            )
     except ValueError as wrong:
-        raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]) from None
+        raise InvalidCallError(
+            [call_problems.saved_run_unreadable("saved_run", where=where, reason=str(wrong))]
+        ) from None
     outcomes: dict[NodePath, dict[ItemIndexes, Outcome]] = {}
     for path, node in blueprint.function_nodes.items():
         outcomes[path] = {}
@@ -83,13 +106,26 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
             every_item_indexes, _ = all_item_indexes(outcomes, node.loops, ())
             if len(of_node) != len(every_item_indexes):
                 reason = f"its lists have {len(of_node)} entries, but the saved series give the node {len(every_item_indexes)} calls"
-                raise InvalidCallError([call_problems.saved_run_unreadable("saved_run", where=f"outcomes.{place_text(path)}", reason=reason)])
+                raise InvalidCallError(
+                    [
+                        call_problems.saved_run_unreadable(
+                            "saved_run", where=f"outcomes.{place_text(path)}", reason=reason
+                        )
+                    ]
+                )
             outcomes[path] = {
-                item_indexes: outcome for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True) if outcome is not None
+                item_indexes: outcome
+                for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True)
+                if outcome is not None
             }
     reusable.drop(code_changed)  # outcomes that other code produced are never reused
     return run_type(
-        graph, read.inputs, read.max_items, outcomes, reusable, _last_resume=read.ended_early,
+        graph,
+        read.inputs,
+        read.max_items,
+        outcomes,
+        reusable,
+        _last_resume=read.ended_early,
         _complete_nodes=frozenset(parse_node_path(name) for name in read.complete),
     )
 
@@ -120,7 +156,9 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
             skipped_calls = set(saved.skipped.get(name, ()))
             for call_number, (state, value) in enumerate(zip(states, values, strict=True)):
                 if state == SAVED_DONE and value is None and call_number not in skipped_calls:
-                    raise ValueError(f"call {call_number} is done and has null for '{name}', whose type takes no None")
+                    raise ValueError(
+                        f"call {call_number} is done and has null for '{name}', whose type takes no None"
+                    )
     try:
         for name, call_numbers in saved.skipped.items():
             for call_number in call_numbers:
@@ -129,7 +167,10 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
             for call_number, indexes in by_call_number.items():
                 for index in indexes:
                     values_by_output[name][call_number][index] = SKIPPED
-        outputs_by_call = [{name: values[call_number] for name, values in values_by_output.items()} for call_number in range(len(states))]
+        outputs_by_call = [
+            {name: values[call_number] for name, values in values_by_output.items()}
+            for call_number in range(len(states))
+        ]
         skipped_outcome = Skipped(node.outputs_when_skipped)
         outcomes: list[Outcome | None] = []
         for state, of_call in zip(states, outputs_by_call, strict=True):
@@ -147,13 +188,22 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
             if outcomes[call_number] is not None:
                 raise LookupError(call_number)
             outcomes[call_number] = NoneInput(node.outputs_when_not_called, input_name)
-    except (LookupError, TypeError, AttributeError):  # a call number past the end of the lists, or a call of another kind
+    except (
+        LookupError,
+        TypeError,
+        AttributeError,
+    ):  # a call number past the end of the lists, or a call of another kind
         message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
         raise ValueError(message) from None
     return outcomes
 
 
-def add_reusable_from_saved(reusable: ReusableOutcomes, node: BlueprintFunctionNode, saved: SavedReusable, in_call_order: list[Outcome | None]) -> None:
+def add_reusable_from_saved(
+    reusable: ReusableOutcomes,
+    node: BlueprintFunctionNode,
+    saved: SavedReusable,
+    in_call_order: list[Outcome | None],
+) -> None:
     """Adds the outcomes one node may reuse from the previous run to ``reusable``, from their saved shape.
 
     The three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}`` are added each
@@ -172,11 +222,21 @@ def add_reusable_from_saved(reusable: ReusableOutcomes, node: BlueprintFunctionN
     if len(saved.fingerprints) != len(in_call_order):
         raise ValueError("'fingerprints' is not as long as the lists of 'outcomes'")
     item_indexes, outer_item_fingerprints = saved.item_indexes, saved.outer_item_fingerprints
-    for place, (fingerprint, outcome) in enumerate(zip(saved.fingerprints, in_call_order, strict=True)):
+    for place, (fingerprint, outcome) in enumerate(
+        zip(saved.fingerprints, in_call_order, strict=True)
+    ):
         match outcome:
             case Done() | Unanswered():
-                reusable.add(node, fingerprint, outcome, item_indexes=item_indexes.get(place), outer_items=outer_item_fingerprints.get(place, ""))
+                reusable.add(
+                    node,
+                    fingerprint,
+                    outcome,
+                    item_indexes=item_indexes.get(place),
+                    outer_items=outer_item_fingerprints.get(place, ""),
+                )
             case Skipped() | NoneInput() | None:
-                raise ValueError("an outcome is skipped, not called or missing, and only an outcome of a call is reused")
+                raise ValueError(
+                    "an outcome is skipped, not called or missing, and only an outcome of a call is reused"
+                )
             case _:
                 assert_never(outcome)

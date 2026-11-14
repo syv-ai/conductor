@@ -23,7 +23,9 @@ CALL_PROBLEMS = ProblemCatalogue(
 
 
 @CALL_PROBLEMS.problem()
-def answer_stale(*loc: str | int, waiting_id: str, current: str, moved_to: str | None = None) -> str:
+def answer_stale(
+    *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
+) -> str:
     """An answer is for a question that another question has replaced.
 
     A run made with other inputs (``run.again``, ``run.with_inputs``) asks again where the inputs of the call changed,
@@ -45,7 +47,9 @@ def answer_stale(*loc: str | int, waiting_id: str, current: str, moved_to: str |
 
 
 @CALL_PROBLEMS.problem()
-def cannot_move_to_version(*loc: str | int, node: str, version: int, target: int, versions: list[int]) -> str:
+def cannot_move_to_version(
+    *loc: str | int, node: str, version: int, target: int, versions: list[int]
+) -> str:
     """``registry.upgrade`` is asked to move a node to a version it cannot reach from the version it is at.
 
     Ask for a version ``ctx.versions`` lists, or leave ``to`` out for the newest.
@@ -83,7 +87,9 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
 
 
 @CALL_PROBLEMS.problem()
-def invalid_answer(*loc: str | int, waiting_id: str, reason: str, question: str | None = None) -> str:
+def invalid_answer(
+    *loc: str | int, waiting_id: str, reason: str, question: str | None = None
+) -> str:
     """An answer is not a value of the type the question takes.
 
     Answer with a value of the question's type, as JSON reads it: ``true``, not ``"yes"``.
@@ -137,7 +143,13 @@ def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
 
 
 @CALL_PROBLEMS.problem()
-def invalid_input(*loc: str | int, name: str, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
+def invalid_input(
+    *loc: str | int,
+    name: str,
+    reason: str,
+    errors: list[dict[str, Any]] | None = None,
+    column: str | None = None,
+) -> str:
     """A call gives a graph input a value its type does not take.
 
     Give a value of the input's type; ``graph.inputs[name].json_schema`` is its schema, limits included. ``reason``
@@ -213,7 +225,9 @@ def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
 
 
 @CALL_PROBLEMS.problem()
-def invalid_record(*loc: str | int, where: str, reason: str, error: str, written_by: str | None = None) -> str:
+def invalid_record(
+    *loc: str | int, where: str, reason: str, error: str, written_by: str | None = None
+) -> str:
     """What was given as a graph record is not one: its JSON does not have a graph record's shape.
 
     Fix the JSON: ``ctx.where`` says where it stops being a graph record. A graph record of the right shape is always

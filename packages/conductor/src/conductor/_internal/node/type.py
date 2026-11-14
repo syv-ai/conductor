@@ -124,7 +124,13 @@ class _Version:
         return MappingProxyType({self.version: self, **older})
 
     def described_as(
-        self, *, inputs: list[FieldDescription], outputs: list[FieldDescription], asks: bool, takes_added_inputs: bool, computes_outputs: bool,
+        self,
+        *,
+        inputs: list[FieldDescription],
+        outputs: list[FieldDescription],
+        asks: bool,
+        takes_added_inputs: bool,
+        computes_outputs: bool,
     ) -> NodeDescription:
         """Describes this version as an editor's palette shows it, with what its kind of node works out itself.
 
@@ -136,9 +142,21 @@ class _Version:
             computes_outputs: Whether its outputs depend on what is typed into it and on what arrives.
         """
         return NodeDescription(
-            id=self.id, version=self.version, versions=list(self.versions), title=self.title, description=self.description,
-            category=self.category, tags=list(self.tags), extra=dict(self.extra), docs=self.docs, deprecation=self.deprecation,
-            inputs=inputs, outputs=outputs, asks=asks, takes_added_inputs=takes_added_inputs, computes_outputs=computes_outputs,
+            id=self.id,
+            version=self.version,
+            versions=list(self.versions),
+            title=self.title,
+            description=self.description,
+            category=self.category,
+            tags=list(self.tags),
+            extra=dict(self.extra),
+            docs=self.docs,
+            deprecation=self.deprecation,
+            inputs=inputs,
+            outputs=outputs,
+            asks=asks,
+            takes_added_inputs=takes_added_inputs,
+            computes_outputs=computes_outputs,
         )
 
 
@@ -181,7 +199,9 @@ class FunctionDefinition[**P, R](_Version):
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None
     context: ContextParameter | None = None
-    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(default_factory=dict[HookName, Mapping[str, HookParameter]])
+    hook_parameters: Mapping[HookName, Mapping[str, HookParameter]] = dataclasses.field(
+        default_factory=dict[HookName, Mapping[str, HookParameter]]
+    )
     asks: bool = False
     running_calls: RunningCalls = dataclasses.field(default_factory=RunningCalls)
 
@@ -204,7 +224,11 @@ class FunctionDefinition[**P, R](_Version):
     def required_inputs(self) -> tuple[str, ...]:
         """The inputs a graph must give a value to: those with no default that no hook reads."""
         hooked = read_by_hooks(self)
-        return tuple(name for name, field in self.inputs.items() if field.default is REQUIRED and name not in hooked)
+        return tuple(
+            name
+            for name, field in self.inputs.items()
+            if field.default is REQUIRED and name not in hooked
+        )
 
     @property
     def output_names(self) -> tuple[str, ...]:
@@ -214,8 +238,10 @@ class FunctionDefinition[**P, R](_Version):
     def describe(self) -> NodeDescription:
         """The node as an editor's palette shows it."""
         return self.described_as(
-            inputs=[field.description for field in self.inputs.values()], outputs=[field.description for field in self.outputs.values()],
-            takes_added_inputs=self.compute_added_inputs is not None, computes_outputs=self.compute_outputs is not None,
+            inputs=[field.description for field in self.inputs.values()],
+            outputs=[field.description for field in self.outputs.values()],
+            takes_added_inputs=self.compute_added_inputs is not None,
+            computes_outputs=self.compute_outputs is not None,
             asks=self.asks,
         )
 
@@ -269,7 +295,13 @@ def gone_outputs(older: NodeDefinition, newer: NodeDefinition) -> set[str]:
     return set(older.output_names) - set(newer.output_names) - newer.upgrade.renamed_outputs.keys()
 
 
-def with_defaults(definition: NodeDefinition, *, tags: tuple[str, ...], category: str, extra: Mapping[str, JsonValue]) -> NodeDefinition:
+def with_defaults(
+    definition: NodeDefinition,
+    *,
+    tags: tuple[str, ...],
+    category: str,
+    extra: Mapping[str, JsonValue],
+) -> NodeDefinition:
     """Returns ``definition``, and each version it replaces, with a registry's defaults under its own.
 
     ``shout`` declared with ``tags=("text",)`` and no category, added to a registry with ``tags=("demo",)`` and
@@ -279,12 +311,32 @@ def with_defaults(definition: NodeDefinition, *, tags: tuple[str, ...], category
     merged_tags = tuple(dict.fromkeys((*tags, *definition.tags)))
     merged_category = definition.category or category
     merged_extra = {**extra, **definition.extra}
-    replaces = None if definition.replaces is None else with_defaults(definition.replaces, tags=tags, category=category, extra=extra)
-    if (merged_tags, merged_category, merged_extra, replaces) == (definition.tags, definition.category, dict(definition.extra), definition.replaces):
+    replaces = (
+        None
+        if definition.replaces is None
+        else with_defaults(definition.replaces, tags=tags, category=category, extra=extra)
+    )
+    if (merged_tags, merged_category, merged_extra, replaces) == (
+        definition.tags,
+        definition.category,
+        dict(definition.extra),
+        definition.replaces,
+    ):
         return definition
-    return dataclasses.replace(definition, tags=merged_tags, category=merged_category, extra=MappingProxyType(merged_extra), replaces=replaces)
+    return dataclasses.replace(
+        definition,
+        tags=merged_tags,
+        category=merged_category,
+        extra=MappingProxyType(merged_extra),
+        replaces=replaces,
+    )
 
 
 def read_by_hooks(definition: FunctionDefinition[..., Any]) -> frozenset[str]:
     """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
-    return frozenset(name for parameters in definition.hook_parameters.values() for name, receives in parameters.items() if receives == "value")
+    return frozenset(
+        name
+        for parameters in definition.hook_parameters.values()
+        for name, receives in parameters.items()
+        if receives == "value"
+    )

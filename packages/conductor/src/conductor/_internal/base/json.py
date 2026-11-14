@@ -45,7 +45,11 @@ def plain_json(value: Any, fallback: Callable[[Any], Any] | None = None) -> Json
     return plain
 
 
-def validate_as_json(validator: SchemaValidator | TypeAdapter[Any], value: Any, fallback: Callable[[Any], Any] | None = None) -> Any:
+def validate_as_json(
+    validator: SchemaValidator | TypeAdapter[Any],
+    value: Any,
+    fallback: Callable[[Any], Any] | None = None,
+) -> Any:
     """Validates the Python value ``value`` strictly, as ``validator`` validates the same value sent as JSON text.
 
     For a ``bool``, ``True`` is read and ``"yes"`` refused; for a ``date``, both ``date(2026, 1, 2)`` and
@@ -71,15 +75,19 @@ def validate_as_json(validator: SchemaValidator | TypeAdapter[Any], value: Any, 
     def written(part: Any, write: Callable[[Any], Any]) -> Any:
         try:
             return write(part)
-        except PydanticCustomError as refusal:  # to_json would turn it into a PydanticSerializationError
+        # to_json would turn it into a PydanticSerializationError
+        except PydanticCustomError as refusal:
             refused.append(refusal)
             raise
 
     try:
-        text = to_json(value, inf_nan_mode="constants", fallback=None if fallback is None else functools.partial(written, write=fallback))
+        text = to_json(
+            value,
+            inf_nan_mode="constants",
+            fallback=None if fallback is None else functools.partial(written, write=fallback),
+        )
     except PydanticSerializationError:
         if refused:
             raise refused[0] from None
         raise
     return validator.validate_json(text, strict=True)
-

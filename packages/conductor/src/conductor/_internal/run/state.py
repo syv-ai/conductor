@@ -30,7 +30,9 @@ if TYPE_CHECKING:
 #: The status of a run: ``run.status``. ``ready``, ``waiting`` and ``complete`` are read from its outcomes;
 #: ``running`` is a copy made while a ``resume()`` went on; ``failed``, ``stopped``, ``cancelled`` and ``timed_out``
 #: say how the last ``resume()`` ended it early.
-RunStatus = Literal["ready", "running", "waiting", "complete", "failed", "stopped", "cancelled", "timed_out"]
+RunStatus = Literal[
+    "ready", "running", "waiting", "complete", "failed", "stopped", "cancelled", "timed_out"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +85,11 @@ def kept_by_an_answer(last_resume: LastResume) -> LastResume:
     """What a run keeps of how the last ``resume()`` left it once a call is answered: a call that failed, or a series
     over the item limit, which stand until a ``resume()`` tries again. That the resume was going on, was cancelled or
     timed out is that resume's, and the answered run comes after it."""
-    return last_resume if isinstance(last_resume, EndedEarly) and last_resume.status in ("failed", "stopped") else None
+    return (
+        last_resume
+        if isinstance(last_resume, EndedEarly) and last_resume.status in ("failed", "stopped")
+        else None
+    )
 
 
 def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
@@ -92,4 +98,8 @@ def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
     if timeout is None:
         return None
     end = time.monotonic() + timeout
-    return lambda: EndedEarly("timed_out", run_problems.run_timed_out(timeout=timeout)) if time.monotonic() > end else None
+    return lambda: (
+        EndedEarly("timed_out", run_problems.run_timed_out(timeout=timeout))
+        if time.monotonic() > end
+        else None
+    )

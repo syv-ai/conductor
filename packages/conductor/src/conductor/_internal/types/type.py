@@ -84,7 +84,11 @@ def _written_metadata(metadata: Any) -> str:
     if isinstance(metadata, (FunctionType, MethodType)):
         return qualified_name(metadata)
     if dataclasses.is_dataclass(metadata):
-        written = ", ".join(f"{f.name}={_written_metadata(getattr(metadata, f.name))}" for f in dataclasses.fields(metadata) if f.repr)
+        written = ", ".join(
+            f"{f.name}={_written_metadata(getattr(metadata, f.name))}"
+            for f in dataclasses.fields(metadata)
+            if f.repr
+        )
         return f"{type(metadata).__qualname__}({written})"
     if type(metadata).__repr__ is object.__repr__:
         return qualified_name(type(metadata))
@@ -144,7 +148,8 @@ class Type:
                 (inside an ``Any``) is written, hashed and compared by the subclass's ``untyped_`` methods.
         """
         _KINDS[of] = cls
-        OWN_IDS.add(of.__qualname__)  # the generic class is named as a host imports it, which is its id
+        # the generic class is named as a host imports it, which is its id
+        OWN_IDS.add(of.__qualname__)
         if value_class is not None:
             READ_AS[value_class] = of
 
@@ -155,7 +160,8 @@ class Type:
             return Type._made[hint]
         except KeyError:
             made = Type._made[hint] = super().__new__(_kind_of(hint))
-        except TypeError:  # a hint that can't be hashed (a Param whose Choice holds a dict) is read each time
+        # a hint that can't be hashed (a Param whose Choice holds a dict) is read each time
+        except TypeError:
             made = super().__new__(_kind_of(hint))
         made.hint = hint
         return made
@@ -187,7 +193,11 @@ class Type:
     def optional(self) -> bool:
         """Whether a blank (``None``) may arrive: ``X | None``, ``Any``, or a type alias that stands for either."""
         options = union_members(self.bare)
-        return Any in options or type(None) in options or any(is_alias(option) and Type(aliased(option)).optional for option in options)
+        return (
+            Any in options
+            or type(None) in options
+            or any(is_alias(option) and Type(aliased(option)).optional for option in options)
+        )
 
     @functools.cached_property
     def limited(self) -> bool:
@@ -207,7 +217,9 @@ class Type:
         bare, param, others = self._parts
         held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
         if param.choices is not None:
-            held.append(f"choices={[choice.id for choice in read_choices(param.choices, self._built[1], self.to_json)]!r}")
+            held.append(
+                f"choices={[choice.id for choice in read_choices(param.choices, self._built[1], self.to_json)]!r}"
+            )
         held += [_written_metadata(other) for other in others]
         return f"{_written(bare)}{held}" if held else _written(bare)
 
@@ -216,7 +228,9 @@ class Type:
         """The type variables the hint leaves open, which an edge binds."""
         if isinstance(self.hint, TypeVar):
             return (self.hint,)
-        return () if isinstance(self.hint, type) else getattr(self.hint, "__parameters__", ())  # typing's own, on every generic hint
+        return (
+            () if isinstance(self.hint, type) else getattr(self.hint, "__parameters__", ())
+        )  # typing's own, on every generic hint
 
     @functools.cached_property
     def id(self) -> str:
@@ -233,7 +247,11 @@ class Type:
     @property
     def text(self) -> str:
         """The id with its blank said (``str | None``): how a type inside another, and a type an edge brings, is named."""
-        return f"{self.id} | None" if type(None) in union_members(self.bare) and self.options else self.id
+        return (
+            f"{self.id} | None"
+            if type(None) in union_members(self.bare) and self.options
+            else self.id
+        )
 
     @functools.cached_property
     def title(self) -> str:
@@ -251,7 +269,11 @@ class Type:
         members = list(self.options) or [type(None)]
         if len(members) > 1:
             named = [Type(member)._named for member in members]
-            return " | ".join(n[0] for n in named), " | ".join(n[1] for n in named), tuple(dict.fromkeys(c for n in named for c in n[2]))
+            return (
+                " | ".join(n[0] for n in named),
+                " | ".join(n[1] for n in named),
+                tuple(dict.fromkeys(c for n in named for c in n[2])),
+            )
         (one,) = members
         origin, args = get_origin(one) or one, get_args(one)
         if is_alias(one):
@@ -266,7 +288,11 @@ class Type:
             return own_id, title, own
         inner = [Type(arg) for arg in args if arg is not Ellipsis]
         arguments_text = ", ".join("..." if arg is Ellipsis else Type(arg).text for arg in args)
-        return f"{own_id}[{arguments_text}]", title, tuple(dict.fromkeys((*own, *(c for of in inner for c in of.classes))))
+        return (
+            f"{own_id}[{arguments_text}]",
+            title,
+            tuple(dict.fromkeys((*own, *(c for of in inner for c in of.classes)))),
+        )
 
     @functools.cached_property
     def _built(self) -> tuple[Any, TypeAdapter[Any]]:
@@ -279,7 +305,9 @@ class Type:
                 (``type_not_carried``).
         """
         bare, param, others = self._parts
-        pydantic_fields = [other for other in others if isinstance(other, FieldInfo)]  # Annotated[int, Field(ge=0)], here or on an item of a list
+        pydantic_fields = [
+            other for other in others if isinstance(other, FieldInfo)
+        ]  # Annotated[int, Field(ge=0)], here or on an item of a list
         if any(field.discriminator is not None for field in pydantic_fields):
             raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
         if pydantic_fields:
@@ -287,17 +315,30 @@ class Type:
         options = []
         for option in union_members(bare):
             if get_origin(option) in _CONTAINERS or get_origin(option) in _KINDS:
-                option = get_origin(option)[tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))]
+                option = get_origin(option)[
+                    tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))
+                ]
             options.append(option)
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
         try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
-            adapter = TypeAdapter(read) if len(options) == 1 and is_record(options[0]) else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan=NON_FINITE_FLOATS))
-        except SchemaError as error:  # a limit of the wrong kind for the type, such as ge="a" on an int
-            raise NodeDeclarationError(declaration_problems.bound_invalid_value(limits=repr(param.limits), type=self.id, error=str(error))) from None
+            adapter = (
+                TypeAdapter(read)
+                if len(options) == 1 and is_record(options[0])
+                else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan=NON_FINITE_FLOATS))
+            )
+        # a limit of the wrong kind for the type, such as ge="a" on an int
+        except SchemaError as error:
+            raise NodeDeclarationError(
+                declaration_problems.bound_invalid_value(
+                    limits=repr(param.limits), type=self.id, error=str(error)
+                )
+            ) from None
         except PydanticSchemaGenerationError:
-            raise NodeDeclarationError(declaration_problems.type_not_carried(type=self.id)) from None
+            raise NodeDeclarationError(
+                declaration_problems.type_not_carried(type=self.id)
+            ) from None
         return read, adapter
 
     @property
@@ -356,7 +397,15 @@ class Type:
         """The hint of each field a record declares, by name: a model's, a dataclass's, a ``TypedDict``'s. None
         for any other type."""
         one = self.options[0] if len(self.options) == 1 else None
-        return {name: hint for name, hint in typing.get_type_hints(one).items() if get_origin(hint) is not ClassVar} if is_record(one) else {}
+        return (
+            {
+                name: hint
+                for name, hint in typing.get_type_hints(one).items()
+                if get_origin(hint) is not ClassVar
+            }
+            if is_record(one)
+            else {}
+        )
 
     @property
     def returned_schema(self) -> CoreSchema:
@@ -414,7 +463,11 @@ class Type:
                 are read, from that value on.
         """
         start = len(under)
-        pairs = [(free, raw) for free, raw in zip(value_free_errors(error), error.errors(), strict=True) if raw["loc"][:start] == under]
+        pairs = [
+            (free, raw)
+            for free, raw in zip(value_free_errors(error), error.errors(), strict=True)
+            if raw["loc"][:start] == under
+        ]
         value_free = [free for free, _ in pairs]
         columns: list[str] = []
         for error_record, raw in pairs:
@@ -447,8 +500,14 @@ class Type:
             shown, and a column name when the step names a table's column. ``None`` when the step is not an index
             or field of this type, such as a dict's key.
         """
-        origin = (get_origin(self.options[0]) or self.options[0]) if len(self.options) == 1 else None
-        if isinstance(step, int) and isinstance(origin, type) and (issubclass(origin, (list, tuple, set, frozenset)) or origin in _KINDS):
+        origin = (
+            (get_origin(self.options[0]) or self.options[0]) if len(self.options) == 1 else None
+        )
+        if (
+            isinstance(step, int)
+            and isinstance(origin, type)
+            and (issubclass(origin, (list, tuple, set, frozenset)) or origin in _KINDS)
+        ):
             args = [arg for arg in get_args(self.options[0]) if arg is not Ellipsis]
             return Type(args[min(step, len(args) - 1)] if args else Any), True, None
         if isinstance(step, str) and step in self.fields:
@@ -501,7 +560,10 @@ def _host_name(cls: type) -> tuple[str, str]:
     generic = vars(cls).get("__pydantic_generic_metadata__")
     if generic is not None and generic["origin"] is not None:
         declared = declaration_of(generic["origin"])
-        return f"{declared.id}[{', '.join(Type(arg).text for arg in generic['args'])}]", declared.title
+        return (
+            f"{declared.id}[{', '.join(Type(arg).text for arg in generic['args'])}]",
+            declared.title,
+        )
     declared = declaration_of(cls)
     return declared.id, declared.title
 
@@ -511,7 +573,11 @@ def _kind_of(hint: Any) -> type[Type]:
     when the hint is that generic class, with or without ``| None``, else ``Type``."""
     if type(hint) is type and hint not in READ_AS and hint not in _KINDS:
         return Type
-    options = [option for option in union_members(split_hint(substituted(hint, {}))[0]) if option is not type(None)]
+    options = [
+        option
+        for option in union_members(split_hint(substituted(hint, {}))[0])
+        if option is not type(None)
+    ]
     if len(options) != 1:
         return Type
     origin = get_origin(options[0]) or options[0]

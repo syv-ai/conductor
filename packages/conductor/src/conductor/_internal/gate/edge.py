@@ -40,7 +40,9 @@ def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bo
             each row is checked against the table's columns.
     """
     if sources_are_items:
-        return field.whole.record is not None or not all(field.type.holds(source) for source in sources)
+        return field.whole.record is not None or not all(
+            field.type.holds(source) for source in sources
+        )
     return not all(field.whole.holds(source) for source in sources)
 
 
@@ -58,7 +60,15 @@ class EdgeDoor:
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
         """Builds the door for ``inputs``, the inputs to read, by name."""
-        self._inputs = tuple((name, field.whole, exact_classes(field.whole), validator_of(field.whole).validate_python) for name, field in inputs.items())
+        self._inputs = tuple(
+            (
+                name,
+                field.whole,
+                exact_classes(field.whole),
+                validator_of(field.whole).validate_python,
+            )
+            for name, field in inputs.items()
+        )
 
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
         """Returns a copy of ``arguments`` with each of the door's inputs read by its type.
@@ -75,5 +85,14 @@ class EdgeDoor:
                 read[name] = validate(value, strict=False)
             except ValidationError as error:
                 refused = whole.refusal(error)
-                raise InvalidCallError([run_problems.invalid_edge_value(name=name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
+                raise InvalidCallError(
+                    [
+                        run_problems.invalid_edge_value(
+                            name=name,
+                            reason=refused.reason,
+                            errors=refused.errors,
+                            column=refused.column,
+                        )
+                    ]
+                ) from None
         return read

@@ -48,7 +48,11 @@ class SeriesType(Type, of=_Series):
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
         """The id (``Series[int]``, or ``Series`` when the items are ``Any``), the title, and the classes named in
         the items' type."""
-        return ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"), "Series", self.item.classes
+        return (
+            ("Series" if self.item.hint is Any else f"Series[{self.item.text}]"),
+            "Series",
+            self.item.classes,
+        )
 
     @functools.cached_property
     def _table(self) -> Type | None:
@@ -80,8 +84,11 @@ class SeriesType(Type, of=_Series):
         else into a ``SeriesItems``. The form is chosen by the value's class and named in pydantic's ``loc`` of an
         error (``("Records", ...)``), so ``_walked`` reads the rest of that ``loc`` with the form's own type.
         """
+
         def as_items(items: list[Any] | None) -> SeriesItems | None:
-            return items if items is None else SeriesItems(items)  # ``Series[T] | None`` may be returned as None
+            return (
+                items if items is None else SeriesItems(items)
+            )  # ``Series[T] | None`` may be returned as None
 
         items = core_schema.no_info_after_validator_function(as_items, self.schema)
         if self._table is None:
@@ -91,7 +98,9 @@ class SeriesType(Type, of=_Series):
             return Records.__name__ if isinstance(value, pl.DataFrame) else SeriesItems.__name__
 
         records = core_schema.no_info_after_validator_function(Records, self._table.schema)
-        return core_schema.tagged_union_schema({SeriesItems.__name__: items, Records.__name__: records}, discriminator=form_of)
+        return core_schema.tagged_union_schema(
+            {SeriesItems.__name__: items, Records.__name__: records}, discriminator=form_of
+        )
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
         """Takes one step of a pydantic error's ``loc``, as ``Type._walked`` does. The name of a stored form, which

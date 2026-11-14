@@ -27,7 +27,9 @@ class ContextDoor:
             and a node takes it (``context_missing``, one problem per such node).
     """
 
-    def __init__(self, context_type: type | None, takers: Iterable[tuple[NodePath, ContextParameter]]) -> None:
+    def __init__(
+        self, context_type: type | None, takers: Iterable[tuple[NodePath, ContextParameter]]
+    ) -> None:
         """Builds the door for a graph compiled against a registry that names ``context_type``.
 
         Args:
@@ -36,7 +38,12 @@ class ContextDoor:
                 its ``Context`` parameter.
         """
         self._context_type = context_type
-        self._missing = [call_problems.context_missing(*node_path, parameter.name, parameter=parameter.name, needs=parameter.cls.__name__) for node_path, parameter in takers]
+        self._missing = [
+            call_problems.context_missing(
+                *node_path, parameter.name, parameter=parameter.name, needs=parameter.cls.__name__
+            )
+            for node_path, parameter in takers
+        ]
 
     def __call__(self, context: Any) -> Any:
         """Returns ``context`` as the host passed it, ``None`` included when no node takes it.
@@ -49,7 +56,19 @@ class ContextDoor:
                 raise InvalidCallError(self._missing)
             return None
         if self._context_type is None:
-            raise InvalidCallError([call_problems.invalid_context_no_context_type("context", got=type(context).__name__)])
+            raise InvalidCallError(
+                [
+                    call_problems.invalid_context_no_context_type(
+                        "context", got=type(context).__name__
+                    )
+                ]
+            )
         if not isinstance(context, self._context_type):
-            raise InvalidCallError([call_problems.invalid_context("context", expected=self._context_type.__name__, got=type(context).__name__)])
+            raise InvalidCallError(
+                [
+                    call_problems.invalid_context(
+                        "context", expected=self._context_type.__name__, got=type(context).__name__
+                    )
+                ]
+            )
         return context

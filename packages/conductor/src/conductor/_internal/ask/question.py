@@ -14,7 +14,9 @@ from conductor._internal.field import Field, FieldDescription
 from conductor._internal.types import Choice
 
 
-def as_asked(field: Field, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue]) -> FieldDescription:
+def as_asked(
+    field: Field, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue]
+) -> FieldDescription:
     """The question about the output ``field`` as one call asks it: the field's description (``Field.description``,
     which says what an answer that leaves it out gives), with the choices and the default the call's ``Ask`` set laid
     over it. The questions a host is shown and the answer door both read it.
@@ -31,5 +33,8 @@ def as_asked(field: Field, choices: Mapping[str, tuple[Choice, ...]], defaults: 
     """
     name = field.name
     asked = field.description_with(choices[name]) if name in choices else field.description
-    return asked.model_copy(update={"default": defaults[name], "required": False}) if name in defaults else asked
-
+    return (
+        asked.model_copy(update={"default": defaults[name], "required": False})
+        if name in defaults
+        else asked
+    )

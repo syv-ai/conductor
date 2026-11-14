@@ -18,7 +18,7 @@ from tests.test_core.test_doors import PUBLIC_MODULES
 def test_get_content_returns_non_empty_text():
     text = about.get_content()
     assert isinstance(text, str)
-    assert len(text) > 1000   # llms.txt is substantial
+    assert len(text) > 1000  # llms.txt is substantial
     assert "# Conductor" in text
 
 
@@ -61,7 +61,9 @@ def test_sections_do_not_bleed_past_same_or_higher_heading():
 def test_cli_no_args_prints_full_content():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert "# Conductor" in result.stdout
     assert "## Quick Start" in result.stdout
@@ -70,7 +72,9 @@ def test_cli_no_args_prints_full_content():
 def test_cli_sections_lists_slugs():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about", "sections"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     lines = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
     assert "quick-start" in lines
@@ -80,7 +84,9 @@ def test_cli_sections_lists_slugs():
 def test_cli_section_filter_emits_only_that_section():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about", "retries"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert "### Retries and Timeouts" in result.stdout
     assert "## Quick Start" not in result.stdout
@@ -89,7 +95,8 @@ def test_cli_section_filter_emits_only_that_section():
 def test_cli_unknown_section_nonzero_exit_with_help():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about", "nope-not-real"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 1
     assert "No section matching" in result.stderr
@@ -100,7 +107,9 @@ def test_cli_unknown_section_nonzero_exit_with_help():
 def test_cli_help_flag():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about", "--help"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert "python -m conductor.about" in result.stdout
 
@@ -110,7 +119,9 @@ NAMED_MODULES = [name for name in PUBLIC_MODULES if importlib.import_module(name
 
 
 @pytest.mark.parametrize("module_name", NAMED_MODULES)
-def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_exports_them(module_name):
+def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_exports_them(
+    module_name,
+):
     section = about.get_section(module_name.replace(".", "-"))
     assert section is not None
 
@@ -123,16 +134,21 @@ def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_do
     events = about.get_section("conductor-events")
     assert events is not None
     assert "- `NodeComplete`: Every call of a node has an outcome.\n" in events
-    assert (  # a paragraph over several lines is one line, and its code is in Markdown's single backticks
-        "- `NodeProgress`: How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a "
-        "second: the node's `CallCount`, as `run.progress` has it.\n"
-    ) in events
+    assert (
+        (  # a paragraph over several lines is one line, and its code is in Markdown's single backticks
+            "- `NodeProgress`: How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a "
+            "second: the node's `CallCount`, as `run.progress` has it.\n"
+        )
+        in events
+    )
 
 
 def test_a_summary_that_ends_by_introducing_an_example_ends_with_a_full_stop():
     section = about.get_section("conductor")
     assert section is not None
-    assert "- `make_graph`: A graph record written from Python, each node at its version.\n" in section
+    assert (
+        "- `make_graph`: A graph record written from Python, each node at its version.\n" in section
+    )
 
 
 def test_a_constant_or_a_type_alias_is_listed_by_its_name_alone():
@@ -145,7 +161,9 @@ def test_a_constant_or_a_type_alias_is_listed_by_its_name_alone():
 def test_the_cli_prints_a_modules_names():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about", "conductor-testing"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert "- `check_registry`: " in result.stdout
 
@@ -196,16 +214,23 @@ def test_the_problems_page_has_every_kind_of_problem_with_its_sentence_its_ctx_k
         assert f"\n## {section}\n" in page
     entry = about.get_section("context-missing")
     assert entry is not None
-    assert "> The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run." in entry
+    assert (
+        "> The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
+        in entry
+    )
     assert "`loc`: The node's path, then its `Context` parameter." in entry
     assert "| `needs` | `str` | always | The name of the class inside `Context[...]`. |" in entry
-    assert "```python\nrefused(lambda: Graph.compile(make_graph(who), registry).run())\n```" in entry
+    assert (
+        "```python\nrefused(lambda: Graph.compile(make_graph(who), registry).run())\n```" in entry
+    )
 
 
 def test_the_cli_prints_the_problems_page():
     result = subprocess.run(
         [sys.executable, "-m", "conductor.about", "problems"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert result.stdout == about.problems_page()
 
@@ -251,9 +276,13 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
         "> The room is closed until {until}.\n\n`loc`: The room and the door."
     ) in entries
     assert "| `until` | `str` | always | When it opens, on the wall clock. |" in entries
-    assert "| `opener` | `str` | when it applies | Who opens it, when someone is named. |" in entries
+    assert (
+        "| `opener` | `str` | when it applies | Who opens it, when someone is named. |" in entries
+    )
     assert "### `room_closed`, variant `holiday`" in entries
-    assert "| `variant` | `'holiday'` | always | Which of the code's sentences this is. |" in entries
+    assert (
+        "| `variant` | `'holiday'` | always | Which of the code's sentences this is. |" in entries
+    )
 
 
 def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_reference_is_read():

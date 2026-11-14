@@ -102,7 +102,9 @@ class Graph[C]:
     _context_type: type[C] | None
 
     @staticmethod
-    def compile[R](record: GraphRecord | str | bytes | Mapping[str, Any], registry: Definitions[R]) -> Graph[R]:
+    def compile[R](
+        record: GraphRecord | str | bytes | Mapping[str, Any], registry: Definitions[R]
+    ) -> Graph[R]:
         """Compile a graph record, given as a ``GraphRecord``, its JSON text, or the plain data ``read_json`` reads,
         against the node definitions of ``registry``, a ``NodeRegistry``.
 
@@ -155,7 +157,9 @@ class Graph[C]:
         outputs of its subgraph. Each problem of a subgraph is a problem of this graph, with a ``loc`` that starts
         with the subgraph node's id and goes on with the place inside the subgraph.
         """
-        problems_of: dict[Loc, list[Problem]] = {}  # by the start of each problem's loc: its node's id
+        problems_of: dict[
+            Loc, list[Problem]
+        ] = {}  # by the start of each problem's loc: its node's id
         for graph_problem in self.problems:
             problems_of.setdefault(graph_problem.loc[:1], []).append(graph_problem)
         nodes: dict[str, GraphNodeDescription] = {}
@@ -163,15 +167,31 @@ class Graph[C]:
             own = problems_of.get((node_id,), [])
             compiled_node = self._nodes.get(node_id)
             if compiled_node is None:
-                nodes[node_id] = GraphNodeDescription(node=record.node, version=record.version, found=False, problems=own)
+                nodes[node_id] = GraphNodeDescription(
+                    node=record.node, version=record.version, found=False, problems=own
+                )
                 continue
             nodes[node_id] = GraphNodeDescription(
-                node=record.node, version=record.version, found=True, problems=own,
+                node=record.node,
+                version=record.version,
+                found=True,
+                problems=own,
                 per_item_of=innermost_series(compiled_node.loops),
-                inputs=[NodeInputDescription(field=node_input.field.description, source=input_source_of(compiled_node.loops, node_input)) for node_input in compiled_node.inputs.values()],
+                inputs=[
+                    NodeInputDescription(
+                        field=node_input.field.description,
+                        source=input_source_of(compiled_node.loops, node_input),
+                    )
+                    for node_input in compiled_node.inputs.values()
+                ],
                 outputs=compiled_node.described_outputs(),
             )
-        return GraphDescription(nodes=nodes, inputs=dict(self.inputs), outputs=self.outputs, problems=list(self.problems))
+        return GraphDescription(
+            nodes=nodes,
+            inputs=dict(self.inputs),
+            outputs=self.outputs,
+            problems=list(self.problems),
+        )
 
     # -- what a subgraph node that uses this graph reads ------------------------
 
@@ -194,7 +214,11 @@ class Graph[C]:
         node, name = self._node_returning(output)
         field = node.outputs[name]
         group = self._group_of(output)
-        hint = Annotated[field.hint, Param(exclusive_group=place_text(*group))] if group is not None else field.hint
+        hint = (
+            Annotated[field.hint, Param(exclusive_group=place_text(*group))]
+            if group is not None
+            else field.hint
+        )
         return Field(output, hint, field.default, is_output=True)
 
     def _group_of(self, output: str) -> tuple[NodePath, str] | None:
@@ -219,7 +243,11 @@ class Graph[C]:
         is refused.
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
-        subgraph_fingerprints = {p.id: p.inner.fingerprint for p in self._nodes.values() if isinstance(p, CompiledSubgraphNode)}
+        subgraph_fingerprints = {
+            p.id: p.inner.fingerprint
+            for p in self._nodes.values()
+            if isinstance(p, CompiledSubgraphNode)
+        }
         return json_hash([own, subgraph_fingerprints], 8)
 
     @functools.cached_property
@@ -227,13 +255,22 @@ class Graph[C]:
         """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
         ``context_type`` and every function node of the run blueprint that takes the context, those inside subgraphs
         too."""
-        contexts = {path: node.compiled_node.definition.context for path, node in self._blueprint.function_nodes.items()}
-        return ContextDoor(self._context_type, [(path, context) for path, context in contexts.items() if context is not None])
+        contexts = {
+            path: node.compiled_node.definition.context
+            for path, node in self._blueprint.function_nodes.items()
+        }
+        return ContextDoor(
+            self._context_type,
+            [(path, context) for path, context in contexts.items() if context is not None],
+        )
 
     def _asks(self) -> bool:
         """Whether a call of a function node of the graph, or of its subgraphs at any depth, may wait for a person: the
         node declares ``asks=True``."""
-        return any(node.inner._asks() if isinstance(node, CompiledSubgraphNode) else node.definition.asks for node in self._nodes.values())
+        return any(
+            node.inner._asks() if isinstance(node, CompiledSubgraphNode) else node.definition.asks
+            for node in self._nodes.values()
+        )
 
     @functools.cached_property
     def _inputs_door(self) -> InputsDoor:
@@ -259,7 +296,13 @@ class Graph[C]:
     # -- what a host calls to run it ---------------------------------------------
 
     def with_inputs(
-        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, previous: Run[Any] | None = None, **by_name: Any,
+        self,
+        inputs: Mapping[str, Any] = MappingProxyType({}),
+        /,
+        *,
+        max_items: int | None = None,
+        previous: Run[Any] | None = None,
+        **by_name: Any,
     ) -> Run[C]:
         """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
 
@@ -285,12 +328,22 @@ class Graph[C]:
         if self.problems:
             raise InvalidCallError(self.problems)
         limits = read_limits(max_items=max_items)
-        return make_run(self, self._inputs_door({**inputs, **by_name}), limits["max_items"], previous)
+        return make_run(
+            self, self._inputs_door({**inputs, **by_name}), limits["max_items"], previous
+        )
 
     def run(
-        self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None,
-        context: C | None = None, timeout: float | None = None, **by_name: Any,
+        self,
+        inputs: Mapping[str, Any] = MappingProxyType({}),
+        /,
+        *,
+        max_items: int | None = None,
+        context: C | None = None,
+        timeout: float | None = None,
+        **by_name: Any,
     ) -> Run[C]:
         """Run the graph with these inputs until it is done, waits for a person, fails or stops:
         ``graph.with_inputs(...).resume(context=context, timeout=timeout)``."""
-        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(context=context, timeout=timeout)
+        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(
+            context=context, timeout=timeout
+        )

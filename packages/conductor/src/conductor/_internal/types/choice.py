@@ -37,11 +37,19 @@ class Choice(ConductorModel):
             title: What a person reads for it.
             **more: The other fields a host gives it.
         """
-        fields: dict[str, Any] = {"id": id, "title": title, **more}  # the base's own signature names no fields
+        fields: dict[str, Any] = {
+            "id": id,
+            "title": title,
+            **more,
+        }  # the base's own signature names no fields
         super().__init__(**fields)
 
 
-def read_choices(given: Iterable[Any], reader: SchemaValidator | TypeAdapter[Any], write: Callable[[Any], JsonValue]) -> tuple[Choice, ...]:
+def read_choices(
+    given: Iterable[Any],
+    reader: SchemaValidator | TypeAdapter[Any],
+    write: Callable[[Any], JsonValue],
+) -> tuple[Choice, ...]:
     """Reads the choices of a type: each id read by ``reader`` strictly from its JSON form (``validate_as_json``)
     and written back in its JSON form by ``write``.
 
@@ -61,9 +69,14 @@ def read_choices(given: Iterable[Any], reader: SchemaValidator | TypeAdapter[Any
             (``not_its_type``, whose message is the type's reason, quoting no value), or there are no choices
             (``no_choices``) or an id is given twice (``choice_twice``).
     """
-    choices = [choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in given]
+    choices = [
+        choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in given
+    ]
     try:
-        read = tuple(choice.model_copy(update={"id": write(validate_as_json(reader, choice.id))}) for choice in choices)
+        read = tuple(
+            choice.model_copy(update={"id": write(validate_as_json(reader, choice.id))})
+            for choice in choices
+        )
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "one has no JSON form") from None
     except ValidationError as refused:

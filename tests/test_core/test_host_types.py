@@ -45,7 +45,10 @@ class Upload:
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> core_schema.CoreSchema:
-        return core_schema.is_instance_schema(cls, serialization=core_schema.plain_serializer_function_ser_schema(lambda held: held.name))
+        return core_schema.is_instance_schema(
+            cls,
+            serialization=core_schema.plain_serializer_function_ser_schema(lambda held: held.name),
+        )
 
 
 @host_type("celsius", title="Celsius")
@@ -68,10 +71,22 @@ class Box(BaseModel, Generic[T]):
     inside: T
 
 
-@pytest.mark.parametrize(("held", "type_id"), [
-    (Text, "text"), (Money, "money"), (Point, "point"), (Colour, "colour"), (Upload, "upload"), (Temperature, "temperature"), (IP, "ip"), (list[Point], "list[point]"),
-])
-def test_a_class_declared_with_host_type_is_a_fields_type_under_its_id(held: Any, type_id: str) -> None:
+@pytest.mark.parametrize(
+    ("held", "type_id"),
+    [
+        (Text, "text"),
+        (Money, "money"),
+        (Point, "point"),
+        (Colour, "colour"),
+        (Upload, "upload"),
+        (Temperature, "temperature"),
+        (IP, "ip"),
+        (list[Point], "list[point]"),
+    ],
+)
+def test_a_class_declared_with_host_type_is_a_fields_type_under_its_id(
+    held: Any, type_id: str
+) -> None:
     def f(value: held) -> str:  # type: ignore[valid-type]
         return ""
 
@@ -97,7 +112,10 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
 def test_a_type_that_accepts_another_takes_its_values_on_an_edge() -> None:
     from conductor._internal.types import Type
 
-    assert Type(Temperature).fits(Type(Celsius)) is not None and Type(Celsius).fits(Type(Temperature)) is None
+    assert (
+        Type(Temperature).fits(Type(Celsius)) is not None
+        and Type(Celsius).fits(Type(Temperature)) is None
+    )
 
 
 def test_a_generic_pydantic_model_is_named_by_its_declared_id_and_its_arguments() -> None:
@@ -125,8 +143,12 @@ def test_an_empty_title_fails_at_the_class_statement() -> None:
     assert _refused(build).problems[0].type == "type_declaration_invalid"
 
 
-@pytest.mark.parametrize("wrong_id", [5, "str", "Series", "Table", "record", "list[int]", "a b", "a|b", ""], ids=repr)
-def test_an_id_that_is_no_word_or_is_one_of_conductors_own_fails_at_the_class_statement(wrong_id: Any) -> None:
+@pytest.mark.parametrize(
+    "wrong_id", [5, "str", "Series", "Table", "record", "list[int]", "a b", "a|b", ""], ids=repr
+)
+def test_an_id_that_is_no_word_or_is_one_of_conductors_own_fails_at_the_class_statement(
+    wrong_id: Any,
+) -> None:
     def build() -> None:
         @host_type(wrong_id, title="Thing")
         class Thing(BaseModel):
@@ -155,7 +177,9 @@ def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> 
     assert refused.problems[0].type == "type_not_carried" and "Handle" in str(refused)
 
 
-def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says_to_put_it_on_top() -> None:
+def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says_to_put_it_on_top() -> (
+    None
+):
     def build() -> None:
         @dataclasses.dataclass
         @host_type("pair", title="Pair")
@@ -163,15 +187,21 @@ def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says
             x: float
 
     refused = _refused(build)
-    assert refused.problems[0].type == "type_not_carried" and "@host_type above @dataclass" in str(refused)
+    assert refused.problems[0].type == "type_not_carried" and "@host_type above @dataclass" in str(
+        refused
+    )
 
 
 def test_a_class_python_lets_nobody_write_on_is_refused_with_the_way_out() -> None:
     refused = _refused(lambda: host_type("whole", title="Whole")(int))
-    assert refused.problems[0].type == "type_declaration_invalid" and "a class of your own" in str(refused)
+    assert refused.problems[0].type == "type_declaration_invalid" and "a class of your own" in str(
+        refused
+    )
 
 
-def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_line_to_write() -> None:
+def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_line_to_write() -> (
+    None
+):
     @dataclasses.dataclass
     class Plain:
         x: float
@@ -180,7 +210,11 @@ def test_a_class_that_is_not_declared_fails_at_node_naming_the_class_and_the_lin
         return ""
 
     refused = _refused(lambda: declared(f))
-    assert refused.problems[0].type == "type_not_named" and "Plain" in str(refused) and '@host_type("...", title="...")' in str(refused)
+    assert (
+        refused.problems[0].type == "type_not_named"
+        and "Plain" in str(refused)
+        and '@host_type("...", title="...")' in str(refused)
+    )
 
 
 def test_a_subclass_does_not_inherit_its_parents_declaration() -> None:
@@ -191,7 +225,9 @@ def test_a_subclass_does_not_inherit_its_parents_declaration() -> None:
         return ""
 
     refused = _refused(lambda: declared(f))
-    assert refused.problems[0].type == "type_not_named" and "Money's declaration is its own" in str(refused)
+    assert refused.problems[0].type == "type_not_named" and "Money's declaration is its own" in str(
+        refused
+    )
 
 
 def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure() -> None:
@@ -199,7 +235,9 @@ def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure()
     class Plain:
         x: float
 
-    @node("made", title="Made", description="For a test.", compute_outputs=lambda: {"result": Plain})
+    @node(
+        "made", title="Made", description="For a test.", compute_outputs=lambda: {"result": Plain}
+    )
     def made() -> dict[str, Any]:
         return {}
 

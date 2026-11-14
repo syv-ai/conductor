@@ -91,15 +91,32 @@ class Told:
     ``NodeEvents`` is created.
     """
 
-    def __init__(self, record: GraphRecord, registry: NodeRegistry, finished: tuple[str, ...] = (), **inputs: Any) -> None:
+    def __init__(
+        self,
+        record: GraphRecord,
+        registry: NodeRegistry,
+        finished: tuple[str, ...] = (),
+        **inputs: Any,
+    ) -> None:
         graph = Graph.compile(record, registry)
         run = graph.run(inputs)
         self.finished_run: dict[NodePath, dict[ItemIndexes, Outcome]] = run._outcomes
-        self.outcomes = {path: dict(outcomes) if place_text(path) in finished else {} for path, outcomes in self.finished_run.items()}
-        self.nodes = {place_text(path): node for path, node in run._blueprint.function_nodes.items()}
+        self.outcomes = {
+            path: dict(outcomes) if place_text(path) in finished else {}
+            for path, outcomes in self.finished_run.items()
+        }
+        self.nodes = {
+            place_text(path): node for path, node in run._blueprint.function_nodes.items()
+        }
         self.said: list[EventBase] = []
         finished_paths = frozenset(self.nodes[name].node_path for name in finished)
-        self.node_events = NodeEvents(self.said.append, list(self.nodes.values()), self.outcomes, finished_paths, ResultReader(run._blueprint.function_nodes, self.finished_run, run.inputs))
+        self.node_events = NodeEvents(
+            self.said.append,
+            list(self.nodes.values()),
+            self.outcomes,
+            finished_paths,
+            ResultReader(run._blueprint.function_nodes, self.finished_run, run.inputs),
+        )
 
     def start(self, name: str) -> None:
         """A call of the node is about to be made."""
@@ -109,7 +126,9 @@ class Told:
         """The call's outcome was recorded, with no call made."""
         path = self.nodes[name].node_path
         self.outcomes[path][item_indexes] = self.finished_run[path][item_indexes]
-        self.node_events.outcome_recorded(self.nodes[name], item_indexes, self.outcomes[path][item_indexes])
+        self.node_events.outcome_recorded(
+            self.nodes[name], item_indexes, self.outcomes[path][item_indexes]
+        )
 
     def call(self, name: str, *item_indexes: int) -> None:
         """The call is about to be made, and then its outcome was recorded."""
@@ -123,7 +142,9 @@ class Told:
 
     def retry(self, name: str, *item_indexes: int, attempt: int, delay: float) -> None:
         """The call failed with a ``TimeoutError`` and is made again after ``delay`` seconds."""
-        self.node_events.call_retries(self.nodes[name], attempt, delay, self._timed_out(name, item_indexes))
+        self.node_events.call_retries(
+            self.nodes[name], attempt, delay, self._timed_out(name, item_indexes)
+        )
 
     def fail(self, name: str, *item_indexes: int) -> None:
         """The call failed with a ``TimeoutError`` and is not retried."""
@@ -131,7 +152,9 @@ class Told:
 
     def nothing_is_ready(self, *running: tuple[str, ItemIndexes]) -> None:
         """No call is ready to be made, and these calls are running."""
-        self.node_events.nothing_is_ready([(self.nodes[name], item_indexes) for name, item_indexes in running])
+        self.node_events.nothing_is_ready(
+            [(self.nodes[name], item_indexes) for name, item_indexes in running]
+        )
 
     def end(self) -> None:
         """The scheduler has ended."""
@@ -144,7 +167,9 @@ class Told:
         return taken
 
     def _timed_out(self, name: str, item_indexes: ItemIndexes) -> Problem:
-        return run_problems.external_failed(name, *item_indexes, error="TimeoutError")  # the loc of a node of the graph itself
+        return run_problems.external_failed(
+            name, *item_indexes, error="TimeoutError"
+        )  # the loc of a node of the graph itself
 
 
 def _one_line(event: EventBase) -> str:
@@ -160,11 +185,19 @@ def _one_line(event: EventBase) -> str:
     fields.update(fields.pop("count", {}))
     if "cause" in fields:
         fields["cause"] = f"{fields['cause']['type']}@{'/'.join(map(str, fields['cause']['loc']))}"
-    return " ".join([event.type, "/".join(map(str, event.loc)), *(f"{name}={value}" for name, value in fields.items())])
+    return " ".join(
+        [
+            event.type,
+            "/".join(map(str, event.loc)),
+            *(f"{name}={value}" for name, value in fields.items()),
+        ]
+    )
 
 
 def _lines_shout_join(text: str = "a\nb\nc", finished: tuple[str, ...] = ()) -> Told:
-    return Told(make_graph(lines, shout, join), registry_of(lines, shout, join), finished, text=text)
+    return Told(
+        make_graph(lines, shout, join), registry_of(lines, shout, join), finished, text=text
+    )
 
 
 def test_the_three_node_graph_says_the_events_the_module_describes():
@@ -198,22 +231,36 @@ def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
     assert told.take() == ["node_complete lines outcomes=1"]
     told.call("shout", 1)
     told.nothing_is_ready()
-    assert told.take() == ["node_progress shout finished=3 waiting=0 known=3 total=3", "node_complete shout outcomes=3"]
+    assert told.take() == [
+        "node_progress shout finished=3 waiting=0 known=3 total=3",
+        "node_complete shout outcomes=3",
+    ]
     told.call("join")
     told.nothing_is_ready()
     assert told.take() == ["node_start join", "node_complete join outcomes=1"]
 
 
 def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_it_is_running():
-    record = make_graph(decide, other, both, edges=[("decide.yes", "both.first"), ("other.result", "both.second")], inputs={"choice": "decide.text", "other": "other.text"})
+    record = make_graph(
+        decide,
+        other,
+        both,
+        edges=[("decide.yes", "both.first"), ("other.result", "both.second")],
+        inputs={"choice": "decide.text", "other": "other.text"},
+    )
     told = Told(record, registry_of(decide, other, both), choice="a", other="b")
     told.call("decide")
-    told.record("both")  # skipped as soon as decide has not chosen yes, while other is still running
+    # skipped as soon as decide has not chosen yes, while other is still running
+    told.record("both")
     told.nothing_is_ready(("other", ()))
     assert told.take() == ["node_start decide", "node_complete decide outcomes=1"]
     told.call("other")
     told.nothing_is_ready()
-    assert told.take() == ["node_start other", "node_complete other outcomes=1", "node_complete both outcomes=1 skipped=1"]
+    assert told.take() == [
+        "node_start other",
+        "node_complete other outcomes=1",
+        "node_complete both outcomes=1 skipped=1",
+    ]
 
 
 def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
@@ -241,10 +288,15 @@ def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_scheduler_end
     told.call("shout", 1)
     told.take()
     told.end()
-    assert told.take() == ["node_complete lines outcomes=1", "node_progress shout finished=2 waiting=0 known=3 total=3"]
+    assert told.take() == [
+        "node_complete lines outcomes=1",
+        "node_progress shout finished=2 waiting=0 known=3 total=3",
+    ]
 
 
-def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one_has_the_final_count(monkeypatch: MonkeyPatch):
+def test_progress_is_said_at_most_once_in_a_quarter_of_a_second_and_the_last_one_has_the_final_count(
+    monkeypatch: MonkeyPatch,
+):
     clock = [100.0]
     monkeypatch.setattr(node_events_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     told = _lines_shout_join("\n".join("abcdefgh"))
@@ -287,7 +339,9 @@ def test_a_node_complete_when_the_run_was_last_resumed_is_not_said_again():
 
 
 def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgraph_node_is_complete_after_it():
-    record = make_graph(lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.result", "join.texts")])
+    record = make_graph(
+        lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.result", "join.texts")]
+    )
     told = Told(record, registry_of(lines, shout, loud, join), text="a\nb")
     told.call("lines")
     told.call("loud/shout", 0)

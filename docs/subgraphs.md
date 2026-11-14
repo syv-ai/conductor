@@ -33,7 +33,11 @@ def join(texts: Series[str]) -> str:
     return " ".join(texts)
 
 
-shout = subgraph("shout", title="Shout", description="Turns a text into capital letters and adds an exclamation mark.")(make_graph(upper, exclaim))
+shout = subgraph(
+    "shout",
+    title="Shout",
+    description="Turns a text into capital letters and adds an exclamation mark.",
+)(make_graph(upper, exclaim))
 registry.add(shout)
 ```
 
@@ -48,7 +52,12 @@ exclaim)` declared `text`, the input of `upper`, and `result`, the output of `ex
 `shout.result`. `make_graph` wants its `edges=` written out: a chain from or to a subgraph raises `not_a_chain`:
 
 ```python
-graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]), registry)
+graph = Graph.compile(
+    make_graph(
+        split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]
+    ),
+    registry,
+)
 
 print(graph.run(text="hi there").outputs)  # {'result': 'HI! THERE!'}
 print(graph.describe().nodes["shout"].per_item_of)  # split.result
@@ -85,9 +94,15 @@ From outside, a subgraph is one node:
   (`lists_from_different_loops`): one branch's list would always be empty.
 
 ```python
-side_by_side = subgraph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(
+side_by_side = subgraph(
+    "both",
+    title="Both",
+    description="Runs the capital letters and the exclamation mark side by side.",
+)(
     make_graph(
-        upper, exclaim, edges=[],
+        upper,
+        exclaim,
+        edges=[],
         inputs={"loud": "upper.text", "keen": "exclaim.text"},
         outputs={"loud": "upper.result", "keen": "exclaim.result"},
     )
@@ -107,9 +122,15 @@ and `exclaim` each run once per word inside the subgraph. A node wired to both i
 that word's two values:
 
 ```python
-both_per_word = subgraph("per-word", title="Per word", description="Each word in capital letters, and with an exclamation mark.")(
+both_per_word = subgraph(
+    "per-word",
+    title="Per word",
+    description="Each word in capital letters, and with an exclamation mark.",
+)(
     make_graph(
-        split, upper, exclaim,
+        split,
+        upper,
+        exclaim,
         edges=[("split.result", "upper.text"), ("split.result", "exclaim.text")],
         outputs={"loud": "upper.result", "keen": "exclaim.result"},
     )
@@ -122,7 +143,14 @@ def beside(loud: str, keen: str) -> str:
     return f"{loud}/{keen}"
 
 
-graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]), registry)
+graph = Graph.compile(
+    make_graph(
+        both_per_word,
+        beside,
+        edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")],
+    ),
+    registry,
+)
 print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
 print(graph.describe().nodes["beside"].per_item_of)  # per-word/split.result
 ```
@@ -138,7 +166,9 @@ output's description (`graph.describe()`) lists its `loops`, so an editor can te
 of lines for each document, `Series[Series[str]]`:
 
 ```python
-@registry.node("documents", title="Documents", description="Splits a text into documents at each semicolon.")
+@registry.node(
+    "documents", title="Documents", description="Splits a text into documents at each semicolon."
+)
 def documents(text: str) -> Series[str]:
     return text.split(";")
 
@@ -148,17 +178,26 @@ def lines(document: str) -> Series[str]:
     return document.split(",")
 
 
-per_line = subgraph("per-line", title="Per line", description="Every line of every document, in capital letters.")(
-    make_graph(documents, lines, upper, edges=[("documents.result", "lines.document"), ("lines.result", "upper.text")])
+per_line = subgraph(
+    "per-line", title="Per line", description="Every line of every document, in capital letters."
+)(
+    make_graph(
+        documents,
+        lines,
+        upper,
+        edges=[("documents.result", "lines.document"), ("lines.result", "upper.text")],
+    )
 )
 registry.add(per_line)
 
-graph = Graph.compile(make_graph(per_line, join, edges=[("per-line.result", "join.texts")]), registry)
+graph = Graph.compile(
+    make_graph(per_line, join, edges=[("per-line.result", "join.texts")]), registry
+)
 run = graph.run(text="a,b;c")
 
 print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
-print(run.results["join"]["result"])            # ['A B', 'C']
-print(graph.describe().nodes["join"].per_item_of)    # per-line/documents.result
+print(run.results["join"]["result"])  # ['A B', 'C']
+print(graph.describe().nodes["join"].per_item_of)  # per-line/documents.result
 print(graph.describe().nodes["per-line"].outputs[0].type)  # str
 print(graph.describe().nodes["per-line"].outputs[0].loops)  # ['documents.result', 'lines.result']
 ```
@@ -181,7 +220,12 @@ def maybe(text: str) -> str | None:
     return None if text == "none" else text
 
 
-graph = Graph.compile(make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]), registry)
+graph = Graph.compile(
+    make_graph(
+        split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]
+    ),
+    registry,
+)
 run = graph.run(text="hi none")
 
 print(run.results["shout"])  # {'result': ['HI!', None]}
@@ -199,11 +243,19 @@ An inner node that isn't wired to the `None` runs. `both`, from above, has two i
 gets the `None`:
 
 ```python
-graph = Graph.compile(make_graph(split, maybe, side_by_side, edges=[
-    ("split.result", "maybe.text"),
-    ("maybe.result", "both.loud"),
-    ("split.result", "both.keen"),
-]), registry)
+graph = Graph.compile(
+    make_graph(
+        split,
+        maybe,
+        side_by_side,
+        edges=[
+            ("split.result", "maybe.text"),
+            ("maybe.result", "both.loud"),
+            ("split.result", "both.keen"),
+        ],
+    ),
+    registry,
+)
 print(graph.run(text="hi none").results["both"])  # {'keen': ['hi!', 'none!'], 'loud': ['HI', None]}
 ```
 
@@ -224,12 +276,18 @@ class Contact(TypedDict):
     name: str
 
 
-@registry.node("each", title="Each", description="Gives the records of a table, or the items of a list, one at a time.")
+@registry.node(
+    "each",
+    title="Each",
+    description="Gives the records of a table, or the items of a list, one at a time.",
+)
 def each[T](value: Table[T] | list[T]) -> Series[T]:
     return cast("list[T]", value)
 
 
-@registry.node("known", title="Known contacts", description="Takes a table of contacts and passes it on.")
+@registry.node(
+    "known", title="Known contacts", description="Takes a table of contacts and passes it on."
+)
 def known(contacts: Table[Contact]) -> Table[Contact]:
     return contacts
 
@@ -237,13 +295,20 @@ def known(contacts: Table[Contact]) -> Table[Contact]:
 untyped = subgraph("shout-names", title="Shout names", description="Writes each name in capitals.")(
     make_graph(each, upper, edges=[("each.result.name", "upper.text")])
 )
-typed = subgraph("shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals.")(
-    make_graph(known, each, upper, edges=[("known.result", "each.value"), ("each.result.name", "upper.text")])
+typed = subgraph(
+    "shout-contacts", title="Shout contacts", description="Writes each contact's name in capitals."
+)(
+    make_graph(
+        known,
+        each,
+        upper,
+        edges=[("known.result", "each.value"), ("each.result.name", "upper.text")],
+    )
 )
 registry.add(untyped, typed)
 
 palette = {described.id: described for described in registry.describe().nodes}
-print(palette["shout-names"].inputs[0].type)     # Table | list
+print(palette["shout-names"].inputs[0].type)  # Table | list
 print(palette["shout-contacts"].inputs[0].type)  # Table[name: str]
 ```
 
@@ -276,15 +341,23 @@ the request's own, so the shared one stays as it was:
 
 ```python
 # your table of graph records: each with the title and description a person reads for it
-saved_graphs = {"shout": ("Shout", "Writes the text in capitals and adds an exclamation mark.", make_graph(upper, exclaim))}
+saved_graphs = {
+    "shout": (
+        "Shout",
+        "Writes the text in capitals and adds an exclamation mark.",
+        make_graph(upper, exclaim),
+    )
+}
 
 request_registry = NodeRegistry()
 request_registry.add_subregistry(registry)
-request_registry.add(*(
-    subgraph(name, title=title, description=description)(record)
-    for name, (title, description, record) in saved_graphs.items()
-    if name not in request_registry
-))
+request_registry.add(
+    *(
+        subgraph(name, title=title, description=description)(record)
+        for name, (title, description, record) in saved_graphs.items()
+        if name not in request_registry
+    )
+)
 ```
 
 `if name not in request_registry` skips a saved graph whose id is already a node of the shared registry, since `add` raises on a

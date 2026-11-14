@@ -34,6 +34,7 @@ from .type import (
 if TYPE_CHECKING:
     from ..type import Run
 
+
 def run_to_json(run: Run) -> str:
     r"""Returns the whole run as JSON text.
 
@@ -49,7 +50,13 @@ def run_to_json(run: Run) -> str:
         return saved.model_dump_json(exclude_defaults=True)
     except PydanticSerializationError:
         where = first_unwritable_value(saved, run._blueprint.function_nodes)
-        raise InvalidCallError([call_problems.run_unwritable("saved_run", where, where=where, reason="a value has no JSON form")]) from None
+        raise InvalidCallError(
+            [
+                call_problems.run_unwritable(
+                    "saved_run", where, where=where, reason="a value has no JSON form"
+                )
+            ]
+        ) from None
 
 
 def outputs_to_json(run: Run) -> str:
@@ -68,12 +75,19 @@ def outputs_to_json(run: Run) -> str:
         function_path, output = node.returned_by(output)
         function = function_node_in_run(run._blueprint.function_nodes, (), function_path)
         hint: Any = saved_type(function.compiled_node.outputs[output]).hint
-        for _ in function.loops:  # one list, or None in its place, for each loop the function node is inside
+        # one list, or None in its place, for each loop the function node is inside
+        for _ in function.loops:
             hint = list[hint] | None
         try:
             written[text] = Type(hint).to_json(value)
         except PydanticSerializationError:
-            raise InvalidCallError([call_problems.run_unwritable("outputs", text, where=text, reason="a value has no JSON form")]) from None
+            raise InvalidCallError(
+                [
+                    call_problems.run_unwritable(
+                        "outputs", text, where=text, reason="a value has no JSON form"
+                    )
+                ]
+            ) from None
     return pydantic_core.to_json(written).decode()
 
 
@@ -92,20 +106,40 @@ def saved_run(run: Run) -> SavedRun:
     function_nodes = run._blueprint.function_nodes
     names = {path: place_text(path) for path in function_nodes}
     outcomes = {
-        names[path]: saved_outcomes(codec.outcomes_classes[names[path]], node.compiled_node.outputs, _outcomes_by_call_number(run, node))
-        for path, node in function_nodes.items() if run._outcomes[path]
+        names[path]: saved_outcomes(
+            codec.outcomes_classes[names[path]],
+            node.compiled_node.outputs,
+            _outcomes_by_call_number(run, node),
+        )
+        for path, node in function_nodes.items()
+        if run._outcomes[path]
     }
     reusable = {}
     for path, node in function_nodes.items():
-        if path in run._reusable.reused_freely or path in run._reusable.reused_in_item_order:  # every outcome in reused_freely_by_call is in reused_freely too
-            reusable[names[path]] = saved_reusable(codec.reusable_classes[names[path]], codec.outcomes_classes[names[path]], node.compiled_node.outputs, run._reusable, path)
+        # every outcome in reused_freely_by_call is in reused_freely too
+        if path in run._reusable.reused_freely or path in run._reusable.reused_in_item_order:
+            reusable[names[path]] = saved_reusable(
+                codec.reusable_classes[names[path]],
+                codec.outcomes_classes[names[path]],
+                node.compiled_node.outputs,
+                run._reusable,
+                path,
+            )
     code = {
         names[path]: run._reusable.code_changed.get(path) or node.compiled_node.code_fingerprint
-        for path, node in function_nodes.items() if names[path] in outcomes or names[path] in reusable
+        for path, node in function_nodes.items()
+        if names[path] in outcomes or names[path] in reusable
     }
     return codec.model_construct(
-        graph=run.graph.fingerprint, ended_early=None if run._last_resume == "running" else run._last_resume,  # a resume going on is the process's, never the save's
-        max_items=run.max_items, inputs=run.inputs, outcomes=outcomes, reusable=reusable, code=code,
+        graph=run.graph.fingerprint,
+        ended_early=None
+        if run._last_resume == "running"
+        else run._last_resume,  # a resume going on is the process's, never the save's
+        max_items=run.max_items,
+        inputs=run.inputs,
+        outcomes=outcomes,
+        reusable=reusable,
+        code=code,
         complete=[names[path] for path in function_nodes if path in run._complete_nodes],
     )
 
@@ -117,10 +151,15 @@ def _outcomes_by_call_number(run: Run, node: BlueprintFunctionNode) -> list[Outc
     is the call number of its call; ``None`` is a call that has no outcome yet.
     """
     outcomes = run._outcomes[node.node_path]
-    return [outcomes.get(item_indexes) for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]]
+    return [
+        outcomes.get(item_indexes)
+        for item_indexes in all_item_indexes(run._outcomes, node.loops, ())[0]
+    ]
 
 
-def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field], outcomes: list[Outcome | None]) -> SavedOutcomes:
+def saved_outcomes(
+    saved_class: type[SavedOutcomes], outputs: Mapping[str, Field], outcomes: list[Outcome | None]
+) -> SavedOutcomes:
     """Returns the outcomes of one node as a saved run writes them: a list per output, with one entry per call.
 
     ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]`` becomes
@@ -160,7 +199,9 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
     skipped_items: dict[str, dict[int, list[int]]] = {}
     for name, output in outputs.items():
         values = values_by_output[name]
-        skipped_calls = [call_number for call_number, value in enumerate(values) if value is SKIPPED]
+        skipped_calls = [
+            call_number for call_number, value in enumerate(values) if value is SKIPPED
+        ]
         if skipped_calls:
             skipped[name] = skipped_calls
             for call_number in skipped_calls:
@@ -172,13 +213,21 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
                     if skipped_indexes:
                         skipped_items.setdefault(name, {})[call_number] = skipped_indexes
     return saved_class.model_construct(
-        states=states, outputs=values_by_output, questions=questions,
-        not_called_because=not_called_because, skipped=skipped, skipped_items=skipped_items,
+        states=states,
+        outputs=values_by_output,
+        questions=questions,
+        not_called_because=not_called_because,
+        skipped=skipped,
+        skipped_items=skipped_items,
     )
 
 
 def saved_reusable(
-    saved_class: type[SavedReusable], outcomes_class: type[SavedOutcomes], outputs: Mapping[str, Field], reusable: ReusableOutcomes, path: NodePath,
+    saved_class: type[SavedReusable],
+    outcomes_class: type[SavedOutcomes],
+    outputs: Mapping[str, Field],
+    reusable: ReusableOutcomes,
+    path: NodePath,
 ) -> SavedReusable:
     """Returns the outcomes one node may reuse from the previous run as a saved run writes them, each outcome once.
 
@@ -197,20 +246,25 @@ def saved_reusable(
     outcomes: list[Outcome | None] = [done for _, done in by_call.values()]
     fingerprints = [fingerprint for fingerprint, _ in by_call.values()]
     item_indexes = dict(enumerate(by_call))
-    already_saved = set(fingerprints)  # ``reused_freely`` has these outcomes too: the first call that got those arguments
+    # ``reused_freely`` has these outcomes too: the first call that got those arguments
+    already_saved = set(fingerprints)
     for fingerprint, done in reusable.reused_freely.get(path, {}).items():
         if fingerprint not in already_saved:
             outcomes.append(done)
             fingerprints.append(fingerprint)
     outer_item_fingerprints: dict[int, str] = {}
-    for (fingerprint, outer_items_fingerprint), left in reusable.reused_in_item_order.get(path, {}).items():
+    for (fingerprint, outer_items_fingerprint), left in reusable.reused_in_item_order.get(
+        path, {}
+    ).items():
         for outcome in left:
             if outer_items_fingerprint:
                 outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint
             outcomes.append(outcome)
             fingerprints.append(fingerprint)
     return saved_class.model_construct(
-        outcomes=saved_outcomes(outcomes_class, outputs, outcomes), fingerprints=fingerprints, item_indexes=item_indexes,
+        outcomes=saved_outcomes(outcomes_class, outputs, outcomes),
+        fingerprints=fingerprints,
+        item_indexes=item_indexes,
         outer_item_fingerprints=outer_item_fingerprints,
     )
 
@@ -233,10 +287,19 @@ def first_unwritable_value(saved: SavedRun, function_nodes: Iterable[NodePath]) 
     alone: list[tuple[str, Any]] = [(name, {"inputs": {name}}) for name in saved.inputs]
     for path in function_nodes:
         if (outcomes := saved.outcomes.get(name := place_text(path))) is not None:
-            alone.extend((place_text(path, output), {"outcomes": {name: {"outputs": {output}}}}) for output in outcomes.outputs)
+            alone.extend(
+                (place_text(path, output), {"outcomes": {name: {"outputs": {output}}}})
+                for output in outcomes.outputs
+            )
     for path in function_nodes:
         if (reusable := saved.reusable.get(name := place_text(path))) is not None:
-            alone.extend((place_text(path, output), {"reusable": {name: {"outcomes": {"outputs": {output}}}}}) for output in reusable.outcomes.outputs)
+            alone.extend(
+                (
+                    place_text(path, output),
+                    {"reusable": {name: {"outcomes": {"outputs": {output}}}}},
+                )
+                for output in reusable.outcomes.outputs
+            )
     for where, include in alone:
         try:
             saved.model_dump_json(include=include)

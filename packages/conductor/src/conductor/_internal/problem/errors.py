@@ -56,7 +56,13 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     from what a validator raised or from a tag of the value, since those may quote the value.
     """
     return [
-        {"type": fault["type"], "loc": [], "msg": _VALIDATOR_PREFIX if {"error", "tag"} & fault.get("ctx", {}).keys() else fault["msg"]}
+        {
+            "type": fault["type"],
+            "loc": [],
+            "msg": _VALIDATOR_PREFIX
+            if {"error", "tag"} & fault.get("ctx", {}).keys()
+            else fault["msg"],
+        }
         for fault in error.errors()
     ]
 
@@ -131,7 +137,18 @@ class InvalidCallError(ConductorError, ValueError):
 
     def __init__(self, problems: Iterable[Problem]) -> None:
         problems = list(problems)
-        super().__init__(problems, "\n".join([f"{len(problems)} problem(s):", *(f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}" for problem in problems)]))
+        super().__init__(
+            problems,
+            "\n".join(
+                [
+                    f"{len(problems)} problem(s):",
+                    *(
+                        f"  {'.'.join(str(place) for place in problem.loc)} — {problem.type}: {problem.msg}"
+                        for problem in problems
+                    ),
+                ]
+            ),
+        )
 
 
 class NodeError(ConductorError):
@@ -153,8 +170,21 @@ class NodeError(ConductorError):
             raised by the node's own ``raise``, so the call fails as ``execution_failed``.
     """
 
-    def __init__(self, message: str, *, code: str = failed.code, ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
-        super().__init__([Problem.model_construct(type=code, loc=(), msg=message, ctx=_CTX.validate_python(ctx))], message)
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = failed.code,
+        ctx: Mapping[str, JsonValue] = MappingProxyType({}),
+    ) -> None:
+        super().__init__(
+            [
+                Problem.model_construct(
+                    type=code, loc=(), msg=message, ctx=_CTX.validate_python(ctx)
+                )
+            ],
+            message,
+        )
 
 
 class ExternalError(NodeError):
@@ -165,5 +195,11 @@ class ExternalError(NodeError):
     Not for a bug in the node or a value it cannot use: a retry would fail the same way.
     """
 
-    def __init__(self, message: str, *, code: str = external_failed.code, ctx: Mapping[str, JsonValue] = MappingProxyType({})) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = external_failed.code,
+        ctx: Mapping[str, JsonValue] = MappingProxyType({}),
+    ) -> None:
         super().__init__(message, code=code, ctx=ctx)

@@ -36,7 +36,9 @@ class SqliteRunStore:
             )
 
     def connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path, timeout=30, isolation_level=None)  # each statement commits
+        return sqlite3.connect(
+            self.path, timeout=30, isolation_level=None
+        )  # each statement commits
 
     async def sql(self, statement: str, *args: Any) -> list[Any]:
         """One statement, off the event loop."""
@@ -48,7 +50,9 @@ class SqliteRunStore:
         return await asyncio.to_thread(execute)
 
     async def create(self, run: StoredRun) -> None:
-        await self.sql("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", *dataclasses.astuple(run))
+        await self.sql(
+            "INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", *dataclasses.astuple(run)
+        )
 
     async def get(self, run_id: str) -> StoredRun | None:
         found = await self.sql("SELECT * FROM runs WHERE id = ?", run_id)
@@ -57,23 +61,35 @@ class SqliteRunStore:
     async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
         assignments = "".join(f"{name} = ?, " for name in changes)
         changed = await self.sql(
-            f"UPDATE runs SET {assignments}rev = rev + 1 WHERE id = ? AND rev = ? RETURNING id", *changes.values(), run_id, rev
+            f"UPDATE runs SET {assignments}rev = rev + 1 WHERE id = ? AND rev = ? RETURNING id",
+            *changes.values(),
+            run_id,
+            rev,
         )
         return bool(changed)
 
     async def expired(self, now: float) -> list[StoredRun]:
-        return [StoredRun(*values) for values in await self.sql("SELECT * FROM runs WHERE lease_until < ?", now)]
+        return [
+            StoredRun(*values)
+            for values in await self.sql("SELECT * FROM runs WHERE lease_until < ?", now)
+        ]
 
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         added = await self.sql(  # numbered after what is there, and only while `owner` holds the run
             "INSERT INTO events SELECT ?, COALESCE((SELECT MAX(seq) + 1 FROM events WHERE run_id = ?), 0), ?"
             " WHERE EXISTS (SELECT 1 FROM runs WHERE id = ? AND owner = ?) RETURNING seq",
-            run_id, run_id, body, run_id, owner,
+            run_id,
+            run_id,
+            body,
+            run_id,
+            owner,
         )
         return bool(added)
 
     async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
-        found = await self.sql("SELECT seq, body FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after)
+        found = await self.sql(
+            "SELECT seq, body FROM events WHERE run_id = ? AND seq > ? ORDER BY seq", run_id, after
+        )
         return [(seq, body) for seq, body in found]
 ```
 
@@ -141,14 +157,16 @@ def published(name: str) -> GraphRecord:
 
 
 app = FastAPI()
-app.include_router(run_router(
-    store=SqliteRunStore(database.path),
-    registry=lambda caller: registry,
-    caller=current_caller,
-    may_see=lambda caller, started_by: caller.name == started_by.name,
-    context=context_of,
-    published=published,
-))
+app.include_router(
+    run_router(
+        store=SqliteRunStore(database.path),
+        registry=lambda caller: registry,
+        caller=current_caller,
+        may_see=lambda caller, started_by: caller.name == started_by.name,
+        context=context_of,
+        published=published,
+    )
+)
 ```
 
 That gives these routes:
@@ -191,7 +209,9 @@ class Member:
 
 @cache
 def tenant_nodes(tenant: str) -> NodeRegistry[AppContext]:
-    return registry.filter(lambda definition: "public" in definition.tags or f"tenant:{tenant}" in definition.tags)
+    return registry.filter(
+        lambda definition: "public" in definition.tags or f"tenant:{tenant}" in definition.tags
+    )
 
 
 def nodes_of(member: Member) -> NodeRegistry[AppContext]:
@@ -206,10 +226,14 @@ Pass `registry=nodes_of` and a `caller` that returns a `Member`. A graph that na
 from conductor import Context
 
 
-@registry.node("count_runs", title="Count runs", description="Counts how many runs have a given status.")
+@registry.node(
+    "count_runs", title="Count runs", description="Counts how many runs have a given status."
+)
 def count_runs(ctx: Context[AppContext], status: str) -> int:
     with closing(sqlite3.connect(ctx.database.path)) as connection:
-        count: int = connection.execute("SELECT COUNT(*) FROM runs WHERE status = ?", (status,)).fetchone()[0]
+        count: int = connection.execute(
+            "SELECT COUNT(*) FROM runs WHERE status = ?", (status,)
+        ).fetchone()[0]
         return count
 ```
 

@@ -70,8 +70,6 @@ class Problem(ConductorModel):
     ctx: Mapping[str, JsonValue] = Field(default_factory=dict)
 
 
-
-
 @final
 class ProblemKind[**Params]:
     """One kind of problem: the function that writes its message, and what is read from that function's signature.
@@ -89,7 +87,9 @@ class ProblemKind[**Params]:
         section: The title of the catalogue the kind is declared on; empty when it has none.
     """
 
-    def __init__(self, write_message: Callable[Params, str], code: str, variant: str | None, section: str) -> None:
+    def __init__(
+        self, write_message: Callable[Params, str], code: str, variant: str | None, section: str
+    ) -> None:
         self.code, self.variant, self.section = code, variant, section
         self.__doc__ = write_message.__doc__
         self._message = write_message
@@ -98,25 +98,52 @@ class ProblemKind[**Params]:
         for parameter in parameters:
             _check_parameter(write_message.__name__, parameter)
         if signature.return_annotation is not str:
-            raise TypeError(f"{write_message.__name__}: 'return' is the message a person reads; annotate it -> str")
+            raise TypeError(
+                f"{write_message.__name__}: 'return' is the message a person reads; annotate it -> str"
+            )
         self._loc_parameters = tuple(p.name for p in parameters if p.kind is p.POSITIONAL_ONLY)
         self._variant_ctx = {"variant": variant} if variant else {}
         self._has_optional_ctx = any(p.default is None for p in parameters)
         keys = [p for p in parameters if p.kind is not p.VAR_POSITIONAL]
         # The message with a replacement field "{key}" for each ctx value. A key that may be left out is not passed, so the function writes
         # the message it writes when the key is absent.
-        replacement_fields = {p.name: ["{" + p.name + "}"] if typing.get_origin(p.annotation) is list else "{" + p.name + "}" for p in keys if p.default is not None}
+        replacement_fields = {
+            p.name: ["{" + p.name + "}"]
+            if typing.get_origin(p.annotation) is list
+            else "{" + p.name + "}"
+            for p in keys
+            if p.default is not None
+        }
         loc_replacement_fields = [replacement_fields.pop(name) for name in self._loc_parameters]
-        self.sentence = typing.cast("Callable[..., str]", write_message)(*loc_replacement_fields, **replacement_fields)
-        self.ctx_type: Any = typing.cast("Any", TypedDict)(code, {  # fields built from the signature, which a type checker cannot follow
-            **{p.name: NotRequired[_without_none(p.annotation)] if p.default is None else p.annotation for p in keys},
-            **({"variant": Literal[variant]} if variant else {}),
-        })
+        self.sentence = typing.cast("Callable[..., str]", write_message)(
+            *loc_replacement_fields, **replacement_fields
+        )
+        self.ctx_type: Any = typing.cast("Any", TypedDict)(
+            code,
+            {  # fields built from the signature, which a type checker cannot follow
+                **{
+                    p.name: NotRequired[_without_none(p.annotation)]
+                    if p.default is None
+                    else p.annotation
+                    for p in keys
+                },
+                **({"variant": Literal[variant]} if variant else {}),
+            },
+        )
 
     def __call__(self, *loc: Params.args, **ctx: Params.kwargs) -> Problem:
         """Makes the problem at ``loc``. The values are not validated: every call is checked by a type checker."""
-        given = {key: value for key, value in ctx.items() if value is not None} if self._has_optional_ctx else ctx
-        return Problem.model_construct(type=self.code, loc=loc, msg=self._message(*loc, **ctx), ctx={**dict(zip(self._loc_parameters, loc)), **given, **self._variant_ctx})
+        given = (
+            {key: value for key, value in ctx.items() if value is not None}
+            if self._has_optional_ctx
+            else ctx
+        )
+        return Problem.model_construct(
+            type=self.code,
+            loc=loc,
+            msg=self._message(*loc, **ctx),
+            ctx={**dict(zip(self._loc_parameters, loc)), **given, **self._variant_ctx},
+        )
 
 
 def _check_parameter(function: str, parameter: Parameter) -> None:
@@ -132,27 +159,41 @@ def _check_parameter(function: str, parameter: Parameter) -> None:
     prefix = f"{function}: parameter '{parameter.name}'"
     match parameter.kind:
         case parameter.POSITIONAL_OR_KEYWORD:
-            raise TypeError(f"{prefix} can be given by name; a part of loc is positional-only, so put a / after it")
+            raise TypeError(
+                f"{prefix} can be given by name; a part of loc is positional-only, so put a / after it"
+            )
         case parameter.VAR_KEYWORD:
-            raise TypeError(f"{prefix} is **{parameter.name}; a ctx key is a keyword-only parameter of its own, with its type")
+            raise TypeError(
+                f"{prefix} is **{parameter.name}; a ctx key is a keyword-only parameter of its own, with its type"
+            )
         case parameter.VAR_POSITIONAL:
             if parameter.annotation != str | int:
-                raise TypeError(f"{prefix} is the parts of loc; annotate it *{parameter.name}: str | int")
+                raise TypeError(
+                    f"{prefix} is the parts of loc; annotate it *{parameter.name}: str | int"
+                )
         case parameter.POSITIONAL_ONLY:
             if parameter.annotation not in (str, int):
-                raise TypeError(f"{prefix} is a part of loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key")
+                raise TypeError(
+                    f"{prefix} is a part of loc, which is a str or an int; annotate it so, or make it keyword-only for a ctx key"
+                )
             if parameter.default is not parameter.empty:
-                raise TypeError(f"{prefix} is a part of loc and has a default; remove the default, since a part of loc is always given")
+                raise TypeError(
+                    f"{prefix} is a part of loc and has a default; remove the default, since a part of loc is always given"
+                )
         case parameter.KEYWORD_ONLY:
             if parameter.annotation is parameter.empty:
                 raise TypeError(f"{prefix} is a ctx key without a type; annotate it")
             if parameter.default is not parameter.empty and parameter.default is not None:
-                raise TypeError(f"{prefix} defaults to {parameter.default!r}; a ctx key is always given, or defaults to None and may be left out")
+                raise TypeError(
+                    f"{prefix} defaults to {parameter.default!r}; a ctx key is always given, or defaults to None and may be left out"
+                )
 
 
 def _without_none(annotation: Any) -> Any:
     """``X | None`` as ``X``: a ``ctx`` key that may be left out is then absent, never ``None``."""
-    return Union[tuple(option for option in typing.get_args(annotation) if option is not type(None))]
+    return Union[
+        tuple(option for option in typing.get_args(annotation) if option is not type(None))
+    ]
 
 
 @final
@@ -193,7 +234,9 @@ class ProblemCatalogue:
                 catalogue._add(kind)
         return catalogue
 
-    def problem[**Params](self, code: str | None = None, *, variant: str | None = None) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
+    def problem[**Params](
+        self, code: str | None = None, *, variant: str | None = None
+    ) -> Callable[[Callable[Params, str]], ProblemKind[Params]]:
         """Makes the function under it a kind of problem, and returns the kind, which is called to make a problem.
 
         The function returns the message, made from its parameters and nothing else. Each parameter is one of three
@@ -228,6 +271,7 @@ class ProblemCatalogue:
                 than ``str``, a second kind under a code with no ``variant`` or with a variant declared before it, or
                 a ``variant`` for a code not declared before it.
         """
+
         def declared(write_message: Callable[Params, str]) -> ProblemKind[Params]:
             kind = ProblemKind(write_message, code or write_message.__name__, variant, self._title)
             self._add(kind)
@@ -245,9 +289,13 @@ class ProblemCatalogue:
         name = kind._message.__name__
         if (kind.code, kind.variant) in self._kinds:
             taken = f"the variant {kind.variant!r}" if kind.variant else "a kind"
-            raise TypeError(f"{name}: '{kind.code}' has {taken} declared before it; give this kind a variant of its own")
+            raise TypeError(
+                f"{name}: '{kind.code}' has {taken} declared before it; give this kind a variant of its own"
+            )
         if kind.variant and (kind.code, None) not in self._kinds:
-            raise TypeError(f"{name}: a variant is a second message under a code, and '{kind.code}' is not declared before it")
+            raise TypeError(
+                f"{name}: a variant is a second message under a code, and '{kind.code}' is not declared before it"
+            )
         self._kinds[kind.code, kind.variant] = kind
 
     def __iter__(self) -> Iterator[ProblemKind[...]]:
@@ -257,4 +305,3 @@ class ProblemCatalogue:
     def codes(self) -> frozenset[str]:
         """Every code of the catalogue's kinds."""
         return frozenset(code for code, _ in self._kinds)
-

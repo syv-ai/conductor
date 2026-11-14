@@ -82,7 +82,9 @@ def _is_class(module: ModuleType, name: str) -> bool:
     thing = getattr(module, name)
     if isinstance(thing, type):
         return True
-    return module.__name__ in MODULES_OF_TYPING_CONSTRUCTS and name[0].isupper() and not name.isupper()
+    return (
+        module.__name__ in MODULES_OF_TYPING_CONSTRUCTS and name[0].isupper() and not name.isupper()
+    )
 
 
 def _stays(module: str, name: str) -> bool:
@@ -120,7 +122,11 @@ def sites_in(source: str, line_starts: list[int]) -> list[Site]:
             if isinstance(getattr(owner, step.attr, None), ModuleType):
                 owner = getattr(owner, step.attr)
                 continue
-            if hasattr(owner, step.attr) and _is_class(owner, step.attr) and not _stays(owner.__name__, step.attr):
+            if (
+                hasattr(owner, step.attr)
+                and _is_class(owner, step.attr)
+                and not _stays(owner.__name__, step.attr)
+            ):
                 found_sites.append(
                     Site(
                         line=step.lineno,

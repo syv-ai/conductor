@@ -46,7 +46,8 @@ def _column_inputs(columns: list[str], constant_columns: list[str]) -> dict[str,
     if twice:
         raise NodeError(
             f"The column '{twice[0]}' is named twice. Name each new column once, in 'columns' or in 'constant_columns'.",
-            code="column_named_twice", ctx={"column": twice[0]},
+            code="column_named_twice",
+            ctx={"column": twice[0]},
         )
     return {**{name: Series[Any] for name in columns}, **{name: Any for name in constant_columns}}
 
@@ -60,7 +61,9 @@ def _refuse_taken(new_columns: list[str], columns_of_records: list[str]) -> None
     taken = [name for name in new_columns if name in columns_of_records]
     if taken:
         raise NodeError(
-            f"The records already have a column '{taken[0]}'. Give the new column another name.", code="column_taken", ctx={"column": taken[0]},
+            f"The records already have a column '{taken[0]}'. Give the new column another name.",
+            code="column_taken",
+            ctx={"column": taken[0]},
         )
 
 
@@ -81,15 +84,22 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
         return {"result": Table}
     known = typing.get_type_hints(records)
     _refuse_taken(list(added), list(known))
-    new = {name: arriving | None if name in columns else arriving for name, arriving in added.items()}
+    new = {
+        name: arriving | None if name in columns else arriving for name, arriving in added.items()
+    }
     return {"result": _Table[TypedDict("Collected", {**known, **new})]}  # type: ignore[operator]  # a row type built at compile
 
 
 @registry.node(
-    "table-collect", title="Collect into a table", description="Puts the records back into one table, with a new column for each result worked out per record.",
-    compute_added_inputs=_column_inputs, compute_outputs=_table,
+    "table-collect",
+    title="Collect into a table",
+    description="Puts the records back into one table, with a new column for each result worked out per record.",
+    compute_added_inputs=_column_inputs,
+    compute_outputs=_table,
 )
-def collect(records: Table, columns: Names = [], constant_columns: Names = [], **values: Any) -> dict[str, Any]:
+def collect(
+    records: Table, columns: Names = [], constant_columns: Names = [], **values: Any
+) -> dict[str, Any]:
     """Returns the records' table with the new columns after its own: those of ``columns``, then of ``constant_columns``.
 
     ``values`` has one argument per new column, under its name: a list of one value per record for a name in
@@ -103,12 +113,19 @@ def collect(records: Table, columns: Names = [], constant_columns: Names = [], *
     for name in columns:
         count = len(values[name])
         if count != records.height:
-            constant_hint = " If it is one value for every record, name it in 'constant_columns' instead." if count == 1 else ""
+            constant_hint = (
+                " If it is one value for every record, name it in 'constant_columns' instead."
+                if count == 1
+                else ""
+            )
             raise NodeError(
                 f"The column '{name}' has {count} value{'s' if count != 1 else ''} for {records.height} record{'s' if records.height != 1 else ''}. "
                 f"Wire it from a node that runs once for each of the same records.{constant_hint}",
-                code="columns_not_aligned", ctx={"column": name, "records": records.height, "values": count},
+                code="columns_not_aligned",
+                ctx={"column": name, "records": records.height, "values": count},
             )
     per_record = [pl.Series(name, values[name], strict=False) for name in columns]
-    constant = [pl.Series(name, [values[name]] * records.height, strict=False) for name in constant_columns]
+    constant = [
+        pl.Series(name, [values[name]] * records.height, strict=False) for name in constant_columns
+    ]
     return {"result": records.with_columns(*per_record, *constant)}

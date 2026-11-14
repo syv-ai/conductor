@@ -37,7 +37,9 @@ def _as_node_error(invalid: str = "invalid_pattern", what: str = "pattern") -> I
     try:
         yield
     except TimeoutError:
-        raise NodeError("The pattern took too long on this text. Try a simpler pattern.", code="pattern_timeout") from None
+        raise NodeError(
+            "The pattern took too long on this text. Try a simpler pattern.", code="pattern_timeout"
+        ) from None
     except RegexError as error:
         raise NodeError(f"The {what} is not valid: {error}.", code=invalid) from None
 
@@ -48,15 +50,25 @@ def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
         return regex.compile(pattern, flags=regex.IGNORECASE if ignore_case else 0)
 
 
-@registry.node("regex-match", title="Matches pattern", description="Tells whether a pattern is found anywhere in the text.")
-def match(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[bool, Param(title="Matched")]:
+@registry.node(
+    "regex-match",
+    title="Matches pattern",
+    description="Tells whether a pattern is found anywhere in the text.",
+)
+def match(
+    text: LongText, pattern: Line, ignore_case: Flag = False
+) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
     compiled = _compiled(pattern, ignore_case)
     with _as_node_error():
         return compiled.search(text, timeout=TIMEOUT) is not None
 
 
-@registry.node("regex-replace", title="Replace pattern", description="Replaces everything in the text that matches a pattern.")
+@registry.node(
+    "regex-replace",
+    title="Replace pattern",
+    description="Replaces everything in the text that matches a pattern.",
+)
 def replace_all(
     text: LongText,
     pattern: Line,
@@ -69,8 +81,14 @@ def replace_all(
         return compiled.sub(replacement, text, timeout=TIMEOUT)
 
 
-@registry.node("regex-extract", title="Find pattern", description="Finds every piece of the text that matches a pattern, so what follows runs once for each match.")
-def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotated[Series[str], Param(title="Matches")]:
+@registry.node(
+    "regex-extract",
+    title="Find pattern",
+    description="Finds every piece of the text that matches a pattern, so what follows runs once for each match.",
+)
+def extract(
+    text: LongText, pattern: Line, ignore_case: Flag = False
+) -> Annotated[Series[str], Param(title="Matches")]:
     """Returns every match as a ``Series``, or the first group of each match when the pattern has groups.
 
     ``"a1b22"`` with ``\\d+`` gives ``["1", "22"]``; with ``([a-z])\\d`` it gives ``["a", "b"]``. A group that did not
@@ -78,4 +96,7 @@ def extract(text: LongText, pattern: Line, ignore_case: Flag = False) -> Annotat
     """
     compiled = _compiled(pattern, ignore_case)
     with _as_node_error():  # ``finditer`` is lazy, so the timeout is raised while the list is built
-        return [m.groups(default="")[0] if compiled.groups else m.group(0) for m in compiled.finditer(text, timeout=TIMEOUT)]
+        return [
+            m.groups(default="")[0] if compiled.groups else m.group(0)
+            for m in compiled.finditer(text, timeout=TIMEOUT)
+        ]

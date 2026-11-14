@@ -75,7 +75,9 @@ class RunProgress(CallCount):
     nodes: dict[str, CallCount]
 
 
-def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> CallCount:
+def call_count(
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode
+) -> CallCount:
     """The count of one function node, read from a run's outcomes.
 
     Args:
@@ -98,7 +100,12 @@ def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Bluep
                 assert_never(outcome)
     calls, final = all_item_indexes(outcomes, node.loops, ())
     known = len(calls)
-    return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
+    return CallCount.model_construct(
+        finished=len(of_node) - waiting,
+        waiting=waiting,
+        known=known,
+        total=known if final else None,
+    )
 
 
 def progress_of(run: Run[Any]) -> RunProgress:
@@ -111,12 +118,22 @@ def progress_of(run: Run[Any]) -> RunProgress:
     blueprint, outcomes = run._blueprint, run._outcomes
     nodes: dict[str, CallCount] = {}
     for path, node in blueprint.nodes.items():
-        if isinstance(node, BlueprintSubgraphNode):  # the nodes inside it come before it, so their counts are made
-            nodes[place_text(path)] = _sum(nodes[place_text(inner.node_path)] for inner in node.inner_nodes.values())
+        if isinstance(
+            node, BlueprintSubgraphNode
+        ):  # the nodes inside it come before it, so their counts are made
+            nodes[place_text(path)] = _sum(
+                nodes[place_text(inner.node_path)] for inner in node.inner_nodes.values()
+            )
         else:
             nodes[place_text(path)] = call_count(outcomes, node)
     whole = _sum(nodes[place_text(path)] for path in blueprint.function_nodes)
-    return RunProgress.model_construct(finished=whole.finished, waiting=whole.waiting, known=whole.known, total=whole.total, nodes=nodes)
+    return RunProgress.model_construct(
+        finished=whole.finished,
+        waiting=whole.waiting,
+        known=whole.known,
+        total=whole.total,
+        nodes=nodes,
+    )
 
 
 def _sum(counts: Iterable[CallCount]) -> CallCount:
@@ -124,13 +141,19 @@ def _sum(counts: Iterable[CallCount]) -> CallCount:
     finished = waiting = known = 0
     total: int | None = 0
     for count in counts:
-        finished, waiting, known = finished + count.finished, waiting + count.waiting, known + count.known
+        finished, waiting, known = (
+            finished + count.finished,
+            waiting + count.waiting,
+            known + count.known,
+        )
         total = None if total is None or count.total is None else total + count.total
     return CallCount.model_construct(finished=finished, waiting=waiting, known=known, total=total)
 
 
 def all_item_indexes(
-    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], loops: tuple[tuple[NodePath, str], ...], prefix: ItemIndexes,
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+    loops: tuple[tuple[NodePath, str], ...],
+    prefix: ItemIndexes,
 ) -> tuple[list[ItemIndexes], bool]:
     """The item indexes of every call a node will have, and whether that list is complete yet.
 
@@ -161,12 +184,16 @@ def all_item_indexes(
             if outcome is None or not outcome.has_outputs:
                 complete = False
                 continue
-            one_loop_deeper.extend((*item_indexes, index) for index in range(length(outcome.outputs[output])))
+            one_loop_deeper.extend(
+                (*item_indexes, index) for index in range(length(outcome.outputs[output]))
+            )
         every_item_indexes = one_loop_deeper
     return every_item_indexes, complete
 
 
-def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode) -> bool:
+def is_complete(
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode
+) -> bool:
     """Whether ``node`` is complete: it has an outcome for every call it will have, and none of them waits for a person.
 
     ``shout`` is complete when ``lines`` has returned and ``shout`` has three outcomes. ``approve`` with an

@@ -24,4 +24,14 @@ registry = NodeRegistry()
 for _module in (text, math, logic, json_ops, regex_ops, series, tables, control):
     registry.add_subregistry(_module.registry)
 
-__all__ = ["control", "json_ops", "logic", "math", "regex_ops", "registry", "series", "tables", "text"]
+__all__ = [
+    "control",
+    "json_ops",
+    "logic",
+    "math",
+    "regex_ops",
+    "registry",
+    "series",
+    "tables",
+    "text",
+]

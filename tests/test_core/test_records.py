@@ -78,59 +78,112 @@ def mails(found: Series[str | None]) -> int:
 
 
 def _graph(source: Any = contacts) -> Any:
-    reads = {"greet": ("name", "name"), "one": ("contact", None), "every": ("found", None), "names": ("found", "name"), "mails": ("found", "email")}
-    readers = {
-        node_id: NodeRecord(node=node_id, inputs={name: InputEntry(sources=[Source("c", "result", field)])}) for node_id, (name, field) in reads.items()
+    reads = {
+        "greet": ("name", "name"),
+        "one": ("contact", None),
+        "every": ("found", None),
+        "names": ("found", "name"),
+        "mails": ("found", "email"),
     }
-    return Graph.compile(GraphRecord(
-        nodes={"c": NodeRecord(node=source.id, inputs={"text": InputEntry(graph_input="text")}), **readers},
-        outputs={node_id: Source(node_id, "result") for node_id in reads},
-    ), registry_of(source, greet, one, every, names, mails))
+    readers = {
+        node_id: NodeRecord(
+            node=node_id, inputs={name: InputEntry(sources=[Source("c", "result", field)])}
+        )
+        for node_id, (name, field) in reads.items()
+    }
+    return Graph.compile(
+        GraphRecord(
+            nodes={
+                "c": NodeRecord(node=source.id, inputs={"text": InputEntry(graph_input="text")}),
+                **readers,
+            },
+            outputs={node_id: Source(node_id, "result") for node_id in reads},
+        ),
+        registry_of(source, greet, one, every, names, mails),
+    )
 
 
-@pytest.mark.parametrize("source", [contacts, listed], ids=["returned as a table", "returned as a list"])
+@pytest.mark.parametrize(
+    "source", [contacts, listed], ids=["returned as a table", "returned as a list"]
+)
 def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(source: Any) -> None:
     RECEIVED.clear()
     run = _graph(source).run(text="x")
 
-    assert run.outputs == {"greet": ["hi ida", "hi bo"], "one": ["ida", "bo"], "every": 2, "names": "ida+bo", "mails": 2}
+    assert run.outputs == {
+        "greet": ["hi ida", "hi bo"],
+        "one": ["ida", "bo"],
+        "every": 2,
+        "names": "ida+bo",
+        "mails": 2,
+    }
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert RECEIVED == [records, ["ida@x.dk", None], ["ida", "bo"], *records] and all(type(record) is dict for record in RECEIVED[3:])  # nodes called in id order
+    assert RECEIVED == [records, ["ida@x.dk", None], ["ida", "bo"], *records] and all(
+        type(record) is dict for record in RECEIVED[3:]
+    )  # nodes called in id order
     assert run.results["c"]["result"] == records  # a host reads plain records too
 
 
-def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_its_declared_columns() -> None:
+def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_its_declared_columns() -> (
+    None
+):
     graph = _graph()
     run = graph.run(text="x")
     kept = run._outcomes[("c",)][()].outputs["result"]
     assert type(kept) is Records and kept.frame.columns == ["name", "email"] and len(kept) == 2
 
     saved = json.loads(run.to_json())
-    assert saved["outcomes"]["c"]["outputs"]["result"] == [{"columns": [
-        {"name": "name", "type": "str", "values": ["ida", "bo"]}, {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
-    ]}]
-    assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"]["result"] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
+    assert saved["outcomes"]["c"]["outputs"]["result"] == [
+        {
+            "columns": [
+                {"name": "name", "type": "str", "values": ["ida", "bo"]},
+                {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
+            ]
+        }
+    ]
+    assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"][
+        "result"
+    ] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
     read_back = Run.from_json(run.to_json(), graph)
     assert type(read_back._outcomes[("c",)][()].outputs["result"]) is Records
     assert read_back.to_json() == run.to_json() and read_back.results == run.results
     RECEIVED.clear()
-    assert read_back.forget("one").resume().outputs == run.outputs and RECEIVED == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert read_back.forget("one").resume().outputs == run.outputs and RECEIVED == [
+        {"name": "ida", "email": "ida@x.dk"},
+        {"name": "bo", "email": None},
+    ]
 
 
-@pytest.mark.parametrize(("frame", "reason"), [
-    (pl.DataFrame({"name": ["ida", None], "email": ["a", "b"]}), "column 'name': a cell is blank, and the column's type takes no blank"),
-    (pl.DataFrame({"email": ["a", "b"]}), "the column 'name' its row type declares is missing"),
-    (pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}), "column 'name': Input should be a valid string"),
-])
-def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_and_fails_the_run(frame: pl.DataFrame, reason: str) -> None:
+@pytest.mark.parametrize(
+    ("frame", "reason"),
+    [
+        (
+            pl.DataFrame({"name": ["ida", None], "email": ["a", "b"]}),
+            "column 'name': a cell is blank, and the column's type takes no blank",
+        ),
+        (pl.DataFrame({"email": ["a", "b"]}), "the column 'name' its row type declares is missing"),
+        (
+            pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}),
+            "column 'name': Input should be a valid string",
+        ),
+    ],
+)
+def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_and_fails_the_run(
+    frame: pl.DataFrame, reason: str
+) -> None:
     @node("wrong", title="Wrong", description="For a test.")
     def wrong(text: str) -> Series[Contact]:
         return frame  # type: ignore[return-value]
 
     run = Graph.compile(make_graph(wrong), registry_of(wrong)).run(text="x")
 
-    assert (run.status, run.cause.type, run.cause.ctx["reason"], run.cause.ctx["column"]) == ("failed", "invalid_output", reason, "name")
+    assert (run.status, run.cause.type, run.cause.ctx["reason"], run.cause.ctx["column"]) == (
+        "failed",
+        "invalid_output",
+        reason,
+        "name",
+    )
 
 
 def test_a_table_returned_for_a_series_of_texts_fails_the_run() -> None:
@@ -152,10 +205,16 @@ def test_a_table_of_any_columns_is_a_series_of_its_records() -> None:
     def show(record: Any) -> str:
         return repr(record)
 
-    graph = Graph.compile(make_graph(anything, show, edges=[("anything.result", "show.record")]), registry_of(anything, show))
+    graph = Graph.compile(
+        make_graph(anything, show, edges=[("anything.result", "show.record")]),
+        registry_of(anything, show),
+    )
     run = graph.run(text="x")
 
-    assert run.outputs["result"] == ["{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}", "{'name': 'bo', 'email': None, 'age': 52}"]
+    assert run.outputs["result"] == [
+        "{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}",
+        "{'name': 'bo', 'email': None, 'age': 52}",
+    ]
     assert Run.from_json(run.to_json(), graph).results == run.results
 
 
@@ -165,7 +224,9 @@ def test_a_series_of_records_kept_as_a_table_counts_its_rows_against_the_item_li
     assert (run.status, run.cause.type, run.cause.ctx["items"]) == ("stopped", "item_limit", 2)
 
 
-def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_series_input_outside_as_plain_records() -> None:
+def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_series_input_outside_as_plain_records() -> (
+    None
+):
     @node("parts", title="Parts", description="For a test.")
     def parts(text: str) -> Series[str]:
         return text.split(",")
@@ -176,14 +237,42 @@ def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_serie
         return len(found)
 
     registry = registry_of(parts, contacts, count)
-    inner = GraphRecord.model_validate({"nodes": {"p": {"node": "parts", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "contacts", "inputs": {"text": {"sources": [{"node": "p", "output": "result"}]}}}}, "outputs": {"result": {"node": "c", "output": "result"}}})
+    inner = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "p": {"node": "parts", "inputs": {"text": {"graph_input": "text"}}},
+                "c": {
+                    "node": "contacts",
+                    "inputs": {"text": {"sources": [{"node": "p", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "c", "output": "result"}},
+        }
+    )
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}, "count": {"node": "count", "inputs": {"found": {"sources": [{"node": "e", "output": "result"}]}}}}, "outputs": {"result": {"node": "count", "output": "result"}}}), registry)
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}},
+                    "count": {
+                        "node": "count",
+                        "inputs": {"found": {"sources": [{"node": "e", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "count", "output": "result"}},
+            }
+        ),
+        registry,
+    )
     RECEIVED.clear()
     run = graph.run(text="x,y")
 
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert (run.status, run.outputs["result"]) == ("complete", [2, 2]) and RECEIVED == [records, records]  # one call per part
+    assert (run.status, run.outputs["result"]) == ("complete", [2, 2]) and RECEIVED == [
+        records,
+        records,
+    ]  # one call per part
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
@@ -194,39 +283,80 @@ def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table() 
     def people(text: str) -> Table[Contact]:
         return FRAME
 
-    graph = Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet))
+    graph = Graph.compile(
+        make_graph(
+            people,
+            split,
+            greet,
+            edges=[
+                ("people.result", "series-split.value"),
+                ("series-split.result.name", "greet.name"),
+            ],
+        ),
+        registry_of(people, split, greet),
+    )
     run = graph.run(text="x")
 
     assert run.outputs == {"result": ["hi ida", "hi bo"]}
     assert type(run._outcomes[("series-split",)][()].outputs["result"]) is Records
-    assert run.results["series-split"]["result"] == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
+    assert run.results["series-split"]["result"] == [
+        {"name": "ida", "email": "ida@x.dk"},
+        {"name": "bo", "email": None},
+    ]
 
 
 # -- how a run stores a Series, and what reads it ---------------------------------------------------------
 
 
-def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_for_that_record() -> None:
+def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_for_that_record() -> (
+    None
+):
     @node("five", title="Five", description="For a test.")
     def five(text: str) -> Series[dict]:
         return [{"name": "a"}, {"name": "b"}, {"other": "c"}, {"name": "d"}, {"name": "e"}]
 
-    graph = Graph.compile(make_graph(five, greet, edges=[("five.result.name", "greet.name")]), registry_of(five, greet))
+    graph = Graph.compile(
+        make_graph(five, greet, edges=[("five.result.name", "greet.name")]),
+        registry_of(five, greet),
+    )
     run = graph.run(text="x")
 
     cause = run.cause
-    assert (run.status, cause.type, cause.loc, cause.ctx["record_field"]) == ("failed", "invalid_edge_value", ("greet", 2), "name")
-    assert run.results["greet"]["result"][:3] == ["hi a", "hi b", None]  # the two records before it were read and called
+    assert (run.status, cause.type, cause.loc, cause.ctx["record_field"]) == (
+        "failed",
+        "invalid_edge_value",
+        ("greet", 2),
+        "name",
+    )
+    assert run.results["greet"]["result"][:3] == [
+        "hi a",
+        "hi b",
+        None,
+    ]  # the two records before it were read and called
 
 
-@pytest.mark.parametrize("source", [contacts, listed], ids=["returned as a table", "returned as a list"])
-def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_field_an_edge_reads(source: Any) -> None:
-    graph = Graph.compile(make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]), registry_of(source, greet))
+@pytest.mark.parametrize(
+    "source", [contacts, listed], ids=["returned as a table", "returned as a list"]
+)
+def test_the_column_of_a_field_is_made_once_per_stored_series_and_only_for_a_field_an_edge_reads(
+    source: Any,
+) -> None:
+    graph = Graph.compile(
+        make_graph(source, greet, edges=[(f"{source.id}.result.name", "greet.name")]),
+        registry_of(source, greet),
+    )
     run = graph.run(text="x")
 
     stored = run._outcomes[(source.id,)][()].outputs["result"]
-    assert dict(stored.columns) == {"name": ["ida", "bo"]}  # "email" was never read, so no list was made of it
+    assert dict(stored.columns) == {
+        "name": ["ida", "bo"]
+    }  # "email" was never read, so no list was made of it
     assert stored.columns["name"] is stored.columns["name"]
-    assert (len(stored), stored[1], stored.as_list()) == (2, {"name": "bo", "email": None}, [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}])
+    assert (len(stored), stored[1], stored.as_list()) == (
+        2,
+        {"name": "bo", "email": None},
+        [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}],
+    )
 
 
 def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_table() -> None:
@@ -237,7 +367,10 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
         got.append(table)
         return table.height
 
-    graph = Graph.compile(make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]), registry_of(contacts, rows))
+    graph = Graph.compile(
+        make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]),
+        registry_of(contacts, rows),
+    )
     run = graph.run(text="x")
 
     stored = run._outcomes[("contacts",)][()].outputs["result"]
@@ -256,23 +389,39 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
         got.append((table, mails))
         return table.height
 
-    graph = Graph.compile(make_graph(contacts, mail, both, edges=[
-        ("contacts.result.email", "mail.email"), ("contacts.result", "both.table"), ("mail.result", "both.mails"),
-    ]), registry_of(contacts, mail, both))
+    graph = Graph.compile(
+        make_graph(
+            contacts,
+            mail,
+            both,
+            edges=[
+                ("contacts.result.email", "mail.email"),
+                ("contacts.result", "both.table"),
+                ("mail.result", "both.mails"),
+            ],
+        ),
+        registry_of(contacts, mail, both),
+    )
     run = graph.run(text="x")
 
     assert run.outputs["result"] == 1  # bo has no email, so mail was not called for him
-    assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == ["IDA@X.DK"]
+    assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == [
+        "IDA@X.DK"
+    ]
 
 
-def test_a_table_is_written_once_however_often_it_is_hashed_and_hashes_by_its_cells(monkeypatch: MonkeyPatch) -> None:
+def test_a_table_is_written_once_however_often_it_is_hashed_and_hashes_by_its_cells(
+    monkeypatch: MonkeyPatch,
+) -> None:
     from conductor._internal.base import json_hash
     from conductor._internal.table import write
     from conductor._internal.types import untyped_to_hash
 
     written: list[int] = []
     as_written = write.written_table
-    monkeypatch.setattr(write, "written_table", lambda frame: written.append(1) or as_written(frame))
+    monkeypatch.setattr(
+        write, "written_table", lambda frame: written.append(1) or as_written(frame)
+    )
     frame = pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})
 
     def hashed(table: pl.DataFrame) -> str:
@@ -296,7 +445,18 @@ def people(text: str) -> Table[Contact]:
 def _read_then_split() -> Any:
     from conductor_nodes.series import split
 
-    return Graph.compile(make_graph(people, split, greet, edges=[("people.result", "series-split.value"), ("series-split.result.name", "greet.name")]), registry_of(people, split, greet))
+    return Graph.compile(
+        make_graph(
+            people,
+            split,
+            greet,
+            edges=[
+                ("people.result", "series-split.value"),
+                ("series-split.result.name", "greet.name"),
+            ],
+        ),
+        registry_of(people, split, greet),
+    )
 
 
 def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back_equal() -> None:
@@ -304,7 +464,10 @@ def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back
     run = graph.run(text="x")
     saved = json.loads(run.to_json())
 
-    assert saved["outcomes"]["series-split"]["outputs"]["result"] == saved["outcomes"]["people"]["outputs"]["result"]
+    assert (
+        saved["outcomes"]["series-split"]["outputs"]["result"]
+        == saved["outcomes"]["people"]["outputs"]["result"]
+    )
     read_back = Run.from_json(run.to_json(), graph)
     table, again = run.results["people"]["result"], read_back.results["people"]["result"]
     assert again.equals(table) and again.schema == table.schema
@@ -325,7 +488,9 @@ def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_ref
     assert "call 0 is done and has null for 'result'" in found.msg
 
 
-def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> None:
+def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> (
+    None
+):
     import pandas as pd
 
     graph = Graph.compile(make_graph(people), registry_of(people))
@@ -334,9 +499,16 @@ def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_on
     in_polars = pl.DataFrame({c["name"]: c["values"] for c in table["columns"]})
     in_pandas = pd.DataFrame({c["name"]: c["values"] for c in table["columns"]})
 
-    assert in_polars.to_dicts() == [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
-    assert list(in_pandas.columns) == ["name", "email"] and in_pandas["name"].tolist() == ["ida", "bo"]
-    assert in_pandas["email"][0] == "ida@x.dk" and pd.isna(in_pandas["email"][1])  # pandas shows a null cell as its own missing value
+    assert in_polars.to_dicts() == [
+        {"name": "ida", "email": "ida@x.dk"},
+        {"name": "bo", "email": None},
+    ]
+    assert list(in_pandas.columns) == ["name", "email"] and in_pandas["name"].tolist() == [
+        "ida",
+        "bo",
+    ]
+    # pandas shows a null cell as its own missing value
+    assert in_pandas["email"][0] == "ida@x.dk" and pd.isna(in_pandas["email"][1])
 
 
 class _MaybeNamed(TypedDict):
@@ -350,13 +522,17 @@ class _Partial(TypedDict, total=False):
 
 @pytest.mark.parametrize("row", [_MaybeNamed, _Partial])
 @pytest.mark.parametrize("hint", ["input table", "output table", "input series", "output series"])
-def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_declared(row: Any, hint: str) -> None:
+def test_a_row_type_that_may_leave_a_field_out_is_refused_when_the_node_is_declared(
+    row: Any, hint: str
+) -> None:
     kind = Table if "table" in hint else Series
 
     if hint.startswith("input"):
+
         def declared(rows: kind[row]) -> int:  # type: ignore[valid-type]
             return 0
     else:
+
         def declared() -> kind[row]:  # type: ignore[valid-type]
             return []
 
@@ -394,5 +570,7 @@ assert without_indexes(frame, {1}).to_dicts() == [{"n": 1}, {"n": 3}]
 
 
 def test_the_series_package_stores_a_frame_and_reads_a_column_whatever_else_is_imported() -> None:
-    done = subprocess.run([sys.executable, "-c", _SERIES_PACKAGE_ALONE], capture_output=True, text=True)
+    done = subprocess.run(
+        [sys.executable, "-c", _SERIES_PACKAGE_ALONE], capture_output=True, text=True
+    )
     assert done.returncode == 0, done.stderr

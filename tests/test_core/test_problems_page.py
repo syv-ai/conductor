@@ -31,7 +31,11 @@ _MESSAGE_IS_THE_NODES = {"failed"}
 def test_every_message_says_what_to_do() -> None:
     """A message carries its fix: a clause after what is wrong, which may be the alternatives to pick from."""
     sentences = [(kind.code, kind.sentence) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS]]
-    without = [code for code, text in sentences if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))]
+    without = [
+        code
+        for code, text in sentences
+        if code not in _NO_FIX and not re.search(r"[;:.] \S", text.removesuffix(": {reason}"))
+    ]
     assert without == []
 
 
@@ -43,7 +47,7 @@ def _setup() -> str:
 def _store_setup() -> str:
     """The setup of ``check_run_store``'s examples: the Python blocks of the section on writing a store, on the page
     on serving runs."""
-    section = _SERVING_RUNS[_SERVING_RUNS.index("## A store"):_SERVING_RUNS.index("## The app")]
+    section = _SERVING_RUNS[_SERVING_RUNS.index("## A store") : _SERVING_RUNS.index("## The app")]
     return "\n".join(re.findall(r"```python\n(.*?)```", section, re.S))
 
 
@@ -60,11 +64,18 @@ def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
 
 
 #: Each kind with an example, and the setup its example runs after: that of the page its catalogue is written on.
-_KINDS = [*((kind, _setup) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]), *((kind, _store_setup) for kind in RUN_STORE_CHECK_PROBLEMS)]
+_KINDS = [
+    *((kind, _setup) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]),
+    *((kind, _store_setup) for kind in RUN_STORE_CHECK_PROBLEMS),
+]
 
 
-@pytest.mark.parametrize(("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind, _ in _KINDS])
-def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], setup: Callable[[], str], monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind._message.__name__}" for kind, _ in _KINDS]
+)
+def test_a_kinds_example_makes_its_problem_and_no_other(
+    kind: ProblemKind[...], setup: Callable[[], str], monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     """The example runs after the page's setup, alone, and its last line gives problems of this kind only."""
     monkeypatch.chdir(tmp_path)
     page = ModuleType("problems_page")  # a dataclass in an example looks its module up by name
@@ -74,23 +85,41 @@ def test_a_kinds_example_makes_its_problem_and_no_other(kind: ProblemKind[...], 
     *body, last = ast.parse(example).body
     assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
     exec(compile(setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
-    exec(compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"), page.__dict__)  # noqa: S102
-    made = eval(compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__)  # noqa: S307
+    exec(
+        compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"),
+        page.__dict__,
+    )  # noqa: S102
+    made = eval(
+        compile(Expression(last.value), f"problems page: {kind.code}", "eval"), page.__dict__
+    )  # noqa: S307
     made = made if isinstance(made, list) else [made]
     assert made and [problem for problem in made if not _is_of_kind(kind, problem)] == []
 
 
 #: The helper of the page's setup that meets a problem where each section's text says it is met: in
 #: ``graph.problems``, in a refused call's ``InvalidCallError``, as a run's cause, or in a ``NodeDeclarationError``.
-_MET_BY = {"Compiling a graph": "problems", "Refused calls": "refused", "Why a run stopped": "why_it_stopped", "Declaring a node": "declaration_refused"}
+_MET_BY = {
+    "Compiling a graph": "problems",
+    "Refused calls": "refused",
+    "Why a run stopped": "why_it_stopped",
+    "Declaring a node": "declaration_refused",
+}
 _SECTIONED = [*PROBLEMS, *DECLARATION_PROBLEMS]
 
 
-@pytest.mark.parametrize("kind", _SECTIONED, ids=[f"{kind.code}-{kind.variant}" for kind in _SECTIONED])
-def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(kind: ProblemKind[...]) -> None:
+@pytest.mark.parametrize(
+    "kind", _SECTIONED, ids=[f"{kind.code}-{kind.variant}" for kind in _SECTIONED]
+)
+def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(
+    kind: ProblemKind[...],
+) -> None:
     """The example's last line calls its section's helper, and the test above runs it, so the problem is met there."""
     *_, last = ast.parse(_kind_docs(kind).example).body
-    assert isinstance(last, Expr) and isinstance(last.value, Call) and isinstance(last.value.func, Name)
+    assert (
+        isinstance(last, Expr)
+        and isinstance(last.value, Call)
+        and isinstance(last.value.func, Name)
+    )
     assert last.value.func.id == _MET_BY[kind.section]
 
 
@@ -100,9 +129,21 @@ def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, page.__name__, page)
     exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102
     examples = {
-        "upper": [{"text": "a"}], "greet": [{"name": "Ida", "greeting": "Hi"}], "count": [{"n": 2}], "words": [{"text": "a b"}],
-        "join": [{"texts": ["a", "b"]}], "route": [{"text": "ab"}, {"text": "abcdef"}], "approve": [{"amount": 5}], "who": [{}],
-        "pick": [{"names": "a,b"}], "contacts": [{"text": "Ida ida@example.com"}],
+        "upper": [{"text": "a"}],
+        "greet": [{"name": "Ida", "greeting": "Hi"}],
+        "count": [{"n": 2}],
+        "words": [{"text": "a b"}],
+        "join": [{"texts": ["a", "b"]}],
+        "route": [{"text": "ab"}, {"text": "abcdef"}],
+        "approve": [{"amount": 5}],
+        "who": [{}],
+        "pick": [{"names": "a,b"}],
+        "contacts": [{"text": "Ida ida@example.com"}],
     }
     assert set(examples) == {definition.id for definition in page.registry}
-    assert page.check_registry(page.registry, examples=examples, context=page.HostContext(page.Caller("Ida"))) == []
+    assert (
+        page.check_registry(
+            page.registry, examples=examples, context=page.HostContext(page.Caller("Ida"))
+        )
+        == []
+    )

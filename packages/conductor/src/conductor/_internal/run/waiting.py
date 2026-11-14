@@ -54,7 +54,12 @@ class Waiting(ConductorModel):
     inputs: dict[str, Any]
 
 
-def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiting: Unanswered, reader: ResultReader) -> Waiting:
+def waiting_record(
+    node: BlueprintFunctionNode,
+    item_indexes: ItemIndexes,
+    waiting: Unanswered,
+    reader: ResultReader,
+) -> Waiting:
     """A waiting call as a host shows it.
 
     Args:
@@ -64,15 +69,24 @@ def waiting_record(node: BlueprintFunctionNode, item_indexes: ItemIndexes, waiti
         reader: Reads the run's outcomes.
     """
     compiled_node, inputs = node.compiled_node, received(node, item_indexes, reader)
-    loc, outputs, choices, defaults = outcome_loc(node, item_indexes), compiled_node.outputs, waiting.choices, waiting.defaults
+    loc, outputs, choices, defaults = (
+        outcome_loc(node, item_indexes),
+        compiled_node.outputs,
+        waiting.choices,
+        waiting.defaults,
+    )
     return Waiting(
-        id=write_waiting_id(loc, question_fingerprint(compiled_node, inputs)), loc=loc, prompt=waiting.prompt,
+        id=write_waiting_id(loc, question_fingerprint(compiled_node, inputs)),
+        loc=loc,
+        prompt=waiting.prompt,
         questions=[as_asked(output, choices, defaults) for output in outputs.values()],
         inputs=inputs,
     )
 
 
-def received(node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader) -> dict[str, Any]:
+def received(
+    node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader
+) -> dict[str, Any]:
     """What a call that waits received, as JSON: its arguments read again from the outcomes it reads, which never
     change once written. ``received(approve, (1,), reader)`` is ``{"line": "b"}``.
 
@@ -90,7 +104,9 @@ def received(node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: Res
             inputs: dict[str, Any] = jsonable(arguments)
             return inputs
         case Skipped() | NoneInput() | NotReady.NOT_READY as none:
-            raise RuntimeError(f"the waiting call {outcome_loc(node, item_indexes)} reads as {none!r}, which a call that asked cannot")
+            raise RuntimeError(
+                f"the waiting call {outcome_loc(node, item_indexes)} reads as {none!r}, which a call that asked cannot"
+            )
         case unexpected:
             assert_never(unexpected)
 
@@ -114,7 +130,9 @@ def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
     return place if fingerprint is None else f"{place}~{fingerprint}"
 
 
-def read_waiting_id(waiting_id: str, *, status: Callable[[], str]) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
+def read_waiting_id(
+    waiting_id: str, *, status: Callable[[], str]
+) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
     """The call a waiting id names, as ``write_waiting_id`` wrote it, and the fingerprint of its question.
 
     ``read_waiting_id("review@0/approve@1~3fa2c0d1", status=lambda: "waiting")`` returns ``(("review", 0, "approve", 1),
@@ -142,10 +160,14 @@ def read_waiting_id(waiting_id: str, *, status: Callable[[], str]) -> tuple[Loc,
         try:
             read = [int(index) for index in indexes]
         except ValueError:
-            raise InvalidCallError([call_problems.not_waiting(*loc, node_id, waiting_id=waiting_id, status=status())]) from None
+            raise InvalidCallError(
+                [call_problems.not_waiting(*loc, node_id, waiting_id=waiting_id, status=status())]
+            ) from None
         loc += [node_id, *read]
         item_indexes += read
     read_fingerprint = fingerprint or None
     if write_waiting_id(tuple(loc), read_fingerprint) != waiting_id:
-        raise InvalidCallError([call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())])
+        raise InvalidCallError(
+            [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())]
+        )
     return tuple(loc), tuple(node_path), tuple(item_indexes), read_fingerprint

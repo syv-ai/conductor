@@ -133,8 +133,12 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
     edge_door: EdgeDoor | None
     upstream: dict[BlueprintFunctionNode, int]
     position: int
-    looped_outputs: dict[str, tuple[BlueprintNode, str]] = dataclasses.field(default_factory=dict[str, tuple["BlueprintNode", str]])
-    downstream: list[tuple[BlueprintFunctionNode, int]] = dataclasses.field(default_factory=list[tuple["BlueprintFunctionNode", int]])
+    looped_outputs: dict[str, tuple[BlueprintNode, str]] = dataclasses.field(
+        default_factory=dict[str, tuple["BlueprintNode", str]]
+    )
+    downstream: list[tuple[BlueprintFunctionNode, int]] = dataclasses.field(
+        default_factory=list[tuple["BlueprintFunctionNode", int]]
+    )
     all_upstream: frozenset[BlueprintFunctionNode] | None = None
 
     @property
@@ -157,7 +161,9 @@ class BlueprintSubgraphNode(_BlueprintNodeBase):
     """
 
     compiled_node: CompiledSubgraphNode
-    inner_nodes: dict[str, BlueprintNode] = dataclasses.field(default_factory=dict[str, "BlueprintNode"])
+    inner_nodes: dict[str, BlueprintNode] = dataclasses.field(
+        default_factory=dict[str, "BlueprintNode"]
+    )
 
 
 #: A node of the blueprint: a function, or a subgraph.
@@ -194,7 +200,11 @@ def outcome_loc(node: BlueprintNode, item_indexes: ItemIndexes) -> Loc:
     if node.parent is None:
         return (node.compiled_node.id, *item_indexes)
     parent_depth = len(node.parent.loops)
-    return (*outcome_loc(node.parent, item_indexes[:parent_depth]), node.compiled_node.id, *item_indexes[parent_depth:])
+    return (
+        *outcome_loc(node.parent, item_indexes[:parent_depth]),
+        node.compiled_node.id,
+        *item_indexes[parent_depth:],
+    )
 
 
 @dataclass(frozen=True, eq=False)
@@ -218,8 +228,11 @@ class RunBlueprint:
         ``policy.most_at_once`` over the nodes called on a thread, a node definition that sets ``concurrency``
         counted once however many places use it."""
         counted = {
-            node.compiled_node.definition.running_calls if node.policy.concurrency is not None else node: node.policy.most_at_once
-            for node in self.function_nodes.values() if node.policy.threaded
+            node.compiled_node.definition.running_calls
+            if node.policy.concurrency is not None
+            else node: node.policy.most_at_once
+            for node in self.function_nodes.values()
+            if node.policy.threaded
         }
         return sum(counted.values())
 
@@ -236,7 +249,10 @@ class RunBlueprint:
 
 
 def _add_blueprint_nodes(
-    graph: Graph[Any], parent: BlueprintSubgraphNode | None, functions: dict[NodePath, BlueprintFunctionNode], nodes: dict[NodePath, BlueprintNode],
+    graph: Graph[Any],
+    parent: BlueprintSubgraphNode | None,
+    functions: dict[NodePath, BlueprintFunctionNode],
+    nodes: dict[NodePath, BlueprintNode],
 ) -> dict[str, BlueprintNode]:
     """Makes the blueprint nodes of ``graph``, and of each subgraph in it, and adds them to ``functions`` and
     ``nodes``.
@@ -258,20 +274,33 @@ def _add_blueprint_nodes(
     graph_nodes: dict[str, BlueprintNode] = {}
     for compiled_node in graph._nodes.values():
         node_path = _path_in_run(graph_path, (compiled_node.id,))
-        loops = (*outer_loops, *[(_path_in_run(graph_path, loop_node), output) for loop_node, output in compiled_node.loops])
+        loops = (
+            *outer_loops,
+            *[
+                (_path_in_run(graph_path, loop_node), output)
+                for loop_node, output in compiled_node.loops
+            ],
+        )
         node: BlueprintNode
         if isinstance(compiled_node, CompiledSubgraphNode):
-            node = BlueprintSubgraphNode(compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops)
+            node = BlueprintSubgraphNode(
+                compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops
+            )
             node.inner_nodes = _add_blueprint_nodes(compiled_node.inner, node, functions, nodes)
         else:
-            node = functions[node_path] = _function_node(compiled_node, parent, node_path, loops, functions)
+            node = functions[node_path] = _function_node(
+                compiled_node, parent, node_path, loops, functions
+            )
         graph_nodes[compiled_node.id] = nodes[node_path] = node
         _note_looped_outputs(node, functions, nodes)
     return graph_nodes
 
 
 def _function_node(
-    compiled_node: CompiledFunctionNode, parent: BlueprintSubgraphNode | None, node_path: NodePath, loops: tuple[tuple[NodePath, str], ...],
+    compiled_node: CompiledFunctionNode,
+    parent: BlueprintSubgraphNode | None,
+    node_path: NodePath,
+    loops: tuple[tuple[NodePath, str], ...],
     functions: Mapping[NodePath, BlueprintFunctionNode],
 ) -> BlueprintFunctionNode:
     """Returns the blueprint node of a function node: where it is, what each call of it reads, and the function
@@ -291,11 +320,17 @@ def _function_node(
     edge_inputs: dict[str, tuple[NodePath, EdgeInput | CollectingInput]] = {}
     for name, node_input in compiled_node.inputs.items():
         subgraph = parent  # the subgraph node whose graph ``node_input`` was compiled in
-        while isinstance(node_input, GraphInput) and subgraph is not None:  # read as the subgraph node's input
+        while (
+            isinstance(node_input, GraphInput) and subgraph is not None
+        ):  # read as the subgraph node's input
             node_input, subgraph = subgraph.compiled_node.inputs[node_input.name], subgraph.parent
-        graph_path, outer_loops = (subgraph.node_path, subgraph.loops) if subgraph is not None else ((), ())
+        graph_path, outer_loops = (
+            (subgraph.node_path, subgraph.loops) if subgraph is not None else ((), ())
+        )
         constants[name] = None
-        read: list[tuple[BlueprintFunctionNode, int]]  # the node each value read comes from, and how many loops it is inside
+        read: list[
+            tuple[BlueprintFunctionNode, int]
+        ]  # the node each value read comes from, and how many loops it is inside
         outside_the_loop: list[tuple[BlueprintFunctionNode, int]] = []
         match node_input:
             case ConstantInput(value=value):
@@ -305,32 +340,65 @@ def _function_node(
                 graph_inputs.append((name, graph_input))
                 continue
             case MissingInput(field=field):
-                raise RuntimeError(f"'{place_text(node_path, field.name)}' gets no value: a graph with problems has no blueprint")
+                raise RuntimeError(
+                    f"'{place_text(node_path, field.name)}' gets no value: a graph with problems has no blueprint"
+                )
             case EdgeInput(sources=edges, loops=value_loops):
-                read = [(source, len(source.loops)) for source in [function_node_in_run(functions, graph_path, edge.node) for edge in edges]]
+                read = [
+                    (source, len(source.loops))
+                    for source in [
+                        function_node_in_run(functions, graph_path, edge.node) for edge in edges
+                    ]
+                ]
                 depth = len(outer_loops) + len(value_loops)
             case CollectingInput(field=field, series=series, sources=edges):
-                series_node, sources = function_node_in_run(functions, graph_path, series[0]), [function_node_in_run(functions, graph_path, edge.node) for edge in edges]
+                series_node, sources = (
+                    function_node_in_run(functions, graph_path, series[0]),
+                    [function_node_in_run(functions, graph_path, edge.node) for edge in edges],
+                )
                 looped_over = series_node.node_path, series[1]
                 depth = len(series_node.loops)
                 read = [(series_node, depth), *[(source, len(source.loops)) for source in sources]]
                 # what a node inside the loop reads from outside it can say that no item will have a value
-                read_inside = [read for inner in loop_body_of(looped_over, sources) for read in inner.upstream.items()]
-                outside_the_loop = [(read, shared) for read, shared in read_inside if looped_over not in read.loops]
+                read_inside = [
+                    read
+                    for inner in loop_body_of(looped_over, sources)
+                    for read in inner.upstream.items()
+                ]
+                outside_the_loop = [
+                    (read, shared) for read, shared in read_inside if looped_over not in read.loops
+                ]
                 collecting.setdefault(looped_over, []).append((name, field.accepts_none_items))
             case _:
                 assert_never(node_input)
         edge_inputs[name] = graph_path, node_input
-        for upstream_node, shared_indexes in (*[(source, min(source_depth, depth)) for source, source_depth in read], *outside_the_loop):
-            upstream[upstream_node] = min(shared_indexes, upstream.get(upstream_node, shared_indexes))
+        for upstream_node, shared_indexes in (
+            *[(source, min(source_depth, depth)) for source, source_depth in read],
+            *outside_the_loop,
+        ):
+            upstream[upstream_node] = min(
+                shared_indexes, upstream.get(upstream_node, shared_indexes)
+            )
     if loops and min(upstream.values(), default=0) < len(loops):
         # it reads something made outside its innermost loop, which may exist before the list looped over does
         upstream.setdefault(functions[loops[-1][0]], len(loops) - 1)
-    read_by_door = {name: node_input.field for name, (_, node_input) in edge_inputs.items() if _demands_more(node_input)}
+    read_by_door = {
+        name: node_input.field
+        for name, (_, node_input) in edge_inputs.items()
+        if _demands_more(node_input)
+    }
     return BlueprintFunctionNode(
-        compiled_node=compiled_node, parent=parent, node_path=node_path, loops=loops, constants=constants, graph_inputs=tuple(graph_inputs),
-        edge_inputs=edge_inputs, lists_from_same_loop=tuple(map(tuple, collecting.values())),
-        edge_door=EdgeDoor(read_by_door) if read_by_door else None, upstream=upstream, position=len(functions),
+        compiled_node=compiled_node,
+        parent=parent,
+        node_path=node_path,
+        loops=loops,
+        constants=constants,
+        graph_inputs=tuple(graph_inputs),
+        edge_inputs=edge_inputs,
+        lists_from_same_loop=tuple(map(tuple, collecting.values())),
+        edge_door=EdgeDoor(read_by_door) if read_by_door else None,
+        upstream=upstream,
+        position=len(functions),
     )
 
 
@@ -345,7 +413,11 @@ def _path_in_run(graph_path: NodePath, node_path: NodePath) -> NodePath:
     return (*graph_path, *node_path)
 
 
-def function_node_in_run(function_nodes: Mapping[NodePath, BlueprintFunctionNode], graph_path: NodePath, node_path: NodePath) -> BlueprintFunctionNode:
+def function_node_in_run(
+    function_nodes: Mapping[NodePath, BlueprintFunctionNode],
+    graph_path: NodePath,
+    node_path: NodePath,
+) -> BlueprintFunctionNode:
     """Returns the function node that ``node_path``, a path from a compiled graph, names in a run. Every edge, loop and
     collected list of a compiled input names its function node this way. In the example, ``("shout",)`` in
     ``loud``'s graph is the function node ``loud/shout``.
@@ -358,7 +430,11 @@ def function_node_in_run(function_nodes: Mapping[NodePath, BlueprintFunctionNode
     return function_nodes[_path_in_run(graph_path, node_path)]
 
 
-def _note_looped_outputs(node: BlueprintNode, functions: Mapping[NodePath, BlueprintFunctionNode], nodes: Mapping[NodePath, BlueprintNode]) -> None:
+def _note_looped_outputs(
+    node: BlueprintNode,
+    functions: Mapping[NodePath, BlueprintFunctionNode],
+    nodes: Mapping[NodePath, BlueprintNode],
+) -> None:
     """Adds each ``Series`` output that an input of ``node`` reads one item at a time to the ``looped_outputs`` of
     the function node that returns it, named as ``node``'s graph names it: by the node the edge is wired to."""
     graph_path = node.node_path[:-1]
@@ -368,14 +444,18 @@ def _note_looped_outputs(node: BlueprintNode, functions: Mapping[NodePath, Bluep
                 for edge in edges:
                     if edge.per_item:
                         wired_to = nodes[_path_in_run(graph_path, (edge.wired_to.node,))]
-                        function_node_in_run(functions, graph_path, edge.node).looped_outputs.setdefault(edge.output, (wired_to, edge.wired_to.output))
+                        function_node_in_run(
+                            functions, graph_path, edge.node
+                        ).looped_outputs.setdefault(edge.output, (wired_to, edge.wired_to.output))
             case EdgeInput() | CollectingInput() | ConstantInput() | GraphInput() | MissingInput():
                 pass
             case _:
                 assert_never(node_input)
 
 
-def loop_body_of(series: tuple[NodePath, str], sources: list[BlueprintFunctionNode]) -> tuple[BlueprintFunctionNode, ...]:
+def loop_body_of(
+    series: tuple[NodePath, str], sources: list[BlueprintFunctionNode]
+) -> tuple[BlueprintFunctionNode, ...]:
     """Returns the function nodes inside the loop over ``series`` that a value read from ``sources`` depends on,
     each after the nodes upstream of it.
 

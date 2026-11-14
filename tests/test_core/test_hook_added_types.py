@@ -14,7 +14,13 @@ def _typed_like_what_arrives(**added: type) -> dict[str, Any]:
     return dict(added)
 
 
-@node("pass-on", title="Pass on", description="Gives each added input as an output.", compute_added_inputs=_columns, compute_outputs=_typed_like_what_arrives)
+@node(
+    "pass-on",
+    title="Pass on",
+    description="Gives each added input as an output.",
+    compute_added_inputs=_columns,
+    compute_outputs=_typed_like_what_arrives,
+)
 def pass_on(names: list[str], **values: Any) -> dict[str, Any]:
     return values
 
@@ -36,8 +42,16 @@ for _definition in (pass_on, number, words):
 
 def _compiled(source: tuple[str, str], target: str, names: list[str], **constants: Any):
     """The nodes ``n``, ``w`` and ``p``, with an edge from ``source``, ``(node, output)``, into ``p``'s input ``target``."""
-    inputs = {"names": {"constant": names}, **{name: {"constant": value} for name, value in constants.items()}, target: {"sources": [{"node": source[0], "output": source[1]}]}}
-    nodes = {"n": {"node": "number"}, "w": {"node": "words"}, "p": {"node": "pass-on", "inputs": inputs}}
+    inputs = {
+        "names": {"constant": names},
+        **{name: {"constant": value} for name, value in constants.items()},
+        target: {"sources": [{"node": source[0], "output": source[1]}]},
+    }
+    nodes = {
+        "n": {"node": "number"},
+        "w": {"node": "words"},
+        "p": {"node": "pass-on", "inputs": inputs},
+    }
     return Graph.compile(GraphRecord.model_validate({"nodes": nodes}), REGISTRY)
 
 
@@ -62,7 +76,12 @@ def test_a_node_that_adds_no_inputs_has_no_added_types_to_read():
         return {}
 
     with pytest.raises(NodeDeclarationError) as raised:
-        node("plain", title="Plain", description="For a test.", compute_outputs=_typed_like_what_arrives)(plain)
+        node(
+            "plain",
+            title="Plain",
+            description="For a test.",
+            compute_outputs=_typed_like_what_arrives,
+        )(plain)
     assert raised.value.problems[0].type == "hook_parameter_unknown"
 
 
@@ -77,18 +96,46 @@ def test_var_keyword_on_a_hook_is_only_the_added_types():
         return {}
 
     with pytest.raises(NodeDeclarationError) as untyped:
-        node("a", title="A", description="For a test.", compute_added_inputs=_columns, compute_outputs=values)(run)
+        node(
+            "a",
+            title="A",
+            description="For a test.",
+            compute_added_inputs=_columns,
+            compute_outputs=values,
+        )(run)
     with pytest.raises(NodeDeclarationError) as too_early:
-        node("b", title="B", description="For a test.", compute_added_inputs=adding, compute_outputs=_typed_like_what_arrives)(run)
-    assert (untyped.value.problems[0].type, too_early.value.problems[0].type) == ("hook_parameter_unknown", "arriving_on_compute_added_inputs")
+        node(
+            "b",
+            title="B",
+            description="For a test.",
+            compute_added_inputs=adding,
+            compute_outputs=_typed_like_what_arrives,
+        )(run)
+    assert (untyped.value.problems[0].type, too_early.value.problems[0].type) == (
+        "hook_parameter_unknown",
+        "arriving_on_compute_added_inputs",
+    )
 
 
 def test_the_definition_says_what_each_hook_parameter_receives():
     def outputs(names: list[str], first: type, **added: type) -> dict[str, Any]:
         return {}
 
-    @node("c", title="C", description="For a test.", compute_added_inputs=_columns, compute_outputs=outputs)
+    @node(
+        "c",
+        title="C",
+        description="For a test.",
+        compute_added_inputs=_columns,
+        compute_outputs=outputs,
+    )
     def c(names: list[str], first: Any, **values: Any) -> dict[str, Any]:
         return {}
 
-    assert c.hook_parameters == {"compute_added_inputs": {"names": "value"}, "compute_outputs": {"names": "value", "first": "arriving_type", "added": "added_arriving_types"}}
+    assert c.hook_parameters == {
+        "compute_added_inputs": {"names": "value"},
+        "compute_outputs": {
+            "names": "value",
+            "first": "arriving_type",
+            "added": "added_arriving_types",
+        },
+    }

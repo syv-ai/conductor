@@ -33,7 +33,11 @@ class Decided[T]:
     if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
 
 
-@registry.node("control-decide", title="Decision", description="Sends the value one way when the switch is on and the other way when it is off.")
+@registry.node(
+    "control-decide",
+    title="Decision",
+    description="Sends the value one way when the switch is on and the other way when it is off.",
+)
 def decision[T](value: T, when: Flag = True) -> Decided[T]:
     """Returns ``value`` on ``if_true`` when ``when`` is true, and on ``if_false`` when it is false."""
     return Decided(if_true=value) if when else Decided(if_false=value)
@@ -55,7 +59,11 @@ class Equality:
     not_equal: Annotated[str, Param(title="Not equal", exclusive_group="equality")]
 
 
-@registry.node("control-if-empty", title="If empty", description="Sends the text one way when it is empty or only spaces, and the other way when it has something in it.")
+@registry.node(
+    "control-if-empty",
+    title="If empty",
+    description="Sends the text one way when it is empty or only spaces, and the other way when it has something in it.",
+)
 def if_empty(text: LongText) -> Emptiness:
     """Returns the text on ``empty`` when it is empty or only whitespace, and on ``not_empty`` otherwise."""
     if text.strip():
@@ -63,7 +71,11 @@ def if_empty(text: LongText) -> Emptiness:
     return Emptiness(not_empty=SKIPPED, empty=text)
 
 
-@registry.node("control-if-equals", title="If equals", description="Sends the first text one way when it matches the second and the other way when it doesn't.")
+@registry.node(
+    "control-if-equals",
+    title="If equals",
+    description="Sends the first text one way when it matches the second and the other way when it doesn't.",
+)
 def if_equals(a: Line, b: Line, case_sensitive: Flag = True) -> Equality:
     """Returns ``a`` on ``equal`` when it equals ``b`` (ignoring case unless ``case_sensitive``), and on ``not_equal`` otherwise."""
     same = a == b if case_sensitive else a.lower() == b.lower()

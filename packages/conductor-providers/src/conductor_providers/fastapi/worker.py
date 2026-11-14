@@ -174,7 +174,9 @@ class Worker(Generic[C]):
             InvalidCallError: The graph can't run on ``who``'s nodes, or refuses the inputs.
         """
         nodes = self._nodes_for(who)
-        run = await asyncio.to_thread(lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items))
+        run = await asyncio.to_thread(
+            lambda: Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
+        )
         return await self._create(run.graph.record.model_dump_json(), who, run)
 
     async def estimate(self, graph: Any, inputs: Mapping[str, Any], who: C) -> RunProgress:
@@ -199,7 +201,9 @@ class Worker(Generic[C]):
 
         def estimated() -> RunProgress:
             ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
-            return ready.resume(context=self._context(who), timeout=self._resume_timeout, only_costs_nothing=True).progress
+            return ready.resume(
+                context=self._context(who), timeout=self._resume_timeout, only_costs_nothing=True
+            ).progress
 
         return await asyncio.to_thread(estimated)
 
@@ -222,7 +226,9 @@ class Worker(Generic[C]):
         again = await asyncio.to_thread(lambda: _loaded(run.row, nodes).with_inputs(inputs))
         return await self._create(run.row.graph, who, again)
 
-    async def answer(self, run: RunAsRead, answers: Mapping[str, Any]) -> Literal["started", "queued"]:
+    async def answer(
+        self, run: RunAsRead, answers: Mapping[str, Any]
+    ) -> Literal["started", "queued"]:
         """Answer what waits in a run, by waiting id.
 
         While the run is running, the answers are queued until the resume call ends. Otherwise the run takes them
@@ -241,9 +247,15 @@ class Worker(Generic[C]):
                 each), the run is complete (``run_complete``), or another call claimed it first (``run_changed``).
             InvalidCallError: The run refuses an answer; every answer it refuses is listed.
         """
+
         def queued_with_these(state: StoredState) -> StoredState:
             if twice := state.queued_answers.keys() & answers.keys():
-                raise RefusedError(*(router_problems.already_answered(waiting_id=waiting_id) for waiting_id in sorted(twice)))
+                raise RefusedError(
+                    *(
+                        router_problems.already_answered(waiting_id=waiting_id)
+                        for waiting_id in sorted(twice)
+                    )
+                )
             return state.model_copy(update={"queued_answers": {**state.queued_answers, **answers}})
 
         run = await self._ask_of_a_running_run(run, queued_with_these)
@@ -277,7 +289,9 @@ class Worker(Generic[C]):
         raised = None
         if max_items is not None:
             row, nodes = run.row, self._nodes_for(self.started_by(run.row))
-            raised = await asyncio.to_thread(lambda: _loaded(row, nodes).with_max_items(max_items).to_json())
+            raised = await asyncio.to_thread(
+                lambda: _loaded(row, nodes).with_max_items(max_items).to_json()
+            )
         if not await self._claim(run, state, changed=raised):
             raise RefusedError(router_problems.run_changed())
 
@@ -294,7 +308,9 @@ class Worker(Generic[C]):
         Returns:
             Whether the run was running as read, or since, so that the cancel was written.
         """
-        run = await self._ask_of_a_running_run(run, lambda state: state.model_copy(update={"cancel_asked": True}))
+        run = await self._ask_of_a_running_run(
+            run, lambda state: state.model_copy(update={"cancel_asked": True})
+        )
         if run.state.is_running:
             for hold in [hold for hold in self._holds if hold.run_id == run.row.id]:
                 async with hold.lock:
@@ -325,7 +341,9 @@ class Worker(Generic[C]):
             if new:
                 may_have_ended = from_json(new[-1][1])["type"] == "run_end"
             elif may_have_ended and not (await self.read(run_id)).state.is_running:
-                for event in await self._store.events(run_id, after):  # stored before the row said so
+                for event in await self._store.events(
+                    run_id, after
+                ):  # stored before the row said so
                     yield event
                 return
             else:  # the row is written after its run_end, so it may still say running for a poll or two
@@ -341,7 +359,10 @@ class Worker(Generic[C]):
                     run = RunAsRead.of(row)
                     await self._claim(run, run.state)
                 except Exception:
-                    log.exception("run %s, whose lease ran out, was not taken over; the next sweep tries again", row.id)
+                    log.exception(
+                        "run %s, whose lease ran out, was not taken over; the next sweep tries again",
+                        row.id,
+                    )
 
     @asynccontextmanager
     async def serving(self) -> AsyncGenerator[None]:
@@ -355,12 +376,15 @@ class Worker(Generic[C]):
         Yields:
             Nothing; the worker serves until the context is left.
         """
+
         async def keep_sweeping() -> None:
             while True:
                 try:
                     await self.sweep()
                 except Exception:
-                    log.exception("the sweep for runs whose lease ran out failed; the next one tries again")
+                    log.exception(
+                        "the sweep for runs whose lease ran out failed; the next one tries again"
+                    )
                 await asyncio.sleep(self._lease / 3)
 
         self._handing_back.clear()
@@ -370,7 +394,8 @@ class Worker(Generic[C]):
         finally:
             self._handing_back.set()
             sweeping.cancel()
-            while self._holds:  # a run begun or taken while the others were handed back is handed back too
+            # a run begun or taken while the others were handed back is handed back too
+            while self._holds:
                 await asyncio.gather(*self._holds.values())
 
     # -- taking a run -----------------------------------------------------------------------------
@@ -390,15 +415,25 @@ class Worker(Generic[C]):
         Returns:
             The run's id.
         """
-        saved, outcome = await asyncio.to_thread(lambda: (run.to_json(), Outcome.so_far(run).model_dump_json()))
+        saved, outcome = await asyncio.to_thread(
+            lambda: (run.to_json(), Outcome.so_far(run).model_dump_json())
+        )
         state = StoredState.started()
         written: RunChanges = {"run": saved, **state.columns(), "outcome": outcome, **self._mine()}
-        row = StoredRun(id=uuid.uuid4().hex, graph=graph, caller=self._callers.dump_json(who).decode(), rev=0, **written)
+        row = StoredRun(
+            id=uuid.uuid4().hex,
+            graph=graph,
+            caller=self._callers.dump_json(who).decode(),
+            rev=0,
+            **written,
+        )
         await self._store.create(row)
         self._resume_in_background(row, state)
         return row.id
 
-    async def _claim(self, run: RunAsRead, state: StoredState, *, changed: str | None = None) -> bool:
+    async def _claim(
+        self, run: RunAsRead, state: StoredState, *, changed: str | None = None
+    ) -> bool:
         """Take a run for this worker if it is still at the ``rev`` read, and resume it in the background. Of two
         workers, one wins.
 
@@ -430,7 +465,9 @@ class Worker(Generic[C]):
         hold = _Hold(row.id, row.rev, state)
         if state.cancel_asked:
             hold.stop.set()
-        self._holds[hold] = asyncio.get_running_loop().create_task(self._resume_while_held(hold, row))
+        self._holds[hold] = asyncio.get_running_loop().create_task(
+            self._resume_while_held(hold, row)
+        )
 
     # -- a held run -------------------------------------------------------------------------------
 
@@ -456,7 +493,10 @@ class Worker(Generic[C]):
             while not hold.released:
                 row = await self._finish(hold, row, await self._resume_once(hold, row))
         except Exception:
-            log.exception("the store raised while run %s was resumed; a worker resumes the run once its lease runs out", row.id)
+            log.exception(
+                "the store raised while run %s was resumed; a worker resumes the run once its lease runs out",
+                row.id,
+            )
         finally:
             renewing.cancel()
             del self._holds[hold]
@@ -481,10 +521,15 @@ class Worker(Generic[C]):
                 async with asyncio.timeout(self._lease / 3):
                     await self._write(hold, {"lease_until": time.time() + self._lease})
             except TimeoutError:
-                log.error("the store did not answer a renewal of the lease of run %s; the next is made at once", hold.run_id)
+                log.error(
+                    "the store did not answer a renewal of the lease of run %s; the next is made at once",
+                    hold.run_id,
+                )
                 wait = 0.0
             except Exception:
-                log.exception("the lease of run %s was not renewed; the next renewal tries again", hold.run_id)
+                log.exception(
+                    "the lease of run %s was not renewed; the next renewal tries again", hold.run_id
+                )
 
     async def _resume_once(self, hold: _Hold, row: StoredRun) -> ResumeEnd:
         """Make one resume call on a held run and store its events and checkpoints.
@@ -501,7 +546,9 @@ class Worker(Generic[C]):
             no cancel was asked, the run stored as its last checkpoint; or as a call that raised.
         """
         end: ResumeEnd = HandedBack()
-        async with contextlib.aclosing(self._resume_steps(hold, row)) as steps:  # a raise in this loop ends the resume call before its next node call
+        async with contextlib.aclosing(
+            self._resume_steps(hold, row)
+        ) as steps:  # a raise in this loop ends the resume call before its next node call
             async for step in steps:
                 match step:
                     case ResumeEnd():
@@ -513,7 +560,9 @@ class Worker(Generic[C]):
                         await self._write(hold, step)
         return end
 
-    async def _resume_steps(self, hold: _Hold, row: StoredRun) -> AsyncGenerator[str | RunChanges | ResumeEnd]:
+    async def _resume_steps(
+        self, hold: _Hold, row: StoredRun
+    ) -> AsyncGenerator[str | RunChanges | ResumeEnd]:
         """Load a held run, make one resume call on it, and yield what is to be stored. Nothing here calls the store.
 
         Args:
@@ -529,29 +578,43 @@ class Worker(Generic[C]):
             conductor's own problem where conductor refused the call (a context missing or of another class, a
             run that can't be read or written), the first of them where there are several; else ``resume_failed``.
         """
-        stopped = Outcome.model_validate_json(row.outcome)  # as the run last stopped: a checkpoint changes its progress only
+        # as the run last stopped: a checkpoint changes its progress only
+        stopped = Outcome.model_validate_json(row.outcome)
         held = Outcome.empty()  # the run as the row holds it; nothing, until the run is loaded
         try:
             who = self.started_by(row)
             run = await asyncio.to_thread(_loaded, row, self._nodes_for(who))
             held = await asyncio.to_thread(Outcome.so_far, run)
             stream = run.stream(
-                context=self._context(who), timeout=self._resume_timeout,
-                cancel=hold.stop, hand_back=self._handing_back, checkpoint_every=self._checkpoint_every,
+                context=self._context(who),
+                timeout=self._resume_timeout,
+                cancel=hold.stop,
+                hand_back=self._handing_back,
+                checkpoint_every=self._checkpoint_every,
             )
             async with contextlib.aclosing(stream):
                 async for event in stream:
                     if isinstance(event, RunCheckpoint):
                         saved = await asyncio.to_thread(event.run.to_json)
                         held = await asyncio.to_thread(Outcome.so_far, event.run)
-                        yield {"run": saved, "outcome": stopped.model_copy(update={"progress": held.progress}).model_dump_json()}
+                        yield {
+                            "run": saved,
+                            "outcome": stopped.model_copy(
+                                update={"progress": held.progress}
+                            ).model_dump_json(),
+                        }
                     elif isinstance(event, RunEnd):
                         yield await asyncio.to_thread(end_of, event, held)
                     else:
                         yield event.model_dump_json()
         except InvalidCallError as refusal:
-            every = "; ".join(f"{problem.type} at {'.'.join(map(str, problem.loc))}: {problem.msg}" for problem in refusal.problems)
-            log.error("resuming run %s was refused: %s", row.id, every, exc_info=True)  # the cause is the first problem only
+            every = "; ".join(
+                f"{problem.type} at {'.'.join(map(str, problem.loc))}: {problem.msg}"
+                for problem in refusal.problems
+            )
+            log.error(
+                "resuming run %s was refused: %s", row.id, every, exc_info=True
+            )  # the cause is the first problem only
             yield Raised.refused(refusal, held)
         except Exception:
             log.exception("resuming run %s failed", row.id)
@@ -577,10 +640,15 @@ class Worker(Generic[C]):
             ``row`` with the ``run`` and ``outcome`` that were written. The hold is released unless this worker
             resumes the run again at once.
         """
-        if end.run_end is not None and not await self._store.add_event(hold.run_id, self.id, end.run_end):
-            hold.released = True  # another worker holds the run, so the write of the row would lose too
+        if end.run_end is not None and not await self._store.add_event(
+            hold.run_id, self.id, end.run_end
+        ):
+            hold.released = (
+                True  # another worker holds the run, so the write of the row would lose too
+            )
             return row
-        async with hold.lock:  # so no renewal moves the rev between this read and what is taken in from it
+        # so no renewal moves the rev between this read and what is taken in from it
+        async with hold.lock:
             await self._read_again(hold)
         while not hold.released:
             reads = hold.reads
@@ -594,7 +662,9 @@ class Worker(Generic[C]):
                 holder = _UNHELD
             changes: RunChanges = {**after.state.columns(), **after.changes, **holder}
             async with hold.lock:  # no renewal lands after the write that gives the run up
-                if hold.reads == reads and await self._write_once(hold, changes):  # decided from the state as it still is
+                if hold.reads == reads and await self._write_once(
+                    hold, changes
+                ):  # decided from the state as it still is
                     hold.state, hold.released = after.state, not goes_on
                     if not after.state.cancel_asked:
                         hold.stop.clear()  # the cancel that stopped this resume call does not stop the next
@@ -651,7 +721,9 @@ class Worker(Generic[C]):
 
     # -- a run another worker may hold ------------------------------------------------------------
 
-    async def _ask_of_a_running_run(self, run: RunAsRead, asked: Callable[[StoredState], StoredState]) -> RunAsRead:
+    async def _ask_of_a_running_run(
+        self, run: RunAsRead, asked: Callable[[StoredState], StoredState]
+    ) -> RunAsRead:
         """Write what a caller asks of a running run (an answer to queue, a cancel) into the row's state. It is
         tried for as long as the run is running, reading the row again each time another writer moved its ``rev``
         on first.

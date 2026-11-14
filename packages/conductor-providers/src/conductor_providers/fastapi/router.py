@@ -64,12 +64,19 @@ class Refused(BaseModel):
 
 
 #: What a route declares beside its own answer: a run that isn't there for the caller, and a run in another state.
-_NOT_FOUND: dict[int | str, dict[str, Any]] = {404: {"model": Refused, "description": "No such run for the caller: `no_such_run`."}}
-_CONFLICT: dict[int | str, dict[str, Any]] = {409: {"model": Refused, "description": "The run is in a state that doesn't take the call."}}
+_NOT_FOUND: dict[int | str, dict[str, Any]] = {
+    404: {"model": Refused, "description": "No such run for the caller: `no_such_run`."}
+}
+_CONFLICT: dict[int | str, dict[str, Any]] = {
+    409: {"model": Refused, "description": "The run is in a state that doesn't take the call."}
+}
 #: The same 404 for a route that answers with a stream: its refusal is JSON, where a model would be declared as the
 #: stream's type, so it names the component the other routes' model declares.
 _NOT_FOUND_FOR_A_STREAM: dict[int | str, dict[str, Any]] = {
-    404: {"description": _NOT_FOUND[404]["description"], "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}}},
+    404: {
+        "description": _NOT_FOUND[404]["description"],
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}},
+    },
 }
 
 
@@ -146,7 +153,15 @@ class RunView(Outcome):
             What ``GET /runs/{id}`` answers for it.
         """
         outcome = Outcome.model_validate_json(run.row.outcome)
-        return cls(id=run.row.id, status=run.state.status, refused=run.state.refused, cause=run.state.cause, waiting=outcome.waiting, outputs=outcome.outputs, progress=outcome.progress)
+        return cls(
+            id=run.row.id,
+            status=run.state.status,
+            refused=run.state.refused,
+            cause=run.state.cause,
+            waiting=outcome.waiting,
+            outputs=outcome.outputs,
+            progress=outcome.progress,
+        )
 
 
 class _RefusingRoute(APIRoute):
@@ -274,10 +289,21 @@ def run_router(
         TypeError: ``caller`` is a function with no return annotation.
     """
     worker: Worker[C] = Worker(
-        store=store, nodes_for=registry, callers=TypeAdapter(_caller_type(caller)), context=context,
-        max_items=max_items, lease=lease, checkpoint_every=checkpoint_every, resume_timeout=resume_timeout, poll=poll,
+        store=store,
+        nodes_for=registry,
+        callers=TypeAdapter(_caller_type(caller)),
+        context=context,
+        max_items=max_items,
+        lease=lease,
+        checkpoint_every=checkpoint_every,
+        resume_timeout=resume_timeout,
+        poll=poll,
     )
-    router = APIRouter(lifespan=lambda _: worker.serving(), route_class=_RefusingRoute, generate_unique_id_function=attrgetter("name"))
+    router = APIRouter(
+        lifespan=lambda _: worker.serving(),
+        route_class=_RefusingRoute,
+        generate_unique_id_function=attrgetter("name"),
+    )
 
     async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> RunAsRead:
         """The run of a route under ``/runs/{run_id}``, for the caller: the access rule of every such route.
@@ -304,30 +330,45 @@ def run_router(
         return registry(who).describe()
 
     @router.post("/compile")
-    async def compile_graph(graph: Annotated[GraphAsSent, Body()], request: Request, who: Annotated[C, Depends(caller)]) -> GraphDescription:
+    async def compile_graph(
+        graph: Annotated[GraphAsSent, Body()], request: Request, who: Annotated[C, Depends(caller)]
+    ) -> GraphDescription:
         """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
         and every problem. Nothing is run or stored."""
-        return Graph.compile(await request.body(), registry(who)).describe()  # the record door reads the body's text
+        return Graph.compile(
+            await request.body(), registry(who)
+        ).describe()  # the record door reads the body's text
 
     @router.post("/runs", status_code=202)
-    async def start_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> Started:
+    async def start_run(
+        body: StartRun, request: Request, who: Annotated[C, Depends(caller)]
+    ) -> Started:
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
-        sent = StartRun.model_validate(read_json(await request.body()))  # FastAPI's ``body`` would keep the last of two equal keys
+        sent = StartRun.model_validate(
+            read_json(await request.body())
+        )  # FastAPI's ``body`` would keep the last of two equal keys
         return Started(id=await worker.begin(sent.graph, sent.inputs, who))
 
     @router.post("/estimate")
-    async def estimate_run(body: StartRun, request: Request, who: Annotated[C, Depends(caller)]) -> RunProgress:
+    async def estimate_run(
+        body: StartRun, request: Request, who: Annotated[C, Depends(caller)]
+    ) -> RunProgress:
         """How many calls a run of the graph on these inputs will make: the nodes whose ``Policy`` says
         ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
         call that costs something."""
-        sent = StartRun.model_validate(read_json(await request.body()))  # FastAPI's ``body`` would keep the last of two equal keys
+        sent = StartRun.model_validate(
+            read_json(await request.body())
+        )  # FastAPI's ``body`` would keep the last of two equal keys
         return await worker.estimate(sent.graph, sent.inputs, who)
 
     if published is not None:
+
         @router.post("/graphs/{name}/runs", status_code=202)
         async def start_published(
             graph: Annotated[GraphRecord, Depends(published)],
-            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")],
+            inputs: Annotated[
+                dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")
+            ],
             who: Annotated[C, Depends(caller)],
         ) -> Started:
             """Start a graph you offer by name, on inputs alone."""
@@ -336,7 +377,9 @@ def run_router(
         @router.post("/graphs/{name}/estimate")
         async def estimate_published(
             graph: Annotated[GraphRecord, Depends(published)],
-            inputs: Annotated[dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")],
+            inputs: Annotated[
+                dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")
+            ],
             who: Annotated[C, Depends(caller)],
         ) -> RunProgress:
             """How many calls a run of a graph you offer by name will make on these inputs, as ``POST /estimate``."""
@@ -348,8 +391,14 @@ def run_router(
         queued answers that were refused, and why it ended early if it did."""
         return RunView.of(run)
 
-    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND_FOR_A_STREAM)
-    async def follow_run(run: Annotated[RunAsRead, Depends(stored)], last_event_id: Annotated[int, Header()] = -1) -> AsyncIterable[ServerSentEvent]:
+    @router.get(
+        "/runs/{run_id}/events",
+        response_class=EventSourceResponse,
+        responses=_NOT_FOUND_FOR_A_STREAM,
+    )
+    async def follow_run(
+        run: Annotated[RunAsRead, Depends(stored)], last_event_id: Annotated[int, Header()] = -1
+    ) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running; ``Last-Event-ID`` goes on after a reconnect."""
         async for number, body in worker.events(run, last_event_id):
             yield ServerSentEvent(raw_data=body, id=str(number))
@@ -357,7 +406,12 @@ def run_router(
     @router.post("/runs/{run_id}/answers", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
     async def answer_run(
         run: Annotated[RunAsRead, Depends(stored)],
-        answers: Annotated[dict[str, Any], Body(description="An answer for each waiting call, by its `id` in the run's `waiting`.")],
+        answers: Annotated[
+            dict[str, Any],
+            Body(
+                description="An answer for each waiting call, by its `id` in the run's `waiting`."
+            ),
+        ],
     ) -> Answered:
         """Answer what waits by its ids, and resume the run with the answers.
 
@@ -369,7 +423,9 @@ def run_router(
         return Answered(answers=await worker.answer(run, answers))
 
     @router.post("/runs/{run_id}/resume", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
-    async def resume_run(run: Annotated[RunAsRead, Depends(stored)], body: Resume = Resume()) -> Started:
+    async def resume_run(
+        run: Annotated[RunAsRead, Depends(stored)], body: Resume = Resume()
+    ) -> Started:
         """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
         the ceiling of a run that stopped at it; a resume needs no body."""
         await worker.resume(run, body.max_items)
@@ -378,7 +434,12 @@ def run_router(
     @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
     async def run_again(
         run: Annotated[RunAsRead, Depends(stored)],
-        inputs: Annotated[dict[str, Any], Body(description="The inputs to change, each by its name; the rest stay as the run had them.")],
+        inputs: Annotated[
+            dict[str, Any],
+            Body(
+                description="The inputs to change, each by its name; the rest stay as the run had them."
+            ),
+        ],
         who: Annotated[C, Depends(caller)],
     ) -> Started:
         """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
@@ -409,5 +470,7 @@ def _caller_type(caller: Callable[..., Any]) -> Any:
         return caller
     returns = get_type_hints(caller).get("return")
     if returns is None:
-        raise TypeError(f"caller {caller!r} has no return annotation; annotate it with the type it gives, so a run keeps its caller as that type")
+        raise TypeError(
+            f"caller {caller!r} has no return annotation; annotate it with the type it gives, so a run keeps its caller as that type"
+        )
     return returns

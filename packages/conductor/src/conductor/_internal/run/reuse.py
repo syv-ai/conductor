@@ -64,8 +64,12 @@ class ReusableOutcomes:
             under that fingerprint.
     """
 
-    reused_freely_by_call: dict[NodePath, dict[ItemIndexes, tuple[str, Done]]] = field(default_factory=dict[NodePath, dict[ItemIndexes, tuple[str, Done]]])
-    reused_freely: dict[NodePath, dict[str, Done]] = field(default_factory=dict[NodePath, dict[str, Done]])
+    reused_freely_by_call: dict[NodePath, dict[ItemIndexes, tuple[str, Done]]] = field(
+        default_factory=dict[NodePath, dict[ItemIndexes, tuple[str, Done]]]
+    )
+    reused_freely: dict[NodePath, dict[str, Done]] = field(
+        default_factory=dict[NodePath, dict[str, Done]]
+    )
     reused_in_item_order: dict[NodePath, dict[tuple[str, str], list[Done | Unanswered]]] = field(
         default_factory=dict[NodePath, dict[tuple[str, str], list["Done | Unanswered"]]]
     )
@@ -83,30 +87,60 @@ class ReusableOutcomes:
         reusable, previous, reader = cls(), run._reusable, run._reader
         for path, old_node in run._blueprint.function_nodes.items():
             new_node = into.function_nodes.get(path)
-            if new_node is None or not new_node.policy.reuse_when_inputs_match or new_node.compiled_node.code_fingerprint != old_node.compiled_node.code_fingerprint:
+            if (
+                new_node is None
+                or not new_node.policy.reuse_when_inputs_match
+                or new_node.compiled_node.code_fingerprint
+                != old_node.compiled_node.code_fingerprint
+            ):
                 continue
             if path not in previous.code_changed:
                 for item_indexes, outcome in run._outcomes[path].items():
                     match outcome:
-                        case Skipped() | NoneInput():  # the node was not called for the item, so there is nothing to reuse
+                        case (
+                            Skipped() | NoneInput()
+                        ):  # the node was not called for the item, so there is nothing to reuse
                             continue
-                        case Done() | Unanswered():  # the node was called, so its arguments are settled
-                            arguments = cast("dict[str, Any]", reader.arguments_for(old_node, item_indexes))
-                            fingerprint = _arguments_fingerprint(old_node.compiled_node.code_fingerprint, arguments)
+                        case (
+                            Done() | Unanswered()
+                        ):  # the node was called, so its arguments are settled
+                            arguments = cast(
+                                "dict[str, Any]", reader.arguments_for(old_node, item_indexes)
+                            )
+                            fingerprint = _arguments_fingerprint(
+                                old_node.compiled_node.code_fingerprint, arguments
+                            )
                         case _:
                             assert_never(outcome)
                     if fingerprint is not None:
-                        outer_items = _outer_items_fingerprint(run._outcomes, old_node, item_indexes) if new_node.compiled_node.definition.asks else ""
-                        reusable.add(new_node, fingerprint, outcome, item_indexes=item_indexes, outer_items=outer_items)
+                        outer_items = (
+                            _outer_items_fingerprint(run._outcomes, old_node, item_indexes)
+                            if new_node.compiled_node.definition.asks
+                            else ""
+                        )
+                        reusable.add(
+                            new_node,
+                            fingerprint,
+                            outcome,
+                            item_indexes=item_indexes,
+                            outer_items=outer_items,
+                        )
             for fingerprint, done in previous.reused_freely.get(path, {}).items():
                 reusable.add(new_node, fingerprint, done)
-            for (fingerprint, outer_items), outcomes in previous.reused_in_item_order.get(path, {}).items():
+            for (fingerprint, outer_items), outcomes in previous.reused_in_item_order.get(
+                path, {}
+            ).items():
                 for outcome in outcomes:
                     reusable.add(new_node, fingerprint, outcome, outer_items=outer_items)
         return reusable
 
     def add(
-        self, node: BlueprintFunctionNode, fingerprint: str, outcome: Done | Unanswered, *, item_indexes: ItemIndexes | None = None,
+        self,
+        node: BlueprintFunctionNode,
+        fingerprint: str,
+        outcome: Done | Unanswered,
+        *,
+        item_indexes: ItemIndexes | None = None,
         outer_items: str = "",
     ) -> None:
         """Add one outcome ``node`` may reuse, after those already added: to ``reused_in_item_order`` when the node
@@ -125,12 +159,21 @@ class ReusableOutcomes:
             case Done() if not node.compiled_node.definition.asks:
                 self.reused_freely.setdefault(path, {}).setdefault(fingerprint, outcome)
                 if item_indexes is not None:
-                    self.reused_freely_by_call.setdefault(path, {})[item_indexes] = (fingerprint, outcome)
+                    self.reused_freely_by_call.setdefault(path, {})[item_indexes] = (
+                        fingerprint,
+                        outcome,
+                    )
             case Done() | Unanswered():
-                self.reused_in_item_order.setdefault(path, {}).setdefault((fingerprint, outer_items), []).append(outcome)
+                self.reused_in_item_order.setdefault(path, {}).setdefault(
+                    (fingerprint, outer_items), []
+                ).append(outcome)
 
     def take(
-        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, arguments: dict[str, Any], outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+        self,
+        node: BlueprintFunctionNode,
+        item_indexes: ItemIndexes,
+        arguments: dict[str, Any],
+        outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         in_turn: Callable[[], bool],
     ) -> Done | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
         """The outcome a call reuses in place of calling the function, or ``None`` when there is none.
@@ -194,12 +237,21 @@ class ReusableOutcomes:
     def copy(self) -> ReusableOutcomes:
         """A copy to take outcomes from and drop nodes from without changing this one. The outcomes are shared."""
         return ReusableOutcomes(
-            dict(self.reused_freely_by_call), dict(self.reused_freely),
-            {path: {same_arguments: list(left) for same_arguments, left in of_node.items()} for path, of_node in self.reused_in_item_order.items()}, self.code_changed,
+            dict(self.reused_freely_by_call),
+            dict(self.reused_freely),
+            {
+                path: {same_arguments: list(left) for same_arguments, left in of_node.items()}
+                for path, of_node in self.reused_in_item_order.items()
+            },
+            self.code_changed,
         )
 
 
-def _outer_items_fingerprint(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: BlueprintFunctionNode, item_indexes: ItemIndexes) -> str:
+def _outer_items_fingerprint(
+    outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
+    node: BlueprintFunctionNode,
+    item_indexes: ItemIndexes,
+) -> str:
     """A fingerprint of the items of the outer loops of a call: every loop the node is inside but the innermost.
 
     It keeps the outcomes of a node that may ask, a person's answers among them, with the item they were given

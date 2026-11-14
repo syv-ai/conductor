@@ -38,7 +38,9 @@ def _checked_source(source: str) -> str:
 
 
 @pytest.mark.parametrize("name", sorted(_PAGES))
-def test_a_page_runs_and_prints_what_it_shows(name: str, tmp_path: Any, monkeypatch: MonkeyPatch) -> None:
+def test_a_page_runs_and_prints_what_it_shows(
+    name: str, tmp_path: Any, monkeypatch: MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     source = _PAGES[name]
     printed: list[tuple[int, str, str]] = []

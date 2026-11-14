@@ -103,9 +103,14 @@ def check_registry[C](
 
 
 def _problems_of(
-    definition: NodeDefinition, registry: NodeRegistry[Any], examples: Mapping[tuple[str, int], Sequence[_Example]], context: Any,
+    definition: NodeDefinition,
+    registry: NodeRegistry[Any],
+    examples: Mapping[tuple[str, int], Sequence[_Example]],
+    context: Any,
 ) -> list[Problem]:
-    found = _version_problems(definition, registry, examples.get((definition.id, definition.version), ()), context)
+    found = _version_problems(
+        definition, registry, examples.get((definition.id, definition.version), ()), context
+    )
     for older in list(definition.versions.values())[1:]:
         given = examples.get((older.id, older.version), ())
         found += _upgrade_problems(older, registry, given)
@@ -113,11 +118,17 @@ def _problems_of(
     return found
 
 
-def _version_problems(version: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example], context: Any) -> list[Problem]:
+def _version_problems(
+    version: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example], context: Any
+) -> list[Problem]:
     """The hooks checked when there is no example, else each example run: what went wrong."""
     if not given:
         return _hook_problems(version, registry)
-    return [problem for example in given for problem in _run_problems(version, registry, example, context)]
+    return [
+        problem
+        for example in given
+        for problem in _run_problems(version, registry, example, context)
+    ]
 
 
 def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> GraphRecord:
@@ -125,8 +136,13 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
 
     A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
     """
-    inputs = {name: InputEntry(constant=value) for name, value in record_values(version.id, constants).items()}
-    return GraphRecord(nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)})
+    inputs = {
+        name: InputEntry(constant=value)
+        for name, value in record_values(version.id, constants).items()
+    }
+    return GraphRecord(
+        nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)}
+    )
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:
@@ -134,25 +150,46 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
             pass
-        case FunctionDefinition() | SubgraphDefinition():  # no hooks; a subgraph has none of its own
+        case (
+            FunctionDefinition() | SubgraphDefinition()
+        ):  # no hooks; a subgraph has none of its own
             return []
     read = sorted(read_by_hooks(version))
-    values = {name: _made_up(version.inputs[name]) for name in read if version.inputs[name].default is REQUIRED}
+    values = {
+        name: _made_up(version.inputs[name])
+        for name in read
+        if version.inputs[name].default is REQUIRED
+    }
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:
         return [problems.needs_example(version.id, version.version, inputs=missing)]
-    failed = [p for p in Graph.compile(_one_node_graph(version, values), registry).problems if p.type == compile_problems.compute_hook_failed.code]
-    return [problems.hook_failed(version.id, version.version, reason=_reason([p]), problems=[p.model_dump(mode="json")]) for p in failed]
+    failed = [
+        p
+        for p in Graph.compile(_one_node_graph(version, values), registry).problems
+        if p.type == compile_problems.compute_hook_failed.code
+    ]
+    return [
+        problems.hook_failed(
+            version.id, version.version, reason=_reason([p]), problems=[p.model_dump(mode="json")]
+        )
+        for p in failed
+    ]
 
 
-def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example]) -> list[Problem]:
+def _upgrade_problems(
+    older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[_Example]
+) -> list[Problem]:
     """Place the node at ``older`` with an example's values, or made-up ones, move it to the newest version and load it."""
     if given:
         values = dict(given[0])
     else:
         match older:
             case FunctionDefinition(inputs=inputs):
-                values = {name: made for name, field in inputs.items() if (made := _made_up(field)) is not _CANNOT}
+                values = {
+                    name: made
+                    for name, field in inputs.items()
+                    if (made := _made_up(field)) is not _CANNOT
+                }
             case SubgraphDefinition():  # its inputs' types are known only when a graph using it is compiled
                 values = {}
     newest = registry[older.id].version
@@ -163,14 +200,32 @@ def _upgrade_problems(older: NodeDefinition, registry: NodeRegistry[Any], given:
     try:
         upgraded = registry.upgrade(record, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
-        return [problems.upgrade_raised(older.id, older.version, newest=newest, error=type(raised).__name__, reason=str(raised))]
+        return [
+            problems.upgrade_raised(
+                older.id,
+                older.version,
+                newest=newest,
+                error=type(raised).__name__,
+                reason=str(raised),
+            )
+        ]
     graph_problems = Graph.compile(upgraded, registry).problems
     if not graph_problems:
         return []
-    return [problems.upgrade_broken(older.id, older.version, newest=newest, reason=_reason(graph_problems), problems=[p.model_dump(mode="json") for p in graph_problems])]
+    return [
+        problems.upgrade_broken(
+            older.id,
+            older.version,
+            newest=newest,
+            reason=_reason(graph_problems),
+            problems=[p.model_dump(mode="json") for p in graph_problems],
+        )
+    ]
 
 
-def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example: _Example, context: Any) -> list[Problem]:
+def _run_problems(
+    version: NodeDefinition, registry: NodeRegistry[Any], example: _Example, context: Any
+) -> list[Problem]:
     """Run one example through the engine: what went wrong."""
     match version:
         case SubgraphDefinition():  # a subgraph runs on the nodes of the registry
@@ -191,15 +246,27 @@ def _run_problems(version: NodeDefinition, registry: NodeRegistry[Any], example:
         run = graph.run(context=context)
     except InvalidCallError as refused:
         call_problems = refused.problems
-        return [problems.example_refused(
-            version.id, version.version, reason=_reason(call_problems), problems=[p.model_dump(mode="json") for p in call_problems],
-        )]
+        return [
+            problems.example_refused(
+                version.id,
+                version.version,
+                reason=_reason(call_problems),
+                problems=[p.model_dump(mode="json") for p in call_problems],
+            )
+        ]
     found = [
-        problems.changed_its_inputs(version.id, version.version, input=name)
-        for name in changed
+        problems.changed_its_inputs(version.id, version.version, input=name) for name in changed
     ]
     if (cause := run.cause) is not None:
-        found.append(problems.run_failed(version.id, version.version, status=run.status, reason=_reason([cause]), problems=[cause.model_dump(mode="json")]))
+        found.append(
+            problems.run_failed(
+                version.id,
+                version.version,
+                status=run.status,
+                reason=_reason([cause]),
+                problems=[cause.model_dump(mode="json")],
+            )
+        )
     return found
 
 
@@ -208,8 +275,14 @@ def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) ->
     reason = _reason(graph_problems)
     written = [p.model_dump(mode="json") for p in graph_problems]
     if all(p.type == compile_problems.compute_hook_failed.code for p in graph_problems):
-        return [problems.hook_failed_on_an_example(version.id, version.version, reason=reason, problems=written)]
-    return [problems.example_not_compiled(version.id, version.version, reason=reason, problems=written)]
+        return [
+            problems.hook_failed_on_an_example(
+                version.id, version.version, reason=reason, problems=written
+            )
+        ]
+    return [
+        problems.example_not_compiled(version.id, version.version, reason=reason, problems=written)
+    ]
 
 
 def _reason(behind: Sequence[Problem]) -> str:
@@ -218,10 +291,15 @@ def _reason(behind: Sequence[Problem]) -> str:
     A node's own exception is ``execution_failed``, whose message does not say which exception it was, so its class
     name is said instead: ``"the node raised ZeroDivisionError"``.
     """
-    return "; ".join(f"the node raised {p.ctx['error']}" if p.type == "execution_failed" else p.msg for p in behind)
+    return "; ".join(
+        f"the node raised {p.ctx['error']}" if p.type == "execution_failed" else p.msg
+        for p in behind
+    )
 
 
-def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[..., Any], list[str]]:
+def _watched(
+    version: FunctionDefinition[..., Any],
+) -> tuple[FunctionDefinition[..., Any], list[str]]:
     """``version``, called as before, noting each input a call changed; never retried. The run's context, which a
     node that takes it gets first, is passed on and not watched."""
     function = version.function
@@ -234,23 +312,34 @@ def _watched(version: FunctionDefinition[..., Any]) -> tuple[FunctionDefinition[
                 kept = copy.deepcopy(value)
             except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be compared
                 continue
-            if _same(kept, value):  # a value unequal to its own copy (NaN, no __eq__) can't be compared
+            if _same(
+                kept, value
+            ):  # a value unequal to its own copy (NaN, no __eq__) can't be compared
                 before[name] = kept
         try:
             return function(*context, **kwargs)
         finally:
-            changed.extend(name for name, value in before.items() if name not in changed and not _same(value, kwargs[name]))
+            changed.extend(
+                name
+                for name, value in before.items()
+                if name not in changed and not _same(value, kwargs[name])
+            )
 
-    return dataclasses.replace(version, function=watched, policy=dataclasses.replace(version.policy, retries=0)), changed
+    return dataclasses.replace(
+        version, function=watched, policy=dataclasses.replace(version.policy, retries=0)
+    ), changed
 
 
 def _made_up(field: Field) -> Any:
     """A value of the field within its limits, read by the field's type; ``_CANNOT`` when there is no way to make one."""
     read = validator_of(field.whole).validate_python
-    for item in _candidates(field.type.options[0] if len(field.type.options) == 1 else None, field.param):
+    for item in _candidates(
+        field.type.options[0] if len(field.type.options) == 1 else None, field.param
+    ):
         try:
             return read([item, item] if field.is_series else item)
-        except ValidationError:  # outside a limit, or a pattern it doesn't match: the field says which it takes
+        # outside a limit, or a pattern it doesn't match: the field says which it takes
+        except ValidationError:
             continue
     return _CANNOT
 
@@ -264,12 +353,16 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
     if issubclass(hint, bool):
         return [True]
     if issubclass(hint, (int, float)):
-        low: Any = param.ge if param.ge is not None else param.gt  # a number's limits are numbers: the Param hook refused any other
+        # a number's limits are numbers: the Param hook refused any other
+        low: Any = param.ge if param.ge is not None else param.gt
         high: Any = param.le if param.le is not None else param.lt
         middle: list[Any] = []
         if low is not None and high is not None:
             middle = [(low + high) // 2] if issubclass(hint, int) else [(low + high) / 2]
-        near = [*(() if low is None else (low, low + 1)), *(() if high is None else (high, high - 1))]
+        near = [
+            *(() if low is None else (low, low + 1)),
+            *(() if high is None else (high, high - 1)),
+        ]
         return [*middle, *near, 1, 0, -1]
     if issubclass(hint, str):
         return ["x" * max(1, param.min_length or 1)]

@@ -131,7 +131,11 @@ def _programs() -> dict[str, str]:
         "a_frame_in_and_out.py": _A_FRAME_IN_AND_OUT,
         "a_subgraph.py": _A_SUBGRAPH,
         "a_table_keeps_its_row_type.py": _A_TABLE_KEEPS_ITS_ROW_TYPE,
-        "docs_custom_widget.py": next(block for block in re.findall(r"```python\n(.*?)```", _WRITING_NODES.read_text(), re.S) if "(Widget):" in block),
+        "docs_custom_widget.py": next(
+            block
+            for block in re.findall(r"```python\n(.*?)```", _WRITING_NODES.read_text(), re.S)
+            if "(Widget):" in block
+        ),
     }
 
 
@@ -154,8 +158,18 @@ def test_a_first_hour_program_runs(program: str) -> None:
 
 def test_the_first_hour_programs_pass_mypy_strict(programs: list[Path], tmp_path: Path) -> None:
     done = subprocess.run(
-        [sys.executable, "-m", "mypy", "--strict", "--cache-dir", str(tmp_path), *map(str, programs)],
-        capture_output=True, text=True, cwd=programs[0].parent,
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--strict",
+            "--cache-dir",
+            str(tmp_path),
+            *map(str, programs),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=programs[0].parent,
     )
     assert done.returncode == 0, done.stdout + done.stderr
 
@@ -165,30 +179,59 @@ def _pyright_strict(programs: list[Path]) -> dict[str, Any]:
     if not pyright.exists() and shutil.which("pyright") is None:
         pytest.skip("pyright is not installed")
     directory = programs[0].parent
-    (directory / "pyrightconfig.json").write_text(json.dumps({
-        "extraPaths": [str(Path(__file__).parents[2] / "packages" / package / "src") for package in ("conductor",)],
-        "typeCheckingMode": "strict",
-        "venvPath": str(Path(sys.prefix).parent),
-        "venv": Path(sys.prefix).name,
-    }))
-    done = subprocess.run([str(pyright if pyright.exists() else "pyright"), "--outputjson", *map(str, programs)], capture_output=True, text=True, cwd=directory)
+    (directory / "pyrightconfig.json").write_text(
+        json.dumps(
+            {
+                "extraPaths": [
+                    str(Path(__file__).parents[2] / "packages" / package / "src")
+                    for package in ("conductor",)
+                ],
+                "typeCheckingMode": "strict",
+                "venvPath": str(Path(sys.prefix).parent),
+                "venv": Path(sys.prefix).name,
+            }
+        )
+    )
+    done = subprocess.run(
+        [str(pyright if pyright.exists() else "pyright"), "--outputjson", *map(str, programs)],
+        capture_output=True,
+        text=True,
+        cwd=directory,
+    )
     report: dict[str, Any] = json.loads(done.stdout)
     return report
 
 
 def test_the_first_hour_programs_pass_pyright_strict(programs: list[Path]) -> None:
     report = _pyright_strict(programs)
-    assert report["summary"]["errorCount"] == 0, json.dumps([d for d in report["generalDiagnostics"] if d["severity"] == "error"], indent=1)
+    assert report["summary"]["errorCount"] == 0, json.dumps(
+        [d for d in report["generalDiagnostics"] if d["severity"] == "error"], indent=1
+    )
 
 
 def test_a_checker_keeps_a_tables_row_type(tmp_path: Path) -> None:
     program = tmp_path / "two_row_types.py"
     program.write_text(_TWO_ROW_TYPES)
     found = _pyright_strict([program])["generalDiagnostics"]
-    assert [d.get("rule") for d in found if d["severity"] == "error"] == ["reportAssertTypeFailure"], found
-    assert any("_RowsOf[Sale]" in d["message"] for d in found if d["severity"] == "information"), found
+    assert [d.get("rule") for d in found if d["severity"] == "error"] == [
+        "reportAssertTypeFailure"
+    ], found
+    assert any("_RowsOf[Sale]" in d["message"] for d in found if d["severity"] == "information"), (
+        found
+    )
     done = subprocess.run(
-        [sys.executable, "-m", "mypy", "--strict", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path,
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--strict",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            str(program),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
     )
     assert "_RowsOf[TypedDict(two_row_types.Sale" in done.stdout, done.stdout
 
@@ -204,10 +247,21 @@ called = subgraph("inner", title="Inner", description="A subgraph.")(GraphRecord
 """
 
 
-def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_choices_spelt_as_text_and_a_graph_called(tmp_path: Path) -> None:
+def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_choices_spelt_as_text_and_a_graph_called(
+    tmp_path: Path,
+) -> None:
     """mypy reads a ``Param`` written outside ``Annotated``, an ``Ask``'s keywords, and a call of a node that is a stored
     graph, which has no function: what conductor doesn't check when they run."""
     program = tmp_path / "wrong_keywords.py"
     program.write_text(_WRONG_KEYWORDS)
-    done = subprocess.run([sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)], capture_output=True, text=True, cwd=tmp_path)
-    assert [line.split(": error: ")[0].rsplit(":", 1)[1] for line in done.stdout.splitlines() if ": error: " in line] == ["5", "6", "7", "8"], done.stdout
+    done = subprocess.run(
+        [sys.executable, "-m", "mypy", "--cache-dir", str(tmp_path / "cache"), str(program)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert [
+        line.split(": error: ")[0].rsplit(":", 1)[1]
+        for line in done.stdout.splitlines()
+        if ": error: " in line
+    ] == ["5", "6", "7", "8"], done.stdout

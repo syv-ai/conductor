@@ -21,7 +21,9 @@ COMPILE_PROBLEMS = ProblemCatalogue(
 
 
 @COMPILE_PROBLEMS.problem()
-def alternatives_from_different_loops(node_id: str, field: str, /, *, series: list[str | None]) -> str:
+def alternatives_from_different_loops(
+    node_id: str, field: str, /, *, series: list[str | None]
+) -> str:
     """Two edges into one input come from branches whose values are inside different loops.
 
     In the example, ``u.text`` has an edge from each branch of ``r``. The long branch gives one value per item of
@@ -44,7 +46,9 @@ def alternatives_from_different_loops(node_id: str, field: str, /, *, series: li
             "u": {"node": "upper", "inputs": {"text": {"sources": [{"node": "letters", "output": "result"}, {"node": "r", "output": "long"}]}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
-    series_text = comma_separated(["none (not in a loop)" if one is None else one for one in series])
+    series_text = comma_separated(
+        ["none (not in a loop)" if one is None else one for one in series]
+    )
     return (
         f"'{field}' has edges from branches inside different loops ({series_text}), so a call never has the other branch's value. "
         f"Collect the inner loop first, or wire '{field}' from one branch."
@@ -52,7 +56,9 @@ def alternatives_from_different_loops(node_id: str, field: str, /, *, series: li
 
 
 @COMPILE_PROBLEMS.problem()
-def compute_hook_failed(*loc: str | int, reason: str, error: str, error_ctx: dict[str, Any] | None = None) -> str:
+def compute_hook_failed(
+    *loc: str | int, reason: str, error: str, error_ctx: dict[str, Any] | None = None
+) -> str:
     """A node's ``compute_...`` hook raised, or returned something compiling cannot use.
 
     The hook's exception and its traceback are in the ``conductor`` log. A hook that raises ``NodeError`` gives its
@@ -105,7 +111,9 @@ def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context
 
 
 @COMPILE_PROBLEMS.problem("context_does_not_fit", variant="lacks")
-def context_does_not_fit_lacks(node_id: str, parameter: str, /, *, needs: str, context_type: str, lacks: list[str]) -> str:
+def context_does_not_fit_lacks(
+    node_id: str, parameter: str, /, *, needs: str, context_type: str, lacks: list[str]
+) -> str:
     """A node takes the run's context as a ``Protocol`` whose members the registry's ``context_type`` does not all have.
 
     Compiling compares the members by name only: whether their types fit is the host's type checker's job. Give the
@@ -259,7 +267,15 @@ def hook_needs_value(node_id: str, field: str, /) -> str:
 
 
 @COMPILE_PROBLEMS.problem()
-def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict[str, Any]] | None = None, column: str | None = None) -> str:
+def invalid_value(
+    node_id: str,
+    field: str,
+    /,
+    *,
+    reason: str,
+    errors: list[dict[str, Any]] | None = None,
+    column: str | None = None,
+) -> str:
     """A constant in the graph record, or a graph input's default, is not a value of its input's type.
 
     ``reason`` says what the type refused, without quoting the value: a problem may be shown to anyone. ``errors`` is
@@ -283,7 +299,9 @@ def invalid_value(node_id: str, field: str, /, *, reason: str, errors: list[dict
 
 
 @COMPILE_PROBLEMS.problem("invalid_value", variant="bound_default")
-def invalid_value_bound_default(node_id: str, field: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]) -> str:
+def invalid_value_bound_default(
+    node_id: str, field: str, /, *, type: str, reason: str, errors: list[dict[str, Any]]
+) -> str:
     """An input's or output's type is a type variable, the edges into the node bind it, and the default the node
     declares is not a value of the type it is bound to.
 
@@ -371,7 +389,9 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) 
 
 
 @COMPILE_PROBLEMS.problem("series_not_nested", variant="inside_subgraph")
-def loops_not_nested_inside_subgraph(node_id: str, /, *, series: list[str], inputs: list[str], subgraphs: list[str]) -> str:
+def loops_not_nested_inside_subgraph(
+    node_id: str, /, *, series: list[str], inputs: list[str], subgraphs: list[str]
+) -> str:
     """As ``series_not_nested``, where the node that returns one of the two series is inside a subgraph.
 
     No edge of the outer graph can change how a subgraph loops. Give one of the series whole to a ``Series`` input,
@@ -453,7 +473,17 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
 
 
 @COMPILE_PROBLEMS.problem("type_mismatch", variant="make_a_series")
-def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got: str, expected: str, whole: Literal["table", "list"], fields: list[str]) -> str:
+def type_mismatch_make_a_series(
+    node_id: str,
+    field: str,
+    /,
+    *,
+    source: str,
+    got: str,
+    expected: str,
+    whole: Literal["table", "list"],
+    fields: list[str],
+) -> str:
     """A whole table or list is wired into an input that takes one value.
 
     A table or a list is one value. To call the node once per row or item, put a node between them that returns the
@@ -482,7 +512,18 @@ def type_mismatch_make_a_series(node_id: str, field: str, /, *, source: str, got
 
 
 @COMPILE_PROBLEMS.problem("type_mismatch", variant="add_column")
-def type_mismatch_add_column(node_id: str, field: str, /, *, source: str, got: str, expected: str, column: str, column_type: str, has: list[str]) -> str:
+def type_mismatch_add_column(
+    node_id: str,
+    field: str,
+    /,
+    *,
+    source: str,
+    got: str,
+    expected: str,
+    column: str,
+    column_type: str,
+    has: list[str],
+) -> str:
     """A table is wired into a ``Table[R]`` input that needs a column the table does not have.
 
     Wire a table that has every column the input needs, add the column in a node between, or type the input as a bare
@@ -599,7 +640,9 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
 
 
 @COMPILE_PROBLEMS.problem()
-def unknown_output(*loc: str | int, source: str, outputs: list[str], record_field: str | None = None) -> str:
+def unknown_output(
+    *loc: str | int, source: str, outputs: list[str], record_field: str | None = None
+) -> str:
     """An edge's source is an output, or a field of one, that its node does not have.
 
     Wire from one of the outputs ``ctx.outputs`` lists. An edge may name one field of a record an output gives,
@@ -621,7 +664,14 @@ def unknown_output(*loc: str | int, source: str, outputs: list[str], record_fiel
 
 
 @COMPILE_PROBLEMS.problem("unknown_output", variant="make_a_series")
-def unknown_output_make_a_series(*loc: str | int, source: str, outputs: list[str], record_field: str, whole: Literal["table", "list"], fields: list[str]) -> str:
+def unknown_output_make_a_series(
+    *loc: str | int,
+    source: str,
+    outputs: list[str],
+    record_field: str,
+    whole: Literal["table", "list"],
+    fields: list[str],
+) -> str:
     """An edge's source names a field of a whole table or list.
 
     A table or a list is one value, so it has no field to wire. Put a node after it that returns its rows or items as

@@ -59,7 +59,9 @@ class _StoreRaisedError(Exception):
         self.error = error
 
 
-async def _answer[**P, T](method: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs) -> T:
+async def _answer[**P, T](
+    method: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
+) -> T:
     """What one method of the store answers; ``_StoreRaisedError`` with the method's name when it raises.
 
     ``await _answer(store.get, run_id)`` is ``await store.get(run_id)``.
@@ -73,10 +75,19 @@ async def _answer[**P, T](method: Callable[P, Awaitable[T]], *args: P.args, **kw
 def _new_run(*, owner: str | None, lease_until: float | None) -> StoredRun:
     """A run as the router creates it, under an id that names the check, with texts as the router writes them."""
     written: RunChanges = {
-        "run": '{"outcomes": {}}', **StoredState.started().columns(), "outcome": Outcome.empty().model_dump_json(),
-        "owner": owner, "lease_until": lease_until,
+        "run": '{"outcomes": {}}',
+        **StoredState.started().columns(),
+        "outcome": Outcome.empty().model_dump_json(),
+        "owner": owner,
+        "lease_until": lease_until,
     }
-    return StoredRun(id=f"check-run-store-{uuid.uuid4().hex}", graph='{"nodes": [], "edges": []}', caller='"Zoë"', rev=0, **written)
+    return StoredRun(
+        id=f"check-run-store-{uuid.uuid4().hex}",
+        graph='{"nodes": [], "edges": []}',
+        caller='"Zoë"',
+        rev=0,
+        **written,
+    )
 
 
 #: The columns that hold JSON: compared as the values they read back as, so a store may keep them in any form of JSON.
@@ -103,7 +114,11 @@ def _columns_not_kept(found: StoredRun, written: StoredRun) -> list[str]:
         value = getattr(run, name)
         return _as_json_value(value) if name in _JSON_COLUMNS else value
 
-    return [field.name for field in dataclasses.fields(StoredRun) if kept_as(field.name, found) != kept_as(field.name, written)]
+    return [
+        field.name
+        for field in dataclasses.fields(StoredRun)
+        if kept_as(field.name, found) != kept_as(field.name, written)
+    ]
 
 
 def _as_events(given: list[tuple[int, str]]) -> list[tuple[int, str]]:
@@ -131,7 +146,8 @@ async def _created_runs_are_kept(store: RunStore) -> list[Problem]:
     """A run created with a large text, a text that is not ASCII, an owner and a lease is read back as written, and
     so is one with neither; an id no run has is read as ``None``."""
     held = dataclasses.replace(
-        _new_run(owner="worker-a", lease_until=time.time() + 3600.25), run=json.dumps({"outcomes": {"x": "é" * 500_000}}),
+        _new_run(owner="worker-a", lease_until=time.time() + 3600.25),
+        run=json.dumps({"outcomes": {"x": "é" * 500_000}}),
     )
     found = []
     for run in (held, _new_run(owner=None, lease_until=None)):
@@ -145,18 +161,28 @@ async def _created_runs_are_kept(store: RunStore) -> list[Problem]:
 async def _updates_are_compared_and_set(store: RunStore) -> list[Problem]:
     """``update`` writes at the run's ``rev`` and moves it one on, leaves the run's other columns and other runs as they
     are, loses at an older ``rev``, and of several made at once at one ``rev``, exactly one is written."""
-    run, beside = _new_run(owner="worker-a", lease_until=12.5), _new_run(owner="worker-a", lease_until=12.5)
+    run, beside = (
+        _new_run(owner="worker-a", lease_until=12.5),
+        _new_run(owner="worker-a", lease_until=12.5),
+    )
     for each in (run, beside):
         await _answer(store.create, each)
     writes: tuple[RunChanges, ...] = (
-        {"status": "waiting", "outcome": '{"waiting": [], "outputs": null}', "owner": None, "lease_until": None},
+        {
+            "status": "waiting",
+            "outcome": '{"waiting": [], "outputs": null}',
+            "owner": None,
+            "lease_until": None,
+        },
         {"owner": "worker-b", "lease_until": 7.75},
     )
     for changes in writes:
         if not await _answer(store.update, run.id, run.rev, changes):
             return [problems.update_not_written("update")]
         run = dataclasses.replace(run, **changes, rev=run.rev + 1)
-        if problem := await _read_back(store, run, "update") or await _read_back(store, beside, "update"):
+        if problem := await _read_back(store, run, "update") or await _read_back(
+            store, beside, "update"
+        ):
             return [problem]
     if await _answer(store.update, run.id, run.rev - 1, {"owner": "worker-c"}):
         return [problems.stale_update_written("update", rev=run.rev - 1, current=run.rev)]
@@ -164,11 +190,17 @@ async def _updates_are_compared_and_set(store: RunStore) -> list[Problem]:
         return [problem]
     for _ in range(_ROUNDS):
         claims: list[RunChanges] = [{"owner": f"worker-{number}"} for number in range(_AT_ONCE)]
-        written = await asyncio.gather(*(_answer(store.update, run.id, run.rev, claim) for claim in claims))
+        written = await asyncio.gather(
+            *(_answer(store.update, run.id, run.rev, claim) for claim in claims)
+        )
         if sum(map(bool, written)) != 1:
             if not any(written):
                 return [problems.update_not_written("update")]
-            return [problems.two_updates_written("update", written=sum(map(bool, written)), tried=_AT_ONCE)]
+            return [
+                problems.two_updates_written(
+                    "update", written=sum(map(bool, written)), tried=_AT_ONCE
+                )
+            ]
         winner = next(claim for claim, won in zip(claims, written, strict=True) if won)
         run = dataclasses.replace(run, **winner, rev=run.rev + 1)
     return []
@@ -180,11 +212,18 @@ async def _expired_gives_the_runs_whose_lease_ran_out(store: RunStore) -> list[P
     now = time.time()
     due = {lease: _new_run(owner="worker-a", lease_until=lease) for lease in (now - 60, 0.0)}
     held_until = now + 60
-    held, not_running = _new_run(owner="worker-a", lease_until=held_until), _new_run(owner=None, lease_until=None)
+    held, not_running = (
+        _new_run(owner="worker-a", lease_until=held_until),
+        _new_run(owner=None, lease_until=None),
+    )
     for run in (*due.values(), held, not_running):
         await _answer(store.create, run)
     given = {run.id for run in await _answer(store.expired, now)}
-    found = [problems.expired_missed("expired", lease_until=lease) for lease, run in due.items() if run.id not in given]
+    found = [
+        problems.expired_missed("expired", lease_until=lease)
+        for lease, run in due.items()
+        if run.id not in given
+    ]
     if held.id in given:
         found.append(problems.expired_not_due("expired", lease_until=held_until))
     if not_running.id in given:
@@ -196,17 +235,29 @@ async def _events_are_numbered_and_kept_for_the_owner(store: RunStore) -> list[P
     """The run's owner appends events, numbered from ``0`` for each run, and ``events`` gives those above a number, in
     order. A worker that does not hold the run, or any worker on a run that is not running, gets ``False`` and appends
     nothing, also once the run has another owner."""
-    other, run, not_running = (_new_run(owner=owner, lease_until=None) for owner in ("worker-b", "worker-a", None))
+    other, run, not_running = (
+        _new_run(owner=owner, lease_until=None) for owner in ("worker-b", "worker-a", None)
+    )
     for each in (other, run, not_running):
         await _answer(store.create, each)
-    bodies = ['{"type": "run_start"}', '{"type": "node_complete", "node_id": "ü"}', '{"type": "run_end"}']
+    bodies = [
+        '{"type": "run_start"}',
+        '{"type": "node_complete", "node_id": "ü"}',
+        '{"type": "run_end"}',
+    ]
     added = [await _answer(store.add_event, other.id, "worker-b", bodies[0])]
     added += [await _answer(store.add_event, run.id, "worker-a", body) for body in bodies]
     if not all(added):
         return [problems.event_refused("add_event")]
     for after in (-1, 0, 2):
-        if _as_events(given := await _answer(store.events, run.id, after)) != _as_events(list(enumerate(bodies))[after + 1:]):
-            return [problems.events_not_as_added("events", after=after, numbers=[number for number, _ in given])]
+        if _as_events(given := await _answer(store.events, run.id, after)) != _as_events(
+            list(enumerate(bodies))[after + 1 :]
+        ):
+            return [
+                problems.events_not_as_added(
+                    "events", after=after, numbers=[number for number, _ in given]
+                )
+            ]
     if not await _answer(store.update, run.id, run.rev, {"owner": "worker-b"}):
         return []  # the check of update reports it
     for not_held in (run, other, not_running):  # by worker-a, which holds none of them now
@@ -240,6 +291,10 @@ async def check_run_store(store: RunStore) -> list[Problem]:
         try:
             made = await check(store)
         except _StoreRaisedError as raised:
-            made = [problems.store_raised(raised.method, error=type(raised.error).__name__, reason=str(raised.error))]
+            made = [
+                problems.store_raised(
+                    raised.method, error=type(raised.error).__name__, reason=str(raised.error)
+                )
+            ]
         found += [problem for problem in made if problem not in found]
     return found

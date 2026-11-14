@@ -30,5 +30,14 @@ def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
         return validator_of(field.whole).validate_python(value)
     except ValidationError as error:
         refused = field.whole.refusal(error)
-        raise InvalidCallError([compile_problems.invalid_value(node_id, field.name, reason=refused.reason, errors=refused.errors, column=refused.column)]) from None
-
+        raise InvalidCallError(
+            [
+                compile_problems.invalid_value(
+                    node_id,
+                    field.name,
+                    reason=refused.reason,
+                    errors=refused.errors,
+                    column=refused.column,
+                )
+            ]
+        ) from None

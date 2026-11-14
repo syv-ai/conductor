@@ -112,12 +112,30 @@ def _edge(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def take(x: hint) -> str:  # type: ignore[valid-type]
         return "ok"
 
-    record = GraphRecord.model_validate({"nodes": {"a": {"node": "give"}, "b": {"node": "take", "inputs": {"x": {"sources": [{"node": "a", "output": "result"}]}}}}, "outputs": {"result": {"node": "b", "output": "result"}}})
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "a": {"node": "give"},
+                "b": {
+                    "node": "take",
+                    "inputs": {"x": {"sources": [{"node": "a", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "b", "output": "result"}},
+        }
+    )
     return [Graph.compile(record, registry_of(give, take)).run().cause]
 
 
 def _giving(definition: Any) -> list[Problem]:
-    return [Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": definition.id}}}), registry_of(definition)).run().cause]
+    return [
+        Graph.compile(
+            GraphRecord.model_validate({"nodes": {"g": {"node": definition.id}}}),
+            registry_of(definition),
+        )
+        .run()
+        .cause
+    ]
 
 
 def _one_output(hint: Any, good: Any, bad: Any) -> list[Problem]:
@@ -143,7 +161,12 @@ def _answer(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def ask(text: str) -> hint:  # type: ignore[valid-type]
         raise Ask("Which?")
 
-    run = Graph.compile(make_graph(definition := node("ask", title="Ask", description="For a test.", asks=True)(ask)), registry_of(definition)).run(text="a")
+    run = Graph.compile(
+        make_graph(
+            definition := node("ask", title="Ask", description="For a test.", asks=True)(ask)
+        ),
+        registry_of(definition),
+    ).run(text="a")
     return _refused(lambda: run.answer(run.waiting[0], bad))
 
 
@@ -152,7 +175,15 @@ def _saved_output(hint: Any, good: Any, bad: Any) -> list[Problem]:
         return good
 
     definition = node("give", title="Give", description="For a test.")(give)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"g": {"node": "give"}}, "outputs": {"result": {"node": "g", "output": "result"}}}), registry_of(definition))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"g": {"node": "give"}},
+                "outputs": {"result": {"node": "g", "output": "result"}},
+            }
+        ),
+        registry_of(definition),
+    )
     saved = graph.run().to_json().replace(f'"result":[{_json(good)}]', f'"result":[{_json(bad)}]')
     assert _json(bad) in saved
     return _refused(lambda: Run.from_json(saved, graph))
@@ -186,6 +217,7 @@ DOORS = {
     "a-saved-input": (_saved_input, "saved_run_unreadable"),
 }
 
+
 @pytest.mark.parametrize("way", sorted(TYPES))
 @pytest.mark.parametrize("door", sorted(DOORS))
 def test_a_refused_value_is_in_no_problem(door: str, way: str) -> None:
@@ -194,7 +226,11 @@ def test_a_refused_value_is_in_no_problem(door: str, way: str) -> None:
 
     assert [problem.type for problem in problems] == [code]
     for problem in problems:
-        assert SECRET not in problem.msg and SECRET not in problem.model_dump_json() and SECRET not in str(problem), (door, way, problem)
+        assert (
+            SECRET not in problem.msg
+            and SECRET not in problem.model_dump_json()
+            and SECRET not in str(problem)
+        ), (door, way, problem)
 
 
 def test_a_value_in_a_graph_record_is_in_no_problem() -> None:
@@ -205,6 +241,8 @@ def test_a_value_in_a_graph_record_is_in_no_problem() -> None:
     for constant in ({SECRET: {1, 2}}, {"a": {SECRET: object()}}):
         for problem in _refused(lambda: make_graph(take, constants={"take.x": constant})):
             assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)
-    record = f'{{"nodes": [{{"id": "t", "node": "take", "extra": {{"{SECRET}": 1}}}}], "edges": []}}'
+    record = (
+        f'{{"nodes": [{{"id": "t", "node": "take", "extra": {{"{SECRET}": 1}}}}], "edges": []}}'
+    )
     for problem in _refused(lambda: Graph.compile(record, registry_of(take))):
         assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)

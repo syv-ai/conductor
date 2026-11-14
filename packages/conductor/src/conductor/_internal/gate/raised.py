@@ -61,14 +61,25 @@ class AskDoor:
         defaults: dict[str, JsonValue] = {}
         if ask.choices is not None:
             for name, given in self._by_output(ask.choices, "choices").items():
-                value_type = outputs[name].type  # a Series' choices are its items', so each id is read as one item
+                value_type = outputs[
+                    name
+                ].type  # a Series' choices are its items', so each id is read as one item
                 try:
-                    choices[name] = read_choices(given, output_validator_of(value_type), value_type.to_json)
+                    choices[name] = read_choices(
+                        given, output_validator_of(value_type), value_type.to_json
+                    )
                 except PydanticCustomError as refused:
-                    raise InvalidCallError([run_problems.invalid_ask(reason=f"the choices for '{name}' are refused: {refused.message()}")]) from None
+                    raise InvalidCallError(
+                        [
+                            run_problems.invalid_ask(
+                                reason=f"the choices for '{name}' are refused: {refused.message()}"
+                            )
+                        ]
+                    ) from None
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
-                if outputs[name].param.exclusive_group is not None:  # left out, a branch is not chosen, so nothing can be proposed for it
+                # left out, a branch is not chosen, so nothing can be proposed for it
+                if outputs[name].param.exclusive_group is not None:
                     reason = f"'{name}' is one of an exclusive group, and left out it is a branch not chosen; an Ask proposes no default for it"
                     raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
@@ -84,7 +95,13 @@ class AskDoor:
         outputs = self._outputs
         if len(outputs) == 1:
             if argument == "choices" and isinstance(given, Mapping):
-                raise InvalidCallError([run_problems.invalid_ask(reason="the node asks one question, so it is answered with a value, and choices= is a list")])
+                raise InvalidCallError(
+                    [
+                        run_problems.invalid_ask(
+                            reason="the node asks one question, so it is answered with a value, and choices= is a list"
+                        )
+                    ]
+                )
             return {next(iter(outputs)): given}
         if not isinstance(given, Mapping):
             reason = f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too"
@@ -120,5 +137,11 @@ def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) ->
     try:
         written: JsonValue = field.whole.to_json(answer_value(field, default, choices))
     except PydanticCustomError as refused:
-        raise InvalidCallError([run_problems.invalid_ask(reason=f"the default for '{field.name}' is not an answer it takes: {refused.message()}")]) from None
+        raise InvalidCallError(
+            [
+                run_problems.invalid_ask(
+                    reason=f"the default for '{field.name}' is not an answer it takes: {refused.message()}"
+                )
+            ]
+        ) from None
     return written

@@ -21,7 +21,10 @@ def _whole_output(source: Source) -> Source:
         PydanticCustomError: It names one field of an output (``output_has_field``): a graph output is a whole output.
     """
     if source.field is not None:
-        raise PydanticCustomError("output_has_field", "a graph output is a whole output; give a node the field through an edge")
+        raise PydanticCustomError(
+            "output_has_field",
+            "a graph output is a whole output; give a node the field through an edge",
+        )
     return source
 
 
@@ -48,7 +51,14 @@ class GraphRecord(ConductorModel):
     @property
     def input_names(self) -> tuple[Name, ...]:
         """The graph inputs its entries name, in the order its nodes name them. Two entries may name one."""
-        return tuple(dict.fromkeys(entry.graph_input for node in self.nodes.values() for entry in node.inputs.values() if entry.graph_input is not MISSING))
+        return tuple(
+            dict.fromkeys(
+                entry.graph_input
+                for node in self.nodes.values()
+                for entry in node.inputs.values()
+                if entry.graph_input is not MISSING
+            )
+        )
 
     @property
     def required_inputs(self) -> tuple[Name, ...]:
@@ -56,5 +66,10 @@ class GraphRecord(ConductorModel):
 
         Two entries may name one graph input; a default on either is the graph input's default.
         """
-        defaulted = {entry.graph_input for node in self.nodes.values() for entry in node.inputs.values() if entry.default is not MISSING}
+        defaulted = {
+            entry.graph_input
+            for node in self.nodes.values()
+            for entry in node.inputs.values()
+            if entry.default is not MISSING
+        }
         return tuple(name for name in self.input_names if name not in defaulted)

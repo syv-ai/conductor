@@ -77,15 +77,22 @@ def ask(text: str) -> str:
 @node("frame", title="Frame", description="For a test.")
 def frame(text: str) -> Table:
     parts = text.split(",")
-    return pl.DataFrame({
-        "part": parts, "when": [datetime.date(2026, 1, 1 + i) for i in range(len(parts))], "tags": [[part, "t"] for part in parts],
-        "ratio": [math.nan] * len(parts), "nothing": [None] * len(parts),
-    })
+    return pl.DataFrame(
+        {
+            "part": parts,
+            "when": [datetime.date(2026, 1, 1 + i) for i in range(len(parts))],
+            "tags": [[part, "t"] for part in parts],
+            "ratio": [math.nan] * len(parts),
+            "nothing": [None] * len(parts),
+        }
+    )
 
 
 @node("typed-frame", title="Typed frame", description="For a test.")
 def typed_frame(text: str) -> Table[Line]:
-    return pl.DataFrame({"size": [1.5, math.inf], "text": ["a", "b"], "extra": [datetime.time(1, 2), None]})
+    return pl.DataFrame(
+        {"size": [1.5, math.inf], "text": ["a", "b"], "extra": [datetime.time(1, 2), None]}
+    )
 
 
 @node("reading", title="Reading", description="For a test.")
@@ -110,38 +117,79 @@ def float_or_text(text: str) -> float | str:
 
 def _registry() -> NodeRegistry:
     registry = NodeRegistry()
-    registry.add(lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text)
-    inner = GraphRecord.model_validate({
-        "nodes": {"q": {"node": "ask", "inputs": {"text": {"graph_input": "text"}}}, "m": {"node": "maybe", "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}}}},
-        "outputs": {"result": {"node": "m", "output": "result"}},
-    })
+    registry.add(
+        lines, gate, maybe, letters, ask, frame, typed_frame, reading, join, loose, float_or_text
+    )
+    inner = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "q": {"node": "ask", "inputs": {"text": {"graph_input": "text"}}},
+                "m": {
+                    "node": "maybe",
+                    "inputs": {"text": {"sources": [{"node": "q", "output": "result"}]}},
+                },
+            },
+            "outputs": {"result": {"node": "m", "output": "result"}},
+        }
+    )
     registry.add(subgraph("inner", title="Inner", description="For a test.")(inner))
     return registry
 
 
-def _record(registry: NodeRegistry, nodes: Mapping[str, str], edges: Sequence[tuple[str, str]], *, inputs: Mapping[str, str], outputs: Mapping[str, str]) -> GraphRecord:
+def _record(
+    registry: NodeRegistry,
+    nodes: Mapping[str, str],
+    edges: Sequence[tuple[str, str]],
+    *,
+    inputs: Mapping[str, str],
+    outputs: Mapping[str, str],
+) -> GraphRecord:
     """``make_graph`` of ``nodes`` (node id to the id of its definition in ``registry``), joined by exactly ``edges``,
     with these graph ``inputs`` and ``outputs``."""
-    return make_graph(*((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()), edges=list(edges), inputs=inputs, outputs=outputs)
+    return make_graph(
+        *((node_id, registry[definition_id]) for node_id, definition_id in nodes.items()),
+        edges=list(edges),
+        inputs=inputs,
+        outputs=outputs,
+    )
 
 
 def _everything() -> Any:
     """A graph with a skipped output, a ``None`` output, a skipped item, an empty series, a waiting call, a subgraph
     and tables."""
     registry = _registry()
-    return Graph.compile(_record(
+    return Graph.compile(
+        _record(
+            registry,
+            {
+                "lines": "lines",
+                "gate": "gate",
+                "maybe": "maybe",
+                "letters": "letters",
+                "ask": "ask",
+                "frame": "frame",
+                "typed": "typed-frame",
+                "reading": "reading",
+                "long": "join",
+                "e": "inner",
+            },
+            [
+                ("lines.result.text", "gate.text"),
+                ("lines.result.text", "maybe.text"),
+                ("lines.result.text", "letters.text"),
+                ("lines.result.text", "ask.text"),
+                ("gate.long", "long.texts"),
+                ("lines.result.text", "e.text"),
+            ],
+            inputs={name: f"{name}.text" for name in ("lines", "frame", "typed", "reading")},
+            outputs={
+                name: f"{name}.result"
+                for name in ("maybe", "letters", "ask", "frame", "typed", "reading", "long", "e")
+            }
+            | {"short": "gate.short"},
+        ),
         registry,
-        {
-            "lines": "lines", "gate": "gate", "maybe": "maybe", "letters": "letters", "ask": "ask", "frame": "frame",
-            "typed": "typed-frame", "reading": "reading", "long": "join", "e": "inner",
-        },
-        [
-            ("lines.result.text", "gate.text"), ("lines.result.text", "maybe.text"), ("lines.result.text", "letters.text"),
-            ("lines.result.text", "ask.text"), ("gate.long", "long.texts"), ("lines.result.text", "e.text"),
-        ],
-        inputs={name: f"{name}.text" for name in ("lines", "frame", "typed", "reading")},
-        outputs={name: f"{name}.result" for name in ("maybe", "letters", "ask", "frame", "typed", "reading", "long", "e")} | {"short": "gate.short"},
-    ), registry)
+    )
 
 
 def _inputs(text: str) -> dict[str, str]:
@@ -168,7 +216,10 @@ def _jsonb(text: str) -> str:
 
     def order(value: Any) -> Any:
         if isinstance(value, dict):
-            return {k: order(value[k]) for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))}
+            return {
+                k: order(value[k])
+                for k in sorted(value, key=lambda k: (len(k.encode()), k.encode()))
+            }
         return [order(v) for v in value] if isinstance(value, list) else value
 
     return json.dumps(order(json.loads(text)))
@@ -190,7 +241,9 @@ def test_a_run_reads_back_as_itself_and_resumes_to_the_same_result(text: str) ->
 
     for written in (saved, saved.encode(), _jsonb(saved)):
         read_back = Run.from_json(written, graph)
-        assert read_back.status == run.status and [w.id for w in read_back.waiting] == [w.id for w in run.waiting]
+        assert read_back.status == run.status and [w.id for w in read_back.waiting] == [
+            w.id for w in run.waiting
+        ]
         for node_id, results in run.results.items():
             assert _same(read_back.results[node_id], results), node_id
         assert read_back.to_json() == saved
@@ -202,18 +255,38 @@ def test_a_saved_run_has_one_list_entry_per_call_and_writes_no_item_indexes() ->
     saved = json.loads(_everything().run(_inputs("a,bb,ccc,xax,b")).to_json())
 
     assert saved["ended_early"] is None
-    assert saved["outcomes"]["maybe"] == {"states": ["done"] * 5, "outputs": {"result": ["A", None, "CCC", "XAX", None]}}
+    assert saved["outcomes"]["maybe"] == {
+        "states": ["done"] * 5,
+        "outputs": {"result": ["A", None, "CCC", "XAX", None]},
+    }
     assert saved["outcomes"]["gate"] == {
-        "states": ["done"] * 5, "outputs": {"long": [None, None, "ccc", "xax", None], "short": ["a", "bb", None, None, "b"]},
+        "states": ["done"] * 5,
+        "outputs": {
+            "long": [None, None, "ccc", "xax", None],
+            "short": ["a", "bb", None, None, "b"],
+        },
         "skipped": {"long": [0, 1, 4], "short": [2, 3]},
     }
     assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"3": [0, 2]}}
     assert saved["outcomes"]["ask"] == {
-        "states": [None, "done", "done", "done", "done"], "outputs": {"result": [None, "bb", "ccc", "xax", "b"]},
+        "states": [None, "done", "done", "done", "done"],
+        "outputs": {"result": [None, "bb", "ccc", "xax", "b"]},
         "questions": {"0": {"prompt": "What of a?"}},
     }
-    assert saved["outcomes"]["e/q"]["states"] == [None, "done", "done", "done", "done"]  # a node inside a subgraph, as any node
-    assert saved["outcomes"]["e/m"]["states"] == [None, "done", "done", "done", "done"]  # m takes the waiting call's output, so it has no outcome either
+    assert saved["outcomes"]["e/q"]["states"] == [
+        None,
+        "done",
+        "done",
+        "done",
+        "done",
+    ]  # a node inside a subgraph, as any node
+    assert saved["outcomes"]["e/m"]["states"] == [
+        None,
+        "done",
+        "done",
+        "done",
+        "done",
+    ]  # m takes the waiting call's output, so it has no outcome either
     assert "e" not in saved["outcomes"] and "keys" not in json.dumps(saved)
 
 
@@ -225,18 +298,24 @@ def test_a_run_stopped_at_the_item_limit_reads_back_and_resumes_to_the_full_resu
     read_back = Run.from_json(stopped.to_json(), graph)
 
     assert _same(read_back.results, stopped.results)
-    assert _same(read_back.with_max_items(100).resume().outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs)
+    assert _same(
+        read_back.with_max_items(100).resume().outputs, graph.run(_inputs("bb,ccc,dd,e")).outputs
+    )
 
 
 def test_a_run_given_new_inputs_and_saved_before_resuming_keeps_its_reusable_outcomes() -> None:
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc")))
     again = Run.from_json(first.to_json(), graph).with_inputs({"lines": "a,ccc,dd"})
-    restored = Run.from_json(again.to_json(), graph)  # saved before resume(): the previous run's outcomes are in it
+    restored = Run.from_json(
+        again.to_json(), graph
+    )  # saved before resume(): the previous run's outcomes are in it
 
     assert restored.to_json() == again.to_json()
     assert _same(_finished(restored.resume()).outputs, _finished(again.resume()).outputs)
-    assert [w.id for w in restored.resume().waiting] == []  # the answer to "a" is reused with the other outcomes
+    assert [
+        w.id for w in restored.resume().waiting
+    ] == []  # the answer to "a" is reused with the other outcomes
 
 
 def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() -> None:
@@ -244,14 +323,22 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
     another error."""
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
-    waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()  # it waits on "ab"; its outcomes for "bb" and "b" are kept as reusable
+    waiting = first.with_inputs(
+        {"lines": "a,ccc,ab,xax"}
+    ).resume()  # it waits on "ab"; its outcomes for "bb" and "b" are kept as reusable
     saved = json.loads(waiting.to_json())
     assert waiting.status == "waiting" and saved["reusable"] and saved["outcomes"]
     random.seed(7)
 
     def places(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
         found = [path] if path else []
-        for key, part in value.items() if isinstance(value, dict) else enumerate(value) if isinstance(value, list) else ():
+        for key, part in (
+            value.items()
+            if isinstance(value, dict)
+            else enumerate(value)
+            if isinstance(value, list)
+            else ()
+        ):
             found += places(part, (*path, key))
         return found
 
@@ -268,52 +355,131 @@ def test_a_randomly_damaged_saved_run_reads_back_or_is_refused_with_a_problem() 
         elif change == "twice" and isinstance(parent, list):
             parent.insert(last, parent[last])
         else:
-            parent[last] = {"null": None, "text": "x", "number": 99, "list": [1, [2]], "object": {"a": 1}, "twice": 7}[change]
+            parent[last] = {
+                "null": None,
+                "text": "x",
+                "number": 99,
+                "list": [1, [2]],
+                "object": {"a": 1},
+                "twice": 7,
+            }[change]
         try:
             Run.from_json(json.dumps(damaged), graph).to_json()
         except InvalidCallError as refused:
-            assert [p.type for p in refused.problems] in (["saved_run_unreadable"], ["saved_run_of_another_graph"]), (above, last, change)
+            assert [p.type for p in refused.problems] in (
+                ["saved_run_unreadable"],
+                ["saved_run_of_another_graph"],
+            ), (above, last, change)
 
 
 def test_a_float_that_is_not_finite_reads_back_by_its_declared_type() -> None:
     names = ("lines", "reading", "loose", "float-or-text", "typed-frame", "frame")
     registry = _registry()
-    graph = Graph.compile(_record(registry, {n: n for n in names}, [], inputs={n: f"{n}.text" for n in names}, outputs={n: f"{n}.result" for n in names}), registry)
-    run = graph.run({"lines": "ab", "reading": "inf", "loose": "x", "float-or-text": "x", "typed-frame": "x", "frame": "p"})
-    json.loads(run.to_json(), parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}"))
+    graph = Graph.compile(
+        _record(
+            registry,
+            {n: n for n in names},
+            [],
+            inputs={n: f"{n}.text" for n in names},
+            outputs={n: f"{n}.result" for n in names},
+        ),
+        registry,
+    )
+    run = graph.run(
+        {
+            "lines": "ab",
+            "reading": "inf",
+            "loose": "x",
+            "float-or-text": "x",
+            "typed-frame": "x",
+            "frame": "p",
+        }
+    )
+    json.loads(
+        run.to_json(), parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")
+    )
 
     results = Run.from_json(run.to_json(), graph).results
 
     assert math.isnan(results["reading"]["result"].value)  # a float field of a model: the float
     assert results["reading"]["result"].note == "Infinity"  # under Any: its JSON form, the text
-    assert results["loose"]["result"] == {"nan": "NaN", "when": "2026-01-01", "text": "x"}  # under Any: its JSON form, as a date is
+    assert results["loose"]["result"] == {
+        "nan": "NaN",
+        "when": "2026-01-01",
+        "text": "x",
+    }  # under Any: its JSON form, as a date is
     assert results["float-or-text"]["result"] == "Infinity"  # a type that takes the text takes it
-    assert results["typed-frame"]["result"]["size"].to_list() == [1.5, math.inf]  # a float column: the float
+    assert results["typed-frame"]["result"]["size"].to_list() == [
+        1.5,
+        math.inf,
+    ]  # a float column: the float
     assert results["frame"]["result"]["ratio"].is_nan().all()
 
 
-@pytest.mark.parametrize(("damage", "at"), [
-    (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].__setitem__(1, {"secret": 1}), "outcomes.maybe.outputs.result.1"),
-    (lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"), "outcomes.maybe"),  # an output's list longer than its states
-    (lambda s: s["outcomes"]["maybe"]["states"].append("done"), "outcomes.maybe"),
-    (lambda s: s["outcomes"]["maybe"]["states"].__setitem__(0, "gone"), "outcomes.maybe.states.0"),
-    (lambda s: s["outcomes"]["maybe"].pop("outputs"), "outcomes.maybe.outputs"),
-    (lambda s: s["outcomes"]["gate"]["outputs"].pop("long"), "outcomes.gate.outputs.long"),
-    (lambda s: s["outcomes"]["gate"]["outputs"].__setitem__("other", []), "outcomes.gate.outputs.other"),
-    (lambda s: s["outcomes"]["gate"]["skipped"]["long"].append(99), "outcomes.gate"),
-    (lambda s: s["outcomes"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]), "outcomes.letters"),
-    (lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?"}), "outcomes.ask"),
-    (lambda s: s["outcomes"].__setitem__("nowhere", {"states": [], "outputs": {}}), "outcomes.nowhere"),
-    (lambda s: s["inputs"].__setitem__("nowhere", "x"), "inputs.nowhere"),
-    (lambda s: s["inputs"].__setitem__("lines", 7), "inputs.lines"),
-    (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][0]["values"].append("more"), "outcomes.frame.outputs.result.0"),
-    (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1].__setitem__("name", "part"), "outcomes.frame.outputs.result.0"),
-    (lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1]["values"].__setitem__(0, "soon"), "outcomes.frame.outputs.result.0"),
-    (lambda s: s["outcomes"]["typed"]["outputs"]["result"][0]["columns"].pop(1), "outcomes.typed.outputs.result.0"),  # the column its row type names
-    (lambda s: s["outcomes"]["e/q"]["states"].__setitem__(0, 5), "outcomes.e/q.states.0"),
-    (lambda s: s.pop("ended_early"), "ended_early"),
-    (lambda s: s.__setitem__("keys", []), "keys"),
-])
+@pytest.mark.parametrize(
+    ("damage", "at"),
+    [
+        (
+            lambda s: s["outcomes"]["maybe"]["outputs"]["result"].__setitem__(1, {"secret": 1}),
+            "outcomes.maybe.outputs.result.1",
+        ),
+        (
+            lambda s: s["outcomes"]["maybe"]["outputs"]["result"].append("X"),
+            "outcomes.maybe",
+        ),  # an output's list longer than its states
+        (lambda s: s["outcomes"]["maybe"]["states"].append("done"), "outcomes.maybe"),
+        (
+            lambda s: s["outcomes"]["maybe"]["states"].__setitem__(0, "gone"),
+            "outcomes.maybe.states.0",
+        ),
+        (lambda s: s["outcomes"]["maybe"].pop("outputs"), "outcomes.maybe.outputs"),
+        (lambda s: s["outcomes"]["gate"]["outputs"].pop("long"), "outcomes.gate.outputs.long"),
+        (
+            lambda s: s["outcomes"]["gate"]["outputs"].__setitem__("other", []),
+            "outcomes.gate.outputs.other",
+        ),
+        (lambda s: s["outcomes"]["gate"]["skipped"]["long"].append(99), "outcomes.gate"),
+        (
+            lambda s: s["outcomes"]["letters"]["skipped_items"]["result"].__setitem__("0", [99]),
+            "outcomes.letters",
+        ),
+        (
+            lambda s: s["outcomes"]["ask"]["questions"].__setitem__("77", {"prompt": "?"}),
+            "outcomes.ask",
+        ),
+        (
+            lambda s: s["outcomes"].__setitem__("nowhere", {"states": [], "outputs": {}}),
+            "outcomes.nowhere",
+        ),
+        (lambda s: s["inputs"].__setitem__("nowhere", "x"), "inputs.nowhere"),
+        (lambda s: s["inputs"].__setitem__("lines", 7), "inputs.lines"),
+        (
+            lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][0]["values"].append(
+                "more"
+            ),
+            "outcomes.frame.outputs.result.0",
+        ),
+        (
+            lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1].__setitem__(
+                "name", "part"
+            ),
+            "outcomes.frame.outputs.result.0",
+        ),
+        (
+            lambda s: s["outcomes"]["frame"]["outputs"]["result"][0]["columns"][1][
+                "values"
+            ].__setitem__(0, "soon"),
+            "outcomes.frame.outputs.result.0",
+        ),
+        (
+            lambda s: s["outcomes"]["typed"]["outputs"]["result"][0]["columns"].pop(1),
+            "outcomes.typed.outputs.result.0",
+        ),  # the column its row type names
+        (lambda s: s["outcomes"]["e/q"]["states"].__setitem__(0, 5), "outcomes.e/q.states.0"),
+        (lambda s: s.pop("ended_early"), "ended_early"),
+        (lambda s: s.__setitem__("keys", []), "keys"),
+    ],
+)
 def test_a_damaged_saved_run_is_refused_at_the_place_pydantic_names(damage: Any, at: str) -> None:
     graph = _everything()
     saved = json.loads(graph.run(_inputs("a,bb,ccc,xax,b")).to_json())
@@ -334,7 +500,15 @@ def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_o
 
     registry = NodeRegistry()
     registry.add(odd)
-    run = Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry).run(text="x")
+    run = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
+                "outputs": {"result": {"node": "o", "output": "result"}},
+            }
+        ),
+        registry,
+    ).run(text="x")
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -350,27 +524,48 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
 
     registry = _registry()
     registry.add(rows)
-    graph = Graph.compile(_record(
+    graph = Graph.compile(
+        _record(
+            registry,
+            {n: n for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")},
+            [("lines.result.text", "letters.text")],
+            inputs={n: f"{n}.text" for n in ("lines", "reading", "loose", "typed-frame", "rows")},
+            outputs={
+                n: f"{n}.result" for n in ("letters", "reading", "loose", "typed-frame", "rows")
+            },
+        ),
         registry,
-        {n: n for n in ("lines", "letters", "reading", "loose", "typed-frame", "rows")},
-        [("lines.result.text", "letters.text")],
-        inputs={n: f"{n}.text" for n in ("lines", "reading", "loose", "typed-frame", "rows")},
-        outputs={n: f"{n}.result" for n in ("letters", "reading", "loose", "typed-frame", "rows")},
-    ), registry)
-    run = graph.run({"lines": "ab,xa", "reading": "inf", "loose": "x", "typed-frame": "x", "rows": "x"})
+    )
+    run = graph.run(
+        {"lines": "ab,xa", "reading": "inf", "loose": "x", "typed-frame": "x", "rows": "x"}
+    )
 
     written = run.outputs_to_json()
 
-    assert json.loads(written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")) == {
+    assert json.loads(
+        written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")
+    ) == {
         "letters": [["a", "b"], [None, "a"]],  # an item on a branch not chosen is None
-        "reading": {"value": "NaN", "note": "Infinity"},  # a model writes a float that isn't finite as the run does
+        "reading": {
+            "value": "NaN",
+            "note": "Infinity",
+        },  # a model writes a float that isn't finite as the run does
         "loose": {"nan": "NaN", "when": "2026-01-01", "text": "x"},
-        "typed-frame": {"columns": [{"name": "text", "type": "str", "values": ["a", "b"]}, {"name": "size", "type": "float", "values": [1.5, "Infinity"]}]},
-        "rows": [{"text": "a", "size": "Infinity"}],  # a series of records is its records, however the run keeps it
+        "typed-frame": {
+            "columns": [
+                {"name": "text", "type": "str", "values": ["a", "b"]},
+                {"name": "size", "type": "float", "values": [1.5, "Infinity"]},
+            ]
+        },
+        "rows": [
+            {"text": "a", "size": "Infinity"}
+        ],  # a series of records is its records, however the run keeps it
     }
 
 
-def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_names_its_output() -> None:
+def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_names_its_output() -> (
+    None
+):
     graph = _everything()
     with pytest.raises(InvalidCallError) as refused:
         graph.run(_inputs("a")).outputs_to_json()
@@ -383,9 +578,21 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     registry = NodeRegistry()
     registry.add(odd)
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(GraphRecord.model_validate({"nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "o", "output": "result"}}}), registry).run(text="x").outputs_to_json()
+        Graph.compile(
+            GraphRecord.model_validate(
+                {
+                    "nodes": {"o": {"node": "odd", "inputs": {"text": {"graph_input": "text"}}}},
+                    "outputs": {"result": {"node": "o", "output": "result"}},
+                }
+            ),
+            registry,
+        ).run(text="x").outputs_to_json()
     (problem,) = refused.value.problems
-    assert (problem.type, problem.loc, problem.ctx["where"]) == ("run_unwritable", ("outputs", "result"), "result")
+    assert (problem.type, problem.loc, problem.ctx["where"]) == (
+        "run_unwritable",
+        ("outputs", "result"),
+        "result",
+    )
 
 
 def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
@@ -406,13 +613,20 @@ def test_every_field_a_run_sets_in_its_saved_run_is_a_key_of_the_json_and_reads_
     written = json.loads(waiting.to_json())
 
     def set_fields(record: Any) -> set[str]:
-        return {name for name, declared in type(record).model_fields.items() if declared.is_required() or getattr(record, name) != declared.get_default(call_default_factory=True)}
+        return {
+            name
+            for name, declared in type(record).model_fields.items()
+            if declared.is_required()
+            or getattr(record, name) != declared.get_default(call_default_factory=True)
+        }
 
     assert set(written) == set_fields(saved)
     for name, node_outcomes in saved.outcomes.items():
         assert set(written["outcomes"][name]) == set_fields(node_outcomes), name
     for name, kept in saved.reusable.items():
-        assert set(written["reusable"][name]) == set_fields(kept) and set(written["reusable"][name]["outcomes"]) == set_fields(kept.outcomes), name
+        assert set(written["reusable"][name]) == set_fields(kept) and set(
+            written["reusable"][name]["outcomes"]
+        ) == set_fields(kept.outcomes), name
     assert Run.from_json(waiting.to_json(), graph).to_json() == waiting.to_json()
 
 
@@ -425,10 +639,33 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -
 
     registry = NodeRegistry()
     registry.add(listed, letters)
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"listed": {"node": "listed", "inputs": {"text": {"graph_input": "listed_text"}}}, "letters": {"node": "letters", "inputs": {"text": {"graph_input": "letters_text"}}}}, "outputs": {"letters_result": {"node": "letters", "output": "result"}, "listed_result": {"node": "listed", "output": "result"}}}), registry)
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "listed": {
+                        "node": "listed",
+                        "inputs": {"text": {"graph_input": "listed_text"}},
+                    },
+                    "letters": {
+                        "node": "letters",
+                        "inputs": {"text": {"graph_input": "letters_text"}},
+                    },
+                },
+                "outputs": {
+                    "letters_result": {"node": "letters", "output": "result"},
+                    "listed_result": {"node": "listed", "output": "result"},
+                },
+            }
+        ),
+        registry,
+    )
     run = graph.run(listed_text="ax", letters_text="ax")
     saved = json.loads(run.to_json())
-    assert saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}} and "skipped_items" not in saved["outcomes"]["listed"]
+    assert (
+        saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}}
+        and "skipped_items" not in saved["outcomes"]["listed"]
+    )
     assert Run.from_json(json.dumps(saved), graph).to_json() == run.to_json()
 
     saved["outcomes"]["listed"]["skipped_items"] = {"result": {"0": [1]}}
@@ -436,4 +673,7 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -
         Run.from_json(json.dumps(saved), graph)
 
     (problem,) = refused.value.problems
-    assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", "outcomes.listed.skipped_items.result")
+    assert (problem.type, problem.ctx["where"]) == (
+        "saved_run_unreadable",
+        "outcomes.listed.skipped_items.result",
+    )

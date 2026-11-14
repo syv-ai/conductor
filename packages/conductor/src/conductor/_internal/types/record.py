@@ -16,7 +16,11 @@ def field_of(value: Any, name: str) -> Any:
             fields: a field that a type declares is checked when the graph is compiled.
     """
     try:
-        return value[name] if type(value) is dict or isinstance(value, Mapping) else getattr(value, name)
+        return (
+            value[name]
+            if type(value) is dict or isinstance(value, Mapping)
+            else getattr(value, name)
+        )
     except (KeyError, AttributeError):
         raise NoSuchFieldError(name) from None
 

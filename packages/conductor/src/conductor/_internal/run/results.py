@@ -25,14 +25,21 @@ if TYPE_CHECKING:
 def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
     """``run.results``: every node's outputs so far, by node id and output name."""
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
-    return {n: {o: reader.display_value(*compiled_node.returned_by(o)) for o in compiled_node.outputs} for n, compiled_node in run.graph._nodes.items()}
+    return {
+        n: {o: reader.display_value(*compiled_node.returned_by(o)) for o in compiled_node.outputs}
+        for n, compiled_node in run.graph._nodes.items()
+    }
 
 
 def outputs_of(run: Run[Any]) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
     it is."""
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
-    return {name: reader.display_value(*node.returned_by(output)) for name in run.graph.outputs for node, output in [run.graph._node_returning(name)]}
+    return {
+        name: reader.display_value(*node.returned_by(output))
+        for name in run.graph.outputs
+        for node, output in [run.graph._node_returning(name)]
+    }
 
 
 class DisplayReader(ResultReader):
@@ -50,25 +57,43 @@ class DisplayReader(ResultReader):
     __slots__ = ()
 
     def read_output(
-        self, node: BlueprintFunctionNode, output: str, item_indexes: ItemIndexes, record_field: str | None, *, one_item: bool,
+        self,
+        node: BlueprintFunctionNode,
+        output: str,
+        item_indexes: ItemIndexes,
+        record_field: str | None,
+        *,
+        one_item: bool,
     ) -> Any:
         """Returns what ``ResultReader.read_output`` returns, as a host is shown it: ``None`` when the node has
         not returned yet, or when the edge names a field the record does not have, and the value of a
         ``Series`` output as a plain list of its items."""
         try:
-            value = ResultReader.read_output(self, node, output, item_indexes, record_field, one_item=one_item)
+            value = ResultReader.read_output(
+                self, node, output, item_indexes, record_field, one_item=one_item
+            )
         except NoSuchFieldError:
             return None
         if value is NotReady.NOT_READY:
             return None
         return value.as_list() if isinstance(value, StoredSeries) else value
 
-    def _list_looped_over(self, loop: tuple[NodePath, str], for_any_item: Any, accepts_none_items: bool, item_indexes: ItemIndexes) -> Any:
+    def _list_looped_over(
+        self,
+        loop: tuple[NodePath, str],
+        for_any_item: Any,
+        accepts_none_items: bool,
+        item_indexes: ItemIndexes,
+    ) -> Any:
         """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
-        looped_over = ResultReader._list_looped_over(self, loop, for_any_item, accepts_none_items, item_indexes)
+        looped_over = ResultReader._list_looped_over(
+            self, loop, for_any_item, accepts_none_items, item_indexes
+        )
         return None if looped_over is NotReady.NOT_READY else looped_over
 
-    def collect(self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
+    def collect(
+        self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes
+    ) -> Any:
         """The list a ``Series`` input with ``node_input`` would be called with for the item at ``item_indexes``;
         ``None`` when the edge names a field that a record in the list doesn't have."""
         try:
@@ -76,7 +101,9 @@ class DisplayReader(ResultReader):
         except NoSuchFieldError:
             return None
 
-    def display_value(self, node_path: NodePath, output: str, item_indexes: ItemIndexes = ()) -> Any:
+    def display_value(
+        self, node_path: NodePath, output: str, item_indexes: ItemIndexes = ()
+    ) -> Any:
         """One output of a function node as ``run.results`` shows it.
 
         Example: ``documents -> lines -> shout`` with three documents, the second empty, so ``lines`` was
@@ -99,8 +126,15 @@ class DisplayReader(ResultReader):
             value = self.read_output(node, output, item_indexes, None, one_item=False)
             return None if value is SKIPPED else value
         loop = node.loops[depth]
-        for_any_item = self._for_any_item_of(loop, [node], item_indexes).read_output(node, output, item_indexes, None, one_item=False)
-        looped_over = self._list_looped_over(loop, for_any_item, True, item_indexes)  # a host is shown None for an item with no value
+        for_any_item = self._for_any_item_of(loop, [node], item_indexes).read_output(
+            node, output, item_indexes, None, one_item=False
+        )
+        looped_over = self._list_looped_over(
+            loop, for_any_item, True, item_indexes
+        )  # a host is shown None for an item with no value
         if looped_over is None or looped_over is SKIPPED:
             return None
-        return [self.display_value(node_path, output, (*item_indexes, index)) for index in range(len(looped_over))]
+        return [
+            self.display_value(node_path, output, (*item_indexes, index))
+            for index in range(len(looped_over))
+        ]

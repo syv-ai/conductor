@@ -40,7 +40,9 @@ def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
 
 def is_record(cls: Any) -> bool:
     """Says whether ``cls`` is a class that declares fields: a pydantic model, a dataclass or a ``TypedDict``."""
-    return isinstance(cls, type) and (issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or typing.is_typeddict(cls))
+    return isinstance(cls, type) and (
+        issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or typing.is_typeddict(cls)
+    )
 
 
 def a_number(cls: type) -> bool:
@@ -53,7 +55,9 @@ def a_number(cls: type) -> bool:
 @functools.cache
 def aliased(alias: Any) -> Any:
     """Gives what a named type alias stands for, the names it holds as text resolved where it was written."""
-    holder = type("_", (), {"__annotations__": {"value": alias.__value__}, "__module__": alias.__module__})
+    holder = type(
+        "_", (), {"__annotations__": {"value": alias.__value__}, "__module__": alias.__module__}
+    )
     return typing.get_type_hints(holder, include_extras=True)["value"]
 
 
@@ -68,4 +72,6 @@ def substituted(hint: Any, bound: Mapping[TypeVar, Any]) -> Any:
     if isinstance(hint, type):
         return hint
     variables = getattr(hint, "__parameters__", ())  # typing's own, on every generic hint
-    return hint[tuple(substituted(variable, bound) for variable in variables)] if variables else hint
+    return (
+        hint[tuple(substituted(variable, bound) for variable in variables)] if variables else hint
+    )

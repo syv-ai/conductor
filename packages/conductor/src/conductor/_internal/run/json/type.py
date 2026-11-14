@@ -70,7 +70,9 @@ class SavedOutcomes(BaseModel):
     questions: dict[NonNegativeInt, Unanswered] = PydanticField(default_factory=dict)
     not_called_because: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
     skipped: dict[str, list[NonNegativeInt]] = PydanticField(default_factory=dict)
-    skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] = PydanticField(default_factory=dict)
+    skipped_items: dict[str, dict[NonNegativeInt, list[NonNegativeInt]]] = PydanticField(
+        default_factory=dict
+    )
 
 
 class SavedReusable(BaseModel):
@@ -101,7 +103,9 @@ class SavedReusable(BaseModel):
     model_config = _SAVED
     outcomes: SavedOutcomes
     fingerprints: list[str]
-    item_indexes: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = PydanticField(default_factory=dict)
+    item_indexes: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = PydanticField(
+        default_factory=dict
+    )
     outer_item_fingerprints: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
 
 

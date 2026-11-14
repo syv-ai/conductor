@@ -16,7 +16,9 @@ catalogue = ProblemCatalogue()
 
 
 @catalogue.problem()
-def unknown_shelf(room: str, shelf: str, /, *, shelves: list[str], nearest: str | None = None) -> str:
+def unknown_shelf(
+    room: str, shelf: str, /, *, shelves: list[str], nearest: str | None = None
+) -> str:
     """A book is put on a shelf the room doesn't have.
 
     Args:
@@ -54,7 +56,12 @@ def room_closed(*loc: str | int, until: str) -> str:
 def test_a_kind_makes_the_problem_its_function_declares() -> None:
     made = unknown_shelf("study", "top", shelves=["low", "high"])
 
-    assert made == Problem(type="unknown_shelf", loc=("study", "top"), msg="'study' has no shelf 'top'; it has low, high.", ctx={"room": "study", "shelf": "top", "shelves": ["low", "high"]})
+    assert made == Problem(
+        type="unknown_shelf",
+        loc=("study", "top"),
+        msg="'study' has no shelf 'top'; it has low, high.",
+        ctx={"room": "study", "shelf": "top", "shelves": ["low", "high"]},
+    )
     assert Problem.model_validate_json(made.model_dump_json()) == made
 
 
@@ -66,7 +73,11 @@ def test_a_key_that_may_be_left_out_is_in_ctx_only_when_it_is_given() -> None:
 def test_a_variant_is_a_second_sentence_under_the_code_and_says_so_in_ctx() -> None:
     made = unknown_shelf_in_another_room("study", "top", other="hall")
 
-    assert (made.type, made.msg, made.ctx) == ("unknown_shelf", "'top' is a shelf of 'hall', not of 'study'.", {"room": "study", "shelf": "top", "other": "hall", "variant": "another_room"})
+    assert (made.type, made.msg, made.ctx) == (
+        "unknown_shelf",
+        "'top' is a shelf of 'hall', not of 'study'.",
+        {"room": "study", "shelf": "top", "other": "hall", "variant": "another_room"},
+    )
 
 
 def test_a_part_of_loc_is_given_by_position_only_so_loc_and_ctx_always_agree() -> None:
@@ -83,14 +94,28 @@ def test_a_place_the_sentence_does_not_read_is_in_loc_alone() -> None:
 
 def test_a_catalogue_lists_its_kinds_and_their_codes() -> None:
     assert catalogue.codes == {"unknown_shelf", "room_closed"}
-    assert [(kind.code, kind.variant) for kind in catalogue] == [("unknown_shelf", None), ("unknown_shelf", "another_room"), ("room_closed", None)]
+    assert [(kind.code, kind.variant) for kind in catalogue] == [
+        ("unknown_shelf", None),
+        ("unknown_shelf", "another_room"),
+        ("room_closed", None),
+    ]
 
 
-def test_a_kind_has_a_sentence_with_a_replacement_field_for_each_ctx_key_and_a_type_for_its_ctx() -> None:
+def test_a_kind_has_a_sentence_with_a_replacement_field_for_each_ctx_key_and_a_type_for_its_ctx() -> (
+    None
+):
     assert unknown_shelf.sentence == "'{room}' has no shelf '{shelf}'; it has {shelves}."
-    assert typing.get_type_hints(unknown_shelf.ctx_type) == {"room": str, "shelf": str, "shelves": list[str], "nearest": str}
+    assert typing.get_type_hints(unknown_shelf.ctx_type) == {
+        "room": str,
+        "shelf": str,
+        "shelves": list[str],
+        "nearest": str,
+    }
     assert unknown_shelf.ctx_type.__required_keys__ == {"room", "shelf", "shelves"}
-    assert typing.get_type_hints(unknown_shelf_in_another_room.ctx_type)["variant"] == Literal["another_room"]
+    assert (
+        typing.get_type_hints(unknown_shelf_in_another_room.ctx_type)["variant"]
+        == Literal["another_room"]
+    )
 
 
 def _place_by_name(room: str, *, shelf: str) -> str:
@@ -143,7 +168,9 @@ def _no_sentence(*loc: str | int, shelf: str) -> int:
         (_no_sentence, "return"),
     ],
 )
-def test_a_signature_outside_the_three_rules_is_refused_where_it_is_declared(say: Callable[..., Any], parameter: str) -> None:
+def test_a_signature_outside_the_three_rules_is_refused_where_it_is_declared(
+    say: Callable[..., Any], parameter: str
+) -> None:
     with pytest.raises(TypeError, match=rf"{say.__name__}.*'{parameter}'"):
         ProblemCatalogue().problem()(say)
 
@@ -157,8 +184,11 @@ def test_a_variant_for_a_code_the_catalogue_has_not_declared_is_refused() -> Non
 
 
 @pytest.mark.parametrize("variant", [None, "near"], ids=["no variant", "the same variant"])
-def test_a_second_kind_under_a_code_without_a_variant_of_its_own_is_refused_where_it_is_declared(variant: str | None) -> None:
+def test_a_second_kind_under_a_code_without_a_variant_of_its_own_is_refused_where_it_is_declared(
+    variant: str | None,
+) -> None:
     """The module that declares it fails to import, so no page or host meets two kinds it cannot tell apart."""
+
     def shelf_missing(*loc: str | int) -> str:
         return ""
 
@@ -169,7 +199,9 @@ def test_a_second_kind_under_a_code_without_a_variant_of_its_own_is_refused_wher
     declared.problem()(shelf_missing)
     declared.problem("shelf_missing", variant="near")(shelf_missing)
 
-    with pytest.raises(TypeError, match="shelf_missing_again: 'shelf_missing' has .* declared before it"):
+    with pytest.raises(
+        TypeError, match="shelf_missing_again: 'shelf_missing' has .* declared before it"
+    ):
         declared.problem("shelf_missing", variant=variant)(shelf_missing_again)
 
 
@@ -181,9 +213,14 @@ def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> N
             assert "{" not in filled and "}" not in filled, kind.code
 
 
-def test_joined_sections_keep_their_order_titles_and_texts_and_refuse_a_kind_two_of_them_declare() -> None:
+def test_joined_sections_keep_their_order_titles_and_texts_and_refuse_a_kind_two_of_them_declare() -> (
+    None
+):
     """Each kind keeps the title of the section it is declared in, so it cannot be printed under another."""
-    hall, study = ProblemCatalogue("Hall", "Met in the hall."), ProblemCatalogue("Study", "Met in the study.")
+    hall, study = (
+        ProblemCatalogue("Hall", "Met in the hall."),
+        ProblemCatalogue("Study", "Met in the study."),
+    )
 
     def door_locked(*loc: str | int) -> str:
         return "The door is locked; ask for the key."
@@ -196,7 +233,8 @@ def test_joined_sections_keep_their_order_titles_and_texts_and_refuse_a_kind_two
     house = ProblemCatalogue.joined(hall, study)
 
     assert ([(kind.code, kind.section) for kind in house], house.sections) == (
-        [("door_locked", "Hall"), ("shelf_full", "Study")], {"Hall": "Met in the hall.", "Study": "Met in the study."},
+        [("door_locked", "Hall"), ("shelf_full", "Study")],
+        {"Hall": "Met in the hall.", "Study": "Met in the study."},
     )
     with pytest.raises(TypeError, match="door_locked: 'door_locked' has a kind declared before it"):
         ProblemCatalogue.joined(hall, hall)

@@ -46,7 +46,9 @@ class ReturnDoor:
             nothing of the value.
     """
 
-    def __init__(self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]) -> None:
+    def __init__(
+        self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]
+    ) -> None:
         """Builds the door for a node whose function returns ``outputs``.
 
         The function returns them as a frozen dataclass when it declares one, as a mapping when its
@@ -60,7 +62,9 @@ class ReturnDoor:
         self._names = tuple(outputs)
         self._read: Callable[[Any], dict[str, Any]]
         if outputs_dataclass is not None:
-            self._read = _several_outputs(outputs, _dataclass_fields(outputs_dataclass, self._names))
+            self._read = _several_outputs(
+                outputs, _dataclass_fields(outputs_dataclass, self._names)
+            )
         elif computes_outputs:
             self._read = _several_outputs(outputs, _mapping_items(self._names))
         elif not outputs:
@@ -82,7 +86,13 @@ class ReturnDoor:
 def _no_outputs(returned: Any) -> dict[str, Any]:
     """The outputs of a node declared ``-> None``: none, when it returned ``None``."""
     if returned is not None:
-        raise InvalidCallError([run_problems.invalid_output(reason=f"the node declares no outputs, but returned a {type(returned).__name__}")])
+        raise InvalidCallError(
+            [
+                run_problems.invalid_output(
+                    reason=f"the node declares no outputs, but returned a {type(returned).__name__}"
+                )
+            ]
+        )
     return {}
 
 
@@ -103,7 +113,9 @@ def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
     return read
 
 
-def _several_outputs(outputs: Mapping[str, Field], by_name: Callable[[Any], dict[str, Any]]) -> Callable[[Any], dict[str, Any]]:
+def _several_outputs(
+    outputs: Mapping[str, Field], by_name: Callable[[Any], dict[str, Any]]
+) -> Callable[[Any], dict[str, Any]]:
     """The door of a node with several outputs: one validator for all of them.
 
     First the shape of what was returned is checked, then each output's value: the before-function takes the
@@ -127,17 +139,27 @@ def _several_outputs(outputs: Mapping[str, Field], by_name: Callable[[Any], dict
             chosen = [name for name in members if name in given]
             if len(chosen) > 1:
                 raise PydanticCustomError(
-                    "alternatives_both_given", "'{first}' and '{second}' are alternatives of '{group}', and both hold a value",
+                    "alternatives_both_given",
+                    "'{first}' and '{second}' are alternatives of '{group}', and both hold a value",
                     {"first": chosen[0], "second": chosen[1], "group": group},
                 )
         return given
 
     def with_skipped(read: dict[str, Any]) -> dict[str, Any]:
-        return read if len(read) == len(names) else {name: read.get(name, SKIPPED) for name in names}
+        return (
+            read if len(read) == len(names) else {name: read.get(name, SKIPPED) for name in names}
+        )
 
-    fields: dict[str, Any] = {name: core_schema.typed_dict_field(output_schema_of(field.whole), required=False) for name, field in outputs.items()}
-    values: CoreSchema = core_schema.no_info_after_validator_function(with_skipped, core_schema.typed_dict_schema(fields))
-    validate = SchemaValidator(core_schema.no_info_before_validator_function(taken_apart, values)).validate_python
+    fields: dict[str, Any] = {
+        name: core_schema.typed_dict_field(output_schema_of(field.whole), required=False)
+        for name, field in outputs.items()
+    }
+    values: CoreSchema = core_schema.no_info_after_validator_function(
+        with_skipped, core_schema.typed_dict_schema(fields)
+    )
+    validate = SchemaValidator(
+        core_schema.no_info_before_validator_function(taken_apart, values)
+    ).validate_python
 
     def read(returned: Any) -> dict[str, Any]:
         try:
@@ -160,20 +182,32 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
     first = error.errors()[0]
     ctx = first.get("ctx", {})
     if first["type"] == "alternatives_both_given":
-        return InvalidCallError([run_problems.invalid_output(reason=first["msg"], name=ctx["second"])])
+        return InvalidCallError(
+            [run_problems.invalid_output(reason=first["msg"], name=ctx["second"])]
+        )
     if first["type"] in ("output_missing", "output_unknown"):
-        return InvalidCallError([run_problems.invalid_output(reason=first["msg"], name=ctx["name"])])
+        return InvalidCallError(
+            [run_problems.invalid_output(reason=first["msg"], name=ctx["name"])]
+        )
     if not first["loc"]:
         return InvalidCallError([run_problems.invalid_output(reason=first["msg"])])
     name = str(first["loc"][0])
     return _refused_output(outputs[name], error, under=(name,))
 
 
-def _refused_output(field: Field, error: ValidationError, under: tuple[str, ...] = ()) -> InvalidCallError:
+def _refused_output(
+    field: Field, error: ValidationError, under: tuple[str, ...] = ()
+) -> InvalidCallError:
     """The ``invalid_output`` of a value the type of the output ``field`` refused; ``error`` and ``under`` are as
     ``Type.refusal`` takes them."""
     refused = field.whole.refusal(error, under)
-    return InvalidCallError([run_problems.invalid_output(reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column)])
+    return InvalidCallError(
+        [
+            run_problems.invalid_output(
+                reason=refused.reason, name=field.name, errors=refused.errors, column=refused.column
+            )
+        ]
+    )
 
 
 def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
@@ -181,7 +215,11 @@ def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict
 
     def by_name(returned: Any) -> dict[str, Any]:
         if not isinstance(returned, cls):
-            raise PydanticCustomError("not_the_class", "the node returns a {cls}, not a {got}", {"cls": cls.__name__, "got": type(returned).__name__})
+            raise PydanticCustomError(
+                "not_the_class",
+                "the node returns a {cls}, not a {got}",
+                {"cls": cls.__name__, "got": type(returned).__name__},
+            )
         return {name: value for name in names if (value := getattr(returned, name)) is not SKIPPED}
 
     return by_name
@@ -194,12 +232,24 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
 
     def by_name(returned: Any) -> dict[str, Any]:
         if not isinstance(returned, Mapping):
-            raise PydanticCustomError("not_a_mapping", "the node returns its outputs as a mapping of {names}, not a {got}", {"names": listed, "got": type(returned).__name__})
+            raise PydanticCustomError(
+                "not_a_mapping",
+                "the node returns its outputs as a mapping of {names}, not a {got}",
+                {"names": listed, "got": type(returned).__name__},
+            )
         for name in names:
             if name not in returned:
-                raise PydanticCustomError("output_missing", "'{name}' is missing from the outputs it returns", {"name": name})
+                raise PydanticCustomError(
+                    "output_missing",
+                    "'{name}' is missing from the outputs it returns",
+                    {"name": name},
+                )
         if unknown := sorted(set(returned) - declared):
-            raise PydanticCustomError("output_unknown", "'{name}' is not one of the outputs it returns", {"name": str(unknown[0])})
+            raise PydanticCustomError(
+                "output_unknown",
+                "'{name}' is not one of the outputs it returns",
+                {"name": str(unknown[0])},
+            )
         return {name: value for name, value in returned.items() if value is not SKIPPED}
 
     return by_name

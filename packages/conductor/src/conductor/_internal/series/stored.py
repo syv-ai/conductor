@@ -91,7 +91,9 @@ class SeriesItems(list[Any]):
         """
         column = self.columns[name]
         for cell in column:
-            if type(cell) is NoSuchFieldError:  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the read fails
+            if (
+                type(cell) is NoSuchFieldError
+            ):  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the read fails
                 raise NoSuchFieldError(name)
         return [None if cell is SKIPPED else cell for cell in column]
 
@@ -105,7 +107,8 @@ class SeriesItems(list[Any]):
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Returns the schema of ``SeriesItems[T]`` in a saved run: a JSON array of ``T``, read into this class."""
-        return core_schema.no_info_after_validator_function(cls, handler.generate_schema(list[get_args(source)[0]]))  # type: ignore[misc]  # the item type is known only here
+        items = list[get_args(source)[0]]  # type: ignore[misc, valid-type]  # the item type is known only here
+        return core_schema.no_info_after_validator_function(cls, handler.generate_schema(items))
 
 
 class Records[T]:
@@ -150,7 +153,10 @@ class Records[T]:
     def as_list(self) -> list[dict[str, Any]]:
         """Returns the records as a new list of dicts, as a node with a ``Series`` input receives them."""
         names = self.frame.columns
-        return [dict(zip(names, cells, strict=True)) for cells in zip(*(self.columns[name] for name in names), strict=True)]
+        return [
+            dict(zip(names, cells, strict=True))
+            for cells in zip(*(self.columns[name] for name in names), strict=True)
+        ]
 
     def as_table_input(self) -> pl.DataFrame:
         """Returns the frame itself, as a node with a ``Table`` input receives it."""
@@ -162,7 +168,8 @@ class Records[T]:
         Raises:
             NoSuchFieldError: The frame has a row and no column ``name``.
         """
-        if self.frame.height and name not in self.frame.columns:  # a frame of a Series[Any] may lack the field the edge names
+        # a frame of a Series[Any] may lack the field the edge names
+        if self.frame.height and name not in self.frame.columns:
             raise NoSuchFieldError(name)
         return list(self.columns[name])
 
@@ -172,14 +179,18 @@ class Records[T]:
 
     def _as_json(self) -> dict[str, Any]:
         # Read through ``columns``, so a run saved at every checkpoint reads each column out of the frame once.
-        return written_columns(self.frame, {name: self.columns[name] for name in self.frame.columns})
+        return written_columns(
+            self.frame, {name: self.columns[name] for name in self.frame.columns}
+        )
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         """Returns the schema of ``Records[R]`` in a saved run: the JSON of ``Table[R]``, read into this class."""
         table: Any = Table
         return core_schema.json_or_python_schema(
-            json_schema=core_schema.no_info_after_validator_function(cls, handler.generate_schema(table[get_args(source)[0]])),
+            json_schema=core_schema.no_info_after_validator_function(
+                cls, handler.generate_schema(table[get_args(source)[0]])
+            ),
             python_schema=core_schema.is_instance_schema(cls),
             serialization=core_schema.plain_serializer_function_ser_schema(Records._as_json),
         )
@@ -194,7 +205,9 @@ def indexes_of_none(value: Any) -> list[int]:
     """Returns the indexes at which ``value``, the value of a ``Series`` or ``Table`` input, has ``None``.
     ``indexes_of_none(["a", None])`` is ``[1]``. A value that is not a list (a table) has a row for every item, so
     the result is ``[]``."""
-    return [index for index, item in enumerate(value) if item is None] if type(value) is list else []
+    return (
+        [index for index, item in enumerate(value) if item is None] if type(value) is list else []
+    )
 
 
 def without_indexes(value: list[Any] | pl.DataFrame, indexes: set[int]) -> list[Any] | pl.DataFrame:

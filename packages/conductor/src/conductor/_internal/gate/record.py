@@ -38,7 +38,13 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     for key, value in pairs:
         if key in read:
             reason = f"the key {key!r} is written twice in one object"
-            raise InvalidCallError([call_problems.invalid_record("record", where="the record", reason=reason, error="repeated_key")])
+            raise InvalidCallError(
+                [
+                    call_problems.invalid_record(
+                        "record", where="the record", reason=reason, error="repeated_key"
+                    )
+                ]
+            )
         read[key] = value
     return read
 
@@ -61,10 +67,21 @@ def read_json(text: str | bytes) -> Any:
     except InvalidCallError:  # a key written twice; also a ValueError, which is what json.loads raises for text that is not JSON
         raise
     except ValueError as not_json:
-        raise InvalidCallError([call_problems.invalid_record("record", where="the record", reason=f"it is not JSON: {not_json}", error="json_invalid")]) from None
+        raise InvalidCallError(
+            [
+                call_problems.invalid_record(
+                    "record",
+                    where="the record",
+                    reason=f"it is not JSON: {not_json}",
+                    error="json_invalid",
+                )
+            ]
+        ) from None
 
 
-def read_record(record: GraphRecord | str | bytes | Mapping[str, Any], *, written_by: str | None = None) -> GraphRecord:
+def read_record(
+    record: GraphRecord | str | bytes | Mapping[str, Any], *, written_by: str | None = None
+) -> GraphRecord:
     """Returns ``record`` as a ``GraphRecord``: a ``GraphRecord`` as it is; JSON text (read by ``read_json``), or the
     plain data ``make_graph`` and ``registry.upgrade`` write, read into one.
 
@@ -86,7 +103,14 @@ def read_record(record: GraphRecord | str | bytes | Mapping[str, Any], *, writte
         return GraphRecord.model_validate(data)
     except ValidationError as invalid:
         raise InvalidCallError(
-            call_problems.invalid_record("record", *error["loc"], where=".".join(map(str, error["loc"])) or "the record", reason=error["msg"], error=error["type"], written_by=written_by)
+            call_problems.invalid_record(
+                "record",
+                *error["loc"],
+                where=".".join(map(str, error["loc"])) or "the record",
+                reason=error["msg"],
+                error=error["type"],
+                written_by=written_by,
+            )
             for error in invalid.errors()
         ) from None
 
@@ -105,12 +129,22 @@ def record_values(node_id: str, values: Mapping[str, Any]) -> dict[str, JsonValu
     for name, value in values.items():
         if _holds_a_set(value):
             error = set_has_no_order()
-            problems.append(compile_problems.invalid_value(node_id, name, reason=error.message(), errors=[{"type": error.type, "loc": [], "msg": error.message()}]))
+            problems.append(
+                compile_problems.invalid_value(
+                    node_id,
+                    name,
+                    reason=error.message(),
+                    errors=[{"type": error.type, "loc": [], "msg": error.message()}],
+                )
+            )
             continue
         try:
             written[name] = plain_json(value)
         except PydanticSerializationError:
-            reason = "a value written in a graph record is saved with it as JSON" + kind_of_value(value).typed_in_advice
+            reason = (
+                "a value written in a graph record is saved with it as JSON"
+                + kind_of_value(value).typed_in_advice
+            )
             problems.append(compile_problems.invalid_value(node_id, name, reason=reason))
     if problems:
         raise InvalidCallError(problems)

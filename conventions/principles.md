@@ -20,11 +20,15 @@ Give every concept package the same layout and one small surface the engine call
 Why: a narrow interface over a deep module hides its complexity, and one shape across packages means a reader learns it once.
 
 ```python
-if type(outcome) is Skipped or type(outcome) is NoneInput: ...   # bad: the caller asks which kind
-match outcome:                                                   # good: an exhaustive match where kinds differ
-    case Done() | Unanswered(): ...
-    case Skipped() | NoneInput(): ...
-    case _: assert_never(outcome)
+if type(outcome) is Skipped or type(outcome) is NoneInput:
+    ...  # bad: the caller asks which kind
+match outcome:  # good: an exhaustive match where kinds differ
+    case Done() | Unanswered():
+        ...
+    case Skipped() | NoneInput():
+        ...
+    case _:
+        assert_never(outcome)
 ```
 
 ## Fewer concepts and models
@@ -34,8 +38,12 @@ Do not add a class, model, protocol, alias or sentinel when an existing one hold
 Why: every concept is something each reader must learn; a second shape of one concept (keyed beside list, checked beside raw) adds one without removing any.
 
 ```python
-class KeyedGraphRecord(BaseModel): nodes: dict[str, NodeRecord]   # bad: a keyed twin of GraphRecord
-class GraphRecord(BaseModel): nodes: dict[str, NodeRecord]        # good: the one record, keyed by id
+class KeyedGraphRecord(BaseModel):
+    nodes: dict[str, NodeRecord]  # bad: a keyed twin of GraphRecord
+
+
+class GraphRecord(BaseModel):
+    nodes: dict[str, NodeRecord]  # good: the one record, keyed by id
 ```
 
 ## Change radically when it simplifies

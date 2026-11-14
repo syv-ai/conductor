@@ -15,13 +15,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def _is_overload(definition: FunctionDef | AsyncFunctionDef | ClassDef) -> bool:
     """Whether the definition is decorated with `overload` or `typing.overload`."""
-    return any(ast.unparse(decorator).split(".")[-1] == "overload" for decorator in definition.decorator_list)
+    return any(
+        ast.unparse(decorator).split(".")[-1] == "overload"
+        for decorator in definition.decorator_list
+    )
 
 
 def _is_stub(definition: FunctionDef | AsyncFunctionDef | ClassDef) -> bool:
     """Whether the definition's whole body is `...`."""
     body = definition.body
-    return len(body) == 1 and isinstance(body[0], Expr) and isinstance(body[0].value, Constant) and body[0].value.value is Ellipsis
+    return (
+        len(body) == 1
+        and isinstance(body[0], Expr)
+        and isinstance(body[0].value, Constant)
+        and body[0].value.value is Ellipsis
+    )
 
 
 def missing_docstrings(path: Path) -> list[str]:
@@ -41,7 +49,12 @@ def missing_docstrings(path: Path) -> list[str]:
             if isinstance(child, FunctionDef | AsyncFunctionDef | ClassDef):
                 is_class = isinstance(child, ClassDef)
                 needs_one = (is_class or not in_class) and not child.name.startswith("_")
-                if needs_one and not _is_overload(child) and not _is_stub(child) and ast.get_docstring(child) is None:
+                if (
+                    needs_one
+                    and not _is_overload(child)
+                    and not _is_stub(child)
+                    and ast.get_docstring(child) is None
+                ):
                     found.append(f"{path.relative_to(ROOT)}:{child.lineno}: {child.name}")
                 if is_class:
                     visit(child, in_class=True)
@@ -53,5 +66,9 @@ def missing_docstrings(path: Path) -> list[str]:
 
 
 def test_every_public_definition_has_a_docstring() -> None:
-    missing = [line for path in sorted(ROOT.glob("packages/*/src/**/*.py")) for line in missing_docstrings(path)]
+    missing = [
+        line
+        for path in sorted(ROOT.glob("packages/*/src/**/*.py"))
+        for line in missing_docstrings(path)
+    ]
     assert not missing, "no docstring:\n" + "\n".join(missing)

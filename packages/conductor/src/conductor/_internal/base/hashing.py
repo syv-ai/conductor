@@ -35,5 +35,10 @@ def json_hash(value: Any, size: int, *, fallback: Callable[[Any], Any] | None = 
     Raises:
         PydanticSerializationError: A value has no JSON form, and ``fallback`` gave none.
     """
-    text = json.dumps(to_jsonable_python(value, fallback=fallback), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    text = json.dumps(
+        to_jsonable_python(value, fallback=fallback),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
     return short_hash(text.encode(), size)

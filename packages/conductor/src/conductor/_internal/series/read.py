@@ -17,7 +17,10 @@ from conductor._internal.base import SKIPPED
 def set_has_no_order() -> PydanticCustomError:
     """The error for a set where a list is read, a ``Series`` or a value written into a graph record: a set's order
     differs between processes, so its items would come in another order in another process."""
-    return PydanticCustomError("set_has_no_order", "a set has no order, so its items would come in another order in another process; give a list")
+    return PydanticCustomError(
+        "set_has_no_order",
+        "a set has no order, so its items would come in another order in another process; give a list",
+    )
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
@@ -42,4 +45,6 @@ def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             return [SKIPPED if item is SKIPPED else next(kept) for item in value]
         return read_items(value)
 
-    return core_schema.json_or_python_schema(json_schema=items, python_schema=core_schema.no_info_wrap_validator_function(read, items))
+    return core_schema.json_or_python_schema(
+        json_schema=items, python_schema=core_schema.no_info_wrap_validator_function(read, items)
+    )

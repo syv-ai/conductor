@@ -7,8 +7,10 @@ Write each rule, grammar, format or fact once and call it from every other site;
 Why: DRY means each piece of knowledge has one authoritative place, not that every repeated line is abstracted.
 
 ```python
-gone = set(older.input_names) - set(newer.input_names)   # bad: in upgrade.py, while declare.py skips a subgraph
-gone = gone_inputs(older, newer)                          # good: the declaration and the upgrade call one rule
+gone = set(older.input_names) - set(
+    newer.input_names
+)  # bad: in upgrade.py, while declare.py skips a subgraph
+gone = gone_inputs(older, newer)  # good: the declaration and the upgrade call one rule
 ```
 
 ## No mirrors
@@ -18,7 +20,7 @@ Never keep two structures in step with a test, a comment or a convention; derive
 Why: two copies kept equal by a test drift sooner or later; deriving one from the other removes the drift.
 
 ```python
-assert listed_names("llms.txt") == set(conductor.__all__)   # bad: a test holds two copies equal
+assert listed_names("llms.txt") == set(conductor.__all__)  # bad: a test holds two copies equal
 # good: the reference writes its list of names from __all__ when it is read
 ```
 
@@ -29,8 +31,9 @@ Build a keyed form once and look values up by key; never loop over the same coll
 Why: a lookup by key says what is wanted and costs the same at any size; a scan says neither.
 
 ```python
-[i for i in graph_inputs if names.count(i.name) > 1]                 # bad
-counts = Counter(names); [i for i in graph_inputs if counts[i.name] > 1]   # good
+[i for i in graph_inputs if names.count(i.name) > 1]  # bad
+counts = Counter(names)
+[i for i in graph_inputs if counts[i.name] > 1]  # good
 ```
 
 ## Readability over speed
@@ -62,8 +65,8 @@ Pin behaviour in a test, its ids and its helpers through names that are not priv
 Why: a test that reads private state pins today's design and breaks on every refactor that keeps the behaviour.
 
 ```python
-assert run._outcomes[("shout",)][0].outputs["result"] == "HI"   # bad
-assert run.results["shout"]["result"] == "HI"                    # good
+assert run._outcomes[("shout",)][0].outputs["result"] == "HI"  # bad
+assert run.results["shout"]["result"] == "HI"  # good
 ```
 
 ## A choice between several outcomes is written as statements
@@ -73,8 +76,10 @@ Write a choice between more than two outcomes, or a check that raises one of sev
 Why: a chain of conditional expressions is read right to left and inside out, so a reader has to unpick it before they can tell which case wins.
 
 ```python
-return "written" if isinstance(value, Mapping) else "records" if isinstance(value, list) else None   # bad
-if isinstance(value, Mapping):                                                                      # good
+return (
+    "written" if isinstance(value, Mapping) else "records" if isinstance(value, list) else None
+)  # bad
+if isinstance(value, Mapping):  # good
     return "written"
 if isinstance(value, list):
     return "records"

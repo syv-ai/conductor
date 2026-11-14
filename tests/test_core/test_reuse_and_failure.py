@@ -41,14 +41,23 @@ from pydantic import BaseModel, ValidationError
 from tests.test_core.nodes import place, registry_of
 
 
-def _record(nodes: Mapping[str, FunctionDefinition], edges: Sequence[tuple[str, str]] = (), constants: Mapping[str, Any] | None = None) -> GraphRecord:
+def _record(
+    nodes: Mapping[str, FunctionDefinition],
+    edges: Sequence[tuple[str, str]] = (),
+    constants: Mapping[str, Any] | None = None,
+) -> GraphRecord:
     """``make_graph`` of ``nodes`` by id, joined by exactly ``edges``, with ``constants`` by ``"node.input"``."""
     return make_graph(*nodes.items(), edges=list(edges), constants=constants or {})
 
 
 def _alone(definition: Any, **values: Any) -> Any:
     """A graph of one node, ``n``, with these constants."""
-    return Graph.compile(_record({"n": definition}, constants={f"n.{name}": value for name, value in values.items()}), registry_of(definition))
+    return Graph.compile(
+        _record(
+            {"n": definition}, constants={f"n.{name}": value for name, value in values.items()}
+        ),
+        registry_of(definition),
+    )
 
 
 @node("each", title="Each", description="For a test.")
@@ -94,7 +103,12 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     """``{}['missing']`` under ``Policy(retries=3)`` is a bug, not weather: one call, no retry, and the problem says only that the node failed."""
     calls: list[int] = []
 
-    @node("buggy", title="Buggy", description="For a test.", policy=Policy(retries=3, retry_delay=0.01))
+    @node(
+        "buggy",
+        title="Buggy",
+        description="For a test.",
+        policy=Policy(retries=3, retry_delay=0.01),
+    )
     def buggy(text: str = "") -> str:
         calls.append(1)
         return {}["the secret"]  # type: ignore[no-any-return]
@@ -104,14 +118,21 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
 
     assert len(calls) == 1 and not [e for e in events if e.type == "node_retry"]
     (failed,) = [e for e in events if e.type == "node_failed"]
-    assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == ("execution_failed", "The node raised an exception; its developer finds it in the conductor log.", ("n",), {"error": "KeyError"})
+    assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == (
+        "execution_failed",
+        "The node raised an exception; its developer finds it in the conductor log.",
+        ("n",),
+        {"error": "KeyError"},
+    )
     assert "secret" not in json.dumps([e.model_dump(mode="json") for e in events])
     assert "the secret" in caplog.text  # the text goes to the log, with its traceback
     assert events[-1].run.status == "failed" and events[-1].run.cause == failed.cause
 
 
 @pytest.mark.parametrize("concurrency", [1, 2])
-def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry_on_names(concurrency):
+def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry_on_names(
+    concurrency,
+):
     calls: list[str] = []
     policy = Policy(retries=3, retry_delay=0.01, retry_on=(BaseException,), concurrency=concurrency)
 
@@ -132,14 +153,21 @@ def test_a_node_error_a_wrong_output_and_an_ask_are_never_retried_whatever_retry
 
     causes = [_alone(definition).run().cause for definition in (own, wrong)]
 
-    assert [c.type for c in causes] == ["unreadable", "invalid_output"] and _alone(asks).run().status == "waiting"
+    assert [c.type for c in causes] == ["unreadable", "invalid_output"] and _alone(
+        asks
+    ).run().status == "waiting"
     assert calls == ["own", "wrong", "asks"]
 
 
 def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     calls: list[int] = []
 
-    @node("flaky", title="Flaky", description="For a test.", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
+    @node(
+        "flaky",
+        title="Flaky",
+        description="For a test.",
+        policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)),
+    )
     def flaky(text: str = "") -> str:
         calls.append(1)
         if len(calls) < 3:
@@ -149,15 +177,26 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     events = _events(_alone(flaky).with_inputs())
 
     retries = [e for e in events if e.type == "node_retry"]
-    assert len(calls) == 3 and [(e.attempt, e.retries, e.loc[0]) for e in retries] == [(1, 2, "n"), (2, 2, "n")]
-    assert retries[0].cause.type == "external_failed" and retries[0].cause.msg == "An outside service did not answer."
+    assert len(calls) == 3 and [(e.attempt, e.retries, e.loc[0]) for e in retries] == [
+        (1, 2, "n"),
+        (2, 2, "n"),
+    ]
+    assert (
+        retries[0].cause.type == "external_failed"
+        and retries[0].cause.msg == "An outside service did not answer."
+    )
     assert events[-1].run.outputs == {"result": "ok"}
 
 
 def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     calls: list[int] = []
 
-    @node("down", title="Down", description="For a test.", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)))
+    @node(
+        "down",
+        title="Down",
+        description="For a test.",
+        policy=Policy(retries=2, retry_delay=0.01, retry_on=(ConnectionError,)),
+    )
     def down(text: str = "") -> str:
         calls.append(1)
         raise ConnectionError("socket closed")
@@ -165,7 +204,10 @@ def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     run = _alone(down).run()
 
     assert len(calls) == 3 and run.status == "failed"
-    assert (run.cause.type, run.cause.msg) == ("external_failed", "An outside service did not answer.")
+    assert (run.cause.type, run.cause.msg) == (
+        "external_failed",
+        "An outside service did not answer.",
+    )
 
 
 @node("double", title="Double", description="For a test.")
@@ -185,12 +227,21 @@ def _runs_another_graph(given: Mapping[str, Any], policy: Policy) -> FunctionDef
 
 
 @pytest.mark.parametrize("concurrency", [1, 2])
-@pytest.mark.parametrize("given", [{"n": "many"}, {"n": "many", "colour": "red"}], ids=["one problem", "two problems"])
-def test_an_invalid_call_error_the_node_lets_escape_is_its_own_failure_not_a_refusal(given, concurrency):
+@pytest.mark.parametrize(
+    "given", [{"n": "many"}, {"n": "many", "colour": "red"}], ids=["one problem", "two problems"]
+)
+def test_an_invalid_call_error_the_node_lets_escape_is_its_own_failure_not_a_refusal(
+    given, concurrency
+):
     """The node's body called ``graph.run`` wrongly: a bug in the node, ``execution_failed``, however many problems the error has."""
     run = _alone(_runs_another_graph(given, Policy(concurrency=concurrency))).run()
 
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx) == ("failed", "execution_failed", ("n",), {"error": "InvalidCallError"})
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx) == (
+        "failed",
+        "execution_failed",
+        ("n",),
+        {"error": "InvalidCallError"},
+    )
 
 
 def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_value_error():
@@ -198,7 +249,12 @@ def test_an_invalid_call_error_the_node_raises_is_retried_when_retry_on_names_va
     calls: list[int] = []
     outer = _runs_another_graph({"n": "many"}, Policy())
 
-    @node("counted", title="Counted", description="For a test.", policy=Policy(retries=2, retry_delay=0.01, retry_on=(ValueError,)))
+    @node(
+        "counted",
+        title="Counted",
+        description="For a test.",
+        policy=Policy(retries=2, retry_delay=0.01, retry_on=(ValueError,)),
+    )
     def counted(text: str = "") -> int:
         calls.append(1)
         return outer.function(text)  # type: ignore[no-any-return]
@@ -212,7 +268,9 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
     """A node that knows the outside world failed says so with ``ExternalError``; the message it wrote is what people read."""
     calls: list[int] = []
 
-    @node("bank", title="Bank", description="For a test.", policy=Policy(retries=1, retry_delay=0.01))
+    @node(
+        "bank", title="Bank", description="For a test.", policy=Policy(retries=1, retry_delay=0.01)
+    )
     def bank(text: str = "") -> str:
         calls.append(1)
         raise ExternalError("Nationalbanken svarede ikke.")
@@ -226,7 +284,12 @@ def test_an_external_failure_the_node_raised_retries_and_keeps_its_message():
 def test_a_node_error_runs_once_and_keeps_its_message_code_and_ctx():
     calls: list[int] = []
 
-    @node("strict", title="Strict", description="For a test.", policy=Policy(retries=3, retry_delay=0.01))
+    @node(
+        "strict",
+        title="Strict",
+        description="For a test.",
+        policy=Policy(retries=3, retry_delay=0.01),
+    )
     def strict(text: str = "") -> str:
         calls.append(1)
         raise NodeError("Dokumentet kunne ikke læses.", code="unreadable", ctx={"pages": 0})
@@ -235,11 +298,18 @@ def test_a_node_error_runs_once_and_keeps_its_message_code_and_ctx():
 
     (failed,) = [e for e in events if e.type == "node_failed"]
     assert len(calls) == 1
-    assert failed.cause.model_dump(mode="json") == {"type": "unreadable", "loc": ["n"], "msg": "Dokumentet kunne ikke læses.", "ctx": {"pages": 0}}
+    assert failed.cause.model_dump(mode="json") == {
+        "type": "unreadable",
+        "loc": ["n"],
+        "msg": "Dokumentet kunne ikke læses.",
+        "ctx": {"pages": 0},
+    }
 
 
 @pytest.mark.parametrize("ctx", [{"handle": object()}, {"pages": {1, 2}}, {"pages": (1, 2)}])
-def test_a_node_error_whose_ctx_has_no_json_form_is_refused_where_the_node_raises_it_so_the_run_still_saves(ctx: dict[str, Any]) -> None:
+def test_a_node_error_whose_ctx_has_no_json_form_is_refused_where_the_node_raises_it_so_the_run_still_saves(
+    ctx: dict[str, Any],
+) -> None:
     @node("read", title="Read", description="For a test.")
     def read(path: str = "") -> str:
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
@@ -254,7 +324,10 @@ def test_a_node_error_whose_ctx_has_no_json_form_is_refused_where_the_node_raise
 
     assert (run.status, run.cause.type, run.cause.loc) == ("failed", "execution_failed", ("n",))
     assert json.loads(run.to_json())["ended_early"]["cause"]["ctx"] == {"error": "ValidationError"}
-    assert [json.loads(event.model_dump_json())["type"] for event in events][-2:] == ["node_failed", "run_end"]
+    assert [json.loads(event.model_dump_json())["type"] for event in events][-2:] == [
+        "node_failed",
+        "run_end",
+    ]
 
 
 def test_a_validation_error_the_node_raised_is_never_retried():
@@ -263,26 +336,47 @@ def test_a_validation_error_the_node_raised_is_never_retried():
     class Strict(BaseModel):
         n: int
 
-    @node("parse", title="Parse", description="For a test.", policy=Policy(retries=3, retry_delay=0.01))
+    @node(
+        "parse",
+        title="Parse",
+        description="For a test.",
+        policy=Policy(retries=3, retry_delay=0.01),
+    )
     def parse(text: str = "") -> int:
         calls.append(1)
         return Strict.model_validate({"n": text}).n
 
     run = _alone(parse, text="not a number").run()
 
-    assert len(calls) == 1 and (run.cause.type, run.cause.ctx) == ("execution_failed", {"error": "ValidationError"})
+    assert len(calls) == 1 and (run.cause.type, run.cause.ctx) == (
+        "execution_failed",
+        {"error": "ValidationError"},
+    )
 
 
 def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
     nan, inf = float("nan"), float("inf")
     for wrong in (
-        {"concurrency": 0}, {"retries": -1}, {"retries": 1.5}, {"retry_delay": -1}, {"attempt_timeout": 0},
-        {"attempt_timeout": nan}, {"attempt_timeout": inf}, {"retry_delay": nan}, {"retry_delay": inf},
-        {"retries": True}, {"retries": "2"}, {"concurrency": 1.0}, {"retry_delay": "1"}, {"reuse_when_inputs_match": 1},
+        {"concurrency": 0},
+        {"retries": -1},
+        {"retries": 1.5},
+        {"retry_delay": -1},
+        {"attempt_timeout": 0},
+        {"attempt_timeout": nan},
+        {"attempt_timeout": inf},
+        {"retry_delay": nan},
+        {"retry_delay": inf},
+        {"retries": True},
+        {"retries": "2"},
+        {"concurrency": 1.0},
+        {"retry_delay": "1"},
+        {"reuse_when_inputs_match": 1},
     ):
         with pytest.raises(ValidationError):
             Policy(**wrong)
-    assert Policy(retry_delay=2, attempt_timeout=5).attempt_timeout == 5  # a whole number of seconds is a number
+    assert (
+        Policy(retry_delay=2, attempt_timeout=5).attempt_timeout == 5
+    )  # a whole number of seconds is a number
 
 
 def test_a_failed_item_is_retried_alone():
@@ -293,14 +387,22 @@ def test_a_failed_item_is_retried_alone():
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("flaky-on-b", title="Flaky on b", description="For a test.", policy=Policy(retries=2, retry_delay=0.01))
+    @node(
+        "flaky-on-b",
+        title="Flaky on b",
+        description="For a test.",
+        policy=Policy(retries=2, retry_delay=0.01),
+    )
     def flaky_on_b(text: str) -> str:
         calls.append(text)
         if text == "b" and calls.count("b") == 1:
             raise ExternalError("transient")
         return text.upper()
 
-    graph = Graph.compile(make_graph(split, flaky_on_b, constants={"split.text": "a,b,c"}), registry_of(split, flaky_on_b))
+    graph = Graph.compile(
+        make_graph(split, flaky_on_b, constants={"split.text": "a,b,c"}),
+        registry_of(split, flaky_on_b),
+    )
 
     assert graph.run().results["flaky-on-b"]["result"] == ["A", "B", "C"]
     assert sorted(calls) == ["a", "b", "b", "c"]
@@ -309,7 +411,12 @@ def test_a_failed_item_is_retried_alone():
 def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     calls = {"a": 0, "b": 0}
 
-    @node("flaky-a", title="Flaky a", description="For a test.", policy=Policy(retries=2, retry_delay=0.01))
+    @node(
+        "flaky-a",
+        title="Flaky a",
+        description="For a test.",
+        policy=Policy(retries=2, retry_delay=0.01),
+    )
     def flaky_a(text: str) -> str:
         calls["a"] += 1
         if calls["a"] == 1:
@@ -325,7 +432,11 @@ def test_a_flaky_node_in_one_branch_retries_while_the_other_branch_completes():
     def join_two(a: str, b: str) -> str:
         return f"{a}+{b}"
 
-    record = _record({"n1": flaky_a, "n2": fast_b, "n3": join_two}, [("n1.result", "n3.a"), ("n2.result", "n3.b")], constants={"n1.text": "x", "n2.text": "y"})
+    record = _record(
+        {"n1": flaky_a, "n2": fast_b, "n3": join_two},
+        [("n1.result", "n3.a"), ("n2.result", "n3.b")],
+        constants={"n1.text": "x", "n2.text": "y"},
+    )
     graph = Graph.compile(record, registry_of(flaky_a, fast_b, join_two))
 
     assert graph.run().outputs == {"result": "A:x+B:y"}
@@ -347,7 +458,9 @@ def test_a_run_that_failed_resumes_from_its_json_calling_only_what_had_not_finis
             raise ValueError("smtp down")
         return f"sent {to}"
 
-    graph = Graph.compile(make_graph(split, mail, constants={"split.text": "a,b,c"}), registry_of(split, mail))
+    graph = Graph.compile(
+        make_graph(split, mail, constants={"split.text": "a,b,c"}), registry_of(split, mail)
+    )
     failed = graph.run()
     broken["on"] = False
     resumed = Run.from_json(failed.to_json(), graph).resume()
@@ -369,7 +482,10 @@ def test_a_cancelled_run_keeps_the_calls_it_finished_and_resume_calls_none_of_th
         calls.append(text)
         return text
 
-    graph = Graph.compile(make_graph(split, count_calls, constants={"split.text": "a,b,c,d"}), registry_of(split, count_calls))
+    graph = Graph.compile(
+        make_graph(split, count_calls, constants={"split.text": "a,b,c,d"}),
+        registry_of(split, count_calls),
+    )
 
     async def cancel_after_two() -> Any:
         cancel = AsyncioEvent()
@@ -404,7 +520,13 @@ def _mails() -> tuple[Any, list[str]]:
         sent.append(f"confirm {receipt}")
         return receipt.upper()
 
-    graph = Graph.compile(_record({"each": _each, "mail": mail, "confirm": confirm}, [("each.result", "mail.to"), ("mail.result", "confirm.receipt")]), registry_of(_each, mail, confirm))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "mail": mail, "confirm": confirm},
+            [("each.result", "mail.to"), ("mail.result", "confirm.receipt")],
+        ),
+        registry_of(_each, mail, confirm),
+    )
     return graph, sent
 
 
@@ -424,7 +546,11 @@ def test_an_item_inserted_first_or_a_duplicate_taken_out_reuses_the_other_items(
     first = graph.run(items=["ida", "ida", "bo"])
     sent.clear()
 
-    assert first.again(items=["eva", "ida", "bo"]).results["mail"]["result"] == ["sent eva", "sent ida", "sent bo"]
+    assert first.again(items=["eva", "ida", "bo"]).results["mail"]["result"] == [
+        "sent eva",
+        "sent ida",
+        "sent bo",
+    ]
     assert sent == ["eva", "confirm sent eva"]
     sent.clear()
     first.again(items=["ida", "bo"])
@@ -526,15 +652,24 @@ def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edi
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "a": approve}, [("each.result", "a.name")]), registry_of(_each, approve))
+    graph = Graph.compile(
+        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
+        registry_of(_each, approve),
+    )
     run = graph.run(items=["ida", "bo"])
     run = run.answer("a@0", True).answer("a@1", False).resume()
 
     moved = run.again(items=["eva", "ida", "bo"])
     edited = run.again(items=["ida", "bob"])
 
-    assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [None, True, False]
-    assert [w.inputs["name"] for w in edited.waiting] == ["bob"] and edited.results["a"]["result"] == [True, None]
+    assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [
+        None,
+        True,
+        False,
+    ]
+    assert [w.inputs["name"] for w in edited.waiting] == ["bob"] and edited.results["a"][
+        "result"
+    ] == [True, None]
 
 
 def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_before():
@@ -558,12 +693,19 @@ def test_a_table_output_reads_back_by_its_own_column_types_whatever_graphs_came_
 
     @node("mk", title="Mk", description="For a test.", compute_outputs=outs)
     def mk(kind: str) -> dict[str, Any]:
-        return {"result": pl.DataFrame({"v": [date(2020, 1, 1)] if kind == "date" else ["2020-01-01"]})}
+        return {
+            "result": pl.DataFrame({"v": [date(2020, 1, 1)] if kind == "date" else ["2020-01-01"]})
+        }
 
     registry = registry_of(mk)
     for i in range(60):
         kind = "date" if i % 2 == 0 else "str"
-        graph = Graph.compile(GraphRecord.model_validate({"nodes": {"m": {"node": "mk", "inputs": {"kind": {"constant": kind}}}}}), registry)
+        graph = Graph.compile(
+            GraphRecord.model_validate(
+                {"nodes": {"m": {"node": "mk", "inputs": {"kind": {"constant": kind}}}}}
+            ),
+            registry,
+        )
         value = Run.from_json(graph.run().to_json(), graph).results["m"]["result"]["v"][0]
         assert isinstance(value, date) == (kind == "date"), (i, value)
         freed = weakref.ref(graph)
@@ -602,7 +744,32 @@ def test_a_document_inserted_first_is_the_only_one_read_and_the_others_lines_mov
         upper_calls.append(word)
         return word.upper()
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}}, "l": {"node": "lines", "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}}}, "r": {"node": "line-records", "inputs": {"table": {"sources": [{"node": "l", "output": "result"}]}}}, "s": {"node": "shout", "inputs": {"word": {"sources": [{"node": "r", "output": "result", "field": "word"}]}}}}}), registry_of(_docs, lines, _line_records, shout))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
+                    "l": {
+                        "node": "lines",
+                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
+                    },
+                    "r": {
+                        "node": "line-records",
+                        "inputs": {"table": {"sources": [{"node": "l", "output": "result"}]}},
+                    },
+                    "s": {
+                        "node": "shout",
+                        "inputs": {
+                            "word": {
+                                "sources": [{"node": "r", "output": "result", "field": "word"}]
+                            }
+                        },
+                    },
+                }
+            }
+        ),
+        registry_of(_docs, lines, _line_records, shout),
+    )
     first = graph.run(text="a,b|c")
     read.clear()
     upper_calls.clear()
@@ -640,7 +807,32 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
         counted.append("called")
         return ",".join(rows["name"])
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "read-rows", "inputs": {"text": {"graph_input": "text"}}}, "t": {"node": "threshold", "inputs": {"min": {"graph_input": "min", "default": threshold_default}}}, "f": {"node": "older-than", "inputs": {"rows": {"sources": [{"node": "r", "output": "result"}]}, "min": {"sources": [{"node": "t", "output": "result"}]}}}, "n": {"node": "names", "inputs": {"rows": {"sources": [{"node": "f", "output": "result"}]}}}}, "outputs": {"result": {"node": "n", "output": "result"}}}), registry_of(read_rows, threshold, older_than, names))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "r": {"node": "read-rows", "inputs": {"text": {"graph_input": "text"}}},
+                    "t": {
+                        "node": "threshold",
+                        "inputs": {"min": {"graph_input": "min", "default": threshold_default}},
+                    },
+                    "f": {
+                        "node": "older-than",
+                        "inputs": {
+                            "rows": {"sources": [{"node": "r", "output": "result"}]},
+                            "min": {"sources": [{"node": "t", "output": "result"}]},
+                        },
+                    },
+                    "n": {
+                        "node": "names",
+                        "inputs": {"rows": {"sources": [{"node": "f", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "n", "output": "result"}},
+            }
+        ),
+        registry_of(read_rows, threshold, older_than, names),
+    )
     return graph, filtered, counted
 
 
@@ -672,7 +864,12 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
     def words(text: str) -> Series[str]:
         return text.split(",")
 
-    @node("stamp", title="Stamp", description="For a test.", policy=Policy(reuse_when_inputs_match=False))
+    @node(
+        "stamp",
+        title="Stamp",
+        description="For a test.",
+        policy=Policy(reuse_when_inputs_match=False),
+    )
     def stamp(word: str) -> str:
         return f"<{word}>"
 
@@ -680,7 +877,31 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
     def show(words: Series[str], stamps: Series[str]) -> str:
         return ";".join(f"{w}={s}" for w, s in zip(words, stamps, strict=True))
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}}, "w": {"node": "words", "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}}}, "t": {"node": "stamp", "inputs": {"word": {"sources": [{"node": "w", "output": "result"}]}}}, "s": {"node": "show", "inputs": {"words": {"sources": [{"node": "w", "output": "result"}]}, "stamps": {"sources": [{"node": "t", "output": "result"}]}}}}}), registry_of(_docs, words, stamp, show))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
+                    "w": {
+                        "node": "words",
+                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
+                    },
+                    "t": {
+                        "node": "stamp",
+                        "inputs": {"word": {"sources": [{"node": "w", "output": "result"}]}},
+                    },
+                    "s": {
+                        "node": "show",
+                        "inputs": {
+                            "words": {"sources": [{"node": "w", "output": "result"}]},
+                            "stamps": {"sources": [{"node": "t", "output": "result"}]},
+                        },
+                    },
+                }
+            }
+        ),
+        registry_of(_docs, words, stamp, show),
+    )
     first = graph.run(text="a,b|c")
 
     again = first.again(text="x,y,z|a,b|c")
@@ -690,7 +911,9 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
 
 
 @pytest.mark.parametrize("rows", ["a,b", "a,b,c,d", "x,y,z"], ids=["fewer", "more", "same-count"])
-def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constant_node_to_every_item(rows):
+def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constant_node_to_every_item(
+    rows,
+):
     @node("label", title="Label", description="For a test.")
     def label(prefix: str) -> str:
         return prefix + ":"
@@ -703,8 +926,38 @@ def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constan
     def same(text: str) -> str:
         return text
 
-    inner = subgraph("tagged", title="Tagged", description="For a test.")(GraphRecord.model_validate({"nodes": {"same": {"node": "same", "inputs": {"text": {"graph_input": "text"}}}, "label": {"node": "label", "inputs": {"prefix": {"constant": "p"}}}, "pair": {"node": "pair", "inputs": {"text": {"sources": [{"node": "same", "output": "result"}]}, "tag": {"sources": [{"node": "label", "output": "result"}]}}}}, "outputs": {"result": {"node": "pair", "output": "result"}}}))
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}}, "t": {"node": "tagged", "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}}}}}), registry_of(_docs, same, label, pair, inner))
+    inner = subgraph("tagged", title="Tagged", description="For a test.")(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "same": {"node": "same", "inputs": {"text": {"graph_input": "text"}}},
+                    "label": {"node": "label", "inputs": {"prefix": {"constant": "p"}}},
+                    "pair": {
+                        "node": "pair",
+                        "inputs": {
+                            "text": {"sources": [{"node": "same", "output": "result"}]},
+                            "tag": {"sources": [{"node": "label", "output": "result"}]},
+                        },
+                    },
+                },
+                "outputs": {"result": {"node": "pair", "output": "result"}},
+            }
+        )
+    )
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "d": {"node": "docs", "inputs": {"text": {"graph_input": "text"}}},
+                    "t": {
+                        "node": "tagged",
+                        "inputs": {"text": {"sources": [{"node": "d", "output": "result"}]}},
+                    },
+                }
+            }
+        ),
+        registry_of(_docs, same, label, pair, inner),
+    )
     first = graph.run(text="a|b|c")
 
     again = first.again(text=rows.replace(",", "|"))
@@ -751,7 +1004,33 @@ def _csv_mails() -> tuple[Any, list[str]]:
         sent.append(email)
         return f"{body} {email}"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"r": {"node": "read-people", "inputs": {"text": {"graph_input": "text"}}}, "p": {"node": "people", "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}}}, "b": {"node": "body", "inputs": {"body": {"graph_input": "body", "default": "hej"}}}, "m": {"node": "send-body", "inputs": {"email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}, "body": {"sources": [{"node": "b", "output": "result"}]}}}}}), registry_of(read_people, people, body_text, send_body))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "r": {"node": "read-people", "inputs": {"text": {"graph_input": "text"}}},
+                    "p": {
+                        "node": "people",
+                        "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
+                    },
+                    "b": {
+                        "node": "body",
+                        "inputs": {"body": {"graph_input": "body", "default": "hej"}},
+                    },
+                    "m": {
+                        "node": "send-body",
+                        "inputs": {
+                            "email": {
+                                "sources": [{"node": "p", "output": "result", "field": "email"}]
+                            },
+                            "body": {"sources": [{"node": "b", "output": "result"}]},
+                        },
+                    },
+                }
+            }
+        ),
+        registry_of(read_people, people, body_text, send_body),
+    )
     return graph, sent
 
 
@@ -768,7 +1047,10 @@ def test_a_sorted_csv_or_an_edit_to_a_column_nothing_reads_sends_no_mail_and_a_c
 
     new_body = first.again(body="hi")
 
-    assert sent == ["i@a.dk", "b@a.dk"] and new_body.results["m"]["result"] == ["hi i@a.dk", "hi b@a.dk"]
+    assert sent == ["i@a.dk", "b@a.dk"] and new_body.results["m"]["result"] == [
+        "hi i@a.dk",
+        "hi b@a.dk",
+    ]
 
 
 def test_a_document_inserted_first_in_a_nested_loop_calls_only_its_own_items():
@@ -798,7 +1080,10 @@ def _approvals() -> Any:
     def approve(name: str) -> bool:
         raise Ask(f"Approve {name}?")
 
-    return Graph.compile(_record({"each": _each, "a": approve}, [("each.result", "a.name")]), registry_of(_each, approve))
+    return Graph.compile(
+        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
+        registry_of(_each, approve),
+    )
 
 
 def test_each_item_still_waiting_after_again_is_announced_on_the_stream():
@@ -821,7 +1106,10 @@ def test_an_again_that_fails_before_it_reaches_the_old_items_still_reuses_them_o
             raise ValueError("smtp down")
         return f"sent {to}"
 
-    graph = Graph.compile(_record({"each": _each, "m": mail_or_fail}, [("each.result", "m.to")]), registry_of(_each, mail_or_fail))
+    graph = Graph.compile(
+        _record({"each": _each, "m": mail_or_fail}, [("each.result", "m.to")]),
+        registry_of(_each, mail_or_fail),
+    )
     first = graph.run(items=["ida", "bo"])
     sent.clear()
 
@@ -830,7 +1118,11 @@ def test_an_again_that_fails_before_it_reaches_the_old_items_still_reuses_them_o
     broken["on"] = False
     resumed = Run.from_json(failed.to_json(), graph).resume()
 
-    assert sent == ["eva", "eva"] and resumed.results["m"]["result"] == ["sent eva", "sent ida", "sent bo"]
+    assert sent == ["eva", "eva"] and resumed.results["m"]["result"] == [
+        "sent eva",
+        "sent ida",
+        "sent bo",
+    ]
 
 
 def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new_mail():
@@ -844,7 +1136,11 @@ def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new
     assert stopped.status == "cancelled"
     resumed = Run.from_json(stopped.to_json(), graph).resume()
 
-    assert sent == ["al", "confirm sent al"] and resumed.results["confirm"]["result"] == ["SENT IDA", "SENT BO", "SENT AL"]
+    assert sent == ["al", "confirm sent al"] and resumed.results["confirm"]["result"] == [
+        "SENT IDA",
+        "SENT BO",
+        "SENT AL",
+    ]
 
 
 def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
@@ -859,7 +1155,13 @@ def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
         sent.append(to)
         return f"sent {to}"
 
-    graph = Graph.compile(_record({"each": _each, "a": approve, "m": mail}, [("each.result", "a.name"), ("a.result", "m.to")]), registry_of(_each, approve, mail))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "a": approve, "m": mail},
+            [("each.result", "a.name"), ("a.result", "m.to")],
+        ),
+        registry_of(_each, approve, mail),
+    )
     run = graph.run(items=["ida", "bo"]).answer("a@0", "ida@a.dk").answer("a@1", "bo@a.dk").resume()
     sent.clear()
 
@@ -867,7 +1169,11 @@ def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
     assert [place(w) for w in again.waiting] == ["a@2"]
     done = again.answer("a@2", "al@a.dk").resume()
 
-    assert sent == ["al@a.dk"] and done.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk", "sent al@a.dk"]
+    assert sent == ["al@a.dk"] and done.results["m"]["result"] == [
+        "sent ida@a.dk",
+        "sent bo@a.dk",
+        "sent al@a.dk",
+    ]
 
 
 def test_a_third_run_reuses_what_the_second_had_itself_reused():
@@ -877,7 +1183,10 @@ def test_a_third_run_reuses_what_the_second_had_itself_reused():
 
     third = second.again(items=["ida", "bo", "al", "eva"])
 
-    assert sent == ["eva", "confirm sent eva"] and third.results["mail"]["result"][:2] == ["sent ida", "sent bo"]
+    assert sent == ["eva", "confirm sent eva"] and third.results["mail"]["result"][:2] == [
+        "sent ida",
+        "sent bo",
+    ]
 
 
 def test_again_cancelled_and_resumed_reuses_what_again_run_to_the_end_reuses():
@@ -921,9 +1230,17 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
     def shout(text: str) -> str:
         return text.upper()
 
-    graph = Graph.compile(_record({"each": _each, "o": only_long, "s": shout}, [("each.result", "o.text"), ("o.result", "s.text")]), registry_of(_each, only_long, shout))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "o": only_long, "s": shout},
+            [("each.result", "o.text"), ("o.result", "s.text")],
+        ),
+        registry_of(_each, only_long, shout),
+    )
     first = graph.run(items=["a", "abc", "b"])
-    assert first.results["o"] == {"result": [None, "abc", None]} and first.results["s"] == {"result": [None, "ABC", None]}
+    assert first.results["o"] == {"result": [None, "abc", None]} and first.results["s"] == {
+        "result": [None, "ABC", None]
+    }
     assert calls == ["a", "abc", "b"]
 
     events = _events(first.with_inputs())
@@ -931,10 +1248,19 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
     read_back_again = Run.from_json(first.to_json(), graph).again()
 
     assert calls == ["a", "abc", "b"]
-    assert [(e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)] == [(3, 3)]
+    assert [
+        (e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)
+    ] == [(3, 3)]
     assert again.results == first.results == read_back_again.results and first.not_called == []
     nothing_long = _events(graph.with_inputs(items=["a", "b"]))
-    assert [(e.loc, e.outcomes, e.skipped) for e in nothing_long if e.type == "node_complete" and e.loc != ("each",)] == [(("o",), 2, 2), (("s",), 2, 2)]  # every call ended with no value, whether the node was called or not
+    assert [
+        (e.loc, e.outcomes, e.skipped)
+        for e in nothing_long
+        if e.type == "node_complete" and e.loc != ("each",)
+    ] == [
+        (("o",), 2, 2),
+        (("s",), 2, 2),
+    ]  # every call ended with no value, whether the node was called or not
 
 
 def test_a_first_run_reports_no_reuse():
@@ -942,7 +1268,11 @@ def test_a_first_run_reports_no_reuse():
 
     events = _events(graph.with_inputs(items=["ida", "bo"]))
 
-    assert {e.loc[0]: e.reused for e in events if e.type == "node_complete"} == {"each": 0, "mail": 0, "confirm": 0}
+    assert {e.loc[0]: e.reused for e in events if e.type == "node_complete"} == {
+        "each": 0,
+        "mail": 0,
+        "confirm": 0,
+    }
 
 
 def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
@@ -953,7 +1283,11 @@ def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
     prepared = first.with_inputs(items=["ida", "bo"])
 
     assert prepared.status == "ready" and sent == []
-    assert prepared.results == {"each": {"result": None}, "mail": {"result": None}, "confirm": {"result": None}}  # no series returned yet, so no results
+    assert prepared.results == {
+        "each": {"result": None},
+        "mail": {"result": None},
+        "confirm": {"result": None},
+    }  # no series returned yet, so no results
 
 
 def test_an_input_is_compared_for_reuse_as_its_type_reads_it_so_2_and_2_0_are_one_float():
@@ -981,12 +1315,16 @@ def test_a_table_column_its_row_type_doesnt_name_reads_back_from_json_as_written
 
     @node("mixed", title="Mixed", description="For a test.")
     def mixed(text: str) -> Table:
-        return pl.DataFrame({"when": [dt.date(2026, 1, 1)], "at": [dt.time(1, 2)], "x": [math.nan], "n": [1]})
+        return pl.DataFrame(
+            {"when": [dt.date(2026, 1, 1)], "at": [dt.time(1, 2)], "x": [math.nan], "n": [1]}
+        )
 
     graph = Graph.compile(_record({"m": mixed}), registry_of(mixed))
     frame = Run.from_json(graph.run(text="a").to_json(), graph).results["m"]["result"]
 
-    assert frame.schema == pl.Schema({"when": pl.Date, "at": pl.Time, "x": pl.Float64, "n": pl.Int64})
+    assert frame.schema == pl.Schema(
+        {"when": pl.Date, "at": pl.Time, "x": pl.Float64, "n": pl.Int64}
+    )
     assert math.isnan(frame["x"][0])
 
 
@@ -1001,7 +1339,13 @@ def _alone_node() -> Any:
 def test_waiting_items_and_a_saved_run_keep_node_then_item_order_whatever_threads_did():
     import random
 
-    @node("slow-ask", title="Slow ask", description="For a test.", policy=Policy(concurrency=4), asks=True)
+    @node(
+        "slow-ask",
+        title="Slow ask",
+        description="For a test.",
+        policy=Policy(concurrency=4),
+        asks=True,
+    )
     def slow_ask(text: str) -> str:
         import time
 
@@ -1016,7 +1360,10 @@ def test_waiting_items_and_a_saved_run_keep_node_then_item_order_whatever_thread
     for _ in range(3):
         run = graph.run(text=",".join("abcdefgh"))
         assert [place(w) for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
-        assert [question["prompt"] for question in json.loads(run.to_json())["outcomes"]["slow-ask"]["questions"].values()] == [f"{letter}?" for letter in "abcdefgh"]
+        assert [
+            question["prompt"]
+            for question in json.loads(run.to_json())["outcomes"]["slow-ask"]["questions"].values()
+        ] == [f"{letter}?" for letter in "abcdefgh"]
 
 
 def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_raw_error():
@@ -1034,7 +1381,10 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
         (lambda s: s["outcomes"]["echo"]["states"].append(None), "outcomes.echo"),
         (lambda s: s["outcomes"]["echo"]["outputs"]["result"].pop(), "outcomes.echo"),
         (lambda s: s["outcomes"]["echo"]["outputs"].pop("result"), "outcomes.echo.outputs.result"),
-        (lambda s: s["outcomes"]["echo"]["outputs"]["result"].__setitem__(0, 5), "outcomes.echo.outputs.result.0"),
+        (
+            lambda s: s["outcomes"]["echo"]["outputs"]["result"].__setitem__(0, 5),
+            "outcomes.echo.outputs.result.0",
+        ),
     ):
         copy = json.loads(json.dumps(saved))
         tamper(copy)
@@ -1052,9 +1402,14 @@ def _answered(names: list[str], answers: list[bool]) -> Any:
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "a": approve}, [("each.result", "a.name")]), registry_of(_each, approve))
+    graph = Graph.compile(
+        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
+        registry_of(_each, approve),
+    )
     run = graph.run(items=names)
-    return run.answer({w.id: answer for w, answer in zip(run.waiting, answers, strict=True)}).resume()
+    return run.answer(
+        {w.id: answer for w, answer in zip(run.waiting, answers, strict=True)}
+    ).resume()
 
 
 def test_identical_items_keep_their_own_answers_kth_to_kth_when_an_item_is_inserted_above():
@@ -1063,7 +1418,12 @@ def test_identical_items_keep_their_own_answers_kth_to_kth_when_an_item_is_inser
 
     moved = run.again(items=["eva", "bo", "bo", "al"])
 
-    assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [None, True, False, True]
+    assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [
+        None,
+        True,
+        False,
+        True,
+    ]
     assert run.again(items=["bo", "bo", "al"]).results["a"]["result"] == [True, False, True]
 
 
@@ -1080,11 +1440,17 @@ def test_a_third_identical_item_is_asked_and_two_previous_answers_cover_only_two
 
     more = run.again(items=["bo", "bo", "bo"])
 
-    assert [place(w) for w in more.waiting] == ["a@2"] and more.results["a"]["result"] == [True, False, None]
+    assert [place(w) for w in more.waiting] == ["a@2"] and more.results["a"]["result"] == [
+        True,
+        False,
+        None,
+    ]
 
 
 @pytest.mark.parametrize("through_json", [False, True])
-def test_a_node_that_may_ask_reuses_each_return_once_in_item_order_and_calls_again_for_an_identical_item_beyond_them(through_json: bool) -> None:
+def test_a_node_that_may_ask_reuses_each_return_once_in_item_order_and_calls_again_for_an_identical_item_beyond_them(
+    through_json: bool,
+) -> None:
     """``stamp`` may ask, and returned for both "bo"s without asking. Run again with "al" above and a third "bo": the two
     "bo"s keep their own returns, first to first, and the third is called, as a third answer would be asked."""
     counter = iter(range(1, 100))
@@ -1095,14 +1461,20 @@ def test_a_node_that_may_ask_reuses_each_return_once_in_item_order_and_calls_aga
         calls.append(name)
         return f"{name}{next(counter)}"
 
-    graph = Graph.compile(_record({"each": _each, "s": stamp}, [("each.result", "s.name")]), registry_of(_each, stamp))
+    graph = Graph.compile(
+        _record({"each": _each, "s": stamp}, [("each.result", "s.name")]), registry_of(_each, stamp)
+    )
     first = graph.run(items=["bo", "bo"])
     calls.clear()
 
     moved = first.with_inputs(items=["al", "bo", "bo", "bo"])
     moved = (Run.from_json(moved.to_json(), graph) if through_json else moved).resume()
 
-    assert moved.results["s"]["result"] == ["al3", "bo1", "bo2", "bo4"] and calls == ["al", "bo"] and moved.waiting == []
+    assert (
+        moved.results["s"]["result"] == ["al3", "bo1", "bo2", "bo4"]
+        and calls == ["al", "bo"]
+        and moved.waiting == []
+    )
 
 
 def test_identical_lines_answered_differently_under_documents_keep_their_documents_when_the_documents_swap():
@@ -1114,7 +1486,13 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
     def approve(line: str) -> bool:
         raise Ask(f"{line}?")
 
-    graph = Graph.compile(_record({"each": _each, "l": lines, "a": approve}, [("each.result", "l.doc"), ("l.result", "a.line")]), registry_of(_each, lines, approve))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "l": lines, "a": approve},
+            [("each.result", "l.doc"), ("l.result", "a.line")],
+        ),
+        registry_of(_each, lines, approve),
+    )
     run = graph.run(items=["d1", "d2"])
     answers = dict(zip([w.id for w in run.waiting], [True, False, False, True], strict=True))
     done = run.answer(answers).resume()
@@ -1122,7 +1500,9 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
     swapped = done.again(items=["d2", "d1"])
 
     assert done.results["a"]["result"] == [[True, False], [False, True]]
-    assert swapped.results["a"]["result"] == [[False, True], [True, False]] and swapped.waiting == []  # d2's lines, then d1's
+    assert (
+        swapped.results["a"]["result"] == [[False, True], [True, False]] and swapped.waiting == []
+    )  # d2's lines, then d1's
 
 
 def test_identical_items_share_one_outcome_and_a_third_reuses_it_without_a_call():
@@ -1133,11 +1513,15 @@ def test_identical_items_share_one_outcome_and_a_third_reuses_it_without_a_call(
         calls.append(text)
         return text.upper()
 
-    graph = Graph.compile(_record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo))
+    graph = Graph.compile(
+        _record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo)
+    )
     run = graph.run(items=["a", "a"])
     calls.clear()
 
-    assert run.again(items=["a", "a", "a"]).results["e"]["result"] == ["A", "A", "A"] and calls == []
+    assert (
+        run.again(items=["a", "a", "a"]).results["e"]["result"] == ["A", "A", "A"] and calls == []
+    )
 
 
 def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_waits_and_mails_once():
@@ -1156,7 +1540,13 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
         sent.append(to)
         return f"sent {to}"
 
-    graph = Graph.compile(_record({"each": _each, "a": approve, "m": mail}, [("each.result", "a.name"), ("a.result", "m.to")]), registry_of(_each, approve, mail))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "a": approve, "m": mail},
+            [("each.result", "a.name"), ("a.result", "m.to")],
+        ),
+        registry_of(_each, approve, mail),
+    )
     first = graph.run(items=["ida", "bo"])
     a = first.answer({w.id: f"{w.inputs['name']}@a.dk" for w in first.waiting}).resume()
     b = a.again(items=["ida", "bob"])
@@ -1165,7 +1555,11 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
 
     c = Run.from_json(b.to_json(), graph).again(items=["ida", "bo"])
 
-    assert c.status == "complete" and c.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk"] and sent == []
+    assert (
+        c.status == "complete"
+        and c.results["m"]["result"] == ["sent ida@a.dk", "sent bo@a.dk"]
+        and sent == []
+    )
 
 
 def test_an_edit_after_a_failed_run_still_reuses_the_outcomes_the_failed_run_had_not_reached():
@@ -1178,7 +1572,9 @@ def test_an_edit_after_a_failed_run_still_reuses_the_outcomes_the_failed_run_had
             raise ValueError("no")
         return text.upper()
 
-    graph = Graph.compile(_record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo))
+    graph = Graph.compile(
+        _record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo)
+    )
     first = graph.run(items=["a", "b", "c"])
     failed = first.again(items=["boom", "b", "c"])
     assert failed.status == "failed"
@@ -1186,7 +1582,11 @@ def test_an_edit_after_a_failed_run_still_reuses_the_outcomes_the_failed_run_had
 
     fixed = failed.again(items=["a", "b", "c"])
 
-    assert fixed.status == "complete" and calls == [] and fixed.results["e"]["result"] == ["A", "B", "C"]
+    assert (
+        fixed.status == "complete"
+        and calls == []
+        and fixed.results["e"]["result"] == ["A", "B", "C"]
+    )
 
 
 def test_an_outcome_a_complete_node_did_not_reuse_is_dropped_so_an_edit_undone_two_runs_later_calls_again():
@@ -1197,8 +1597,11 @@ def test_an_outcome_a_complete_node_did_not_reuse_is_dropped_so_an_edit_undone_t
         calls.append(text)
         return text.upper()
 
-    graph = Graph.compile(_record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo))
-    second = graph.run(items=["a"]).again(items=["b"])  # echo is complete on b, so its outcome for a is dropped
+    graph = Graph.compile(
+        _record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo)
+    )
+    # echo is complete on b, so its outcome for a is dropped
+    second = graph.run(items=["a"]).again(items=["b"])
     calls.clear()
 
     assert second.again(items=["a", "b"]).results["e"]["result"] == ["A", "B"] and calls == ["a"]
@@ -1212,24 +1615,40 @@ def test_a_waiting_call_moves_with_its_item_and_is_not_asked_again():
         asked.append(name)
         raise Ask(f"Mail {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "a": approve}, [("each.result", "a.name")]), registry_of(_each, approve))
+    graph = Graph.compile(
+        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
+        registry_of(_each, approve),
+    )
     run = graph.run(items=["ida", "bo"])
     asked.clear()
 
     moved = run.again(items=["eva", "ida", "bo"])
 
-    assert asked == ["eva"] and [(place(w), w.inputs["name"]) for w in moved.waiting] == [("a@0", "eva"), ("a@1", "ida"), ("a@2", "bo")]
+    assert asked == ["eva"] and [(place(w), w.inputs["name"]) for w in moved.waiting] == [
+        ("a@0", "eva"),
+        ("a@1", "ida"),
+        ("a@2", "bo"),
+    ]
 
 
 def test_a_waiting_call_moves_with_its_item_through_a_cancelled_again():
     asked: list[str] = []
 
-    @node("approve", title="Approve", description="For a test.", policy=Policy(concurrency=2), asks=True)
+    @node(
+        "approve",
+        title="Approve",
+        description="For a test.",
+        policy=Policy(concurrency=2),
+        asks=True,
+    )
     def approve(name: str) -> bool:
         asked.append(name)
         raise Ask(f"Mail {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "a": approve}, [("each.result", "a.name")]), registry_of(_each, approve))
+    graph = Graph.compile(
+        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
+        registry_of(_each, approve),
+    )
     run = graph.run(items=["ida", "bo"])
     cancel = AsyncioEvent()
     cancel.set()
@@ -1246,7 +1665,10 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "a": approve}, [("each.result", "a.name")]), registry_of(_each, approve))
+    graph = Graph.compile(
+        _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
+        registry_of(_each, approve),
+    )
     first = graph.run(items=["ida", "bo"])
     (_, bo) = first.waiting
     moved = first.again(items=["ida", "al", "bo"])
@@ -1256,8 +1678,16 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
     (problem,) = refused.value.problems
     current = moved.waiting[1].id
     moved_to = moved.waiting[2].id  # bo's question waits at a@2
-    assert (problem.type, problem.loc, problem.ctx) == ("answer_stale", ("a", 1), {"waiting_id": bo.id, "current": current, "moved_to": moved_to})
-    assert moved.answer("a@1", True).results["a"]["result"] == [None, True, None]  # an id without its question's fingerprint answers whatever waits at that call
+    assert (problem.type, problem.loc, problem.ctx) == (
+        "answer_stale",
+        ("a", 1),
+        {"waiting_id": bo.id, "current": current, "moved_to": moved_to},
+    )
+    assert moved.answer("a@1", True).results["a"]["result"] == [
+        None,
+        True,
+        None,
+    ]  # an id without its question's fingerprint answers whatever waits at that call
 
 
 def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_id():
@@ -1269,7 +1699,13 @@ def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_i
     def approve_v2(name: str) -> bool:
         raise Ask(f"Send to {name}?")
 
-    record = GraphRecord.model_validate({"nodes": {"a": {"node": "approve", "version": 1, "inputs": {"name": {"graph_input": "name"}}}}})
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "a": {"node": "approve", "version": 1, "inputs": {"name": {"graph_input": "name"}}}
+            }
+        }
+    )
     old = Graph.compile(record, registry_of(approve_v2)).run(name="ida")
     (waiting,) = old.waiting
     newer = registry_of(approve_v2).upgrade(record, "a")
@@ -1288,7 +1724,12 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_ag
     def echo_changed(text: str) -> str:
         return text.lower()
 
-    record = GraphRecord.model_validate({"nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}})
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
+            "outputs": {"result": {"node": "e", "output": "result"}},
+        }
+    )
     saved = Graph.compile(record, registry_of(echo)).run(text="Ab").to_json()
 
     again = Run.from_json(saved, Graph.compile(record, registry_of(echo_changed))).again(text="Ab")
@@ -1299,7 +1740,7 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_ag
 #: One node, ``ask``, written four ways. Each is compiled from its own text, so the functions inside have the same
 #: qualified names: those are constants of the node's code, and they would differ between four functions of this file.
 _ASK = {
-    "without docstrings": '''
+    "without docstrings": """
 def ask(name: str) -> bool:
     def polite(text: str) -> str:
         return text.title()
@@ -1308,7 +1749,7 @@ def ask(name: str) -> bool:
         pass
 
     raise Ask(f"Mail {polite(name)}?")
-''',
+""",
     "with docstrings": '''
 def ask(name: str) -> bool:
     """Asks whether to mail the person."""
@@ -1353,8 +1794,17 @@ def _waiting_id(source: str) -> str:
     namespace: dict[str, Any] = {"Ask": Ask}
     exec(source, namespace)
     function = namespace["ask"]
-    record = GraphRecord.model_validate({"nodes": {"a": {"node": "ask", "inputs": {"name": {"graph_input": "name"}}}}})
-    (waiting,) = Graph.compile(record, registry_of(node("ask", title="Ask", description="For a test.", asks=True)(function))).run(name="ida").waiting
+    record = GraphRecord.model_validate(
+        {"nodes": {"a": {"node": "ask", "inputs": {"name": {"graph_input": "name"}}}}}
+    )
+    (waiting,) = (
+        Graph.compile(
+            record,
+            registry_of(node("ask", title="Ask", description="For a test.", asks=True)(function)),
+        )
+        .run(name="ida")
+        .waiting
+    )
     return waiting.id
 
 
@@ -1387,20 +1837,33 @@ def test_a_node_redeclared_with_another_docstring_is_reused_on_a_saved_run_and_w
         calls.append("echo")
         return text.upper() + "?"
 
-    record = GraphRecord.model_validate({"nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "e", "output": "result"}}})
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
+            "outputs": {"result": {"node": "e", "output": "result"}},
+        }
+    )
     saved = Graph.compile(record, registry_of(echo)).run(text="ab").to_json()
     Run.from_json(saved, Graph.compile(record, registry_of(echo_documented))).again(text="ab")
     assert calls == ["echo"]
 
-    again = Run.from_json(saved, Graph.compile(record, registry_of(echo_other_mark))).again(text="ab")
+    again = Run.from_json(saved, Graph.compile(record, registry_of(echo_other_mark))).again(
+        text="ab"
+    )
     assert calls == ["echo", "echo"] and again.results["e"]["result"] == "AB?"
 
 
-@pytest.mark.parametrize(("before", "after", "given"), [
-    (list[int], list[str], []),
-    (Literal["a", "b"], Literal["a"], "a"),
-], ids=["list-item", "literal-values"])
-def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_again_on_a_saved_run(before: Any, after: Any, given: Any):
+@pytest.mark.parametrize(
+    ("before", "after", "given"),
+    [
+        (list[int], list[str], []),
+        (Literal["a", "b"], Literal["a"], "a"),
+    ],
+    ids=["list-item", "literal-values"],
+)
+def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_again_on_a_saved_run(
+    before: Any, after: Any, given: Any
+):
     calls: list[Any] = []
 
     def take(value: Any) -> str:
@@ -1411,7 +1874,9 @@ def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_a
         take.__annotations__["value"] = input_type
         return node("take", title="Take", description="For a test.")(take)
 
-    record = GraphRecord.model_validate({"nodes": {"m": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}}})
+    record = GraphRecord.model_validate(
+        {"nodes": {"m": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}}}
+    )
     saved = Graph.compile(record, registry_of(declared(before))).run(value=given).to_json()
 
     Run.from_json(saved, Graph.compile(record, registry_of(declared(after)))).again(value=given)
@@ -1435,12 +1900,17 @@ def test_a_node_redeclared_with_the_same_code_to_no_longer_ask_is_called_again_a
         return decide(name)
 
     def graph_of(definition: FunctionDefinition) -> Graph:
-        return Graph.compile(_record({"each": _each, "a": definition}, [("each.result", "a.name")]), registry_of(_each, definition))
+        return Graph.compile(
+            _record({"each": _each, "a": definition}, [("each.result", "a.name")]),
+            registry_of(_each, definition),
+        )
 
     may_ask = node("approve", title="Approve", description="For a test.", asks=True)(approve)
     never_asks = node("approve", title="Approve", description="For a test.")(approve)
     first = graph_of(may_ask).run(items=["bo", "bo"])
-    answered = first.answer({w.id: answer for w, answer in zip(first.waiting, [True, False], strict=True)}).resume()
+    answered = first.answer(
+        {w.id: answer for w, answer in zip(first.waiting, [True, False], strict=True)}
+    ).resume()
     asking["on"] = False
     calls.clear()
 
@@ -1456,7 +1926,10 @@ def test_a_node_redeclared_to_take_none_is_called_for_the_item_it_was_not_called
 
     @node("rows", title="Rows", description="For a test.")
     def rows(text: str) -> Table[Row]:
-        return pl.DataFrame({"name": ["ida", "bo"], "email": ["i@a.dk", None]}, schema={"name": pl.String, "email": pl.String})
+        return pl.DataFrame(
+            {"name": ["ida", "bo"], "email": ["i@a.dk", None]},
+            schema={"name": pl.String, "email": pl.String},
+        )
 
     @node("records", title="Records", description="For a test.")
     def records(table: Table[Row]) -> Series[Row]:
@@ -1470,10 +1943,28 @@ def test_a_node_redeclared_to_take_none_is_called_for_the_item_it_was_not_called
     def send_or_none(email: str | None) -> str:
         return f"to {email}"
 
-    record = GraphRecord.model_validate({"nodes": {"r": {"node": "rows", "inputs": {"text": {"graph_input": "text"}}}, "p": {"node": "records", "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}}}, "s": {"node": "send", "inputs": {"email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}}}}})
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "r": {"node": "rows", "inputs": {"text": {"graph_input": "text"}}},
+                "p": {
+                    "node": "records",
+                    "inputs": {"table": {"sources": [{"node": "r", "output": "result"}]}},
+                },
+                "s": {
+                    "node": "send",
+                    "inputs": {
+                        "email": {"sources": [{"node": "p", "output": "result", "field": "email"}]}
+                    },
+                },
+            }
+        }
+    )
     saved = Graph.compile(record, registry_of(rows, records, send)).run(text="x").to_json()
 
-    again = Run.from_json(saved, Graph.compile(record, registry_of(rows, records, send_or_none))).again()
+    again = Run.from_json(
+        saved, Graph.compile(record, registry_of(rows, records, send_or_none))
+    ).again()
 
     assert again.results["s"]["result"] == ["to i@a.dk", "to None"]
 
@@ -1500,15 +1991,31 @@ def test_identical_items_finishing_out_of_order_after_forget_both_reuse_the_prev
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    graph = Graph.compile(make_graph(
-        split, a, c, b, edges=[("split.result", "a.text"), ("split.result", "c.text"), ("a.result", "b.x"), ("c.result", "b.y")],
-    ), registry_of(split, a, c, b))
+    graph = Graph.compile(
+        make_graph(
+            split,
+            a,
+            c,
+            b,
+            edges=[
+                ("split.result", "a.text"),
+                ("split.result", "c.text"),
+                ("a.result", "b.x"),
+                ("c.result", "b.y"),
+            ],
+        ),
+        registry_of(split, a, c, b),
+    )
     first = graph.run(text="p,q")
     calls.clear()
 
     again = first.forget("a", "c").resume()
 
-    assert again.status == "complete" and again.results["b"] == {"result": [["xc"], ["xc"]]} and calls == []
+    assert (
+        again.status == "complete"
+        and again.results["b"] == {"result": [["xc"], ["xc"]]}
+        and calls == []
+    )
 
 
 def _counted() -> tuple[Any, list[str]]:
@@ -1524,7 +2031,13 @@ def _counted() -> tuple[Any, list[str]]:
         calls.append(f"show {text}")
         return f"<{text}>"
 
-    graph = Graph.compile(_record({"each": _each, "f": fetch, "s": show}, [("each.result", "f.text"), ("f.result", "s.text")]), registry_of(_each, fetch, show))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "f": fetch, "s": show},
+            [("each.result", "f.text"), ("f.result", "s.text")],
+        ),
+        registry_of(_each, fetch, show),
+    )
     return graph, calls
 
 
@@ -1546,7 +2059,9 @@ def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks(
     calls.clear()
 
     assert forgotten.status == "ready" and forgotten.results["f"] == {"result": None}
-    assert Run.from_json(forgotten.to_json(), graph).resume().status == "complete" and calls == ["fetch a"]
+    assert Run.from_json(forgotten.to_json(), graph).resume().status == "complete" and calls == [
+        "fetch a"
+    ]
     with pytest.raises(InvalidCallError) as refused:
         run.forget("nope")
     assert [(p.type, p.loc) for p in refused.value.problems] == [("node_not_in_graph", ("nope",))]
@@ -1574,8 +2089,14 @@ def test_identical_answered_items_keep_their_answers_across_a_cancelled_again_as
 
     through = Run.from_json(stopped.to_json(), run.graph).resume()
 
-    assert through.results == direct.results and direct.results["a"] == {"result": [None, True, False, True]}
-    assert [w.inputs for w in through.waiting] == [w.inputs for w in direct.waiting] == [{"name": "eva"}]
+    assert through.results == direct.results and direct.results["a"] == {
+        "result": [None, True, False, True]
+    }
+    assert (
+        [w.inputs for w in through.waiting]
+        == [w.inputs for w in direct.waiting]
+        == [{"name": "eva"}]
+    )
 
 
 def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_the_node():
@@ -1591,13 +2112,25 @@ def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_
     def split(text: str) -> Series[str]:
         return text.split(",")
 
-    record = GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}}, "c": {"node": "count", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}}})
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+                "c": {
+                    "node": "count",
+                    "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
+                },
+            }
+        }
+    )
     saved = Graph.compile(record, registry_of(split, count)).run(text="ab,c").to_json()
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(record, registry_of(split, count_all)))
 
-    assert [(p.type, p.ctx["where"]) for p in refused.value.problems] == [("saved_run_unreadable", "outcomes.c")]
+    assert [(p.type, p.ctx["where"]) for p in refused.value.problems] == [
+        ("saved_run_unreadable", "outcomes.c")
+    ]
 
 
 def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_finished_first():
@@ -1606,7 +2139,12 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
 
     first_done = ThreadEvent()
 
-    @node("fetch", title="Fetch", description="For a test.", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
+    @node(
+        "fetch",
+        title="Fetch",
+        description="For a test.",
+        policy=Policy(concurrency=2, reuse_when_inputs_match=False),
+    )
     def fetch(name: str) -> str:
         if name == "bo-0":
             assert first_done.wait(timeout=10)  # item 0 comes back after item 1
@@ -1618,7 +2156,13 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "f": fetch, "a": approve}, [("each.result", "f.name"), ("f.result", "a.name")]), registry_of(_each, fetch, approve))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "f": fetch, "a": approve},
+            [("each.result", "f.name"), ("f.result", "a.name")],
+        ),
+        registry_of(_each, fetch, approve),
+    )
     first = graph.run(items=["bo-0", "bo-1"])
     answered = first.answer({w.id: w.loc[1:] == (0,) for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [True, False]
@@ -1639,7 +2183,12 @@ def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_wh
     first_fetched, counter, lock = ThreadEvent(), iter(range(1, 100)), Lock()
     calls: list[str] = []
 
-    @node("fetch", title="Fetch", description="For a test.", policy=Policy(concurrency=4, reuse_when_inputs_match=False))
+    @node(
+        "fetch",
+        title="Fetch",
+        description="For a test.",
+        policy=Policy(concurrency=4, reuse_when_inputs_match=False),
+    )
     def fetch(name: str) -> str:
         if name == "bo-0":
             assert first_fetched.wait(timeout=10)  # the first "bo" comes back after the second
@@ -1647,13 +2196,21 @@ def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_wh
             first_fetched.set()
         return name.split("-")[0]
 
-    @node("stamp", title="Stamp", description="For a test.", asks=True, policy=Policy(concurrency=4))
+    @node(
+        "stamp", title="Stamp", description="For a test.", asks=True, policy=Policy(concurrency=4)
+    )
     def stamp(name: str) -> str:
         with lock:
             calls.append(name)
             return f"{name}{next(counter)}"
 
-    graph = Graph.compile(_record({"each": _each, "f": fetch, "s": stamp}, [("each.result", "f.name"), ("f.result", "s.name")]), registry_of(_each, fetch, stamp))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "f": fetch, "s": stamp},
+            [("each.result", "f.name"), ("f.result", "s.name")],
+        ),
+        registry_of(_each, fetch, stamp),
+    )
     first = graph.run(items=["bo-0", "bo-1"])
     returned = first.results["s"]["result"]
 
@@ -1662,12 +2219,21 @@ def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_wh
         calls.clear()
         again = first.again(items=["al", "bo-0", "bo-1", "bo-2"])
         al, *reused, third = again.results["s"]["result"]
-        assert reused == returned and al.startswith("al") and third.startswith("bo") and third not in returned
+        assert (
+            reused == returned
+            and al.startswith("al")
+            and third.startswith("bo")
+            and third not in returned
+        )
         assert sorted(calls) == ["al", "bo"] and again.waiting == []
 
 
-@pytest.mark.parametrize(("name", "results", "asked"), [("bo", [True, False], []), ("zz", [None, True], ["a@0"])])
-def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person_before_it_takes_an_answer(name: str, results: list[Any], asked: list[str]) -> None:
+@pytest.mark.parametrize(
+    ("name", "results", "asked"), [("bo", [True, False], []), ("zz", [None, True], ["a@0"])]
+)
+def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person_before_it_takes_an_answer(
+    name: str, results: list[Any], asked: list[str]
+) -> None:
     """Items "a" and "b" both reach ``approve`` as "bo" and are answered yes, then no. Run again with "x" in place of "a":
     ``pre`` asks which name "x" is, and "b" takes no answer until then. Told "bo", "x" is the first "bo" and takes yes;
     told "zz", "b" is the first "bo" and takes yes, and "zz" is asked."""
@@ -1682,12 +2248,22 @@ def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person
     def approve(name: str) -> bool:
         raise Ask(f"Mail {name}?")
 
-    graph = Graph.compile(_record({"each": _each, "p": pre, "a": approve}, [("each.result", "p.name"), ("p.result", "a.name")]), registry_of(_each, pre, approve))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "p": pre, "a": approve},
+            [("each.result", "p.name"), ("p.result", "a.name")],
+        ),
+        registry_of(_each, pre, approve),
+    )
     first = graph.run(items=["a", "b"])
     answered = first.answer({w.id: place(w) == "a@0" for w in first.waiting}).resume()
 
     again = answered.again(items=["x", "b"])
-    assert again.status == "waiting" and [place(w) for w in again.waiting] == ["p@0"] and again.results["a"]["result"] == [None, None]
+    assert (
+        again.status == "waiting"
+        and [place(w) for w in again.waiting] == ["p@0"]
+        and again.results["a"]["result"] == [None, None]
+    )
 
     told = again.answer(again.waiting[0], name).resume()
     assert told.results["a"]["result"] == results and [place(w) for w in told.waiting] == asked
@@ -1701,7 +2277,12 @@ def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_
 
     second_returned, calls, lock = ThreadEvent(), [], Lock()
 
-    @node("split", title="Split", description="For a test.", policy=Policy(concurrency=2, reuse_when_inputs_match=False))
+    @node(
+        "split",
+        title="Split",
+        description="For a test.",
+        policy=Policy(concurrency=2, reuse_when_inputs_match=False),
+    )
     def split(page: str) -> Series[str]:
         with lock:
             calls.append(page)
@@ -1716,7 +2297,13 @@ def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_
     def approve(line: str) -> bool:
         raise Ask(f"Mail {line}?")
 
-    graph = Graph.compile(_record({"each": _each, "s": split, "a": approve}, [("each.result", "s.page"), ("s.result", "a.line")]), registry_of(_each, split, approve))
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "s": split, "a": approve},
+            [("each.result", "s.page"), ("s.result", "a.line")],
+        ),
+        registry_of(_each, split, approve),
+    )
     first = graph.run(items=["p", "p"])
     answered = first.answer({w.id: place(w) == "a@0@0" for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [[True], [False]]
@@ -1745,7 +2332,24 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
         calls.append(f"b {text}")
         raise Ask(f"B {text}?")
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}}, "a": {"node": "ask_a", "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}}}, "b": {"node": "ask_b", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}}}}}), registry_of(split, ask_a, ask_b))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "s": {"node": "split", "inputs": {"text": {"graph_input": "text"}}},
+                    "a": {
+                        "node": "ask_a",
+                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
+                    },
+                    "b": {
+                        "node": "ask_b",
+                        "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}},
+                    },
+                }
+            }
+        ),
+        registry_of(split, ask_a, ask_b),
+    )
     first = graph.run(text="x y z")
     second = first.answer({"a@1": "Y", "a@2": "Z"}).resume()
     waiting = [w.id for w in second.waiting]
@@ -1755,7 +2359,11 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
     again = second.again()
 
     assert [w.id for w in again.waiting] == waiting and calls == []
-    assert again.answer({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [None, "y", "z"]
+    assert again.answer({waiting[1]: "y", waiting[2]: "z"}).results["b"]["result"] == [
+        None,
+        "y",
+        "z",
+    ]
 
 
 def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_the_nodes_own_output():
@@ -1767,12 +2375,19 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
     def b(y: str) -> int:
         return 1
 
-    box = subgraph("sub", title="Sub", description="For a test.")(make_graph(a, b, edges=[], outputs={"a": "a.result", "b": "b.result"}))
+    box = subgraph("sub", title="Sub", description="For a test.")(
+        make_graph(a, b, edges=[], outputs={"a": "a.result", "b": "b.result"})
+    )
     graph = Graph.compile(make_graph(box), registry_of(a, b, box))
     run = graph.run(x="q", y="w")
 
     assert graph.outputs == ["a", "b"]
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == ("failed", "invalid_output", ("sub", "a"), "result")
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == (
+        "failed",
+        "invalid_output",
+        ("sub", "a"),
+        "result",
+    )
 
 
 def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows():
@@ -1794,7 +2409,35 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
     def enrich(name: str, text: str) -> str:
         return f"{name}: {text[:20]}"
 
-    graph = Graph.compile(GraphRecord.model_validate({"nodes": {"read": {"node": "read_lines", "inputs": {"csv": {"graph_input": "csv"}}}, "records": {"node": "records", "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}}}, "enrich": {"node": "enrich", "inputs": {"name": {"sources": [{"node": "records", "output": "result", "field": "name"}]}, "text": {"sources": [{"node": "records", "output": "result", "field": "text"}]}}}}}), registry_of(read_lines, records, enrich))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "read": {"node": "read_lines", "inputs": {"csv": {"graph_input": "csv"}}},
+                    "records": {
+                        "node": "records",
+                        "inputs": {"table": {"sources": [{"node": "read", "output": "result"}]}},
+                    },
+                    "enrich": {
+                        "node": "enrich",
+                        "inputs": {
+                            "name": {
+                                "sources": [
+                                    {"node": "records", "output": "result", "field": "name"}
+                                ]
+                            },
+                            "text": {
+                                "sources": [
+                                    {"node": "records", "output": "result", "field": "text"}
+                                ]
+                            },
+                        },
+                    },
+                }
+            }
+        ),
+        registry_of(read_lines, records, enrich),
+    )
     csv = "name,text\n" + "".join(f"p{i},some text for row {i}\n" for i in range(10_000))
     run = graph.run(csv=csv)
     sizes = []
@@ -1822,9 +2465,14 @@ def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit
     registry = registry_of(_each, enrich, summarize)
 
     def drawn(prompt: str) -> Any:
-        return Graph.compile(_record(
-            {"each": _each, "e": enrich, "s": summarize}, [("each.result", "e.text"), ("e.result", "s.text")], constants={"s.prompt": prompt},
-        ), registry)
+        return Graph.compile(
+            _record(
+                {"each": _each, "e": enrich, "s": summarize},
+                [("each.result", "e.text"), ("e.result", "s.text")],
+                constants={"s.prompt": prompt},
+            ),
+            registry,
+        )
 
     texts = [f"t{i}" for i in range(300)]
     first = drawn("Short").run(items=texts)
@@ -1832,11 +2480,18 @@ def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit
     edited = drawn("Long")
     assert edited.fingerprint != first.graph.fingerprint
 
-    second = edited.with_inputs(items=texts, previous=Run.from_json(first.to_json(), first.graph)).resume()
+    second = edited.with_inputs(
+        items=texts, previous=Run.from_json(first.to_json(), first.graph)
+    ).resume()
 
-    assert second.results["s"]["result"][0] == "Long: T0" and calls == [f"summarize T{i}" for i in range(300)]
+    assert second.results["s"]["result"][0] == "Long: T0" and calls == [
+        f"summarize T{i}" for i in range(300)
+    ]
     calls.clear()
-    assert edited.with_inputs(items=texts, previous=second).resume().results == second.results and calls == []
+    assert (
+        edited.with_inputs(items=texts, previous=second).resume().results == second.results
+        and calls == []
+    )
 
 
 def test_an_edited_node_in_the_middle_is_called_again_with_the_nodes_it_feeds_and_the_nodes_above_it_are_not():
@@ -1860,16 +2515,26 @@ def test_an_edited_node_in_the_middle_is_called_again_with_the_nodes_it_feeds_an
     registry = registry_of(split, tag, shout)
 
     def drawn(mark: str) -> Any:
-        return Graph.compile(_record(
-            {"w": split, "t": tag, "s": shout}, [("w.result", "t.text"), ("t.result", "s.text")], constants={"t.mark": mark},
-        ), registry)
+        return Graph.compile(
+            _record(
+                {"w": split, "t": tag, "s": shout},
+                [("w.result", "t.text"), ("t.result", "s.text")],
+                constants={"t.mark": mark},
+            ),
+            registry,
+        )
 
     first = drawn("!").run(text="a b")
     calls.clear()
 
     second = drawn("?").with_inputs(text="a b", previous=first).resume()
 
-    assert second.results["s"]["result"] == ["A?", "B?"] and calls == ["tag a", "tag b", "shout a?", "shout b?"]
+    assert second.results["s"]["result"] == ["A?", "B?"] and calls == [
+        "tag a",
+        "tag b",
+        "shout a?",
+        "shout b?",
+    ]
 
 
 def test_again_and_with_inputs_take_inputs_by_name_in_a_mapping_as_graph_run_does():
@@ -1882,16 +2547,35 @@ def test_again_and_with_inputs_take_inputs_by_name_in_a_mapping_as_graph_run_doe
         return a + b
 
     box = subgraph("box", title="Box", description="For a test.")(make_graph(join))
-    graph = Graph.compile(GraphRecord.model_validate({
-        "nodes": {"u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                  "e": {"node": "box", "inputs": {"a": {"graph_input": "first-half"}, "b": {"graph_input": "second-half"}}}},
-        "outputs": {"upper": {"node": "u", "output": "result"}, "joined": {"node": "e", "output": "result"}},
-    }), registry_of(upper, join, box))
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+                    "e": {
+                        "node": "box",
+                        "inputs": {
+                            "a": {"graph_input": "first-half"},
+                            "b": {"graph_input": "second-half"},
+                        },
+                    },
+                },
+                "outputs": {
+                    "upper": {"node": "u", "output": "result"},
+                    "joined": {"node": "e", "output": "result"},
+                },
+            }
+        ),
+        registry_of(upper, join, box),
+    )
     first = graph.run({"text": "a", "first-half": "x", "second-half": "y"})
 
     assert first.again({"text": "b"}).outputs == {"upper": "B", "joined": "xy"}
     assert first.again({"first-half": "z"}).outputs == {"upper": "A", "joined": "zy"}
-    assert first.with_inputs({"second-half": "w"}, text="c").resume().outputs == {"upper": "C", "joined": "xw"}
+    assert first.with_inputs({"second-half": "w"}, text="c").resume().outputs == {
+        "upper": "C",
+        "joined": "xw",
+    }
 
 
 def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused():
@@ -1909,20 +2593,38 @@ def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused(
             called.append(n)
             return n
 
-        record = GraphRecord.model_validate({"nodes": {"g": {"node": "give", "inputs": {"n": {"graph_input": "n"}}}, "t": {"node": "take", "inputs": {"n": {"sources": [{"node": "g", "output": "result"}]}}}}})
+        record = GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "g": {"node": "give", "inputs": {"n": {"graph_input": "n"}}},
+                    "t": {
+                        "node": "take",
+                        "inputs": {"n": {"sources": [{"node": "g", "output": "result"}]}},
+                    },
+                }
+            }
+        )
         return Graph.compile(record, registry_of(give, take))
 
     loose = graph_taking(Annotated[int, Param(ge=0)])
     first = loose.run(n=3)
     assert first.status == "complete" and called == [3]
 
-    same = graph_taking(Annotated[int, Param(ge=0, title="N")]).with_inputs(n=3, previous=first).resume()
+    same = (
+        graph_taking(Annotated[int, Param(ge=0, title="N")])
+        .with_inputs(n=3, previous=first)
+        .resume()
+    )
     assert same.status == "complete" and called == [3]  # a title changes nothing that is read
 
     tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, previous=first).resume()
     assert tight.status == "failed" and tight.cause.type == "invalid_edge_value"
 
-    chosen = graph_taking(Annotated[int, Param(choices=[1, 2])]).with_inputs(n=3, previous=first).resume()
+    chosen = (
+        graph_taking(Annotated[int, Param(choices=[1, 2])])
+        .with_inputs(n=3, previous=first)
+        .resume()
+    )
     assert chosen.status == "failed" and chosen.cause.type == "invalid_edge_value"
 
 
@@ -1935,7 +2637,10 @@ def test_again_with_the_same_inputs_keeps_each_call_its_own_outcome_when_equal_a
         calls.append(line)
         return f"{line}{next(counter)}"
 
-    graph = Graph.compile(_record({"each": _each, "stamp": stamp}, [("each.result", "stamp.line")]), registry_of(_each, stamp))
+    graph = Graph.compile(
+        _record({"each": _each, "stamp": stamp}, [("each.result", "stamp.line")]),
+        registry_of(_each, stamp),
+    )
     first = graph.run(items=["a", "a", "b"])
     assert first.results["stamp"]["result"] == ["a1", "a2", "b3"]
 

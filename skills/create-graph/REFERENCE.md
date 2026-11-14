@@ -5,7 +5,19 @@ One module, on three text nodes declared at the top. Events, errors and serving 
 ```python
 from typing import Annotated
 
-from conductor import Source, Ask, Graph, GraphRecord, NodeRecord, NodeRegistry, Param, InputEntry, Run, Series, node
+from conductor import (
+    Source,
+    Ask,
+    Graph,
+    GraphRecord,
+    NodeRecord,
+    NodeRegistry,
+    Param,
+    InputEntry,
+    Run,
+    Series,
+    node,
+)
 from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
@@ -16,30 +28,63 @@ def split(text: str, separator: str = ",") -> Series[str]:
     return text.split(separator)
 
 
-@registry.node("text-uppercase", title="Uppercase", description="Turns a text into capital letters.")
+@registry.node(
+    "text-uppercase", title="Uppercase", description="Turns a text into capital letters."
+)
 def uppercase(text: str) -> str:
     return text.upper()
 
 
 # compiling never raises for a bad graph; key on each Problem's type
-broken = Graph.compile(GraphRecord(nodes={"loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Source("ghost", "result"),))})}), registry)
+broken = Graph.compile(
+    GraphRecord(
+        nodes={
+            "loud": NodeRecord(
+                node="text-uppercase",
+                inputs={"text": InputEntry(sources=(Source("ghost", "result"),))},
+            )
+        }
+    ),
+    registry,
+)
 assert [p.type for p in broken.problems] == ["edge_names_missing_node"]
 
 
-@node("approve", title="Approve", description="Asks a person to approve a proposal.", category="review", asks=True)
-def approve(proposal: Annotated[str, Param(title="Proposal", widget=Textarea())]) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
+@node(
+    "approve",
+    title="Approve",
+    description="Asks a person to approve a proposal.",
+    category="review",
+    asks=True,
+)
+def approve(
+    proposal: Annotated[str, Param(title="Proposal", widget=Textarea())],
+) -> Annotated[str, Param(title="Decision", widget=Textarea())]:
     raise Ask("Approve this?", default=proposal)
 
 
 registry.add(approve)
-asking = Graph.compile(GraphRecord(nodes={
-    "drafts": NodeRecord(node="text-split", inputs={"text": InputEntry(constant="first,second")}),
-    "approve": NodeRecord(node="approve", inputs={"proposal": InputEntry(sources=(Source("drafts", "result"),))}),
-}), registry)
+asking = Graph.compile(
+    GraphRecord(
+        nodes={
+            "drafts": NodeRecord(
+                node="text-split", inputs={"text": InputEntry(constant="first,second")}
+            ),
+            "approve": NodeRecord(
+                node="approve",
+                inputs={"proposal": InputEntry(sources=(Source("drafts", "result"),))},
+            ),
+        }
+    ),
+    registry,
+)
 
 first = asking.run()
-assert first.status == "waiting" and [waiting.inputs["proposal"] for waiting in first.waiting] == ["first", "second"]
-stored = Run.from_json(first.to_json(), asking)               # how a host keeps the run until it is answered
+assert first.status == "waiting" and [waiting.inputs["proposal"] for waiting in first.waiting] == [
+    "first",
+    "second",
+]
+stored = Run.from_json(first.to_json(), asking)  # how a host keeps the run until it is answered
 answered = stored.answer(stored.waiting[1].id, "Second, approved")
 second = answered.resume()
 assert [waiting.inputs["proposal"] for waiting in second.waiting] == ["first"]

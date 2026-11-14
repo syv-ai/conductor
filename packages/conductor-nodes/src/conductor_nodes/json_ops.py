@@ -16,14 +16,21 @@ registry = NodeRegistry(category="json")
 JsonText = Annotated[str, Param(title="JSON text", widget=Textarea())]
 
 
-@registry.node("json-parse", title="Read JSON", description="Reads JSON text into a value. Text that isn't JSON is an error.")
+@registry.node(
+    "json-parse",
+    title="Read JSON",
+    description="Reads JSON text into a value. Text that isn't JSON is an error.",
+)
 def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
     """Reads a JSON text into a value; fails on text that isn't JSON."""
     try:
         parsed: JsonValue = json.loads(text)
     except JSONDecodeError as error:
-        raise NodeError(f"The text is not JSON: {error.msg}, at character {error.pos}.", code="not_json") from None
-    except ValueError as error:  # json.loads refuses a number of more than 4,300 digits with a plain ValueError
+        raise NodeError(
+            f"The text is not JSON: {error.msg}, at character {error.pos}.", code="not_json"
+        ) from None
+    # json.loads refuses a number of more than 4,300 digits with a plain ValueError
+    except ValueError as error:
         raise NodeError(f"The text is not JSON: {error}.", code="not_json") from None
     return parsed
 
@@ -38,14 +45,22 @@ def stringify(
     return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
 
 
-@registry.node("json-get", title="Get from JSON", description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.")
+@registry.node(
+    "json-get",
+    title="Get from JSON",
+    description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.",
+)
 def get_path(value: JsonValue, path: Line) -> Annotated[JsonValue, Param(title="Extracted")]:
     """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; JSON null where there is nothing."""
     current = value
     for segment in path.split(".") if path else ():
         if isinstance(current, dict):
             current = current.get(segment.strip())
-        elif isinstance(current, list) and re.fullmatch(r"-?[0-9]+", segment.strip()) and -len(current) <= int(segment) < len(current):
+        elif (
+            isinstance(current, list)
+            and re.fullmatch(r"-?[0-9]+", segment.strip())
+            and -len(current) <= int(segment) < len(current)
+        ):
             current = current[int(segment)]
         else:
             return None

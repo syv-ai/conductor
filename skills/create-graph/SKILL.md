@@ -18,7 +18,9 @@ def split(text: str, separator: str = ",") -> Series[str]:
     return text.split(separator)
 
 
-@registry.node("text-uppercase", title="Uppercase", description="Turns a text into capital letters.")
+@registry.node(
+    "text-uppercase", title="Uppercase", description="Turns a text into capital letters."
+)
 def uppercase(text: str) -> str:
     return text.upper()
 
@@ -31,11 +33,16 @@ def join(parts: Series[str], separator: str = "") -> str:
 record = GraphRecord(
     nodes={
         "words": NodeRecord(node="text-split", inputs={"text": InputEntry(graph_input="text")}),
-        "loud": NodeRecord(node="text-uppercase", inputs={"text": InputEntry(sources=(Source("words", "result"),))}),
-        "joined": NodeRecord(node="text-join", inputs={
-            "parts": InputEntry(sources=(Source("loud", "result"),)),
-            "separator": InputEntry(constant=" + "),
-        }),
+        "loud": NodeRecord(
+            node="text-uppercase", inputs={"text": InputEntry(sources=(Source("words", "result"),))}
+        ),
+        "joined": NodeRecord(
+            node="text-join",
+            inputs={
+                "parts": InputEntry(sources=(Source("loud", "result"),)),
+                "separator": InputEntry(constant=" + "),
+            },
+        ),
     },
     outputs={"result": Source("joined", "result")},
 )
@@ -43,12 +50,12 @@ record = GraphRecord(
 graph = Graph.compile(record, registry)
 if not graph.is_runnable:
     raise ValueError([(p.type, p.loc, p.msg) for p in graph.problems])
-assert list(graph.inputs) == ["text"]                  # the graph inputs the record declares
+assert list(graph.inputs) == ["text"]  # the graph inputs the record declares
 
 run = graph.run(text="red,green")
-assert run.outputs == {"result": "RED + GREEN"}       # the graph outputs, by name
-results = run.results                                  # {node_id: {output: value}}; a node run per item gives a list
-assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
+assert run.outputs == {"result": "RED + GREEN"}  # the graph outputs, by name
+results = run.results  # {node_id: {output: value}}; a node run per item gives a list
+assert results["loud"]["result"] == ["RED", "GREEN"]  # ran once per word
 assert graph.describe().nodes["joined"].per_item_of is None  # parts is Series[str]: one call
 ```
 

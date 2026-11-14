@@ -14,8 +14,26 @@ from typing import Annotated, Protocol, TypedDict
 
 import polars as pl
 from conductor import (
-    Ask, Context, Graph, GraphRecord, InvalidCallError, NodeDeclarationError, NodeError, NodeRegistry,
-    Param, Policy, Problem, Run, SKIPPED, Series, Table, Upgrade, host_type, make_graph, node, subgraph,
+    Ask,
+    Context,
+    Graph,
+    GraphRecord,
+    InvalidCallError,
+    NodeDeclarationError,
+    NodeError,
+    NodeRegistry,
+    Param,
+    Policy,
+    Problem,
+    Run,
+    SKIPPED,
+    Series,
+    Table,
+    Upgrade,
+    host_type,
+    make_graph,
+    node,
+    subgraph,
 )
 from conductor.testing import check_registry
 
@@ -64,12 +82,19 @@ class Route:
     long: Annotated[str, Param(exclusive_group="length")]
 
 
-@registry.node("route", title="Route", description="Sends a text down the short or the long branch.")
+@registry.node(
+    "route", title="Route", description="Sends a text down the short or the long branch."
+)
 def route(text: str) -> Route:
     return Route(short=text, long=SKIPPED) if len(text) < 4 else Route(short=SKIPPED, long=text)
 
 
-@registry.node("approve", title="Approve", description="Asks a person to approve an amount in kroner.", asks=True)
+@registry.node(
+    "approve",
+    title="Approve",
+    description="Asks a person to approve an amount in kroner.",
+    asks=True,
+)
 def approve(amount: int) -> bool:
     raise Ask(f"Approve {amount} kr.?")
 
@@ -85,7 +110,9 @@ def by_names(names: str) -> dict[str, type]:
     return {name: str for name in names.split(",")}
 
 
-@registry.node("pick", title="Pick", description="Returns one output per name.", compute_outputs=by_names)
+@registry.node(
+    "pick", title="Pick", description="Returns one output per name.", compute_outputs=by_names
+)
 def pick(names: str) -> dict[str, str]:
     return {name: name for name in names.split(",")}
 
@@ -95,9 +122,15 @@ class Contact(TypedDict):
     email: str
 
 
-@registry.node("contacts", title="Contacts", description="Reads contacts from a text, a name and an email on each line.")
+@registry.node(
+    "contacts",
+    title="Contacts",
+    description="Reads contacts from a text, a name and an email on each line.",
+)
 def contacts(text: str) -> Table[Contact]:
-    return pl.DataFrame([dict(zip(("name", "email"), line.split(), strict=True)) for line in text.splitlines()])
+    return pl.DataFrame(
+        [dict(zip(("name", "email"), line.split(), strict=True)) for line in text.splitlines()]
+    )
 
 
 def problems(record: dict | GraphRecord, nodes: NodeRegistry = registry) -> list[Problem]:

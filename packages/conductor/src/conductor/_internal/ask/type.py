@@ -57,7 +57,13 @@ class Ask(BaseException):
         default: The proposed answer as given, ``REQUIRED`` when none was.
     """
 
-    def __init__(self, prompt: str, *, choices: list[Any] | Mapping[str, list[Any]] | None = None, default: Any = REQUIRED) -> None:
+    def __init__(
+        self,
+        prompt: str,
+        *,
+        choices: list[Any] | Mapping[str, list[Any]] | None = None,
+        default: Any = REQUIRED,
+    ) -> None:
         super().__init__(prompt)
         self.prompt = prompt
         self.choices = choices

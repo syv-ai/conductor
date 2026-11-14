@@ -20,8 +20,14 @@ from .state import EndedEarly, LastResume, deadline
 
 
 async def stream(
-    run_scheduler: Callable[[Any, Callable[[EventBase], None] | None, Callable[[], LastResume] | None, float | None], Any],
-    context: Any, timeout: float | None, cancel: AsyncioEvent | None, hand_back: AsyncioEvent | None,
+    run_scheduler: Callable[
+        [Any, Callable[[EventBase], None] | None, Callable[[], LastResume] | None, float | None],
+        Any,
+    ],
+    context: Any,
+    timeout: float | None,
+    cancel: AsyncioEvent | None,
+    hand_back: AsyncioEvent | None,
     checkpoint_every: float | None,
 ) -> AsyncGenerator[Event]:
     """What ``run.stream()`` returns: ``run_scheduler`` called on a thread of its own, its events yielded here.
@@ -46,7 +52,9 @@ async def stream(
 
     def call_scheduler() -> None:
         try:
-            run_scheduler(context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every)
+            run_scheduler(
+                context, lambda event: _hand_over(loop, events, event), stop, checkpoint_every
+            )
         except BaseException as error:  # the engine's own defect reaches the caller
             failed.append(error)
         finally:

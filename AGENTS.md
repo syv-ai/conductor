@@ -16,13 +16,14 @@ Pushing a `v*` tag publishes the three packages to PyPI, at one version. The two
 
 ```bash
 uv sync                      # install everything
-uv run pre-commit install    # the commit hooks: notebook outputs, imports, docstrings
+uv run pre-commit install    # the commit hooks: notebook outputs, ruff's fixes and format, imports, docstrings
 uv run pytest tests/ -q      # the whole suite
-uvx ruff check .             # lint, as CI runs it
+uvx ruff check --fix .       # lint, fixing what ruff can; CI runs `ruff check .`
+uvx ruff format .            # format, as the commit hook does; CI runs `ruff format --check .`
 uv run mypy packages         # type-check, as CI runs it
 ```
 
-CI runs ruff, mypy and pytest on every PR. A test whose point is a wall-clock bound is marked `slow`, and CI deselects those (`-m "not slow"`), since a busy runner misses the bound.
+CI runs ruff's check and format check, mypy and pytest on every PR. A test whose point is a wall-clock bound is marked `slow`, and CI deselects those (`-m "not slow"`), since a busy runner misses the bound.
 
 ## Rules
 
