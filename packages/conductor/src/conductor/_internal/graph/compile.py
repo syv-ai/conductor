@@ -59,7 +59,7 @@ from conductor._internal.node import (
     read_by_hooks,
 )
 from conductor._internal.problem import InvalidCallError, NodeError, Problem, compile_problems
-from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 from conductor._internal.types import Type
 
 from .input import (
@@ -82,8 +82,9 @@ from .type import Definitions, Graph
 _logger = logging.getLogger("conductor")
 
 
-#: Stands in for a constant or default of the graph record that its input's type rejected, while a node is
-#: compiled. The input gets ``MissingInput``, and the problem ``invalid_value`` says why.
+#: Stands in for a constant or default of the graph record that its input's type rejected, or a default the node
+#: declares that the type its edges bind refused, while a node is compiled. The input gets ``MissingInput``, and the
+#: problem ``invalid_value`` says why.
 _INVALID: Any = sentinel("_INVALID")
 
 
@@ -303,9 +304,17 @@ class Compiler:
         ``lines.result``. A node is inside the loops of its input with the most loops, and the loops of every
         other input must be the outermost of those (else ``series_not_nested``).
 
-        An input that cannot get a value gets ``MissingInput``, and the graph has a problem that says why: an
-        edge the input cannot read, loops that do not nest, or several edges that are not alternatives. The node
-        is kept so an editor can still draw it; the graph does not run.
+        Each input first gets its compiled input from what the record gives it (``_plan_input``). Then the checks that
+        need every input of the node at once refuse the inputs that cannot be read together: edges that are not
+        alternatives, and loops that do not nest. A refused input gets ``MissingInput``, and the graph has a problem
+        that says why. The node is kept so an editor can still draw it; the graph does not run.
+
+        Whether a collecting input gets its value as a list of one is decided in two steps. ``_edge_input`` decides it
+        for an input whose edges are inside no loop. For the rest it needs the node's loops, and those come from the
+        inputs once the refused ones are left out, so ``_input_inside`` makes that change after. The conflicting-edges
+        check must come before it: two lists on opposite branches of a loop are refused even when another input puts
+        the node inside that loop (``lists_from_different_loops``), and the check finds the lists among the inputs
+        that collect. After the change those are one value per call, each ``None`` on the branch not chosen.
 
         Args:
             node_id: The node's id.
@@ -321,76 +330,83 @@ class Compiler:
             self.problems.append(compile_problems.unknown_input(node_id, name, inputs=list(fields)))
         sources = {name: self._sources(node_id, name, edges[name]) for name in fields if name in edges}
         bound = None
-        refused_defaults: set[str] = set()
+        refused_defaults: Mapping[str, list[Problem]] = {}
         if any(field.whole.variables for field in fields.values()):  # the compiled node's fields have no type variables left
             bound = _bound(fields, sources)
             fields, refused = _bind(node_id, fields, bound)
-            for name, problems in refused.items():
-                if name not in record.inputs:  # else the default is never used
-                    self.problems += problems
-                    refused_defaults.add(name)
+            refused_defaults = {name: problems for name, problems in refused.items() if name not in record.inputs}  # else the default is never used
+            self.problems += [problem for problems in refused_defaults.values() for problem in problems]
         inputs: dict[str, Input] = {}
-        readable: dict[str, list[Edge]] = {}  # the inputs whose edges can be read, planned once the node's loops are known
-        collecting: set[str] = set()
         for name, field in fields.items():
-            if name in refused_defaults:
-                inputs[name] = MissingInput(field)
-                continue
             entry = record.inputs.get(name)
-            if entry is None:
-                if field.default is REQUIRED and name not in constant_at_compile:  # an input a hook reads gets hook_needs_value instead
-                    self.problems.append(compile_problems.input_has_no_value(node_id, name))
-                    inputs[name] = MissingInput(field)
-                else:
-                    inputs[name] = ConstantInput(field, field.default)
-            elif entry.sources is not MISSING:
-                edge_sources = sources[name]
-                if edge_sources is None:
-                    inputs[name] = MissingInput(field)
-                    continue
-                collects, expected = _collects_and_expected_type(field, edge_sources)
-                if self._edges_fit(node_id, field, expected, edge_sources):
-                    readable[name] = edge_sources
-                    if collects:
-                        collecting.add(name)
-                else:
-                    inputs[name] = MissingInput(field)
-            elif entry.constant is not MISSING:
-                inputs[name] = _constant_input(field, constants[name])
-            elif entry.graph_input is not MISSING:
-                if name in constant_at_compile:  # a hook reads it before any caller gives it
-                    self.problems.append(compile_problems.hook_needs_value(node_id, name))
-                    inputs[name] = MissingInput(field)
-                else:  # with the record's default, or none: then the caller must give one
-                    inputs[name] = self._graph_input(node_id, field, entry.graph_input, constants.get(name, REQUIRED))
-        for name in self._inputs_with_conflicting_edges(node_id, fields, readable, collecting):
-            del readable[name]
-            inputs[name] = MissingInput(fields[name])
-        # Only an edge puts a node inside a loop. A collecting input needs the loops around the one it collects.
-        deepest = {  # most inputs have one edge
-            name: edge_sources[0].loops_of_value if len(edge_sources) == 1 else max((s.loops_of_value for s in edge_sources), key=len)
-            for name, edge_sources in readable.items()
-        }
-        loops = max((loops[:-1] if name in collecting else loops for name, loops in deepest.items()), key=len, default=())
-        inputs = {
-            name: _edge_input(fields[name], readable[name], deepest[name], loops, collects=name in collecting) if name in readable else inputs[name]
-            for name in fields
-        }
-        for name, node_input in inputs.items():
-            if loops[: len(node_input.loops)] != node_input.loops:  # not the node's outermost loops: items of two different lists are never paired
-                series = [loops[-1], node_input.loops[-1]]
-                reading = next(n for n, p in inputs.items() if p.loops == loops)
-                subgraphs = list(dict.fromkeys(node[0] for node, _ in series if isinstance(self.nodes[node[0]], CompiledSubgraphNode)))
-                if subgraphs:  # an edge of this graph cannot change the loops inside a subgraph
-                    self.problems.append(compile_problems.loops_not_nested_inside_subgraph(
-                        node_id, series=[place_text(*s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
-                    ))
-                else:
-                    self.problems.append(compile_problems.series_not_nested(
-                        node_id, series=[place_text(*s) for s in series], inputs=[reading, name],
-                    ))
-                inputs[name] = MissingInput(node_input.field)
+            value = _INVALID if name in refused_defaults else constants.get(name, field.default if entry is None else REQUIRED)
+            inputs[name] = self._plan_input(node_id, field, entry, sources.get(name), value, name in constant_at_compile)
+        for name in self._inputs_with_conflicting_edges(node_id, inputs):
+            inputs[name] = MissingInput(inputs[name].field)
+        loops = max((node_input.loops for node_input in inputs.values()), key=len, default=())  # only an edge puts a node inside a loop
+        inputs = {name: _input_inside(node_input, loops) for name, node_input in inputs.items()}  # after the conflicting edges, which read which inputs collect
+        for name in self._inputs_not_nested(node_id, inputs, loops):
+            inputs[name] = MissingInput(inputs[name].field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
+
+    def _plan_input(self, node_id: str, field: Field, entry: InputEntry | None, sources: list[Edge] | None, value: Any, read_by_hook: bool) -> Input:
+        """Returns the compiled input of the input ``field`` from what the record gives it, before the node's loops are
+        known: a collecting input whose node turns out to be inside the loop it collects is changed later
+        (``_input_inside``).
+
+        Args:
+            node_id: The node.
+            field: The input.
+            entry: What the record gives the input; ``None`` when it gives nothing, and the input takes the default
+                its node declares.
+            sources: What the edges into the input read, when the record wires edges to it; ``None`` when one of
+                them cannot be read (the graph has the problem), and for every other input.
+            value: What the input gets when neither an edge nor the caller gives it a value, read by its type: the
+                record's constant, the default the record gives its graph input, or, when the record gives the input
+                nothing, the default its node declares. ``REQUIRED`` when there is none, and ``_INVALID`` when the
+                type refused it.
+            read_by_hook: Whether a hook reads the input when the graph is compiled, so its value must be known then.
+        """
+        if entry is None:
+            if value is REQUIRED and not read_by_hook:  # an input a hook reads gets hook_needs_value instead
+                self.problems.append(compile_problems.input_has_no_value(node_id, field.name))
+                return MissingInput(field)
+            return _constant_input(field, value)
+        if entry.sources is not MISSING:
+            if sources is None:
+                return MissingInput(field)
+            collects, expected = _collects_and_expected_type(field, sources)
+            return _edge_input(field, sources, collects=collects) if self._edges_fit(node_id, field, expected, sources) else MissingInput(field)
+        if entry.graph_input is not MISSING:
+            if read_by_hook:  # a hook reads it before any caller gives it
+                self.problems.append(compile_problems.hook_needs_value(node_id, field.name))
+                return MissingInput(field)
+            return self._graph_input(node_id, field, entry.graph_input, value)  # with REQUIRED, the caller must give one
+        return _constant_input(field, value)
+
+    def _inputs_not_nested(self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]) -> set[str]:
+        """Finds the inputs whose loops are not the outermost of the node's ``loops``, and adds a problem for each
+        (``series_not_nested``): the items of two different lists are never paired. Where one of the lists is
+        returned inside a subgraph, no edge of this graph can change that, and the problem says so.
+
+        Returns:
+            The names of the inputs with a problem.
+        """
+        refused: set[str] = set()
+        for name, node_input in inputs.items():
+            if loops[: len(node_input.loops)] == node_input.loops:
+                continue
+            series = [loops[-1], node_input.loops[-1]]
+            reading = next(n for n, other in inputs.items() if other.loops == loops)
+            subgraphs = list(dict.fromkeys(node[0] for node, _ in series if isinstance(self.nodes[node[0]], CompiledSubgraphNode)))
+            if subgraphs:
+                self.problems.append(compile_problems.loops_not_nested_inside_subgraph(
+                    node_id, series=[place_text(*s) for s in series], inputs=[reading, name], subgraphs=subgraphs,
+                ))
+            else:
+                self.problems.append(compile_problems.series_not_nested(node_id, series=[place_text(*s) for s in series], inputs=[reading, name]))
+            refused.add(name)
+        return refused
 
     def _graph_input(self, node_id: str, field: Field, name: str, default: Any) -> GraphInput | MissingInput:
         """Returns the compiled input of the input ``field`` of ``node_id``, whose value the caller gives as the graph
@@ -564,9 +580,7 @@ class Compiler:
         """The branches that must be chosen for the output ``edge`` reads to have a value."""
         return self.nodes[edge.wired_to.node].branches_required_for(edge.wired_to.output)
 
-    def _inputs_with_conflicting_edges(
-        self, node_id: str, fields: Mapping[str, Field], readable: Mapping[str, list[Edge]], collecting: set[str],
-    ) -> set[str]:
+    def _inputs_with_conflicting_edges(self, node_id: str, inputs: Mapping[str, Input]) -> set[str]:
         """Finds the inputs whose edges cannot be read together, and adds a problem for each.
 
         Several edges into one input must be alternatives: each pair must need different outputs of one exclusive
@@ -580,15 +594,14 @@ class Compiler:
 
         Args:
             node_id: The node.
-            fields: The node's inputs, by name.
-            readable: What the edges into each input read, for the inputs whose edges can be read, by name.
-            collecting: The inputs among them whose type takes a list of what their edges read.
+            inputs: The compiled input of each input of the node, by name.
 
         Returns:
             The names of the inputs with a problem.
         """
         refused: set[str] = set()
-        for name, sources in readable.items():
+        for name, node_input in inputs.items():
+            sources = node_input.sources
             branches = [self._branches_required_for(s) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(_never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1:]):
@@ -599,8 +612,8 @@ class Compiler:
                 self.problems.append(compile_problems.alternatives_from_different_loops(node_id, name, series=series))
                 refused.add(name)
         aligned = [  # the collecting inputs whose edges come from inside a loop
-            (name, [self._branches_required_for(s) for s in sources]) for name, sources in readable.items()
-            if name in collecting and any(s.loops_of_value for s in sources) and not fields[name].accepts_none_items and name not in refused
+            (name, [self._branches_required_for(s) for s in node_input.sources]) for name, node_input in inputs.items()
+            if isinstance(node_input, CollectingInput) and not node_input.field.accepts_none_items and name not in refused
         ]
         for i, (a, branches_a) in enumerate(aligned):
             for b, branches_b in aligned[i + 1:]:
@@ -650,30 +663,40 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     return collects, field.whole if not collects else field.type if record is None else record
 
 
-def _edge_input(
-    field: Field, sources: list[Edge], deepest: tuple[tuple[NodePath, str], ...], loops: tuple[tuple[NodePath, str], ...], *, collects: bool,
-) -> EdgeInput | CollectingInput:
-    """Returns the compiled input of an input whose edges read ``sources``, for a node inside ``loops``.
+def _edge_input(field: Field, sources: list[Edge], *, collects: bool) -> EdgeInput | CollectingInput:
+    """Returns the compiled input of an input whose edges read ``sources``, as if its node were inside no loop but
+    those its edges put it in (``_input_inside`` makes the input of a node inside more).
 
     In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what
     ``shout`` returned per line, so ``join`` is outside the loop over ``lines.result``. Wired to an output of a
-    node inside no loop, ``join.texts`` gets that one value as a list of one. So does a collecting input whose node
-    another input already puts inside the loop it would collect: each call then has one value of that loop, its
-    own item's.
+    node inside no loop, ``join.texts`` gets that one value as a list of one.
 
     Args:
         field: The input.
-        sources: What its edges read; all are inside the same loops.
-        deepest: The loops a node must be inside to read one value of a source: those of the source with the most.
-        loops: The loops the node is inside.
+        sources: What its edges read. The edges of an input that is kept are all inside the same loops: one whose
+            edges are not has the problem ``alternatives_from_different_loops``, so the first edge's loops stand for
+            all of them.
         collects: Whether the input's type takes a list of what the edges read (a ``Series``, or a ``Table`` of
             records), rather than one value of it.
     """
+    loops = sources[0].loops_of_value  # the loops a node must be inside to read one value
     if not collects:
-        return EdgeInput(field, tuple(sources), deepest)
-    if deepest == loops[: len(deepest)] and not any(s.per_item for s in sources):
-        return EdgeInput(field, tuple(sources), deepest, as_list=True)
-    return CollectingInput(field, deepest[-1], deepest[:-1], tuple(sources))
+        return EdgeInput(field, tuple(sources), loops)
+    if not loops:
+        return EdgeInput(field, tuple(sources), loops, as_list=True)
+    return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
+
+
+def _input_inside(node_input: Input, loops: tuple[tuple[NodePath, str], ...]) -> Input:
+    """Returns ``node_input`` as the input of a node inside ``loops``. A collecting input whose node another input
+    already puts inside the loop it would collect gets one value of that loop per call, its own item's, as a list of
+    one; every other input is returned as it is."""
+    if not isinstance(node_input, CollectingInput):
+        return node_input
+    loops_of_value = (*node_input.loops, node_input.series)
+    if loops_of_value != loops[: len(loops_of_value)] or any(source.per_item for source in node_input.sources):
+        return node_input
+    return EdgeInput(node_input.field, node_input.sources, loops_of_value, as_list=True)
 
 
 def _bound(fields: Mapping[str, Field], sources: Mapping[str, list[Edge] | None]) -> dict[TypeVar, Any]:
@@ -749,8 +772,8 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
 
 
 def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:
-    """Returns the compiled input of an input with a constant: ``ConstantInput``, or ``MissingInput`` when the input's type
-    rejected the constant."""
+    """Returns the compiled input of an input that gets ``value`` on every call: the record's constant, or the default
+    its node declares. ``ConstantInput``, or ``MissingInput`` when the input's type refused the value (``_INVALID``)."""
     return MissingInput(field) if value is _INVALID else ConstantInput(field, value)
 
 

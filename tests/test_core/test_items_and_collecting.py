@@ -1224,6 +1224,17 @@ def test_collecting_inputs_downstream_of_opposite_branches_per_item_are_a_proble
                     registry=registry_of(split, parity, upper, two_series)) == ["lists_from_different_loops"]
 
 
+@node("item-and-two-series", title="Item and two series", description="For a test.")
+def item_and_two_series(item: str, a: Series[str], b: Series[str]) -> str:
+    return item
+
+
+def test_two_lists_on_opposite_branches_are_a_problem_also_when_another_input_puts_the_node_inside_their_loop():
+    assert problems({"id": "n", "node": "split"}, {"id": "r", "node": "parity"}, {"id": "c", "node": "item-and-two-series"},
+                    edges=(("n.result", "r.n"), ("n.result", "c.item"), ("r.yes", "c.a"), ("r.no", "c.b")),
+                    registry=registry_of(split, parity, item_and_two_series)) == ["lists_from_different_loops"]
+
+
 def test_a_decision_per_document_read_by_nodes_per_line_still_keeps_two_branches_apart():
     assert problems({"id": "s", "node": "split", "constants": {"sep": "|"}}, {"id": "d", "node": "parity"}, {"id": "sp", "node": "split"},
                     {"id": "ua", "node": "pair"}, {"id": "ub", "node": "pair"}, {"id": "z", "node": "two-series"},
