@@ -13,7 +13,7 @@ from pydantic_core import CoreSchema
 
 from conductor._internal.types import Type
 
-from .read import table_schema
+from .read import as_saved, table_schema
 from .write import (
     table_digest,
     written_table,
@@ -93,8 +93,13 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     @staticmethod
     def untyped_as_json(value: Any) -> Any:
-        """Returns the JSON form of a frame found where no type is declared, such as inside an ``Any``."""
-        return written_table(value)
+        """Returns the JSON form of a frame found where no type is declared, such as inside an ``Any`` or a person's
+        answer given from Python, with its columns as a run keeps them.
+
+        Raises:
+            PydanticCustomError: A column would read back from its JSON changed (``column_not_saved``).
+        """
+        return written_table(as_saved(value))
 
     @staticmethod
     def untyped_to_hash(value: Any) -> Any:

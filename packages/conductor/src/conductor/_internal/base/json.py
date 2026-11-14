@@ -7,11 +7,18 @@ pydantic validates its JSON text.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from typing import Any, Final
 
 from pydantic import JsonValue, TypeAdapter
-from pydantic_core import SchemaValidator, from_json, to_json
+from pydantic_core import (
+    PydanticCustomError,
+    PydanticSerializationError,
+    SchemaValidator,
+    from_json,
+    to_json,
+)
 
 #: How all JSON conductor writes holds ``inf``, ``-inf`` and ``nan``, which JSON has no number for: as the texts
 #: ``"Infinity"``, ``"-Infinity"`` and ``"NaN"``. A ``float`` reads each back as the float; a ``str`` keeps the text.
@@ -51,11 +58,28 @@ def validate_as_json(validator: SchemaValidator | TypeAdapter[Any], value: Any, 
     Args:
         validator: Pydantic's validator of the type.
         value: The value to validate.
-        fallback: Called for a value pydantic cannot write as JSON; it returns what to write in its place.
+        fallback: Called for a value pydantic cannot write as JSON; it returns what to write in its place, or raises
+            ``PydanticCustomError`` to refuse the value, which is raised from here as it is.
 
     Raises:
         PydanticSerializationError: The value has no JSON form, and ``fallback`` gave none.
+        PydanticCustomError: ``fallback`` refused the value.
         ValidationError: The type refuses the value.
     """
-    return validator.validate_json(to_json(value, inf_nan_mode="constants", fallback=fallback), strict=True)
+    refused: list[PydanticCustomError] = []
+
+    def written(part: Any, write: Callable[[Any], Any]) -> Any:
+        try:
+            return write(part)
+        except PydanticCustomError as refusal:  # to_json would turn it into a PydanticSerializationError
+            refused.append(refusal)
+            raise
+
+    try:
+        text = to_json(value, inf_nan_mode="constants", fallback=None if fallback is None else functools.partial(written, write=fallback))
+    except PydanticSerializationError:
+        if refused:
+            raise refused[0] from None
+        raise
+    return validator.validate_json(text, strict=True)
 

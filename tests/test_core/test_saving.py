@@ -15,6 +15,7 @@ import os
 import struct
 import subprocess
 import sys
+import time
 from decimal import Decimal
 from typing import Any, Literal, TypedDict
 
@@ -39,7 +40,7 @@ from conductor import (
 )
 from conductor._internal.run import Run
 from conductor._internal.run.outcome import Done, NoneInput, Skipped, Unanswered
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
@@ -381,6 +382,279 @@ def test_a_table_with_no_row_type_keeps_its_list_struct_time_and_decimal_columns
     assert read_back.to_dict(as_series=False) == columns and read_back.schema == run.results["bare"]["result"].schema
 
 
+@pytest.mark.parametrize(("column", "kept_as"), [
+    (pl.Series([1, -2], dtype=pl.Int32), pl.Int64),
+    (pl.Series([1, 2], dtype=pl.UInt32), pl.Int64),
+    (pl.Series([2**63 - 1], dtype=pl.UInt64), pl.Int64),
+    (pl.Series([1.5, None], dtype=pl.Float32), pl.Float64),
+    (pl.Series(["x", "y"], dtype=pl.Categorical), pl.String),
+    (pl.Series(["x"], dtype=pl.Enum(["x", "y"])), pl.String),
+    (pl.Series([dt.datetime(2026, 1, 1, 12, 30)], dtype=pl.Datetime("ms")), pl.Datetime("us")),
+    (pl.Series([dt.datetime(2026, 1, 1, 12, 30)], dtype=pl.Datetime("ms")).dt.replace_time_zone("UTC"), pl.Datetime("us", "UTC")),
+    (pl.Series([dt.timedelta(seconds=90)], dtype=pl.Duration("ms")), pl.Duration("us")),
+    (pl.Series([dt.datetime(2026, 1, 1, 12, 30, 0, 5)], dtype=pl.Datetime("ns")), pl.Datetime("us")),
+    (pl.Series([dt.datetime(2026, 1, 1, 12, 30, 0, 5)], dtype=pl.Datetime("ns")).dt.replace_time_zone("UTC"), pl.Datetime("us", "UTC")),
+    (pl.Series([dt.timedelta(microseconds=5)], dtype=pl.Duration("ns")), pl.Duration("us")),
+    (pl.Series([["x"]], dtype=pl.List(pl.Enum(["x"]))), pl.List(pl.String)),
+    (pl.Series([Decimal("1.50")], dtype=pl.Decimal(10, 2)), pl.Decimal(38, 2)),
+    (pl.Series([[1, 2]], dtype=pl.List(pl.Int32)), pl.List(pl.Int64)),
+    (pl.Series([[1, 2]], dtype=pl.Array(pl.Int64, 2)), pl.List(pl.Int64)),
+    (pl.Series([{"n": 1, "tag": "a"}], dtype=pl.Struct({"n": pl.Int16, "tag": pl.Categorical})), pl.Struct({"n": pl.Int64, "tag": pl.String})),
+])
+def test_a_returned_table_column_is_kept_as_the_type_a_saved_run_reads_it_back_as_when_no_cell_changes(column: pl.Series, kept_as: Any):
+    received: list[pl.DataFrame] = []
+
+    @node("narrow", title="Narrow", description="For a test.")
+    def narrow(text: str) -> Table:
+        return pl.DataFrame({"a": column})
+
+    @node("take", title="Take", description="For a test.")
+    def take(rows: Table) -> int:
+        received.append(rows)
+        return rows.height
+
+    graph = Graph.compile(make_graph(narrow, take, edges=[("narrow.result", "take.rows")]), registry_of(narrow, take))
+    run = graph.run(text="x")
+    kept, read_back = run.results["narrow"]["result"], _round_trip(run).results["narrow"]["result"]
+
+    assert kept.schema == read_back.schema == received[0].schema == {"a": kept_as}
+    assert read_back.to_dicts() == kept.to_dicts() == pl.DataFrame({"a": column}).to_dicts()
+
+
+@pytest.mark.parametrize(("column", "saved_as"), [
+    (pl.Series([dt.datetime(2026, 1, 1)]).dt.replace_time_zone("Europe/Copenhagen"), "Datetime(time_unit='us', time_zone='UTC')"),
+    (pl.Series([[dt.date(2026, 1, 1)]]), "List(String)"),
+    (pl.Series([[Decimal("1.5")]], dtype=pl.List(pl.Decimal(10, 1))), "List(String)"),
+    (pl.Series([{"amount": Decimal("1.5")}], dtype=pl.Struct({"amount": pl.Decimal(10, 1)})), "Struct({'amount': String})"),
+    (pl.Series([b"ab"]), "String"),
+])
+def test_a_returned_table_column_a_saved_run_reads_back_changed_is_refused(column: pl.Series, saved_as: str):
+    @node("odd", title="Odd", description="For a test.")
+    def odd(text: str) -> Table:
+        return pl.DataFrame({"a": column})
+
+    run = Graph.compile(make_graph(odd), registry_of(odd)).run(text="x")
+
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("odd",))
+    assert f"column 'a' is {column.dtype}, which a saved run reads back as {saved_as}; cast it to {saved_as}" in run.cause.msg
+
+
+class _Count(TypedDict):
+    count: int
+
+
+class _Clock(TypedDict):
+    count: dt.time
+
+
+_NANOSECOND = pl.Series([1], dtype=pl.Int64)  # one nanosecond: Python's time, datetime and timedelta hold microseconds
+
+
+class _Moment(TypedDict):
+    count: dt.datetime
+
+
+class _Span(TypedDict):
+    count: dt.timedelta
+
+
+class _Numbers(TypedDict):
+    count: list[float]
+
+
+@pytest.mark.parametrize(("column", "row", "fault"), [
+    (pl.Series([2**64 - 1], dtype=pl.UInt64), _Count, "has a whole number past the largest Int64"),
+    (_NANOSECOND.cast(pl.Time), _Clock, "has a time finer than a microsecond"),
+    (_NANOSECOND.cast(pl.Datetime("ns")), _Moment, "has a time finer than a microsecond"),
+    (_NANOSECOND.cast(pl.Duration("ns")), _Span, "has a time finer than a microsecond"),
+    (pl.Series([2**62], dtype=pl.Int64).cast(pl.Datetime("ms")), _Moment, "has a time too far out to be held in microseconds"),
+    (pl.Series([[1.5, math.nan]]), _Numbers, "has a float that is not finite inside a list or struct"),
+    (pl.Series([[math.inf]]), _Numbers, "has a float that is not finite inside a list or struct"),
+])
+def test_a_returned_table_cell_a_saved_run_reads_back_otherwise_is_refused(column: pl.Series, row: Any, fault: str):
+    @node("any-columns", title="Any columns", description="For a test.")
+    def any_columns(text: str) -> Table:
+        return pl.DataFrame({"count": column})
+
+    @node("declared-columns", title="Declared columns", description="For a test.")
+    def declared_columns(text: str) -> Table[row]:  # type: ignore[valid-type]  # the row type is a parameter of the test
+        return pl.DataFrame({"count": column})
+
+    for returns in (any_columns, declared_columns):
+        run = Graph.compile(make_graph(returns), registry_of(returns)).run(text="x")
+
+        assert (run.cause.type, run.cause.loc) == ("invalid_output", (returns.id,))
+        assert f"column 'count' {fault}" in run.cause.msg or f"column 'count' is {column.dtype} and {fault}" in run.cause.msg
+
+
+def test_a_struct_column_with_a_float_that_is_not_finite_is_refused_and_a_whole_number_past_int64_inside_a_list_too():
+    @node("rows", title="Rows", description="For a test.")
+    def rows(text: str) -> Table:
+        return pl.DataFrame({"point": [{"x": 1.5}, {"x": math.nan}]}) if text == "nan" else pl.DataFrame({"big": pl.Series([[2**64 - 1]], dtype=pl.List(pl.UInt64))})
+
+    graph = Graph.compile(make_graph(rows), registry_of(rows))
+
+    assert "column 'point' has a float that is not finite inside a list or struct" in graph.run(text="nan").cause.msg
+    assert "column 'big' is List(UInt64) and has a whole number past the largest Int64" in graph.run(text="big").cause.msg
+
+
+def test_a_frame_given_as_a_graph_input_is_kept_as_a_saved_run_reads_it_back():
+    @node("rows", title="Rows", description="For a test.")
+    def rows(table: Table) -> Table:
+        return table
+
+    graph = Graph.compile(make_graph(rows), registry_of(rows))
+
+    run = graph.run(table=pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)}))
+    assert run.results["rows"]["result"].schema == {"a": pl.Int64}
+
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(table=pl.DataFrame({"a": pl.Series([dt.datetime(2026, 1, 1)]).dt.replace_time_zone("Europe/Copenhagen")}))
+    (problem,) = refused.value.problems
+    assert problem.type == "invalid_input" and "column 'a' is Datetime(time_unit='us', time_zone='Europe/Copenhagen')" in problem.msg
+
+
+@pytest.mark.parametrize(("records", "read"), [
+    ([{"a": 1}, {"a": 2.5}], {"a": [1.0, 2.5]}),
+    ([{"a": 1}, {"a": "x"}], {"a": ["1", "x"]}),
+    ([{"a": [1]}, {"a": [1.5]}], {"a": [[1.0], [1.5]]}),
+    ([{"a": {"x": 1}}, {"a": {"y": 2}}], {"a": [{"x": 1, "y": None}, {"x": None, "y": 2}]}),
+])
+def test_records_given_for_a_table_are_read_as_polars_reads_rows_one_type_per_column(records: list[dict[str, Any]], read: dict[str, Any]):
+    @node("rows", title="Rows", description="For a test.")
+    def rows(table: Table) -> Table:
+        return table
+
+    run = Graph.compile(make_graph(rows), registry_of(rows)).run(table=records)
+
+    assert run.results["rows"]["result"].to_dict(as_series=False) == _round_trip(run).results["rows"]["result"].to_dict(as_series=False) == read
+
+
+@pytest.mark.parametrize("column", [
+    pl.Series([[{"y": None}], [{"y": 5}]], dtype=pl.List(pl.Struct({"y": pl.Int64}))),
+    pl.Series([[[]], [[5]]], dtype=pl.List(pl.List(pl.Int64))),
+])
+def test_a_nested_column_whose_first_cells_hold_less_reads_back_as_it_is(column: pl.Series):
+    @node("nested", title="Nested", description="For a test.")
+    def nested(text: str) -> Table:
+        return pl.DataFrame({"a": column})
+
+    run = Graph.compile(make_graph(nested), registry_of(nested)).run(text="x")
+    read_back = _round_trip(run).results["nested"]["result"]
+
+    assert read_back.schema == {"a": column.dtype} and read_back["a"].to_list() == column.to_list()
+
+
+@pytest.mark.parametrize(("values", "read"), [
+    ([[1], [1.5]], [[1.0], [1.5]]),
+    ([{"x": 1}, {"y": 2}], [{"x": 1, "y": None}, {"x": None, "y": 2}]),
+])
+def test_a_table_given_in_its_json_form_reads_a_json_column_as_its_cells_say(values: list[Any], read: list[Any]):
+    @node("rows", title="Rows", description="For a test.")
+    def rows(table: Table) -> Table:
+        return table
+
+    run = Graph.compile(make_graph(rows), registry_of(rows)).run(table={"columns": [{"name": "a", "type": "json", "values": values}]})
+
+    assert run.results["rows"]["result"]["a"].to_list() == read
+
+
+def test_records_given_for_a_table_keep_every_key_of_a_mapping_column():
+    class Counts(TypedDict):
+        m: dict[str, int]
+
+    @node("rows", title="Rows", description="For a test.")
+    def rows(table: Table[Counts]) -> int:
+        return sum(len({key for key, count in (cell or {}).items() if count is not None}) for cell in table["m"].to_list())
+
+    run = Graph.compile(make_graph(rows), registry_of(rows)).run(table=[{"m": {"x": 1}}, {"m": {"y": 2}}])
+
+    assert run.results["rows"]["result"] == 2
+
+
+@pytest.mark.parametrize(("answer", "fault"), [
+    (pl.DataFrame({"a": pl.Series([1], dtype=pl.Int64).cast(pl.Datetime("ns"))}), "column 'a' has a time finer than a microsecond"),
+    (pl.DataFrame({"a": pl.Series([dt.datetime(2026, 1, 1)]).dt.replace_time_zone("Europe/Copenhagen")}), "column 'a' is Datetime(time_unit='us', time_zone='Europe/Copenhagen')"),
+])
+def test_a_table_answer_is_refused_where_a_returned_table_is(answer: pl.DataFrame, fault: str):
+    @node("ask-table", title="Ask table", description="For a test.", asks=True)
+    def ask_table(text: str) -> Table:
+        raise Ask("Which rows?")
+
+    run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run(text="x")
+    (waiting,) = run.waiting
+
+    with pytest.raises(InvalidCallError) as refused:
+        run.answer(waiting.id, answer)
+
+    (problem,) = refused.value.problems
+    assert problem.type == "invalid_answer" and fault in problem.msg
+
+
+def test_a_table_answer_is_kept_as_a_returned_table_is():
+    @node("ask-table", title="Ask table", description="For a test.", asks=True)
+    def ask_table(text: str) -> Table:
+        raise Ask("Which rows?")
+
+    run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run(text="x")
+    (waiting,) = run.waiting
+    answered = run.answer(waiting.id, pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)})).resume()
+
+    assert answered.results["ask-table"]["result"].schema == _round_trip(answered).results["ask-table"]["result"].schema == {"a": pl.Int64}
+
+
+def test_a_series_of_records_returned_as_a_frame_is_kept_as_a_saved_run_reads_it_back():
+    @node("records", title="Records", description="For a test.")
+    def records(text: str) -> Series[_Count]:
+        return pl.DataFrame({"count": pl.Series([1, 2], dtype=pl.Int32)})  # type: ignore[return-value]  # a frame is a Series of records
+
+    run = Graph.compile(make_graph(records), registry_of(records)).run(text="x")
+
+    assert run.results["records"]["result"] == _round_trip(run).results["records"]["result"] == [{"count": 1}, {"count": 2}]
+
+
+def test_a_returned_table_reads_back_with_the_same_column_types_and_cells():
+    columns = {
+        "flag": pl.Series([True, None]), "count": pl.Series([2**63 - 1, None]), "ratio": pl.Series([math.nan, -0.0]),
+        "at": pl.Series([dt.datetime(2026, 1, 1), None]).dt.replace_time_zone("UTC"), "nothing": pl.Series([None, None]),
+        "amount": pl.Series([Decimal("1.50"), Decimal("-2.25")]), "point": pl.Series([{"x": 1}, {"x": None}]),
+    }
+
+    @node("kept", title="Kept", description="For a test.")
+    def kept(text: str) -> Table:
+        return pl.DataFrame(columns)
+
+    run = Graph.compile(make_graph(kept), registry_of(kept)).run(text="x")
+    before, after = run.results["kept"]["result"], _round_trip(run).results["kept"]["result"]
+
+    assert after.schema == before.schema == pl.DataFrame(columns).schema
+    assert str(after.to_dict(as_series=False)) == str(before.to_dict(as_series=False))  # str, so a NaN equals itself
+
+
+@pytest.mark.slow
+def test_reading_a_table_costs_less_than_writing_it():
+    """Whether a table reads back from its JSON is decided by its column types, so the door writes nothing out and
+    only casts the columns it converts: reading a 2,000-row table of ten columns, half of them ``Int32``, costs less
+    than writing it as JSON. A door that wrote each table out and read it back would cost more than the write."""
+    table = pl.DataFrame({f"c{i}": pl.Series(range(2_000), dtype=pl.Int32) if i % 2 else [str(n) for n in range(2_000)] for i in range(10)})
+    tables = TypeAdapter(Table)
+    kept = tables.validate_python(table)
+
+    def fastest(call: Any, times: int) -> float:
+        took = []
+        for _ in range(3):
+            started = time.perf_counter()
+            for _ in range(times):
+                call()
+            took.append(time.perf_counter() - started)
+        return min(took)
+
+    read = fastest(lambda: tables.validate_python(table), 100)
+    written = fastest(lambda: tables.dump_json(kept), 100)
+
+    assert read < written, (read, written)
+
+
 def test_tables_of_two_nodes_read_back_each_as_itself():
     class Name(TypedDict):
         name: str
@@ -479,7 +753,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
     assert (problem.type, problem.ctx["where"]) == ("run_unwritable", "value")
 
 
-def test_saving_a_table_column_json_cannot_write_raises_naming_the_output():
+def test_a_returned_table_column_json_cannot_write_is_refused_naming_the_column():
     class Blob(TypedDict):
         data: bytes
 
@@ -487,14 +761,10 @@ def test_saving_a_table_column_json_cannot_write_raises_naming_the_output():
     def blob(text: str) -> Table[Blob]:
         return pl.DataFrame({"data": [b"\xff\xfe"]})
 
-    run = Graph.compile(GraphRecord.model_validate({"nodes": {"b": {"node": "blob", "inputs": {"text": {"graph_input": "text"}}}}, "outputs": {"result": {"node": "b", "output": "result"}}}), registry_of(blob)).run(text="x")
+    run = Graph.compile(make_graph(blob), registry_of(blob)).run(text="x")
 
-    with pytest.raises(InvalidCallError) as refused:
-        run.to_json()
-
-    (problem,) = refused.value.problems
-    assert problem.type == "run_unwritable" and problem.ctx["where"].startswith("b.result")
-    assert "\\xff" not in json.dumps(problem.model_dump(mode="json"))
+    assert (run.cause.type, run.cause.loc) == ("invalid_output", ("blob",))
+    assert "column 'data' is Binary" in run.cause.msg and "\\xff" not in json.dumps(run.cause.model_dump(mode="json"))
 
 
 # -- a saved run that does not fit its graph is refused ---------------------------------------

@@ -192,7 +192,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
 def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are():
     @_node("small-numbers")
     def small_numbers() -> Table:
-        return pl.DataFrame({"n": pl.Series([1, 2], dtype=pl.Int32), "name": ["a", "b"]})
+        return pl.DataFrame({"n": [1, 2], "name": ["a", "b"]})
 
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
@@ -204,7 +204,7 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
     made = graph.run().results["table-collect"]["result"]
 
     assert [i.field.type for i in graph.describe().nodes["table-collect"].inputs if i.field.name == "records"] == ["Table"]
-    assert made.schema == {"n": pl.Int32, "name": pl.String, "loud": pl.String} and made["loud"].to_list() == ["A", "B"]
+    assert made.schema == {"n": pl.Int64, "name": pl.String, "loud": pl.String} and made["loud"].to_list() == ["A", "B"]
 
 
 def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():

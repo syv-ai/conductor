@@ -157,6 +157,8 @@ def read_as_answer(value_type: Type, value: Any) -> Any:
         return validate_as_json(output_validator_of(value_type), value, fallback=untyped_as_json)
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "the value has no JSON form") from None
+    except PydanticCustomError as refused:  # a frame whose column would read back changed
+        raise PydanticCustomError("not_its_type", refused.message()) from None
     except ValidationError as error:
         raise PydanticCustomError("not_its_type", value_type.refusal(error).reason) from None
 
