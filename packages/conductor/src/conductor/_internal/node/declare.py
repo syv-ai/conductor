@@ -101,7 +101,7 @@ def node(
     tags: list[str] | tuple[str, ...] = (),
     extra: Mapping[str, JsonValue] = MappingProxyType({}),
     docs: str | None = None,
-    policy: Policy | None = None,
+    policy: Policy = Policy(),
     deprecation: Deprecation | None = None,
     compute_added_inputs: Callable[..., Mapping[Any, Any]] | None = None,
     compute_outputs: Callable[..., Mapping[Any, Any]] | None = None,
@@ -147,7 +147,7 @@ def node(
             takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(target).parameters.values())
             if compute_added_inputs is not None and not takes_kwargs:
                 raise NodeDeclarationError(declaration_problems.compute_added_inputs_without_var_keyword())
-            if context is not None and policy is not None and policy.costs_nothing:
+            if policy.costs_nothing and context is not None:
                 raise NodeDeclarationError(declaration_problems.costs_nothing_takes_context(), context.name)
             if compute_added_inputs is None and takes_kwargs:
                 raise NodeDeclarationError(declaration_problems.var_keyword_without_hook())
@@ -160,7 +160,7 @@ def node(
                 function=target, inputs=inputs, outputs=outputs, outputs_dataclass=outputs_dataclass, context=context,
                 id=id, version=number, title=title, description=description,
                 category=category, tags=tuple(tags), extra=MappingProxyType(dict(extra)), docs=docs, deprecation=deprecation,
-                replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy or Policy(),
+                replaces=replaces, upgrade=upgrade or Upgrade(), policy=policy,
                 compute_added_inputs=compute_added_inputs, compute_outputs=compute_outputs, hook_parameters=hook_parameters,
                 asks=asks,
             )
