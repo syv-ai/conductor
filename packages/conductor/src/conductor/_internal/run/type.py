@@ -22,7 +22,7 @@ from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import cache
 from types import MappingProxyType
-from typing import Any, Literal, overload
+from typing import Any, Literal, assert_never, overload
 
 from conductor._internal.base import (
     ConductorModel,
@@ -318,11 +318,16 @@ class Run[C]:
                 problems.extend(refused.problems)
                 continue
             node = self._blueprint.function_nodes.get(nodes)  # None for an id of a subgraph, or of no node
-            found = self._outcomes[nodes].get(item_indexes) if node is not None else None
-            if node is None or type(found) is not Unanswered or outcome_loc(node, item_indexes) != loc:  # the indexes stand after the node of their loop
-                moved_to = self._moved_to(nodes, fingerprint) if fingerprint is not None else None
-                problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status(), moved_to=moved_to))
-                continue
+            outcome = self._outcomes[nodes].get(item_indexes) if node is not None else None
+            match node, outcome:
+                case BlueprintFunctionNode(), Unanswered() as found if outcome_loc(node, item_indexes) == loc:  # the indexes stand after the node of their loop
+                    pass
+                case _, Unanswered() | Done() | Skipped() | NoneInput() | None:
+                    moved_to = self._moved_to(nodes, fingerprint) if fingerprint is not None else None
+                    problems.append(call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status(), moved_to=moved_to))
+                    continue
+                case _:
+                    assert_never(outcome)
             compiled_node = node.compiled_node
             asked = question_fingerprint(compiled_node, received(node, item_indexes, reader))
             if fingerprint is not None and asked != fingerprint:
@@ -356,8 +361,13 @@ class Run[C]:
             return None
         reader = self._reader
         for item_indexes, outcome in self._outcomes[nodes].items():
-            if type(outcome) is Unanswered and question_fingerprint(node.compiled_node, received(node, item_indexes, reader)) == fingerprint:
-                return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
+            match outcome:
+                case Unanswered() if question_fingerprint(node.compiled_node, received(node, item_indexes, reader)) == fingerprint:
+                    return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
+                case Unanswered() | Done() | Skipped() | NoneInput():
+                    pass
+                case _:
+                    assert_never(outcome)
         return None
 
     def with_inputs(self, inputs: Mapping[str, Any] = MappingProxyType({}), /, *, max_items: int | None = None, **by_name: Any) -> Run[C]:
@@ -410,8 +420,13 @@ class Run[C]:
         """Every call waiting for a person, with its node and item indexes, in node then item order."""
         for node in self._blueprint.function_nodes.values():
             for item_indexes, outcome in self._outcomes[node.node_path].items():
-                if type(outcome) is Unanswered:
-                    yield node, item_indexes, outcome
+                match outcome:
+                    case Unanswered():
+                        yield node, item_indexes, outcome
+                    case Done() | Skipped() | NoneInput():
+                        pass
+                    case _:
+                        assert_never(outcome)
 
     @property
     def progress(self) -> RunProgress:
@@ -430,10 +445,17 @@ class Run[C]:
     def not_called(self) -> list[NotCalled]:
         """The calls a node didn't get because an input was blank: which node, which item and which input; those
         inside a subgraph where its node stands."""
-        return [
-            NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input)
-            for node in self._blueprint.function_nodes.values() for item_indexes, outcome in self._outcomes[node.node_path].items() if type(outcome) is NoneInput
-        ]
+        not_called = []
+        for node in self._blueprint.function_nodes.values():
+            for item_indexes, outcome in self._outcomes[node.node_path].items():
+                match outcome:
+                    case NoneInput():
+                        not_called.append(NotCalled(loc=outcome_loc(node, item_indexes), input=outcome.input))
+                    case Done() | Skipped() | Unanswered():
+                        pass
+                    case _:
+                        assert_never(outcome)
+        return not_called
 
     @property
     def results(self) -> dict[str, dict[str, Any]]:

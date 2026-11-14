@@ -163,8 +163,16 @@ class ReusableOutcomes:
             same_arguments = (fingerprint, _outer_items_fingerprint(outcomes, node, item_indexes))
             left = in_item_order.get(same_arguments)
             if left:
-                if any(type(outcome) is Done for outcome in left) and not in_turn():
-                    return NotReady.NOT_ITS_TURN
+                for waiting_or_done in left:
+                    match waiting_or_done:
+                        case Done():  # an answer or the node's own return, taken by the first call in item order
+                            if not in_turn():
+                                return NotReady.NOT_ITS_TURN
+                            break
+                        case Unanswered():
+                            pass
+                        case _:
+                            assert_never(waiting_or_done)
                 outcome = left.pop(0)
                 if not left:  # a node with no outcome left has no entry, so a saved run writes none
                     del in_item_order[same_arguments]

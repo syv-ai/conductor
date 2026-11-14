@@ -7,7 +7,7 @@ which writes itself as text.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, assert_never
 
 import pydantic_core
 from pydantic_core import PydanticSerializationError
@@ -33,11 +33,6 @@ from .type import (
 
 if TYPE_CHECKING:
     from ..type import Run
-
-#: What ``states`` says for an outcome of each class; an outcome of any other class, and a call with no outcome,
-#: is written as ``None``.
-_STATE_OF: Mapping[type, SavedOutcomeState] = {Done: SAVED_DONE, Skipped: SAVED_SKIPPED}
-
 
 def run_to_json(run: Run) -> str:
     r"""Returns the whole run as JSON text.
@@ -135,35 +130,48 @@ def saved_outcomes(saved_class: type[SavedOutcomes], outputs: Mapping[str, Field
         outputs: The outputs of the node, by name.
         outcomes: The outcomes in call-number order; ``None`` for a call with no outcome.
     """
-    classes = set(map(type, outcomes))
-    values_by_output: dict[str, list[Any]] = {}
-    skipped: dict[str, list[int]] = {}
-    skipped_items: dict[str, dict[int, list[int]]] = {}
+    states: list[SavedOutcomeState | None] = []
+    values_by_output: dict[str, list[Any]] = {name: [] for name in outputs}
     questions: dict[int, Unanswered] = {}
     not_called_because: dict[int, str] = {}
-    if Done in classes:
-        values_by_output = {name: [outcome.outputs[name] if type(outcome) is Done else None for outcome in outcomes] for name in outputs}
-        for name, output in outputs.items():
-            values = values_by_output[name]
-            skipped_calls = [call_number for call_number, value in enumerate(values) if value is SKIPPED]
-            if skipped_calls:
-                skipped[name] = skipped_calls
-                for call_number in skipped_calls:
-                    values[call_number] = None
-            if output.is_series:
-                for call_number, series in enumerate(values):
-                    if series is not None:
-                        values[call_number], skipped_indexes = series.for_saving()
-                        if skipped_indexes:
-                            skipped_items.setdefault(name, {})[call_number] = skipped_indexes
-    else:
-        values_by_output = {name: [None] * len(outcomes) for name in outputs}
-    if Unanswered in classes:
-        questions = {call_number: outcome for call_number, outcome in enumerate(outcomes) if type(outcome) is Unanswered}
-    if NoneInput in classes:
-        not_called_because = {call_number: outcome.input for call_number, outcome in enumerate(outcomes) if type(outcome) is NoneInput}
+    for call_number, outcome in enumerate(outcomes):
+        match outcome:
+            case Done():
+                states.append(SAVED_DONE)
+                for name, values in values_by_output.items():
+                    values.append(outcome.outputs[name])
+                continue
+            case Skipped():
+                states.append(SAVED_SKIPPED)
+            case Unanswered():
+                states.append(None)
+                questions[call_number] = outcome
+            case NoneInput():
+                states.append(None)
+                not_called_because[call_number] = outcome.input
+            case None:
+                states.append(None)
+            case _:
+                assert_never(outcome)
+        for values in values_by_output.values():  # only a done call has its outputs saved
+            values.append(None)
+    skipped: dict[str, list[int]] = {}
+    skipped_items: dict[str, dict[int, list[int]]] = {}
+    for name, output in outputs.items():
+        values = values_by_output[name]
+        skipped_calls = [call_number for call_number, value in enumerate(values) if value is SKIPPED]
+        if skipped_calls:
+            skipped[name] = skipped_calls
+            for call_number in skipped_calls:
+                values[call_number] = None
+        if output.is_series:
+            for call_number, series in enumerate(values):
+                if series is not None:
+                    values[call_number], skipped_indexes = series.for_saving()
+                    if skipped_indexes:
+                        skipped_items.setdefault(name, {})[call_number] = skipped_indexes
     return saved_class.model_construct(
-        states=list(map(_STATE_OF.get, map(type, outcomes))), outputs=values_by_output, questions=questions,
+        states=states, outputs=values_by_output, questions=questions,
         not_called_because=not_called_because, skipped=skipped, skipped_items=skipped_items,
     )
 

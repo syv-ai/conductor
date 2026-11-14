@@ -15,13 +15,13 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, assert_never
 
 from pydantic import ConfigDict
 
 from conductor._internal.problem import Problem, run_problems
 
-from .outcome import Unanswered
+from .outcome import Done, NoneInput, Skipped, Unanswered
 from .progress import is_complete
 
 if TYPE_CHECKING:
@@ -67,8 +67,16 @@ def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
         return "complete", None
     if last_resume is not None:
         return last_resume.status, last_resume.cause
-    waiting = any(type(outcome) is Unanswered for of_node in outcomes.values() for outcome in of_node.values())
-    return ("waiting" if waiting else "ready"), None
+    for of_node in outcomes.values():
+        for outcome in of_node.values():
+            match outcome:
+                case Done() | Skipped() | NoneInput():
+                    pass
+                case Unanswered():
+                    return "waiting", None
+                case _:
+                    assert_never(outcome)
+    return "ready", None
 
 
 def kept_by_an_answer(last_resume: LastResume) -> LastResume:

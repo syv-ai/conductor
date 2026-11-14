@@ -19,9 +19,10 @@ uv sync                      # install everything
 uv run pre-commit install    # the commit hooks: notebook outputs, imports, docstrings
 uv run pytest tests/ -q      # the whole suite
 uvx ruff check .             # lint, as CI runs it
+uv run mypy packages         # type-check, as CI runs it
 ```
 
-CI runs ruff and pytest on every PR. Tests marked `slow` time the wall clock and are skipped when `CI` is set.
+CI runs ruff, mypy and pytest on every PR. Tests marked `slow` time the wall clock and are skipped when `CI` is set.
 
 ## Rules
 

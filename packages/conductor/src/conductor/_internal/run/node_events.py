@@ -138,10 +138,16 @@ class NodeEvents:
         An outcome that was not a call (reused, or ``NoneInput``) starts its node as a call does. ``Skipped`` does not.
         """
         self.changed.add(node)
-        if type(outcome) is not Skipped:
-            self.call_starts(node)
-        if type(outcome) is Unanswered:
-            self.emit(NodeWaiting(loc=node.node_path, waiting=waiting_record(node, item_indexes, outcome, self.reader)))
+        match outcome:
+            case Skipped():
+                pass
+            case Done() | NoneInput():
+                self.call_starts(node)
+            case Unanswered():
+                self.call_starts(node)
+                self.emit(NodeWaiting(loc=node.node_path, waiting=waiting_record(node, item_indexes, outcome, self.reader)))
+            case _:
+                assert_never(outcome)
         if node.loops:
             self._progress(node)
 
@@ -173,8 +179,15 @@ class NodeEvents:
             self.complete.add(node)
             if node.loops and node in self.progress_count:
                 self._progress(node, last=True)
-            skipped = sum(_is_skipped(outcome) for outcome in outcomes.values())
-            not_called = sum(type(outcome) is NoneInput for outcome in outcomes.values())
+            skipped = not_called = 0
+            for outcome in outcomes.values():
+                match outcome:
+                    case NoneInput():
+                        not_called += 1
+                    case Done() | Skipped() | Unanswered():
+                        skipped += _is_skipped(outcome)
+                    case _:
+                        assert_never(outcome)
             self.emit(NodeComplete(loc=node.node_path, outcomes=len(outcomes), skipped=skipped, not_called=not_called, reused=self.reused[node]))
             self._complete_subgraphs_around(node, announce=True)
 

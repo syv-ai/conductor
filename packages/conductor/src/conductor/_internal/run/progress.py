@@ -27,12 +27,12 @@ Nothing here is saved or counted as the run goes: every count is read from the r
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, assert_never
 
 from conductor._internal.base import SKIPPED, ConductorModel, ItemIndexes, NodePath, place_text
 
 from .blueprint import BlueprintFunctionNode, BlueprintSubgraphNode
-from .outcome import Outcome, Unanswered
+from .outcome import Done, NoneInput, Outcome, Skipped, Unanswered
 
 if TYPE_CHECKING:
     from .type import Run
@@ -87,7 +87,15 @@ def call_count(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Bluep
         returned.
     """
     of_node = outcomes[node.node_path]
-    waiting = sum(1 for outcome in of_node.values() if type(outcome) is Unanswered)
+    waiting = 0
+    for outcome in of_node.values():
+        match outcome:
+            case Done() | Skipped() | NoneInput():
+                pass
+            case Unanswered():
+                waiting += 1
+            case _:
+                assert_never(outcome)
     calls, final = all_item_indexes(outcomes, node.loops, ())
     known = len(calls)
     return CallCount.model_construct(finished=len(of_node) - waiting, waiting=waiting, known=known, total=known if final else None)
@@ -166,7 +174,17 @@ def is_complete(outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], node: Blue
     """
     calls, every_call_known = all_item_indexes(outcomes, node.loops, ())
     of_node = outcomes[node.node_path]
-    return every_call_known and len(of_node) == len(calls) and all(type(outcome) is not Unanswered for outcome in of_node.values())
+    if not every_call_known or len(of_node) != len(calls):
+        return False
+    for outcome in of_node.values():
+        match outcome:
+            case Done() | Skipped() | NoneInput():
+                pass
+            case Unanswered():
+                return False
+            case _:
+                assert_never(outcome)
+    return True
 
 
 def length(value: Any) -> int:
