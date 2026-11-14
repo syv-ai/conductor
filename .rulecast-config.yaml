@@ -429,7 +429,7 @@ repos:
           - "@conventions/validation.md#validation-is-the-wall"
         examples:
           bad:
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
                 record = GraphRecord.model_validate(data)
               expect: { lines: [1] }
@@ -438,14 +438,14 @@ repos:
                 _NOT_A_BOOL = TypeAdapter(int)
               expect: { lines: [1] }
           good:
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
                 text = record.model_dump_json()
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
                 record = read_record(data)
           baseline:
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               before: |
                 def compile(data):
                     record = GraphRecord.model_validate(data)
@@ -477,20 +477,20 @@ repos:
           - "@conventions/validation.md#text-is-read-once-at-its-door"
         examples:
           bad:
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
                 node, name = target.split(".", 1)
               expect: { lines: [1] }
           good:
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
                 node, output = source.node, source.output
                 words = text.split(" ")
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
                 node, _, name = text.partition(":")
           baseline:
-            - path: packages/conductor/src/conductor/_internal/compiled/compile.py
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
               before: |
                 def read(target):
                     node, name = target.split(".", 1)

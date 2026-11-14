@@ -35,7 +35,7 @@ from conductor._internal.types import Choice, Type
 from .input import Input
 
 if TYPE_CHECKING:
-    from .type import CompiledGraph
+    from .type import Graph
 
 
 class RequiredBranch(NamedTuple):
@@ -208,7 +208,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     """
 
     definition: SubgraphDefinition
-    inner: CompiledGraph
+    inner: Graph[Any]
 
     def loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
         """Returns the loops ``output`` has one value per item of, outermost first: the loops this node is

@@ -38,7 +38,7 @@ from typing import Any, Literal, assert_never
 from typing_extensions import sentinel
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.compiled import Edge, EdgeInput
+from conductor._internal.graph import Edge, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.series import indexes_of_none, without_indexes
 from conductor._internal.types import NoSuchFieldError, field_of

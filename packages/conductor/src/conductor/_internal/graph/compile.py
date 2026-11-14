@@ -7,7 +7,7 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-``compile_graph`` puts the nodes in the order ``lines``, ``shout``, ``join`` and gives every input a compiled input
+``Graph.compile`` puts the nodes in the order ``lines``, ``shout``, ``join`` and gives every input a compiled input
 (``input.py``): ``lines.text`` is a graph input, ``shout.mark`` is the constant ``"!"``, ``shout.line`` reads
 one item of ``lines.result``, and ``join.texts`` collects what ``shout`` returned for every line. ``shout`` is
 inside the loop over ``lines.result``; ``lines`` and ``join`` are inside no loop.
@@ -36,9 +36,9 @@ from __future__ import annotations
 import heapq
 import logging
 import typing
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import MISSING
 from typing_extensions import sentinel
@@ -77,39 +77,9 @@ from .node import (
     CompiledSubgraphNode,
     RequiredBranch,
 )
-from .type import CompiledGraph
+from .type import Definitions, Graph
 
 _logger = logging.getLogger("conductor")
-
-
-class Definitions(Protocol):
-    """The node definitions a graph is compiled against: a ``NodeRegistry``. ``definitions["shout"]`` is the newest
-    version of ``shout``, and a ``KeyError`` for an id it does not have; iterating gives every definition."""
-
-    def __getitem__(self, node_id: str, /) -> NodeDefinition: ...
-
-    def __iter__(self) -> Iterator[NodeDefinition]: ...
-
-
-def compile_graph[GraphT: CompiledGraph](
-    record: GraphRecord | str | bytes | Mapping[str, Any], definitions: Definitions, context_type: type | None, graph_type: type[GraphT],
-) -> GraphT:
-    """Compiles ``record`` and returns it as a ``graph_type``. Every compiled graph a host gets is made here.
-
-    Args:
-        record: The graph record, or its JSON text.
-        definitions: The registry: the newest version of each node definition, looked up by id. An older version a
-            node asks for is found through it.
-        context_type: The class of the run's context, as the registry names it; ``None`` when it names none.
-        graph_type: The class of the graph to return: ``Graph``, the class a host uses.
-
-    Never raises for a wrong graph: the returned graph's ``problems`` say what is wrong.
-
-    Raises:
-        InvalidCallError: ``record`` is not a graph record's shape, as ``read_record`` raises.
-    """
-    return _Compiler(definitions, context_type, (), {}).compile(record, graph_type)
-
 
 
 #: Stands in for a constant or default of the graph record that its input's type rejected, while a node is
@@ -136,18 +106,17 @@ class _InputPlans:
     bound: Mapping[TypeVar, Any] | None
 
 
-class _Compiler:
+class Compiler:
     """Compiles one graph record. It compiles the nodes one at a time, each after the nodes upstream of it, and
-    keeps what it has found so far. A subgraph used as a node is compiled by a ``_Compiler`` of its own.
+    keeps what it has found so far. A subgraph used as a node is compiled by a ``Compiler`` of its own.
 
     Attributes:
-        definitions: The registry: the newest version of each node definition, looked up by id.
-        context_type: The class of the run's context, which each node's ``Context[X]`` is checked against; ``None``
-            when the registry names none.
+        definitions: The registry: the newest version of each node definition, looked up by id, and the class of the
+            run's context (``context_type``), which each node's ``Context[X]`` is checked against.
         inside_subgraphs: The ids of the subgraph definitions whose records contain this record, outermost first.
             A subgraph found among them contains itself.
         compiled_subgraphs: Each subgraph compiled so far, by its id, its version and the subgraphs it is inside.
-            Every compiler of one ``compile_graph`` call shares it, so a subgraph used twice is compiled once.
+            Every compiler of one ``Graph.compile`` call shares it, so a subgraph used twice is compiled once.
         problems: The problems found so far.
         nodes: Each node compiled so far, by id.
         graph_inputs: Each graph input found so far, by name, in the order found: the field the caller gives a
@@ -157,10 +126,10 @@ class _Compiler:
     """
 
     def __init__(
-        self, definitions: Definitions, context_type: type | None, inside_subgraphs: tuple[str, ...],
-        compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], CompiledGraph],
+        self, definitions: Definitions[Any], inside_subgraphs: tuple[str, ...],
+        compiled_subgraphs: dict[tuple[str, int, tuple[str, ...]], Graph[Any]],
     ) -> None:
-        self.definitions, self.context_type = definitions, context_type
+        self.definitions = definitions
         self.inside_subgraphs, self.compiled_subgraphs = inside_subgraphs, compiled_subgraphs
         self.problems: list[Problem] = []
         self.nodes: dict[str, CompiledNode] = {}
@@ -168,8 +137,8 @@ class _Compiler:
         self.record = GraphRecord()
         self.position: dict[str, int] = {}
 
-    def compile[GraphT: CompiledGraph](self, record: GraphRecord | str | bytes | Mapping[str, Any], graph_type: type[GraphT]) -> GraphT:
-        """Returns ``record`` compiled, as a ``graph_type``.
+    def compile(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> Graph[Any]:
+        """Returns ``record`` compiled.
 
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
         could be worked out. A node whose definition is not found, or whose hook failed, is left out.
@@ -187,7 +156,7 @@ class _Compiler:
                     self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
-        return graph_type(self.record, self.problems, self.nodes, self.graph_inputs, self._graph_outputs(), self.context_type)
+        return Graph(self.record, self.problems, self.nodes, self.graph_inputs, self._graph_outputs(), self.definitions.context_type)
 
     def _graph_outputs(self) -> dict[str, Edge]:
         """Returns each graph output the record declares, by name, as what an edge from it reads.
@@ -268,7 +237,7 @@ class _Compiler:
         returns, given the types its edges read. When a hook fails, the node is left out and the graph has the
         problem. Every other node is added, even when some of its inputs have problems.
         """
-        if definition.context is not None and (unfit := definition.context.fit(node_id, self.context_type)) is not None:
+        if definition.context is not None and (unfit := definition.context.fit(node_id, self.definitions.context_type)) is not None:
             self.problems.append(unfit)
         fields = dict(definition.inputs)
         constants = self._constants_of(node_id, record, fields)
@@ -319,7 +288,7 @@ class _Compiler:
         stack = (*self.inside_subgraphs, definition.id)
         key = (definition.id, definition.version, stack)
         if key not in self.compiled_subgraphs:
-            self.compiled_subgraphs[key] = _Compiler(self.definitions, self.context_type, stack, self.compiled_subgraphs).compile(definition.graph, CompiledGraph)
+            self.compiled_subgraphs[key] = Compiler(self.definitions, inside_subgraphs=stack, compiled_subgraphs=self.compiled_subgraphs).compile(definition.graph)
         inner = self.compiled_subgraphs[key]
         if inner.problems:
             self.problems += [inner_problem.model_copy(update={"loc": (node_id, *inner_problem.loc)}) for inner_problem in inner.problems]

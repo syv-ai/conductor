@@ -17,14 +17,15 @@ from typing import TYPE_CHECKING
 
 from conductor._internal.ask import Ask
 from conductor._internal.base import SKIPPED, Source
-from conductor._internal.compiled import (
-    GraphDescription,
-    InputSource,
-)
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
 from conductor._internal.gate import read_json
-from conductor._internal.graph import Graph, make_graph
+from conductor._internal.graph import (
+    Graph,
+    GraphDescription,
+    InputSource,
+    make_graph,
+)
 from conductor._internal.node import (
     Deprecation,
     FunctionDefinition,

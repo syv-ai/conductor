@@ -75,10 +75,8 @@ name = "conductor._internal is in layers"
 type = "layers"
 containers = ["conductor._internal"]
 layers = [
+    "registry | run",
     "graph",
-    "registry",
-    "run",
-    "compiled",
     "node",
     "gate",
     "ask | record",
@@ -88,6 +86,8 @@ layers = [
     "problem",
     "base",
 ]
-# The one import up a layer, an annotation only (under TYPE_CHECKING): a run names the graph it is a run of,
-# Run.graph: Graph, and Graph is the layer on top because it makes runs.
-ignore_imports = ["conductor._internal.run.type -> conductor._internal.graph"]
+# The one import up a layer: a graph starts runs, and a run reads the graph's nodes. graph/type.py may import from
+# run/; it does so inside three methods, never when it loads: Graph.with_inputs (make_run), Graph._blueprint
+# (RunBlueprint) and Graph._codec (codec_of); and under TYPE_CHECKING, for its annotations, Run, RunBlueprint and
+# SavedRun.
+ignore_imports = ["conductor._internal.graph.type -> conductor._internal.run"]

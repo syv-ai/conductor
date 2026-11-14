@@ -53,7 +53,7 @@ from typing import Any, Concatenate, overload
 from pydantic import JsonValue
 
 from conductor._internal.base import comma_separated, plural, qualified_name
-from conductor._internal.compiled import CompiledGraph, compile_graph
+from conductor._internal.graph import Graph
 from conductor._internal.node import (
     FunctionDefinition,
     NodeDefinition,
@@ -299,7 +299,7 @@ class NodeRegistry[C]:
                 pass
         if definition.id not in self._graph_descriptions:
             record = GraphRecord(nodes={"node": NodeRecord(node=definition.id, version=definition.version)})
-            compiled = compile_graph(record, self, self._context_type, CompiledGraph)
+            compiled = Graph.compile(record, self)
             described = compiled.describe().nodes["node"]
             self._graph_descriptions[definition.id] = definition.described_as(
                 inputs=[described_input.field for described_input in described.inputs], outputs=described.outputs,

@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from typing import Any, assert_never
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.compiled import CompiledGraph, Edge, EdgeInput
+from conductor._internal.graph import Edge, EdgeInput, Graph
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
@@ -22,7 +22,7 @@ from .outcome import NotReady, Outcome
 
 
 def results_of(
-    graph: CompiledGraph, blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    graph: Graph[Any], blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """``run.results``: every node's outputs so far, by node id and output name. ``blueprint`` is ``graph``'s blueprint."""
     reader = DisplayReader(outcomes, graph_inputs)
@@ -30,7 +30,7 @@ def results_of(
 
 
 def outputs_of(
-    graph: CompiledGraph, blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
+    graph: Graph[Any], blueprint: RunBlueprint, outcomes: dict[NodePath, dict[ItemIndexes, Outcome]], graph_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
     """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
     it is. ``blueprint`` is ``graph``'s blueprint."""

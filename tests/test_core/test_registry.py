@@ -749,8 +749,8 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(mon
 
     registry.add(subgraph("loud", title="Loud", description="For a test.")(GraphRecord.model_validate({"nodes": {"s": {"node": "shout", "inputs": {"words": {"graph_input": "words"}}}}, "outputs": {"result": {"node": "s", "output": "result"}}})))
     compiled_records = []
-    compile_graph = registry_module.compile_graph
-    monkeypatch.setattr(registry_module, "compile_graph", lambda record, *rest: compiled_records.append(record) or compile_graph(record, *rest))
+    original_compile = Graph.compile
+    monkeypatch.setattr(Graph, "compile", staticmethod(lambda record, *rest: compiled_records.append(record) or original_compile(record, *rest)))
 
     first, second = registry.describe(), registry.describe()
     assert first == second and len(compiled_records) == 1

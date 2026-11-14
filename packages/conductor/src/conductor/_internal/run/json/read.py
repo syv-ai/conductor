@@ -9,18 +9,18 @@ and that a table written once is found where its entry says.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import assert_never
+from typing import Any, assert_never
 
 from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
-from conductor._internal.compiled import (
-    CompiledGraph,
+from conductor._internal.field import Field
+from conductor._internal.gate import output_validator_of
+from conductor._internal.graph import (
+    Graph,
     outputs_when_not_called,
     outputs_when_skipped,
 )
-from conductor._internal.field import Field
-from conductor._internal.gate import output_validator_of
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
 
 from ..blueprint import BlueprintFunctionNode, RunBlueprint
@@ -38,7 +38,7 @@ from .type import (
 )
 
 
-def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: CompiledGraph, blueprint: RunBlueprint, codec: type[SavedRun]) -> R:
+def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Graph[Any], blueprint: RunBlueprint, codec: type[SavedRun]) -> R:
     """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
 
     For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the

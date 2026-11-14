@@ -13,8 +13,8 @@ from typing import Any, Literal, assert_never
 
 from conductor._internal.ask import as_asked
 from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath, json_hash
-from conductor._internal.compiled import CompiledFunctionNode
 from conductor._internal.field import FieldDescription
+from conductor._internal.graph import CompiledFunctionNode
 from conductor._internal.problem import InvalidCallError, call_problems
 
 from .blueprint import BlueprintFunctionNode, outcome_loc

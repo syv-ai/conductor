@@ -1033,20 +1033,20 @@ def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector(monkeypa
     import gc
     import weakref
 
-    from conductor._internal.compiled.compile import _Compiler
+    from conductor._internal.graph.compile import Compiler
 
     @node("upper", title="Upper", description="For a test.")
     def upper(text: str) -> str:
         return text.upper()
 
     compiles: list[object] = []
-    original = _Compiler.compile
+    original = Compiler.compile
 
     def counted(self: Any, *args: Any, **kwargs: Any) -> Any:
         compiles.append(self)
         return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(_Compiler, "compile", counted)
+    monkeypatch.setattr(Compiler, "compile", counted)
     registry = registry_of(upper)
     gc.disable()
     try:

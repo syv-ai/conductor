@@ -20,9 +20,9 @@ from pydantic import Field as PydanticField
 from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import place_text
-from conductor._internal.compiled import CompiledGraph
 from conductor._internal.field import Field
 from conductor._internal.gate import numbers_refuse_bools
+from conductor._internal.graph import Graph
 from conductor._internal.types import Type, union_of
 
 from ..blueprint import RunBlueprint
@@ -203,7 +203,7 @@ def _fields_of(hint: Any) -> dict[str, Any] | None:
     return None
 
 
-def codec_of(graph: CompiledGraph, blueprint: RunBlueprint) -> type[SavedRun]:
+def codec_of(graph: Graph[Any], blueprint: RunBlueprint) -> type[SavedRun]:
     """The model the runs of ``graph`` are read from JSON and written as JSON by. Built the first time one of its runs
     is read or written, and kept by the ``Graph`` (``graph._codec``).
 

@@ -22,7 +22,7 @@ from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import cache
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import Any, Literal, overload
 
 from conductor._internal.base import (
     ConductorModel,
@@ -31,6 +31,7 @@ from conductor._internal.base import (
     NodePath,
 )
 from conductor._internal.gate import read_limits
+from conductor._internal.graph import Graph
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .arguments import ResultReader
@@ -65,9 +66,6 @@ from .waiting import (
     waiting_record,
     write_waiting_id,
 )
-
-if TYPE_CHECKING:
-    from conductor._internal.graph import Graph
 
 
 class NotCalled(ConductorModel):

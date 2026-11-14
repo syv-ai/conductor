@@ -47,20 +47,20 @@ from conductor._internal.base import (
     NodePath,
     place_text,
 )
-from conductor._internal.compiled import (
+from conductor._internal.field import Field
+from conductor._internal.gate import EdgeDoor, demands_more
+from conductor._internal.graph import (
     CollectingInput,
     CompiledFunctionNode,
-    CompiledGraph,
     CompiledSubgraphNode,
     ConstantInput,
     Edge,
     EdgeInput,
+    Graph,
     GraphInput,
     Input,
     MissingInput,
 )
-from conductor._internal.field import Field
-from conductor._internal.gate import EdgeDoor, demands_more
 from conductor._internal.node import Policy
 from conductor._internal.series import Series
 
@@ -297,7 +297,7 @@ class RunBlueprint:
         return sum(node.policy.concurrency for node in self.function_nodes.values() if node.policy.threaded)
 
     @classmethod
-    def of(cls, graph: CompiledGraph) -> RunBlueprint:
+    def of(cls, graph: Graph[Any]) -> RunBlueprint:
         """Returns the blueprint of ``graph``, a graph with no problems."""
         functions: dict[NodePath, BlueprintFunctionNode] = {}
         nodes: dict[NodePath, BlueprintNode] = {}
@@ -309,7 +309,7 @@ class RunBlueprint:
 
 
 def _add_blueprint_nodes(
-    graph: CompiledGraph, parent: BlueprintSubgraphNode | None, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeInput | CollectingArgument] | None,
+    graph: Graph[Any], parent: BlueprintSubgraphNode | None, outer_inputs: Mapping[str, ConstantInput | GraphInput | EdgeInput | CollectingArgument] | None,
     functions: dict[NodePath, BlueprintFunctionNode], nodes: dict[NodePath, BlueprintNode],
 ) -> dict[str, BlueprintNode]:
     """Makes the blueprint nodes of ``graph``, and of each subgraph in it, and adds them to ``functions`` and
