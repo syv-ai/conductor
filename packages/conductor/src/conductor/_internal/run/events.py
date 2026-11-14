@@ -30,21 +30,23 @@ rules explain the order above:
   call, so even ``lines`` is complete only after ``NodeStart(join)``.
 
 Every event is a frozen pydantic model with a ``type`` (``"node_complete"``). ``event.model_dump(mode="json")``
-writes it as JSON, for example to send to a web page, and ``TypeAdapter(Event)`` reads it back.
+writes it as JSON, for example to send to a web page, and ``TypeAdapter(Event).validate_json(text)`` reads it back as
+an equal event. ``RunEnd`` and ``RunCheckpoint`` also give the host the run, as ``event.run``. The run is not part of
+the event: it is not in its JSON, equality leaves it out, and only an event a stream yields has it. So an event read
+back from JSON equals the one the stream yielded, but has no ``run``.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import ConfigDict, Field, InstanceOf
-from pydantic.json_schema import SkipJsonSchema
+from pydantic import ConfigDict, Field, PrivateAttr
 
 from conductor._internal.base import ConductorModel, Loc
 from conductor._internal.problem import Problem
 
 from .progress import CallCount
-from .state import RunStatus, status_of
+from .state import RunStatus
 from .waiting import Waiting
 
 if TYPE_CHECKING:
@@ -58,9 +60,7 @@ class EventBase(ConductorModel):
     ``model_dump`` always writes them: a client generated from the schema can rely on every field being there.
     """
 
-    model_config = ConfigDict(
-        json_schema_serialization_defaults_required=True, arbitrary_types_allowed=True
-    )
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
 
 class _NodeEvent(EventBase):
@@ -217,7 +217,46 @@ class NodeWaiting(_NodeEvent):
     waiting: Waiting
 
 
-class RunEnd(EventBase):
+class _EventWithRun(EventBase):
+    """An event that gives the host the run besides its record: ``RunEnd`` and ``RunCheckpoint``.
+
+    The run is not part of the event: it is not in the event's JSON, equality leaves it out, and only an event a
+    stream yields has it.
+    """
+
+    _run: Run | None = PrivateAttr(default=None)
+
+    @property
+    def run(self) -> Run:
+        """The run, for the host (the program that uses conductor) to keep or save with ``run.to_json()``.
+
+        Raises:
+            AttributeError: The event was read back from JSON or made by hand, so it carries no run.
+        """
+        if self._run is None:
+            raise AttributeError(
+                f"this {type(self).__name__} carries no run: it was read back from JSON or made by hand, "
+                "and only an event a stream yields has the run"
+            )
+        return self._run
+
+    def __eq__(self, other: object) -> bool:
+        """Whether ``other`` is the same kind of event with the same record; the run is left out.
+
+        Any other object is asked in turn, as pydantic does, so ``event == unittest.mock.ANY`` holds.
+        """
+        if type(other) is not type(self):
+            return NotImplemented
+        return self.__dict__ == other.__dict__
+
+
+def with_run[E: _EventWithRun](event: E, run: Run) -> E:
+    """Returns ``event`` with ``run`` as its run: what ``run.stream()`` yields as its ``RunEnd`` or ``RunCheckpoint``."""
+    event._run = run
+    return event
+
+
+class RunEnd(_EventWithRun):
     """The last event of a stream: the run is complete, waiting for a person, or ended early.
 
     It comes after every other event, whatever the status. Its status is never ``running``: a stream stopped with
@@ -228,23 +267,15 @@ class RunEnd(EventBase):
             failed), ``stopped`` (a series had more items than the run's item limit, set with ``run.with_max_items(...)``), ``cancelled`` (the
             stream's ``cancel`` was set) or ``timed_out`` (the stream's ``timeout`` passed).
         cause: The problem that ended the run early. ``None`` when the status is ``complete`` or ``waiting``.
-        run: The run as the stream left it, with all its values, for the host (the program that uses conductor) to
-            keep or save with ``run.to_json()``. It is not written by ``model_dump``.
+        run: The run as the stream left it, with all its values. It is not part of the event's JSON.
     """
 
     type: Literal["run_end"] = "run_end"
     status: RunStatus
     cause: Problem | None = None
-    run: SkipJsonSchema[InstanceOf[Run]] = Field(exclude=True)
-
-    @classmethod
-    def of(cls, run: Run) -> RunEnd:
-        """Returns the ``RunEnd`` of ``run``: its status, and its cause when the run ended early."""
-        status, cause = status_of(run)
-        return cls(status=status, cause=cause, run=run)
 
 
-class RunCheckpoint(EventBase):
+class RunCheckpoint(_EventWithRun):
     """A copy of the run while calls are still being made, for the host to save.
 
     It comes in two cases:
@@ -265,18 +296,22 @@ class RunCheckpoint(EventBase):
     its process dies: ``Run.from_json`` reads the copy back, and ``run.resume()`` makes only the calls that have no
     outcome in it.
 
+    Its JSON is ``{"type": "run_checkpoint"}``: the copy is for the host, not for a web page.
+
     Attributes:
-        run: The copy. Its status is ``running`` while the run goes on, and after ``hand_back``. A copy made as the
-            run stops early has the status it stops with: ``failed``, ``stopped``, ``cancelled`` or ``timed_out``.
-            ``running`` is never saved: read back from ``to_json()``, the copy is what its outcomes say. It is not
-            written by ``model_dump``.
+        run: The copy of the run. Its status is ``running`` while the run goes on, and after ``hand_back``. A copy
+            made as the run stops early has the status it stops with: ``failed``, ``stopped``, ``cancelled`` or
+            ``timed_out``. ``running`` is never saved: read back from ``to_json()``, the copy is what its outcomes
+            say.
     """
 
     type: Literal["run_checkpoint"] = "run_checkpoint"
-    run: SkipJsonSchema[InstanceOf[Run]] = Field(exclude=True)
 
 
-Event = Annotated[
+# Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON. A
+# ``type`` statement, so a JSON schema that uses it names it: a model with a field ``event: Event`` has
+# ``{"$ref": "#/$defs/Event"}``, and FastAPI lists it as the component ``Event``.
+type Event = Annotated[
     RunStart
     | NodeStart
     | NodeProgress
@@ -288,4 +323,3 @@ Event = Annotated[
     | RunEnd,
     Field(discriminator="type"),
 ]
-Event.__doc__ = "Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON."

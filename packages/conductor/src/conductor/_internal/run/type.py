@@ -42,6 +42,7 @@ from .events import (
     RunCheckpoint,
     RunEnd,
     RunStart,
+    with_run,
 )
 from .json import outputs_to_json, run_from_json, run_to_json
 from .node_events import NodeEvents
@@ -278,13 +279,10 @@ class Run[C]:
                 listener = emit
 
                 def checkpoint(stopped: LastResume) -> None:
-                    listener(
-                        RunCheckpoint(
-                            run=dataclasses.replace(
-                                run._copy(), _last_resume="running" if stopped is None else stopped
-                            )
-                        )
+                    saved = dataclasses.replace(
+                        run._copy(), _last_resume="running" if stopped is None else stopped
                     )
+                    listener(with_run(RunCheckpoint(), saved))
 
         blueprint = self._blueprint
         nodes = blueprint.function_nodes
@@ -329,7 +327,11 @@ class Run[C]:
             )
         # a run handed back is still running: it did not end, and the host stores it to go on elsewhere
         if emit is not None:
-            emit(RunCheckpoint(run=run) if stopped == "running" else RunEnd.of(run))
+            if stopped == "running":
+                emit(with_run(RunCheckpoint(), run))
+            else:
+                status, cause = status_of(run)
+                emit(with_run(RunEnd(status=status, cause=cause), run))
         return run
 
     @overload
@@ -667,10 +669,6 @@ class Run[C]:
             _outcomes={name: dict(held) for name, held in self._outcomes.items()},
             _reusable=self._reusable.copy(),
         )
-
-
-RunEnd.model_rebuild(_types_namespace={"Run": Run})
-RunCheckpoint.model_rebuild(_types_namespace={"Run": Run})
 
 
 def _only_costs_nothing(

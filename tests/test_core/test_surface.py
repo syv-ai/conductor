@@ -21,6 +21,7 @@ from ast import Import, ImportFrom
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
+from unittest.mock import ANY
 
 import conductor
 import polars as pl
@@ -54,7 +55,7 @@ from conductor.events import (
     RunEnd,
     RunStart,
 )
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 PACKAGES = Path(__file__).resolve().parents[2] / "packages"
 LIBRARY = Path(conductor.__file__).parent
@@ -445,7 +446,8 @@ def _strict(document: str | bytes) -> Any:
 
 
 def _streamed_events() -> list[Any]:
-    """The events of a real run whose output is a frame with NaN and a float that is not finite."""
+    """The events of a real run whose output is a frame with NaN and a float that is not finite, with a checkpoint
+    after each call."""
     registry = NodeRegistry()
 
     @registry.node("frame", title="Frame", description="For a test.")
@@ -474,7 +476,10 @@ def _streamed_events() -> list[Any]:
 
     async def stream() -> list[Any]:
         return [
-            event async for event in graph.with_inputs({"f_x": math.nan, "s_x": math.inf}).stream()
+            event
+            async for event in graph.with_inputs({"f_x": math.nan, "s_x": math.inf}).stream(
+                checkpoint_every=1e-9
+            )
         ]
 
     return asyncio.run(stream())
@@ -506,7 +511,12 @@ def _every_event() -> list[Any]:
         NodeFailed(loc=("n",), cause=cause),
         NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),
         NodeWaiting(loc=("n",), waiting=waiting),
-        RunCheckpoint(run=streamed[-1].run),
+        RunCheckpoint(),
+        RunEnd(status="failed", cause=cause),
+        RunEnd(
+            status="stopped",
+            cause=Problem(type="item_limit", msg="m", loc=("n",), ctx={"items": 3, "max_items": 2}),
+        ),
     ]
     return [*streamed, *built]
 
@@ -532,8 +542,45 @@ def test_every_event_writes_itself_as_json_and_a_strict_parser_reads_it(event):
 
     assert document == _strict(TypeAdapter(Event).dump_json(event))
     assert document == _strict(json.dumps(event.model_dump(mode="json"), allow_nan=False))
-    if not isinstance(event, (RunEnd, RunCheckpoint)):  # their run stays out of what they write
-        assert TypeAdapter(Event).validate_json(event.model_dump_json()).type == event.type
+
+
+@pytest.mark.parametrize("event", _every_event(), ids=lambda event: event.type)
+def test_every_event_reads_back_from_its_json_as_an_equal_event(event):
+    assert TypeAdapter(Event).validate_json(event.model_dump_json()) == event
+
+
+def test_an_event_that_hands_over_the_run_equals_one_with_the_same_record_and_no_run():
+    streamed = _streamed_events()
+    checkpoint = next(event for event in streamed if isinstance(event, RunCheckpoint))
+
+    assert checkpoint.run.status == "running" and streamed[-1].run.status == "complete"
+    assert checkpoint == RunCheckpoint()
+    assert streamed[-1] == RunEnd(status="complete")
+    assert len({streamed[-1], RunEnd(status="complete")}) == 1
+
+
+def test_every_streamed_event_equals_mock_any():
+    streamed = _streamed_events()
+
+    assert {type(event) for event in streamed} >= {RunCheckpoint, RunEnd}
+    assert streamed == [ANY] * len(streamed)
+
+
+def test_an_event_read_back_from_json_says_it_carries_no_run():
+    read_back = TypeAdapter(Event).validate_json(_streamed_events()[-1].model_dump_json())
+
+    with pytest.raises(AttributeError, match="carries no run: it was read back from JSON"):
+        read_back.run
+
+
+def test_a_model_with_an_event_field_names_the_union_event_in_its_json_schema():
+    class Message(BaseModel):
+        event: Event
+
+    schema = Message.model_json_schema(mode="serialization")
+
+    assert schema["properties"]["event"] == {"$ref": "#/$defs/Event"}
+    assert schema["$defs"]["Event"]["discriminator"]["propertyName"] == "type"
 
 
 def test_every_event_type_is_covered_above():

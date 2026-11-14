@@ -127,10 +127,7 @@ class Raised(ResumeEnd):
 
     @classmethod
     def because(cls, cause: Problem, held: Outcome) -> Raised:
-        """The end of a resume call that raised.
-
-        The ``run_end`` is made without validation: a ``RunEnd`` requires the run it ended with, which it never
-        writes as JSON, and a call that raised returned none.
+        """The end of a resume call that raised: a ``run_end`` that says ``failed``, with no run, since the call returned none.
 
         Args:
             cause: Why the run failed.
@@ -143,7 +140,7 @@ class Raised(ResumeEnd):
         return cls(
             cause,
             held.model_dump_json(),
-            RunEnd.model_construct(status="failed", cause=cause).model_dump_json(),
+            RunEnd(status="failed", cause=cause).model_dump_json(),
         )
 
     @classmethod
