@@ -16,6 +16,6 @@ validator, both in ``validator.py``.
 
 from .question import as_asked
 from .type import Ask
-from .validator import AnswerValidator, AskValidator, UndeclaredAskValidator
+from .validator import AnswerValidator, AskValidator
 
-__all__ = ["AnswerValidator", "Ask", "AskValidator", "UndeclaredAskValidator", "as_asked"]
+__all__ = ["AnswerValidator", "Ask", "AskValidator", "as_asked"]

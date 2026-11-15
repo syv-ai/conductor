@@ -21,14 +21,10 @@ import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from pydantic import JsonValue
-
-from conductor._internal.ask import Ask, AskValidator, UndeclaredAskValidator
+from conductor._internal.ask import AskValidator
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
-from conductor._internal.types import Choice
-from conductor._internal.validation import Validator
 
 from .input import Input
 
@@ -177,17 +173,15 @@ class CompiledFunctionNode(_CompiledNodeBase):
         }
 
     @functools.cached_property
-    def ask_validator(
-        self,
-    ) -> Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
+    def ask_validator(self) -> AskValidator:
         """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and reads its choices
-        and default by output name; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
-        the node first asks.
+        and default by output name; for a node that may not ask (``definition.asks``), refuses it
+        (``ask_not_declared``). Built when the node first asks.
 
         Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For
         ``pick[T](value: T) -> T``, ``choices=[1, 2]`` fits when ``value`` comes from an ``int`` output and is refused
         when it comes from a ``str`` one."""
-        return AskValidator(self.outputs) if self.definition.asks else UndeclaredAskValidator()
+        return AskValidator(self.outputs, asks=self.definition.asks)
 
 
 @typing.final

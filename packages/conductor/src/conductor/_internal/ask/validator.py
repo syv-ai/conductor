@@ -54,16 +54,18 @@ from .type import Ask
 
 class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]):
     """Checks an ``Ask`` raised for a node against the node's outputs, which its answer fills, and reads its choices
-    and default by output name. Built once per node.
+    and default by output name. Built once per node. A node that does not say it asks (no ``asks=True``) refuses
+    every ``Ask``.
 
     Raises (when called):
-        InvalidCallError: The ``Ask``'s choices or default don't fit the outputs (``invalid_ask``, whose ``reason``
-            says which part, quoting no value).
+        InvalidCallError: The node does not say it asks (``ask_not_declared``), or the ``Ask``'s choices or default
+            don't fit the outputs (``invalid_ask``, whose ``reason`` says which part, quoting no value).
     """
 
-    def __init__(self, outputs: Mapping[str, Field]) -> None:
-        """Builds the validator for a node with ``outputs``, by name."""
+    def __init__(self, outputs: Mapping[str, Field], *, asks: bool) -> None:
+        """Builds the validator for a node with ``outputs``, by name, that says it may ask (``asks``) or not."""
         self._outputs = outputs
+        self._asks = asks
 
     def __call__(self, ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
         """Returns what the ``Ask`` set on each output's question, which the call keeps until it is answered.
@@ -78,6 +80,8 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
         Raises:
             InvalidCallError: See the class.
         """
+        if not self._asks:
+            raise InvalidCallError([run_problems.ask_not_declared()])
         outputs = self._outputs
         choices: dict[str, tuple[Choice, ...]] = {}
         defaults: dict[str, JsonValue] = {}
@@ -133,24 +137,6 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 reason = f"the {argument} names '{name}', which is not an output; the outputs are {comma_separated(outputs)}"
                 raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
         return dict(given)
-
-
-class UndeclaredAskValidator(
-    Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]
-):
-    """The ``Ask`` validator of a node that does not say it asks (no ``asks=True``): it refuses every ``Ask``.
-
-    Raises (when called):
-        InvalidCallError: Always, with ``ask_not_declared``.
-    """
-
-    def __call__(self, ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
-        """Refuses ``ask``.
-
-        Raises:
-            InvalidCallError: Always, with ``ask_not_declared``.
-        """
-        raise InvalidCallError([run_problems.ask_not_declared()])
 
 
 def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) -> JsonValue:
