@@ -359,6 +359,27 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
     }
 
 
+@dataclass(frozen=True)
+class Routed3:
+    long: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+    medium: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+    short: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+
+
+def test_a_return_giving_three_outputs_of_a_group_a_value_names_all_three():
+    run = _returning(Routed3(long="a", medium="b", short="c"), Routed3)
+
+    assert run.cause.type == "invalid_output"
+    assert (
+        run.cause.ctx["reason"]
+        == "'long', 'medium' and 'short' are alternatives of 'length', and all hold a value"
+    )
+    assert (
+        "'long' and 'medium' are alternatives of 'length', and both hold a value"
+        == _returning(Routed3(long="a", medium="b"), Routed3).cause.ctx["reason"]
+    )
+
+
 class Entry(TypedDict):
     item: str
     amount: int

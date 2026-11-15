@@ -922,6 +922,37 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
     )
 
 
+@dataclass(frozen=True)
+class TwoRoutes:
+    keep: Annotated[str, Param(exclusive_group="route")]
+    drop: Annotated[str, Param(exclusive_group="route")]
+    left: Annotated[str, Param(exclusive_group="side")]
+    right: Annotated[str, Param(exclusive_group="side")]
+
+
+def test_an_answer_breaking_two_exclusive_groups_names_both():
+    @node("routes", title="Routes", description="For a test.", asks=True)
+    def routes() -> TwoRoutes:
+        raise Ask("Which way?")
+
+    run = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {"q": {"node": "routes"}},
+                "outputs": {"keep": {"node": "q", "output": "keep"}},
+            }
+        ),
+        registry_of(routes),
+    ).run()
+
+    problems = _refused(lambda: run.answer("q", {"keep": "a", "drop": "b"}))
+
+    assert sorted(problem.ctx["reason"] for problem in problems) == [
+        "answer exactly one of keep, drop",
+        "answer exactly one of left, right",
+    ]
+
+
 # -- picking several -----------------------------------------------------------------------------
 
 

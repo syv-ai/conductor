@@ -138,10 +138,13 @@ def _several_outputs(
         if fault is None:
             return given
         if len(fault.given) > 1:
+            quoted = [f"'{name}'" for name in fault.given]
+            holders = f"{comma_separated(quoted[:-1])} and {quoted[-1]}"
+            holding = "both" if len(quoted) == 2 else "all"
             raise PydanticCustomError(
                 "alternatives_both_given",
-                "'{first}' and '{second}' are alternatives of '{group}', and both hold a value",
-                {"first": fault.given[0], "second": fault.given[1], "group": fault.group},
+                f"{holders} are alternatives of '{fault.group}', and {holding} hold a value",
+                {"given": fault.given, "group": fault.group},
             )
         raise PydanticCustomError(
             "no_alternative_given",
@@ -188,7 +191,7 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
     ctx = first.get("ctx", {})
     if first["type"] == "alternatives_both_given":
         return InvalidCallError(
-            [run_problems.invalid_output(reason=first["msg"], name=ctx["second"])]
+            [run_problems.invalid_output(reason=first["msg"], name=ctx["given"][1])]
         )
     if first["type"] in ("output_missing", "output_unknown"):
         return InvalidCallError(
