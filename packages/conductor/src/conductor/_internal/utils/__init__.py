@@ -1,7 +1,7 @@
-"""Small helpers with no idea of a graph, a node or a run; nothing here imports anything of conductor's.
+"""Small helpers that know nothing about graphs, nodes or runs.
 
-``text.py`` is the English that messages and reprs are written with: ``comma_separated``, ``plural`` and
-``qualified_name``.
+Every other package may use them, so this one imports nothing from the rest of conductor. ``text.py`` has the
+bits of English that conductor's messages are written with.
 """
 
 from .text import comma_separated, plural, qualified_name
