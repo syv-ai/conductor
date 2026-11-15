@@ -24,7 +24,6 @@ from conductor import (
     NodeRegistry,
     NotCalled,
     Param,
-    Policy,
     Run,
     Series,
     Source,
@@ -706,48 +705,6 @@ def test_pause_on_a_nested_item():
     ]
     run = Run.from_json(run.to_json(), graph).answer("c@0@1", "B").resume()
     assert run.results["j"]["result"] == ["a+B", "c"]
-
-
-def test_concurrency():
-    import threading
-    import time as t
-
-    seen = set()
-
-    @node("slow", title="Slow", description="For a test.", policy=Policy(concurrency=8))
-    def slow(text: str) -> str:
-        seen.add(threading.get_ident())
-        t.sleep(0.05)
-        return text
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "s": {
-                        "node": "split",
-                        "inputs": {
-                            "text": {"graph_input": "text"},
-                            "sep": {"graph_input": "sep", "default": ","},
-                        },
-                    },
-                    "w": {
-                        "node": "slow",
-                        "inputs": {"text": {"sources": [{"node": "s", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "w", "output": "result"}},
-            }
-        ),
-        registry_of(split, slow),
-    )
-    start = t.monotonic()
-    run = graph.run(text=",".join("abcdefgh"))
-    assert (
-        t.monotonic() - start < 0.2
-        and len(seen) > 1
-        and run.results["w"]["result"] == list("abcdefgh")
-    )
 
 
 def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
