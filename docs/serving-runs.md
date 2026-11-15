@@ -216,7 +216,7 @@ Answers sent while a run is running are queued and given to the run when it stop
 
 ## When a call is refused
 
-Every refusal has one shape, `{"detail": [{"type", "loc", "msg", "ctx"}, ...]}`, the same as FastAPI's own 422. A missing run, or one the filter hides, is a 404. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md).
+Every refusal has the shape of FastAPI's own 422: `{"detail": [{"type", "loc", "msg", ...}, ...]}`. Each route's OpenAPI entry declares the refusals it can answer with. A missing run, or one the filter hides, is a 404. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md).
 
 The worker has five codes of its own, in `SERVING_PROBLEMS`:
 

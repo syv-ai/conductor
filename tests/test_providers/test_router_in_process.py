@@ -514,24 +514,32 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
         )
         assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
 
+
+def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape() -> None:
     refused = {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}
+    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry()).openapi()
     declared = {
         (verb, path): {
             code: response["content"]
             for code, response in operation["responses"].items()
-            if code in ("404", "409")
+            if code in ("404", "409", "422")
         }
-        for path, verbs in app.openapi()["paths"].items()
+        for path, verbs in schema["paths"].items()
         for verb, operation in verbs.items()
-        if path.startswith("/runs/")
     }
+
+    on_a_run = {"404": refused, "422": refused}
     assert declared == {
-        ("get", "/runs/{run_id}"): {"404": refused},
-        ("get", "/runs/{run_id}/events"): {"404": refused},
-        ("post", "/runs/{run_id}/answers"): {"404": refused, "409": refused},
-        ("post", "/runs/{run_id}/resume"): {"404": refused, "409": refused},
-        ("post", "/runs/{run_id}/again"): {"404": refused},
-        ("post", "/runs/{run_id}/cancel"): {"404": refused},
+        ("get", "/nodes"): {"422": refused},  # FastAPI's own, for the header the metadata reads
+        ("post", "/compile"): {"422": refused},
+        ("post", "/runs"): on_a_run,
+        ("post", "/estimate"): on_a_run,
+        ("get", "/runs/{run_id}"): on_a_run,
+        ("get", "/runs/{run_id}/events"): on_a_run,
+        ("post", "/runs/{run_id}/answers"): on_a_run,
+        ("post", "/runs/{run_id}/resume"): {**on_a_run, "409": refused},
+        ("post", "/runs/{run_id}/again"): on_a_run,
+        ("post", "/runs/{run_id}/cancel"): on_a_run,
     }
 
 

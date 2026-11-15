@@ -17,6 +17,7 @@ from conductor import (
     RunProgress,
 )
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Resume, StartRun, declared
@@ -24,16 +25,38 @@ from conductor_providers.fastapi.problems import STATUS, no_such_run
 from conductor_providers.fastapi.state import M, view_type
 from conductor_providers.fastapi.worker import Worker, X
 
-#: How a route declares a refusal beside its own answer: the 404 of a run that isn't there for the request, and the
-#: 409 of a run in a state that doesn't take the call. Its body is FastAPI's own ``HTTPValidationError``, the shape of
-#: a 422, which a conductor ``Problem`` fits, so a client reads every refusal one way.
+#: A refusal's body: FastAPI's own ``HTTPValidationError``, the shape of a 422, which a conductor ``Problem`` fits, so
+#: a client reads every refusal one way.
 _REFUSED: dict[str, Any] = {
     "content": {
         "application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}
     }
 }
-_NOT_FOUND: dict[int | str, dict[str, Any]] = {404: _REFUSED}
-_NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, Any]] = {404: _REFUSED, 409: _REFUSED}
+
+
+def _declare_refusals(route: APIRoute) -> None:
+    """Declare the refusals a route can answer with, worked out from its shape.
+
+    A route that takes a run id, in its path or as ``previous`` in its body, can answer 404 for a run that isn't
+    there for the request. One whose body is ``Resume`` can answer 409 for a run that didn't end early. One that
+    takes anything at all can answer 422 for what conductor or FastAPI refuses.
+
+    Args:
+        route: The route, whose ``responses`` gain the refusals.
+    """
+    body = (
+        route.openapi_extra["requestBody"]["content"]["application/json"]["schema"]
+        if route.openapi_extra
+        else {}
+    )
+    statuses = set()
+    if "{run_id}" in route.path or "previous" in body.get("properties", {}):
+        statuses.add(404)
+    if route.body_field is not None and route.body_field.field_info.annotation is Resume:
+        statuses.add(409)
+    if route.dependant.path_params or route.body_field is not None or body:
+        statuses.add(422)
+    route.responses = {**route.responses, **dict.fromkeys(sorted(statuses), _REFUSED)}
 
 
 def _body(schema: dict[str, Any]) -> dict[str, Any]:
@@ -154,13 +177,13 @@ def run_router(
             await check_visible(sent.previous, allows)
         return await worker.estimate(sent.graph, sent.inputs, requester, previous=sent.previous)
 
-    @router.get("/runs/{run_id}", response_model=view, responses=_NOT_FOUND)
+    @router.get("/runs/{run_id}", response_model=view)
     async def read_run(run_id: Annotated[str, Depends(visible)]) -> Any:
         """The run as it was when it last stopped running: its status, what waits for a person, its outputs once
         complete, the answers that were refused, and why it ended early if it did."""
         return await worker.read(run_id)
 
-    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse, responses=_NOT_FOUND)
+    @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
     async def follow_run(
         run_id: Annotated[str, Depends(visible)], last_event_id: Annotated[int, Header()] = -1
     ) -> AsyncIterable[ServerSentEvent]:
@@ -173,7 +196,6 @@ def run_router(
         "/runs/{run_id}/answers",
         status_code=202,
         response_model=view,
-        responses=_NOT_FOUND_OR_CONFLICT,
     )
     async def answer_run(
         run_id: Annotated[str, Depends(visible)],
@@ -196,14 +218,13 @@ def run_router(
         "/runs/{run_id}/resume",
         status_code=202,
         response_model=view,
-        responses=_NOT_FOUND_OR_CONFLICT,
     )
     async def resume_run(run_id: Annotated[str, Depends(visible)], body: Resume = Resume()) -> Any:
         """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
         the item limit of a run that stopped at it, and a resume needs no body."""
         return await worker.resume(run_id, body.max_items)
 
-    @router.post("/runs/{run_id}/again", status_code=202, response_model=view, responses=_NOT_FOUND)
+    @router.post("/runs/{run_id}/again", status_code=202, response_model=view)
     async def run_again(
         run_id: Annotated[str, Depends(visible)],
         inputs: Annotated[
@@ -218,7 +239,7 @@ def run_router(
         got before isn't made again."""
         return await worker.again(run_id, inputs, requester)
 
-    @router.post("/runs/{run_id}/cancel", response_model=view, responses=_NOT_FOUND)
+    @router.post("/runs/{run_id}/cancel", response_model=view)
     async def cancel_run(run_id: Annotated[str, Depends(visible)]) -> Any:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``. The calls
         already made are kept, its questions still wait, and an answer or a resume goes on. A waiting run is resumed
@@ -226,4 +247,7 @@ def run_router(
         answered as it is."""
         return await worker.cancel(run_id)
 
+    for route in router.routes:
+        if isinstance(route, APIRoute):
+            _declare_refusals(route)
     return router
