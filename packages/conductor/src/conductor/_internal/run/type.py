@@ -25,6 +25,7 @@ from threading import Event as ThreadEvent
 from types import MappingProxyType
 from typing import Any, Literal, assert_never, overload
 
+from conductor._internal.ask import AnswerValidator
 from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
@@ -427,9 +428,13 @@ class Run[C]:
                 )
                 continue
             try:
-                read = compiled_node.answer_validator(
-                    one, found.choices, found.defaults, loc=loc, waiting_id=waiting_id
-                )
+                read = AnswerValidator(
+                    compiled_node.outputs,
+                    found.choices,
+                    found.defaults,
+                    loc=loc,
+                    waiting_id=waiting_id,
+                )(one)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
                 answered[(node, item_indexes)] = found

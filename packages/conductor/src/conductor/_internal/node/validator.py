@@ -48,13 +48,14 @@ from conductor._internal.problem import (
 )
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import (
+    Validator,
     exact_classes,
     output_schema_of,
     schema_output_validator_of,
 )
 
 
-class ReturnValidator:
+class ReturnValidator(Validator[Any, dict[str, Any]]):
     """Reads what one node's function returned into the node's outputs by name, as a run keeps them.
 
     Built once per compiled node, on the node's first call. Calling it with the returned value gives the outputs.

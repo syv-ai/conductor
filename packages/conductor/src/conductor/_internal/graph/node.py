@@ -18,17 +18,17 @@ import dis
 import functools
 import inspect
 import typing
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pydantic import JsonValue
 
-from conductor._internal.ask import AnswerValidator, Ask, AskValidator, undeclared_ask
+from conductor._internal.ask import Ask, AskValidator, UndeclaredAskValidator
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
 from conductor._internal.types import Choice
+from conductor._internal.validation import Validator
 
 from .input import Input
 
@@ -179,7 +179,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
     @functools.cached_property
     def ask_validator(
         self,
-    ) -> Callable[[Ask], tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
+    ) -> Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
         """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and reads its choices
         and default by output name; for a node that may not ask (``definition.asks``), refuses it (``ask_not_declared``). Built when
         the node first asks.
@@ -187,13 +187,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For
         ``pick[T](value: T) -> T``, ``choices=[1, 2]`` fits when ``value`` comes from an ``int`` output and is refused
         when it comes from a ``str`` one."""
-        return AskValidator(self.outputs) if self.definition.asks else undeclared_ask
-
-    @functools.cached_property
-    def answer_validator(self) -> AnswerValidator:
-        """Reads a person's answer to a waiting call of the node into its outputs: ``{"result": True}`` for
-        ``approve`` answered ``True``. Built when the node is first answered."""
-        return AnswerValidator(self.outputs)
+        return AskValidator(self.outputs) if self.definition.asks else UndeclaredAskValidator()
 
 
 @typing.final

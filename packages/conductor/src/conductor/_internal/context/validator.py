@@ -16,11 +16,12 @@ from typing import Any
 
 from conductor._internal.base import NodePath
 from conductor._internal.problem import InvalidCallError, call_problems
+from conductor._internal.validation import Validator
 
 from .type import ContextParameter
 
 
-class ContextValidator:
+class ContextValidator(Validator[Any, Any]):
     """Checks the ``context=`` of a call that starts or resumes a run of one graph. Built once per graph.
 
     Raises (when called):

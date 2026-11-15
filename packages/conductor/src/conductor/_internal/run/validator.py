@@ -20,7 +20,7 @@ from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import Type
-from conductor._internal.validation import exact_classes, schema_validator_of
+from conductor._internal.validation import Validator, exact_classes, schema_validator_of
 
 
 def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bool) -> bool:
@@ -45,7 +45,7 @@ def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bo
     return not all(field.whole.holds(source) for source in sources)
 
 
-class EdgeValidator:
+class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
     """Reads the arguments of a node's call whose inputs ``demands_more`` chose, each by the input's type.
 
     Built once per node when the graph is compiled. Called with a call's arguments, it returns them with those

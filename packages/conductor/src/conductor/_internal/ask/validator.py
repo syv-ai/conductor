@@ -46,13 +46,13 @@ from conductor._internal.types import (
     untyped_as_json,
 )
 from conductor._internal.utils import comma_separated
-from conductor._internal.validation import schema_output_validator_of
+from conductor._internal.validation import Validator, schema_output_validator_of
 
 from .question import as_asked
 from .type import Ask
 
 
-class AskValidator:
+class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]):
     """Checks an ``Ask`` raised for a node against the node's outputs, which its answer fills, and reads its choices
     and default by output name. Built once per node.
 
@@ -135,14 +135,22 @@ class AskValidator:
         return dict(given)
 
 
-def undeclared_ask(ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
-    """The ``Ask`` validator of a node that does not say it asks (no ``asks=True``): it refuses
-    every ``Ask``.
+class UndeclaredAskValidator(
+    Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]
+):
+    """The ``Ask`` validator of a node that does not say it asks (no ``asks=True``): it refuses every ``Ask``.
 
-    Raises:
+    Raises (when called):
         InvalidCallError: Always, with ``ask_not_declared``.
     """
-    raise InvalidCallError([run_problems.ask_not_declared()])
+
+    def __call__(self, ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
+        """Refuses ``ask``.
+
+        Raises:
+            InvalidCallError: Always, with ``ask_not_declared``.
+        """
+        raise InvalidCallError([run_problems.ask_not_declared()])
 
 
 def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) -> JsonValue:
@@ -170,8 +178,9 @@ def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) ->
     return written
 
 
-class AnswerValidator:
-    """Reads a person's answer to a waiting call of one node into the node's outputs. Built once per node.
+class AnswerValidator(Validator[Any, dict[str, Any]]):
+    """Reads a person's answer to one waiting call into the node's outputs. Built for each answer, with the questions
+    the call's ``Ask`` asked.
 
     Raises (when called):
         InvalidCallError: With an ``invalid_answer`` for every fault, quoting nothing of the answer: the answer is not
@@ -180,41 +189,46 @@ class AnswerValidator:
             or two of an exclusive group.
     """
 
-    def __init__(self, outputs: Mapping[str, Field]) -> None:
-        """Builds the validator for a node.
-
-        Args:
-            outputs: The node's outputs, which the answer fills, by name.
-        """
-        self._outputs = outputs
-        self._groups = exclusive_groups(outputs)
-
-    def __call__(
+    def __init__(
         self,
-        answer: Any,
+        outputs: Mapping[str, Field],
         choices: Mapping[str, tuple[Choice, ...]],
         defaults: Mapping[str, JsonValue],
         *,
         loc: Loc,
         waiting_id: str,
-    ) -> dict[str, Any]:
-        """Returns the outputs the answer fills, by name, read from ``answer``.
+    ) -> None:
+        """Builds the validator for an answer to one waiting call.
 
         Args:
-            answer: The answer: a value for one question, a mapping by question name for several.
+            outputs: The node's outputs, which the answer fills, by name.
             choices: The choices the call's ``Ask`` offered, by output name.
             defaults: The answer the call's ``Ask`` proposed, by output name.
             loc: Where the call that waits is, for the problems.
             waiting_id: The waiting id the answer was given for, for the problems.
+        """
+        self._outputs = outputs
+        self._groups = exclusive_groups(outputs)
+        self._choices = choices
+        self._defaults = defaults
+        self._loc = loc
+        self._waiting_id = waiting_id
+
+    def __call__(self, answer: Any) -> dict[str, Any]:
+        """Returns the outputs the answer fills, by name, read from ``answer``: a value for one question, a mapping by
+        question name for several.
 
         Raises:
             InvalidCallError: See the class.
         """
-        read, faults = self._read(answer, choices, defaults)
+        read, faults = self._read(answer, self._choices, self._defaults)
         if faults:
             raise InvalidCallError(
                 call_problems.invalid_answer(
-                    *loc, waiting_id=waiting_id, reason=reason, question=question or None
+                    *self._loc,
+                    waiting_id=self._waiting_id,
+                    reason=reason,
+                    question=question or None,
                 )
                 for question, reason in faults
             )

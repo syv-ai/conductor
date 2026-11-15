@@ -30,10 +30,10 @@ from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, compile_problems
 from conductor._internal.types import Type
-from conductor._internal.validation import schema_of, schema_validator_of
+from conductor._internal.validation import Validator, schema_of, schema_validator_of
 
 
-class InputsValidator:
+class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
     """Reads the graph inputs a caller gives, by name, into the value of every graph input.
 
     Built once per graph. One pydantic validator reads them all: an input with no default must be given, nothing
