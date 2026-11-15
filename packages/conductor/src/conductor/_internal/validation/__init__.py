@@ -13,7 +13,8 @@ problems: a public method lets them reach its caller; compiling keeps them in ``
 the problem as the outcome of the call it belongs to.
 
 Every validator reads values with the pydantic validators of ``rules.py``, built there from a type's schema with the
-rules every type is held to (a yes or no is not a number); no module outside a ``validator.py`` builds one.
+rules every type is held to (a yes or no is not a number); no module of the engine outside a ``validator.py``
+builds one (``conductor.testing`` does, to make up values a node's inputs take).
 
 A type's own declarations are read where the type is declared: ``Param`` reads its choices by the type it limits
 (``types/param.py``), and ``@host_type`` its arguments.

@@ -32,7 +32,8 @@ class GroupWithoutOneValue(NamedTuple):
 
 def exclusive_groups(outputs: Mapping[str, Field]) -> dict[str, tuple[str, ...]]:
     """Returns the outputs of each exclusive group of ``outputs``, by group, in the order they are declared:
-    ``{"length": ("long", "short")}`` for ``route``. A validator builds it once per node."""
+    ``{"length": ("long", "short")}`` for ``route``. The return validator builds it once per node, the answer
+    validator once per answer."""
     groups: dict[str, list[str]] = {}
     for name, field in outputs.items():
         if field.param.exclusive_group is not None:
