@@ -39,8 +39,8 @@ class Field:
     Attributes:
         name: The parameter's name, or the output's.
         hint: The annotation as written.
-        default: The default as its type holds it, already read by it and with a JSON form (``declared_input``
-            and ``declared_output`` in ``validator.py`` read a default a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an
+        default: The default as its type holds it, already read by it and with a JSON form (``DeclaredInputValidator``
+            and ``DeclaredOutputValidator`` in ``validator.py`` read a default a node declares); ``REQUIRED`` for none, ``SKIPPED`` for an
             output on a branch not taken, ``None`` for a blank.
         is_output: Whether it is an output, which its description shows as the question an answer to the node fills.
             Every field says which it is, since an input and an output whose type takes ``None`` differ in what

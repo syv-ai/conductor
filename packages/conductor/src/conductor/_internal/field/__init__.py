@@ -8,14 +8,14 @@ field's type, and again by the type an edge binds its type variable to.
 from .describe import FieldDescription
 from .exclusive_group import exclusive_groups, groups_without_one_value
 from .type import Field
-from .validator import bound_field, declared_input, declared_output
+from .validator import BoundDefaultValidator, DeclaredInputValidator, DeclaredOutputValidator
 
 __all__ = [
+    "BoundDefaultValidator",
+    "DeclaredInputValidator",
+    "DeclaredOutputValidator",
     "Field",
     "FieldDescription",
-    "bound_field",
-    "declared_input",
-    "declared_output",
     "exclusive_groups",
     "groups_without_one_value",
 ]

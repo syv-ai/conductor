@@ -1,14 +1,14 @@
 """The declaration validator: a default a node author declares, read by its input's or output's type when the node is
 declared, and read again by the type an edge binds its type variable to when a graph is compiled.
 
-Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and ``declared_input("mark", str, "!")``
-gives the input ``mark`` with that default. ``times: Annotated[int, Param(ge=0)] = -1`` is refused when the module
+Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and
+``DeclaredInputValidator("mark", str)("!")`` gives the input ``mark`` with that default. ``times: Annotated[int, Param(ge=0)] = -1`` is refused when the module
 that declares the node is imported: ``NodeDeclarationError`` with the code ``default_invalid``, naming the input.
-``first(one: T, other: T = 0)`` wired from an output of ``str`` binds ``T`` to ``str``, and ``bound_field`` refuses
+``first(one: T, other: T = 0)`` wired from an output of ``str`` binds ``T`` to ``str``, and ``BoundDefaultValidator`` refuses
 ``0`` for it: ``invalid_value`` (variant ``bound_default``), a problem of the graph.
 
 A default is read as a Python value is read (``1`` for a ``float`` is ``1.0``). The defaults a graph record gives
-are read by the constants validator instead.
+are read by the constant validator instead.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from conductor._internal.problem import (
     declaration_problems,
 )
 from conductor._internal.types import Type
-from conductor._internal.validation import schema_validator_of
+from conductor._internal.validation import Validator, schema_validator_of
 
 from .type import Field
 
@@ -60,79 +60,125 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
         raise NodeDeclarationError(refused, name) from None
 
 
-def declared_input(name: str, hint: Any, default: Any) -> Field:
-    """Returns the input ``name`` that a node declares with the type hint ``hint`` and ``default``, as
-    ``_declared_field`` does, refusing what only an output can have: an input is never a branch.
+class DeclaredInputValidator(Validator[Any, Field]):
+    """Reads the default of an input a node declares into the input, as ``_declared_field`` does, refusing what only
+    an output can have: an input is never a branch.
 
-    ``@node`` reads each parameter of the function with it, and the hook validator each input a ``compute_added_inputs``
-    hook returns, so ``text: Annotated[str, Param(exclusive_group="x")]`` is refused in both places.
+    ``@node`` reads each parameter of the function with one, and the hook validator each input a
+    ``compute_added_inputs`` hook returns, so ``text: Annotated[str, Param(exclusive_group="x")]`` is refused in both
+    places.
 
-    Raises:
+    Raises (when called):
         NodeDeclarationError: Naming the input: what ``_declared_field`` refuses, an ``exclusive_group``
             (``exclusive_group_on_input``), or the default ``SKIPPED`` (``default_invalid``, variant
             ``skipped_on_input``).
     """
-    if default is SKIPPED:
-        raise NodeDeclarationError(declaration_problems.default_skipped_on_input(), name)
-    field = _declared_field(name, hint, default, is_output=False)
-    if field.param.exclusive_group is not None:
-        raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), name)
-    return field
+
+    def __init__(self, name: str, hint: Any) -> None:
+        """Builds the validator for the input ``name``, declared with the type hint ``hint``."""
+        self._name = name
+        self._hint = hint
+
+    def __call__(self, default: Any) -> Field:
+        """Returns the input with ``default`` read by its type: ``REQUIRED`` for none.
+
+        Raises:
+            NodeDeclarationError: See the class.
+        """
+        if default is SKIPPED:
+            raise NodeDeclarationError(declaration_problems.default_skipped_on_input(), self._name)
+        field = _declared_field(self._name, self._hint, default, is_output=False)
+        if field.param.exclusive_group is not None:
+            raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), self._name)
+        return field
 
 
-def declared_output(name: str, hint: Any, default: Any) -> Field:
-    """Returns the output ``name`` that a node declares with the type hint ``hint`` and ``default``, as
-    ``_declared_field`` does, refusing a default an output of an exclusive group cannot have: left out of an answer,
-    or not returned, it is a branch not chosen, so its default is ``SKIPPED`` or none.
+class DeclaredOutputValidator(Validator[Any, Field]):
+    """Reads the default of an output a node declares into the output, as ``_declared_field`` does, refusing a default
+    an output of an exclusive group cannot have: left out of an answer, or not returned, it is a branch not chosen, so
+    its default is ``SKIPPED`` or none.
 
-    ``@node`` reads each field of a returned dataclass with it, and the hook validator each output a ``compute_outputs``
-    hook returns, so ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in both places.
+    ``@node`` reads each field of a returned dataclass with one, and the hook validator each output a
+    ``compute_outputs`` hook returns, so ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in
+    both places.
 
-    Raises:
+    Raises (when called):
         NodeDeclarationError: Naming the output: what ``_declared_field`` refuses, ``constant_only``, which only an
             input takes (``constant_only_on_output``), or a default other than ``SKIPPED`` on an output of an
             exclusive group (``default_invalid``, variant ``on_exclusive_group``).
     """
-    field = _declared_field(name, hint, default, is_output=True)
-    if field.param.constant_only:
-        raise NodeDeclarationError(declaration_problems.constant_only_on_output(), name)
-    if (
-        field.param.exclusive_group is not None
-        and default is not REQUIRED
-        and default is not SKIPPED
-    ):
-        raise NodeDeclarationError(declaration_problems.default_on_exclusive_group(), name)
-    return field
+
+    def __init__(self, name: str, hint: Any) -> None:
+        """Builds the validator for the output ``name``, declared with the type hint ``hint``."""
+        self._name = name
+        self._hint = hint
+
+    def __call__(self, default: Any) -> Field:
+        """Returns the output with ``default`` read by its type: ``REQUIRED`` for none, ``SKIPPED`` for a branch not
+        taken.
+
+        Raises:
+            NodeDeclarationError: See the class.
+        """
+        field = _declared_field(self._name, self._hint, default, is_output=True)
+        if field.param.constant_only:
+            raise NodeDeclarationError(declaration_problems.constant_only_on_output(), self._name)
+        if (
+            field.param.exclusive_group is not None
+            and default is not REQUIRED
+            and default is not SKIPPED
+        ):
+            raise NodeDeclarationError(
+                declaration_problems.default_on_exclusive_group(), self._name
+            )
+        return field
 
 
-def bound_field(node_id: str, field: Field, bound: Mapping[TypeVar, Any]) -> Field:
-    """Returns ``field`` with its type variables replaced by what the edges into the node ``node_id`` bind them to
-    (``bound``), and its default read by the type it then has; ``field`` itself when its type has no variable.
+class BoundDefaultValidator(Validator[Field, Field]):
+    """Reads the declared default of each input or output of one node again, by the type it has once its type
+    variables are replaced by what the edges into the node bind them to.
 
     For ``same(value: T = "-")`` wired from an output of ``str``, ``T`` is bound to ``str`` and the default stays
     ``"-"``. A variable no edge binds is read as its bound, else ``Any``.
 
-    Raises:
-        InvalidCallError: The bound type refuses the default the node declares, ``None`` included: one ``invalid_value``
-            problem (variant ``bound_default``) at ``(node_id, field)``.
+    Raises (when called):
+        InvalidCallError: The bound type refuses the default the node declares, ``None`` included: one
+            ``invalid_value`` problem (variant ``bound_default``) at ``(node_id, field)``.
     """
-    if not field.whole.variables:
-        return field
-    hint = Type(field.hint).bind(bound).hint
-    whole = Field(field.name, hint, is_output=field.is_output).whole
-    try:
-        return Field(
-            field.name, hint, _read_default(whole, field.default), is_output=field.is_output
-        )
-    except ValidationError as error:
-        refused = whole.refusal(error)
-        raise InvalidCallError(
-            [
-                compile_problems.invalid_value_bound_default(
-                    node_id, field.name, type=whole.id, reason=refused.reason, errors=refused.errors
-                )
-            ]
-        ) from None
+
+    def __init__(self, node_id: str, bound: Mapping[TypeVar, Any]) -> None:
+        """Builds the validator for the node ``node_id``, whose edges bind its type variables as ``bound`` says."""
+        self._node_id = node_id
+        self._bound = bound
+
+    def __call__(self, field: Field) -> Field:
+        """Returns ``field`` with its type variables bound and its default read by the type it then has; ``field``
+        itself when its type has no variable.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        if not field.whole.variables:
+            return field
+        hint = Type(field.hint).bind(self._bound).hint
+        whole = Field(field.name, hint, is_output=field.is_output).whole
+        try:
+            return Field(
+                field.name, hint, _read_default(whole, field.default), is_output=field.is_output
+            )
+        except ValidationError as error:
+            refused = whole.refusal(error)
+            raise InvalidCallError(
+                [
+                    compile_problems.invalid_value_bound_default(
+                        self._node_id,
+                        field.name,
+                        type=whole.id,
+                        reason=refused.reason,
+                        errors=refused.errors,
+                    )
+                ]
+            ) from None
 
 
 def _read_default(whole: Type, default: Any) -> Any:

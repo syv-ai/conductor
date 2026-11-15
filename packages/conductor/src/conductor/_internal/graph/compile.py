@@ -44,7 +44,12 @@ from pydantic import MISSING, JsonValue
 from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
-from conductor._internal.field import Field, bound_field, declared_input, declared_output
+from conductor._internal.field import (
+    BoundDefaultValidator,
+    DeclaredInputValidator,
+    DeclaredOutputValidator,
+    Field,
+)
 from conductor._internal.node import (
     FunctionDefinition,
     HookName,
@@ -279,7 +284,7 @@ class Compiler:
                 definition,
                 "compute_added_inputs",
                 definition.compute_added_inputs,
-                declared_input,
+                DeclaredInputValidator,
                 constants,
                 {},
                 (),
@@ -322,7 +327,7 @@ class Compiler:
                 definition,
                 "compute_outputs",
                 definition.compute_outputs,
-                declared_output,
+                DeclaredOutputValidator,
                 constants,
                 arriving,
                 tuple(added),
@@ -640,7 +645,7 @@ class Compiler:
         definition: FunctionDefinition[..., Any],
         kind: HookName,
         hook: Callable[..., Mapping[Any, Any]],
-        read_field: Callable[[str, Any, Any], Field],
+        read_field: type[DeclaredInputValidator | DeclaredOutputValidator],
         constants: Mapping[str, Any],
         arriving: Mapping[str, Any],
         added: tuple[str, ...],
@@ -657,7 +662,7 @@ class Compiler:
             definition: The node's definition.
             kind: Which hook it is: ``compute_added_inputs`` or ``compute_outputs``.
             hook: The hook.
-            read_field: How each field it returns is read: ``declared_input`` or ``declared_output``, as ``@node``
+            read_field: How each field it returns is read: ``DeclaredInputValidator`` or ``DeclaredOutputValidator``, as ``@node``
                 reads a parameter or a returned field.
             constants: The constant or default the record gives each input, read by the input's type, by name.
             arriving: The type the edges into each input read, by input name.
@@ -996,13 +1001,14 @@ def _bind(
     node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any]
 ) -> tuple[dict[str, Field], dict[str, list[Problem]]]:
     """Returns the inputs or outputs ``fields`` of the node ``node_id`` with their type variables bound as ``bound``
-    says (``bound_field``), and the problem of each whose declared default the bound type refuses, by name. Such a
+    says (``BoundDefaultValidator``), and the problem of each whose declared default the bound type refuses, by name. Such a
     field keeps no default."""
     bound_fields: dict[str, Field] = {}
+    bind = BoundDefaultValidator(node_id, bound)
     refused: dict[str, list[Problem]] = {}
     for name, field in fields.items():
         try:
-            bound_fields[name] = bound_field(node_id, field, bound)
+            bound_fields[name] = bind(field)
         except InvalidCallError as error:
             bound_fields[name] = Field(
                 name, Type(field.hint).bind(bound).hint, is_output=field.is_output

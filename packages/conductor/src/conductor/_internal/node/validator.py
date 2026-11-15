@@ -39,7 +39,13 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import REQUIRED, SKIPPED, Name
-from conductor._internal.field import Field, exclusive_groups, groups_without_one_value
+from conductor._internal.field import (
+    DeclaredInputValidator,
+    DeclaredOutputValidator,
+    Field,
+    exclusive_groups,
+    groups_without_one_value,
+)
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
@@ -285,10 +291,13 @@ _HOOK_FIELDS = TypeAdapter(dict[Name, Any])
 
 
 def read_hook_fields(
-    node_id: str, kind: str, returned: Any, read_field: Callable[[str, Any, Any], Field]
+    node_id: str,
+    kind: str,
+    returned: Any,
+    read_field: type[DeclaredInputValidator | DeclaredOutputValidator],
 ) -> dict[str, Field]:
     """Returns what the hook ``kind`` of the node ``node_id`` returned, as fields by name, each read by
-    ``read_field`` as ``@node`` reads one: ``declared_input`` for ``compute_added_inputs``, ``declared_output`` for
+    ``read_field`` as ``@node`` reads one: ``DeclaredInputValidator`` for ``compute_added_inputs``, ``DeclaredOutputValidator`` for
     ``compute_outputs``.
 
     Raises:
@@ -320,7 +329,11 @@ def read_hook_fields(
             for fault in invalid.errors()
         ) from None
     try:
-        return {name: read_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
+        fields: dict[str, Field] = {}
+        for name, given in hints.items():
+            hint, default = _hint_and_default(given)
+            fields[name] = read_field(name, hint)(default)
+        return fields
     except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
         raise InvalidCallError(
             [

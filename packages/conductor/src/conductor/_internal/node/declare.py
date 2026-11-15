@@ -64,7 +64,7 @@ from pydantic import JsonValue
 
 from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
-from conductor._internal.field import Field, declared_input, declared_output
+from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, read_record
 from conductor._internal.types import Param, Type
@@ -375,7 +375,7 @@ def _read_signature(
         if name not in hints:
             raise NodeDeclarationError(declaration_problems.input_without_type(), name)
         default = REQUIRED if parameter.default is Parameter.empty else parameter.default
-        inputs[name] = declared_input(name, hints[name], default)
+        inputs[name] = DeclaredInputValidator(name, hints[name])(default)
     if "return" not in hints:
         raise NodeDeclarationError(declaration_problems.output_without_type())
     returns = hints["return"]
@@ -396,16 +396,14 @@ def _read_signature(
         )  # the class's variables as the signature names them
         own = typing.get_type_hints(returned_class, include_extras=True)
         outputs = {
-            f.name: declared_output(
-                f.name,
-                Type(own[f.name]).bind(given).hint if given else own[f.name],
-                _declared_default(f),
-            )
+            f.name: DeclaredOutputValidator(
+                f.name, Type(own[f.name]).bind(given).hint if given else own[f.name]
+            )(_declared_default(f))
             for f in dataclasses.fields(returned_class)
         }
         outputs_dataclass = returned_class
     else:
-        outputs = {"result": declared_output("result", returns, REQUIRED)}
+        outputs = {"result": DeclaredOutputValidator("result", returns)(REQUIRED)}
     on_inputs = {variable for field in inputs.values() for variable in field.whole.variables}
     for field in (*inputs.values(), *outputs.values()):
         for variable in field.whole.variables:
