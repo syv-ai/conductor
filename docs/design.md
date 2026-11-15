@@ -465,13 +465,14 @@ A return is one call's outcome, while a caller wants to fix all their inputs at 
 `syv-conductor-nodes` has the 36 standard nodes, a registry per module, and `conductor_nodes.registry` with all of
 them. It has no types of its own. A graph record names a node by its id, so an id changes only in a major release.
 
-`syv-conductor-providers` has `run_router(worker, caller=, may_see=)`, a FastAPI router over a
-`Worker(store=, caller_type=, nodes_for=)`. Compiling, starting, estimating, reading, following, answering, resuming,
+`syv-conductor-providers` has `run_router(worker, metadata=, run_filter=)`, a FastAPI router over a
+`Worker(store, nodes_for=)`. Compiling, starting, estimating, reading, following, answering, resuming,
 running again and cancelling are routes by run id, and any worker can serve them. The routes are a thin layer over
 `Worker`, which holds the leases, checkpoints and takeovers, so a host with its own routes calls it directly.
 
 The host owns storage and login. `RunStore` is six async methods over one row per run, each change a compare-and-set
-on a revision. Who may see a run is the host's `may_see(caller, started_by)`. **Worth questioning:** shipping no store
+on a revision. Each run keeps the host's metadata, and which runs a request may see is the host's `run_filter`, a test of that
+metadata. **Worth questioning:** shipping no store
 means every host writes one. But every host already has storage, and the recipe's plain SQL ports to Postgres line by
 line.
 

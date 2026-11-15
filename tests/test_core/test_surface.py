@@ -628,6 +628,7 @@ IMPORTS = {
         "pydantic",
         "pydantic_core",
         "polars",
+        "typing_extensions",
     },
 }
 
@@ -641,7 +642,7 @@ DISTRIBUTIONS = {
         "syv-conductor-providers",
     },
     "conductor-nodes": {"syv-conductor", "pydantic", "polars", "regex"},
-    "conductor-providers": {"syv-conductor", "fastapi", "pydantic"},
+    "conductor-providers": {"syv-conductor", "fastapi", "pydantic", "typing-extensions"},
 }
 
 SOURCES = sorted(

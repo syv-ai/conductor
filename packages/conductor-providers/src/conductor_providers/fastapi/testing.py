@@ -33,7 +33,7 @@ _AT_ONCE = 8
 _ROUNDS = 5
 
 #: The columns that hold JSON. They are compared as the JSON values they read back as, so a ``jsonb`` column passes.
-_JSON_COLUMNS = frozenset({"graph", "caller", "run", "state", "outcome"})
+_JSON_COLUMNS = frozenset({"graph", "metadata", "run", "state", "outcome"})
 
 
 def _new_run(*, owner: str | None, lease_until: float | None) -> StoredRun:
@@ -48,7 +48,7 @@ def _new_run(*, owner: str | None, lease_until: float | None) -> StoredRun:
     return StoredRun(
         id=f"check-run-store-{uuid.uuid4().hex}",
         graph='{"nodes": [], "edges": []}',
-        caller='"Zoë"',
+        metadata='{"user": "Zoë"}',
         rev=0,
         **written,
     )

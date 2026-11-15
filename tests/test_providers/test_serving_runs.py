@@ -30,7 +30,7 @@ pytest.importorskip("uvicorn")
 PAGE = Path(__file__).parents[2] / "docs" / "serving-runs.md"
 HERE = Path(__file__).parent
 
-#: What a test changes on the page's app: short leases and checkpoints, the test nodes, and a caller named by header.
+#: What a test changes on the page's app: short leases and checkpoints, the test nodes, and a user named by header.
 _TEST_SETTINGS = """
 from conductor import Context
 from fastapi import Header
@@ -42,27 +42,24 @@ registry.add_subregistry(served)
 
 @registry.node("who", title="Who", description="For a test.")
 def who(ctx: Context[AppContext]) -> str:
-    return ctx.caller.name
+    return ctx.user
 
 
-def header_caller(x_user: Annotated[str, Header()] = "anna") -> Caller:
-    return Caller(x_user)
+def header_user(x_user: Annotated[str, Header()] = "anna") -> str:
+    return x_user
 
 
-app.dependency_overrides[current_caller] = header_caller
+app.dependency_overrides[current_user] = header_user
 """
 
 
 def _app_source() -> str:
     blocks = re.findall(r"```python\n(.*?)```", PAGE.read_text(), re.S)
     source = "from typing import Annotated\n" + "\n".join(blocks)
-    settings = 'lease=0.6, checkpoint_every=0.05, resume_timeout=float(os.environ.get("RESUME_TIMEOUT", "300")), '
-    assert source.count("\nworker = Worker(\n") == 1
-    return (
-        "import os\n"
-        + source.replace("\nworker = Worker(\n", "\nworker = Worker(\n    " + settings, 1)
-        + _TEST_SETTINGS
-    )
+    settings = 'lease=0.6, checkpoint_every=0.05, resume_timeout=float(os.environ.get("RESUME_TIMEOUT", "300")),'
+    store = "\nworker = Worker(\n    SqliteRunStore(database.path),\n"
+    assert source.count(store) == 1
+    return "import os\n" + source.replace(store, f"{store}    {settings}\n", 1) + _TEST_SETTINGS
 
 
 def _free_port() -> int:

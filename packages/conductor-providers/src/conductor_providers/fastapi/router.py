@@ -6,7 +6,7 @@ answered; the worker resumes the runs.
 
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from operator import attrgetter
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Annotated, Any, Literal
 
 from conductor import (
     Graph,
@@ -23,10 +23,7 @@ from pydantic import BaseModel, PlainValidator, StrictInt
 
 from conductor_providers.fastapi.problems import STATUS, no_such_run
 from conductor_providers.fastapi.stored_run import RunAsRead, RunView
-from conductor_providers.fastapi.worker import Worker
-
-C = TypeVar("C")
-
+from conductor_providers.fastapi.worker import M, Worker, X
 
 #: A graph record as a caller sent it: read by conductor's record validator when the graph is compiled, so every fault in
 #: it is refused in conductor's words; the schema says it is a ``GraphRecord``.
@@ -37,7 +34,7 @@ class StartRun(BaseModel):
     """The body of ``POST /runs``: a graph to run and the values it starts on.
 
     Attributes:
-        graph: The graph, as its stored record; compiled on the caller's registry, so a node it lacks is a 422.
+        graph: The graph, as its stored record; compiled on the request's registry, so a node it lacks is a 422.
         inputs: Values for the graph's inputs, each by its name in ``graph.inputs``, checked as
             ``graph.with_inputs`` checks them.
     """
@@ -47,7 +44,7 @@ class StartRun(BaseModel):
 
 
 #: What a route under ``/runs/{run_id}`` declares for a refusal beside its own answer: the 404 of a run that isn't there
-#: for the caller, and the 409 of a run in a state that doesn't take the call. A refusal's body is FastAPI's own
+#: for the request, and the 409 of a run in a state that doesn't take the call. A refusal's body is FastAPI's own
 #: ``HTTPValidationError``, which a conductor ``Problem`` fits, so a client reads every refusal one way.
 _REFUSED: dict[str, Any] = {
     "content": {
@@ -124,23 +121,25 @@ async def _refused_as_responses() -> AsyncIterator[None]:
 
 
 def run_router(
-    worker: Worker[C],
+    worker: Worker[M, X],
     *,
-    caller: Callable[..., C],
-    may_see: Callable[[C, C], bool],
+    metadata: Callable[..., M],
+    run_filter: Callable[..., Callable[[M], bool]],
     published: Callable[..., GraphRecord] | None = None,
 ) -> APIRouter:
     """The runs routes over ``worker``, which resumes their runs; mount them with ``app.include_router(...)``.
 
     Args:
-        worker: The worker the routes call: where runs are kept, the nodes and context a run's caller gets, and the
-            settings of its leases.
-        caller: A FastAPI dependency giving who is calling: your login, of the worker's ``caller_type``. A run
-            keeps the caller who started it as they were then, so let it hold what identifies the caller and nothing
-            that changes. A host with no logins gives a function that returns ``None``.
-        may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run:
-            ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone,
-            ``lambda caller, started_by: True`` for everyone.
+        worker: The worker the routes call: where runs are kept, the nodes and context a run gets from its
+            metadata, and the settings of its leases.
+        metadata: A FastAPI dependency giving the metadata for this request, of the worker's ``metadata_type``.
+            A run started by the request keeps it, as it is then, and its nodes and context are built from it on
+            every resume. On the routes that store no run (``/nodes``, ``/compile``, ``/estimate``, and ``again``'s
+            check of the new run), it picks the nodes this request may use. Let it hold what identifies the
+            request, such as a user and a team, and nothing that changes.
+        run_filter: A FastAPI dependency giving, for this request, a test of a run's metadata: whether the
+            request may read and act on that run. ``lambda metadata: metadata["user"] == user.id`` lets a person
+            see only their own runs. A run it turns away is a 404, as one that isn't there.
         published: A FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
             ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that
             graph on inputs alone.
@@ -154,53 +153,58 @@ def run_router(
         generate_unique_id_function=attrgetter("name"),
     )
 
-    async def stored(run_id: str, who: Annotated[C, Depends(caller)]) -> RunAsRead:
-        """The run of a route under ``/runs/{run_id}``, for the caller: the access rule of every such route.
+    async def stored(
+        run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
+    ) -> RunAsRead:
+        """The run of a route under ``/runs/{run_id}``, if the run filter lets this request see it.
+
+        Only the run's metadata is read to decide, so the check stays cheap however much waits in the run.
 
         Args:
             run_id: The run's id, from the path.
-            who: The caller.
+            allows: The run filter for this request.
 
         Returns:
             The run as the store has it.
 
         Raises:
-            InvalidCallError: No run has the id, or ``may_see`` says the caller may not see it (``no_such_run``).
-                The two read the same (a 404), so a caller learns nothing about a run that isn't theirs.
+            InvalidCallError: No run has the id, or the filter turns the request away (``no_such_run``). The two
+                read the same (a 404), so a request learns nothing about a run it may not see.
         """
-        run = await worker.read(run_id)
-        if not may_see(who, worker.caller_of(run)):
+        if not allows(await worker.metadata_of(run_id)):
             raise InvalidCallError([no_such_run()])
-        return run
+        return await worker.read(run_id)
 
     @router.get("/nodes")
-    def list_nodes(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
-        """The nodes the caller may use, as an editor's palette reads them."""
-        return worker.nodes_for(who).describe()
+    def list_nodes(requester: Annotated[M, Depends(metadata)]) -> RegistryDescription:
+        """The nodes this request may use, as an editor's palette reads them."""
+        return worker.nodes_for(requester).describe()
 
     @router.post("/compile")
     async def compile_graph(
-        graph: Annotated[GraphAsSent, Body()], request: Request, who: Annotated[C, Depends(caller)]
+        graph: Annotated[GraphAsSent, Body()],
+        request: Request,
+        requester: Annotated[M, Depends(metadata)],
     ) -> GraphDescription:
         """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
         and every problem. Nothing is run or stored."""
         return Graph.compile(
-            await request.body(), worker.nodes_for(who)
+            await request.body(), worker.nodes_for(requester)
         ).describe()  # the record validator reads the body's text
 
     @router.post("/runs", status_code=202)
     async def start_run(
-        body: StartRun, request: Request, who: Annotated[C, Depends(caller)]
+        body: StartRun, request: Request, requester: Annotated[M, Depends(metadata)]
     ) -> Started:
         """Start a run of any graph; this is an author's route, so guard it with your own dependency."""
         sent = StartRun.model_validate(
             read_json(await request.body())
         )  # FastAPI's ``body`` would keep the last of two equal keys
-        return Started(id=await worker.begin(sent.graph, sent.inputs, who))
+        return Started(id=await worker.begin(sent.graph, sent.inputs, requester))
 
     @router.post("/estimate")
     async def estimate_run(
-        body: StartRun, request: Request, who: Annotated[C, Depends(caller)]
+        body: StartRun, request: Request, requester: Annotated[M, Depends(metadata)]
     ) -> RunProgress:
         """How many calls a run of the graph on these inputs will make: the nodes whose ``Policy`` says
         ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
@@ -208,7 +212,7 @@ def run_router(
         sent = StartRun.model_validate(
             read_json(await request.body())
         )  # FastAPI's ``body`` would keep the last of two equal keys
-        return await worker.estimate(sent.graph, sent.inputs, who)
+        return await worker.estimate(sent.graph, sent.inputs, requester)
 
     if published is not None:
 
@@ -218,10 +222,10 @@ def run_router(
             inputs: Annotated[
                 dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")
             ],
-            who: Annotated[C, Depends(caller)],
+            requester: Annotated[M, Depends(metadata)],
         ) -> Started:
             """Start a graph you offer by name, on inputs alone."""
-            return Started(id=await worker.begin(graph, inputs, who))
+            return Started(id=await worker.begin(graph, inputs, requester))
 
         @router.post("/graphs/{name}/estimate")
         async def estimate_published(
@@ -229,10 +233,10 @@ def run_router(
             inputs: Annotated[
                 dict[str, Any], Body(description="Values for the graph's inputs, each by its name.")
             ],
-            who: Annotated[C, Depends(caller)],
+            requester: Annotated[M, Depends(metadata)],
         ) -> RunProgress:
             """How many calls a run of a graph you offer by name will make on these inputs, as ``POST /estimate``."""
-            return await worker.estimate(graph, inputs, who)
+            return await worker.estimate(graph, inputs, requester)
 
     @router.get("/runs/{run_id}", responses=_NOT_FOUND)
     def read_run(run: Annotated[RunAsRead, Depends(stored)]) -> RunView:
@@ -289,11 +293,11 @@ def run_router(
                 description="The inputs to change, each by its name; the rest stay as the run had them."
             ),
         ],
-        who: Annotated[C, Depends(caller)],
+        requester: Annotated[M, Depends(metadata)],
     ) -> Started:
-        """A new run of the caller's with these inputs changed, on the caller's own nodes; a call that receives what it
+        """A new run with these inputs changed, of this request's own and on its own nodes; a call that receives what it
         received before isn't made again."""
-        return Started(id=await worker.again(run, inputs, who))
+        return Started(id=await worker.again(run, inputs, requester))
 
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
     async def cancel_run(run: Annotated[RunAsRead, Depends(stored)]) -> Cancelled:

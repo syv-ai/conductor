@@ -90,7 +90,7 @@ class MemoryStore:
         store that counts its reads counts none of these."""
         copy = MemoryStore()
         copy.rows[run_id] = self.rows[run_id]
-        reader = Worker(store=copy, caller_type=object, nodes_for=lambda caller: NodeRegistry())
+        reader: Worker = Worker(copy, nodes_for=lambda metadata: NodeRegistry())
         return (await reader.read(run_id)).view()
 
     def state(self, run_id: str) -> dict[str, Any]:
@@ -108,7 +108,7 @@ def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None
     return StoredRun(
         id=run_id,
         graph=graph.model_dump_json(),
-        caller='"anna"',
+        metadata='{"user": "anna"}',
         run=run.to_json(),
         status="running",
         state=BEGUN_RUN_STATE,
@@ -243,8 +243,8 @@ class Stopping:
     seen: list[bool]
 
 
-def stoppable(caller: object, stop: ThreadEvent) -> Stoppable:
-    """A worker's ``context`` function: the resume call's stop event, whoever the caller."""
+def stoppable(metadata: object, stop: ThreadEvent) -> Stoppable:
+    """A worker's ``context`` function: the resume call's stop event, whatever the run's metadata."""
     return Stoppable(stop)
 
 

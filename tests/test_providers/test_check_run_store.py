@@ -47,7 +47,9 @@ async def test_the_pages_test_of_its_sqlite_store_passes(
 async def test_runs_of_the_hosts_own_in_the_store_are_left_out() -> None:
     store = MemoryStore()
     await store.create(
-        StoredRun("theirs", "{}", '"anna"', "{}", "running", "{}", "{}", 0, "worker-z", 1.0)
+        StoredRun(
+            "theirs", "{}", '{"user": "anna"}', "{}", "running", "{}", "{}", 0, "worker-z", 1.0
+        )
     )
 
     assert await check_run_store(store) == []
@@ -63,7 +65,7 @@ class _KeepsJsonAsJsonb(MemoryStore):
     async def create(self, run: StoredRun) -> None:
         columns = {
             name: self._rewritten(getattr(run, name))
-            for name in ("graph", "caller", "run", "state", "outcome")
+            for name in ("graph", "metadata", "run", "state", "outcome")
         }
         await super().create(dataclasses.replace(run, **columns))
 

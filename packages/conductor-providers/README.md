@@ -6,23 +6,32 @@
 uv add syv-conductor-providers
 ```
 
-You write a `RunStore`, six async methods against your database, make a `Worker` on it, and mount the router over the worker with your login:
+You write a `RunStore`, six async methods against your database, make a `Worker` on it, and mount the router over the worker. Each run keeps some metadata (here, who started it), and a filter says which runs a request may see:
 
 ```python
+from collections.abc import Callable
+
 from conductor import NodeRegistry
 from conductor_providers.fastapi import RunStore, Worker, run_router
 from fastapi import FastAPI
 
 
-def current_caller() -> str:
+def current_user() -> str:
     return "anna"  # yours: your login
 
 
+def run_metadata() -> dict[str, str]:
+    return {"user": current_user()}
+
+
+def own_runs() -> Callable[[dict[str, str]], bool]:
+    user = current_user()
+    return lambda metadata: metadata["user"] == user
+
+
 def mount(app: FastAPI, store: RunStore, registry: NodeRegistry) -> None:
-    worker = Worker(store=store, caller_type=str, nodes_for=lambda caller: registry)
-    app.include_router(run_router(
-        worker, caller=current_caller, may_see=lambda caller, started_by: caller == started_by,
-    ))
+    worker = Worker(store, nodes_for=lambda metadata: registry)
+    app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs))
 ```
 
 A host with routes of its own calls the same `Worker` from them.

@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from threading import Event
 from typing import Annotated, Any
@@ -19,6 +19,7 @@ httpx = pytest.importorskip("httpx")
 from conductor import (  # noqa: E402
     Ask,
     Context,
+    Graph,
     GraphRecord,
     NodeRegistry,
     Policy,
@@ -28,34 +29,45 @@ from conductor import (  # noqa: E402
 )
 from conductor_providers.fastapi import Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
-from tests.test_providers.in_memory import MemoryStore, asking, stoppable, stopping  # noqa: E402
+from tests.test_providers.in_memory import (  # noqa: E402
+    MemoryStore,
+    asking,
+    left_running,
+    stoppable,
+    stopping,
+)
 
 
-def _caller(x_user: Annotated[str, Header()] = "anna") -> str:
-    return x_user
+def _metadata(x_user: Annotated[str, Header()] = "anna") -> dict[str, str]:
+    return {"user": x_user}
 
 
-def _starter_only(caller: object, started_by: object) -> bool:
-    return caller == started_by
+def _own_runs(x_user: Annotated[str, Header()] = "anna") -> Callable[[dict[str, str]], bool]:
+    return lambda metadata: metadata["user"] == x_user
+
+
+def _every_run() -> Callable[[Any], bool]:
+    return lambda metadata: True
 
 
 def _app(
     *,
     registry: Any,
-    caller: Any = _caller,
-    caller_type: Any = str,
+    metadata: Any = _metadata,
+    run_filter: Any = _own_runs,
     published: Any = None,
-    may_see: Any = _starter_only,
     **settings: Any,
 ) -> FastAPI:
-    """An app with the runs routes over a worker on ``settings`` (its ``store`` among them), whose callers are names
-    unless ``caller`` and ``caller_type`` say otherwise."""
-    worker = Worker(
-        store=settings.pop("store"), caller_type=caller_type, nodes_for=registry, **settings
-    )
+    """An app with the runs routes over a worker on ``settings`` (its ``store`` among them), whose runs keep the
+    user named by the ``x-user`` header, each seen only by that user, unless ``metadata`` and ``run_filter`` say
+    otherwise."""
+    worker: Worker[Any, Any] = Worker(settings.pop("store"), nodes_for=registry, **settings)
     app = FastAPI()
-    app.include_router(run_router(worker, caller=caller, may_see=may_see, published=published))
+    app.include_router(
+        run_router(worker, metadata=metadata, run_filter=run_filter, published=published)
+    )
     return app
 
 
@@ -96,18 +108,18 @@ def _doubling() -> tuple[NodeRegistry, NodeRegistry, dict[str, Any]]:
     )
 
 
-# -- the caller -----------------------------------------------------------------------------------
+# -- metadata and the run filter -----------------------------------------------------------------
 
 
-async def test_again_by_another_caller_who_may_see_the_run_is_checked_on_that_callers_own_nodes() -> (
+async def test_again_by_another_user_who_may_see_the_run_is_checked_on_that_users_own_nodes() -> (
     None
 ):
     full, bare, graph = _doubling()
     store = MemoryStore()
     app = _app(
         store=store,
-        registry=lambda who: full if who == "anna" else bare,
-        may_see=lambda caller, started_by: True,
+        registry=lambda metadata: full if metadata["user"] == "anna" else bare,
+        run_filter=_every_run,
     )
 
     async with _serving(app) as client:
@@ -123,72 +135,100 @@ async def test_again_by_another_caller_who_may_see_the_run_is_checked_on_that_ca
         assert (await store.ended(mine.json()["id"])).outputs == {"result": 4}
 
 
-def _maybe_caller(x_user: Annotated[str | None, Header()] = None) -> str | None:
-    return x_user
+class _Member(BaseModel):
+    """A run's metadata as a typed model: who started it and in which team."""
+
+    user: str
+    team: str
 
 
-async def test_again_by_an_anonymous_caller_is_checked_on_the_nodes_of_no_caller_not_the_starters() -> (
-    None
-):
-    full, bare, graph = _doubling()
+def _member(
+    x_user: Annotated[str, Header()] = "anna", x_team: Annotated[str, Header()] = "a"
+) -> _Member:
+    return _Member(user=x_user, team=x_team)
+
+
+def _team_runs(x_team: Annotated[str, Header()] = "a") -> Callable[[_Member], bool]:
+    return lambda member: member.team == x_team
+
+
+@pytest.mark.parametrize(
+    ("metadata", "run_filter", "lets_in"),
+    [
+        (_metadata, _own_runs, {("anna", "a"), ("anna", "b")}),
+        (_member, _team_runs, {("anna", "a"), ("bo", "a")}),
+        (_metadata, _every_run, {("anna", "a"), ("anna", "b"), ("bo", "a"), ("bo", "b")}),
+    ],
+    ids=["own_runs", "a_team", "everyone"],
+)
+async def test_the_run_filter_lets_in_the_requests_it_says_and_turns_the_rest_away_as_an_id_that_isnt_there(
+    metadata: Any, run_filter: Any, lets_in: set[tuple[str, str]]
+) -> None:
+    registry, _, graph = _doubling()
     store = MemoryStore()
     app = _app(
         store=store,
-        registry=lambda who: full if who == "anna" else bare,
-        caller=_maybe_caller,
-        may_see=lambda caller, started_by: True,
+        registry=lambda _: registry,
+        metadata=metadata,
+        run_filter=run_filter,
+        metadata_type=_Member if metadata is _member else dict[str, str],
     )
 
     async with _serving(app) as client:
-        run_id = (
-            await client.post(
-                "/runs", json={"graph": graph, "inputs": {"x": 1}}, headers={"x-user": "anna"}
-            )
-        ).json()["id"]
-        assert (await store.ended(run_id)).status == "complete"
-        anonymous = await client.post(f"/runs/{run_id}/again", json={"x": 2})
-        assert anonymous.status_code == 422
-        assert [problem["type"] for problem in anonymous.json()["detail"]] == ["unknown_node"]
+        run_id = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 1}})).json()[
+            "id"
+        ]
+        await store.ended(run_id)
+        seen = set()
+        for user in ("anna", "bo"):
+            for team in ("a", "b"):
+                headers = {"x-user": user, "x-team": team}
+                read = await client.get(f"/runs/{run_id}", headers=headers)
+                if read.status_code == 200:
+                    seen.add((user, team))
+                else:
+                    unknown = await client.get("/runs/nonesuch", headers=headers)
+                    assert (read.status_code, read.json()) == (404, unknown.json())
+
+    assert seen == lets_in
 
 
-@dataclasses.dataclass(frozen=True)
-class _Member:
-    """A caller as FastAPI's class dependency: ``Depends(_Member)`` reads ``x_user`` from a header."""
-
-    x_user: Annotated[str, Header()] = "anna"
-
-
-async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_the_run() -> None:
+async def test_a_typed_metadata_model_is_what_nodes_for_and_context_get_on_every_resume_and_on_another_worker() -> (
+    None
+):
     registry, seen = NodeRegistry(context_type=_Member), []
 
     @registry.node("whoami", title="Whoami", description="For a test.")
     def whoami(who: Context[_Member], text: str) -> str:
         seen.append(who)
-        return who.x_user
+        return who.user
+
+    picked: list[object] = []
+
+    def nodes_of(member: _Member) -> NodeRegistry[_Member]:
+        picked.append(member)
+        return registry
 
     store = MemoryStore()
-    app = _app(
-        store=store,
-        registry=lambda _: registry,
-        caller=_Member,
-        caller_type=_Member,
-        context=lambda caller, stop: caller,
+    graph = make_graph(whoami)
+    left = dataclasses.replace(
+        left_running(
+            "left", graph, Graph.compile(graph, registry).with_inputs({"text": "hi"}), owner=None
+        ),
+        metadata=_Member(user="bo", team="b").model_dump_json(),
     )
+    await store.create(left)
+    worker: Worker[_Member, _Member] = Worker(
+        store, metadata_type=_Member, nodes_for=nodes_of, context=lambda member, stop: member
+    )
+    async with worker.serving():  # takes over the run a dead worker left
+        assert (await store.ended("left")).outputs == {"result": "bo"}
 
-    async with _serving(app) as client:
-        started = await client.post(
-            "/runs",
-            json={"graph": make_graph(whoami).model_dump(mode="json"), "inputs": {"text": "hi"}},
-            headers={"x-user": "bo"},
-        )
-        await store.ended(started.json()["id"])
-        row = (await client.get(f"/runs/{started.json()['id']}", headers={"x-user": "bo"})).json()
-        assert (row["status"], row["outputs"]) == ("complete", {"result": "bo"})
-        assert seen == [_Member("bo")]
+    assert seen == picked == [_Member(user="bo", team="b")]
 
 
-def _nobody() -> None:
-    return None
+def _no_metadata() -> dict[str, str]:
+    return {}
 
 
 async def test_a_router_with_no_logins_lets_every_request_see_every_run() -> None:
@@ -197,9 +237,9 @@ async def test_a_router_with_no_logins_lets_every_request_see_every_run() -> Non
     app = FastAPI()
     app.include_router(
         run_router(
-            Worker(store=store, caller_type=None, nodes_for=lambda _: registry),
-            caller=_nobody,
-            may_see=lambda caller, started_by: True,
+            Worker(store, nodes_for=lambda _: registry),
+            metadata=_no_metadata,
+            run_filter=_every_run,
         )
     )
 
@@ -211,14 +251,36 @@ async def test_a_router_with_no_logins_lets_every_request_see_every_run() -> Non
         assert (await client.get(f"/runs/{run_id}", headers={"x-user": "bo"})).status_code == 200
 
 
-async def test_the_registry_is_asked_for_the_callers_nodes_once_for_each_request_and_once_for_each_resume() -> (
+async def test_the_access_check_reads_only_the_runs_metadata() -> None:
+    """A run whose ``outcome`` isn't JSON is followed all the same: no route parses it to check access."""
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=lambda _: registry, poll=0.01)) as client:
+        run_id = (
+            await client.post(
+                "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
+            )
+        ).json()["id"]
+        await store.ended(run_id)
+        store.rows[run_id] = dataclasses.replace(store.rows[run_id], outcome="not JSON")
+
+        followed = await client.get(f"/runs/{run_id}/events")
+        turned_away = await client.get(f"/runs/{run_id}/events", headers={"x-user": "bo"})
+
+    assert followed.status_code == 200 and _frames(followed)[-1]["type"] == "run_end"
+    assert turned_away.status_code == 404
+
+
+async def test_the_registry_is_asked_for_the_requests_nodes_once_for_each_request_and_once_for_each_resume() -> (
     None
 ):
     full, _, graph = _doubling()
     asked: list[str] = []
 
-    def nodes_of(who: str) -> NodeRegistry:
-        asked.append(who)
+    def nodes_of(metadata: dict[str, str]) -> NodeRegistry:
+        asked.append(metadata["user"])
         return full
 
     store = MemoryStore()
@@ -234,7 +296,7 @@ async def test_the_registry_is_asked_for_the_callers_nodes_once_for_each_request
         assert asked == ["bo", "anna", "anna"]  # the start, then the worker's resume
 
 
-async def test_one_registry_for_every_caller_serves_its_nodes() -> None:
+async def test_one_registry_for_every_request_serves_its_nodes() -> None:
     registry, _, _ = _doubling()
 
     async with _serving(_app(store=MemoryStore(), registry=lambda _: registry)) as client:

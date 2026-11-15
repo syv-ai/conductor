@@ -18,19 +18,19 @@ from pydantic_core import from_json
 class StoredRun:
     """One run as the store keeps it.
 
-    A store acts on ``id``, ``rev``, ``owner`` and ``lease_until``. ``status`` and ``caller`` are columns for the
+    A store acts on ``id``, ``rev``, ``owner`` and ``lease_until``. ``status`` and ``metadata`` are columns for the
     host's own queries. The other four are text the router writes and reads, which a store only keeps. ``id``,
-    ``graph`` and ``caller`` are written once, by ``create``, and no ``update`` changes them.
+    ``graph`` and ``metadata`` are written once, by ``create``, and no ``update`` changes them.
 
-    ``graph``, ``caller``, ``run``, ``state`` and ``outcome`` are JSON, and so is an event's body. A store may keep
+    ``graph``, ``metadata``, ``run``, ``state`` and ``outcome`` are JSON, and so is an event's body. A store may keep
     them in any form that reads back as the same JSON value, such as a Postgres ``jsonb`` column, which orders keys and
     spaces its own way: the router and conductor parse them, and never compare or hash the text itself.
 
     Attributes:
         id: The run's id.
         graph: The ``GraphRecord`` the run is of, as JSON.
-        caller: The run's caller, as the run was admitted (a ``Worker``'s ``caller_type``: who started it, and what
-            else holds for its life), as JSON, so any worker can build the run's registry and ``context`` again.
+        metadata: The run's metadata, as JSON: what the host keeps on the run, such as who started it. Any worker
+            builds the run's registry and ``context`` again from it.
         run: ``run.to_json()``: the last checkpoint while the run is running, the whole run once it stops.
         status: ``running`` while a worker resumes the run or is to, else how the run was left. It is for the host's own
             queries: the router writes it in the same ``update`` as ``state``, from it, and reads only ``state``.
@@ -47,7 +47,7 @@ class StoredRun:
 
     id: str
     graph: str
-    caller: str
+    metadata: str
     run: str
     status: RunStatus
     state: str
@@ -265,7 +265,7 @@ class RunAsRead:
 
     A method that changes the run writes only while the row is still as it was read, so a run read before another
     call changed it is read again, and the method acts on it as it is then. ``view()`` is the run as
-    a reader is shown it, and ``Worker.caller_of(run)`` the caller it was admitted for.
+    a reader is shown it.
     """
 
     _row: StoredRun

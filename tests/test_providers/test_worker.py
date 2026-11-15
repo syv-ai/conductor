@@ -45,17 +45,19 @@ from tests.test_providers.in_memory import (
     stopping,
 )
 
+#: The metadata of the runs the tests start: who started them.
+ANNA = {"user": "anna"}
 
-def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) -> Worker[str]:
-    """A worker on ``store`` whose callers are names, with the worker's own settings where ``settings`` name none."""
-    worker: Worker[str] = Worker(
-        store=store, caller_type=str, nodes_for=lambda caller: registry, **settings
-    )
+
+def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) -> Worker[Any, Any]:
+    """A worker on ``store`` whose runs keep a dict of metadata, with the worker's own settings where ``settings``
+    name none."""
+    worker: Worker[Any, Any] = Worker(store, nodes_for=lambda metadata: registry, **settings)
     return worker
 
 
-async def _started(worker: Worker[str], graph: GraphRecord, inputs: Mapping[str, Any]) -> str:
-    return await worker.begin(graph, inputs, "anna")
+async def _started(worker: Worker[Any, Any], graph: GraphRecord, inputs: Mapping[str, Any]) -> str:
+    return await worker.begin(graph, inputs, ANNA)
 
 
 async def _resume_calls(store: MemoryStore, run_id: str) -> int:
@@ -91,7 +93,7 @@ async def test_a_run_begun_from_a_previous_one_of_an_earlier_version_of_its_grap
         assert (await store.ended(first)).status == "complete"
 
         edited = make_graph(split, square, add, constants={"add.amount": 1})
-        second = await worker.begin(edited, {"n": 3}, "anna", previous=await worker.read(first))
+        second = await worker.begin(edited, {"n": 3}, ANNA, previous=await worker.read(first))
         ended = await store.ended(second)
         assert (ended.status, ended.outputs) == ("complete", {"result": [1, 2, 5]})
         assert calls == ["square 0", "square 1", "square 2", "add 0", "add 1", "add 4"]
@@ -134,13 +136,13 @@ async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_caller
     worker = _worker(store, later)
     async with worker.serving():
         with pytest.raises(InvalidCallError) as refused:
-            await worker.begin(edited, {"n": 2}, "anna", previous=await worker.read(first))
+            await worker.begin(edited, {"n": 2}, ANNA, previous=await worker.read(first))
 
         (problem,) = refused.value.problems
         assert (problem.type, problem.ctx["run_id"]) == ("previous_run_unloadable", first)
         assert "'old'" in str(problem.ctx["reason"])
         assert list(store.rows) == [first]  # nothing is stored
-        begun = await worker.begin(edited, {"n": 2}, "anna")  # without it, the start is taken
+        begun = await worker.begin(edited, {"n": 2}, ANNA)  # without it, the start is taken
         assert (await store.ended(begun)).outputs == {"result": [0, 1]}
 
 
@@ -157,11 +159,9 @@ async def test_a_graph_begun_from_a_previous_run_is_refused_for_its_own_problems
     async with worker.serving():
         previous = await worker.read(first)
         with pytest.raises(InvalidCallError) as broken:
-            await worker.begin(
-                {"nodes": {"x": {"node": "nonesuch"}}}, {}, "anna", previous=previous
-            )
+            await worker.begin({"nodes": {"x": {"node": "nonesuch"}}}, {}, ANNA, previous=previous)
         with pytest.raises(InvalidCallError) as wrong_input:
-            await worker.begin(edited, {"n": "two"}, "anna", previous=previous)
+            await worker.begin(edited, {"n": "two"}, ANNA, previous=previous)
 
     assert [problem.type for problem in broken.value.problems] == ["unknown_node"]
     assert [problem.type for problem in wrong_input.value.problems] == ["invalid_input"]
@@ -1030,8 +1030,8 @@ async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_an
     gate.set()
     resume_calls = []
 
-    def fails_on_the_first_resume_call(caller: str, stop: ThreadEvent) -> None:
-        resume_calls.append(caller)
+    def fails_on_the_first_resume_call(metadata: object, stop: ThreadEvent) -> None:
+        resume_calls.append(metadata)
         if len(resume_calls) == 1:
             raise ConnectionError("the secrets service is down")
 
@@ -1414,7 +1414,7 @@ def _shout() -> tuple[NodeRegistry, GraphRecord]:
     return registry, make_graph(shout)
 
 
-def _context_raises(caller: str, stop: ThreadEvent) -> None:
+def _context_raises(metadata: object, stop: ThreadEvent) -> None:
     raise ConnectionError("the secrets service is down")
 
 
@@ -1541,8 +1541,8 @@ async def test_a_run_whose_resume_call_raised_lists_the_calls_waiting_as_stored_
     def approve(x: int) -> bool:
         raise Ask(f"approve {x}?")
 
-    def fails_on_the_second_resume_call(caller: str, stop: ThreadEvent) -> None:
-        resume_calls.append(caller)
+    def fails_on_the_second_resume_call(metadata: object, stop: ThreadEvent) -> None:
+        resume_calls.append(metadata)
         if len(resume_calls) == 2:
             raise ConnectionError("the secrets service is down")
 

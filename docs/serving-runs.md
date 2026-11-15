@@ -10,7 +10,7 @@ The test suite runs this page as written: two uvicorn workers on one database, a
 
 ## A store
 
-The worker keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of ten columns, text and numbers. Your store acts on four of them: `id`, `rev`, `owner` and `lease_until`. `status` and `caller` are columns for your own queries, such as a page of the runs that wait for one person. `graph`, `run`, `state` and `outcome` are JSON the router writes and reads, which you only keep. `id`, `graph` and `caller` are written once, by `create`, and no `update` changes them. Keep them, `caller` and each event's body as text or as `jsonb`: any form that reads back as the same JSON value, since the router parses them and never compares the text. `state` is where the run is (its status and why it ended early, the answers queued and refused, a cancel that was asked); it is small. `status` is there for your queries only: the router writes it in the same `update` as `state`, from it, and itself reads only `state`. `outcome` is what a reader gets without reading the whole run, written each time the run stops running: what waits, how far the run is (its progress, written with each checkpoint too) and, once complete, the outputs. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run. The protocol has no delete: purge old runs with your own statement, and never a run whose `status` is `running`, which its worker and its followers read again and take to be there.
+The worker keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of ten columns, text and numbers. Your store acts on four of them: `id`, `rev`, `owner` and `lease_until`. `status` and `metadata` are columns for your own queries, such as a page of the runs that wait for one person. `graph`, `run`, `state` and `outcome` are JSON the router writes and reads, which you only keep. `id`, `graph` and `metadata` are written once, by `create`, and no `update` changes them. Keep them, `metadata` and each event's body as text or as `jsonb`: any form that reads back as the same JSON value, since the router parses them and never compares the text. `state` is where the run is (its status and why it ended early, the answers queued and refused, a cancel that was asked); it is small. `status` is there for your queries only: the router writes it in the same `update` as `state`, from it, and itself reads only `state`. `outcome` is what a reader gets without reading the whole run, written each time the run stops running: what waits, how far the run is (its progress, written with each checkpoint too) and, once complete, the outputs. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run. The protocol has no delete: purge old runs with your own statement, and never a run whose `status` is `running`, which its worker and its followers read again and take to be there.
 
 This one is SQLite, for one machine with several workers. Write yours the same way for Postgres:
 
@@ -30,7 +30,7 @@ class SqliteRunStore:
         with closing(self.connect()) as connection:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
-                "CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, graph TEXT, caller TEXT, run TEXT, status TEXT,"
+                "CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, graph TEXT, metadata TEXT, run TEXT, status TEXT,"
                 " state TEXT, outcome TEXT, rev INTEGER, owner TEXT, lease_until REAL);"  # a StoredRun's fields, in their order
                 "CREATE TABLE IF NOT EXISTS events (run_id TEXT, seq INTEGER, body TEXT, PRIMARY KEY (run_id, seq));"
             )
@@ -91,15 +91,17 @@ async def test_run_store(tmp_path: Path) -> None:
 
 ## The app
 
-Make a `Worker` on your store and mount the router over it. The worker does the work: it keeps runs, resumes them, holds their leases and takes over another worker's. `caller_type` is the type of a run's caller, kept on each run as JSON so whichever worker goes on with a run knows who started it, and `nodes_for` and `context` make the run's registry and context from that caller (`context` is also given the stop event of each resume call, which a slow node reads: [stopping a slow call](#what-each-part-is-for)). The router adds the routes: `caller` is a FastAPI dependency, your login, that gives a caller of that type (a function, or a class used as the dependency), and `may_see` says who may see a run:
+Make a `Worker` on your store and mount the router over it. The worker does the work: it keeps runs, resumes them, holds their leases and takes over another worker's. Each run keeps its metadata, what you want to know about the run, such as who started it; here it is a `dict[str, str]`. `nodes_for` and `context` build the run's registry and context from that metadata, on whichever worker goes on with the run (`context` is also given the stop event of each resume call, which a slow node reads: [stopping a slow call](#what-each-part-is-for)). The router adds the routes: `metadata` is a FastAPI dependency that gives the metadata for a request, and `run_filter` one that says which runs the request may see:
 
 ```python
+from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event
+from typing import Annotated
 
 from conductor import GraphRecord, NodeRegistry
 from conductor_providers.fastapi import Worker, run_router
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 
 
 @dataclass(frozen=True)
@@ -110,26 +112,29 @@ class Database:
 
 
 @dataclass(frozen=True)
-class Caller:
-    name: str
-
-
-@dataclass(frozen=True)
 class AppContext:
     """What a run's nodes get from the host: who started the run, how to reach the database, and whether the run
     was asked to stop."""
 
-    caller: Caller
+    user: str
     database: Database
     stop: Event
 
 
-def current_caller() -> Caller:
-    return Caller("anna")  # yours: your login
+def current_user() -> str:
+    return "anna"  # yours: your login
 
 
-def context_of(caller: Caller, stop: Event) -> AppContext:
-    return AppContext(caller=caller, database=database, stop=stop)
+def run_metadata(user: Annotated[str, Depends(current_user)]) -> dict[str, str]:
+    return {"user": user}
+
+
+def own_runs(user: Annotated[str, Depends(current_user)]) -> Callable[[dict[str, str]], bool]:
+    return lambda metadata: metadata["user"] == user
+
+
+def context_of(metadata: dict[str, str], stop: Event) -> AppContext:
+    return AppContext(user=metadata["user"], database=database, stop=stop)
 
 
 registry = NodeRegistry(context_type=AppContext)  # yours: @registry.node(...) or registry.add(...)
@@ -144,29 +149,23 @@ def published(name: str) -> GraphRecord:
 
 
 worker = Worker(
-    store=SqliteRunStore(database.path),
-    caller_type=Caller,
-    nodes_for=lambda caller: registry,
+    SqliteRunStore(database.path),
+    nodes_for=lambda metadata: registry,
     context=context_of,
 )
 app = FastAPI()
-app.include_router(run_router(
-    worker,
-    caller=current_caller,
-    may_see=lambda caller, started_by: caller.name == started_by.name,
-    published=published,
-))
+app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs, published=published))
 ```
 
 That gives these routes:
 
 | Route | What it does |
 |---|---|
-| `GET /nodes` | The caller's palette: `describe()` of the caller's registry, each node with its fields. |
+| `GET /nodes` | The request's palette: `describe()` of the registry for its metadata, each node with its fields. |
 | `POST /compile` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each a `field`, by name, and its outputs a list of names. |
 | `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
-| `POST /estimate` | How many calls a run of `{"graph": ..., "inputs": {...}}` will make, before any call that costs something: `run.progress` after `run.resume(only_costs_nothing=True)`, with the caller's context and `resume_timeout`. Nothing is stored. `POST /graphs/{name}/estimate` does the same for a graph you offer. |
+| `POST /estimate` | How many calls a run of `{"graph": ..., "inputs": {...}}` will make, before any call that costs something: `run.progress` after `run.resume(only_costs_nothing=True)`, with the request's context and `resume_timeout`. Nothing is stored. `POST /graphs/{name}/estimate` does the same for a graph you offer. |
 | `GET /runs/{id}` | Its `status`, what is `waiting` for a person (as of when the run last stopped running, so while it is running it still lists what was just answered; a client hides the ones it answered), `outputs` once complete, by name (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, its `progress` (as `run.progress` says it, as of the last checkpoint while it runs), and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_limit` cause says the `items` and `max_items`, for choosing a higher item limit to resume with). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
 | `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 422 listing every answer the run refuses (`not_waiting` for one to a complete run). A run that `failed`, `stopped`, `timed_out` or was `cancelled` takes answers to what waits in it. |
@@ -193,11 +192,11 @@ def test_translations_match_the_codes(translations: dict[str, str], own_codes: s
 
 **Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
 
-**Who may see a run.** You say: `may_see(caller, started_by)` is asked on every route under `/runs/{id}`, and a caller it turns away gets 404, `no_such_run`, as for an id that names no run. Above, only the caller who started a run may read it or act on it; `may_see=lambda caller, started_by: caller.team == started_by.team` lets a team in. Both are required. There is no default rule, because the obvious one, the same caller, compares everything your `caller` returns: a record with a `last_login` would lock Anna out of her own run the next time she logs in. A host with no logins gives a caller of `None` and lets everyone in: `caller_type=None` on the worker, and `caller=nobody`, with `def nobody() -> None: return None`, and `may_see=lambda caller, started_by: True` on the router.
+**Who may see a run.** You say: `run_filter` gives, for each request, a test of a run's metadata, asked on every route under `/runs/{id}`. A run it turns away is a 404, `no_such_run`, as for an id that names no run. Above, only the user who started a run may read it or act on it; `lambda metadata: metadata["team"] == user.team` lets a team in. Only the run's metadata is read to decide, never what waits in it. Both dependencies are required, since no default rule is safe for every host. A host with no logins gives `metadata` a function that returns `{}` and `run_filter` one that returns `lambda metadata: True`.
 
-**What `caller` returns.** What identifies the caller and nothing that changes: an id, a tenant. It is kept on the run as JSON when the run starts, and the run's context (`context_of`) and registry are made from it as it was then each time the run is resumed, whichever worker does it.
+**What `metadata` returns.** What identifies the request and nothing that changes: a user id, a team. It is kept on the run as JSON when the run starts, and the run's context (`context_of`) and registry are built from it as it was then each time the run is resumed, whichever worker does it. On the routes that store no run (`/nodes`, `/compile`, `/estimate`, and the check of `again`), it picks the nodes the request may use.
 
-**A registry per tenant.** `nodes_for=` is a function of the caller, so above it gives every caller the one registry. `registry.filter` gives each tenant the nodes it may use instead. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
+**A registry per tenant.** `nodes_for=` is a function of the run's metadata, so above it gives every run the one registry. `registry.filter` gives each tenant the nodes it may use instead. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
 
 ```python
 from functools import cache
@@ -205,7 +204,7 @@ from functools import cache
 
 @dataclass(frozen=True)
 class Member:
-    name: str
+    user: str
     tenant: str
 
 
@@ -218,7 +217,7 @@ def nodes_of(member: Member) -> NodeRegistry[AppContext]:
     return tenant_nodes(member.tenant)
 ```
 
-Pass `nodes_for=nodes_of` and `caller_type=Member`, and a `caller` that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
+Pass `nodes_for=nodes_of` and `metadata_type=Member` to the worker, and a `metadata` dependency that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
 
 **What a node receives.** A node that takes the run's context takes it as its first parameter, `Context[AppContext]`, and gets the `AppContext` that `context_of` returns. A run's nodes are called on a thread of the run's own, and a node with `Policy(concurrency=4)` on four more, with at most four calls of it at once among all the runs of the worker; a node that sets no `concurrency` is called by each run on its own, whatever the others do. So the context gives a node a way to connect, and the node opens its own connection:
 
@@ -233,9 +232,9 @@ def count_runs(ctx: Context[AppContext], status: str) -> int:
         return count
 ```
 
-A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in the context as it is. The context is never part of a run's JSON; the worker keeps the caller on the run and calls `context_of` again on any worker. A graph with a node whose `Context[...]` your `AppContext` does not satisfy has [`context_does_not_fit`](problems.md#context_does_not_fit) at that node: `/compile` shows it, and `POST /runs` answers 422.
+A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in the context as it is. The context is never part of a run's JSON; the worker keeps the metadata on the run and calls `context_of` again on any worker. A graph with a node whose `Context[...]` your `AppContext` does not satisfy has [`context_does_not_fit`](problems.md#context_does_not_fit) at that node: `/compile` shows it, and `POST /runs` answers 422.
 
-**Stopping a slow call.** A cancel stops a run before its next node call, so a call already going on runs to its end. For a call that takes long and costs money, such as a language model that streams its reply for a minute, the worker gives your `context` function a `threading.Event` with the caller, new for each resume call, and sets it when that call stops early: the run was cancelled, on this worker or on another (heard at the next renewal of the lease), or another worker took the run over, so what this one makes would be thrown away. Put it in the context, and a node reads it between chunks, on whatever thread it runs, with `is_set()`, or waits on it with `wait(seconds)`:
+**Stopping a slow call.** A cancel stops a run before its next node call, so a call already going on runs to its end. For a call that takes long and costs money, such as a language model that streams its reply for a minute, the worker gives your `context` function a `threading.Event` with the run's metadata, new for each resume call, and sets it when that call stops early: the run was cancelled, on this worker or on another (heard at the next renewal of the lease), or another worker took the run over, so what this one makes would be thrown away. Put it in the context, and a node reads it between chunks, on whatever thread it runs, with `is_set()`, or waits on it with `wait(seconds)`:
 
 ```python
 from collections.abc import Iterator
@@ -275,7 +274,7 @@ Raise, never return what you have: a value a node returns is kept, and a resume 
 
 **The answer's shape.** `POST /runs/{id}/answers` takes `{waiting.id: value}`, each value what the node returns: its value for one output, a mapping by name for several. A client draws each one's `questions` and checks against their `schema` and `choices` before it sends, and the server checks again. A wrong answer is a 422 listing every fault, each naming what it answered in `ctx.waiting_id` and, for a form, the question in `ctx.question` ([refused calls](problems.md#refused-calls)). One left out goes on waiting.
 
-**Running again.** `POST /runs/{id}/again` with `{"csv": edited}` starts a new run with that input changed. A call that would get the same arguments as a call in the previous run reuses that call's output or answer, so after one line of a CSV of 5,000 is edited, a node that runs per item is called for that one. The new run is the caller's, on the caller's own nodes: a caller who may see another's run (`may_see`) but whose registry can't run its graph gets the 422 at `again`, as starting the graph would.
+**Running again.** `POST /runs/{id}/again` with `{"csv": edited}` starts a new run with that input changed. A call that would get the same arguments as a call in the previous run reuses that call's output or answer, so after one line of a CSV of 5,000 is edited, a node that runs per item is called for that one. The new run is the request's: it keeps the request's metadata and runs on the request's own nodes, so a user who may see another's run but whose registry can't run its graph gets the 422 at `again`, as starting the graph would.
 
 **Graphs that use saved graphs as subgraphs.** They are compiled with a registry of the request's own ([a graph inside a graph](subgraphs.md#graphs-saved-per-request)): pass `nodes_for=` a function that builds it, so the shared registry is left as it was.
 
@@ -283,29 +282,29 @@ Raise, never return what you have: a value a node returns is kept, and a resume 
 
 `run_router` is a thin layer over its `Worker`: each route reads its call, calls one method of the worker and says what it answered. A host with routes of its own, and its own say on who may start which run, calls the worker the same way.
 
-The worker's `C`, its `caller_type`, is the caller as the run was admitted: who started it and whatever else holds for the run's whole life, such as the graph a person was let run. It is written to the run once, as JSON, when the run begins, and never changed; every resume, on any worker, reads it back and makes the run's registry (`nodes_for`) and context (`context`) from it, so keep in it nothing that changes. Every worker on one store takes over any run in it, so they all read the caller, and make the registry and context from it, the same way; on this page the router's worker and this one sit in one app, so this one has a store of its own.
+The worker's `M`, its `metadata_type`, is what a run keeps about itself: who started it and whatever else holds for the run's whole life, such as the graph a person was let run. It is written to the run once, as JSON, when the run begins, and never changed; every resume, on any worker, reads it back and builds the run's registry (`nodes_for`) and context (`context`) from it, so keep in it nothing that changes. Every worker on one store takes over any run in it, so they all read the metadata the same way; on this page the router's worker and this one sit in one app, so this one has a store of its own.
 
 ```python
-from typing import Annotated, Any
+from typing import Any
 
 from conductor import InvalidCallError
-from conductor_providers.fastapi import RunAsRead, RunView, Worker
-from fastapi import APIRouter, Body, Depends
+from conductor_providers.fastapi import RunAsRead, RunView
+from fastapi import APIRouter, Body
 
 
 @dataclass(frozen=True)
 class Admitted:
-    """A caller as a run of theirs was admitted: who they are, and the graph they were let run."""
+    """What a run started by these routes keeps: who started it, and the graph they were let run."""
 
-    person: Caller
+    person: str
     graph: str
 
 
 admitted = Worker(
-    store=SqliteRunStore("admitted.db"),
-    caller_type=Admitted,
-    nodes_for=lambda caller: registry,
-    context=lambda caller, stop: context_of(caller.person, stop),
+    SqliteRunStore("admitted.db"),
+    metadata_type=Admitted,
+    nodes_for=lambda metadata: registry,
+    context=lambda metadata, stop: context_of({"user": metadata.person}, stop),
 )
 own_routes = APIRouter(prefix="/admitted", lifespan=lambda _: admitted.serving())
 
@@ -315,20 +314,19 @@ def refused(error: InvalidCallError) -> HTTPException:
     return HTTPException(status, [problem.model_dump(mode="json") for problem in error.problems])
 
 
-async def admitted_run(run_id: str, person: Caller) -> RunAsRead:
+async def admitted_run(run_id: str, person: str) -> RunAsRead:
     """The run, if this person started it; any other is a 404, as one that isn't there."""
     try:
-        run = await admitted.read(run_id)
+        if (await admitted.metadata_of(run_id)).person != person:
+            raise HTTPException(404, "no such run")
+        return await admitted.read(run_id)
     except InvalidCallError as error:
         raise refused(error) from None
-    if admitted.caller_of(run).person != person:
-        raise HTTPException(404, "no such run")
-    return run
 
 
 @own_routes.post("/graphs/{name}", status_code=202)
 async def start_admitted(
-    name: str, inputs: Annotated[dict[str, Any], Body()], person: Annotated[Caller, Depends(current_caller)], previous: str | None = None
+    name: str, inputs: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)], previous: str | None = None
 ) -> dict[str, str]:
     """Start a graph you offer; with `?previous=`, from the work of one of this person's runs."""
     graph = published(name)  # yours: whether this person may run it
@@ -340,13 +338,13 @@ async def start_admitted(
 
 
 @own_routes.get("/runs/{run_id}")
-async def read_admitted(run_id: str, person: Annotated[Caller, Depends(current_caller)]) -> RunView:
+async def read_admitted(run_id: str, person: Annotated[str, Depends(current_user)]) -> RunView:
     return (await admitted_run(run_id, person)).view()
 
 
 @own_routes.post("/runs/{run_id}/answers", status_code=202)
 async def answer_admitted(
-    run_id: str, answers: Annotated[dict[str, Any], Body()], person: Annotated[Caller, Depends(current_caller)]
+    run_id: str, answers: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)]
 ) -> dict[str, str]:
     try:
         return {"answers": await admitted.answer(await admitted_run(run_id, person), answers)}
@@ -357,7 +355,7 @@ async def answer_admitted(
 app.include_router(own_routes)
 ```
 
-`begin` stores the run and makes its first resume call in the background. With `previous`, a run as read of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the caller's nodes (its graph uses a node the caller's registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, caller)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: with an `InvalidCallError` whose problems are conductor's or the router's own, below. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(caller).describe()`, as `GET /nodes` answers).
+`begin` stores the run and makes its first resume call in the background. With `previous`, a run as read of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the new run's nodes (its graph uses a node the registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, metadata)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: with an `InvalidCallError` whose problems are conductor's or the router's own, below. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(metadata).describe()`, as `GET /nodes` answers).
 
 ## The worker's own problems
 

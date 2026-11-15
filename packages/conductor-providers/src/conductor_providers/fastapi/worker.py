@@ -28,12 +28,13 @@ from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from threading import Event
-from typing import Any, Generic, Literal, TypeVar, overload
+from typing import Any, Generic, Literal
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
 from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
+from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.problems import (
     no_such_run,
@@ -51,9 +52,10 @@ from conductor_providers.fastapi.stored_run import (
     StoredState,
 )
 
-C = TypeVar("C")
-#: The class of the run's context that the registry names.
-X = TypeVar("X")
+#: The type of a run's metadata: what the host keeps on it. ``dict[str, str]`` unless the host names a model.
+M = TypeVar("M", default=dict[str, str])
+#: The class of the run's context, the registry's ``context_type``.
+X = TypeVar("X", default=None)
 
 log = logging.getLogger("conductor_providers.fastapi")
 
@@ -62,11 +64,6 @@ _UNHELD: RunChanges = {"owner": None, "lease_until": None}
 
 #: The owner and lease of a row handed back: its lease already run out, so the next sweep of any worker takes it.
 _HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
-
-
-def _no_context(caller: object, stop: Event) -> None:
-    """The run's context when the host gives none: none, for a registry that names no ``context_type``."""
-    return None
 
 
 @dataclass(eq=False)
@@ -96,23 +93,21 @@ class _Hold:
     reads: int = 0
 
 
-class Worker(Generic[C]):
+class Worker(Generic[M, X]):
     """Starts, answers, resumes and cancels stored runs for one process, on any number of processes sharing one store.
 
     ``run_router`` is a thin layer of routes over one worker. A host with its own routes, and its own say on who may
     start which run, makes a worker and calls it as the routes do: ``begin`` a run (or ``estimate`` one first),
-    ``read`` it, show it with ``run.view()``, check whom it is for with ``caller_of``, follow its ``events``,
+    ``read`` it, show it with ``run.view()``, check whose it is with ``metadata_of``, follow its ``events``,
     ``answer``, ``resume`` or ``cancel`` it, start it ``again`` with some inputs changed, and serve inside
     ``serving()``, which a lifespan enters. Each run is held under a lease while this worker resumes it, written to a
     checkpoint every few seconds, and taken over by another worker when its lease runs out.
 
-    ``C`` is the type of a run's caller: what the run was admitted with, which is who started it and whatever else
-    holds for the run's whole life, such as a tenant or the graph they were let run. The caller is written to the
-    run once, as JSON, when the run is created, and never changed; every resume call, on any worker, reads it back
-    and makes the run's registry and context from it, so a host keeps its own data about a run there and needs no
-    hook for it. Hold nothing in it that changes: a run keeps it as it was when the run began. Every worker on one
-    store takes over any run in it, so they all read the caller, and make the registry and context from it, the
-    same way.
+    ``M`` is the type of a run's metadata: what the host keeps on a run, such as who started it and in which team.
+    It is ``dict[str, str]`` unless you name a pydantic model with ``metadata_type``. The metadata is written to the
+    run once, as JSON, when the run starts, and never changed. Every resume call, on any worker, reads it back and
+    builds the run's registry and context from it, so keep in it nothing that changes. ``X`` is the class of the
+    run's context, the registry's ``context_type``.
 
     Each method that takes a run takes it as the caller read it (``read``). A method that makes a run running
     (``answer`` on a run that is not running, ``resume``, ``cancel`` on a waiting run) writes only if the run is
@@ -124,75 +119,18 @@ class Worker(Generic[C]):
     taken and its run handed back at once, for a worker that serves to take over.
 
     Attributes:
-        nodes_for: The function that gives a caller's registry, as the worker was given it; the routes describe it
-            for ``/nodes`` and compile on it for ``/compile``.
+        nodes_for: The function that gives the registry for a run's metadata, as the worker was given it; the routes
+            describe it for ``/nodes`` and compile on it for ``/compile``.
     """
 
-    @overload
     def __init__(
         self,
-        *,
         store: RunStore,
-        caller_type: type[C],
-        nodes_for: Callable[[C], NodeRegistry[X]],
-        context: Callable[[C, Event], X],
-        max_items: int | None = ...,
-        lease: float = ...,
-        checkpoint_every: float = ...,
-        resume_timeout: float | None = ...,
-        poll: float = ...,
-    ) -> None: ...
-
-    @overload
-    def __init__(
-        self,
         *,
-        store: RunStore,
-        caller_type: type[C],
-        nodes_for: Callable[[C], NodeRegistry[None]],
-        max_items: int | None = ...,
-        lease: float = ...,
-        checkpoint_every: float = ...,
-        resume_timeout: float | None = ...,
-        poll: float = ...,
-    ) -> None: ...
-
-    @overload
-    def __init__(
-        self: "Worker[None]",
-        *,
-        store: RunStore,
-        caller_type: None,
-        nodes_for: Callable[[None], NodeRegistry[X]],
-        context: Callable[[None, Event], X],
-        max_items: int | None = ...,
-        lease: float = ...,
-        checkpoint_every: float = ...,
-        resume_timeout: float | None = ...,
-        poll: float = ...,
-    ) -> None: ...
-
-    @overload
-    def __init__(
-        self: "Worker[None]",
-        *,
-        store: RunStore,
-        caller_type: None,
-        nodes_for: Callable[[None], NodeRegistry[None]],
-        max_items: int | None = ...,
-        lease: float = ...,
-        checkpoint_every: float = ...,
-        resume_timeout: float | None = ...,
-        poll: float = ...,
-    ) -> None: ...
-
-    def __init__(
-        self,
-        *,
-        store: RunStore,
-        caller_type: Any,
-        nodes_for: Callable[[Any], NodeRegistry[Any]],
-        context: Callable[[Any, Event], Any] = _no_context,
+        nodes_for: Callable[[M], NodeRegistry[X]],
+        context: Callable[[M, Event], X] | None = None,
+        # mypy can't tie a parameter's default to the TypeVar's default, so it asks for this one ignore
+        metadata_type: type[M] = dict[str, str],  # type: ignore[assignment]
         max_items: int | None = None,
         lease: float = 30.0,
         checkpoint_every: float = 5.0,
@@ -203,18 +141,18 @@ class Worker(Generic[C]):
 
         Args:
             store: Where runs and their events are kept.
-            caller_type: The type of a run's caller, ``C``; the caller is kept on the run as its JSON, read back by
-                this type. ``None`` for a host with no logins, whose every run's caller is ``None``.
-            nodes_for: The nodes a run's graph may use, from its caller: ``lambda caller: registry`` for one
-                registry, or a registry per tenant. Called for every method call and every resume call, so it caches
-                what it builds.
-            context: The run's context, an instance of the registry's ``context_type``, from its caller and the
-                resume call's stop event, a ``threading.Event``; called for every resume call. The event is set when
-                that call stops early because the run was cancelled, because another worker took the run over, or
-                because the store raised and this worker gave the run up, so a node given it in the context can stop
-                a slow call and raise (what it returns would be kept); a node reads it and never sets it. It is not
-                set when this worker shuts down, since the calls going on then are waited for and kept, and the next
-                resume call gets a new one. Left out for a registry that names no ``context_type``.
+            nodes_for: The nodes a run's graph may use, from the run's metadata: ``lambda metadata: registry`` for
+                one registry, or a registry per team. Called for every method call and every resume call, so it
+                caches what it builds.
+            context: The run's context, an instance of the registry's ``context_type``, from the run's metadata and
+                the resume call's stop event, a ``threading.Event``; called for every resume call. The event is set
+                when that call stops early because the run was cancelled, because another worker took the run over,
+                or because the store raised and this worker gave the run up, so a node given it in the context can
+                stop a slow call and raise (what it returns would be kept); a node reads it and never sets it. It is
+                not set when this worker shuts down, since the calls going on then are waited for and kept, and the
+                next resume call gets a new one. Left out for a registry that names no ``context_type``.
+            metadata_type: The type of a run's metadata, ``M``: a pydantic model of yours, or ``dict[str, str]``.
+                The metadata is kept on the run as JSON and read back by this type.
             max_items: The ceiling on the items of any one Series that a run starts with; ``None`` for none. A
                 resume may raise it for that run, and the raised ceiling holds for that run from then on.
             lease: The seconds this worker holds a run between renewals.
@@ -225,10 +163,10 @@ class Worker(Generic[C]):
         """
         self._id = uuid.uuid4().hex
         self._store = store
-        self._caller_type: TypeAdapter[C] = TypeAdapter(caller_type)
-        self.nodes_for: Callable[[C], NodeRegistry[Any]] = nodes_for
+        self._metadata: TypeAdapter[M] = TypeAdapter(metadata_type)
+        self.nodes_for = nodes_for
         self._served = False
-        self._context: Callable[[C, Event], Any] = context
+        self._context = context
         self._max_items = max_items
         self._lease = lease
         self._checkpoint_every = checkpoint_every
@@ -239,16 +177,30 @@ class Worker(Generic[C]):
 
     # -- what a host calls ------------------------------------------------------------------------
 
-    def caller_of(self, run: RunAsRead) -> C:
-        """A run's caller: what it was admitted with, as it was when the run began.
+    async def metadata_of(self, run_id: str) -> M:
+        """A run's metadata, as it was written when the run started.
+
+        Only the row's ``metadata`` column is read, so this stays cheap however much waits in the run. The router's
+        access check calls it on every route under ``/runs/{run_id}``.
 
         Args:
-            run: The run as read.
+            run_id: The run's id.
 
         Returns:
-            The caller, read from the JSON the run keeps.
+            The metadata, read back by the worker's ``metadata_type``.
+
+        Raises:
+            InvalidCallError: No run has the id (``no_such_run``).
         """
-        return self._caller_type.validate_json(run._row.caller)
+        return self._metadata_in((await self.read(run_id))._row)
+
+    def _metadata_in(self, row: StoredRun) -> M:
+        """The metadata a row keeps, read from its JSON."""
+        return self._metadata.validate_json(row.metadata)
+
+    def _context_for(self, metadata: M, stop: Event) -> X | None:
+        """The context of a resume call: ``context(metadata, stop)``, or ``None`` when the worker was given none."""
+        return None if self._context is None else self._context(metadata, stop)
 
     async def read(self, run_id: str) -> RunAsRead:
         """The run as the store has it.
@@ -271,7 +223,7 @@ class Worker(Generic[C]):
         self,
         graph: Any,
         inputs: Mapping[str, Any],
-        caller: C,
+        metadata: M,
         *,
         previous: RunAsRead | None = None,
     ) -> str:
@@ -280,22 +232,22 @@ class Worker(Generic[C]):
         Args:
             graph: The graph record, as a ``GraphRecord``, as its JSON text or as the plain data a caller sent.
             inputs: Values for the graph's inputs, by name, every one the graph needs.
-            caller: The run's caller, stored with it; the graph is compiled on its nodes.
+            metadata: The run's metadata, stored with it; the graph is compiled on its nodes.
             previous: A run of this graph, or of an earlier version of it, as read, that lends its work as
                 ``graph.with_inputs(previous=...)`` takes it: a call that receives what a call of the same node
-                received there is not made again. It is loaded on ``caller``'s nodes. The new run starts at this
+                received there is not made again. It is loaded on ``metadata``'s nodes. The new run starts at this
                 worker's ``max_items``, not at a ceiling ``previous`` was resumed with; ``again`` keeps that one.
 
         Returns:
             The run's id.
 
         Raises:
-            InvalidCallError: The graph can't run on ``caller``'s nodes, or refuses the inputs, each with
-                conductor's problems; else ``previous`` can't be loaded on ``caller``'s nodes
-                (``previous_run_unloadable``, which says why). Start without ``previous`` then.
+            InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs, each with
+                conductor's problems; else ``previous`` can't be loaded on those nodes (``previous_run_unloadable``,
+                which says why). Start without ``previous`` then.
             RuntimeError: The worker has never served.
         """
-        nodes = self.nodes_for(caller)
+        nodes = self.nodes_for(metadata)
 
         def ready() -> Run[Any]:
             compiled = Graph.compile(graph, nodes)
@@ -317,39 +269,39 @@ class Worker(Generic[C]):
             return compiled.with_inputs(inputs, max_items=self._max_items, previous=lent)
 
         run = await asyncio.to_thread(ready)
-        return await self._create(run.graph.record.model_dump_json(), caller, run)
+        return await self._create(run.graph.record.model_dump_json(), metadata, run)
 
-    async def estimate(self, graph: Any, inputs: Mapping[str, Any], caller: C) -> RunProgress:
+    async def estimate(self, graph: Any, inputs: Mapping[str, Any], metadata: M) -> RunProgress:
         """How many calls a run of ``graph`` on ``inputs`` will make, from ``run.resume(only_costs_nothing=True)``,
         which calls only the nodes that cost nothing; nothing is stored.
 
-        The call is made as a stored run's is: with the caller's context and this worker's ``resume_timeout`` and
+        The call is made as a stored run's is: with the metadata's context and this worker's ``resume_timeout`` and
         ``max_items``. The context is given a stop event that is never set, since nothing cancels an estimate.
 
         Args:
             graph: The graph record, as a ``GraphRecord``, as its JSON text or as the plain data a caller sent.
             inputs: Values for the graph's inputs, by name.
-            caller: The caller the run would have, on whose nodes the graph is compiled.
+            metadata: The metadata the run would have, on whose nodes the graph is compiled.
 
         Returns:
             The run's progress after that call.
 
         Raises:
-            InvalidCallError: The graph can't run on ``caller``'s nodes, or refuses the inputs.
+            InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs.
         """
-        nodes = self.nodes_for(caller)
+        nodes = self.nodes_for(metadata)
 
         def estimated() -> RunProgress:
             ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
             return ready.resume(
-                context=self._context(caller, Event()),
+                context=self._context_for(metadata, Event()),
                 timeout=self._resume_timeout,
                 only_costs_nothing=True,
             ).progress
 
         return await asyncio.to_thread(estimated)
 
-    async def again(self, run: RunAsRead, inputs: Mapping[str, Any], caller: C) -> str:
+    async def again(self, run: RunAsRead, inputs: Mapping[str, Any], metadata: M) -> str:
         """Start a run of ``run``'s graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
         receives what it received before isn't made again.
 
@@ -360,18 +312,18 @@ class Worker(Generic[C]):
         Args:
             run: The run to start from, as read.
             inputs: The inputs to change, by name; the rest stay as ``run`` had them.
-            caller: The new run's caller, stored with it; ``run`` is loaded on its nodes.
+            metadata: The new run's metadata, stored with it; ``run`` is loaded on its nodes.
 
         Returns:
             The new run's id.
 
         Raises:
-            InvalidCallError: The graph can't run on ``caller``'s nodes, or refuses the inputs.
+            InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs.
             RuntimeError: The worker has never served.
         """
-        nodes = self.nodes_for(caller)
+        nodes = self.nodes_for(metadata)
         again = await asyncio.to_thread(lambda: _loaded(run._row, nodes).with_inputs(inputs))
-        return await self._create(run._row.graph, caller, again)
+        return await self._create(run._row.graph, metadata, again)
 
     async def answer(
         self, run: RunAsRead, answers: Mapping[str, Any]
@@ -401,7 +353,7 @@ class Worker(Generic[C]):
             run = await self._ask_of_a_running_run(run, lambda state: state.queued(answers))
             if run._state.is_running:
                 return "queued"
-            row, nodes = run._row, self.nodes_for(self.caller_of(run))
+            row, nodes = run._row, self.nodes_for(self._metadata_in(run._row))
             answered = await asyncio.to_thread(
                 lambda: _loaded(row, nodes).answer(answers).to_json()
             )
@@ -431,7 +383,7 @@ class Worker(Generic[C]):
                 raise InvalidCallError([run_not_resumable(status=run._state.status)])
             raised = None
             if max_items is not None:
-                row, nodes = run._row, self.nodes_for(self.caller_of(run))
+                row, nodes = run._row, self.nodes_for(self._metadata_in(run._row))
                 raised = await asyncio.to_thread(
                     lambda: _loaded(row, nodes).with_max_items(max_items).to_json()
                 )
@@ -448,7 +400,7 @@ class Worker(Generic[C]):
 
         A waiting run is claimed with the cancel already asked, as ``resume`` claims a run, and resumed: its resume
         call ends ``cancelled`` before it calls any node, as ``run.stream(cancel=...)`` ends a waiting run, and its
-        questions still wait. Like any resume call it loads the run with the caller's registry and context, so a run
+        questions still wait. Like any resume call it loads the run with its metadata's registry and context, so a run
         that can't be resumed ends ``failed`` instead, as it would on its next answer.
 
         What is done is decided by the run's state as last read. When another call changed the run first (an answer
@@ -585,12 +537,12 @@ class Worker(Generic[C]):
         """The owner and lease of a row this worker holds."""
         return {"owner": self._id, "lease_until": time.time() + self._lease}
 
-    async def _create(self, graph: str, caller: C, run: Run[Any]) -> str:
+    async def _create(self, graph: str, metadata: M, run: Run[Any]) -> str:
         """Store a run, held by this worker, and make its first resume call in the background.
 
         Args:
             graph: The run's graph, as JSON.
-            caller: The run's caller.
+            metadata: The run's metadata.
             run: The run with its inputs, ready.
 
         Returns:
@@ -608,7 +560,7 @@ class Worker(Generic[C]):
         row = StoredRun(
             id=uuid.uuid4().hex,
             graph=graph,
-            caller=self._caller_type.dump_json(caller).decode(),
+            metadata=self._metadata.dump_json(metadata).decode(),
             rev=0,
             **written,
         )
@@ -625,7 +577,7 @@ class Worker(Generic[C]):
         Args:
             run: The run as read.
             state: The state the row takes with the claim; its ``status`` and ``state`` are written from it.
-            changed: The run as the call that claims it changed it, as JSON (a caller's answers given, or its
+            changed: The run as the call that claims it changed it, as JSON (answers given, or its
                 ceiling raised); the row's ``run`` then. Left out, the row keeps the run it has.
 
         Returns:
@@ -773,11 +725,11 @@ class Worker(Generic[C]):
         stopped = Outcome.model_validate_json(row.outcome)
         held = Outcome.empty()  # the run as the row holds it; nothing, until the run is loaded
         try:
-            caller = self._caller_type.validate_json(row.caller)
-            run = await asyncio.to_thread(_loaded, row, self.nodes_for(caller))
+            metadata = self._metadata_in(row)
+            run = await asyncio.to_thread(_loaded, row, self.nodes_for(metadata))
             held = await asyncio.to_thread(Outcome.so_far, run)
             stream = run.stream(
-                context=self._context(caller, hold.stop),
+                context=self._context_for(metadata, hold.stop),
                 timeout=self._resume_timeout,
                 cancel=hold.stop,
                 hand_back=self._handing_back,
