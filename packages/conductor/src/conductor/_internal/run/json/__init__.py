@@ -1,10 +1,13 @@
-"""Reads a run from JSON and writes a run as JSON.
+"""Saving a run as JSON and reading it back.
 
-Code outside this package imports from here only: ``run.to_json()`` is
-``run_to_json``, ``run.outputs_to_json()`` is ``outputs_to_json`` and ``Run.from_json(saved, graph)`` is
-``run_from_json``. ``type.py`` has the shape of a saved run, with the JSON shown in each docstring. ``codec.py``
-makes, for one graph, the subclass of that shape whose keys and value types are the graph's own: the graph's
-codec, which reads and writes the JSON (``codec_of``, which ``Graph`` keeps). ``read.py`` and ``write.py`` do the two directions.
+``run.to_json()`` calls ``run_to_json``, ``run.outputs_to_json()`` calls ``outputs_to_json``, and
+``Run.from_json(saved, graph)`` calls ``run_from_json``. Code outside this package imports from here.
+
+- ``type.py``: ``SavedRun`` and the classes inside it, the shape of a saved run. Each docstring shows its JSON.
+- ``codec.py``: the graph's codec. For one graph, it makes a subclass of ``SavedRun`` that knows the graph's
+  node names and value types, and checks a saved run against them. The ``Graph`` keeps it.
+- ``write.py``: from a run to JSON.
+- ``read.py``: from JSON back to a run.
 """
 
 from .codec import codec_of

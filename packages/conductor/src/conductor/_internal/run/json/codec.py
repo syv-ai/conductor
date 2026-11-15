@@ -1,10 +1,12 @@
-"""Builds, for one graph, the pydantic model its saved runs are read and written by: the graph's codec.
+"""The codec of a graph: the pydantic model its saved runs are written and read with.
 
-``type.py`` declares every key of a saved run, with what is true of every graph. ``run_codec`` makes a subclass of
-each of its classes for one graph, whose fields narrow those to what only the graph knows: the names of its nodes,
-inputs and outputs, and the type of each value.
-``saved_type`` is the type of an output's value on one call, and ``where_in`` names the place of an error in a
-saved run as text.
+``type.py`` declares every key of a saved run, with what holds for every graph. ``run_codec`` makes a subclass of
+each class there for one graph, with fields narrowed to what only that graph knows: the names of its nodes,
+inputs and outputs, and the type of each value. Reading a saved run through the codec checks all of that in
+one pass.
+
+``saved_type`` is the type an output's value is saved as, and ``where_in`` turns the place of an error in a
+saved run into text.
 """
 
 from __future__ import annotations
@@ -29,31 +31,32 @@ from .type import SavedOutcomes, SavedReusable, SavedRun
 
 
 def saved_type(output: Field) -> Type:
-    """The type of ``output``'s value on one call, as a saved run and ``run.outputs_to_json()`` write it.
+    """Returns the type ``output``'s value on one call is saved as, in a saved run and by ``run.outputs_to_json()``.
 
-    For ``shout.result``, a ``str``, it is ``Type(str | None)``: ``None`` where the call has no outputs. For a
-    ``Series`` it is the form a run stores the list in (``SeriesItems``, or ``Records`` for a table), or ``None``.
+    For ``shout.result``, a ``str``, it is ``Type(str | None)``, with ``None`` for a call that has no outputs. For a
+    ``Series`` it is how a run stores the list (``SeriesItems``, or ``Records`` for a table), or ``None``.
     """
     return Type(union_of((output.whole.stored_hint, NoneType)))
 
 
 class _SavedValue:
-    """The hint a saved run declares a value of one type by: a graph input, an output's value on one call, or a
-    person's answer. Pydantic reads the value by the type's own schema with ``numbers_refuse_bools`` put in, so
-    ``true`` saved for an ``int`` is refused.
+    """The hint a saved run declares one value with: a graph input, an output's value on one call, or an answer.
 
-    ``inf`` is written as ``"Infinity"`` by the codec's config, which a ``float`` reads back as the float. A pydantic
-    model or a dataclass writes its fields by its own config, whatever schema it is inside, and by default writes
-    ``inf`` as ``null``, which a ``float`` field does not read back. So a type with one in it is written as
-    ``Type.to_json`` writes it: first as Python's JSON values, which keep the float, then as text by the codec's
-    config.
+    Pydantic checks the value by its type's own schema, with ``numbers_refuse_bools`` added, so ``true`` saved for
+    an ``int`` is refused.
 
-    The class is a hint, not ``GetPydanticSchema`` in ``Annotated``: pydantic moves the definitions of a schema a hint
-    returns beside the whole schema, and leaves them in place for one that ``Annotated`` returns, where a reference
-    from elsewhere cannot reach them.
+    The codec's config writes ``inf`` as ``"Infinity"``, which a ``float`` reads back as the float. But a pydantic
+    model or a dataclass writes its fields by its own config, whatever schema it sits in. By default that writes
+    ``inf`` as ``null``, which a ``float`` field can't read back. So a type with a model or dataclass inside is
+    written the way ``Type.to_json`` writes it: first as Python's JSON values, which keep the float, then as text
+    by the codec's config.
+
+    This is a class used as the hint, rather than ``GetPydanticSchema`` inside ``Annotated``. Pydantic moves the
+    definitions of a schema a hint returns up beside the whole schema. For one that ``Annotated`` returns, it leaves
+    them in place, where a reference from elsewhere can't reach them.
 
     Attributes:
-        schema: The core schema pydantic reads and writes the value by.
+        schema: The core schema pydantic checks and writes the value with.
     """
 
     __slots__ = ("schema",)
@@ -81,7 +84,7 @@ class _SavedValue:
 
 
 def _holds_a_model(schema: Any) -> bool:
-    """Says whether a core schema has a pydantic model or a dataclass anywhere in it."""
+    """Returns whether a core schema has a pydantic model or a dataclass anywhere inside it."""
     if isinstance(schema, dict):
         return schema.get("type") in ("model", "dataclass") or any(
             map(_holds_a_model, schema.values())
@@ -90,12 +93,14 @@ def _holds_a_model(schema: Any) -> bool:
 
 
 class _ExactKeys:
-    """The hint of a JSON object that must have every key of ``required``, may have the keys of ``optional``, and may
-    have no other key; each key's value is read by its own hint.
+    """The hint of a JSON object with a fixed set of keys, each checked by its own hint.
 
-    ``_ExactKeys({}, {"lines": a, "shout": b})`` accepts ``{}`` and ``{"shout": ...}`` and refuses ``{"other": ...}``.
-    Pydantic is asked for the schema of each distinct hint once, and every key with that hint is given that schema:
-    a graph of 500 nodes has three such objects of 500 keys, nearly all with one hint.
+    The object must have every key of ``required``, may have the keys of ``optional``, and may have no other key.
+    ``_ExactKeys({}, {"lines": a, "shout": b})`` accepts ``{}`` and ``{"shout": ...}``, and refuses
+    ``{"other": ...}``.
+
+    Pydantic builds the schema of each distinct hint once, and every key with that hint shares it. That matters for
+    size: a graph of 500 nodes has three such objects of 500 keys, nearly all with one hint.
 
     Attributes:
         required: The hint of each key the object must have.
@@ -114,7 +119,7 @@ class _ExactKeys:
     ) -> CoreSchema:
         hints = {
             id(hint): hint for hint in (*self.required.values(), *self.optional.values())
-        }  # each alive in required or optional
+        }  # keyed by id, which is safe: each hint stays alive in required or optional
         schemas = {key: handler.generate_schema(hint) for key, hint in hints.items()}
         fields = {
             name: core_schema.typed_dict_field(schemas[id(hint)])
@@ -135,16 +140,16 @@ def run_codec(
 ) -> type[SavedRun]:
     """Builds the codec of one graph: a subclass of ``SavedRun`` whose fields have the graph's own keys and types.
 
-    For the README graph ``lines -> shout -> join``, it reads only a saved run whose ``graph`` is the graph's
-    fingerprint, whose ``inputs`` has the one key ``text`` with a ``str``, and whose ``outcomes``,
-    ``reusable`` and ``code`` have no key but ``lines``, ``shout`` and ``join``. Under ``shout``, ``outputs`` has
+    For the README graph ``lines -> shout -> join``, the codec only accepts a saved run whose ``graph`` is this
+    graph's fingerprint. Its ``inputs`` must have the one key ``text``, holding a ``str``. Its ``outcomes``,
+    ``reusable`` and ``code`` may have no keys but ``lines``, ``shout`` and ``join``. Under ``shout``, ``outputs`` has
     the one key ``result``, a list of ``str | None``.
 
-    Each node's outcomes are a subclass of ``SavedOutcomes`` with the node's outputs as the keys of ``outputs``,
-    ``skipped`` and ``skipped_items``, and its reusable outcomes a subclass of ``SavedReusable`` whose ``outcomes``
-    is that class; nodes whose outputs have the same names and types share both. The codec keeps them by node in
-    ``outcomes_classes`` and ``reusable_classes``, and a run is written with them, so a run written and the run read
-    back from it are of the same classes. Each class's name ends with the graph's fingerprint.
+    Each node gets a subclass of ``SavedOutcomes``, whose ``outputs``, ``skipped`` and ``skipped_items`` are keyed by
+    the node's outputs. It also gets a subclass of ``SavedReusable`` with that class as its ``outcomes``. Nodes whose
+    outputs have the same names and types share both classes. The codec keeps them by node in ``outcomes_classes``
+    and ``reusable_classes``, and a run is written with them. So a run written and the run read back from it use the
+    same classes. Each class's name ends with the graph's fingerprint.
 
     Args:
         fingerprint: The graph's fingerprint.
@@ -152,7 +157,7 @@ def run_codec(
         outputs: The outputs of each function node, by the node's name in a saved run.
         nodes: The name in a saved run of every function node.
     """
-    # by what the classes of a node depend on: for each output its name, its type and whether it is a Series
+    # keyed by what a node's classes depend on: each output's name, its type, and whether it is a Series
     of_same_outputs: dict[
         tuple[tuple[str, Type, bool], ...], tuple[type[SavedOutcomes], type[SavedReusable]]
     ] = {}
@@ -200,7 +205,7 @@ def run_codec(
     names = tuple(nodes)
     # a Literal of the node names, known once the graph is compiled
     complete = list[Literal[names]] if names else Annotated[list[str], PydanticField(max_length=0)]  # type: ignore[valid-type]
-    fields_of_run: dict[str, Any] = {  # as fields_of_node
+    fields_of_run: dict[str, Any] = {  # hints of several kinds, as in fields_of_node
         "graph": Literal[fingerprint],
         "inputs": _ExactKeys({name: _SavedValue(of_input) for name, of_input in inputs.items()}),
         "outcomes": _ExactKeys({}, outcomes_classes),
@@ -215,13 +220,16 @@ def run_codec(
 
 
 def where_in(codec: type[SavedRun], loc: Sequence[str | int]) -> str:
-    """Returns the place pydantic names in a saved run, ``loc``, as text, up to the value found there and no step
-    inside the value, since a step inside it may be a key of the value's own dict; ``"the run"`` for an empty one.
+    """Returns the place of an error in a saved run as text, such as ``"outcomes.g.outputs.result.0"``.
 
-    ``("outcomes", "g", "outputs", "result", 0, "counts", "ida")`` gives ``"outcomes.g.outputs.result.0"``: the
-    value of ``g.result`` on call 0 is ``{"counts": {"ida": ...}}``. ``("inputs", "text")`` and
-    ``("outcomes", "g", "states", 0)`` are kept whole. The steps are walked through the fields of ``codec``, the
-    graph's codec: a value is wherever a field declares a value's hint (``_SavedValue``, ``Any``, ``str``, ...).
+    ``loc`` is the place as pydantic gives it. The text stops at the value found there, and doesn't go into the
+    value, since a step inside it may be a key of the value's own dict. So
+    ``("outcomes", "g", "outputs", "result", 0, "counts", "ida")`` gives ``"outcomes.g.outputs.result.0"``, where
+    the value of ``g.result`` on call 0 is ``{"counts": {"ida": ...}}``. ``("inputs", "text")`` and
+    ``("outcomes", "g", "states", 0)`` are kept whole. An empty ``loc`` gives ``"the run"``.
+
+    The steps are followed through the fields of ``codec``, the graph's codec. A value starts wherever a field
+    declares a value's hint, such as ``_SavedValue``, ``Any`` or ``str``.
     """
     kept: list[str] = []
     hint: Any = codec
@@ -234,12 +242,15 @@ def where_in(codec: type[SavedRun], loc: Sequence[str | int]) -> str:
 
 
 def _inside(hint: Any, step: str | int) -> Any:
-    """Returns the hint that ``step`` leads to inside ``hint``, one of the hints of a codec's fields; ``None`` when
-    ``hint`` is a value's. A step a class or an exact-keys object does not declare leads to ``Any``."""
+    """Returns the hint that ``step`` leads to inside ``hint``, or ``None`` when ``hint`` is a value's.
+
+    ``hint`` is one of the hints of a codec's fields. A step that a class or an ``_ExactKeys`` object doesn't
+    declare leads to ``Any``.
+    """
     if get_origin(hint) in (
         Union,
         UnionType,
-    ):  # an optional key, ``X | None``: what it is when it is there
+    ):  # an optional key, ``X | None``: follow ``X``
         (hint,) = (member for member in get_args(hint) if member is not NoneType)
     if isinstance(hint, _ExactKeys):
         return {**hint.required, **hint.optional}.get(str(step), Any)
@@ -254,8 +265,10 @@ def _inside(hint: Any, step: str | int) -> Any:
 
 
 def _fields_of(hint: Any) -> dict[str, Any] | None:
-    """Returns the hint of each field of ``hint`` by name when it is a pydantic model or a dataclass (a codec's
-    class, or ``Unanswered`` inside one), else ``None``."""
+    """Returns the hint of each field of ``hint`` by name, if it is a pydantic model or a dataclass.
+
+    It returns ``None`` for any other hint. A codec's classes are models, and ``Unanswered`` inside one is a dataclass.
+    """
     if isinstance(hint, type) and issubclass(hint, BaseModel):
         return {name: field.annotation for name, field in hint.model_fields.items()}
     if isinstance(hint, type) and is_dataclass(hint):
@@ -264,8 +277,10 @@ def _fields_of(hint: Any) -> dict[str, Any] | None:
 
 
 def codec_of(graph: Graph[Any]) -> type[SavedRun]:
-    """The model the runs of ``graph`` are read from JSON and written as JSON by. Built the first time one of its runs
-    is read or written, and kept by the ``Graph`` (``graph._codec``)."""
+    """Returns the codec of ``graph``, the model its runs are written as JSON and read back with.
+
+    It is built the first time one of the graph's runs is written or read, and the ``Graph`` keeps it.
+    """
     blueprint = graph._blueprint
     return run_codec(
         graph.fingerprint,

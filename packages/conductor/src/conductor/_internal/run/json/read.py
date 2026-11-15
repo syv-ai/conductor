@@ -1,8 +1,9 @@
-"""Reads a run from the JSON that ``run.to_json()`` wrote.
+"""Reads a run back from the JSON that ``run.to_json()`` wrote.
 
-``run_from_json`` is where a saved run enters. The graph's codec validates the whole text: every key and every value. Then
-``outcomes_from_saved`` and ``add_reusable_from_saved`` turn each node's saved lists into what a run keeps in memory, and
-``run_from_json`` checks what only the lists together can show: that the lists of each node are as long as its calls.
+``run_from_json`` is where a saved run comes in. First the graph's codec checks the whole text: every key and
+every value. Then ``outcomes_from_saved`` and ``add_reusable_from_saved`` turn each node's saved lists back into
+the outcomes a run stores. Last, ``run_from_json`` checks what only the lists together can show: that each
+node's lists are as long as its number of calls.
 """
 
 from __future__ import annotations
@@ -30,15 +31,15 @@ from .type import (
 
 
 def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Graph[Any]) -> R:
-    """Returns the run of ``graph`` that ``run_to_json`` wrote as ``saved``.
+    """Returns the run of ``graph`` that ``run_to_json`` saved as ``saved``.
 
-    For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the
-    outcomes and the status of ``run``: its ``results["shout"]["result"]`` is ``["A!", "B!", "C!"]`` again.
+    For the README graph, ``run_from_json(Run, run.to_json(), graph)`` returns a run with the inputs, the outcomes
+    and the status of ``run``. Its ``results["shout"]["result"]`` is ``["A!", "B!", "C!"]`` again.
 
-    The graph's codec validates the JSON text in one pass, and reads each value the way its type reads JSON: a
-    date from its text, for example. Each node's saved lists are then turned into a list of outcomes in
-    call-number order, because item indexes are not saved. They are worked out here, node by node in topological
-    order: a node's item indexes follow from the lengths of the series upstream of it, and those are loaded by then.
+    The graph's codec checks the JSON text in one pass, and converts each value back by its type, so a date comes
+    back from its text, for example. Item indexes aren't saved, so each node's saved lists come back as outcomes
+    in call-number order. The item indexes are then worked out node by node, in the order a run tries them. A
+    node's item indexes follow from the lengths of the series upstream of it, and those are read by then.
 
     Args:
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
@@ -46,9 +47,9 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         graph: The graph the run was made on.
 
     Raises:
-        InvalidCallError: ``saved`` was written for another graph (``saved_run_of_another_graph``), or is not a
-            saved run of this graph (``saved_run_unreadable``, whose ``where`` names the key, the node, the output
-            and the call number, and which quotes no value).
+        InvalidCallError: ``saved_run_of_another_graph`` if ``saved`` was written for another graph.
+            ``saved_run_unreadable`` if ``saved`` isn't a saved run of this graph. Its ``where`` names the key,
+            node, output and call number, and it quotes no value.
     """
     blueprint, codec = graph._blueprint, graph._codec
     try:
@@ -131,22 +132,22 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
 
 
 def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> list[Outcome | None]:
-    """Returns one node's outcomes from their saved lists, in call-number order; ``None`` for a call with no outcome.
+    """Returns one node's outcomes from their saved lists, in call-number order.
 
-    For ``shout`` not called for its second line::
+    A call with no outcome is ``None`` in the list. Say ``shout`` wasn't called for its second line::
 
         {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]}, "not_called_because": {"1": "line"}}
 
-    it returns ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``.
+    That gives ``[Done({"result": "A!"}), NoneInput({"result": None}, "line"), Done({"result": "C!"})]``.
 
     Args:
         node: The node, as compiled.
-        saved: The saved lists, each value already validated by its output's type.
+        saved: The saved lists. Each value has already been checked by its output's type.
 
     Raises:
-        ValueError: The list of an output is not as long as ``states``; a done call has ``null`` for an output
-            whose type takes no ``None`` and that ``skipped`` does not list; or ``skipped``, ``skipped_items``,
-            ``questions`` or ``not_called_because`` names a call that does not exist or that cannot have it.
+        ValueError: An output's list isn't as long as ``states``. Or a done call has ``null`` for an output whose
+            type takes no ``None``, and ``skipped`` doesn't list it. Or ``skipped``, ``skipped_items``,
+            ``questions`` or ``not_called_because`` names a call that doesn't exist or can't have it.
     """
     states, values_by_output = saved.states, saved.outputs
     if any(len(values) != len(states) for values in values_by_output.values()):
@@ -204,20 +205,20 @@ def add_reusable_from_saved(
     saved: SavedReusable,
     in_call_order: list[Outcome | None],
 ) -> None:
-    """Adds the outcomes one node may reuse from the previous run to ``reusable``, from their saved shape.
+    """Adds the outcomes one node may reuse from the previous run to ``reusable``, from how they were saved.
 
-    The three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}`` are added each
+    Take the three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}``. Each is added
     twice: by the item indexes its call had, and by the fingerprint of its call's arguments.
 
     Args:
-        reusable: The run's reusable outcomes, added to.
+        reusable: The run's reusable outcomes. Added to.
         node: The node.
-        saved: The saved outcomes and what identifies each.
+        saved: The saved outcomes, with what tells them apart.
         in_call_order: ``saved.outcomes`` as ``outcomes_from_saved`` returned them.
 
     Raises:
-        ValueError: ``fingerprints`` is not as long as the lists of ``outcomes``; or an outcome is not one a call
-            produced: it is skipped, not called or missing.
+        ValueError: ``fingerprints`` isn't as long as the lists of ``outcomes``. Or an outcome isn't one a call
+            made, because it is skipped, not called or missing.
     """
     if len(saved.fingerprints) != len(in_call_order):
         raise ValueError("'fingerprints' is not as long as the lists of 'outcomes'")

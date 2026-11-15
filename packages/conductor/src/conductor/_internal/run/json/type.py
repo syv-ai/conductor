@@ -1,7 +1,7 @@
-"""The shape of a saved run: the classes whose attributes are the keys of the JSON that ``run.to_json()`` writes.
+"""The shape of a saved run: the JSON that ``run.to_json()`` writes, as pydantic models.
 
-Each field says what is true of every graph's saved runs. ``run_codec`` makes a subclass of each class for one
-graph, whose fields narrow these to the graph's own keys and value types.
+Each class says what holds for every graph's saved runs. ``codec.py`` makes a subclass of each for one graph,
+which narrows the fields to that graph's own node names and value types.
 """
 
 from __future__ import annotations
@@ -16,51 +16,48 @@ from conductor._internal.base import NON_FINITE_FLOATS
 from ..outcome import Unanswered
 from ..state import EndedEarly
 
-#: Every class here refuses a key it does not declare, and writes ``inf`` and ``nan`` as text. A key whose value is
-#: its default (an empty dict or list, made new for each instance) is left out of the JSON, and ``null`` is never a
-#: value of a key.
+#: The config of every class here. A key a class doesn't declare is refused, and ``inf`` and ``nan`` are written
+#: as text. A key whose value is its default, an empty dict or list, is left out of the JSON.
 _SAVED = ConfigDict(extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
-#: What a saved run writes for one call: ``"done"`` when it has its outputs, which its function returned or a person
-#: answered, ``"skipped"`` when it was skipped. Any other call is written as ``null``.
+#: What a saved run writes for one call's state. ``"done"`` means it has its outputs, because its function
+#: returned or a person answered. ``"skipped"`` means it was skipped. Any other call is written as ``null``.
 SavedOutcomeState = Literal["done", "skipped"]
 SAVED_DONE, SAVED_SKIPPED = get_args(SavedOutcomeState)
 
 
 class SavedOutcomes(BaseModel):
-    """The outcomes of one node in a saved run: a list per output, with one entry per call.
+    """The outcomes of one node in a saved run: one list per output, with an entry per call.
 
     ``shout`` was called three times, for the lines ``a``, ``b`` and ``c``. It is saved as::
 
         "shout": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}}
 
-    In memory a run keeps one outcome per call. Only the JSON has a list per output, for three reasons. Pydantic
-    validates a list in one call, where a record per call costs a call each. Each output's name is written
-    once. And there is no key per call to get wrong: a call too many or too few is a list of the wrong length,
-    which loading refuses.
+    In memory, a run stores one outcome per call. Only the JSON has a list per output, for three reasons. Pydantic
+    checks a whole list in one go, where a record per call would cost a check each. Each output's name is written
+    once. And there is no key per call to get wrong: a call too many or too few makes a list of the wrong length,
+    which reading refuses.
 
-    A call's place in the lists is its call number: the place of the call among its node's calls, in the order
-    of their item indexes. A node inside two loops with calls for the item indexes ``(0, 0)``, ``(0, 1)`` and
-    ``(1, 0)`` has the call numbers 0, 1 and 2. The item indexes are not written. Loading works them out from the
-    lengths of the saved series.
+    A call's place in the lists is its call number. That is its place among the node's calls, in the order of their
+    item indexes. A node inside two loops with calls at ``(0, 0)``, ``(0, 1)`` and ``(1, 0)`` has the call numbers
+    0, 1 and 2. The item indexes aren't written. Reading works them out from the lengths of the saved series.
 
-    A call that is not done has ``null`` in every list, and the keys after ``outputs`` say why. Here ``shout``
-    was not called for the second line, because its input ``line`` got ``None``::
+    A call that isn't done has ``null`` in every list, and the keys after ``outputs`` say why. Here ``shout``
+    wasn't called for the second line, because its input ``line`` got ``None``::
 
         "shout": {"states": ["done", null, "done"], "outputs": {"result": ["A!", null, "C!"]},
                   "not_called_because": {"1": "line"}}
 
-    A key after ``outputs`` that is empty is left out of the JSON.
+    A key after ``outputs`` is left out of the JSON when it is empty.
 
     Attributes:
-        states: For each call, ``"done"`` when its function returned or a person answered it, ``"skipped"`` when
-            it was skipped, else ``None``.
-        outputs: By output name, the value of the output for each call; ``None`` for a call that has no outputs.
-        questions: By call number, what the ``Ask`` of a call waiting for a person said: its prompt, and the
-            choices and defaults it set.
-        not_called_because: By call number, the input that got ``None`` and does not accept it, so that the
-            call was not made.
-        skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for the output.
+        states: For each call: ``"done"`` when its function returned or a person answered, ``"skipped"`` when it was
+            skipped, and ``None`` otherwise.
+        outputs: By output name, the output's value for each call. ``None`` for a call with no outputs.
+        questions: By call number, what the ``Ask`` of a waiting call said: its prompt, choices and defaults.
+        not_called_because: By call number, the input that got ``None`` and doesn't take it, so the call wasn't
+            made.
+        skipped: By output name, the call numbers of the done calls that returned ``SKIPPED`` for that output.
         skipped_items: By output name and call number, the indexes of the ``SKIPPED`` items in a returned series.
     """
 
@@ -76,28 +73,27 @@ class SavedOutcomes(BaseModel):
 
 
 class SavedReusable(BaseModel):
-    r"""The outcomes of one node that a run may reuse from the previous run, in a saved run.
+    r"""The outcomes of one node that a run may still reuse from a previous run, in a saved run.
 
-    After ``run.with_inputs(text="a\nb\nd")`` on the finished README run, the new run may reuse the three
-    outcomes of ``shout``. Before it has called anything it saves them as::
+    Say the README run has finished, and ``run.with_inputs(text="a\nb\nd")`` makes a new run. The new run may reuse
+    the three outcomes of ``shout``. Before it has called anything, it saves them as::
 
         "shout": {"outcomes": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},
                   "fingerprints": ["<24 hex characters>", "<24 hex characters>", "<24 hex characters>"],
                   "item_indexes": {"0": [0], "1": [1], "2": [2]}}
 
-    ``outcomes`` has the shape of ``SavedOutcomes``: a list per output. Each outcome is written once, and its
-    place in the lists is only a place: these are calls of the previous run, not of this one. So what
-    identifies an outcome is written beside it, by that place: the fingerprint of the arguments its call got,
-    and the item indexes the call had. An argument fingerprint is a hash of the node's code fingerprint and the
-    arguments as JSON.
+    ``outcomes`` has the shape of ``SavedOutcomes``, a list per output, with each outcome written once. But here a
+    place in the lists isn't a call number of this run: these are calls of the previous run. So what tells the
+    outcomes apart is written beside them, by place: the fingerprint of the arguments each call got, and the item
+    indexes it had. An arguments fingerprint is a hash of the node's code fingerprint and the arguments as JSON.
 
     Attributes:
-        outcomes: The outcomes, as the node's subclass of ``SavedOutcomes`` in a graph's codec.
+        outcomes: The outcomes, as the node's subclass of ``SavedOutcomes`` in the graph's codec.
         fingerprints: For each outcome, the fingerprint of the arguments its call got.
-        item_indexes: By place in the lists, the item indexes the call had in the previous run, for an outcome
-            a function returned.
-        outer_item_fingerprints: By place in the lists, the fingerprint of the items of the outer loops the
-            call was inside, for an answer or a waiting question.
+        item_indexes: By place in the lists, the item indexes the call had in the previous run. Only for an
+            outcome a function returned.
+        outer_item_fingerprints: By place in the lists, a fingerprint of the items of the outer loops the call was
+            inside. Only for an answer or a waiting question.
     """
 
     model_config = _SAVED
@@ -112,7 +108,7 @@ class SavedReusable(BaseModel):
 class SavedRun(BaseModel):
     r"""A saved run: everything ``run.to_json()`` writes.
 
-    The finished run of the README graph ``lines -> shout -> join`` on ``"a\nb\nc"`` is saved as::
+    The finished README run, ``lines -> shout -> join`` on ``"a\nb\nc"``, is saved as::
 
         {"graph": "<16 hex characters>", "ended_early": null, "max_items": null,
          "inputs": {"text": "a\nb\nc"},
@@ -123,28 +119,28 @@ class SavedRun(BaseModel):
          "code": {"lines": "<16 hex characters>", "shout": "<16 hex characters>", "join": "<16 hex characters>"},
          "complete": ["lines", "shout", "join"]}
 
-    ``graph`` is the graph's fingerprint: a hash of the graph record and of the subgraphs it uses. Each value
-    under ``code`` is a code fingerprint: a hash of the node's version, its function's code, its inputs and
-    outputs, and the loops it is inside.
+    ``graph`` is the graph's fingerprint, a hash of the graph record and of the subgraphs it uses. Each value under
+    ``code`` is a node's code fingerprint, a hash of its version, its function's code, its inputs and outputs, and
+    the loops it is inside.
 
-    A node is named by its node path joined by ``/``: ``shout`` in the graph itself, ``loud/shout`` inside the
+    A node is named by its node path joined with ``/``: ``shout`` in the graph itself, ``loud/shout`` inside the
     subgraph node ``loud``. A subgraph node is never called, so it has no key of its own.
 
     Attributes:
-        graph: The fingerprint of the run's graph; a saved run of another graph is refused by it.
-        ended_early: How the last ``resume()`` ended the run early, its status and the problem that ended it; ``null``
-            when it did not. That a resume is going on is a fact of the process that runs it, never of a save: a copy
-            made mid-resume is saved with ``null`` here, and read back is what its outcomes say.
+        graph: The fingerprint of the run's graph. A saved run of another graph is refused by it.
+        ended_early: How the last ``resume()`` ended the run early: its status and the problem that ended it.
+            ``null`` when it didn't. A resume still going is never saved: a copy made during one is saved with
+            ``null`` here, and when read back its status comes from its outcomes.
         max_items: The run's item limit.
         inputs: The graph inputs the caller gave, by name.
         outcomes: By node, the outcomes of each node that has any.
         reusable: By node, the outcomes of the previous run that this run may still reuse.
-        code: By node, the code fingerprint of the node definition that its outcomes and its reusable outcomes
-            come from, so that outcomes of other code are never reused.
-        complete: The nodes that were complete when the run last stopped, so that going on does not report
-            them complete again.
-        outcomes_classes: On a graph's codec, the class of each node's ``outcomes``, by node.
-        reusable_classes: On a graph's codec, the class of each node's ``reusable`` entry, by node.
+        code: By node, the code fingerprint of the node definition its outcomes and reusable outcomes came from.
+            That way, outcomes of other code are never reused.
+        complete: The nodes that were complete when the run last stopped, so going on doesn't report them complete
+            again.
+        outcomes_classes: In a graph's codec, the class of each node's ``outcomes``, by node.
+        reusable_classes: In a graph's codec, the class of each node's ``reusable`` entry, by node.
     """
 
     model_config = _SAVED
