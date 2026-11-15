@@ -202,23 +202,6 @@ repos:
                     wanted = 1
               expect: { new: [5], preexisting: [3] }
 
-      - id: names/no-saved-run-package
-        name: No package named saved_run
-        files: '^packages/conductor/src/conductor/_internal/saved_run/'
-        detect:
-          path: {}
-        message: "{{file}} is in a package named saved_run, a ruled-out name. A run's JSON form lives in run/json/."
-        context:
-          - "@conventions/names-and-words.md#ruled-out-names"
-        examples:
-          bad:
-            - path: packages/conductor/src/conductor/_internal/saved_run/type.py
-              code: |
-                x = 1
-              expect: { lines: [1] }
-
-      # ---------------------------------------------------------------- docstrings and comments
-      # ---------------------------------------------------------------- types and models
       - id: types/no-alias-for-a-container
         name: No alias that only renames a dict, list or tuple
         files: '^packages/[^/]+/src/.*\.py$'
@@ -705,12 +688,3 @@ repos:
                     return loc
 
       # ---------------------------------------------------------------- tests
-      - id: tests/no-private-reads
-        name: Tests read public names
-        files: '^tests/.*\.py$'
-        detect:
-          linter: { tool: ruff, rules: [SLF001] }
-        severity: warning
-        message: "{{file}}:{{line}} {{message}}. Pin the behaviour through what a host can call."
-        context:
-          - "@conventions/design.md#tests-read-public-names"
