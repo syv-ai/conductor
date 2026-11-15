@@ -1,12 +1,15 @@
-"""The events ``run.stream()`` yields while it runs a graph, one class per event, and ``Event``, their union.
+"""The events a host gets while ``run.stream()`` runs a graph.
 
-The example graph, the first in conductor's README::
+A host that shows a run as it goes, on a web page say, listens to these events. There is one class per event, and
+``Event`` is the union of them all.
+
+Take the first graph in conductor's README. It has three nodes::
 
     lines(text: str) -> Series[str]          # called once; returns ["a", "b"]
     shout(line: str, mark: str = "!") -> str # wired to lines.result: called once per line
     join(texts: Series[str]) -> str          # wired to shout.result: called once, with ["A!", "B!"]
 
-``async for event in graph.with_inputs(text="a\\nb").stream()`` yields these events, in this order::
+``async for event in graph.with_inputs(text="a\\nb").stream()`` gets these events, in this order::
 
     RunStart(waiting=())
     NodeStart(loc=("lines",))
@@ -19,21 +22,21 @@ The example graph, the first in conductor's README::
     NodeComplete(loc=("join",), outcomes=1)
     RunEnd(status="complete")
 
-``RunStart`` is always first and ``RunEnd`` last (a stream stopped with ``hand_back`` ends with ``RunCheckpoint``
-instead). In between, a node's ``NodeStart``, when it has one, comes before every other event about it, and its
-``NodeComplete`` after every other one. Events about different nodes interleave, and two
-rules explain the order above:
+``RunStart`` always comes first and ``RunEnd`` last. The one exception is a stream stopped with ``hand_back``,
+which ends with ``RunCheckpoint`` instead. A node's ``NodeStart``, if it has one, comes before every other event
+about that node, and its ``NodeComplete`` comes after all of them. Events about different nodes are mixed together.
 
-- ``NodeProgress`` comes at most four times a second per node, so ``shout``'s second call was made before
-  ``NodeStart(join)``, but ``finished=2`` is told only with the final count, just before ``NodeComplete(shout)``.
-- The engine looks for complete nodes only when no call is ready to be made. Here that is first after ``join``'s
-  call, so even ``lines`` is complete only after ``NodeStart(join)``.
+Two rules explain the order above:
 
-Every event is a frozen pydantic model with a ``type`` (``"node_complete"``). ``event.model_dump(mode="json")``
-writes it as JSON, for example to send to a web page, and ``TypeAdapter(Event).validate_json(text)`` reads it back as
-an equal event. ``RunEnd`` and ``RunCheckpoint`` also give the host the run, as ``event.run``. The run is not part of
-the event: it is not in its JSON, equality leaves it out, and only an event a stream yields has it. So an event read
-back from JSON equals the one the stream yielded, but has no ``run``.
+- ``NodeProgress`` comes at most four times a second for each node. ``shout``'s second call was made before
+  ``NodeStart(join)``, but ``finished=2`` only shows up in the last count, just before ``NodeComplete(shout)``.
+- The engine looks for complete nodes only when no call is ready to be made. Here that first happens after
+  ``join`` is called, so even ``lines`` only completes after ``NodeStart(join)``.
+
+Every event is a frozen pydantic model with a ``type``, such as ``"node_complete"``. ``event.model_dump(mode="json")``
+turns it into JSON, to send to a web page for example. ``TypeAdapter(Event).validate_json(text)`` turns that JSON
+back into an equal event. ``RunEnd`` and ``RunCheckpoint`` also hand the host the run itself, as ``event.run``, but
+the run isn't in the JSON. The rules are in the reference: ``python -m conductor.about events``.
 """
 
 from __future__ import annotations
@@ -56,34 +59,37 @@ if TYPE_CHECKING:
 class EventBase(ConductorModel):
     """The base class of every event.
 
-    In its JSON schema every field is required, ``type`` and the fields with a default included, because
-    ``model_dump`` always writes them: a client generated from the schema can rely on every field being there.
+    The JSON schema of an event marks every field as required, even ``type`` and the fields that have a default.
+    That's true to what it writes, since ``model_dump`` always writes every field. So a client generated from the
+    schema can count on each field being there.
     """
 
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
 
 class _NodeEvent(EventBase):
-    """The base class of every event about one node: ``NodeStart(loc=("shout",))``. It is never made itself.
+    """The base class of every event about one node, such as ``NodeStart(loc=("shout",))``.
+
+    It is never made itself, only its subclasses are.
 
     Attributes:
-        loc: Which node: its id, ``("shout",)``. For a node inside a subgraph, the id of the subgraph node comes
-            first: ``("loud", "shout")`` for ``shout`` inside the subgraph node ``loud``. The loc names the node,
-            not one of its calls: a node inside a loop has one ``NodeStart``, one ``NodeComplete`` and one
-            ``NodeFailed`` for all its calls, not one per call. An event about one call says which in a record it
-            carries: the ``loc`` of a ``Problem`` or of a ``Waiting``.
+        loc: Which node the event is about, by its id: ``("shout",)``. For a node inside a subgraph, the subgraph
+            node's id comes first, so ``shout`` inside the subgraph node ``loud`` is ``("loud", "shout")``. The loc
+            names the node, not one of its calls. A node inside a loop gets one ``NodeStart``, one ``NodeComplete``
+            and one ``NodeFailed`` for all its calls together. When an event is about one call, the record it
+            carries says which call: the ``loc`` of its ``Problem`` or of its ``Waiting``.
     """
 
     loc: Loc
 
 
 class RunStart(EventBase):
-    """The first event of every stream: ``RunStart(waiting=())``.
+    """The first event of every stream, such as ``RunStart(waiting=())``.
 
     Attributes:
-        waiting: The calls that were waiting for a person's answer when the stream started, in the order of
-            ``run.waiting``. A run that ended waiting and is streamed again without an answer starts with its
-            waiting calls here, and then ends at once with ``RunEnd(status="waiting")``.
+        waiting: The calls that were waiting for a person's answer when the stream started, in the same order as
+            ``run.waiting``. Say a run stopped to wait for an answer, and is streamed again before anyone answers.
+            Its stream starts with those calls here, and then ends right away with ``RunEnd(status="waiting")``.
     """
 
     type: Literal["run_start"] = "run_start"
@@ -91,18 +97,22 @@ class RunStart(EventBase):
 
 
 class NodeStart(_NodeEvent):
-    """A node started: its first call is about to be made, or its first outcome was written without a call.
+    """A node has started: its first call is about to be made, or it got its first outcome without a call.
 
-    An outcome is written without a call when it is reused from the previous run (the run that
-    ``run.with_inputs(...)`` or ``run.again(...)`` was called on), or when the function is not called because an
-    argument is ``None``. A node whose every call is skipped because of a branch that was not chosen has no
-    ``NodeStart``: only ``NodeComplete``, after ``NodeProgress`` when it is inside a loop. A node whose function
-    returned ``SKIPPED`` was called, so it has its ``NodeStart``. A node inside a subgraph has its ``NodeStart`` right after the subgraph node's:
-    ``NodeStart(loc=("loud",))``, then ``NodeStart(loc=("loud", "shout"))``.
+    A node can get an outcome without being called in two ways. The outcome may be reused from the previous run,
+    the one ``run.with_inputs(...)`` or ``run.again(...)`` was called on. Or the function isn't called because an
+    argument is ``None``. Either way the node has started.
 
-    A node has at most one ``NodeStart`` in a run, however many streams the run takes. A node that already had an
-    outcome when the stream started has none in this stream: after an answer, the stream that goes on has
-    ``NodeComplete`` for the node that asked, with no ``NodeStart`` before it.
+    A node that is skipped on every call, because it sits on a branch that wasn't chosen, gets no ``NodeStart``.
+    It only gets ``NodeComplete``, with ``NodeProgress`` before it if it is inside a loop. A node whose function
+    returned ``SKIPPED`` was still called, so it does get its ``NodeStart``.
+
+    A node inside a subgraph starts right after the subgraph node does: ``NodeStart(loc=("loud",))``, then
+    ``NodeStart(loc=("loud", "shout"))``.
+
+    A node gets at most one ``NodeStart`` in a run, however many streams the run takes. So a node that already had
+    an outcome when a stream started gets none in that stream. For example, after a person answers, the next stream
+    has ``NodeComplete`` for the node that asked, with no ``NodeStart`` before it.
     """
 
     type: Literal["node_start"] = "node_start"
@@ -112,13 +122,15 @@ class NodeProgress(_NodeEvent):
     """How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a
     second: the node's ``CallCount``, as ``run.progress`` has it.
 
-    It comes after a call's outcome is written, and once more with the final count before the node's
-    ``NodeComplete`` or at the end of the stream, unless the count has not changed. A node inside no loop has no
-    ``NodeProgress``. In the example ``shout`` has ``count=CallCount(finished=1, waiting=0, known=2, total=2)``, then
-    ``finished=2``.
+    It comes after a call's outcome is written. One more comes with the final count, before the node's
+    ``NodeComplete`` or at the end of the stream, unless the count hasn't changed. A node that isn't inside a loop
+    has only one call, so it gets no ``NodeProgress``.
+
+    In the README example, ``shout`` first has ``count=CallCount(finished=1, waiting=0, known=2, total=2)``, and
+    then the same with ``finished=2``.
 
     Attributes:
-        count: The node's count: what ``run.progress.nodes["shout"]`` is at that moment.
+        count: The node's ``CallCount``, the same as ``run.progress.nodes["shout"]`` at that moment.
     """
 
     type: Literal["node_progress"] = "node_progress"
@@ -128,27 +140,30 @@ class NodeProgress(_NodeEvent):
 class NodeComplete(_NodeEvent):
     """Every call of a node has an outcome.
 
-    None of the outcomes is waiting, and no call of the node or of a node upstream of it is running. The outcomes
-    may be done, answered, not called or skipped. A node has at most one ``NodeComplete`` in a run.
+    None of those outcomes is waiting for a person, and no call of the node, or of a node upstream of it, is still
+    running. Each outcome may be done, answered, not called or skipped. A node gets at most one ``NodeComplete`` in
+    a run.
 
-    The values are not in the event: they are in the run (``run.results``, ``run.not_called``), so the event is
-    small however large the values are. With ``text="a\\n \\nb"`` and a node ``strip`` before ``shout`` that
-    returns ``None`` for the line ``" "``, ``shout`` has ``NodeComplete(loc=("shout",), outcomes=3, not_called=1)``.
-    A node was skipped when it has outcomes and every one is skipped: ``outcomes > 0`` and ``skipped`` equal to
-    ``outcomes``, as in ``NodeComplete(loc=("shout",), outcomes=3, skipped=3)``. A node inside a loop over an empty
-    list has ``outcomes=0, skipped=0``, and was not skipped.
+    The event doesn't carry the node's values. They are in the run, in ``run.results`` and ``run.not_called``, so
+    the event stays small however large the values are.
+
+    Some examples. Run the README graph with ``text="a\\n \\nb"``, and put a node ``strip`` before ``shout`` that
+    returns ``None`` for the line ``" "``. Then ``shout`` gets ``NodeComplete(loc=("shout",), outcomes=3,
+    not_called=1)``. A node counts as skipped when it has outcomes and all of them are skipped, so ``outcomes > 0``
+    and ``skipped == outcomes``: ``NodeComplete(loc=("shout",), outcomes=3, skipped=3)``. A node inside a loop over
+    an empty list gets ``outcomes=0, skipped=0``, and wasn't skipped.
 
     Attributes:
-        outcomes: How many outcomes the node has: 1 for a node inside no loop, else one per call. For a subgraph
-            node, one per call of the subgraph.
-        skipped: How many of the outcomes are skipped: the node is downstream of a branch that was not chosen, or
-            its function returned ``SKIPPED`` for every output. For a subgraph node, how many calls of the
-            subgraph had every call inside it skipped.
-        not_called: How many of the outcomes are not called: the function was not called because an argument was
-            ``None`` and its input does not accept ``None``. Always 0 for a subgraph node: the nodes inside it
-            have their own counts.
-        reused: How many of the outcomes this stream reused from the previous run in place of a call. Always 0 for
-            a subgraph node, for the same reason.
+        outcomes: How many outcomes the node has. That's 1 for a node that isn't inside a loop, and one per call
+            for a node that is. For a subgraph node, it's one per call of the subgraph.
+        skipped: How many of the outcomes are skipped. A call is skipped when the node is downstream of a branch
+            that wasn't chosen, or when its function returned ``SKIPPED`` for every output. For a subgraph node,
+            it's how many calls of the subgraph had every call inside them skipped.
+        not_called: How many of the outcomes are "not called". The function wasn't called because an argument was
+            ``None`` and its input doesn't accept ``None``. It's always 0 for a subgraph node, since the nodes
+            inside it have their own counts.
+        reused: How many of the outcomes this stream reused from the previous run instead of making the call. It's
+            always 0 for a subgraph node, for the same reason.
     """
 
     type: Literal["node_complete"] = "node_complete"
@@ -159,20 +174,23 @@ class NodeComplete(_NodeEvent):
 
 
 class NodeFailed(_NodeEvent):
-    """A call of the node failed and is not retried, so the run fails, or ends ``cancelled`` when it was cancelled.
+    """A call of the node failed and won't be retried, so the run ends.
 
-    The function raised an exception that its ``Policy`` does not retry, or it has no retries left. The stream then
-    goes on with the ``NodeComplete`` of nodes that are complete (a node that is not complete has no more events),
-    and ends with ``RunEnd(status="failed")``, whose ``cause`` is this event's ``cause``. When the stream's
-    ``cancel`` was set by then, it ends with ``RunEnd(status="cancelled")`` instead, since a node that stops a slow
-    call on a cancel raises, and a resume makes the call again. For a node ``broken``
-    after ``lines`` that raises for the first line:
+    The function raised an exception that the node's ``Policy`` doesn't retry, or it ran out of retries. After this
+    event, the stream still sends ``NodeComplete`` for the nodes that are complete. A node that isn't complete gets
+    no more events. The stream ends with ``RunEnd(status="failed")``, with this event's ``cause``.
+
+    If the stream's ``cancel`` was set by then, the stream ends with ``RunEnd(status="cancelled")`` instead. That's
+    because a node can be written to stop a slow call when a cancel comes, and it stops by raising. The failed call
+    has no outcome, so a resume makes it again.
+
+    For example, take a node ``broken`` after ``lines`` that raises on the first line. It gets
     ``NodeFailed(loc=("broken",), cause=Problem(type="execution_failed", loc=("broken", 0), ...))``.
 
     Attributes:
-        cause: Why it failed. Its ``loc`` says which call: the node's id, then the call's item indexes (one index
-            per loop the node is inside). Inside a subgraph, the subgraph node's id and item indexes come first:
-            ``("loud", 0, "shout")``.
+        cause: Why the call failed. Its ``loc`` says which call it was: the node's id, then the call's item
+            indexes, one index for each loop the node is inside. Inside a subgraph, the subgraph node's id and item
+            indexes come first: ``("loud", 0, "shout")``.
     """
 
     type: Literal["node_failed"] = "node_failed"
@@ -180,17 +198,17 @@ class NodeFailed(_NodeEvent):
 
 
 class NodeRetry(_NodeEvent):
-    """A call failed with an error its node's ``Policy`` retries, and will be made again.
+    """A call failed, and will be tried again, since the node's ``Policy`` retries that error.
 
-    For a node ``fetch`` with ``Policy(retries=1)`` whose first call raises ``ExternalError``:
+    Say a node ``fetch`` has ``Policy(retries=1)``, and its first call raises ``ExternalError``. It gets
     ``NodeRetry(loc=("fetch",), attempt=1, retries=1, delay=1.0, cause=Problem(type="external_failed", loc=("fetch", 0), ...))``.
-    If the retry succeeds, the node goes on to ``NodeProgress`` and ``NodeComplete`` as any other node.
+    If the retry works, the node goes on to ``NodeProgress`` and ``NodeComplete`` like any other node.
 
     Attributes:
-        attempt: Which retry will be made: 1 for the first.
+        attempt: Which retry comes next: 1 for the first.
         retries: How many retries the node's ``Policy`` allows.
         delay: How many seconds from now the retry is made.
-        cause: Why the call failed. Its ``loc`` says which call, as a ``NodeFailed``'s does.
+        cause: Why the call failed. Its ``loc`` says which call it was, as in ``NodeFailed``.
     """
 
     type: Literal["node_retry"] = "node_retry"
@@ -203,16 +221,17 @@ class NodeRetry(_NodeEvent):
 class NodeWaiting(_NodeEvent):
     """A call asked a person a question, by raising ``Ask``, and is waiting for the answer.
 
-    It comes as soon as the call's outcome is written. The calls downstream of the waiting call are not made until
-    it is answered; every call that does not need its outputs is made. The node that asked has no ``NodeComplete``
-    in this stream, and the stream ends with ``RunEnd(status="waiting")``. After ``run.answer(...)`` the next stream
-    has the node's ``NodeComplete``.
+    It comes as soon as the call's outcome is written. The calls downstream of the waiting call wait for the answer
+    too. Every other call is still made. The node that asked gets no ``NodeComplete`` in this stream, and the stream
+    ends with ``RunEnd(status="waiting")``. Once someone answers with ``run.answer(...)``, the next stream has the
+    node's ``NodeComplete``.
 
-    For a node ``approve`` that asks about each line, the call for the second line has
-    ``NodeWaiting(loc=("approve",), waiting=Waiting(loc=("approve", 1), ...))``: ``waiting.loc`` says which call.
+    Say a node ``approve`` asks about each line. The call for the second line gets
+    ``NodeWaiting(loc=("approve",), waiting=Waiting(loc=("approve", 1), ...))``. The event's ``loc`` names the
+    node, and ``waiting.loc`` says which call it is.
 
     Attributes:
-        waiting: The question and which call asked it. Its ``id`` is what ``run.answer`` takes.
+        waiting: The question, and which call asked it. Its ``id`` is what ``run.answer`` takes.
     """
 
     type: Literal["node_waiting"] = "node_waiting"
@@ -220,20 +239,23 @@ class NodeWaiting(_NodeEvent):
 
 
 class _EventWithRun(EventBase):
-    """An event that gives the host the run besides its record: ``RunEnd`` and ``RunCheckpoint``.
+    """The base class of the two events that also hand the host the run: ``RunEnd`` and ``RunCheckpoint``.
 
-    The run is not part of the event: it is not in the event's JSON, equality leaves it out, and only an event a
-    stream yields has it.
+    The run rides along with the event but isn't part of it. It isn't in the event's JSON, and two events are
+    compared without it. Only an event that a stream gives has a run. So an event read back from JSON equals the one
+    the stream gave, but has no ``run``.
     """
 
     _run: Run | None = PrivateAttr(default=None)
 
     @property
     def run(self) -> Run:
-        """The run, for the host (the program that uses conductor) to keep or save with ``run.to_json()``.
+        """The run, for the host to keep, or to save with ``run.to_json()``.
+
+        The host is the program that uses conductor.
 
         Raises:
-            AttributeError: The event was read back from JSON or made by hand, so it carries no run.
+            AttributeError: The event was read back from JSON or made by hand, so it has no run.
         """
         if self._run is None:
             raise AttributeError(
@@ -243,9 +265,10 @@ class _EventWithRun(EventBase):
         return self._run
 
     def __eq__(self, other: object) -> bool:
-        """Whether ``other`` is the same kind of event with the same record; the run is left out.
+        """Whether ``other`` is the same kind of event with the same fields. The run is left out.
 
-        Any other object is asked in turn, as pydantic does, so ``event == unittest.mock.ANY`` holds.
+        For any other kind of object, Python asks that object instead, as pydantic does. That's what makes
+        ``event == unittest.mock.ANY`` true.
         """
         if type(other) is not type(self):
             return NotImplemented
@@ -253,23 +276,24 @@ class _EventWithRun(EventBase):
 
 
 def with_run[E: _EventWithRun](event: E, run: Run) -> E:
-    """Returns ``event`` with ``run`` as its run: what ``run.stream()`` yields as its ``RunEnd`` or ``RunCheckpoint``."""
+    """Returns ``event`` with ``run`` attached, the way ``run.stream()`` gives its ``RunEnd`` or ``RunCheckpoint``."""
     event._run = run
     return event
 
 
 class RunEnd(_EventWithRun):
-    """The last event of a stream: the run is complete, waiting for a person, or ended early.
+    """The last event of a stream: the run is complete, is waiting for a person, or ended early.
 
-    It comes after every other event, whatever the status. Its status is never ``running``: a stream stopped with
-    ``stream(hand_back=)``, which leaves the run going, has no ``RunEnd`` and ends with ``RunCheckpoint`` instead.
+    It comes after every other event, whatever the status. Its status is never ``running``. A stream stopped with
+    ``stream(hand_back=)`` leaves the run going, so it gets no ``RunEnd``. It ends with ``RunCheckpoint`` instead.
 
     Attributes:
-        status: ``complete``; ``waiting`` (for a person's answer); or how the run ended early: ``failed`` (a call
-            failed), ``stopped`` (a series had more items than the run's item limit, set with ``run.with_max_items(...)``), ``cancelled`` (the
-            stream's ``cancel`` was set) or ``timed_out`` (the stream's ``timeout`` passed).
-        cause: The problem that ended the run early. ``None`` when the status is ``complete`` or ``waiting``.
-        run: The run as the stream left it, with all its values. It is not part of the event's JSON.
+        status: ``complete``, ``waiting`` (for a person's answer), or how the run ended early. It ends early as
+            ``failed`` when a call failed, and as ``stopped`` when a series had more items than the run's item
+            limit, set with ``run.with_max_items(...)``. It ends as ``cancelled`` when the stream's ``cancel`` was
+            set, and as ``timed_out`` when the stream's ``timeout`` passed.
+        cause: The problem that ended the run early, or ``None`` when the status is ``complete`` or ``waiting``.
+        run: The run as the stream left it, with all its values. It isn't in the event's JSON.
     """
 
     type: Literal["run_end"] = "run_end"
@@ -278,41 +302,43 @@ class RunEnd(_EventWithRun):
 
 
 class RunCheckpoint(_EventWithRun):
-    """A copy of the run while calls are still being made, for the host to save.
+    """A copy of the run, handed over while calls are still being made, so the host can save it.
 
-    It comes in two cases:
+    A host that saves each copy loses little if its process dies. ``Run.from_json`` loads the copy back, and
+    ``run.resume()`` makes only the calls that have no outcome in it.
 
-    - With ``stream(checkpoint_every=seconds)``: after a call's outcome is written, when at least that many seconds
-      have passed since the stream started or since the last checkpoint. With a node ``slow`` that takes 20
-      milliseconds per line and ``checkpoint_every=0.01``, ``text="a\\nb"`` gives ``NodeStart(slow)``,
-      ``RunCheckpoint``, ``NodeProgress(slow)``, ``RunCheckpoint``, and so on. One more comes at
-      the moment the run stops (a call failed, or ``cancel``, ``hand_back`` or ``timeout``) while calls are still
-      running on threads, before those calls are back: if the process dies while it waits for them, the host has
-      everything but them.
-    - With ``stream(hand_back=event)``, once ``event`` is set: the stream makes no more calls, waits for the calls
-      on threads, and ends with a ``RunCheckpoint`` in place of ``RunEnd``. The run did not end: its copy has the
-      outcomes of those calls, and another process can go on with it.
+    It comes in two cases. The first is ``stream(checkpoint_every=seconds)``. Then a copy comes after a call's
+    outcome is written, once at least that many seconds have passed since the stream started or since the last
+    copy. Say a node ``slow`` takes 20 milliseconds per line, and ``checkpoint_every=0.01``. Then ``text="a\\nb"``
+    gives ``NodeStart(slow)``, ``RunCheckpoint``, ``NodeProgress(slow)``, ``RunCheckpoint``, and so on.
 
-    Calls run on threads only for a node whose ``Policy`` has a ``concurrency`` above 1 or an ``attempt_timeout``;
-    every other call is made one at a time on the stream's own thread. A host that saves each copy loses little if
-    its process dies: ``Run.from_json`` reads the copy back, and ``run.resume()`` makes only the calls that have no
-    outcome in it.
+    With ``checkpoint_every``, one more copy comes when the run stops while calls are still running on threads. The
+    run may stop because a call failed, or because of ``cancel``, ``hand_back`` or ``timeout``. That copy comes
+    before those calls are back. If the process dies while it waits for them, the host has everything but them.
 
-    Its JSON is ``{"type": "run_checkpoint"}``: the copy is for the host, not for a web page.
+    The second case is ``stream(hand_back=event)``, once ``event`` is set. The stream makes no more calls, waits
+    for the calls on threads, and ends with a ``RunCheckpoint`` instead of ``RunEnd``. The run hasn't ended. Its
+    copy has the outcomes of those calls, and another process can go on with it.
+
+    Calls only run on threads for a node whose ``Policy`` has a ``concurrency`` above 1 or an ``attempt_timeout``.
+    Every other call is made one at a time, on the stream's own thread.
+
+    Its JSON is just ``{"type": "run_checkpoint"}``. The copy is for the host, not for a web page.
 
     Attributes:
         run: The copy of the run. Its status is ``running`` while the run goes on, and after ``hand_back``. A copy
             made as the run stops early has the status it stops with: ``failed``, ``stopped``, ``cancelled`` or
-            ``timed_out``. ``running`` is never saved: read back from ``to_json()``, the copy is what its outcomes
-            say.
+            ``timed_out``. ``running`` is never saved, though. A copy loaded back from ``to_json()`` has the status
+            its outcomes say.
     """
 
     type: Literal["run_checkpoint"] = "run_checkpoint"
 
 
-# Any event ``run.stream()`` yields, told apart by ``type``: ``TypeAdapter(Event)`` reads one back from JSON. A
-# ``type`` statement, so a JSON schema that uses it names it: a model with a field ``event: Event`` has
-# ``{"$ref": "#/$defs/Event"}``, and FastAPI lists it as the component ``Event``.
+# Any event ``run.stream()`` gives. The events are told apart by their ``type`` field, so ``TypeAdapter(Event)``
+# can load any of them back from JSON. It is a ``type`` statement so that a JSON schema that uses it gives it a
+# name: a model with a field ``event: Event`` gets ``{"$ref": "#/$defs/Event"}``, and FastAPI lists it as the
+# component ``Event``.
 type Event = Annotated[
     RunStart
     | NodeStart

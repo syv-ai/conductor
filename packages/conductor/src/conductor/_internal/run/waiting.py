@@ -1,9 +1,15 @@
-"""A call waiting for a person, as a host is shown it: ``Waiting``, with the id ``run.answer`` takes.
+"""``Waiting``, a call that is waiting for a person to answer, as a host is shown it.
 
-Example: ``approve(line: str) -> bool`` raises ``Ask("approve b?")`` for the second line. ``run.waiting`` then lists
-``Waiting(id="approve@1~3fa2c0d1", loc=("approve", 1), prompt="approve b?", questions=[...], inputs={"line": "b"})``.
-Each of its ``questions`` is the field record ``describe()`` gives the field the answer fills, with what the ``Ask``
-set, so a host draws a question with the code that draws an input.
+When a node raises ``Ask``, its call stops and waits. The host lists those calls with ``run.waiting``, shows each
+one to a person, and sends the answer back with ``run.answer(id, value)``. This module builds what the host is
+shown, and writes and reads the ``id`` that ties an answer to its call.
+
+Say ``approve(line: str) -> bool`` raises ``Ask("approve b?")`` for the second line. ``run.waiting`` then lists::
+
+    Waiting(id="approve@1~3fa2c0d1", loc=("approve", 1), prompt="approve b?", questions=[...], inputs={"line": "b"})
+
+Each of its ``questions`` looks just like the output it fills does in ``describe()``, with what the ``Ask`` added.
+So a host can draw a question with the same code that draws an input.
 """
 
 from __future__ import annotations
@@ -24,27 +30,25 @@ from .outcome import NoneInput, NotReady, Skipped, Unanswered
 
 
 class Waiting(ConductorModel):
-    """A call of a node waiting for a person, as a host shows it.
+    """A call of a node that is waiting for a person to answer, as a host shows it.
 
-    One question is answered with its value, several (a node with several outputs) with a mapping by question name.
+    A node with one output asks one question, and is answered with a plain value. A node with several outputs asks
+    one question per output, and is answered with a mapping by question name.
 
     Attributes:
-        id: What ``run.answer`` takes: the node's id, then ``@`` and each place
-            of its item, then ``~`` and a fingerprint of the question asked
-            there, ``"approve@1~3fa2c0d1"``. Inside a subgraph, the
-            subgraph node and its item come first, ``"review@0/approve@1~3fa2c0d1"``.
-            An answer for an id whose call now asks another question is
-            refused as ``answer_stale``.
-        loc: Which call it is, as a ``Problem``'s ``loc`` says it: the node
-            that asks, then the place of its item in each Series the node
-            runs per item of, ``("approve", 1)``; inside a subgraph,
-            the subgraph node and its item first, ``("review", 0, "approve", 1)``.
-        prompt: What the node's ``Ask`` said.
-        questions: One per output of the node, which the answer fills: the
-            ``FieldDescription`` its ``describe()`` gives, with the ``choices``
-            and ``default`` the ``Ask`` set, and ``required`` and ``default``
-            saying what an answer that leaves it out gives.
-        inputs: What the node received, as JSON, read from the outcomes the call reads.
+        id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
+            index of each item the call is for, then ``~`` and a short fingerprint of the question. Inside a
+            subgraph, the subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If the call's
+            inputs or the node's code change, it may ask something else, so the old id stops matching. An answer
+            to it is refused with ``answer_stale``.
+        loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
+            that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
+            subgraph node and its item come first: ``("review", 0, "approve", 1)``.
+        prompt: The text the node's ``Ask`` gave.
+        questions: One question per output of the node, since the answer fills the outputs. Each is the
+            ``FieldDescription`` that ``describe()`` gives the output, with the ``choices`` and ``default`` the
+            ``Ask`` set. Its ``required`` and ``default`` say what happens if the answer leaves it out.
+        inputs: The values the call was given, as JSON.
     """
 
     id: str
@@ -60,13 +64,13 @@ def waiting_record(
     waiting: Unanswered,
     reader: ResultReader,
 ) -> Waiting:
-    """A waiting call as a host shows it.
+    """Builds the ``Waiting`` a host is shown for one waiting call.
 
     Args:
         node: The node that asks.
         item_indexes: Which call of the node waits.
-        waiting: The call's outcome.
-        reader: Reads the run's outcomes.
+        waiting: The call's outcome, with what the ``Ask`` said.
+        reader: Looks up the run's outcomes, to find what the call was given.
     """
     compiled_node, inputs = node.compiled_node, received(node, item_indexes, reader)
     loc, outputs, choices, defaults = (
@@ -87,17 +91,20 @@ def waiting_record(
 def received(
     node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader
 ) -> dict[str, Any]:
-    """What a call that waits received, as JSON: its arguments read again from the outcomes it reads, which never
-    change once written. ``received(approve, (1,), reader)`` is ``{"line": "b"}``.
+    """Returns the arguments a waiting call was given, as JSON.
+
+    The arguments aren't stored with the call. They are worked out again from the upstream outcomes, which is safe
+    because an outcome never changes once it is written. For example, ``received(approve, (1,), reader)`` is
+    ``{"line": "b"}``.
 
     Args:
         node: The node that asks.
         item_indexes: Which call of the node waits.
-        reader: Reads the run's outcomes.
+        reader: Looks up the run's outcomes.
 
     Raises:
-        RuntimeError: The call has no arguments: it reads as skipped, not called or not ready, which a call that
-            asked cannot be, since the outcomes it read are never changed once written.
+        RuntimeError: The call comes out as skipped, not called or not ready, so it has no arguments. That's a bug:
+            the call did ask, and the outcomes it was given haven't changed since.
     """
     match reader.arguments_for(node, item_indexes):
         case dict() as arguments:
@@ -112,19 +119,22 @@ def received(
 
 
 def question_fingerprint(compiled_node: CompiledFunctionNode, inputs: dict[str, Any]) -> str:
-    """Eight hex digits of which node asks, as which code, and what it received (``inputs``, as ``received`` reads
-    them), so a waiting id stops matching when its call asks another question. What the node received is all of its
-    inputs: a change to any of them asks again."""
+    """Returns a short fingerprint of a question: eight hex digits.
+
+    It is a hash of the node that asks, its code, and the inputs the call was given (as ``received`` returns them).
+    The fingerprint is part of the waiting id. If any of those change, the call may ask something else, so the old
+    id stops matching. Every input counts, so a change to any one of them asks again.
+    """
     return json_hash([compiled_node.id, compiled_node.code_fingerprint, inputs], 4)
 
 
 def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
-    """The id of the call at ``loc`` waiting with the question whose fingerprint is ``fingerprint``.
+    """Returns the waiting id of the call at ``loc``, whose question has the fingerprint ``fingerprint``.
 
-    Its node ids are joined by ``/``, each followed by ``@`` and each of its item indexes, then ``~`` and the
-    fingerprint: ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns
-    ``"review@0/approve@1~3fa2c0d1"``. Without a fingerprint it is the call alone, ``"review@0/approve@1"``.
-    ``read_waiting_id`` reads it back.
+    The node ids are joined by ``/``. Each is followed by ``@`` and its item indexes, and the fingerprint comes last,
+    after ``~``. So ``write_waiting_id(("review", 0, "approve", 1), "3fa2c0d1")`` returns
+    ``"review@0/approve@1~3fa2c0d1"``. Without a fingerprint, the id names just the call: ``"review@0/approve@1"``.
+    ``read_waiting_id`` turns the id back into its parts.
     """
     place = "".join(f"@{part}" if isinstance(part, int) else f"/{part}" for part in loc)[1:]
     return place if fingerprint is None else f"{place}~{fingerprint}"
@@ -133,22 +143,25 @@ def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:
 def read_waiting_id(
     waiting_id: str, *, status: Callable[[], str]
 ) -> tuple[Loc, NodePath, ItemIndexes, str | None]:
-    """The call a waiting id names, as ``write_waiting_id`` wrote it, and the fingerprint of its question.
+    """Splits a waiting id back into the call it names and the fingerprint of its question.
 
-    ``read_waiting_id("review@0/approve@1~3fa2c0d1", status=lambda: "waiting")`` returns ``(("review", 0, "approve", 1),
-    ("review", "approve"), (0, 1), "3fa2c0d1")``. An id without ``~`` and a fingerprint names the call alone, and
-    its fingerprint is ``None``. Only the text ``write_waiting_id`` writes is read: ``"approve@01"`` names nothing.
+    It undoes ``write_waiting_id``. For example, ``read_waiting_id("review@0/approve@1~3fa2c0d1", status=lambda:
+    "waiting")`` returns ``(("review", 0, "approve", 1), ("review", "approve"), (0, 1), "3fa2c0d1")``. An id with no
+    ``~`` part names just the call, and its fingerprint is ``None``.
+
+    Only the exact text ``write_waiting_id`` would write is accepted. ``"approve@01"`` names nothing, since the
+    index would be written ``1``.
 
     Args:
         waiting_id: The id, as a host gave it.
-        status: Returns the run's status, which a refusal names; it is called only for a refusal.
+        status: Returns the run's status, for the refusal's message. It is only called when the id is refused.
 
     Returns:
-        The call's loc, its node path and its item indexes, and the fingerprint.
+        The call's loc, its node path, its item indexes, and the fingerprint.
 
     Raises:
-        InvalidCallError: A text after an ``@`` is not a whole number (``not_waiting``, at the loc read up to the
-            node it follows), or the id is not the text ``write_waiting_id`` writes for what it names (``not_waiting``).
+        InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. When the
+            text after an ``@`` isn't a whole number, the problem's loc ends at the node that index belongs to.
     """
     place, _, fingerprint = waiting_id.partition("~")
     loc: list[str | int] = []
