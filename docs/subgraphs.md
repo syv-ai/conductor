@@ -1,11 +1,15 @@
 # A graph inside a graph
 
-A graph record can be a node of another graph: a subgraph. An author builds "enrich a contact" once, saves it, and uses it in
-every graph that needs it, as one node. The other graph is the outer graph, and the nodes of the subgraph are its inner nodes.
+Say you've built a small graph that does one useful thing, like "clean up a contact". You'd like to use it in other
+graphs too, without drawing its nodes again each time. You can: a graph record can be used as one node of another
+graph. That node is called a subgraph.
+
+We'll call the graph that uses it the outer graph. The nodes inside the subgraph are its inner nodes.
 
 ## Make one
 
-`node("id", title=..., description=...)` wraps a function. `subgraph("id", title=..., description=...)` wraps a `GraphRecord` (or its JSON text) the same way:
+You make a node from a function with `node(...)`. You make a subgraph from a graph record with `subgraph(...)`, which
+takes the same arguments. Here are a few small nodes, and a subgraph `shout` made from two of them:
 
 ```python
 from conductor import Graph, NodeRegistry, Series, make_graph, node, subgraph
@@ -33,55 +37,57 @@ def join(texts: Series[str]) -> str:
     return " ".join(texts)
 
 
-shout = subgraph("shout", title="Shout", description="Turns a text into capital letters and adds an exclamation mark.")(make_graph(upper, exclaim))
+shout = subgraph(
+    "shout", title="Shout", description="Turns a text into capital letters and adds an exclamation mark."
+)(make_graph(upper, exclaim))
 registry.add(shout)
 ```
 
-`shout` is a `SubgraphDefinition`, the subgraph kind of `NodeDefinition` (a function makes a `FunctionDefinition`), and it has no function to call. It takes the same arguments as `@node`: `version=`, `replaces=` (the previous version's definition), `title=` and the rest, and a newer
-version of the subgraph is a newer version of the node. Each version is its own graph record, so a graph record that names
-version 1 keeps running version 1 until [`registry.upgrade`](writing-nodes.md#a-second-version) rewrites it to use version 2.
+`shout` is a `SubgraphDefinition`. It's a `NodeDefinition` like any other, except it has no function to call.
+
+A subgraph has versions, just as a function node does. You pass `version=` and `replaces=` as you would to `@node`,
+and each version is its own graph record. A graph that uses version 1 keeps using it until
+[`registry.upgrade`](writing-nodes.md#a-second-version) moves it to version 2.
 
 ## Use one
 
-Wire it like any node. Its inputs and outputs are the ones its graph declares, under their names there. `make_graph(upper,
-exclaim)` declared `text`, the input of `upper`, and `result`, the output of `exclaim`, so an edge from it reads
-`shout.result`. `make_graph` wants its `edges=` written out: a chain from or to a subgraph raises `not_a_chain`:
+You wire a subgraph like any other node. Its inputs and outputs are the ones its graph declares, with the same names.
+`make_graph(upper, exclaim)` declared the input `text` (from `upper`) and the output `result` (from `exclaim`). So
+the outer graph wires `shout.text` and `shout.result`.
+
+`make_graph` can't chain a subgraph for you, so write the edges out. Without them it raises `not_a_chain`.
 
 ```python
-graph = Graph.compile(make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]), registry)
+graph = Graph.compile(
+    make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]),
+    registry,
+)
 
 print(graph.run(text="hi there").outputs)  # {'result': 'HI! THERE!'}
 print(graph.describe().nodes["shout"].per_item_of)  # split.result
 ```
 
-A node's `per_item_of` is the list it is called once per item of, or `None` when it is called once. The subgraph node is inside the loop over `split.result`, so its inner nodes
-are called once per word. Using a graph as a subgraph changes nothing about how its nodes behave: they run as they
-would if you drew them in the outer graph. Each inner node is called by its own `Policy` (retries, timeouts and how many calls
-run at once), so a node with `concurrency=2` has two calls at once however many items the outer graph has, and however many runs are going on. A cancel, and the `timeout` of
-`resume()`, stop the inner nodes as they stop any node. `run.again(...)` reuses the previous run's outputs for inner nodes
-as it does for any node. A subgraph takes no `Policy` of its own, because it is never called itself: only its inner nodes are.
+`split` returns a list of words, and `shout` takes one text. So `shout` runs once per word, and `per_item_of` says
+which list it loops over.
 
-## What it offers
+The inner nodes behave exactly as they would if you had drawn them straight into the outer graph. Each one keeps its
+own `Policy`: its retries, its timeouts and its `concurrency`. A node with `concurrency=2` never has more than two
+calls going, however many words there are and however many runs are going on. Cancelling a run stops inner nodes as
+it stops any node, and so does the `timeout` of `resume()`. `run.again(...)` reuses their earlier outputs too.
 
-From outside, a subgraph is one node:
+A subgraph takes no `Policy` of its own. It's never called itself. Only its inner nodes are.
 
-- **Its inputs** are its graph's inputs (`graph.inputs` of the subgraph compiled alone): the graph inputs its record declares,
-  under their names there. A constant, a graph input or an edge on one works as on any node. An inner input that takes only a constant (its description says `constant_only`)
-  is a constant inside the subgraph, so it is not offered.
-- **Its outputs** are its graph's outputs (`graph.outputs` of the subgraph): the outputs its record's `outputs` names, under
-  their names there.
-- An output its graph returns once has the inner node's type. One returned inside loops is one `Series`
-  for each loop: an output returned per line of each document is `Series[Series[str]]`, a list of lines per
-  document. That is the shape `run.results` shows, and the shape a node wired to it works with, as
-  [below](#an-output-returned-inside-two-loops). A `Series` returned once per document is `Series[Series[str]]` the
-  same way, and a table returned once per document a `Series` of tables.
-- Branches (outputs of one inner node that share an `exclusive_group`, of which a call returns only one) stay
-  branches. In the subgraph's description their group is named by that inner node, so the group `answer` of an inner node `decide`
-  is `decide.answer`.
-- Two outputs downstream of opposite branches of one inner node may be wired into one input outside, as they could
-  be if the nodes were drawn in the outer graph: each call gets the value from the branch that was chosen. Wired
-  into two `Series` inputs of one node, one per branch, they are refused, as they would be in the outer graph
-  (`lists_from_different_loops`): one branch's list would always be empty.
+## Its inputs and outputs
+
+From outside, a subgraph looks like one node:
+
+- Its inputs are the graph inputs its record declares. You can give each one a constant, a graph input or an edge,
+  as on any node.
+- Its outputs are the outputs its record's `outputs` names.
+- An inner input that takes only a constant (`constant_only` in its description) is set inside the subgraph. It
+  isn't offered outside.
+
+Here is a subgraph with two inputs and two outputs:
 
 ```python
 side_by_side = subgraph("both", title="Both", description="Runs the capital letters and the exclamation mark side by side.")(
@@ -98,12 +104,17 @@ print(list(both.inputs))  # ['keen', 'loud']
 print(both.run(loud="a", keen="b").outputs)  # {'keen': 'b!', 'loud': 'A'}
 ```
 
-`upper` and `exclaim` both take `text` and both return `result`, so `make_graph` is told what the graph calls them, as
-it would raise `graph_inputs_share_a_name` and `graph_outputs_share_a_name` otherwise.
+`upper` and `exclaim` both take `text` and both return `result`. Two graph inputs can't share a name, so `inputs=`
+and `outputs=` give them names of their own. Without them, `make_graph` raises `graph_inputs_share_a_name` and
+`graph_outputs_share_a_name`.
 
-A node outside gets a subgraph's output as it would get the same node's output if that node were drawn in the outer graph. Below, `upper`
-and `exclaim` each run once per word inside the subgraph. A node wired to both is called once per word, with
-that word's two values:
+## Outputs that come from inside a loop
+
+A subgraph can loop inside. In `per-word` below, `split` makes a list of words, and `upper` and `exclaim` each run
+once per word.
+
+What does a node outside get from that? The same as if those nodes were drawn in the outer graph. `beside` is wired
+to both outputs, so it's called once per word, with that word's two values:
 
 ```python
 both_per_word = subgraph("per-word", title="Per word", description="Each word in capital letters, and with an exclamation mark.")(
@@ -121,20 +132,26 @@ def beside(loud: str, keen: str) -> str:
     return f"{loud}/{keen}"
 
 
-graph = Graph.compile(make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]), registry)
+graph = Graph.compile(
+    make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]),
+    registry,
+)
 print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
 print(graph.describe().nodes["beside"].per_item_of)  # per-word/split.result
 ```
 
-The loop is named by the path of the series inside the subgraph that is looped over, `per-word/split.result`: the node `split` inside `per-word`, and its output. Two outputs
-returned in the same loop inside line up outside, item by item, as here. Two returned in different loops inside don't: a node
-that takes one item of each is refused with `series_not_nested`, as it is for two series drawn in one graph that are not one inside the other. Each
-output's description (`graph.describe()`) lists its `loops`, so an editor can tell which outputs line up.
+The loop is named after the list inside the subgraph: `per-word/split.result` is the output `result` of the node
+`split`, inside `per-word`.
+
+The two outputs line up item by item because they come from the same loop. Two outputs from different loops inside
+don't line up. A node that takes one item of each is refused with `series_not_nested`, just as it would be in one
+graph. To see which outputs share a loop, look at each output's `loops` in `describe()`.
 
 ### An output returned inside two loops
 
-`lines` below is called once per document, and `upper` once per line. As the subgraph's output `result`, what `upper` returns is a list
-of lines for each document, `Series[Series[str]]`:
+Loops can sit inside loops. Below, `documents` splits a text into documents, `lines` splits each document into
+lines, and `upper` runs once per line. So the subgraph's output is a list of lines for each document,
+`Series[Series[str]]`:
 
 ```python
 @registry.node("documents", title="Documents", description="Splits a text into documents at each semicolon.")
@@ -156,23 +173,34 @@ graph = Graph.compile(make_graph(per_line, join, edges=[("per-line.result", "joi
 run = graph.run(text="a,b;c")
 
 print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
-print(run.results["join"]["result"])            # ['A B', 'C']
-print(graph.describe().nodes["join"].per_item_of)    # per-line/documents.result
+print(run.results["join"]["result"])  # ['A B', 'C']
+print(graph.describe().nodes["join"].per_item_of)  # per-line/documents.result
 print(graph.describe().nodes["per-line"].outputs[0].type)  # str
 print(graph.describe().nodes["per-line"].outputs[0].loops)  # ['documents.result', 'lines.result']
 ```
 
-`join` takes a `Series[str]`, so it collects one loop, the inner one: it is called once per document, with that document's lines.
-A node that takes one `str` would be called once per line. Both are what the same four nodes do drawn in one
-graph. In the description the output's `type` is `str`, the value `upper` returns for one line, and `is_series` is true.
-Its `loops`, `["documents.result", "lines.result"]`, outermost first, say how deep: one level of list per entry, a list
-per document of a list per line, `Series[Series[str]]`. A `Series` a subgraph returns outside every loop has
-`loops` `[]` and is one list, as `is_series` says.
+`join` takes a `Series[str]`, so it collects the inner loop. It's called once per document, with that document's
+lines. A node that takes one `str` would be called once per line instead. Again, that's what the same nodes do when
+drawn in one graph.
+
+In the description, the output's `type` is `str`: what `upper` returns for one line. `loops` lists the lists it comes
+from, outermost first, and each entry is one level of list. A `Series` that the subgraph returns outside any loop has
+empty `loops`, and it's just one list.
+
+### Branches
+
+Some nodes choose between outputs: they return one and skip the others. Those outputs share an `exclusive_group`.
+They stay branches when the node is inside a subgraph, and their group is named after that inner node. So the group
+`answer` of an inner node `decide` is `decide.answer` in the subgraph's description.
+
+Two outputs that come from opposite branches can be wired into one input outside. Each call gets the value of the
+branch that was chosen, as it would if the nodes were drawn in the outer graph. Wired into two `Series` inputs of one
+node, they're refused with `lists_from_different_loops`, because one of the two lists would always be empty.
 
 ## A `None` or a skip coming in
 
-Nothing is special about a `None` that arrives at a subgraph. It reaches the inner nodes wired to that input, and they
-behave as they would if they were drawn in the outer graph:
+A `None` that reaches a subgraph isn't special. It goes to the inner nodes wired to that input, and they act as they
+would in the outer graph:
 
 ```python
 @registry.node("maybe", title="Maybe", description="Returns a word, or None for the word 'none'.")
@@ -180,7 +208,10 @@ def maybe(text: str) -> str | None:
     return None if text == "none" else text
 
 
-graph = Graph.compile(make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]), registry)
+graph = Graph.compile(
+    make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]),
+    registry,
+)
 run = graph.run(text="hi none")
 
 print(run.results["shout"])  # {'result': ['HI!', None]}
@@ -190,12 +221,15 @@ for not_called in run.not_called:
 # ('shout', 1, 'exclaim') text
 ```
 
-For the second word `maybe` returns `None`. `upper` inside `shout` takes a `str`, not `str | None`, so it isn't called for that word, and
-neither is `exclaim`, which is wired to `upper`. `run.not_called` lists those two calls, each with its `loc`: the subgraph node, the item index, the inner node. It never lists `shout`: a subgraph
-node is never called, so it is never skipped or not called itself. A branch not chosen works the same way and skips the inner nodes wired to it.
+For the second word, `maybe` returns `None`. `upper` takes a `str`, not `str | None`, so it isn't called for that
+word. Neither is `exclaim`, which is wired to `upper`. `run.not_called` lists both calls. Each `loc` says where the
+call is: the subgraph node, the item index, then the inner node.
 
-An inner node that isn't wired to the `None` runs. `both`, from above, has two inputs. Here only `upper` inside it
-gets the `None`:
+`shout` itself is never listed. A subgraph node is never called, so it's never "not called" or skipped either.
+
+A branch that wasn't chosen works the same way: it skips the inner nodes wired to it.
+
+Inner nodes that don't get the `None` still run. Here only `upper` inside `both` gets it:
 
 ```python
 graph = Graph.compile(make_graph(split, maybe, side_by_side, edges=[
@@ -208,10 +242,12 @@ print(graph.run(text="hi none").results["both"])  # {'keen': ['hi!', 'none!'], '
 
 ## A subgraph is compiled alone
 
-A subgraph is compiled once, on its own, when a registry describes it or a graph that uses it is compiled. So it doesn't know what will be wired to it. That matters
-when its first node takes any type. `each` returns the records of whatever table arrives. Drawn in a graph, after a
-node that returns a table of contacts, it returns contacts. As the first node of a subgraph it has nothing wired to
-it, so it returns records of unknown fields:
+A subgraph is compiled once, on its own. That happens when a registry describes it, or when a graph that uses it is
+compiled. So it can't know what will be wired into it later.
+
+That matters when its first node takes any type. Take `each` below, which gives the records of whatever table it
+gets. In a graph, after a node that returns contacts, it returns contacts. As the first node of a subgraph, nothing
+is wired into it yet, so it returns records whose fields aren't known:
 
 ```python
 from typing import TypedDict, cast
@@ -242,36 +278,48 @@ typed = subgraph("shout-contacts", title="Shout contacts", description="Writes e
 registry.add(untyped, typed)
 
 palette = {described.id: described for described in registry.describe().nodes}
-print(palette["shout-names"].inputs[0].type)     # Table | list
+print(palette["shout-names"].inputs[0].type)  # Table | list
 print(palette["shout-contacts"].inputs[0].type)  # Table[name: str]
 ```
 
-`shout-names` takes any table, so nothing checks `each.result.name` until a run: a misspelled field would compile.
-`shout-contacts` starts with a node whose input says what it takes. Its edges are checked when it is compiled, and a
-graph that wires the wrong table to it gets a `type_mismatch`. So give a subgraph a first node whose input has a precise type.
+`shout-names` takes any table. So nothing checks the edge `each.result.name` until a run, and a misspelled field
+would still compile.
 
-## Where something is inside
+`shout-contacts` starts with `known`, whose input says exactly what it takes. Its edges are checked when it's
+compiled. A graph that wires the wrong kind of table into it gets a `type_mismatch`.
 
-`run.results` and `graph.describe()` show the subgraph as one node. Its outputs in `run.results` are its graph's outputs, by
-name, each what the inner node behind it returned; the subgraph node is never called itself. Everything that happens inside it is reported with a `loc` that starts with
-the subgraph node's id and, inside a loop, its item index, outermost first.
+So give a subgraph a first node with a precise input type.
 
-- A problem of the subgraph's own graph record is that problem with the subgraph node's id in front,
-  `("shout", "upper", "text")`. A failure of an inner node for the second word is at `("shout", 1, "upper")`.
-- An entry of `run.waiting` (a call that asked a person) and an entry of `run.not_called` have the same kind of `loc`:
-  `("shout", 1, "upper")` is `upper` inside `shout`, for the second word.
-- The `id` of a waiting call says the same as text: if `shout` had an inner node `ask` that asked a person, `shout@1/ask~3fa2c0d1` would be its call for the second word.
-  The part after `~` is a fingerprint of the node and the arguments the call got, so an answer meant for a call whose arguments have since changed is refused.
-- The events `run.stream()` yields for an inner node (`node_start`, `node_complete` and the rest) come once for every word together, as for any node
-  that runs per item. Their `loc` is the node's id behind the subgraph node's id, `("shout", "upper")`. The subgraph node has events too, `loc` `("shout",)`: `node_start` when its first inner node starts, `node_complete` when its last one is complete.
+## Finding what happened inside
 
-A subgraph's entry in `registry.describe()` (the list of nodes an editor offers) lists its inputs and outputs, which that registry
-works out from the nodes the subgraph uses. A subgraph's definition has no `describe()` of its own, because its inputs and outputs depend on the registry.
+`run.results` and `graph.describe()` show a subgraph as one node. Its outputs in `run.results` are its graph's
+outputs, each what the inner node behind it returned.
+
+Everything that happens inside is reported with a `loc`. The `loc` starts with the subgraph node's id. Inside a loop,
+the item index comes next. Then comes the inner node.
+
+- A problem in the subgraph's own record gets the subgraph node's id in front: `("shout", "upper", "text")`.
+- A failure of `upper` for the second word is at `("shout", 1, "upper")`.
+- `run.waiting` (calls waiting for a person) and `run.not_called` use the same kind of `loc`.
+- A waiting call's `id` says the same in text. If `shout` had an inner node `ask` that asked a person, its call for
+  the second word would be `shout@1/ask~3fa2c0d1`. The part after `~` is a fingerprint of the call's arguments. If
+  they change, an answer meant for the old call is refused.
+- The events `run.stream()` yields for an inner node come once for all the words together, as for any node that
+  runs per item. Their `loc` is `("shout", "upper")`.
+- The subgraph node has events too, with the `loc` `("shout",)`. Its `node_start` comes when its first inner node
+  starts, and its `node_complete` when the last one is done.
+
+In `registry.describe()`, the list of nodes an editor offers, a subgraph's entry shows its inputs and outputs. The
+registry works them out from the nodes the subgraph uses. That's also why a `SubgraphDefinition` has no `describe()`
+of its own: its inputs and outputs depend on the registry.
+
+All the rules for subgraphs are in the reference: `python -m conductor.about the-graph-record`.
 
 ## Graphs saved per request
 
-A host that keeps graph records in its database, for its users to use as subgraphs, makes their node definitions when a request needs them. They go in a registry of
-the request's own, so the shared one stays as it was:
+A host may keep graph records in its database, so its users can use them as subgraphs. The host then makes their
+node definitions when a request needs them. They go in a registry made for that request, so the shared registry
+stays as it was:
 
 ```python
 # your table of graph records: each with the title and description a person reads for it
@@ -286,6 +334,8 @@ request_registry.add(*(
 ))
 ```
 
-`if name not in request_registry` skips a saved graph whose id is already a node of the shared registry, since `add` raises on a
-repeated id. A graph that uses one of them as a subgraph is then compiled with `request_registry`. The compiled `Graph` keeps its own copy of
-every node definition it uses, so the request's registry can go when the request does.
+`add` raises on an id that's already there. The `if name not in request_registry` skips a saved graph whose id is
+already a node of the shared registry.
+
+Compile the graphs of that request with `request_registry`. A compiled `Graph` keeps its own copy of every node
+definition it uses, so the request's registry can go away when the request ends.
