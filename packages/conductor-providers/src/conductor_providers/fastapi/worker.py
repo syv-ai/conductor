@@ -22,12 +22,13 @@ from threading import Event
 from typing import Any, Generic
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings, loaded
 from conductor_providers.fastapi.problems import (
+    invalid_metadata,
     no_such_run,
     previous_run_unloadable,
     run_not_resumable,
@@ -180,6 +181,7 @@ class Worker(Generic[M, X]):
                 on those nodes (``previous_run_unloadable``, which says why). Start without ``previous`` then.
             RuntimeError: The worker has never served.
         """
+        metadata = self._checked(metadata)
         run = await self._ready(graph, inputs, metadata, previous)
         return await self._create(run.graph.record.model_dump_json(), metadata, run)
 
@@ -209,6 +211,7 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: As ``begin`` refuses the same call.
         """
+        metadata = self._checked(metadata)
         run = await self._ready(graph, inputs, metadata, previous)
 
         def estimated() -> RunProgress:
@@ -240,6 +243,7 @@ class Worker(Generic[M, X]):
                 or refuses the inputs.
             RuntimeError: The worker has never served.
         """
+        metadata = self._checked(metadata)
         row, nodes = await self._row(run_id), self.nodes_for(metadata)
         again = await asyncio.to_thread(lambda: loaded(row, nodes).with_inputs(inputs))
         return await self._create(row.graph, metadata, again)
@@ -524,6 +528,21 @@ class Worker(Generic[M, X]):
             refused=state.refused,
         )
 
+    def _checked(self, metadata: M) -> M:
+        """The metadata for a new run, checked once against the worker's ``metadata_type``.
+
+        It comes from the host's code, a dependency or a call of its own, so it is checked where it enters, and
+        what is stored is what reads back.
+
+        Raises:
+            InvalidCallError: It isn't of that type (``invalid_metadata``), so nothing is stored.
+        """
+        try:
+            return self._settings.metadata.validate_python(metadata)
+        except ValidationError as refused:
+            reason = "; ".join(error["msg"] for error in refused.errors(include_url=False))
+            raise InvalidCallError([invalid_metadata(reason=reason)]) from None
+
     def _metadata_in(self, row: StoredRun) -> M:
         """The metadata a row keeps, read from its JSON."""
         return self._settings.metadata.validate_json(row.metadata)
@@ -556,7 +575,7 @@ class Worker(Generic[M, X]):
         row = StoredRun(
             id=uuid.uuid4().hex,
             graph=graph,
-            metadata=self._settings.metadata.dump_json(metadata).decode(),
+            metadata=self._settings.metadata.dump_json(metadata, by_alias=True).decode(),
             rev=0,
             **written,
         )

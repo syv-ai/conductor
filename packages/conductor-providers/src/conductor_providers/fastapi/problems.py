@@ -1,4 +1,4 @@
-"""The four kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
+"""The five kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
 
 Everything else a run or a call can go wrong with is conductor's own, in ``conductor.PROBLEMS``. A kind is a
 function that writes the message, declared the way conductor declares its own. Calling it makes the ``Problem``::
@@ -61,6 +61,19 @@ def raised_outside_a_node(*, error: str) -> str:
     return (
         f"The worker hit {error} outside any node while it resumed the run or checked an answer; the server log "
         "says why. Resume the run, or send the answer again, once that is fixed."
+    )
+
+
+@SERVING_PROBLEMS.problem()
+def invalid_metadata(*, reason: str) -> str:
+    """The metadata given for a new run isn't of the worker's ``metadata_type``, so no run is stored.
+
+    Args:
+        reason: What pydantic found wrong with it.
+    """
+    return (
+        f"The metadata for the new run isn't of the worker's metadata type: {reason.rstrip('.')}. Give it "
+        "metadata of that type; it is what your metadata dependency returns."
     )
 
 

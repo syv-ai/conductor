@@ -191,7 +191,7 @@ def every_run() -> Callable[[dict[str, str]], bool]:
     return lambda metadata: True
 ```
 
-Neither dependency has a default, since no rule is safe for every host.
+Neither dependency has a default, since no rule is safe for every host. The worker checks the metadata against its `metadata_type` before it stores a run: anything else is a 422, `invalid_metadata`.
 
 The routes that take any graph (`POST /runs`, `/estimate`, `/compile` and `/nodes`) run whatever nodes the graph names. Guard them the usual FastAPI way: `app.include_router(router, dependencies=[Depends(is_author)])`. On those routes, the metadata picks the nodes the request may use, through `nodes_for`.
 
@@ -218,7 +218,7 @@ Answers sent while a run is running are queued and given to the run when it stop
 
 Every refusal has one shape, `{"detail": [{"type", "loc", "msg", "ctx"}, ...]}`, the same as FastAPI's own 422. A missing run, or one the filter hides, is a 404. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md).
 
-The worker has four codes of its own, in `SERVING_PROBLEMS`:
+The worker has five codes of its own, in `SERVING_PROBLEMS`:
 
 <!-- problems: conductor_providers.fastapi.SERVING_PROBLEMS -->
 

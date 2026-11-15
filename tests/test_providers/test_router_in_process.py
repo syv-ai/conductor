@@ -29,7 +29,7 @@ from conductor import (  # noqa: E402
 )
 from conductor_providers.fastapi import Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 
 from tests.test_providers.in_memory import (  # noqa: E402
     MemoryStore,
@@ -867,3 +867,47 @@ def test_the_runs_answer_is_the_component_runview_whatever_its_metadata_type() -
         assert [name for name in schema["components"]["schemas"] if name.startswith("RunView")] == [
             "RunView"
         ]
+
+
+class _Camel(BaseModel):
+    """Metadata whose field has an alias, as a camelCase model writes it."""
+
+    user_id: str = Field(alias="userId")
+
+
+async def test_metadata_with_an_alias_is_stored_so_it_reads_back_and_a_resume_gets_it() -> None:
+    registry, _, graph = _doubling()
+    store = MemoryStore()
+    app = _app(
+        store=store,
+        registry=lambda _: registry,
+        metadata=lambda: _Camel(userId="anna"),
+        run_filter=lambda: lambda metadata: metadata.user_id == "anna",
+        metadata_type=_Camel,
+    )
+
+    async with _serving(app) as client:
+        started = await client.post("/runs", json={"graph": graph, "inputs": {"x": 1}})
+        assert started.status_code == 202, started.text
+        run_id = started.json()["id"]
+        assert (await store.ended(run_id)).outputs == {"result": 2}
+        assert (await client.get(f"/runs/{run_id}")).status_code == 200
+
+
+async def test_metadata_not_of_the_workers_type_is_a_422_and_nothing_is_stored() -> None:
+    registry, _, graph = _doubling()
+    store = MemoryStore()
+    app = _app(
+        store=store,
+        registry=lambda _: registry,
+        metadata=lambda: {"user": 7},
+        run_filter=_every_run,
+    )
+
+    async with _serving(app) as client:
+        for path in ("/runs", "/estimate"):
+            refused = await client.post(path, json={"graph": graph, "inputs": {"x": 1}})
+            assert refused.status_code == 422, path
+            assert [problem["type"] for problem in refused.json()["detail"]] == ["invalid_metadata"]
+
+    assert store.rows == {}
