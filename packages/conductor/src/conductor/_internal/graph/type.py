@@ -114,7 +114,7 @@ class Graph[C]:
         definitions as they are when it is compiled, and the registry's ``context_type``.
 
         Raises:
-            InvalidCallError: ``record`` is not a graph record's shape, as ``read_record`` raises.
+            InvalidCallError: ``record`` is not a graph record's shape, as ``RecordValidator`` raises.
         """
         # compile.py makes a Graph, so it imports this module when it loads, and this one imports it here
         from .compile import Compiler

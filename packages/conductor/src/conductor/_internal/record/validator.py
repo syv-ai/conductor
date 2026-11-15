@@ -1,9 +1,9 @@
 """The record validator: a graph record a host hands in, and the values ``make_graph`` writes into one.
 
-Example: ``Graph.compile('{"nodes": {"shout": {"node": "shout"}}}', registry)`` reads the text with ``read_record``
+Example: ``Graph.compile('{"nodes": {"shout": {"node": "shout"}}}', registry)`` reads the text with ``RecordValidator``
 into a ``GraphRecord``. The text ``'{"nodes": {"shout": {}}}'`` is refused with one ``invalid_record`` problem at
 ``("record", "nodes", "shout", "node")``: the node names no definition. And ``make_graph(shout, constants={"shout.mark":
-{"!"}})`` is refused by ``record_values`` with ``invalid_value`` at ``("shout", "mark")``: a set has no order, so the
+{"!"}})`` is refused by ``RecordValuesValidator`` with ``invalid_value`` at ``("shout", "mark")``: a set has no order, so the
 record would list it in another order in another process.
 
 What the record says that is wrong as a graph (an edge into an input the node does not have, an edge from a node the
@@ -24,6 +24,7 @@ from conductor._internal.base import plain_json
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.series import set_has_no_order
 from conductor._internal.types import kind_of_value
+from conductor._internal.validation import Validator
 
 from .graph import GraphRecord
 
@@ -80,76 +81,96 @@ def read_json(text: str | bytes) -> Any:
         ) from None
 
 
-def read_record(
-    record: GraphRecord | str | bytes | Mapping[str, Any], *, written_by: str | None = None
-) -> GraphRecord:
-    """Returns ``record`` as a ``GraphRecord``: a ``GraphRecord`` as it is; JSON text (read by ``read_json``), or the
-    plain data ``make_graph`` and ``registry.upgrade`` write, read into one.
+class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], GraphRecord]):
+    """Reads a graph record into a ``GraphRecord``: a ``GraphRecord`` as it is; JSON text (read by ``read_json``), or
+    the plain data ``make_graph`` and ``registry.upgrade`` write, read into one.
 
-    Args:
-        record: The record.
-        written_by: What wrote it when it is not JSON a host sent, for the refusal to say what to fix:
-            ``make_graph``'s arguments, or a node's ``Upgrade``.
-
-    Raises:
+    Raises (when called):
         InvalidCallError: The text is not JSON or writes a key twice in one object, or the record is not a record's
             shape (a key a record does not have, an id or input that is not a name, an input given more than one of
             a constant, a graph input and sources, a source listed twice, a field on a graph output): one
             ``invalid_record`` problem per fault, each at ``("record", *where)``.
     """
-    if isinstance(record, GraphRecord):
-        return record
-    data = read_json(record) if isinstance(record, (str, bytes)) else record
-    try:
-        return GraphRecord.model_validate(data)
-    except ValidationError as invalid:
-        raise InvalidCallError(
-            call_problems.invalid_record(
-                "record",
-                *error["loc"],
-                where=".".join(map(str, error["loc"])) or "the record",
-                reason=error["msg"],
-                error=error["type"],
-                written_by=written_by,
-            )
-            for error in invalid.errors()
-        ) from None
+
+    def __init__(self, written_by: str | None = None) -> None:
+        """Builds the validator for a record that ``written_by`` wrote.
+
+        Args:
+            written_by: What wrote it when it is not JSON a host sent, for the refusal to say what to fix:
+                ``make_graph``'s arguments, or a node's ``Upgrade``.
+        """
+        self._written_by = written_by
+
+    def __call__(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:
+        """Returns ``record`` as a ``GraphRecord``.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        if isinstance(record, GraphRecord):
+            return record
+        data = read_json(record) if isinstance(record, (str, bytes)) else record
+        try:
+            return GraphRecord.model_validate(data)
+        except ValidationError as invalid:
+            raise InvalidCallError(
+                call_problems.invalid_record(
+                    "record",
+                    *error["loc"],
+                    where=".".join(map(str, error["loc"])) or "the record",
+                    reason=error["msg"],
+                    error=error["type"],
+                    written_by=self._written_by,
+                )
+                for error in invalid.errors()
+            ) from None
 
 
-def record_values(node_id: str, values: Mapping[str, Any]) -> dict[str, JsonValue]:
-    """Returns ``values``, the constants or defaults given to the node ``node_id`` from Python, as the record keeps
-    them: each as its JSON reads back. ``{"day": date(2026, 1, 2)}`` gives ``{"day": "2026-01-02"}``, and a float
-    that is not finite is its text (``"NaN"``, ``"Infinity"``).
+class RecordValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]]):
+    """Reads the constants or defaults given to one node from Python into the values a graph record keeps: each as
+    its JSON reads back. ``{"day": date(2026, 1, 2)}`` gives ``{"day": "2026-01-02"}``, and a float that is not finite
+    is its text (``"NaN"``, ``"Infinity"``).
 
-    Raises:
+    Raises (when called):
         InvalidCallError: One ``invalid_value`` problem, at ``(node_id, input)``, for each value with no JSON form or
             holding a set (``set_has_no_order``).
     """
-    written: dict[str, JsonValue] = {}
-    problems = []
-    for name, value in values.items():
-        if _holds_a_set(value):
-            error = set_has_no_order()
-            problems.append(
-                compile_problems.invalid_value(
-                    node_id,
-                    name,
-                    reason=error.message(),
-                    errors=[{"type": error.type, "loc": [], "msg": error.message()}],
+
+    def __init__(self, node_id: str) -> None:
+        """Builds the validator for the values given to the node ``node_id``."""
+        self._node_id = node_id
+
+    def __call__(self, values: Mapping[str, Any]) -> dict[str, JsonValue]:
+        """Returns ``values``, by input name, as the record keeps them.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        written: dict[str, JsonValue] = {}
+        problems = []
+        for name, value in values.items():
+            if _holds_a_set(value):
+                error = set_has_no_order()
+                problems.append(
+                    compile_problems.invalid_value(
+                        self._node_id,
+                        name,
+                        reason=error.message(),
+                        errors=[{"type": error.type, "loc": [], "msg": error.message()}],
+                    )
                 )
-            )
-            continue
-        try:
-            written[name] = plain_json(value)
-        except PydanticSerializationError:
-            reason = (
-                "a value written in a graph record is saved with it as JSON"
-                + kind_of_value(value).typed_in_advice
-            )
-            problems.append(compile_problems.invalid_value(node_id, name, reason=reason))
-    if problems:
-        raise InvalidCallError(problems)
-    return written
+                continue
+            try:
+                written[name] = plain_json(value)
+            except PydanticSerializationError:
+                reason = (
+                    "a value written in a graph record is saved with it as JSON"
+                    + kind_of_value(value).typed_in_advice
+                )
+                problems.append(compile_problems.invalid_value(self._node_id, name, reason=reason))
+        if problems:
+            raise InvalidCallError(problems)
+        return written
 
 
 def _holds_a_set(value: Any) -> bool:

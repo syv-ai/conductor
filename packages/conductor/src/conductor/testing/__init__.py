@@ -60,7 +60,7 @@ from conductor._internal.node import (
     SubgraphDefinition,
 )
 from conductor._internal.problem import InvalidCallError, Problem, compile_problems
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, record_values
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValuesValidator
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
 from conductor._internal.validation import schema_validator_of
@@ -136,7 +136,7 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
     """
     inputs = {
         name: InputEntry(constant=value)
-        for name, value in record_values(version.id, constants).items()
+        for name, value in RecordValuesValidator(version.id)(constants).items()
     }
     return GraphRecord(
         nodes={version.id: NodeRecord(node=version.id, version=version.version, inputs=inputs)}

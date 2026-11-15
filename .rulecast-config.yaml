@@ -426,7 +426,7 @@ repos:
                 text = record.model_dump_json()
             - path: packages/conductor/src/conductor/_internal/graph/compile.py
               code: |
-                record = read_record(data)
+                record = RecordValidator()(data)
           baseline:
             - path: packages/conductor/src/conductor/_internal/graph/compile.py
               before: |

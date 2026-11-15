@@ -66,7 +66,7 @@ from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
-from conductor._internal.record import GraphRecord, read_record
+from conductor._internal.record import GraphRecord, RecordValidator
 from conductor._internal.types import Param, Type
 
 from .policy import Deprecation, Policy
@@ -246,7 +246,7 @@ def subgraph(
 
     def make(record: GraphRecord | str | bytes, /) -> SubgraphDefinition:
         definition = SubgraphDefinition(
-            graph=read_record(record),
+            graph=RecordValidator()(record),
             id=id,
             version=number,
             title=title,

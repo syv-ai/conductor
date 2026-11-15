@@ -22,8 +22,8 @@ from conductor._internal.record import (
     GraphRecord,
     InputEntry,
     NodeRecord,
-    read_record,
-    record_values,
+    RecordValidator,
+    RecordValuesValidator,
 )
 
 
@@ -123,7 +123,9 @@ def make_graph(
         outputs=declared,
     )
     try:
-        record = read_record(written.model_dump(mode="json"), written_by="make_graph's arguments")
+        record = RecordValidator(written_by="make_graph's arguments")(
+            written.model_dump(mode="json")
+        )
     # an input given a value and an edge, an edge given twice, a name that is not one
     except InvalidCallError as refused:
         problems += refused.problems
@@ -165,7 +167,7 @@ def _values_by_place(
     problems: list[Problem],
 ) -> dict[tuple[str, str], Any]:
     """``given``, the ``constants`` or ``defaults`` (``kind``) of ``make_graph``, by place, each value as the record keeps
-    it (``record_values``). A fault goes to ``problems``."""
+    it (``RecordValuesValidator``). A fault goes to ``problems``."""
     by_node: dict[str, dict[str, Any]] = {}
     for key, value in given.items():
         place = _place(key, (kind, key), definitions, problems)
@@ -175,7 +177,8 @@ def _values_by_place(
     for node_id, named in by_node.items():
         try:
             written |= {
-                (node_id, name): value for name, value in record_values(node_id, named).items()
+                (node_id, name): value
+                for name, value in RecordValuesValidator(node_id)(named).items()
             }
         except InvalidCallError as refused:
             problems += refused.problems

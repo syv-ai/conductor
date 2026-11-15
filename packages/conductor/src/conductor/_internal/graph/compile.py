@@ -58,7 +58,7 @@ from conductor._internal.node import (
     read_hook_fields,
 )
 from conductor._internal.problem import InvalidCallError, NodeError, Problem, compile_problems
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, read_record
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, RecordValidator
 from conductor._internal.types import Type
 
 from .input import (
@@ -146,7 +146,7 @@ class Compiler:
         It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
         could be worked out. A node whose definition is not found, or whose hook failed, is left out.
         """
-        self.record = read_record(record)
+        self.record = RecordValidator()(record)
         ids = sorted(self.record.nodes)  # the record keeps no order of its nodes, so ties go by id
         self.position = {node_id: i for i, node_id in enumerate(ids)}
         edges_into = {node_id: _edges_into(self.record.nodes[node_id]) for node_id in ids}

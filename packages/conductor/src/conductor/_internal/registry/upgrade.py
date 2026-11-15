@@ -20,8 +20,8 @@ from conductor._internal.record import (
     GraphRecord,
     InputEntry,
     NodeRecord,
-    read_record,
-    record_values,
+    RecordValidator,
+    RecordValuesValidator,
 )
 
 
@@ -39,7 +39,7 @@ def upgraded(
     rewrite that gives a value to an input that edges lead into gives that input a constant beside its sources, and
     the record validator refuses it, naming the step.
     """
-    graph = read_record(record)
+    graph = RecordValidator()(record)
     node_record = graph.nodes.get(node_id)
     if node_record is None:
         raise InvalidCallError(
@@ -102,10 +102,9 @@ def upgraded(
             for name, source in graph.outputs.items()
         }
         # unchecked until here: the record validator checks what the step wrote
-        graph = read_record(
-            GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"),
-            written_by=f"the Upgrade of '{node_record.node}' to version {step.version}",
-        )
+        graph = RecordValidator(
+            written_by=f"the Upgrade of '{node_record.node}' to version {step.version}"
+        )(GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"))
     return graph
 
 
@@ -128,7 +127,7 @@ def _rewritten(
         for name, entry in renamed.items()
         if entry.constant is not MISSING or entry.default is not MISSING
     }
-    written = record_values(node_id, rewrite(values))
+    written = RecordValuesValidator(node_id)(rewrite(values))
     kept = {
         name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)
         for name, entry in inputs.items()
