@@ -1,8 +1,5 @@
-"""``check_run_store`` on the stores the suite has: the one in memory and the page's SQLite one pass, and a problem is
-reported once, at the method that has it.
-
-Each kind's own broken store is its example on the page on serving runs, run by ``test_problems_page``.
-"""
+"""``check_run_store`` passes the stores the suite has, and gives one message, naming the method, for each kind of
+fault a store can have."""
 
 from __future__ import annotations
 
@@ -14,9 +11,9 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 from conductor_providers.fastapi import RunChanges, StoredRun
 from conductor_providers.fastapi.testing import check_run_store
-from conductor_providers.fastapi.testing.problems import RUN_STORE_CHECK_PROBLEMS
 from pytest import MonkeyPatch
 
 from tests.test_providers.in_memory import MemoryStore
@@ -24,7 +21,7 @@ from tests.test_providers.in_memory import MemoryStore
 PAGE = Path(__file__).parents[2] / "docs" / "serving-runs.md"
 
 
-async def test_the_store_in_memory_does_all_the_router_relies_on() -> None:
+async def test_the_store_in_memory_does_all_the_worker_relies_on() -> None:
     assert await check_run_store(MemoryStore()) == []
 
 
@@ -56,48 +53,6 @@ async def test_runs_of_the_hosts_own_in_the_store_are_left_out() -> None:
     assert await check_run_store(store) == []
 
 
-class _CreateRaises(MemoryStore):
-    async def create(self, run: StoredRun) -> None:
-        raise ConnectionError("the database is down")
-
-
-async def test_a_method_that_raises_is_reported_once_at_that_method() -> None:
-    (problem,) = await check_run_store(_CreateRaises())
-
-    assert (problem.type, problem.loc, problem.ctx) == (
-        "store_raised",
-        ("create",),
-        {"error": "ConnectionError", "reason": "the database is down"},
-    )
-
-
-class _ReadsThenWrites(MemoryStore):
-    """Reads the ``rev`` and writes in two steps, with an ``await`` between them, as two statements would be."""
-
-    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-        row = self.rows.get(run_id)
-        if row is None or row.rev != rev:
-            return False
-        await asyncio.sleep(0)
-        self.rows[run_id] = dataclasses.replace(row, **changes, rev=rev + 1)
-        return True
-
-
-async def test_updates_at_once_that_all_get_through_are_reported_with_how_many() -> None:
-    (problem,) = await check_run_store(_ReadsThenWrites())
-
-    assert (problem.type, problem.loc, problem.ctx) == (
-        "two_updates_written",
-        ("update",),
-        {"written": 8, "tried": 8},
-    )
-
-
-def test_every_kind_says_what_to_do() -> None:
-    """A clause after what is wrong, as conductor's own messages have."""
-    assert [kind.code for kind in RUN_STORE_CHECK_PROBLEMS if "; " not in kind.sentence] == []
-
-
 class _KeepsJsonAsJsonb(MemoryStore):
     """Writes every JSON text back another way, keys sorted and spaced, as a Postgres ``jsonb`` column gives it."""
 
@@ -125,3 +80,120 @@ class _KeepsJsonAsJsonb(MemoryStore):
 
 async def test_a_store_that_writes_its_json_another_way_passes() -> None:
     assert await check_run_store(_KeepsJsonAsJsonb()) == []
+
+
+# -- one broken store for each kind of fault ------------------------------------------------------
+
+
+class _ReadsAReplicaThatLags(MemoryStore):
+    """Misses the first run written, as a replica that is a moment behind the database written to."""
+
+    lagged = False
+
+    async def get(self, run_id: str) -> StoredRun | None:
+        if not self.lagged:
+            self.lagged = True
+            return None
+        return await super().get(run_id)
+
+
+class _SkipsNone(MemoryStore):
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        written = {name: value for name, value in changes.items() if value is not None}
+        return await super().update(run_id, rev, written)  # type: ignore[arg-type]
+
+
+class _GivesAnEmptyRun(MemoryStore):
+    async def get(self, run_id: str) -> StoredRun | None:
+        found = await super().get(run_id)
+        return found or StoredRun(run_id, "", "", "", "running", "", "", 0, None, None)
+
+
+class _SaysFalseThoughItWrote(MemoryStore):
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        await super().update(run_id, rev, changes)
+        return False
+
+
+class _ForgetsTheRev(MemoryStore):
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        return await super().update(run_id, self.rows[run_id].rev, changes)
+
+
+class _ReadsThenWrites(MemoryStore):
+    """Reads the ``rev`` and writes in two steps, with an ``await`` between them, as two statements would be."""
+
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        row = self.rows.get(run_id)
+        if row is None or row.rev != rev:
+            return False
+        await asyncio.sleep(0)
+        self.rows[run_id] = dataclasses.replace(row, **changes, rev=rev + 1)
+        return True
+
+
+class _ZeroIsNoLease(MemoryStore):
+    async def expired(self, now: float) -> list[StoredRun]:
+        return [row for row in await super().expired(now) if row.lease_until]
+
+
+class _AnHourOut(MemoryStore):
+    """Compares the time an hour out, as when one side is local time and the other UTC."""
+
+    async def expired(self, now: float) -> list[StoredRun]:
+        return await super().expired(now + 3600)
+
+
+class _NoLeaseIsZero(MemoryStore):
+    async def expired(self, now: float) -> list[StoredRun]:
+        return [row for row in self.rows.values() if (row.lease_until or 0) < now]
+
+
+class _RefusesEveryEvent(MemoryStore):
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        await super().add_event(run_id, owner, body)
+        return False
+
+
+class _AnyoneMayAdd(MemoryStore):
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        self.written[run_id].append(body)
+        return True
+
+
+class _FromAfterOn(MemoryStore):
+    async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
+        return await super().events(run_id, after - 1)
+
+
+class _CreateRaises(MemoryStore):
+    async def create(self, run: StoredRun) -> None:
+        raise ConnectionError("the database is down")
+
+
+@pytest.mark.parametrize(
+    ("store", "message"),
+    [
+        (_ReadsAReplicaThatLags, "create: get gave None for the run just written"),
+        (_SkipsNone, "update: get gave a run whose owner, lease_until are not what was written"),
+        (_GivesAnEmptyRun, "get: gave a run for an id no run has"),
+        (_SaysFalseThoughItWrote, "update: gave False for a run at the rev it was given"),
+        (_ForgetsTheRev, "update: wrote at rev 1 while the run was at rev 2"),
+        (_ReadsThenWrites, "update: 8 of 8 updates at one rev, sent at once, were written"),
+        (_ZeroIsNoLease, "expired: left out a run whose lease_until, 0.0, is before now"),
+        (_AnHourOut, "expired: gave a run whose lease_until, "),
+        (_NoLeaseIsZero, "expired: gave a run whose lease_until is None"),
+        (_RefusesEveryEvent, "add_event: gave False for the run's owner"),
+        (_AnyoneMayAdd, "add_event: added an event for a worker that doesn't hold the run"),
+        (_FromAfterOn, "events: events(run_id, 0) gave the events numbered [0, 1, 2]"),
+        (_CreateRaises, "create: raised ConnectionError: the database is down"),
+    ],
+    ids=lambda case: case.__name__.strip("_") if isinstance(case, type) else "",
+)
+async def test_each_fault_is_one_message_naming_its_method_and_saying_what_to_do(
+    store: type[MemoryStore], message: str
+) -> None:
+    (found,) = await check_run_store(store())
+
+    assert found.startswith(message), found
+    assert "; " in found  # what is wrong, then what to do

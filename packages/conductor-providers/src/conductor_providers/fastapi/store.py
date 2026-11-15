@@ -4,10 +4,15 @@ A stored run is one row of text and numbers, so any database holds it. Every
 change is a compare-and-set on ``rev``: ``update`` writes only while the row is
 still at the ``rev`` the writer read, and moves it one on. That one rule is
 what lets several workers act on one run.
+
+``GuardedStore`` wraps a host's store so that anything it raises comes out as
+one exception, ``StoreFailedError``, which names the method. The worker and
+``check_run_store`` call a store only through it.
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from typing import Protocol
 
 from conductor_providers.fastapi.stored_run import RunChanges, StoredRun
@@ -94,3 +99,62 @@ class RunStore(Protocol):
             The events numbered above ``after``, in order, each as ``(number, body)``.
         """
         ...
+
+
+class StoreFailedError(Exception):
+    """A method of the host's store raised.
+
+    The worker reads this as an outage: it gives the run up and lets its lease run out, and never fails the run.
+
+    Attributes:
+        method: The method that raised, such as ``"update"``.
+        error: What it raised.
+    """
+
+    def __init__(self, method: str, error: Exception) -> None:
+        super().__init__(f"the store's {method} raised {error!r}")
+        self.method = method
+        self.error = error
+
+
+async def _guarded[T](method: str, answer: Awaitable[T]) -> T:
+    """What one call of a store method gives, or ``StoreFailedError`` when it raises."""
+    try:
+        return await answer
+    except Exception as error:
+        raise StoreFailedError(method, error) from error
+
+
+class GuardedStore:
+    """A host's store, wrapped so that whatever one of its methods raises comes out as ``StoreFailedError``.
+
+    It has the six methods of ``RunStore`` and passes each call on. Code that holds a ``GuardedStore`` can tell an
+    outage apart from a fault in its own code by the exception's class alone.
+    """
+
+    def __init__(self, store: RunStore) -> None:
+        self._store = store
+
+    async def create(self, run: StoredRun) -> None:
+        """``RunStore.create``."""
+        await _guarded("create", self._store.create(run))
+
+    async def get(self, run_id: str) -> StoredRun | None:
+        """``RunStore.get``."""
+        return await _guarded("get", self._store.get(run_id))
+
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        """``RunStore.update``."""
+        return await _guarded("update", self._store.update(run_id, rev, changes))
+
+    async def expired(self, now: float) -> list[StoredRun]:
+        """``RunStore.expired``."""
+        return await _guarded("expired", self._store.expired(now))
+
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        """``RunStore.add_event``."""
+        return await _guarded("add_event", self._store.add_event(run_id, owner, body))
+
+    async def events(self, run_id: str, after: int) -> list[tuple[int, str]]:
+        """``RunStore.events``."""
+        return await _guarded("events", self._store.events(run_id, after))

@@ -6,7 +6,7 @@ import ast
 import re
 import sys
 from ast import Call, Expr, Expression, Module, Name
-from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
 from types import ModuleType
 
@@ -14,13 +14,11 @@ import pytest
 from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemKind
 from conductor.about import fill_placeholders, problems_page
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
-from conductor_providers.fastapi.testing.problems import RUN_STORE_CHECK_PROBLEMS
 from pytest import MonkeyPatch
 
 _ROOT = Path(__file__).parents[2]
 _PACKAGE = _ROOT / "packages" / "conductor" / "src" / "conductor"
 _TEMPLATE = (_PACKAGE / "about" / "problems.md").read_text()
-_SERVING_RUNS = (_ROOT / "docs" / "serving-runs.md").read_text()
 #: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
 #: person can act on, and an answer's ``reason`` is pydantic's account of what the answer lacks.
 _NO_FIX = {"node_error", "external_failed", "invalid_answer"}
@@ -42,13 +40,6 @@ def test_every_message_says_what_to_do() -> None:
 def _setup() -> str:
     """The setup at the top of the problems page: its first Python block."""
     return re.findall(r"```python\n(.*?)```", _TEMPLATE, re.S)[0]
-
-
-def _store_setup() -> str:
-    """The setup of ``check_run_store``'s examples: the Python blocks of the section on writing a store, on the page
-    on serving runs."""
-    section = _SERVING_RUNS[_SERVING_RUNS.index("## A store") : _SERVING_RUNS.index("## The app")]
-    return "\n".join(re.findall(r"```python\n(.*?)```", section, re.S))
 
 
 def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
@@ -76,40 +67,24 @@ def _examples(page: str) -> dict[tuple[str, str | None], str]:
 
 
 _PAGE_EXAMPLES = _examples(problems_page())
-_STORE_EXAMPLES = _examples(fill_placeholders(_SERVING_RUNS))
 
-#: Each kind with an example, the setup its example runs after, and the examples of the page its catalogue is
-#: written on.
-_KINDS = [
-    *(
-        (kind, _setup, _PAGE_EXAMPLES)
-        for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
-    ),
-    *((kind, _store_setup, _STORE_EXAMPLES) for kind in RUN_STORE_CHECK_PROBLEMS),
-]
+#: Every kind with an example on the problems page.
+_KINDS = [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
 
 
-@pytest.mark.parametrize(
-    ("kind", "setup", "examples"),
-    _KINDS,
-    ids=[f"{kind.code}-{kind.variant}" for kind, _, _ in _KINDS],
-)
+@pytest.mark.parametrize("kind", _KINDS, ids=[f"{kind.code}-{kind.variant}" for kind in _KINDS])
 def test_a_kinds_example_makes_its_problem_and_no_other(
-    kind: ProblemKind[...],
-    setup: Callable[[], str],
-    examples: dict[tuple[str, str | None], str],
-    monkeypatch: MonkeyPatch,
-    tmp_path: Path,
+    kind: ProblemKind[...], monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
     """The example runs after the page's setup, alone, and its last line gives problems of this kind only."""
     monkeypatch.chdir(tmp_path)
     page = ModuleType("problems_page")  # a dataclass in an example looks its module up by name
     monkeypatch.setitem(sys.modules, page.__name__, page)
-    example = examples[kind.code, kind.variant]
+    example = _PAGE_EXAMPLES[kind.code, kind.variant]
     assert example, f"{kind.code} has no example"
     *body, last = ast.parse(example).body
     assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
-    exec(compile(setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
+    exec(compile(_setup(), "problems page: setup", "exec"), page.__dict__)  # noqa: S102  the page's own code
     exec(
         compile(Module(body=body, type_ignores=[]), f"problems page: {kind.code}", "exec"),
         page.__dict__,
@@ -172,3 +147,13 @@ def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:
         )
         == []
     )
+
+
+def test_the_page_on_serving_runs_writes_in_every_kind_its_marker_names() -> None:
+    """The docs build fills the page's marker from the catalogue it names, each kind under a heading of its code."""
+    page = (_ROOT / "docs" / "serving-runs.md").read_text()
+    ((module, name),) = re.findall(r"<!-- problems: ([\w.]+)\.(\w+) -->", page)
+    filled = fill_placeholders(page)
+
+    kinds = getattr(import_module(module), name)
+    assert [kind.code for kind in kinds if f"### `{kind.code}`" not in filled] == []
