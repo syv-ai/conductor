@@ -26,7 +26,7 @@ async def stream(
     ],
     context: Any,
     timeout: float | None,
-    cancel: AsyncioEvent | None,
+    cancel: AsyncioEvent | ThreadEvent | None,
     hand_back: AsyncioEvent | None,
     checkpoint_every: float | None,
 ) -> AsyncGenerator[Event]:

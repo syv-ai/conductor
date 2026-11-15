@@ -10,7 +10,17 @@ from collections.abc import Callable
 from threading import Event as ThreadEvent
 from typing import Any
 
-from conductor import Ask, Graph, GraphRecord, NodeRegistry, Run, Series, make_graph
+from conductor import (
+    Ask,
+    Context,
+    Graph,
+    GraphRecord,
+    NodeError,
+    NodeRegistry,
+    Run,
+    Series,
+    make_graph,
+)
 from conductor_providers.fastapi import RunChanges, RunView, StoredRun, Worker
 
 #: A just-begun run's ``state`` column in its stored form, as hosts' databases hold it: the rows a test writes as an
@@ -196,3 +206,90 @@ def gated() -> tuple[NodeRegistry, GraphRecord, dict[str, ThreadEvent], list[str
         outputs={"busy": "busy.result", "per_item": "per_item.result"},
     )
     return registry, graph, gates, calls
+
+
+@dataclasses.dataclass(frozen=True)
+class Stoppable:
+    """A run's context that is the stop event the worker gives its ``context`` function for each resume call.
+
+    Attributes:
+        stop: The resume call's stop event.
+    """
+
+    stop: ThreadEvent
+
+
+@dataclasses.dataclass
+class Stopping:
+    """A graph whose node ``stream`` waits up to ``seconds`` for its resume call's stop event in its first call, and
+    raises if it is set, as a node that stops a slow call does (a later call returns at once), beside a question
+    that is asked first, and whose node ``after`` reads the stop event of its own resume call once the question is
+    answered.
+
+    Attributes:
+        registry: The nodes, on a registry whose context is ``Stoppable``.
+        graph: The graph.
+        waiting_id: The question's waiting id.
+        started: Set once ``stream`` has started.
+        returned: Set once a call of ``stream`` has returned or raised.
+        seen: Whether each call of ``stream`` and ``after`` saw its stop event set, in the order they ended.
+    """
+
+    registry: NodeRegistry[Stoppable]
+    graph: GraphRecord
+    waiting_id: str
+    started: ThreadEvent
+    returned: ThreadEvent
+    seen: list[bool]
+
+
+def stoppable(caller: object, stop: ThreadEvent) -> Stoppable:
+    """A worker's ``context`` function: the resume call's stop event, whoever the caller."""
+    return Stoppable(stop)
+
+
+def stopping() -> Stopping:
+    """A ``Stopping`` graph, its waiting id read from a run on its own."""
+    registry, started, returned, seen = (
+        NodeRegistry(context_type=Stoppable),
+        ThreadEvent(),
+        ThreadEvent(),
+        [],
+    )
+
+    @registry.node("ask", title="Ask", description="For a test.", asks=True)
+    def ask(question: str) -> bool:
+        raise Ask("Go on?")
+
+    @registry.node("stream", title="Stream", description="For a test.")
+    def stream(ctx: Context[Stoppable], text: str, seconds: float) -> str:
+        first = not seen
+        started.set()
+        try:
+            seen.append(ctx.stop.wait(seconds if first else 0))
+            if seen[-1]:
+                raise NodeError("The call was stopped.", code="stopped")
+            return text
+        finally:
+            returned.set()
+
+    @registry.node("after", title="After", description="For a test.")
+    def after(ctx: Context[Stoppable], text: str, ok: bool) -> str:
+        seen.append(ctx.stop.is_set())
+        return text
+
+    graph = make_graph(
+        ask,
+        stream,
+        after,
+        edges=[("stream.result", "after.text"), ("ask.result", "after.ok")],
+        outputs={"after": "after.result"},
+    )
+    run = Graph.compile(graph, registry).run(
+        {"question": "y", "text": "x", "seconds": 0.0}, context=Stoppable(ThreadEvent())
+    )
+    (waiting,) = run.waiting
+    started.clear()
+    returned.clear()
+    seen.clear()
+    return Stopping(registry, graph, waiting.id, started, returned, seen)

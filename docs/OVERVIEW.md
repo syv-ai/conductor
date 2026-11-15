@@ -44,6 +44,6 @@ A node raises `Ask` when a person must answer. That call waits, and so does ever
 
 ## Failures
 
-Every failure is a `Problem`: `type`, `loc`, `msg` and `ctx`. Compiling reports problems in `graph.problems`. A node that fails puts one on its `node_failed` event and as the run's `cause`. A call that can't be acted on raises `InvalidCallError` with every problem listed. A host routes and translates by `type`.
+Every failure is a `Problem`: `type`, `loc`, `msg` and `ctx`. Compiling reports problems in `graph.problems`. A node that fails puts one on its `node_failed` event and as the run's `cause`, unless the run was cancelled by then: it then ends `cancelled`, and a resume makes the call again. A call that can't be acted on raises `InvalidCallError` with every problem listed. A host routes and translates by `type`.
 
 Retries are the node's `Policy` ([writing nodes](writing-nodes.md#when-something-fails)). A failed call stops any new call from starting. The calls already running on threads finish and are kept, so resuming doesn't make them again.

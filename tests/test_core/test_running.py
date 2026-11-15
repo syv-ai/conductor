@@ -31,6 +31,7 @@ from conductor import (
     Graph,
     GraphRecord,
     InvalidCallError,
+    NodeError,
     NodeRegistry,
     NotCalled,
     Policy,
@@ -1633,24 +1634,17 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
     assert ended.status == "cancelled" and len(calls) < 6
 
 
-@pytest.mark.parametrize("stop", ["cancel", "timeout"])
-@pytest.mark.parametrize(
-    ("ends", "cause"), [("failed", "execution_failed"), ("stopped", "item_limit")]
-)
-def test_a_cancel_or_a_timeout_after_a_call_ended_the_run_leaves_the_run_as_that_call_ended_it(
-    stop: str, ends: str, cause: str
-):
-    """``lines`` sets ``cancel``, or sleeps past ``timeout``, and then fails, or returns more items than
-    ``max_items``. It runs on the scheduler's own thread, so the run has ended before ``stop`` could be asked again:
-    the first reason to stop stands, and the run is not ``cancelled`` or ``timed_out``."""
+def _stopped_in_the_call(stop: str, then: Callable[[], Any]) -> Any:
+    """The run of ``lines`` then ``echo`` with ``max_items=2``, where ``lines`` sets ``cancel`` (``stop`` is
+    ``cancel``), or sleeps past ``timeout``, in its first call, and then does ``then``. It runs on the scheduler's own thread, so ``stop``
+    is not asked again before the call ends. Returns the run as it ended."""
     stop_now: list[Callable[[], None]] = []
 
     @node("lines", title="Lines", description="For a test.")
     def lines(text: str) -> Series[str]:
-        stop_now[0]()
-        if ends == "failed":
-            raise ValueError("no lines")
-        return ["a", "b", "c"]
+        if stop_now:  # the first call only
+            stop_now.pop()()
+        return then()
 
     @node("echo", title="Echo", description="For a test.")
     def echo(line: str) -> str:
@@ -1675,12 +1669,67 @@ def test_a_cancel_or_a_timeout_after_a_call_ended_the_run_leaves_the_run_as_that
         return [event async for event in prepared.stream(cancel=cancel)][-1].run
 
     if stop == "cancel":
-        ended = _bounded(stream_with_a_cancel())
-    else:
-        stop_now.append(lambda: time.sleep(0.05))
-        ended = prepared.resume(timeout=0.01)
+        return _bounded(stream_with_a_cancel())
+    stop_now.append(lambda: time.sleep(0.05))
+    return prepared.resume(timeout=0.01)
+
+
+@pytest.mark.parametrize("stop", ["cancel", "timeout"])
+def test_a_series_over_the_item_limit_returned_by_a_call_that_ran_while_a_cancel_or_a_timeout_came_leaves_the_run_stopped(
+    stop: str,
+):
+    """The call's outcome is kept and ends the run at the item limit before ``stop`` is asked again: the first
+    reason to stop stands."""
+    ended = _stopped_in_the_call(stop, lambda: ["a", "b", "c"])
+
+    assert (ended.status, ended.cause.type) == ("stopped", "item_limit")
+
+
+@pytest.mark.parametrize(
+    ("stop", "ends", "cause"),
+    [("cancel", "cancelled", "run_cancelled"), ("timeout", "failed", "no_lines")],
+)
+def test_a_call_that_fails_after_a_cancel_ends_the_run_cancelled_and_after_the_timeout_failed_and_is_made_again_on_resume(
+    stop: str, ends: str, cause: str
+):
+    """A node can be told of a cancel, and a node that stops a slow call then raises, so a failure after a cancel
+    ends the run ``cancelled``. Nothing tells a node that the timeout passed, so a failure after it is the node's own
+    and ends the run ``failed`` with the node's cause. Either way the call has no outcome, and a resume makes it
+    again."""
+    calls: list[str] = []
+
+    def fail_the_first_time() -> list[str]:
+        calls.append("lines")
+        if len(calls) == 1:
+            raise NodeError("no lines", code="no_lines")
+        return ["a"]
+
+    ended = _stopped_in_the_call(stop, fail_the_first_time)
 
     assert (ended.status, ended.cause.type) == (ends, cause)
+    resumed = ended.resume()
+    assert (resumed.status, resumed.outputs, calls) == (
+        "complete",
+        {"result": ["a"]},
+        ["lines", "lines"],
+    )
+
+
+def test_a_call_longer_than_the_timeout_that_fails_ends_the_run_failed_on_every_resume():
+    """Each resume makes the call again past its timeout, and the node's own failure is what the run says."""
+    calls: list[str] = []
+
+    @node("slow", title="Slow", description="For a test.")
+    def slow(text: str) -> str:
+        calls.append(text)
+        time.sleep(0.05)
+        raise NodeError("refused", code="refused")
+
+    ended = Graph.compile(make_graph(slow), registry_of(slow)).run(text="x", timeout=0.01)
+    again = ended.resume(timeout=0.01)
+
+    assert [(run.status, run.cause.type) for run in (ended, again)] == [("failed", "refused")] * 2
+    assert calls == ["x", "x"]
 
 
 def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one():

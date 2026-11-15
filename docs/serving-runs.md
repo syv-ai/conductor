@@ -91,10 +91,11 @@ async def test_run_store(tmp_path: Path) -> None:
 
 ## The app
 
-Make a `Worker` on your store and mount the router over it. The worker does the work: it keeps runs, resumes them, holds their leases and takes over another worker's. `caller_type` is the type of a run's caller, kept on each run as JSON so whichever worker goes on with a run knows who started it, and `nodes_for` and `context` make the run's registry and context from that caller. The router adds the routes: `caller` is a FastAPI dependency, your login, that gives a caller of that type (a function, or a class used as the dependency), and `may_see` says who may see a run:
+Make a `Worker` on your store and mount the router over it. The worker does the work: it keeps runs, resumes them, holds their leases and takes over another worker's. `caller_type` is the type of a run's caller, kept on each run as JSON so whichever worker goes on with a run knows who started it, and `nodes_for` and `context` make the run's registry and context from that caller (`context` is also given the stop event of each resume call, which a slow node reads: [stopping a slow call](#what-each-part-is-for)). The router adds the routes: `caller` is a FastAPI dependency, your login, that gives a caller of that type (a function, or a class used as the dependency), and `may_see` says who may see a run:
 
 ```python
 from dataclasses import dataclass
+from threading import Event
 
 from conductor import GraphRecord, NodeRegistry
 from conductor_providers.fastapi import Worker, run_router
@@ -115,18 +116,20 @@ class Caller:
 
 @dataclass(frozen=True)
 class AppContext:
-    """What a run's nodes get from the host: who started the run, and how to reach the database."""
+    """What a run's nodes get from the host: who started the run, how to reach the database, and whether the run
+    was asked to stop."""
 
     caller: Caller
     database: Database
+    stop: Event
 
 
 def current_caller() -> Caller:
     return Caller("anna")  # yours: your login
 
 
-def context_of(caller: Caller) -> AppContext:
-    return AppContext(caller=caller, database=database)
+def context_of(caller: Caller, stop: Event) -> AppContext:
+    return AppContext(caller=caller, database=database, stop=stop)
 
 
 registry = NodeRegistry(context_type=AppContext)  # yours: @registry.node(...) or registry.add(...)
@@ -232,6 +235,30 @@ def count_runs(ctx: Context[AppContext], status: str) -> int:
 
 A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in the context as it is. The context is never part of a run's JSON; the worker keeps the caller on the run and calls `context_of` again on any worker. A graph with a node whose `Context[...]` your `AppContext` does not satisfy has [`context_does_not_fit`](problems.md#context_does_not_fit) at that node: `/compile` shows it, and `POST /runs` answers 422.
 
+**Stopping a slow call.** A cancel stops a run before its next node call, so a call already going on runs to its end. For a call that takes long and costs money, such as a language model that streams its reply for a minute, the worker gives your `context` function a `threading.Event` with the caller, new for each resume call, and sets it when that call stops early: the run was cancelled, on this worker or on another (heard at the next renewal of the lease), or another worker took the run over, so what this one makes would be thrown away. Put it in the context, and a node reads it between chunks, on whatever thread it runs, with `is_set()`, or waits on it with `wait(seconds)`:
+
+```python
+from collections.abc import Iterator
+
+from conductor import NodeError
+
+
+def reply_chunks(prompt: str) -> Iterator[str]:
+    yield from prompt.split()  # yours: a model's reply as it streams
+
+
+@registry.node("reply", title="Reply", description="Writes a reply chunk by chunk, and stops when the run is cancelled.")
+def reply(ctx: Context[AppContext], prompt: str) -> str:
+    chunks = []
+    for chunk in reply_chunks(prompt):
+        if ctx.stop.is_set():
+            raise NodeError("The reply was stopped because the run was cancelled.", code="reply_stopped")
+        chunks.append(chunk)
+    return " ".join(chunks)
+```
+
+Raise, never return what you have: a value a node returns is kept, and a resume would not call it again. A call that fails once its run was cancelled ends the run `cancelled`, not `failed`, since the cancel came first; the call has no outcome, so a resume calls the node again. A call that fails for any other stop (the `resume_timeout` passed, the worker shuts down) ends the run `failed`: a node is never told of those. A node reads the event and never sets it: setting it cancels the run with no cancel asked. The worker also sets it when your store raises and it gives the run up, since another worker makes the call again once the lease runs out. The event is not set when the worker shuts down: the calls going on are then waited for and kept, so the worker that goes on with the run doesn't make them again.
+
 **Two workers answering one run.** Answering reads the run, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `update` at that `rev`, and only one of them changes the row. The other answers 409 (`run_changed`) and calls no node. An answer to a waiting call whose question has changed since the client read it (after `again`, say) is refused as `answer_stale`, by its waiting id.
 
 **Answers while a run is running.** A worker resumes a run with one call of `resume()`: it calls every node that is ready, until the run is complete, waits, fails or is stopped, and the run is `running` meanwhile. Answers sent then wait in the run's `state`, and the route says `queued`. A second answer to a question already queued is a 409 (`already_answered`, with the `waiting_id` in its `ctx`). The write that records how the call ended reads them, so none is dropped however the two cross. Each is then given to the run as `run.answer` takes one, on its own, whatever status the run stopped with: a wrong one, or one for something that isn't waiting (`not_waiting`, with the run's `status` in its `ctx`, as when the run completed), stays in `refused` with its problems, for the client to show the person who gave it, and the others make the worker resume the run again. So a question answered while a run was running that then failed on another item, stopped at its item limit, timed out or was cancelled is answered all the same. A cancel ends the call of `resume()` that is going on and no other: an answer queued meanwhile resumes the run again, and it runs. A cancel that came after the last node call is kept when a queued answer resumes the run, and ends that call before it calls anything. An answer that is taken clears what `refused` had for its question. When the worker raised while resuming, there is no run to give the answers to, so they stay queued until the run is resumed and stops again; the run meanwhile lists their questions as waiting again, and an answer sent then is taken at once and replaces the queued one. An answer whose type's own check raises what is no refusal is in `refused` as [`answer_check_failed`](#answer_check_failed). Checking an answer reads the whole run and writes it again; at 10,000 items that waited that is about 100 ms and a 1 MB write, so a client with many single clicks does better to send them together.
@@ -278,7 +305,7 @@ admitted = Worker(
     store=SqliteRunStore("admitted.db"),
     caller_type=Admitted,
     nodes_for=lambda caller: registry,
-    context=lambda caller: context_of(caller.person),
+    context=lambda caller, stop: context_of(caller.person, stop),
 )
 own_routes = APIRouter(prefix="/admitted", lifespan=lambda _: admitted.serving())
 

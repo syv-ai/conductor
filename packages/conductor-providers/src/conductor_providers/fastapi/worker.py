@@ -22,10 +22,12 @@ import contextlib
 import logging
 import time
 import uuid
-from asyncio import Event, Lock, Task
+from asyncio import Event as AsyncioEvent
+from asyncio import Lock, Task
 from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
+from threading import Event
 from typing import Any, Generic, Literal, TypeVar, overload
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
@@ -58,7 +60,7 @@ _UNHELD: RunChanges = {"owner": None, "lease_until": None}
 _HANDED_BACK: RunChanges = {"owner": None, "lease_until": 0.0}
 
 
-def _no_context(caller: object) -> None:
+def _no_context(caller: object, stop: Event) -> None:
     """The run's context when the host gives none: none, for a registry that names no ``context_type``."""
     return None
 
@@ -72,8 +74,10 @@ class _Hold:
         rev: The row's ``rev`` as this worker last wrote or read it.
         state: The row's state at that ``rev``.
         stop: Set to end the resume call before its next node call, from the row as this worker reads it: a cancel
-            is asked in its state, or another worker holds it. Cleared when the end of a resume call is written and
-            no cancel is asked any more.
+            is asked in its state, or another worker holds it; and set when the store raised and the run is given
+            up. The same event is handed to the host's ``context``
+            function, so a node can stop a slow call too. A new one, not set, is made for the next resume call when
+            the end of one is written and no cancel is asked any more.
         lock: Held for each of this worker's writes to the row, so they land one at a time.
         released: Whether the row was given up or taken by another worker; this worker writes nothing more to it.
         reads: How many times this worker read the row again, each time taking in what another writer changed.
@@ -127,7 +131,7 @@ class Worker(Generic[C]):
         store: RunStore,
         caller_type: type[C],
         nodes_for: Callable[[C], NodeRegistry[X]],
-        context: Callable[[C], X],
+        context: Callable[[C, Event], X],
         max_items: int | None = ...,
         lease: float = ...,
         checkpoint_every: float = ...,
@@ -156,7 +160,7 @@ class Worker(Generic[C]):
         store: RunStore,
         caller_type: None,
         nodes_for: Callable[[None], NodeRegistry[X]],
-        context: Callable[[None], X],
+        context: Callable[[None, Event], X],
         max_items: int | None = ...,
         lease: float = ...,
         checkpoint_every: float = ...,
@@ -184,7 +188,7 @@ class Worker(Generic[C]):
         store: RunStore,
         caller_type: Any,
         nodes_for: Callable[[Any], NodeRegistry[Any]],
-        context: Callable[[Any], Any] = _no_context,
+        context: Callable[[Any, Event], Any] = _no_context,
         max_items: int | None = None,
         lease: float = 30.0,
         checkpoint_every: float = 5.0,
@@ -200,8 +204,13 @@ class Worker(Generic[C]):
             nodes_for: The nodes a run's graph may use, from its caller: ``lambda caller: registry`` for one
                 registry, or a registry per tenant. Called for every method call and every resume call, so it caches
                 what it builds.
-            context: The run's context, an instance of the registry's ``context_type``, from its caller; called for
-                every resume call. Left out for a registry that names no ``context_type``.
+            context: The run's context, an instance of the registry's ``context_type``, from its caller and the
+                resume call's stop event, a ``threading.Event``; called for every resume call. The event is set when
+                that call stops early because the run was cancelled, because another worker took the run over, or
+                because the store raised and this worker gave the run up, so a node given it in the context can stop
+                a slow call and raise (what it returns would be kept); a node reads it and never sets it. It is not
+                set when this worker shuts down, since the calls going on then are waited for and kept, and the next
+                resume call gets a new one. Left out for a registry that names no ``context_type``.
             max_items: The ceiling on the items of any one Series that a run starts with; ``None`` for none. A
                 resume may raise it for that run, and the raised ceiling holds for that run from then on.
             lease: The seconds this worker holds a run between renewals.
@@ -215,14 +224,14 @@ class Worker(Generic[C]):
         self._caller_type: TypeAdapter[C] = TypeAdapter(caller_type)
         self.nodes_for: Callable[[C], NodeRegistry[Any]] = nodes_for
         self._served = False
-        self._context: Callable[[C], Any] = context
+        self._context: Callable[[C, Event], Any] = context
         self._max_items = max_items
         self._lease = lease
         self._checkpoint_every = checkpoint_every
         self._resume_timeout = resume_timeout
         self._poll = poll
         self._holds: dict[_Hold, Task[None]] = {}
-        self._handing_back = Event()
+        self._handing_back = AsyncioEvent()
 
     # -- what a host calls ------------------------------------------------------------------------
 
@@ -311,7 +320,7 @@ class Worker(Generic[C]):
         which calls only the nodes that cost nothing; nothing is stored.
 
         The call is made as a stored run's is: with the caller's context and this worker's ``resume_timeout`` and
-        ``max_items``.
+        ``max_items``. The context is given a stop event that is never set, since nothing cancels an estimate.
 
         Args:
             graph: The graph record, as a ``GraphRecord``, as its JSON text or as the plain data a caller sent.
@@ -329,7 +338,9 @@ class Worker(Generic[C]):
         def estimated() -> RunProgress:
             ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
             return ready.resume(
-                context=self._context(caller), timeout=self._resume_timeout, only_costs_nothing=True
+                context=self._context(caller, Event()),
+                timeout=self._resume_timeout,
+                only_costs_nothing=True,
             ).progress
 
         return await asyncio.to_thread(estimated)
@@ -659,9 +670,9 @@ class Worker(Generic[C]):
         What a host's code raises and what conductor refuses are handled where they happen (``_resume_steps``,
         ``Ended.row_after``), so an exception that reaches here is the store's, raised when an event, a checkpoint
         or the end of a resume call was written. It is the host's outage and never fails the run: it is logged,
-        no more nodes are started and the run is left as it is in the store, ``running``. Its lease runs out, and
-        a worker resumes it from the last checkpoint; a node call that is still on a thread then may be made again
-        while it runs.
+        no more nodes are started, the stop event is set so that a node call still going on can stop, and the run
+        is left as it is in the store, ``running``. Its lease runs out, and a worker resumes it from the last
+        checkpoint; a node call that is still on a thread then may be made again while it runs.
 
         Args:
             hold: The hold on the run.
@@ -672,6 +683,7 @@ class Worker(Generic[C]):
             while not hold.released:
                 row = await self._finish(hold, row, await self._resume_once(hold, row))
         except Exception:
+            hold.stop.set()  # another worker makes the calls going on again
             log.exception(
                 "the store raised while run %s was resumed; a worker resumes the run once its lease runs out",
                 row.id,
@@ -765,7 +777,7 @@ class Worker(Generic[C]):
             run = await asyncio.to_thread(_loaded, row, self.nodes_for(caller))
             held = await asyncio.to_thread(Outcome.so_far, run)
             stream = run.stream(
-                context=self._context(caller),
+                context=self._context(caller, hold.stop),
                 timeout=self._resume_timeout,
                 cancel=hold.stop,
                 hand_back=self._handing_back,
@@ -846,7 +858,9 @@ class Worker(Generic[C]):
                 ):  # decided from the state as it still is
                     hold.state, hold.released = after.state, not goes_on
                     if not after.state.cancel_asked:
-                        hold.stop.clear()  # the cancel that stopped this resume call does not stop the next
+                        # the cancel that stopped this resume call does not stop the next; an attempt of this one
+                        # still on its thread past its attempt_timeout goes on seeing it set
+                        hold.stop = Event()
                     return replace(row, **after.changes)
         return row
 

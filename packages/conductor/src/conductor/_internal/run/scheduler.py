@@ -51,9 +51,11 @@ node that may ask a person is taken out once a call reuses it (job 3).
    ready, nothing is running and an outcome was recorded since it was left. A call before it that waits on a
    person's answer upstream holds it back until that answer comes.
 
-4. **Stopping, the item limit and checkpoints.** The first call that fails ends the run as ``failed``. So does
-   ``stop`` (a cancel, a hand back, the run's ``timeout``) with its own state, the first time it says to stop, even
-   if it says otherwise later, and a series with more items than ``max_items`` as ``stopped``. In each case ``end``
+4. **Stopping, the item limit and checkpoints.** The first call that fails ends the run as ``failed``, unless
+   the run was cancelled by the time the failure comes back: a node can be told of a cancel and stops by raising,
+   so the run ends ``cancelled``, and the failed call is made again on resume. ``stop`` (a cancel, a hand back,
+   the run's ``timeout``) ends the run with its own state, the first time it says to stop, even if it says
+   otherwise later, and a series with more items than ``max_items`` as ``stopped``. In each case ``end``
    is called: no more calls start, and the attempts already on threads are waited for and their outcomes kept, so a
    later ``resume()`` never calls them again. With ``checkpoint_every`` the host is handed a copy of the run at most
    that often.
@@ -475,9 +477,17 @@ class Scheduler:
             self._make_downstream_ready(node, item_indexes)
 
     def _fail(self, node: BlueprintFunctionNode, cause: Problem) -> None:
-        """A call of ``node`` failed. The first failure ends the run as ``failed``; a later one changes nothing."""
+        """A call of ``node`` failed. The first failure ends the run as ``failed``, unless the run was cancelled by
+        then: a node can be told of a cancel (a host puts its event in the context), and a node that stops a slow
+        call when it is told raises, so the run ends ``cancelled``. A node is never told that the ``timeout`` passed
+        or that the run is handed back, so a failure then is the node's own and ends the run ``failed``. Either way
+        the call has no outcome, and a resume makes it again. A later failure changes nothing."""
         if self.going:
-            self.end(EndedEarly("failed", cause))
+            asked = self.stop() if self.stop is not None else None
+            if isinstance(asked, EndedEarly) and asked.status == "cancelled":
+                self.end(asked)
+            else:
+                self.end(EndedEarly("failed", cause))
             if self.node_events is not None:
                 self.node_events.call_failed(node, cause)
 
@@ -645,7 +655,8 @@ class Scheduler:
         A stop seen once holds: ``cancel`` and ``hand_back`` are the host's events, which it may clear again, and
         an attempt left waiting to start for a stop that no longer stands would wait for ever. Nor is ``stop`` asked
         once the run has ended, so the first reason to stop stands: a cancel set after a call failed, or after a
-        series went over the item limit, leaves the run ``failed`` or ``stopped``.
+        series went over the item limit, leaves the run ``failed`` or ``stopped``. A call that fails while a cancel
+        is set ends the run ``cancelled`` (``_fail``).
 
         Returns:
             Whether the run has ended.

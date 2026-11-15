@@ -21,6 +21,7 @@ from asyncio import Event as AsyncioEvent
 from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import cache
+from threading import Event as ThreadEvent
 from types import MappingProxyType
 from typing import Any, Literal, assert_never, overload
 
@@ -207,7 +208,7 @@ class Run[C]:
         context: C | None = None,
         timeout: float | None = None,
         only_costs_nothing: bool = False,
-        cancel: AsyncioEvent | None = None,
+        cancel: AsyncioEvent | ThreadEvent | None = None,
         hand_back: AsyncioEvent | None = None,
         checkpoint_every: float | None = None,
     ) -> AsyncGenerator[Event]:
@@ -218,7 +219,9 @@ class Run[C]:
 
         - Setting ``cancel`` stops before the next call, as does leaving the loop early once the stream is closed.
           Python closes an async generator only when it is collected, so hold it with
-          ``async with contextlib.aclosing(run.stream()) as events:`` and loop over ``events``.
+          ``async with contextlib.aclosing(run.stream()) as events:`` and loop over ``events``. ``cancel`` is an
+          ``asyncio.Event`` or a ``threading.Event``; a ``threading.Event`` can be put in the context too, so a node
+          on any thread can stop a slow call when it is set.
         - Setting ``hand_back`` stops the same way and leaves the run running, for a host that shuts down and lets
           another process go on: the calls on threads are waited for and kept, and the last event is a
           ``RunCheckpoint`` whose ``run`` is ``running``, with no ``RunEnd``. A ``cancel`` set as well wins.

@@ -29,7 +29,7 @@ from conductor import (  # noqa: E402
 from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
-from tests.test_providers.in_memory import MemoryStore, asking  # noqa: E402
+from tests.test_providers.in_memory import MemoryStore, asking, stoppable, stopping  # noqa: E402
 
 
 def _caller(x_user: Annotated[str, Header()] = "anna") -> str:
@@ -172,7 +172,7 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
         registry=lambda _: registry,
         caller=_Member,
         caller_type=_Member,
-        context=lambda caller: caller,
+        context=lambda caller, stop: caller,
     )
 
     async with _serving(app) as client:
@@ -357,6 +357,26 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
         )
         assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
         assert (await store.ended(run_id)).outputs == {"then": "X", "approve": True}
+
+
+async def test_a_cancel_sent_to_the_route_sets_the_stop_event_a_node_of_the_run_reads() -> None:
+    graph = stopping()
+    store = MemoryStore()
+    app = _app(store=store, registry=lambda _: graph.registry, context=stoppable)
+
+    async with _serving(app) as client:
+        started = await client.post(
+            "/runs",
+            json={
+                "graph": graph.graph.model_dump(mode="json"),
+                "inputs": {"question": "y", "text": "x", "seconds": 60.0},
+            },
+        )
+        run_id = started.json()["id"]
+        await asyncio.to_thread(graph.started.wait, 60)
+        assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+        assert (await store.ended(run_id)).status == "cancelled"
+    assert graph.seen == [True]
 
 
 async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_own() -> None:

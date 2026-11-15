@@ -159,11 +159,13 @@ class NodeComplete(_NodeEvent):
 
 
 class NodeFailed(_NodeEvent):
-    """A call of the node failed and is not retried, so the run fails.
+    """A call of the node failed and is not retried, so the run fails, or ends ``cancelled`` when it was cancelled.
 
     The function raised an exception that its ``Policy`` does not retry, or it has no retries left. The stream then
     goes on with the ``NodeComplete`` of nodes that are complete (a node that is not complete has no more events),
-    and ends with ``RunEnd(status="failed")``, whose ``cause`` is this event's ``cause``. For a node ``broken``
+    and ends with ``RunEnd(status="failed")``, whose ``cause`` is this event's ``cause``. When the stream's
+    ``cancel`` was set by then, it ends with ``RunEnd(status="cancelled")`` instead, since a node that stops a slow
+    call on a cancel raises, and a resume makes the call again. For a node ``broken``
     after ``lines`` that raises for the first line:
     ``NodeFailed(loc=("broken",), cause=Problem(type="execution_failed", loc=("broken", 0), ...))``.
 

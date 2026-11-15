@@ -22,6 +22,7 @@ from conductor import (
     InvalidCallError,
     NodeError,
     NodeRegistry,
+    Policy,
     Run,
     Series,
     Table,
@@ -33,7 +34,16 @@ from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
 
-from tests.test_providers.in_memory import BEGUN_RUN_STATE, MemoryStore, asking, gated, left_running
+from tests.test_providers.in_memory import (
+    BEGUN_RUN_STATE,
+    MemoryStore,
+    Stoppable,
+    asking,
+    gated,
+    left_running,
+    stoppable,
+    stopping,
+)
 
 
 def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) -> Worker[str]:
@@ -512,6 +522,232 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
         assert not await worker.cancel(completed)
 
 
+# -- the stop event a node reads ------------------------------------------------------------------
+
+
+async def test_a_node_sees_the_stop_event_set_when_its_run_is_cancelled_and_a_later_resume_call_gets_one_not_set() -> (
+    None
+):
+    """``stream`` raises once it sees the stop event, so the run ends ``cancelled`` and a later resume call makes it
+    again."""
+    graph = stopping()
+    store = MemoryStore()
+    worker = _worker(store, graph.registry, context=stoppable)
+    async with worker.serving():
+        run_id = await _started(
+            worker, graph.graph, {"question": "y", "text": "x", "seconds": 60.0}
+        )
+        await asyncio.to_thread(graph.started.wait, 60)
+        assert await worker.cancel(await worker.read(run_id))
+        assert (await store.ended(run_id)).status == "cancelled"
+
+        assert await worker.answer(await worker.read(run_id), {graph.waiting_id: True}) == "started"
+        assert (await store.ended(run_id)).status == "complete"
+    assert graph.seen == [True, False, False]
+
+
+async def test_a_resume_call_an_answer_queued_during_a_cancelled_one_starts_gets_a_stop_event_not_set() -> (
+    None
+):
+    graph = stopping()
+    store = MemoryStore()
+    worker = _worker(store, graph.registry, context=stoppable)
+    async with worker.serving():
+        run_id = await _started(
+            worker, graph.graph, {"question": "y", "text": "x", "seconds": 60.0}
+        )
+        await asyncio.to_thread(graph.started.wait, 60)
+        assert await worker.answer(await worker.read(run_id), {graph.waiting_id: True}) == "queued"
+        assert await worker.cancel(await worker.read(run_id))
+
+        completed = await store.until(run_id, lambda row: row.status == "complete")
+        assert completed.status == "complete"
+        ends = [
+            event["status"]
+            for event in await store.stored_events(run_id)
+            if event["type"] == "run_end"
+        ]
+    assert (ends, graph.seen) == (["cancelled", "complete"], [True, False, False])
+
+
+async def test_a_node_sees_the_stop_event_set_when_another_worker_cancels_its_run() -> None:
+    graph = stopping()
+    store = MemoryStore()
+    holder = _worker(store, graph.registry, context=stoppable, lease=0.6)
+    other = _worker(store, graph.registry, context=stoppable)
+    async with holder.serving():
+        run_id = await _started(
+            holder, graph.graph, {"question": "y", "text": "x", "seconds": 60.0}
+        )
+        await asyncio.to_thread(graph.started.wait, 60)
+        assert await other.cancel(await other.read(run_id))  # heard at the holder's next renewal
+
+        assert (await store.ended(run_id)).status == "cancelled"
+    assert graph.seen == [True]
+
+
+async def test_the_stop_event_is_not_set_without_a_cancel() -> None:
+    graph = stopping()
+    store = MemoryStore()
+    worker = _worker(store, graph.registry, context=stoppable)
+    async with worker.serving():
+        run_id = await _started(worker, graph.graph, {"question": "y", "text": "x", "seconds": 0.0})
+        assert (await store.ended(run_id)).status == "waiting"
+        await worker.answer(await worker.read(run_id), {graph.waiting_id: True})
+        assert (await store.ended(run_id)).status == "complete"
+    assert graph.seen == [False, False]
+
+
+async def test_the_stop_event_is_not_set_when_the_worker_hands_the_run_back() -> None:
+    """The call going on is waited for and kept, so the node is not told to stop."""
+    registry, started, release, seen = (
+        NodeRegistry(context_type=Stoppable),
+        ThreadEvent(),
+        ThreadEvent(),
+        [],
+    )
+
+    @registry.node("held", title="Held", description="For a test.")
+    def held(ctx: Context[Stoppable], text: str) -> str:
+        started.set()
+        release.wait(60)
+        seen.append(ctx.stop.is_set())
+        return text
+
+    store = MemoryStore()
+    worker = _worker(store, registry, context=stoppable)
+    serving = worker.serving()
+    await serving.__aenter__()
+    run_id = await _started(worker, make_graph(held), {"text": "x"})
+    await asyncio.to_thread(started.wait, 60)
+    leaving = asyncio.create_task(serving.__aexit__(None, None, None))
+    await asyncio.sleep(0)  # the worker is handing its runs back, and waits for the call
+    release.set()
+    await leaving
+
+    assert (await worker.read(run_id)).view().status == "running"
+    assert seen == [False]
+
+
+async def test_a_node_sees_the_stop_event_set_when_another_worker_takes_its_run_over() -> None:
+    graph = stopping()
+    store = MemoryStore()
+    worker = _worker(store, graph.registry, context=stoppable, lease=0.6)
+    async with worker.serving():
+        run_id = await _started(
+            worker, graph.graph, {"question": "y", "text": "x", "seconds": 60.0}
+        )
+        await asyncio.to_thread(graph.started.wait, 60)
+        row = store.rows[run_id]
+        # as another worker writes the row when it takes over a run whose lease ran out
+        assert await store.update(
+            run_id, row.rev, {"owner": "another-worker", "lease_until": time.time() + 60}
+        )
+
+        await asyncio.to_thread(graph.returned.wait, 60)  # the holder learns it at its next renewal
+    assert graph.seen == [True]
+
+
+async def test_a_node_sees_the_stop_event_set_when_the_store_raises_and_the_worker_gives_the_run_up() -> (
+    None
+):
+    """Another worker goes on with the run once its lease runs out, so the call going on here is told to stop."""
+    graph = stopping()
+
+    class DownForEvents(MemoryStore):
+        """Raises at the write of ``stream``'s ``node_start``, after ``stream`` was called."""
+
+        async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+            if json.loads(body)["type"] == "node_start" and "stream" in body:
+                await asyncio.to_thread(graph.started.wait, 60)
+                raise ConnectionError("the store is down")
+            return await super().add_event(run_id, owner, body)
+
+    store = DownForEvents()
+    worker = _worker(store, graph.registry, context=stoppable)
+    async with worker.serving():
+        await _started(worker, graph.graph, {"question": "y", "text": "x", "seconds": 60.0})
+        await asyncio.to_thread(graph.returned.wait, 60)
+    assert graph.seen == [True]
+
+
+async def test_an_attempt_that_timed_out_keeps_seeing_the_stop_event_of_its_resume_call_set_after_the_next_one_starts() -> (
+    None
+):
+    """``slow`` sets its resume call's stop event itself, which cancels the call, and stays on its thread past its
+    ``attempt_timeout``. The first resume call ends only once its attempt timed out, and the store holds the write of
+    that end until an answer is queued, which then starts the next resume call: its stop event is new, and the first
+    call's stays set. Each step waits on the one before it, never on a clock."""
+    registry, release, events = NodeRegistry(context_type=Stoppable), ThreadEvent(), []
+
+    @registry.node("ask", title="Ask", description="For a test.", asks=True)
+    def ask(question: str) -> bool:
+        raise Ask("Go on?")
+
+    @registry.node(
+        "slow", title="Slow", description="For a test.", policy=Policy(attempt_timeout=0.2)
+    )
+    def slow(ctx: Context[Stoppable], text: str) -> str:
+        events.append(ctx.stop)
+        if len(events) == 1:
+            ctx.stop.set()  # as a cancel sets it, before the attempt can time out
+            release.wait(60)  # deaf to the stop event, as a call that can't be stopped
+        return text
+
+    @registry.node("after", title="After", description="For a test.")
+    def after(text: str, ok: bool) -> str:
+        return text
+
+    graph = make_graph(
+        ask,
+        slow,
+        after,
+        edges=[("slow.result", "after.text"), ("ask.result", "after.ok")],
+        outputs={"after": "after.result"},
+    )
+    inputs = {"question": "y", "text": "x"}
+    release.set()
+    (waiting,) = (
+        Graph.compile(graph, registry).run(inputs, context=Stoppable(ThreadEvent())).waiting
+    )
+    release.clear()
+    events.clear()
+
+    class HoldsTheFirstEnd(MemoryStore):
+        """Holds the write that ends the first resume call until ``let_end`` is set; ``ending`` is set when it comes."""
+
+        ending, let_end = AsyncioEvent(), AsyncioEvent()
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            if changes.get("status") not in (None, "running") and not self.let_end.is_set():
+                self.ending.set()
+                await self.let_end.wait()
+            return await super().update(run_id, rev, changes)
+
+    store = HoldsTheFirstEnd()
+    worker = _worker(store, registry, context=stoppable)
+    try:
+        async with worker.serving():
+            run_id = await _started(worker, graph, inputs)
+            await (
+                store.ending.wait()
+            )  # the attempt timed out, and the first resume call ended cancelled
+            assert await worker.answer(await worker.read(run_id), {waiting.id: True}) == "queued"
+            store.let_end.set()
+
+            completed = await store.until(run_id, lambda row: row.status == "complete")
+            ends = [
+                event["status"]
+                for event in await store.stored_events(run_id)
+                if event["type"] == "run_end"
+            ]
+            assert (completed.status, ends) == ("complete", ["cancelled", "complete"])
+    finally:
+        release.set()
+    first, second = events
+    assert first.is_set() and not second.is_set()
+
+
 # -- answers --------------------------------------------------------------------------------------
 
 
@@ -763,7 +999,7 @@ async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_an
     gate.set()
     resume_calls = []
 
-    def fails_on_the_first_resume_call(caller: str) -> None:
+    def fails_on_the_first_resume_call(caller: str, stop: ThreadEvent) -> None:
         resume_calls.append(caller)
         if len(resume_calls) == 1:
             raise ConnectionError("the secrets service is down")
@@ -1147,7 +1383,7 @@ def _shout() -> tuple[NodeRegistry, GraphRecord]:
     return registry, make_graph(shout)
 
 
-def _context_raises(caller: str) -> None:
+def _context_raises(caller: str, stop: ThreadEvent) -> None:
     raise ConnectionError("the secrets service is down")
 
 
@@ -1272,7 +1508,7 @@ async def test_a_run_whose_resume_call_raised_lists_the_calls_waiting_as_stored_
     def approve(x: int) -> bool:
         raise Ask(f"approve {x}?")
 
-    def fails_on_the_second_resume_call(caller: str) -> None:
+    def fails_on_the_second_resume_call(caller: str, stop: ThreadEvent) -> None:
         resume_calls.append(caller)
         if len(resume_calls) == 2:
             raise ConnectionError("the secrets service is down")

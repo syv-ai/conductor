@@ -178,7 +178,8 @@ class NodeEvents:
         )
 
     def call_failed(self, node: BlueprintFunctionNode, cause: Problem) -> None:
-        """A call of ``node`` failed and is not retried: the run fails with ``cause``."""
+        """A call of ``node`` failed and is not retried: the run fails with ``cause``, or ends ``cancelled`` when it
+        was cancelled by then."""
         self.emit(NodeFailed(loc=node.node_path, cause=cause))
 
     def nothing_is_ready(
