@@ -1,11 +1,13 @@
 ---
 name: add-node
-description: Declares a conductor node as a function under @node. Use when adding or changing a syv-conductor node or choosing its widgets, types, outputs, branches, versions, retries, Context values or questions to a person; or on "add a node", "register a node", "expose X as a node".
+description: Writes a conductor node, a Python function under @node. Use when adding or changing a syv-conductor node, or choosing its widgets, types, outputs, branches, versions, retries, Context values or questions to a person; or on "add a node", "register a node", "expose X as a node".
 ---
 
 # Adding a conductor node
 
-A node is a function; its type hints are its interface, so `def greet(name: str) -> str` under `@node("greet", title="Greet", description="Greets a person.")` is already a node. `Annotated` adds what a person sees in an editor. To wire and run nodes, use **create-graph**. The installed library is the authority: `python -m conductor.about node` (or `versions`, `field-hooks`, `types`).
+A node is a plain Python function. Its type hints are its interface: each parameter is an input, and the return type is its output. So `def greet(name: str) -> str` under `@node("greet", title="Greet", description="Greets a person.")` is already a node. `Annotated[..., Param(...)]` adds what a person sees in an editor.
+
+To wire nodes into a graph and run it, use the **create-graph** skill. The installed library is the authority on every rule: `python -m conductor.about node` (or `versions`, `field-hooks`, `types`).
 
 ```python
 from typing import Annotated
@@ -29,35 +31,66 @@ assert greet("Ida") == "hello Ida"    # a node is called like its function
 assert registry["greet"] is greet
 ```
 
-## Rules, checked by `@node`
+## What `@node` checks
 
-- The id, `title=` and `description=` are required: they are what a person reads in the palette, written for someone who is not a developer. The docstring is for developers and never shown. A field's title is its `Param(title=)`, and `None` without one; nothing is guessed from its name.
-- An input without a widget gets no control in an editor; an edge fills it, or a value set in code. A default makes it optional, and the palette shows it as `default` (`null` is the value `None`); an input without one is `required` and has no `default` key. Only an output can default to `SKIPPED` or have an `exclusive_group`, in a hook too. `Param(constant_only=True)` makes an input a setting fixed when the graph is drawn, never wired by an edge or given by a caller. `Param(ge=0, max_length=31, ...)` sets pydantic's limits on a value, and a limit that can't apply to the type is refused at `@node`. Never write pydantic's `Field(...)` in a node's hint: it is refused (`pydantic_field_in_hint`). `Any` is a value passed on unread.
-- The function is a plain `def` returning a value of its declared type. A mistake raises `NodeDeclarationError`, whose one problem in `problems` has the code as its `type`.
+`@node` checks the declaration when the module is imported. A mistake raises `NodeDeclarationError`. Its `problems` holds one problem, whose `type` is the code.
+
+**Id, title and description.**
+- The id, `title=` and `description=` are all required.
+- The title and description are what a person reads in the palette. Write them for someone who isn't a developer.
+- The docstring is for developers. It's never shown.
+- A field's title is its `Param(title=)`. Without one it's `None`: nothing is guessed from the parameter's name.
+
+**Inputs.**
+- An input without a widget gets no control in an editor. An edge fills it, or a value set in code.
+- A default makes an input optional, and the palette shows it as `default` (`null` means the value `None`). An input without a default is `required` and has no `default` key.
+- `Param(constant_only=True)` makes an input a setting that's fixed when the graph is drawn. An edge never wires it, and a caller never gives it.
+- `Param(ge=0, max_length=31, ...)` sets pydantic's limits on a value. `@node` refuses a limit that can't apply to the type.
+- Never write pydantic's `Field(...)` in a node's hint. It's refused (`pydantic_field_in_hint`). Use `Param` instead.
+- `Any` means a value passed on without being read.
+
+**Outputs.**
+- Only an output can default to `SKIPPED` or have an `exclusive_group`. That holds in a hook too.
+
+**The function.**
+- It's a plain `def` (not `async def`) that returns a value of its declared type.
 
 ## Quick reference
 
 | The node needs | Write (examples in REFERENCE.md) |
 |---|---|
-| Several outputs | a frozen dataclass as the return type, `Annotated[str, Param(title=...)]` on a field to say more |
-| To run once per item | return `Series[X]`; what takes one `X` from it runs once per item, and so does everything after |
-| Every item in one call | a `Series[X]` input: it collects them, in order |
-| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or bare `Table`; it is a `polars.DataFrame`, one value, and may be returned as a list of records. A `Table` input wired to records collects them |
-| A branch | return `SKIPPED` on the output not taken; share an `exclusive_group` |
-| A `None` it can take | `email: str \| None`; otherwise the node is not called for that item and its outputs are `None` there |
-| A person's answer | `raise Ask(prompt, choices=..., default=...)` and `asks=True` on the `@node`; the answer is the node's outputs. A node that needs it reads it by an edge: `approval(invoice) -> bool` (asks) wired into `pay(invoice, ok: bool)`, offered as one palette entry with `subgraph`. The return type of the function that raises says what the answer is and how to ask, its `Param` how it looks (`-> str` free text, `bool` yes or no, a frozen dataclass a form; every type in `python -m conductor.about asking-a-person`). Each has the answer's shape: on several outputs it goes by output name; `Choice(id, title)` titles a choice |
-| A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`, the class named once with `NodeRegistry(context_type=AppContext)` and the object passed as `run.resume(context=AppContext(...))` |
-| Retries, a timeout, a concurrency bound | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
+| Several outputs | a frozen dataclass as the return type. Put `Annotated[str, Param(title=...)]` on a field to say more |
+| To run once per item | return `Series[X]`. A node that takes one `X` from it runs once per item, and so does everything after it |
+| Every item in one call | a `Series[X]` input. It collects the items, in order |
+| A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of records. A `Table` input wired to records collects them |
+| A branch | return `SKIPPED` on the output not taken, and put the outputs in one `exclusive_group` |
+| To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
+| A person's answer | `raise Ask(prompt, choices=..., default=...)`, and `asks=True` on the `@node`. The answer becomes the node's outputs. See "Asking a person" below |
+| A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`. Name the class once with `NodeRegistry(context_type=AppContext)`, and pass the object as `run.resume(context=AppContext(...))` |
+| Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
-| A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, a generic frozen dataclass of outputs. `T` is the type on the edge, bound when the graph is compiled |
-| Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read and that return `{name: type hint}`. Added inputs arrive on `**values` |
+| A type that follows what arrives | a type variable: `def keep[T](value: T) -> T`, `def split[T](value: Table[T] \| list[T]) -> Series[T]`, or a generic frozen dataclass of outputs. `T` becomes the type on the edge when the graph is compiled |
+| Inputs or outputs named by a constant | `compute_added_inputs=` / `compute_outputs=`: plain functions whose parameters name the inputs they read, and that return `{name: type hint}`. Added inputs arrive in `**values` |
 | A text or number class of your own | `@host_type("email", title="Email")` above `class Email(str)` |
 
-`@registry.node` takes `@node`'s arguments and adds the node; plain `@node` registers nothing, and `registry.add(node_a, node_b)` adds such nodes later. A module keeps a registry of its own (`NodeRegistry(category=, tags=, extra=)` set its nodes' defaults) and the host joins them with `registry.add_subregistry(module_registry)`. Two definitions under one id raise; `replace` and `remove` change one, and `registry.filter(predicate)` is a narrower registry. `extra=` is your own JSON about a node, which conductor keeps and never reads.
+### Asking a person
+
+- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, and a frozen dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
+- The output's `Param` says how the question looks.
+- `choices=` and `default=` have the answer's shape. On a node with several outputs, they go by output name. `Choice(id, title)` gives a choice a title.
+- A node that needs the answer reads it through an edge. For example, `approval(invoice) -> bool` asks, and is wired into `pay(invoice, ok: bool)`. To offer the two as one palette entry, put them in a `subgraph`.
+
+## Registries
+
+- `@registry.node` takes the same arguments as `@node`, and adds the node to the registry.
+- Plain `@node` registers nothing. Add such nodes later with `registry.add(node_a, node_b)`.
+- A module keeps a registry of its own, and the host joins them with `registry.add_subregistry(module_registry)`. `NodeRegistry(category=, tags=, extra=)` sets defaults for its nodes.
+- Two definitions under one id raise. `replace` and `remove` change one. `registry.filter(predicate)` gives a narrower registry.
+- `extra=` is your own JSON about a node. Conductor keeps it and never reads it.
 
 ## Testing a registry
 
-`upper("a")` tests one node. `check_registry` tests what a declaration can't show, for a whole registry; `python -m conductor.about testing` lists its checks.
+Calling `greet("Ida")` tests one node. `check_registry` tests what a declaration alone can't show, for a whole registry. `python -m conductor.about testing` lists its checks.
 
 ```python
 from conductor.testing import check_registry
@@ -65,13 +98,16 @@ from conductor.testing import check_registry
 assert check_registry(registry, examples={"greet": [{"name": "Ida"}]}) == []
 ```
 
-A body is called only for a node given an example (a node may send mail), once per example, through the engine. `("greet", 1)` keys an older version's examples, and `context=AppContext(...)` gives the examples the run's context, as `graph.run` takes it. A known failure goes in a test of its own marked `pytest.mark.xfail(strict=True)`, over `registry.filter(...)` (`python -m conductor.about run-failed` shows one).
+- A node's body is only called for a node you give an example (a node may send mail). It's called once per example, through the engine.
+- `("greet", 1)` as a key gives examples for an older version.
+- `context=AppContext(...)` gives the examples the run's context, the same way `graph.run` takes it.
+- A known failure goes in a test of its own, over `registry.filter(...)`, marked `pytest.mark.xfail(strict=True)`. `python -m conductor.about run-failed` shows one.
 
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
-| A retry loop inside the node | `Policy(retries=...)`; raise `ExternalError` or set `retry_on` |
+| A retry loop inside the node | use `Policy(retries=...)`, and raise `ExternalError` or set `retry_on` |
 | "flow" in a docstring or message | conductor's word is graph |
-| Catching `Exception` around an `Ask` | `Ask` is a `BaseException`, so `except Exception` lets it through; don't catch `BaseException` |
-| `Ask(default=value)` on a node of several outputs | `default={"field": value}`, by output name as the answer is; an `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |
+| Catching `Exception` around an `Ask` | `Ask` is a `BaseException`, so `except Exception` lets it through. Don't catch `BaseException` |
+| `Ask(default=value)` on a node with several outputs | write `default={"field": value}`, by output name, as the answer is. An `Ask` that doesn't fit the outputs fails the node as `invalid_ask` |
