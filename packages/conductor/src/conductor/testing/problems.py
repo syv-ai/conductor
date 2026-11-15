@@ -1,19 +1,21 @@
-"""The kinds of problem ``check_registry`` returns, one function each, in ``REGISTRY_CHECK_PROBLEMS``.
+"""The problems ``check_registry`` returns.
 
-A kind is called to make its ``Problem``, as the kinds of ``PROBLEMS`` are (``ProblemCatalogue.problem`` gives the
-rules)::
+This is the last section of the problems page, ``python -m conductor.about problems``. A developer meets these when a
+test fails. A host never gets one from a graph or a run, so they aren't in ``PROBLEMS``.
+
+Each kind of problem is a function, and calling it makes the ``Problem``::
 
     needs_example("coded", 1, inputs=["code"])
     # Problem(type="needs_example", loc=("coded", 1),
     #         msg="its hooks read ['code'], and no value can be made up for them; give the node an example", ctx={"inputs": ["code"]})
 
-Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``. A developer reads them
-when a test fails; a host never gets one from a graph or a run, so they are not in ``PROBLEMS``, the catalogue of the
-problems a graph or a run reports. Some kinds share a code (``hook_failed``, ``upgrade_broken``, ``run_failed``): the
-decorator names the code and a variant, which the problem's ``ctx.variant`` gives, and each kind's message says which
-case it is. Each kind's docstring is its entry on the
-problems page (``python -m conductor.about problems``); its example runs after the setup at the top of that page, and
-a test checks it makes this kind of problem.
+Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``.
+
+Some kinds share a code, such as the two kinds of ``hook_failed``. The second one names a variant, which the
+problem's ``ctx.variant`` gives, and its message says which case it is.
+
+Each function's docstring is its entry on the problems page. Its example runs after the setup at the top of that
+page, and a test checks that the example makes this kind of problem.
 """
 
 from __future__ import annotations
@@ -22,18 +24,20 @@ from typing import Any
 
 from conductor._internal.problem import ProblemCatalogue
 
-#: The kinds of problem ``check_registry`` returns.
+#: The kinds of problem ``check_registry`` returns, which make up this section of the problems page.
 REGISTRY_CHECK_PROBLEMS = ProblemCatalogue()
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
 def example_for_no_node(*loc: str | int, named: str) -> str:
-    """An example is for a node id, or a node id and version, that the registry does not have.
+    """An example is for a node, or a version of a node, that isn't in the registry.
 
-    Correct the id in ``examples``, or remove the example.
+    This is most often a typo in the node id.
+
+    To fix it, correct the key in ``examples``, or remove the example.
 
     Args:
-        loc: The node id the example is for, and the version when it names one.
+        loc: The node id the example is for, and the version if it names one.
         named: The example's key in ``examples``, as written.
 
     Example:
@@ -46,15 +50,16 @@ def example_for_no_node(*loc: str | int, named: str) -> str:
 
 @REGISTRY_CHECK_PROBLEMS.problem()
 def needs_example(*loc: str | int, inputs: list[str]) -> str:
-    r"""A node's ``compute_...`` hook reads a required input, and ``check_registry`` cannot make up a value for it.
+    r"""A node's ``compute_...`` hook reads a required input, and ``check_registry`` can't make up a value for it.
 
-    Without an example, a hook is called with the node's defaults and a made-up value for each required input it
-    reads. A value that must match a pattern cannot be made up: give the node an example,
-    ``examples={"coded": [{"code": "1234"}]}``.
+    Without an example, a hook is called with the node's defaults, and with a made-up value for each required input
+    it reads. Some values can't be made up, such as a text that must match a pattern.
+
+    To fix it, give the node an example, such as ``examples={"coded": [{"code": "1234"}]}``.
 
     Args:
         loc: The node and its version.
-        inputs: The inputs no value could be made up for.
+        inputs: The inputs that no value could be made up for.
 
     Example:
         def by_code(code: str) -> dict[str, type]:
@@ -77,13 +82,15 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
 
 @REGISTRY_CHECK_PROBLEMS.problem()
 def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
-    """A node's ``compute_...`` hook failed when called with the node's defaults and made-up values.
+    """A node's ``compute_...`` hook failed when it was called with the node's defaults and made-up values.
 
-    Make the hook work on those values, or give the node an example it works on.
+    The node has no example, so ``check_registry`` calls the hook with values it makes up itself.
+
+    To fix it, make the hook work on those values, or give the node an example that it works on.
 
     Args:
         loc: The node and its version.
-        reason: The message of the problem compiling the node reported.
+        reason: The message of the problem that compiling the node reported.
         problems: That problem, as JSON.
 
     Example:
@@ -105,13 +112,15 @@ def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) ->
 
 @REGISTRY_CHECK_PROBLEMS.problem("hook_failed", variant="on_an_example")
 def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
-    """A node's example cannot be compiled, and every problem is in a ``compute_...`` hook.
+    """A node's example doesn't compile, and every problem is in a ``compute_...`` hook.
 
-    Fix the hook, or the example. In the example, ``pick``'s hook raises for an empty text.
+    In the example below, ``pick``'s hook raises when it is given an empty text.
+
+    To fix it, fix the hook or the example.
 
     Args:
         loc: The node and its version.
-        reason: The message of each problem compiling reported.
+        reason: The message of each problem that compiling reported.
         problems: Those problems, as JSON.
 
     Example:
@@ -126,15 +135,19 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[
 def upgrade_broken(
     *loc: str | int, newest: int, reason: str, problems: list[dict[str, Any]]
 ) -> str:
-    """A node moved from an older version to the newest has problems when compiled.
+    """A graph saved with an older version of a node doesn't compile after it is upgraded to the newest.
 
-    Fix the newest version's ``Upgrade``, so a graph saved with the older version compiles cleanly after the move. In
-    the example, the rewrite gives ``first`` a number where the newest version takes a text.
+    ``check_registry`` puts the node in a graph at the older version, upgrades it with ``registry.upgrade``, and
+    compiles the result. In the example below, the rewrite gives ``first`` a number, but the newest version takes a
+    text.
+
+    To fix it, fix the newest version's ``Upgrade``, so a graph saved with the older version compiles cleanly after
+    the upgrade.
 
     Args:
         loc: The node and the older version.
-        newest: The version it was moved to.
-        reason: The message of each problem compiling reported.
+        newest: The version it was upgraded to.
+        reason: The message of each problem that compiling reported.
         problems: Those problems, as JSON.
 
     Example:
@@ -157,13 +170,14 @@ def upgrade_broken(
 
 @REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken", variant="raised")
 def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str:
-    """Moving a node from an older version to the newest raised an exception.
+    """Upgrading a node from an older version to the newest raised an exception.
 
-    Fix the newest version's ``Upgrade``, so a graph saved with the older version is moved without an error.
+    To fix it, fix the newest version's ``Upgrade``, so a graph saved with the older version is upgraded without an
+    error.
 
     Args:
         loc: The node and the older version.
-        newest: The version it was moved to.
+        newest: The version it was being upgraded to.
         error: The exception's class name.
         reason: The exception's message.
 
@@ -193,8 +207,9 @@ def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str
 def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the ctx key a developer reads
     """A node changed a value it was given, in place.
 
-    The same value can be given to several calls of a run, so a change in one call is seen by the others. Copy the
-    value before changing it: ``sorted(texts)`` in place of ``texts.sort()``.
+    The same value can be given to several calls of a run. So a change made in one call is seen by the others.
+
+    To fix it, copy the value before changing it, such as ``sorted(texts)`` in place of ``texts.sort()``.
 
     Args:
         loc: The node and its version.
@@ -216,17 +231,21 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
 
 @REGISTRY_CHECK_PROBLEMS.problem()
 def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[str, Any]]) -> str:
-    """A node's example ran and ended early: it failed, stopped, was cancelled or timed out.
+    """A node's example ran, and the run ended early.
 
-    Fix the node or the example. ``ctx.problems`` has the problem the run ended on; when the node raised an exception of its own,
-    the message names its class. A node that is known to fail goes in a test of its own, marked
-    ``pytest.mark.xfail(strict=True)``, that checks ``registry.filter(...)`` down to that node, so the test fails once
-    the node is fixed.
+    The run failed, was stopped, was cancelled or timed out. ``ctx.problems`` has the problem the run ended on. When
+    the node raised an exception of its own, the message names the exception's class.
+
+    To fix it, fix the node or the example.
+
+    If a node is known to fail, give it a test of its own and mark that test ``pytest.mark.xfail(strict=True)``. In
+    that test, check only that node, with ``registry.filter(...)``. Once the node is fixed, the test fails, which
+    tells you to remove the mark.
 
     Args:
         loc: The node and its version.
         status: How the run ended.
-        reason: The message of the problem it ended on; for an exception of the node's own, its class name.
+        reason: The message of the problem the run ended on. For an exception the node raised, its class name.
         problems: That problem, as JSON.
 
     Example:
@@ -244,13 +263,16 @@ def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[st
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="not_compiled")
 def example_not_compiled(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
-    """A node's example cannot be compiled, for a problem that is not in a ``compute_...`` hook.
+    """A node's example doesn't compile, and the problem isn't in a ``compute_...`` hook.
 
-    Fix the example: its values must be inputs of the node, of the inputs' types.
+    An example gives a value for some of the node's inputs, by name. Each name must be an input of the node, and each
+    value must be of that input's type. In the example below, ``txt`` is a typo for ``text``.
+
+    To fix it, fix the example.
 
     Args:
         loc: The node and its version.
-        reason: The message of each problem compiling reported.
+        reason: The message of each problem that compiling reported.
         problems: Those problems, as JSON.
 
     Example:
@@ -263,9 +285,12 @@ def example_not_compiled(*loc: str | int, reason: str, problems: list[dict[str, 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="refused")
 def example_refused(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
-    """A node's example compiles, and running it is refused.
+    """A node's example compiles, but running it is refused.
 
-    Give the run what it needs: in the example, the run's context for the node's ``Context[HostContext]``, with
+    The run is missing something it needs. In the example below, the node takes ``Context[HostContext]``, and no
+    context is given.
+
+    To fix it, give the run what it needs, such as
     ``check_registry(checked, context=HostContext(caller=Caller("Ida")))``.
 
     Args:

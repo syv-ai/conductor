@@ -1,41 +1,32 @@
-"""``check_registry``: one test that every node of a registry keeps what a host relies on.
+"""``check_registry``: one test for every node in a registry.
 
-A node package or a host puts one line in its test suite::
+``@node`` checks a node when it is declared, but some faults only show when the node is used. A hook may fail on
+the node's own defaults. An older version may not upgrade cleanly to the newest. A node may change a list it was
+given, which other calls of the run also see. ``check_registry`` looks for all of these, so a node package or a
+host adds one test to its suite::
 
     from conductor.testing import check_registry
 
     def test_nodes():
         assert check_registry(registry, examples={"upper": [{"text": "hi"}]}) == []
 
-It checks what ``@node`` can't see in a declaration. A body is called only
-for a node given an example, since a node may send mail; ``examples`` maps a
-node id to the inputs of its calls, by name, and ``(id, version)`` to those
-of an older version. Each example runs through the engine as a graph of that
-one node, its inputs typed in, given ``context`` as ``graph.run`` is: the
-run's context, an instance of the registry's ``context_type``.
+A node's function is only called for a node you give an example for, since a node might send mail or charge a card.
+Each example runs through the engine, as a graph of that one node with the example's values typed in.
 
-Every problem is a ``Problem``. Its ``loc`` is ``(node_id, version)``, except for
-``example_for_no_node`` without a version, which is ``(node_id,)``:
+Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)``. Here is what each code means:
 
-``hook_failed``
-    a ``compute_added_inputs`` or ``compute_outputs`` hook fails on the
-    node's defaults, or on a value made up for an input it reads. A node with
-    examples is checked on them instead.
-``needs_example``
-    a hook reads a required input no value can be made up for.
-``upgrade_broken``
-    a node saved at an older version, moved on with ``registry.upgrade``,
-    doesn't load cleanly (or the upgrade raised).
-``changed_its_inputs``
-    the body changed a value it was given; several calls of a run can be given one.
-``run_failed``
-    an example didn't run to the end or to a pause.
-``example_for_no_node``
-    an example names a node or a version that isn't there.
+- ``hook_failed``: a ``compute_added_inputs`` or ``compute_outputs`` hook fails. Without an example, the hook is
+  called with the node's defaults and made-up values. With one, it is called on the example.
+- ``needs_example``: a hook reads a required input that no value can be made up for.
+- ``upgrade_broken``: a graph saved with an older version of the node doesn't compile after ``registry.upgrade``
+  moves it to the newest, or the upgrade raises.
+- ``changed_its_inputs``: the node changed a value it was given.
+- ``run_failed``: an example didn't run to the end, or to a pause for a person.
+- ``example_for_no_node``: an example names a node or a version that isn't in the registry. Its ``loc`` is
+  ``(node_id,)`` when the example gives no version.
 
-A node known to fail goes in a test of its own, marked ``pytest.mark.xfail(strict=True)``,
-that checks ``registry.filter(...)`` down to it. These codes are ``check_registry``'s,
-not in ``PROBLEMS.codes``: a developer reads them in a test run, a host never meets them.
+These codes are ``check_registry``'s own, and aren't in ``PROBLEMS``. A developer sees them when a test fails, and a
+host never meets them. Each one, with an example, is on the problems page: ``python -m conductor.about problems``.
 """
 
 from __future__ import annotations
@@ -66,7 +57,7 @@ from conductor._internal.types import Param, kind_of_value
 from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
 
-#: What ``_made_up`` gives for a field no value can be made for.
+#: What ``_made_up`` returns for a field it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")
 
 
@@ -77,11 +68,26 @@ def check_registry[C](
     examples: Mapping[str | tuple[str, int], Sequence[Mapping[str, Any]]] = MappingProxyType({}),
     context: C | None = None,
 ) -> list[Problem]:
-    """Every way a node of ``registry`` breaks what a host relies on, all at once; ``[]`` when none does."""
+    """Checks every node of a registry, and returns every problem it finds.
+
+    It doesn't stop at the first problem, so one test run shows them all. It returns ``[]`` when every node is
+    fine. Every version of every node is checked, the older ones too.
+
+    Args:
+        registry: The registry to check.
+        examples: Calls to make, by node id. Each call is a mapping from input name to value, such as
+            ``{"upper": [{"text": "hi"}]}``. For an older version of a node, use ``(id, version)`` as the key. A
+            node with no example has its hooks checked, but its function is never called.
+        context: The run's context, passed to each example's run the way ``graph.run(context=...)`` takes it.
+            It is needed when the registry's nodes take ``Context[X]``.
+
+    Returns:
+        The problems found. Those about ``examples`` come first, then each node's, in the registry's order.
+    """
     found: list[Problem] = []
     by_version: dict[tuple[str, int], list[Mapping[str, Any]]] = {}
     for key, calls in examples.items():
-        if isinstance(key, str):  # the newest version, by the id alone
+        if isinstance(key, str):  # a key with only an id is for the newest version
             if key not in registry:
                 found.append(problems.example_for_no_node(key, named=repr(key)))
                 continue
@@ -103,6 +109,7 @@ def _problems_of(
     examples: Mapping[tuple[str, int], Sequence[Mapping[str, Any]]],
     context: Any,
 ) -> list[Problem]:
+    """Checks one node: its newest version, then each older one and its upgrade to the newest."""
     found = _version_problems(
         definition, registry, examples.get((definition.id, definition.version), ()), context
     )
@@ -119,7 +126,10 @@ def _version_problems(
     given: Sequence[Mapping[str, Any]],
     context: Any,
 ) -> list[Problem]:
-    """The hooks checked when there is no example, else each example run: what went wrong."""
+    """Checks one version of a node.
+
+    With no examples, only its hooks are checked. With examples, each one is run.
+    """
     if not given:
         return _hook_problems(version, registry)
     return [
@@ -130,9 +140,14 @@ def _version_problems(
 
 
 def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> GraphRecord:
-    """A graph of this one node, at its version, with ``constants`` typed in, placed under its own id.
+    """Writes a graph record with just this node in it, under its own id and at its version.
 
-    A value with no JSON form can't be typed into a graph: ``InvalidCallError``, ``invalid_value`` at the node and input.
+    Args:
+        version: The node, at the version to use.
+        constants: The values to type into its inputs, by input name.
+
+    Raises:
+        InvalidCallError: ``invalid_value`` at the node and input, for a value with no JSON form.
     """
     inputs = {
         name: InputEntry(constant=value)
@@ -144,13 +159,17 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:
-    """Load the node with its defaults and a made-up value for each required input that takes only a constant."""
+    """Checks a node's hooks without an example.
+
+    The node is compiled in a graph of its own, which calls its hooks. Its inputs keep their defaults. Each
+    required input that takes only a constant gets a made-up value, so the hooks have a value to read.
+    """
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
             pass
         case (
             FunctionDefinition() | SubgraphDefinition()
-        ):  # no hooks; a subgraph has none of its own
+        ):  # a function with no hooks, or a subgraph, which never has hooks of its own
             return []
     values = {
         name: _made_up(field)
@@ -176,7 +195,11 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
 def _upgrade_problems(
     older: NodeDefinition, registry: NodeRegistry[Any], given: Sequence[Mapping[str, Any]]
 ) -> list[Problem]:
-    """Place the node at ``older`` with an example's values, or made-up ones, move it to the newest version and load it."""
+    """Checks that an older version of a node upgrades cleanly to the newest.
+
+    The node is put in a graph at the older version, with an example's values or made-up ones. Then
+    ``registry.upgrade`` moves it to the newest version, and the result is compiled.
+    """
     if given:
         values = dict(given[0])
     else:
@@ -187,16 +210,16 @@ def _upgrade_problems(
                     for name, field in inputs.items()
                     if (made := _made_up(field)) is not _CANNOT
                 }
-            case SubgraphDefinition():  # its inputs' types are known only when a graph using it is compiled
+            case SubgraphDefinition():  # its inputs' types aren't known until a graph that uses it is compiled
                 values = {}
     newest = registry[older.id].version
     try:
         record = _one_node_graph(older, values)
     except InvalidCallError:
-        return []  # the example's own run says what can't be typed in
+        return []  # the example's own run reports the values that can't be typed in
     try:
         upgraded = registry.upgrade(record, older.id)
-    except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the author's code
+    except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the node author's code, and may raise anything
         return [
             problems.upgrade_raised(
                 older.id,
@@ -223,9 +246,9 @@ def _upgrade_problems(
 def _run_problems(
     version: NodeDefinition, registry: NodeRegistry[Any], example: Mapping[str, Any], context: Any
 ) -> list[Problem]:
-    """Run one example through the engine: what went wrong."""
+    """Runs one example of a node through the engine, and returns what went wrong."""
     match version:
-        case SubgraphDefinition():  # a subgraph runs on the nodes of the registry
+        case SubgraphDefinition():  # a subgraph needs the registry's other nodes to run
             definitions, changed = registry.filter(lambda held: held.id != version.id), list[str]()
             definitions.add(version)
         case FunctionDefinition():
@@ -268,7 +291,10 @@ def _run_problems(
 
 
 def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) -> list[Problem]:
-    """The one problem for an example whose graph has problems: ``hook_failed`` when a hook caused every one, else ``run_failed``."""
+    """Returns the one problem for an example that doesn't compile.
+
+    It is ``hook_failed`` when a hook caused every problem, and ``run_failed`` otherwise.
+    """
     reason = _reason(graph_problems)
     written = [p.model_dump(mode="json") for p in graph_problems]
     if all(p.type == compile_problems.compute_hook_failed.code for p in graph_problems):
@@ -283,10 +309,11 @@ def _not_compiled(version: NodeDefinition, graph_problems: Sequence[Problem]) ->
 
 
 def _reason(behind: Sequence[Problem]) -> str:
-    """The ``reason`` of every kind of ``check_registry``: the message of each problem behind it, joined by "; ".
+    """Returns the ``reason`` of a ``check_registry`` problem: the messages of the problems behind it.
 
-    A node's own exception is ``execution_failed``, whose message does not say which exception it was, so its class
-    name is said instead: ``"the node raised ZeroDivisionError"``.
+    The messages are joined by ``"; "``. An exception the node raised is an ``execution_failed`` problem, whose
+    message doesn't say which exception it was. So its class name is used instead, as in
+    ``"the node raised ZeroDivisionError"``.
     """
     return "; ".join(
         f"the node raised {p.ctx['error']}" if p.type == "execution_failed" else p.msg
@@ -297,8 +324,14 @@ def _reason(behind: Sequence[Problem]) -> str:
 def _watched(
     version: FunctionDefinition[..., Any],
 ) -> tuple[FunctionDefinition[..., Any], list[str]]:
-    """``version``, called as before, noting each input a call changed; never retried. The run's context, which a
-    node that takes it gets first, is passed on and not watched."""
+    """Wraps a node's function to notice when a call changes an input in place.
+
+    The wrapped node is called just as before, but it is never retried. The run's context, which a node that takes
+    it gets first, is passed on and isn't watched.
+
+    Returns:
+        The wrapped node, and the list it adds the name of each changed input to.
+    """
     function = version.function
     changed: list[str] = []
 
@@ -307,11 +340,11 @@ def _watched(
         for name, value in kwargs.items():
             try:
                 kept = copy.deepcopy(value)
-            except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be compared
+            except Exception:  # noqa: BLE001, S112  a value that can't be copied can't be checked
                 continue
             if _same(
                 kept, value
-            ):  # a value unequal to its own copy (NaN, no __eq__) can't be compared
+            ):  # a value that isn't equal to its own copy, like NaN or an object without __eq__, can't be checked
                 before[name] = kept
         try:
             return function(*context, **kwargs)
@@ -328,21 +361,28 @@ def _watched(
 
 
 def _made_up(field: Field) -> Any:
-    """A value of the field within its limits, read by the field's type; ``_CANNOT`` when there is no way to make one."""
+    """Makes up a value for a field, within its limits.
+
+    Returns:
+        The value, as the field's type reads it, or ``_CANNOT`` when no value can be made up.
+    """
     read = schema_validator_of(field.whole).validate_python
     for item in _candidates(
         field.type.options[0] if len(field.type.options) == 1 else None, field.param
     ):
         try:
             return read([item, item] if field.is_series else item)
-        # outside a limit, or a pattern it doesn't match: the field says which it takes
+        # the value is outside a limit, or doesn't match a pattern, so try the next one
         except ValidationError:
             continue
     return _CANNOT
 
 
 def _candidates(hint: Any, param: Param) -> list[Any]:
-    """Values a field of ``hint`` may take, tried in order; the field's own adapter keeps the first it takes."""
+    """Returns values a field of type ``hint`` might take, to be tried in order.
+
+    The field's own type checks each one, and the first it accepts is used.
+    """
     if typing.get_origin(hint) is Literal:
         return [typing.get_args(hint)[0]]
     if not isinstance(hint, type):
@@ -350,7 +390,7 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
     if issubclass(hint, bool):
         return [True]
     if issubclass(hint, (int, float)):
-        # a number's limits are numbers: the Param hook refused any other
+        # the limits are numbers here, since a Param with other limits on a number is refused
         low: Any = param.ge if param.ge is not None else param.gt
         high: Any = param.le if param.le is not None else param.lt
         middle: list[Any] = []
@@ -371,6 +411,7 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
 
 
 def _same(one: Any, other: Any) -> bool:
+    """Whether two values are equal, comparing dicts and lists item by item, and other values by their type's rule."""
     if one is other:
         return True
     if isinstance(one, Mapping) and isinstance(other, Mapping):
