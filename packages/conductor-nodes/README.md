@@ -1,12 +1,14 @@
 # syv-conductor-nodes
 
-Nodes for [Conductor](https://github.com/syv-ai/conductor) that only compute: text, numbers, yes or no, JSON, regular expressions, tables and a decision that sends a value one of two ways.
+Ready-made nodes for [Conductor](https://github.com/syv-ai/conductor). They work on text, numbers, yes or no, JSON, regular expressions, lists and tables, and they choose where a value goes. None of them call out to anything: they only work on what they're given.
 
 ```bash
 uv add syv-conductor-nodes
 ```
 
-`conductor_nodes.registry` has all 34. Add it to yours, or add one module's:
+## Add them to your registry
+
+`conductor_nodes.registry` has all 36 nodes. Each module has a `registry` of its own too, so you can add only the ones you want:
 
 ```python
 import conductor_nodes
@@ -19,20 +21,91 @@ graph = Graph.compile(make_graph(conductor_nodes.text.split, conductor_nodes.tex
 print(graph.run(text="a\nb").outputs)  # {'result': ['A', 'B']}
 ```
 
-| Module | Category | Nodes |
-|---|---|---|
-| `text` | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-list`, `text-join`, `text-reverse` |
-| `math` | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `logic` | `logic-not`, `logic-equals`, `logic-is-empty` |
-| `json_ops` | `json` | `json-parse`, `json-stringify`, `json-get` |
-| `regex_ops` | `regex` | `regex-match`, `regex-replace`, `regex-extract` |
-| `series` | `series` | `series-split`, `series-collect`, `series-stack` |
-| `tables` | `table` | `table-collect` |
-| `control` | `control` | `control-decide`, `control-switch`, `control-default` |
+Each module is one category, so filtering by category gives the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
-Each module is one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
+## The nodes
 
-`series-split` takes a table or a list apart, so you work through it one record or item at a time. Everything after it runs once for each, and `table-collect` puts the records back into one table, with a new column beside them for what was returned for each:
+**`text`**
+
+| Node | What it does |
+|---|---|
+| `text-uppercase` | Makes every letter a capital letter. |
+| `text-lowercase` | Makes every letter a small letter. |
+| `text-trim` | Removes spaces and blank lines from the start and end. |
+| `text-length` | Counts the characters. |
+| `text-concat` | Puts two texts together, with a separator if you want one. |
+| `text-replace` | Replaces every place a piece of text appears. |
+| `text-contains` | Tells whether the text contains another piece of text. |
+| `text-split` | Splits the text at a separator, a new line by default. What follows runs once for each part. |
+| `text-list` | A list of texts you write in. Wire a list to `for_each` to get the whole list once for each item. |
+| `text-join` | Joins all the parts into one text. |
+| `text-reverse` | Writes the text backwards. |
+
+**`math`**
+
+| Node | What it does |
+|---|---|
+| `math-add` | Adds two numbers. |
+| `math-subtract` | Takes the second number away from the first. |
+| `math-multiply` | Multiplies two numbers. |
+| `math-divide` | Divides the first number by the second. |
+| `math-modulo` | What's left over when the first number is divided by the second. |
+| `math-round` | Rounds to a number of decimals, with a half rounded away from zero: 2.5 to 3. |
+| `math-min` | The smallest of the numbers. |
+| `math-max` | The largest of the numbers. |
+| `math-abs` | The number without its minus sign. |
+
+**`logic`**
+
+| Node | What it does |
+|---|---|
+| `logic-not` | Turns yes into no and no into yes. |
+| `logic-equals` | Tells whether two values are the same. |
+| `logic-is-empty` | Tells whether a value is missing, or is a text, list or table with nothing in it. |
+
+**`json_ops`** (category `json`)
+
+| Node | What it does |
+|---|---|
+| `json-parse` | Turns JSON text into a value. |
+| `json-stringify` | Writes a value out as JSON text. |
+| `json-get` | Picks one value out by its path, such as `user.name`. |
+
+**`regex_ops`** (category `regex`)
+
+| Node | What it does |
+|---|---|
+| `regex-match` | Tells whether a pattern is found in the text. |
+| `regex-replace` | Replaces everything that matches a pattern. |
+| `regex-extract` | Finds every match. What follows runs once for each. |
+
+**`series`**
+
+| Node | What it does |
+|---|---|
+| `series-split` | Takes a table or a list apart. What follows runs once for each record or item. |
+| `series-collect` | Puts the result of every item back into one list. |
+| `series-stack` | Puts the table of every item into one table, one under the other. |
+
+**`tables`** (category `table`)
+
+| Node | What it does |
+|---|---|
+| `table-collect` | Puts the records back into one table, with new columns for what was worked out per record. |
+
+**`control`**
+
+| Node | What it does |
+|---|---|
+| `control-decide` | Sends a value one of two ways, by a yes or no. |
+| `control-switch` | Sends a value down the branch named by a case, or down `other`. |
+| `control-default` | Gives the value, or a fallback when the value is missing. |
+
+## Loops: one record at a time
+
+`series-split` takes a table or a list apart. Every node after it runs once for each record or item. `table-collect` then puts the records back into one table, with a new column for what was worked out for each.
+
+Here we read some contacts, greet each one, and put the greetings next to the names:
 
 ```python
 import io
@@ -56,27 +129,48 @@ def greet(name: str) -> str:
     return f"Hello {name}"
 
 
-contacts = Graph.compile(make_graph(read_contacts, split, greet, collect, edges=[
-    ("read-contacts.result", "series-split.value"),
-    ("series-split.result.name", "greet.name"),
-    ("series-split.result", "table-collect.records"),
-    ("greet.result", "table-collect.greeting"),
-], constants={"table-collect.columns": ["greeting"]}, outputs={"contacts": "table-collect.result"}), registry)
+contacts = Graph.compile(
+    make_graph(
+        read_contacts,
+        split,
+        greet,
+        collect,
+        edges=[
+            ("read-contacts.result", "series-split.value"),
+            ("series-split.result.name", "greet.name"),
+            ("series-split.result", "table-collect.records"),
+            ("greet.result", "table-collect.greeting"),
+        ],
+        constants={"table-collect.columns": ["greeting"]},
+        outputs={"contacts": "table-collect.result"},
+    ),
+    registry,
+)
 print(contacts.run(csv="name\nIda\nBo\n").outputs["contacts"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 
-- `series-split.result.name` is one field of each record. `table-collect` works out its output when the graph is compiled, from `columns`, so `make_graph` is told the graph returns it: `outputs={"contacts": "table-collect.result"}`. `greet` takes one name, so it runs once per contact.
-- `table-collect` collects the loop: it is called once, with every record and every greeting. Each name in `columns` is an input taking one value per record, `None` where a record got none.
-- Each name in `constant_columns` is an input taking one value from outside the loop, an outer value, written on every record: the file's name on each line.
-- The two are a pair. A value returned per record goes in `columns`; a value returned once goes in `constant_columns`. A node that runs once wired into a name in `columns` has one value for all the records, and the run fails with `columns_not_aligned`, which names `constant_columns` for a column that has one value.
+A few things to notice:
 
-When a whole table or list is wired to an input that takes one value, compiling reports `type_mismatch` with `ctx.variant` `make_a_series`, and an edge that names a field of one reports `unknown_output` with the same variant: put `series-split` between them. `series-split` takes the type that arrives: a table of contacts returns contacts, a list of numbers returns numbers, and anything else is a `type_mismatch` on the edge. `series-stack` goes the other way for tables: where a node returns a table per item, say the lines of each invoice, it puts them into one table, one under the other.
+- `series-split.result.name` is the `name` field of each record. `greet` takes one name, so it runs once per contact.
+- `columns` names the new columns. Each name becomes an input of `table-collect`, here `greeting`, with one value per record.
+- `table-collect` works out its output when the graph is compiled, so `make_graph` needs to be told the graph returns it, with `outputs=`.
+- For a value that's the same on every record, like the name of the file the contacts came from, use `constant_columns` instead.
 
-`series-collect` is the way back to one list: it is called once and returns the value of every item, in order.
+If you wire a whole table or list into an input that takes one value, compiling reports a `type_mismatch`. It asks for a node in between that splits the table or list up, and `series-split` is that node.
 
-`text-split` splits a text into its lines, or at another separator. `text-list` returns the texts set in its constant; wire a series to `for_each` and it returns them once for each item of it, so each document gets every question.
+`series-collect` is the simple way back: it returns the value of every item as one list. `series-stack` is for a loop that gives a table per item, say the lines of each invoice. It stacks them into one table.
 
-`control-decide` gives its `value` on `if_true` or `if_false` by `when`, and the nodes wired to the other output are skipped for that call. `when` comes from a node that gives a yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`. `control-switch` has a branch per name in its constant `cases`, and `other` for a case with none; wire its branches into one input and the node there takes whichever was chosen. `control-default` gives its `value`, or its `fallback` when the value is `None`. Its outputs take the type that arrives on `value`:
+How loops work in full: `python -m conductor.about one-or-many`.
+
+## Choosing a way
+
+`control-decide` sends its `value` to `if_true` or `if_false`, by `when`. The nodes after the other output are skipped. `when` comes from a node that answers yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`.
+
+`control-switch` has one output per name in its `cases`, and one more called `other`. You can wire several branches into one input, and that node takes whichever one was chosen.
+
+`control-default` gives its `value`, or its `fallback` when the value is `None`.
+
+The outputs take the type of whatever is wired to `value`:
 
 ```python
 from conductor_nodes.control import decision
@@ -85,6 +179,10 @@ graph = Graph.compile(make_graph(conductor_nodes.text.length, decision, edges=[(
 print([field.type for field in graph.describe().nodes["control-decide"].outputs])  # ['int', 'int']
 ```
 
-A JSON value is pydantic's `JsonValue`. The regular-expression nodes run on the `regex` package, with a timeout on every call, so a pattern that would freeze `re` fails its node as `pattern_timeout`; one that doesn't compile fails as `invalid_pattern`, and a replacement that refers to a group the pattern lacks as `invalid_replacement`. `math-round` rounds a half away from zero, 2.5 to 3 and 0.125 to 0.13 at two decimals.
+## Good to know
 
-The documentation, the examples and the changelog live in the repository: https://github.com/syv-ai/conductor
+- The regular-expression nodes use the `regex` package, and every search has a timeout. A pattern that would make Python's `re` hang fails the node with `pattern_timeout` instead.
+- `math-round` rounds a half away from zero, the way people do: 2.5 becomes 3, and 0.125 becomes 0.13 at two decimals.
+- When a node can't do its job, it fails with a code you can act on, such as `division_by_zero`, `not_json` or `invalid_pattern`.
+
+The documentation, the examples and the changelog are in the repository: https://github.com/syv-ai/conductor
