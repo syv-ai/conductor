@@ -1530,7 +1530,7 @@ async def test_a_run_conductor_refuses_to_resume_fails_with_its_first_problem_an
 async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls_waiting_in_that_checkpoint() -> (
     None
 ):
-    registry, store, gate = NodeRegistry(), MemoryStore(), ThreadEvent()
+    registry, store = NodeRegistry(), MemoryStore()
 
     @registry.node("approve", title="Approve", description="For a test.", asks=True)
     def approve(question: str) -> bool:
@@ -1538,7 +1538,8 @@ async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls
 
     @registry.node("busy", title="Busy", description="For a test.")
     def busy(text: str) -> str:
-        gate.wait(5)
+        # longer than checkpoint_every, so a checkpoint is due when this call's outcome is written
+        time.sleep(0.02)
         return text
 
     @registry.node("opaque", title="Opaque", description="For a test.")
@@ -1555,8 +1556,6 @@ async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls
     worker = _worker(store, registry, checkpoint_every=0.01)
     async with worker.serving():
         run_id = await _started(worker, graph, {"question": "y", "text": "x"})
-        await asyncio.sleep(0.05)  # a checkpoint is due by the time the busy step ends
-        gate.set()
         failed = await store.ended(run_id)
 
         assert failed.cause is not None and (failed.status, failed.cause.type) == (
