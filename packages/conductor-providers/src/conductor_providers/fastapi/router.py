@@ -21,7 +21,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Resume, StartRun, declared
 from conductor_providers.fastapi.problems import STATUS, no_such_run
-from conductor_providers.fastapi.state import M, RunView
+from conductor_providers.fastapi.state import M, view_type
 from conductor_providers.fastapi.worker import Worker, X
 
 #: How a route declares a refusal beside its own answer: the 404 of a run that isn't there for the request, and the
@@ -92,9 +92,8 @@ def run_router(
         dependencies=[Depends(_refused_as_responses)],
         generate_unique_id_function=attrgetter("name"),
     )
-    # What every route that acts on a run answers with: its view, with metadata of the worker's type. mypy reads a
-    # subscript as a type, and the type is only known at run time.
-    view = RunView[worker.metadata_type]  # type: ignore[name-defined]
+    # what every route that acts on a run answers with: its view, with metadata of the worker's type
+    view = view_type(worker.metadata_type)
     start_body = _body(declared(StartRun))
 
     async def check_visible(run_id: str, allows: Callable[[M], bool]) -> None:

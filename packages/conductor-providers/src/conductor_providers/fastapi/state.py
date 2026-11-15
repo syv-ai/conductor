@@ -232,3 +232,23 @@ class RunView(RunOutcome, Generic[M]):
     status: RunStatus
     cause: Problem | None
     refused: dict[str, list[Problem]]
+
+
+def view_type(metadata_type: type[M]) -> type[RunView[M]]:
+    """The class of a run's view whose metadata is of ``metadata_type``, named ``RunView`` in every schema.
+
+    A parametrized class such as ``RunView[Member]`` would be named ``RunView_Member_`` in an OpenAPI document. So the
+    default dict metadata gets ``RunView`` itself, which a host's own route names too, and a model gets a subclass of
+    its parametrized class that is named ``RunView``.
+
+    Args:
+        metadata_type: The type of a run's metadata.
+
+    Returns:
+        The view class the worker builds views with and the router declares its answers with.
+    """
+    if metadata_type == dict[str, str]:
+        return RunView
+    # mypy reads a subscript as a type, and this one is known only at run time
+    parametrized: type[RunView[M]] = RunView[metadata_type]  # type: ignore[valid-type]
+    return type("RunView", (parametrized,), {"__module__": __name__})

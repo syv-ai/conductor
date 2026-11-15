@@ -32,7 +32,7 @@ from conductor_providers.fastapi.problems import (
     previous_run_unloadable,
     run_not_resumable,
 )
-from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView
+from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView, view_type
 from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunStore, StoredRun
 
 #: The class of the run's context, the registry's ``context_type``.
@@ -112,8 +112,7 @@ class Worker(Generic[M, X]):
             resume_timeout=resume_timeout,
             handing_back=AsyncioEvent(),
         )
-        # pydantic reads the metadata by the type given; mypy reads a subscript as a type, known only at run time
-        self._views: type[RunView[M]] = RunView[metadata_type]  # type: ignore[valid-type]
+        self._views = view_type(metadata_type)
         self._max_items = max_items
         self._poll = poll
         self._served = False

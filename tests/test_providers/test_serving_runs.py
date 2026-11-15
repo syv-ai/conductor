@@ -606,9 +606,7 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(
             assert (await a.client.get("/runs/nope/events")).status_code == 404
 
             schemas = (await a.client.get("/openapi.json")).json()["components"]["schemas"]
-            view = schemas[
-                "RunView_dict_str__str__"
-            ]  # the router's: a run whose metadata is a dict
+            view = schemas["RunView"]
             assert {"id", "metadata", "status", "waiting", "outputs", "refused", "cause"} <= set(
                 view["properties"]
             )

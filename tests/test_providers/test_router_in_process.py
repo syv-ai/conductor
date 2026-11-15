@@ -394,12 +394,7 @@ async def test_a_view_shows_no_queued_answer_nor_a_cancel_asked() -> None:
 
     fields = {"id", "metadata", "status", "cause", "waiting", "outputs", "progress", "refused"}
     assert set(queued) == set(cancelled) == fields
-    view_schema = next(
-        schema
-        for name, schema in app.openapi()["components"]["schemas"].items()
-        if name.startswith("RunView")
-    )
-    assert set(view_schema["properties"]) == fields
+    assert set(app.openapi()["components"]["schemas"]["RunView"]["properties"]) == fields
 
 
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_next_resume_call() -> (
@@ -860,3 +855,15 @@ async def test_a_run_started_from_a_previous_one_reuses_its_work_and_one_the_fil
     )
     assert ended.outputs == {"result": ["a", "b", "c"]}
     assert calls.count("review") == 3  # two for the first run, one for the file the second added
+
+
+def test_the_runs_answer_is_the_component_runview_whatever_its_metadata_type() -> None:
+    for metadata_type in (dict[str, str], _Member):
+        schema = _app(
+            store=MemoryStore(), registry=lambda _: NodeRegistry(), metadata_type=metadata_type
+        ).openapi()
+        answer = schema["paths"]["/runs/{run_id}"]["get"]["responses"]["200"]["content"]
+        assert answer["application/json"]["schema"] == {"$ref": "#/components/schemas/RunView"}
+        assert [name for name in schema["components"]["schemas"] if name.startswith("RunView")] == [
+            "RunView"
+        ]
