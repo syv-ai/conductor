@@ -28,10 +28,10 @@ def _ended_with(state: RunState, run: Any) -> tuple[RunState, RunChanges]:
     return state.ended_with(run, run.to_json(), RunOutcome.of(run).model_dump_json())
 
 
-def test_a_run_that_stopped_with_nothing_queued_takes_its_status_and_clears_a_cancel() -> None:
+def test_a_run_that_stopped_with_nothing_queued_takes_its_status() -> None:
     run, _ = _waiting()
 
-    state, changes = _ended_with(RunState.started().asked_to_stop(), run)
+    state, changes = _ended_with(RunState.started(), run)
 
     assert (state.status, state.cause, state.cancel_asked, state.queued_answers) == (
         "waiting",
@@ -159,3 +159,21 @@ async def test_a_held_run_whose_store_fails_gives_the_run_up_and_leaves_it_runni
     assert any(
         "the store raised while run left was resumed" in record.message for record in caplog.records
     )
+
+
+def test_a_cancel_heard_only_as_the_run_ends_waiting_keeps_it_running_to_end_cancelled() -> None:
+    run, _ = _waiting()
+
+    state, changes = _ended_with(RunState.started().asked_to_stop(), run)
+
+    assert (state.status, state.cancel_asked) == ("running", True)
+    assert changes["run"] == run.to_json()
+
+
+def test_a_cancel_asked_of_a_run_that_completes_is_cleared() -> None:
+    run, waiting_id = _waiting()
+    complete = run.answer(waiting_id, True).resume()
+
+    state, _ = _ended_with(RunState.started().asked_to_stop(), complete)
+
+    assert (state.status, state.cancel_asked) == ("complete", False)

@@ -138,7 +138,9 @@ class RunState(BaseModel):
 
         If the run takes any answer, it is running again, so the worker resumes it at once, with the answered run as
         the row's ``run``. A cancel that was asked but didn't end this resume call then stays asked, and ends the
-        next one before any node call. Otherwise the cancel is cleared.
+        next one before any node call. So does a cancel that came after the call's last node call, when the run
+        ends ``waiting``: it is running again, and ends ``cancelled``, as a cancel of a waiting run does. Otherwise
+        the cancel is cleared: a run that is complete or ended early has nothing to cancel.
 
         Args:
             run: The run the resume call returned.
@@ -161,10 +163,12 @@ class RunState(BaseModel):
                 else:
                     taken = True
                     refused.pop(waiting_id, None)
-        if taken:
+        # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
+        unheard = self.cancel_asked and run.status != "cancelled"
+        if taken or (unheard and run.status == "waiting"):
             status: RunStatus = "running"
             cause = None
-            cancel_asked = self.cancel_asked and run.status != "cancelled"
+            cancel_asked = unheard
         else:
             status, cause, cancel_asked = run.status, run.cause, False
         state = self.model_copy(

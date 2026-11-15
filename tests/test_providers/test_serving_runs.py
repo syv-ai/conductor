@@ -339,6 +339,32 @@ def test_a_cancel_sent_to_either_worker_stops_the_run_and_a_resume_finishes_it(
     _run(scenario)
 
 
+def test_a_cancel_sent_to_one_worker_while_the_other_resumes_the_run_ends_it_cancelled(
+    served: Served,
+) -> None:
+    """A resume on one worker and a cancel on the other, sent at once, many times: a cancel answered ``running`` was
+    asked, so the run ends ``cancelled`` however the two cross."""
+
+    async def scenario() -> None:
+        async with _workers(served) as (a, b):
+            served.open_the_gate()
+            run_id = await a.start(_GATE_ASK)
+            await a.until_status(run_id, "waiting")
+            for _ in range(15):
+                assert (await b.client.post(f"/runs/{run_id}/cancel")).status_code == 200
+                await a.until_status(run_id, "cancelled")
+                resumed, cancelled = await asyncio.gather(
+                    a.client.post(f"/runs/{run_id}/resume", json={}),
+                    b.client.post(f"/runs/{run_id}/cancel"),
+                )
+                assert resumed.status_code == 202, resumed.text
+                ended = await a.until_status(run_id, "waiting", "cancelled")
+                if cancelled.json()["status"] == "running":
+                    assert ended["status"] == "cancelled"
+
+    _run(scenario)
+
+
 def test_a_run_that_timed_out_is_resumed_by_its_route_until_it_completes(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1, RESUME_TIMEOUT="0.1") as (a,):

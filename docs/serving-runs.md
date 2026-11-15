@@ -210,7 +210,7 @@ Every route under `/runs` answers with the run as it is after the call: its `id`
 | `POST /runs/{id}/answers` | Answers what waits, as `{waiting_id: value}`, and goes on with the run. |
 | `POST /runs/{id}/resume` | Goes on with a run that ended early. `{"max_items": n}` raises its item limit. |
 | `POST /runs/{id}/again` | A new run of the same graph with some inputs changed. What didn't change isn't called again. |
-| `POST /runs/{id}/cancel` | Asks the run to stop before its next node call. |
+| `POST /runs/{id}/cancel` | Asks the run to stop before its next node call. A run that answers `running` here ends `cancelled`. |
 
 Answers sent while a run is running are queued and given to the run when it stops. The route still answers 202, with the run `running`. An answer the run turns down then shows up in the run's `refused`, by its waiting id.
 
