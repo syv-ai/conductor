@@ -49,6 +49,8 @@ class FieldDescription(ConductorModel):
             ``Literal``, ``Param(choices=)`` or, on a question, the ``Ask``.
         widget: The control a person edits it with, as JSON.
         exclusive_group: The group of alternative outputs it belongs to.
+        constant_only: Whether an input takes only a constant, its field's ``constant_only``, so an editor offers it
+            no edge and no graph input.
         loops: For an output of a subgraph returned inside loops: the lists it is one list per item of, outermost
             first, each as its source inside the subgraph is written, then the list the node inside returns when it
             returns a ``Series``. ``documents -> lines -> shout`` returning one ``str`` per line is
@@ -75,6 +77,7 @@ class FieldDescription(ConductorModel):
     choices: tuple[SerializeAsAny[Choice], ...] | None = None
     widget: dict[str, Any] | None = None
     exclusive_group: str | None = None
+    constant_only: bool = False
     loops: list[str] = []
 
     @model_validator(mode="after")

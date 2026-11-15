@@ -64,7 +64,25 @@ for problem in graph.problems:
 
 `make_graph(repeat, constants={"repeat.times": 20})` writes the same record, and compiling it reports the same problem: a record's faults are found in one place, `graph.problems`.
 
-An alias may be wrapped again: with `Line = Annotated[str, Param(widget=TextInput())]`, `Annotated[Line, Param(min_length=1)]` keeps the widget and adds the limit. Stacked `Param`s merge as pydantic's stacked `Field`s do, the later one winning per argument and per limit. A `Param` on the item type of a `Series`, `Series[Annotated[int, Param(ge=0, title="Counts")]]`, is the input's: each item is held to the limit, and the title is the input's title.
+An alias may be wrapped again: with `Line = Annotated[str, Param(widget=TextInput())]`, `Annotated[Line, Param(min_length=1)]` keeps the widget and adds the limit. Stacked `Param`s merge as pydantic's stacked `Field`s do, the later one winning per argument and per limit where it isn't `None`. A `Param` on the item type of a `Series`, `Series[Annotated[int, Param(ge=0, title="Counts")]]`, is the input's: each item is held to the limit, and the title is the input's title.
+
+`Param(constant_only=True)` says an input takes only a constant: a setting the graph's author fixes when they draw the graph, never an edge or a caller's value.
+
+```python
+from conductor import node
+
+
+@node("cut", title="Cut", description="Keeps the first letters of a text.")
+def cut(
+    text: str, keep: Annotated[int, Param(title="Letters kept", constant_only=True)] = 3
+) -> str:
+    return text[:keep]
+
+
+print([field.constant_only for field in cut.describe().inputs])  # [False, True]
+```
+
+Its description says `constant_only`, so an editor offers it no edge. `make_graph` by itself never wires it or makes it a graph input, and a graph record that gives it an edge or a graph input, by `edges=` or `defaults=` too, has the problem `input_takes_only_a_constant` when compiled.
 
 `repeat.describe()` is the node as an editor's palette reads it, a `NodeDescription`, and `registry.describe()` is the whole palette, a `RegistryDescription`: pydantic records a host returns as they are, which `model_dump(mode="json")` writes as JSON.
 
@@ -416,7 +434,7 @@ print(graph.outputs)                           # ['city', 'name']
 print(graph.run(line="Ida,Aarhus").outputs)    # {'city': 'Aarhus', 'name': 'Ida'}
 ```
 
-The hook is called when the graph is compiled, with the constant of `names`, so that input must be a constant in the graph record: no edge or caller can give it. The node returns its outputs as a dict by name. Since the outputs are known only once the graph is compiled, `make_graph` declares no graph output on them by itself: `outputs=` names the ones the graph returns. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises is a problem on the node, `compute_hook_failed`, with your message if you raise a `NodeError`.
+The hook is called when the graph is compiled, with the constant of `names`, so that input must be a constant in the graph record: no edge or caller can give it, and its description says `constant_only`. The node returns its outputs as a dict by name. Since the outputs are known only once the graph is compiled, `make_graph` declares no graph output on them by itself: `outputs=` names the ones the graph returns. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises is a problem on the node, `compute_hook_failed`, with your message if you raise a `NodeError`.
 
 Reach for a hook only for names a constant decides. A type that follows what arrives is a type variable.
 

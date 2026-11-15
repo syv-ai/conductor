@@ -59,7 +59,6 @@ from conductor._internal.node import (
     FunctionDefinition,
     NodeDefinition,
     SubgraphDefinition,
-    read_by_hooks,
 )
 from conductor._internal.problem import InvalidCallError, Problem, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
@@ -145,7 +144,7 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
 
 
 def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:
-    """Load the node with its defaults and a made-up value for each required input its hooks read."""
+    """Load the node with its defaults and a made-up value for each required input that takes only a constant."""
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
             pass
@@ -153,11 +152,10 @@ def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list
             FunctionDefinition() | SubgraphDefinition()
         ):  # no hooks; a subgraph has none of its own
             return []
-    read = sorted(read_by_hooks(version))
     values = {
-        name: _made_up(version.inputs[name])
-        for name in read
-        if version.inputs[name].default is REQUIRED
+        name: _made_up(field)
+        for name, field in sorted(version.inputs.items())
+        if field.param.constant_only and field.default is REQUIRED
     }
     missing = [name for name, value in values.items() if value is _CANNOT]
     if missing:

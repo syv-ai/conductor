@@ -598,6 +598,7 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         "type": "Any",
         "type_variables": [],
         "schema": {},
+        "constant_only": False,
         "loops": [],
     }
 
@@ -1032,12 +1033,12 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
     graph = compiled_graph(fan)
     assert (
         seen == []
-        and codes(graph) == ["hook_needs_value"]
+        and codes(graph) == ["input_has_no_value"]
         and graph.problems[0].loc == ("fan", "n")
     )
 
 
-def test_an_added_inputs_hook_reads_only_a_constant_or_default_never_an_edge():
+def test_an_input_an_added_inputs_hook_reads_takes_no_edge_and_the_hook_is_not_called():
     seen = []
 
     def added(n: int = 2):
@@ -1052,10 +1053,10 @@ def test_an_added_inputs_hook_reads_only_a_constant_or_default_never_an_edge():
     def joiner(n: int = 2, **parts: Any) -> str:
         return ",".join(parts.values())
 
-    compiled_graph(
+    graph = compiled_graph(
         number, joiner, record=make_graph(number, joiner, edges=[("number.result", "joiner.n")])
     )
-    assert seen == [2]
+    assert codes(graph) == ["input_takes_only_a_constant"] and seen == []
 
 
 def test_each_version_has_its_own_hooks():

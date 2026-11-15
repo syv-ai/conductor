@@ -17,7 +17,6 @@ from .type import (
     SubgraphDefinition,
     Upgrade,
     gone_inputs,
-    read_by_hooks,
     with_defaults,
 )
 
@@ -33,7 +32,6 @@ __all__ = [
     "Upgrade",
     "gone_inputs",
     "node",
-    "read_by_hooks",
     "subgraph",
     "with_defaults",
 ]

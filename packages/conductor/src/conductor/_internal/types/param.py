@@ -53,6 +53,8 @@ class Param:
             host's own is a subclass of ``Widget``. Carried to the host and never read here.
         exclusive_group: Outputs of one node that share it are alternatives: on each call the node gives a value on
             one of them and ``SKIPPED`` on the rest.
+        constant_only: Whether an input takes only a constant, the graph record's or its default, and never an edge or
+            a graph input; ``None``, not given, is false. An editor offers it no edge.
         choices: The values the field takes, each given as a value or as a ``Choice`` to title it, and held as
             given; ``Type.choices`` reads them. On a ``Literal`` field they title its values, one each; on any other
             they limit what it takes. A ``Dropdown`` draws them.
@@ -67,6 +69,7 @@ class Param:
     description: str | None = None
     widget: Widget | None = None
     exclusive_group: str | None = None
+    constant_only: bool | None = None
     choices: list[Any] | tuple[Any, ...] | None = None
     ge: _Bound | None = None
     gt: _Bound | None = None
@@ -209,8 +212,8 @@ _NO_PARAM = Param()
 def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
     """Takes a hint apart into its bare type, its ``Param`` and its other metadata.
 
-    ``Annotated[X, Param(...)] | None`` is ``X | None`` with that ``Param``; several ``Param``s are one, each
-    argument the last one given. A ``polars.DataFrame`` written as a hint is read as ``Table``.
+    ``Annotated[X, Param(...)] | None`` is ``X | None`` with that ``Param``; several ``Param``s are one
+    (``merged_param``). A ``polars.DataFrame`` written as a hint is read as ``Table``.
 
     Returns:
         The hint with every ``Annotated`` taken off its members, the ``Param``s as one (an empty one for none),
@@ -229,10 +232,20 @@ def split_hint(hint: Any) -> tuple[Any, Param, tuple[Any, ...]]:
             inner, inner_param, inner_others = split_hint(option)
             option, params, others = inner, [inner_param, *params], [*inner_others, *others]
         options.append(READ_AS.get(option, option) if type(option) is type else option)
-    merged = {
+    return union_of(options), merged_param(*params), tuple(others)
+
+
+def merged_param(*params: Param) -> Param:
+    """Several ``Param``s on one hint as one: each argument the last of them that isn't ``None`` there.
+
+    ``Annotated[Annotated[int, Param(constant_only=True)], Param(title="Times")]`` is
+    ``Param(title="Times", constant_only=True)``; a later ``Param(constant_only=False)`` turns it off again, and a later
+    ``title=None`` leaves the title as it was.
+    """
+    arguments = {
         f.name: value
         for param in params
         for f in dataclasses.fields(param)
         if (value := getattr(param, f.name)) is not None
     }
-    return union_of(options), Param(**merged) if merged else _NO_PARAM, tuple(others)
+    return Param(**arguments) if arguments else _NO_PARAM

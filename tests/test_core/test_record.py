@@ -969,7 +969,7 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
     assert record.nodes["pad"].inputs == {"text": InputEntry(sources=(Source("hello", "result"),))}
     graph = Graph.compile(record, registry_of(_hello, pad))
     assert list(graph.inputs) == ["name"] and [(p.type, p.loc) for p in graph.problems] == [
-        ("hook_needs_value", ("pad", "width"))
+        ("input_has_no_value", ("pad", "width"))
     ]
     with pytest.raises(InvalidCallError) as refused:
         make_graph(_hello, blank)
@@ -978,16 +978,16 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
             "not_a_chain",
             ("blank",),
             {
-                "variant": "read_by_a_hook",
+                "variant": "constant_only",
                 "node_id": "blank",
                 "before": "hello",
-                "read_by_hooks": ["width"],
+                "inputs": ["width"],
             },
         ),
     ]
     assert refused.value.problems[0].msg == (
-        "'blank' can't follow 'hello' without edges: a hook reads width when the graph is compiled, and an input a hook reads takes a constant, "
-        "which no edge can give; give width a constant and pass edges= to make_graph."
+        "'blank' can't follow 'hello' without edges: only a constant can give width a value, never an edge; "
+        "give width a constant and pass edges= to make_graph."
     )
 
 

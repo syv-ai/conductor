@@ -222,12 +222,12 @@ class FunctionDefinition[**P, R](_Version):
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
-        """The inputs a graph must give a value to: those with no default that no hook reads."""
-        hooked = read_by_hooks(self)
+        """The inputs an edge or a graph input must give a value to: those with no default that are not
+        ``constant_only``."""
         return tuple(
             name
             for name, field in self.inputs.items()
-            if field.default is REQUIRED and name not in hooked
+            if field.default is REQUIRED and not field.param.constant_only
         )
 
     @property
@@ -329,14 +329,4 @@ def with_defaults(
         category=merged_category,
         extra=MappingProxyType(merged_extra),
         replaces=replaces,
-    )
-
-
-def read_by_hooks(definition: FunctionDefinition[..., Any]) -> frozenset[str]:
-    """The inputs a node's hooks read as values: fixed when the graph loads, so never open to a caller."""
-    return frozenset(
-        name
-        for parameters in definition.hook_parameters.values()
-        for name, receives in parameters.items()
-        if receives == "value"
     )

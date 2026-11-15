@@ -978,7 +978,7 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
         registry_of(hooky, upper),
     )
 
-    assert [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("h", "n"))]
+    assert [(p.type, p.loc) for p in graph.problems] == [("input_has_no_value", ("h", "n"))]
 
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])

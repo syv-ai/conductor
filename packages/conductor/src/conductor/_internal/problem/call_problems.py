@@ -285,14 +285,14 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
 def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: list[str]) -> str:
     """``make_graph`` is given no edges, and cannot wire one of its nodes to the node before it.
 
-    Without ``edges=``, ``make_graph`` wires each node's one required input that has no constant and that no hook
-    reads to the one output of the node before it. Pass the edges instead: ``make_graph(upper, greet,
+    Without ``edges=``, ``make_graph`` wires each node's one required input that has no constant and that an edge
+    can feed to the one output of the node before it. Pass the edges instead: ``make_graph(upper, greet,
     edges=[("upper.result", "greet.name")])``.
 
     Args:
         node_id: The node that cannot be wired.
         before: The node before it.
-        inputs: The required inputs of ``node_id`` that have no constant and that no hook reads.
+        inputs: The required inputs of ``node_id`` that have no constant and that an edge can feed.
         outputs: The outputs of ``before``.
 
     Example:
@@ -304,24 +304,25 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     )
 
 
-@CALL_PROBLEMS.problem("not_a_chain", variant="read_by_a_hook")
-def not_a_chain_read_by_a_hook(node_id: str, /, *, before: str, read_by_hooks: list[str]) -> str:
-    """``make_graph`` is given no edges, and every required input of a node that has no constant is read by a hook.
+@CALL_PROBLEMS.problem("not_a_chain", variant="constant_only")
+def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]) -> str:
+    """``make_graph`` is given no edges, and every required input of a node that has no constant takes only a
+    constant.
 
-    A hook reads its inputs when the graph is compiled, so an input it reads takes a constant, and no edge can feed
-    it. Give it a constant, and pass the edges: ``make_graph(upper, pick, edges=[], constants={"pick.names": "a,b"})``.
+    An input whose description says ``constant_only`` takes a constant and no edge. Give it a constant, and pass the
+    edges: ``make_graph(upper, pick, edges=[], constants={"pick.names": "a,b"})``.
 
     Args:
         node_id: The node that cannot be wired.
         before: The node before it.
-        read_by_hooks: The required inputs of ``node_id`` that a hook reads and that have no constant.
+        inputs: The required inputs of ``node_id`` that take only a constant and have none.
 
     Example:
         refused(lambda: make_graph(upper, pick))
     """
     return (
-        f"'{node_id}' can't follow '{before}' without edges: a hook reads {comma_separated(read_by_hooks)} when the graph is compiled, "
-        f"and an input a hook reads takes a constant, which no edge can give; give {comma_separated(read_by_hooks)} a constant and pass edges= to make_graph."
+        f"'{node_id}' can't follow '{before}' without edges: only a constant can give {comma_separated(inputs)} a value, "
+        f"never an edge; give {comma_separated(inputs)} a constant and pass edges= to make_graph."
     )
 
 

@@ -17,7 +17,7 @@ from pydantic import MISSING
 
 from conductor._internal.base import REQUIRED, Source
 from conductor._internal.gate import read_record, record_values
-from conductor._internal.node import FunctionDefinition, NodeDefinition, read_by_hooks
+from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 
@@ -45,18 +45,20 @@ def make_graph(
     every call, and a default makes the input a graph input, with that value when the caller gives none. Each value is
     written in the record as its JSON reads back.
 
-    With no ``edges`` the nodes form a chain: the one required input of each node that no hook reads and no constant
-    or default fills gets an edge from the one output of the node before it. An input a hook reads takes a constant.
-    With ``edges``, those are every edge of the graph.
+    With no ``edges`` the nodes form a chain: the one required input of each node that an edge can feed and that
+    no constant or default fills gets an edge from the one output of the node before it. With ``edges``, those are
+    every edge of the graph.
     Nothing is matched by name.
 
     The record declares the graph's inputs and outputs. Each required input that gets nothing (no edge, no constant)
-    is a graph input of the input's name, and so is each key of ``defaults``; each output of a node no edge leaves is a
-    graph output of the output's name. ``inputs`` and ``outputs`` name some of them otherwise, on top of that:
-    ``inputs={"who": "greet.name"}``, ``inputs={"line": ["strip.line", "shout.line"]}`` for one graph input that
+    and is not ``constant_only`` is a graph input of the input's name, and so is each key of ``defaults``; each output
+    of a node no edge leaves is a graph output of the output's name. ``inputs`` and ``outputs`` name some of them
+    otherwise, on top of that: ``inputs={"who": "greet.name"}``, ``inputs={"line": ["strip.line", "shout.line"]}`` for one graph input that
     feeds two inputs, ``outputs={"long": "a.result"}``. Two graph inputs or outputs that would share a name, not
     joined by ``inputs``, are refused. The inputs a hook adds and the outputs a hook returns are known only when the
-    graph is compiled, so a graph input or output on one is named in ``inputs`` or ``outputs``.
+    graph is compiled, so a graph input or output on one is named in ``inputs`` or ``outputs``. By itself it never
+    wires a ``constant_only`` input or makes it a graph input; ``edges``, ``defaults`` or ``inputs`` that do are
+    written as given, and compiling the record finds ``input_takes_only_a_constant``.
 
     The record is written and not compiled: an input or output a node does not have, a value its input's type
     refuses, an edge between types that do not fit and a graph not finished are in
@@ -301,7 +303,7 @@ def _chain_edges(
 ) -> list[tuple[str, str]]:
     """The one edge from each node into the next, given the inputs that already get a constant or a default
     (``filled``); ``not_a_chain`` added to ``problems`` for each pair without exactly one, with the variant
-    ``read_by_a_hook`` when the only required inputs left are ones a hook reads."""
+    ``constant_only`` when the only required inputs left take only a constant."""
     edges: list[tuple[str, str]] = []
     chain = list(definitions.items())
     for (before_id, before), (after_id, after) in zip(chain, chain[1:], strict=False):
@@ -311,11 +313,10 @@ def _chain_edges(
                 open_inputs = [
                     name for name in after.required_inputs if (after_id, name) not in filled
                 ]
-                hooked = read_by_hooks(after)
                 needs_constant = [
                     name
                     for name, field in after.inputs.items()
-                    if name in hooked
+                    if field.param.constant_only
                     and field.default is REQUIRED
                     and (after_id, name) not in filled
                 ]
@@ -325,8 +326,8 @@ def _chain_edges(
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
         elif not open_inputs and needs_constant:
             problems.append(
-                call_problems.not_a_chain_read_by_a_hook(
-                    after_id, before=before_id, read_by_hooks=needs_constant
+                call_problems.not_a_chain_constant_only(
+                    after_id, before=before_id, inputs=needs_constant
                 )
             )
         else:

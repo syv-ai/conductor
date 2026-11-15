@@ -503,6 +503,23 @@ def exclusive_group_on_input() -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
+def constant_only_on_output() -> str:
+    """An output's ``Param`` says ``constant_only``.
+
+    ``constant_only`` says an input takes only a constant, never an edge or a graph input; an output gives a value
+    and takes none. Put it on the input.
+
+    Example:
+        def loud(text: str) -> Annotated[str, Param(constant_only=True)]:
+            return text.upper()
+
+
+        declaration_refused(lambda: node("loud", title="Loud", description="Shouts the text.")(loud))
+    """
+    return "constant_only is for inputs; put it on an input's Param"
+
+
+@DECLARATION_PROBLEMS.problem()
 def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> str:
     """A hook's parameter names no input of the node.
 

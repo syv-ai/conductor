@@ -35,7 +35,7 @@ def read_hook_fields(
             one at the node when the hook returned no mapping (``error`` ``not_a_mapping``), or a field ``@node``
             would refuse (``error`` the declaration code: ``type_not_carried`` for a type conductor does not support,
             ``exclusive_group_on_input`` or ``default_invalid`` for an added input that is a branch, ``default_invalid``
-            for an output of an exclusive group with a default other than ``SKIPPED``).
+            for an output of an exclusive group with a default other than ``SKIPPED``, ``constant_only_on_output``).
     """
     try:
         hints = _HOOK_FIELDS.validate_python(returned)

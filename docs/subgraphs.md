@@ -66,9 +66,8 @@ as it does for any node. A subgraph takes no `Policy` of its own, because it is 
 From outside, a subgraph is one node:
 
 - **Its inputs** are its graph's inputs (`graph.inputs` of the subgraph compiled alone): the graph inputs its record declares,
-  under their names there. A constant, a graph input or an edge on one works as on any node. An inner input that a hook reads (a function that
-  computes a node's inputs or outputs when the graph is compiled, see [writing nodes](writing-nodes.md#inputs-and-outputs-that-a-constant-decides))
-  must be a constant inside the subgraph, so it is not offered.
+  under their names there. A constant, a graph input or an edge on one works as on any node. An inner input that takes only a constant (its description says `constant_only`)
+  is a constant inside the subgraph, so it is not offered.
 - **Its outputs** are its graph's outputs (`graph.outputs` of the subgraph): the outputs its record's `outputs` names, under
   their names there.
 - An output its graph returns once has the inner node's type. One returned inside loops is one `Series`

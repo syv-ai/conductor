@@ -1387,11 +1387,13 @@ BROKEN = registry_of(
 )
 
 
-def test_a_hook_is_not_called_without_a_required_input_and_the_problem_says_it_needs_a_value():
+def test_a_hook_is_not_called_without_a_required_input_and_the_problem_says_it_needs_a_constant():
     graph = Graph.compile(
         GraphRecord.model_validate({"nodes": {"f": {"node": "formula"}}, "outputs": {}}), BROKEN
     )
-    assert [(p.type, p.loc) for p in graph.problems] == [("hook_needs_value", ("f", "formula"))]
+    assert [(p.type, p.loc, p.ctx.get("variant")) for p in graph.problems] == [
+        ("input_has_no_value", ("f", "formula"), "constant_only")
+    ]
     given = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -1448,14 +1450,14 @@ def test_an_input_a_hook_reads_is_a_constant_of_the_graph_never_a_graph_input():
         ),
         registry,
     ).problems
-    assert (problem.type, problem.loc) == ("hook_needs_value", ("m", "mode"))
+    assert (problem.type, problem.loc) == ("input_takes_only_a_constant", ("m", "mode"))
     assert (
         Graph.compile(
             GraphRecord.model_validate({"nodes": {"f": {"node": "formula"}}, "outputs": {}}), BROKEN
         )
         .problems[0]
         .type
-        == "hook_needs_value"
+        == "input_has_no_value"
     )
 
 

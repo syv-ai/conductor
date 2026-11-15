@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import functools
 from dataclasses import dataclass, field
 from typing import Annotated, Any, get_args, get_origin
@@ -16,6 +15,7 @@ from conductor._internal.types import (
     Choice,
     Param,
     Type,
+    merged_param,
     split_hint,
     union_members,
     union_of,
@@ -150,6 +150,7 @@ class Field:
             choices=choices,
             widget=None if widget is None else widget.model_dump(mode="json"),
             exclusive_group=self.param.exclusive_group,
+            constant_only=self.param.constant_only is True,
         )
 
 
@@ -175,14 +176,7 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         beside_param = (*beside_param, *others)
         if Type(bare).item is not None:
             raise NodeDeclarationError(declaration_problems.nested_series())
-        param = dataclasses.replace(
-            of_item,
-            **{
-                f.name: value
-                for f in dataclasses.fields(param)
-                if (value := getattr(param, f.name)) is not None
-            },
-        )
+        param = merged_param(of_item, param)  # the field's own Param after its item's
     if any(
         isinstance(metadata, Widget) for metadata in beside_param
     ):  # pydantic would pass it by, and the field would show no control

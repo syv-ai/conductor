@@ -1715,6 +1715,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
                 "widget": {"type": "textarea", "rows": 4},
                 "description": None,
                 "exclusive_group": None,
+                "constant_only": False,
             }
         ],
     }

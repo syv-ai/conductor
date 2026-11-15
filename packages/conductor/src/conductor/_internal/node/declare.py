@@ -58,7 +58,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import Field as DataclassField
 from inspect import Parameter
 from types import MappingProxyType
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 from pydantic import JsonValue
 
@@ -68,7 +68,7 @@ from conductor._internal.field import Field
 from conductor._internal.gate import declared_input, declared_output, read_record
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
-from conductor._internal.types import Type
+from conductor._internal.types import Param, Type
 
 from .policy import Deprecation, Policy
 from .type import (
@@ -130,7 +130,9 @@ def node(
       whose subgraphs have their own numbers names them. ``deprecation``
       marks this version going away.
     - ``compute_added_inputs`` and ``compute_outputs`` are hooks run when a
-      graph is loaded, which shape the node from what is typed into it.
+      graph is loaded, which shape the node from what is typed into it. An
+      input a hook reads takes only a constant, as if its ``Param`` said
+      ``constant_only=True``.
     - ``asks=True`` says the function may raise ``Ask`` to ask a person, who
       answers with its outputs. A raise from a node that doesn't say so fails
       the call (``ask_not_declared``).
@@ -168,6 +170,17 @@ def node(
                 for kind, hook in hooks.items()
                 if hook is not None
             }
+            # an input a hook reads takes only a constant: the hook reads it when the graph is compiled
+            for parameters in hook_parameters.values():
+                for name, receives in parameters.items():
+                    if receives == "value":
+                        field = inputs[name]
+                        inputs[name] = Field(
+                            name,
+                            Annotated[field.hint, Param(constant_only=True)],
+                            field.default,
+                            is_output=False,
+                        )
             definition = FunctionDefinition(
                 function=target,
                 inputs=inputs,

@@ -3,7 +3,7 @@
 from .choice import Choice, check_one_of, choice_texts, pick_texts, read_choices
 from .hint import a_number, list_of, union_members, union_of
 from .host_type import NAMES, host_type
-from .param import Param, split_hint
+from .param import Param, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
 from .type import (
     Type,
@@ -27,6 +27,7 @@ __all__ = [
     "host_type",
     "kind_of_value",
     "list_of",
+    "merged_param",
     "pick_texts",
     "read_choices",
     "split_hint",

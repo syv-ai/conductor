@@ -248,25 +248,6 @@ def subgraph_contains_itself(*loc: str | int, node: str) -> str:
 
 
 @COMPILE_PROBLEMS.problem()
-def hook_needs_value(node_id: str, field: str, /) -> str:
-    """A node's ``compute_...`` hook reads an input that has no constant in the graph record.
-
-    The node's inputs or outputs depend on that value, so it must be known when the graph is compiled. Give the input
-    a constant. An input a hook reads is never a graph input.
-
-    Args:
-        node_id: The node.
-        field: The input.
-
-    Example:
-        problems({"nodes": {
-            "pick": {"node": "pick"}
-        }})
-    """
-    return f"'{field}' needs a constant: the node works out its inputs and outputs from it when the graph is compiled."
-
-
-@COMPILE_PROBLEMS.problem()
 def invalid_value(
     node_id: str,
     field: str,
@@ -576,6 +557,49 @@ def input_has_no_value(node_id: str, field: str, /) -> str:
         problems({"nodes": {"g": {"node": "greet", "inputs": {"name": {"constant": "Ida"}}}}})
     """
     return f"'{field}' gets no value: wire an edge into it, give it a constant, or make it a graph input."
+
+
+@COMPILE_PROBLEMS.problem("input_has_no_value", variant="constant_only")
+def input_has_no_value_constant_only(node_id: str, field: str, /) -> str:
+    """An input with no default that takes only a constant gets none in the graph record.
+
+    An input whose description says ``constant_only`` takes its value from the graph record when the graph is
+    compiled; no edge or caller can give it one. Give it a constant.
+
+    Args:
+        node_id: The node.
+        field: The input.
+
+    Example:
+        problems({"nodes": {
+            "pick": {"node": "pick"}
+        }})
+    """
+    return f"'{field}' gets no value: it takes only a constant; give it one."
+
+
+@COMPILE_PROBLEMS.problem()
+def input_takes_only_a_constant(
+    node_id: str, field: str, /, *, given: Literal["sources", "graph_input"]
+) -> str:
+    """The graph record wires an edge or a graph input into an input that takes only a constant.
+
+    An input whose description says ``constant_only`` takes its value from the graph record's constant, or from its
+    default, never from an edge or a caller. ``ctx.given`` is what the record gives it instead: ``sources`` or
+    ``graph_input``. Give it a constant, ``{"constant": ...}``, or leave it out to take its default.
+
+    Args:
+        node_id: The node.
+        field: The input.
+        given: The record's key for what it gives the input: ``sources`` for edges, or ``graph_input``.
+
+    Example:
+        problems({"nodes": {
+            "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
+            "pick": {"node": "pick", "inputs": {"names": {"sources": [{"node": "u", "output": "result"}]}}}
+        }})
+    """
+    return f"'{field}' takes only a constant, never an edge or a graph input; give it a constant."
 
 
 @COMPILE_PROBLEMS.problem()

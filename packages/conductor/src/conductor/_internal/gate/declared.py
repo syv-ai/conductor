@@ -89,10 +89,13 @@ def declared_output(name: str, hint: Any, default: Any) -> Field:
     hook returns, so ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in both places.
 
     Raises:
-        NodeDeclarationError: Naming the output: what ``_declared_field`` refuses, or a default other than
-            ``SKIPPED`` on an output of an exclusive group (``default_invalid``, variant ``on_exclusive_group``).
+        NodeDeclarationError: Naming the output: what ``_declared_field`` refuses, ``constant_only``, which only an
+            input takes (``constant_only_on_output``), or a default other than ``SKIPPED`` on an output of an
+            exclusive group (``default_invalid``, variant ``on_exclusive_group``).
     """
     field = _declared_field(name, hint, default, is_output=True)
+    if field.param.constant_only:
+        raise NodeDeclarationError(declaration_problems.constant_only_on_output(), name)
     if (
         field.param.exclusive_group is not None
         and default is not REQUIRED
