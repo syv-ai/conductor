@@ -6,7 +6,7 @@ parameter typed ``Context[X]``.
 
 ``type.py`` has ``Context``, and the check, when a graph is compiled, that a node's ``Context[X]`` fits the
 registry's class. ``validator.py`` has ``ContextValidator``, which checks the object a host passes. The full
-rules are in the reference, ``python -m conductor.about``.
+rules are in the reference, ``python -m conductor.about context``.
 """
 
 from .type import Context, ContextParameter, is_context

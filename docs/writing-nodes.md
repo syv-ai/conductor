@@ -70,7 +70,7 @@ print(flexible.run().outputs)           # {'result': 'HEY!'}
 print(flexible.run(text="yo").outputs)  # {'result': 'YO!'}
 ```
 
-`make_graph` only writes the graph. It raises when it can't, for example for a place that isn't written `"node.name"`. Every other fault is reported when the graph is compiled, in `graph.problems`. [What a person sees](#what-a-person-sees) shows one. The full rules of `make_graph` are at the start of the reference's core concepts: `python -m conductor.about core-concepts`.
+`make_graph` only writes the graph. It raises when it can't, for example for a place that isn't written `"node.name"`. Every other fault is reported when the graph is compiled, in `graph.problems`. [What a person sees](#what-a-person-sees) shows one. The full rules of `make_graph` are in `python -m conductor.about writing-a-graph-in-python`.
 
 ## A registry of your own
 
@@ -741,7 +741,7 @@ def greet_caller(ctx: Context[HasCaller]) -> str:
 print(Graph.compile(make_graph(greet_caller), signing).run(context=ida).outputs)  # {'result': 'Hello Ida'}
 ```
 
-Write each member as a read-only property, as here: a frozen dataclass can't satisfy a `Protocol` whose member is a plain attribute. Compiling checks each node's `Context[...]` against the registry's class. A node that asks for a member the class lacks gets the problem `context_does_not_fit`. The rules are in `python -m conductor.about asking-a-person`, under the run's context.
+Write each member as a read-only property, as here: a frozen dataclass can't satisfy a `Protocol` whose member is a plain attribute. Compiling checks each node's `Context[...]` against the registry's class. A node that asks for a member the class lacks gets the problem `context_does_not_fit`. The rules are in `python -m conductor.about context`.
 
 ## A second version
 
