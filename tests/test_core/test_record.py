@@ -1339,8 +1339,9 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
 def test_a_list_a_graph_input_whose_type_takes_a_list_refuses_gives_its_reason_not_to_make_a_series(
     hint: Any, given: list[Any], reason: str
 ) -> None:
-    """Only a list an input whose type takes no list is given is a question of looping; a list refused by a list
-    type's own limit, or for an item, gives that reason, as a constant and an answer do."""
+    """Only a list given to an input whose type takes no list is a question of looping. Any other refusal gives
+    the reason the type gives, as it does for a constant: a list type's own limit, and for a union the union's own
+    refusal, which names its first option's fault."""
 
     def take(words: hint) -> str:  # type: ignore[valid-type]
         return "taken"
