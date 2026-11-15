@@ -168,13 +168,12 @@ def _several_outputs(
             holding = "both" if len(quoted) == 2 else "all"
             raise PydanticCustomError(
                 "alternatives_both_given",
-                f"{holders} are in the exclusive group '{fault.group}', and {holding} have a value. Give only one of them a value",
+                f"{holders} are in the exclusive group '{fault.group}', and {holding} have a value",
                 {"given": fault.given, "group": fault.group},
             )
         raise PydanticCustomError(
             "no_alternative_given",
-            "no output of the exclusive group '{group}' ({members}) has a value. Give one of them a value and the "
-            "others SKIPPED, or return SKIPPED to choose no branch",
+            "no output of the exclusive group '{group}' ({members}) has a value",
             {"group": fault.group, "members": comma_separated(fault.members)},
         )
 

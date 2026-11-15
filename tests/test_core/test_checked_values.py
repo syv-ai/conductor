@@ -337,8 +337,7 @@ def test_a_return_that_gives_no_output_of_a_group_a_value_is_refused():
     assert (neither.type, neither.ctx.get("name"), neither.ctx["reason"]) == (
         "invalid_output",
         None,
-        "no output of the exclusive group 'length' (long, short) has a value. Give one of them a value and the others"
-        " SKIPPED, or return SKIPPED to choose no branch",
+        "no output of the exclusive group 'length' (long, short) has a value",
     )
     assert _returning(SKIPPED, Routed).results["g"] == {"count": None, "long": None, "short": None}
 
@@ -350,7 +349,7 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
     assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
     assert (
         run.cause.ctx["reason"]
-        == "'long' and 'short' are in the exclusive group 'length', and both have a value. Give only one of them a value"
+        == "'long' and 'short' are in the exclusive group 'length', and both have a value"
     )
     assert _returning(Routed(long="a", count=2), Routed).results["g"] == {
         "count": 2,
@@ -372,10 +371,10 @@ def test_a_return_giving_three_outputs_of_a_group_a_value_names_all_three():
     assert run.cause.type == "invalid_output"
     assert (
         run.cause.ctx["reason"]
-        == "'long', 'medium' and 'short' are in the exclusive group 'length', and all have a value. Give only one of them a value"
+        == "'long', 'medium' and 'short' are in the exclusive group 'length', and all have a value"
     )
     assert (
-        "'long' and 'medium' are in the exclusive group 'length', and both have a value. Give only one of them a value"
+        "'long' and 'medium' are in the exclusive group 'length', and both have a value"
         == _returning(Routed3(long="a", medium="b"), Routed3).cause.ctx["reason"]
     )
 

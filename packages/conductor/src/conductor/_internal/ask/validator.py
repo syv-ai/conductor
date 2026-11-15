@@ -259,7 +259,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             return {}, [
                 (
                     None,
-                    f"answer each question by name, as a mapping of {comma_separated(outputs, empty='nothing')}",
+                    f"the answer isn't a mapping of {comma_separated(outputs, empty='nothing')}, one value per question",
                 )
             ]
         faults: list[tuple[str | None, str]] = [
@@ -281,7 +281,9 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             except PydanticCustomError as refused:
                 faults.append((name, f"'{name}': {refused.message()}"))
         for fault in groups_without_one_value(self._groups, answer):
-            faults.append((None, f"answer exactly one of {comma_separated(fault.members)}"))
+            faults.append(
+                (None, f"exactly one of {comma_separated(fault.members)} needs an answer")
+            )
         return read, faults
 
 

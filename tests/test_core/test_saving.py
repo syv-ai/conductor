@@ -545,7 +545,7 @@ def test_a_returned_table_column_a_saved_run_reads_back_changed_is_refused(
 
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("odd",))
     assert (
-        f"column 'a' is {column.dtype}, and a saved run would read it back as {saved_as}. Cast it to {saved_as}"
+        f"column 'a' is {column.dtype}, and a saved run would read it back as {saved_as}"
         in run.cause.msg
     )
 

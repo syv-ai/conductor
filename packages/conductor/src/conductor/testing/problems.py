@@ -7,7 +7,8 @@ Each kind of problem is a function, and calling it makes the ``Problem``::
 
     needs_example("coded", 1, inputs=["code"])
     # Problem(type="needs_example", loc=("coded", 1),
-    #         msg="its hooks read ['code'], and no value can be made up for them; give the node an example", ctx={"inputs": ["code"]})
+    #         msg="The node's hooks read code, and check_registry can't make up a value for it. Give the node an example.",
+    #         ctx={"inputs": ["code"]})
 
 Every problem here is about one version of a node, so its ``loc`` is ``(node_id, version)``.
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 from conductor._internal.problem import ProblemCatalogue
+from conductor._internal.utils import comma_separated
 
 #: The kinds of problem ``check_registry`` returns, which make up this section of the problems page.
 REGISTRY_CHECK_PROBLEMS = ProblemCatalogue()
@@ -45,7 +47,7 @@ def example_for_no_node(*loc: str | int, named: str) -> str:
         checked.add(upper)
         check_registry(checked, examples={"uper": [{"text": "a"}]})
     """
-    return f"{named} names no node of the registry; check the id, or remove the example"
+    return f"The example {named} is for a node the registry doesn't have. Correct its key, or remove the example."
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -76,7 +78,8 @@ def needs_example(*loc: str | int, inputs: list[str]) -> str:
         check_registry(checked)
     """
     return (
-        f"its hooks read {inputs}, and no value can be made up for them; give the node an example"
+        f"The node's hooks read {comma_separated(inputs)}, and check_registry can't make up a value for it. "
+        "Give the node an example."
     )
 
 
@@ -107,7 +110,7 @@ def hook_failed(*loc: str | int, reason: str, problems: list[dict[str, Any]]) ->
         checked.add(unnamed)
         check_registry(checked)
     """
-    return f"a hook failed on the node's defaults and made-up values: {reason}"
+    return f"A hook failed on the node's defaults and the values made up for its inputs: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("hook_failed", variant="on_an_example")
@@ -128,7 +131,7 @@ def hook_failed_on_an_example(*loc: str | int, reason: str, problems: list[dict[
         checked.add(pick)
         check_registry(checked, examples={"pick": [{"names": ""}]})
     """
-    return f"the example does not compile: {reason}"
+    return f"The example doesn't compile: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -165,7 +168,7 @@ def upgrade_broken(
         checked.add(welcome_v2)
         check_registry(checked)
     """
-    return f"after moving to version {newest}: {reason}"
+    return f"A graph upgraded to version {newest} doesn't compile: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken", variant="raised")
@@ -200,7 +203,7 @@ def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str
         checked.add(hi_v2)
         check_registry(checked)
     """
-    return f"moving to version {newest} raised {error}: {reason}"
+    return f"Upgrading to version {newest} raised {error}: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -226,7 +229,7 @@ def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the c
         checked.add(sort_in_place)
         check_registry(checked, examples={"sort_in_place": [{"texts": ["b", "a"]}]})
     """
-    return f"the node changed {input!r}, a value it was given; several calls of a run can be given the same value, so copy it before changing it"
+    return f"The node changed its input {input!r} in place. Several calls of a run can be given the same value, so copy it before you change it."
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
@@ -258,7 +261,7 @@ def run_failed(*loc: str | int, status: str, reason: str, problems: list[dict[st
         checked.add(divide_by)
         check_registry(checked, examples={"divide_by": [{"n": 0}]})
     """
-    return f"the example ended {status}: {reason}"
+    return f"The example's run ended {status}: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="not_compiled")
@@ -280,7 +283,7 @@ def example_not_compiled(*loc: str | int, reason: str, problems: list[dict[str, 
         checked.add(upper)
         check_registry(checked, examples={"upper": [{"txt": "a"}]})
     """
-    return f"the example does not compile: {reason}"
+    return f"The example doesn't compile: {reason}"
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("run_failed", variant="refused")
@@ -303,4 +306,4 @@ def example_refused(*loc: str | int, reason: str, problems: list[dict[str, Any]]
         served.add(who)
         check_registry(served, examples={"who": [{}]})
     """
-    return f"the example was refused: {reason}"
+    return f"The example's run was refused: {reason}"

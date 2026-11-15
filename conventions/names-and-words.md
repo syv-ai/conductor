@@ -2,7 +2,7 @@
 
 ## Plain words a stranger reads right
 
-Write every name, docstring and comment for a Python developer who has never seen conductor. Say what the thing is first, in words they already know. Then say where it fits and why it exists. Never assume they know the rest of the codebase: someone who opens one file should understand it from that file. Use plain Python and graph words, with no coined metaphors and no word taken from a plan. Use the plain verb for what the code does: check, convert or store, not "read" for all three, "the form a run keeps" or "holds to". A problem's message is written in the same voice.
+Write every name, docstring and comment for a Python developer who has never seen conductor. Say what the thing is first, in words they already know. Then say where it fits and why it exists. Never assume they know the rest of the codebase: someone who opens one file should understand it from that file. Use plain Python and graph words, with no coined metaphors and no word taken from a plan. Use the plain verb for what the code does: check, convert or store, not "read" for all three, "the form a run keeps" or "holds to". A problem's message is written in the same voice, and gives one fix: a reason it quotes says only what is wrong, with no fix and no final period.
 
 Why: a sentence that only makes sense once you know the rest of the code isn't understood. If it can't be said simply, the idea isn't clear yet.
 

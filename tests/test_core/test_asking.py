@@ -558,7 +558,7 @@ def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_a
     ]
     assert (
         _refused(lambda: run.answer("q@0", True))[0].msg
-        == "That isn't a valid answer: answer each question by name, as a mapping of approved, amount, note, due."
+        == "That isn't a valid answer: the answer isn't a mapping of approved, amount, note, due, one value per question."
     )
 
 
@@ -912,11 +912,11 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
     )
     assert (
         _refused(lambda: run.answer("q", {"keep": "a", "drop": "a"}))[0].msg
-        == "That isn't a valid answer: answer exactly one of keep, drop."
+        == "That isn't a valid answer: exactly one of keep, drop needs an answer."
     )
     assert (
         _refused(lambda: run.answer("q", {}))[0].msg
-        == "That isn't a valid answer: answer exactly one of keep, drop."
+        == "That isn't a valid answer: exactly one of keep, drop needs an answer."
     )
 
 
@@ -946,8 +946,8 @@ def test_an_answer_breaking_two_exclusive_groups_names_both():
     problems = _refused(lambda: run.answer("q", {"keep": "a", "drop": "b"}))
 
     assert sorted(problem.ctx["reason"] for problem in problems) == [
-        "answer exactly one of keep, drop",
-        "answer exactly one of left, right",
+        "exactly one of keep, drop needs an answer",
+        "exactly one of left, right needs an answer",
     ]
 
 

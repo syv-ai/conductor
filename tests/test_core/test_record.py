@@ -2100,7 +2100,7 @@ def test_a_table_as_a_constant_is_refused_at_the_call_and_said_to_be_given_as_re
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
     assert (
         problem.ctx["reason"]
-        == "it can't be written as JSON, and a graph record is saved as JSON (give a table as a list of records)"
+        == "it can't be written as JSON, and a graph record is saved as JSON (in a graph record, a table is written as a list of records)"
     )
 
 

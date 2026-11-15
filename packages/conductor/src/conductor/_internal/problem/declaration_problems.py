@@ -821,8 +821,8 @@ def pydantic_discriminator_in_hint() -> str:
         declaration_refused(lambda: node("pet", title="Pet", description="Says what kind of animal it is.")(pet))
     """
     return (
-        "the hint uses pydantic's Field(discriminator=...). Use pydantic's Discriminator instead: write "
-        'Annotated[Cat | Dog, Discriminator("kind")] where you had Annotated[Cat | Dog, Field(discriminator="kind")].'
+        'the hint uses pydantic\'s Field(discriminator=...). Write Annotated[Cat | Dog, Discriminator("kind")] where you had '
+        'Annotated[Cat | Dog, Field(discriminator="kind")].'
     )
 
 

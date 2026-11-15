@@ -89,7 +89,7 @@ class InputEntry(ConductorModel):
         if self.default is not MISSING and self.graph_input is MISSING:
             raise PydanticCustomError(
                 "default_without_graph_input",
-                "only a graph input can have a default. Give the input a graph_input, or drop the default",
+                "the entry has a default but no graph_input, and only a graph input can have a default",
             )
         return self
 

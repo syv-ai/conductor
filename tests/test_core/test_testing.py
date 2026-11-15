@@ -364,10 +364,10 @@ def test_what_a_check_says_is_made_from_its_ctx_alone():
         ("halv",),
         {"named": "'halv'"},
     )
-    assert found.msg == "the example ended {status}: {reason}".format(**found.ctx)
+    assert found.msg == "The example's run ended {status}: {reason}".format(**found.ctx)
     assert (
         missing.msg
-        == "{named} names no node of the registry; check the id, or remove the example".format(
+        == "The example {named} is for a node the registry doesn't have. Correct its key, or remove the example.".format(
             **missing.ctx
         )
     )

@@ -90,6 +90,9 @@ def compute_hook_failed(
             "pick": {"node": "pick", "inputs": {"names": {"constant": ""}}}
         }})
     """
+    # A reason that ends in a period is a whole message, a NodeError's or a declaration problem's, with its own fix.
+    if reason.endswith("."):
+        return f"The node couldn't work out its inputs and outputs: {reason}"
     return f"The node couldn't work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired into it."
 
 

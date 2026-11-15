@@ -65,7 +65,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     A plain ``polars.DataFrame`` written as a hint is read as a bare ``Table``: a table with any columns.
     """
 
-    typed_in_advice: ClassVar[str] = " (give a table as a list of records)"
+    typed_in_advice: ClassVar[str] = " (in a graph record, a table is written as a list of records)"
 
     @functools.cached_property
     def _row(self) -> Any:

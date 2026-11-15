@@ -1679,7 +1679,7 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
         "compute_hook_failed",
         "no_column",
         {"names": "boom"},
-        "The node couldn't work out its inputs and outputs: No such column. Check the node's constants and what is wired into it.",
+        "The node couldn't work out its inputs and outputs: No such column.",
     )
 
 

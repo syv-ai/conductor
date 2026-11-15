@@ -56,7 +56,7 @@ def _frame_of(columns: Iterable[tuple[str, list[Any], Any]], *, strict: bool) ->
     except (PolarsError, TypeError):  # polars' own message may quote a cell, so it isn't passed on
         raise PydanticCustomError(
             "not_a_table",
-            "the columns don't make a table. Check for a name used twice, columns of different lengths, or a column whose cells don't share one type",
+            "the columns don't make a table: a name may be used twice, the columns may differ in length, or a column's cells may not share one type",
         ) from None
 
 
@@ -309,7 +309,7 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
                 )
             raise PydanticCustomError(
                 "column_not_saved",
-                "column '{column}' is {type}, and a saved run would read it back as {saved}. Cast it to {saved}",
+                "column '{column}' is {type}, and a saved run would read it back as {saved}",
                 {"column": name, "type": str(dtype), "saved": str(saved)},
             )
         for check in checks:
