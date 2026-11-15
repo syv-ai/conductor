@@ -18,6 +18,7 @@ repos:
         stages: [touch]
         context:
           - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
+          - "@conventions/names-and-words.md#one-idea-per-sentence"
 
       - id: touch/validation
         name: Where outside values are validated

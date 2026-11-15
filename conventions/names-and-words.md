@@ -2,13 +2,33 @@
 
 ## Plain words a stranger reads right
 
-Write every name, docstring and comment so a Python developer who has never seen conductor or its plans reads it right: plain Python words, graph words where one fits, no coined metaphors and no word taken from a plan or word list.
+Write every name, docstring and comment for a Python developer who has never seen conductor. Say what the thing is first, in words they already know. Then say where it fits and why it exists. Never assume they know the rest of the codebase: someone who opens one file should understand it from that file. Use plain Python and graph words, with no coined metaphors and no word taken from a plan.
 
-Why: a name or a sentence that needs the plans to be understood is not understood; if it cannot be said simply, the idea is not clear yet.
+Why: a sentence that only makes sense once you know the rest of the code isn't understood. If it can't be said simply, the idea isn't clear yet.
 
 ```python
-"""Going on is one leg of the run, as it stands."""                                   # bad
-"""Whether the run can go on: it has calls left to make and nobody has cancelled it."""  # good
+"""The question about each output as a call asks it, and as a palette shows the output."""   # bad
+
+"""The questions a person is shown when a node asks.
+
+A node that raises ``Ask`` is answered by filling in its outputs, and each output is one question.
+"""                                                                                            # good
+```
+
+## One idea per sentence
+
+Write short sentences with one idea each, in the tone you would use to explain the code to a colleague. Don't fit every fact into one sentence: split it, and leave out what the code or the reference already says. Where it helps, add an example with real values.
+
+Why: a sentence that carries five facts has to be read three times. Short, relaxed sentences are read once.
+
+```python
+"""Reads ``value`` as a person's answer of ``value_type`` is read, into the form a run keeps."""   # bad
+
+"""Reads one value as a person's answer of type ``value_type``.
+
+An answer is read strictly, the way its JSON text would be read. So ``True`` is a ``bool``, but
+``"yes"`` is refused.
+"""                                                                                                 # good
 ```
 
 ## Ruled-out names
@@ -46,28 +66,30 @@ class InvalidAskError(Exception): ...  # good
 
 ## Google-style docstrings
 
-Give every public class and function a Google-style docstring that says what it does, with `Args`, `Returns`, `Raises` and `Attributes` saying what each argument and field is for.
+Give every public class and function a Google-style docstring. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for.
 
-Why: one docstring format, saying what a thing does and what each field means, is what a reader and the reference read.
+Why: one format is easy to read and to find things in. The reference shows a public name's first paragraph alone, so that paragraph has to make sense on its own.
 
 ```python
-def read_answer(waiting, answer):
-    """Reads it."""                                       # bad
+class AnswerValidator(Validator[Any, dict[str, Any]]):
+    """Reads a person's answer to one waiting call into the node's outputs. Built for each answer, with
+    the questions the call's ``Ask`` asked."""                                                 # bad
 
-def read_answer(waiting: Waiting, answer: Any) -> dict[str, Any]:
-    """Reads a person's answer into the outputs of the node that asked.
+class AnswerValidator(Validator[Any, dict[str, Any]]):
+    """A validator for a person's answer to a node that raised ``Ask``.
 
-    Args:
-        waiting: The call waiting for the answer.
-        answer: The answer as the host received it.
-    """                                                   # good
+    It checks the answer and turns it into the node's outputs.
+
+    Raises (when called):
+        InvalidCallError: One ``invalid_answer`` problem per fault.
+    """                                                                                        # good
 ```
 
 ## No history in code
 
-Write code, comments, docstrings and docs in the present tense of what the code does, with no "renamed from", "formerly", "no longer", dates, plan files, decision ids or PR numbers; history goes only in `CHANGELOG.md`.
+Write code, comments, docstrings and docs about what the code does. Leave out "renamed from", "formerly", "no longer", dates, plan files, decision ids and PR numbers. History goes in git, and sparingly in `CHANGELOG.md`.
 
-Why: code says what it does now; its history lives in git and, sparingly, in CHANGELOG.
+Why: a reader wants to know what the code does. How it got there is in git.
 
 ```toml
 # The order of the module map (plans: D-L143), with its third row split.        # bad
