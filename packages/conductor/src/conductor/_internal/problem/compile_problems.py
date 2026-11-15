@@ -604,14 +604,15 @@ def input_takes_only_a_constant(
 
 @COMPILE_PROBLEMS.problem()
 def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) -> str:
-    """Two inputs that name one graph input take different values, are shown to a host differently, or the record
-    gives them different defaults.
+    """Two inputs that name one graph input read it as different types, are shown to a host differently, or the
+    record gives them different defaults.
 
-    A caller gives a graph input one value, read by one type, so every input it feeds must take that type, with the
-    same limits and choices, and a host shows it once, so they must have the same title, description and widget;
-    ``int`` and ``Annotated[int, Param()]`` agree. Its default is the record's, written on any of them (and the same
-    wherever it is written twice); an input's own default plays no part. Give the inputs graph inputs of their own, or
-    make them agree.
+    A caller gives a graph input one value, read by one type, so every input it feeds must read the same type from its
+    hint, with its limits, choices and validators as they are written, and a host shows it once, so they must have the
+    same title, description and widget; ``int`` and ``Annotated[int, Param()]`` agree. One rule written two ways, an
+    ``annotated_types.Ge(0)`` and a ``Param(ge=0)``, is read as two types and clashes, though both take the same
+    values. Its default is the record's, written on any of them (and the same wherever it is written twice); an
+    input's own default plays no part. Give the inputs graph inputs of their own, or make them agree.
 
     Args:
         node_id: The node of the second input.
@@ -624,7 +625,7 @@ def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) 
             "c": {"node": "count", "inputs": {"n": {"graph_input": "x"}}},
         }})
     """
-    return f"'{field}' and another input both take the graph input '{graph_input}' but take different values, are shown differently or have different defaults; give each its own graph input."
+    return f"'{field}' and another input both take the graph input '{graph_input}' but read it as different types, are shown differently or have different defaults; give each its own graph input."
 
 
 @COMPILE_PROBLEMS.problem()

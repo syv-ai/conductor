@@ -560,11 +560,13 @@ class Compiler:
         input ``name``, and adds the graph input to ``graph_inputs``.
 
         Example: ``strip.line`` and ``shout.line`` both name the graph input ``line``, so a caller's ``line="a"`` is
-        the value of both. The two must take the same values (one ``Type``) and be shown to a host the same way (one
-        ``description``, the default aside), and the record's defaults for it must agree; else the graph has the
-        problem ``graph_input_used_two_ways`` and the second gets no value. So ``int`` and ``Annotated[int, Param()]``
-        agree, and ``int`` and ``Annotated[int, Param(title="Count")]`` do not. The input's own default plays no part:
-        a graph input the record gives no default is required.
+        the value of both. The two must read the same type from their hints (one ``Type``, its limits, choices and
+        validators as written) and be shown to a host the same way (one ``description``, the default aside), and the
+        record's defaults for it must agree; else the graph has the problem ``graph_input_used_two_ways`` and the
+        second gets no value. So ``int`` and ``Annotated[int, Param()]`` agree, and ``int`` and
+        ``Annotated[int, Param(title="Count")]`` do not; nor do ``Annotated[int, Ge(0)]`` and
+        ``Annotated[int, Param(ge=0)]``, one rule written two ways, though both take the same values. The input's own
+        default plays no part: a graph input the record gives no default is required.
 
         Args:
             node_id: The node.
@@ -900,9 +902,10 @@ def _edges_into(record: NodeRecord) -> dict[str, tuple[Source, ...]]:
 
 
 def _same_graph_input(found: Field, used: Field) -> bool:
-    """Whether two inputs that name one graph input can take the caller's one value: they take the same values (one
-    type, with the same limits and choices), a host is shown them the same way (title, description, widget), and
-    where the record gives both a default, it is one. ``int`` and ``Annotated[int, Param()]`` are one graph input.
+    """Whether two inputs that name one graph input can take the caller's one value: they read the same type from
+    their hints (its limits, choices and validators as written, so a ``Ge(0)`` and a ``Param(ge=0)`` differ), a host
+    is shown them the same way (title, description, widget), and where the record gives both a default, it is one.
+    ``int`` and ``Annotated[int, Param()]`` are one graph input.
 
     Args:
         found: The graph input as the inputs before named it, with the record's default if one gave it.
