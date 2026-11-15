@@ -1,11 +1,20 @@
-"""A graph: a graph record compiled against the node definitions it uses, which a host holds and starts runs of.
+"""Compiled graphs: a graph record checked against the nodes it uses, and ready to run.
 
-Code outside this package imports from here only. ``type.py`` has ``Graph``, and ``Graph.compile`` compiles a
-record with ``compile.py``; ``node.py`` has its nodes; ``input.py`` how each input of a node gets its value;
-``describe.py`` what a host is shown of a graph; ``make.py`` is ``make_graph``, a graph record written from Python;
-``validator.py`` reads what a graph is given: a caller's graph inputs and a run's limits, and the constants of its
-record.
-The record a graph is compiled from is ``record/``.
+A host stores a graph as a ``GraphRecord``. That's plain data: which nodes there are, and how they're wired.
+Before it can run, the record is compiled against a registry of node definitions. Compiling checks every node and
+edge. It also works out how the graph runs: where each input gets its value, and which nodes are called once per
+item of a list. The result is a ``Graph``, which a host keeps and starts runs from.
+
+The files:
+
+- ``type.py``: ``Graph`` itself.
+- ``compile.py``: the compiler behind ``Graph.compile``.
+- ``node.py`` and ``input.py``: the compiled nodes, and where each of their inputs gets its value.
+- ``describe.py``: what ``graph.describe()`` shows a host.
+- ``make.py``: ``make_graph``, which writes a graph record from Python.
+- ``validator.py``: the checks on what a graph is given, such as a caller's inputs and a run's limits.
+
+Code outside this package imports from here only. The graph record itself is in ``record/``.
 """
 
 from .describe import (

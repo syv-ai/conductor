@@ -1,4 +1,4 @@
-"""``Graph``: a graph record compiled against the node definitions it uses, which a host holds and starts runs of.
+"""``Graph``, a graph record that has been compiled and is ready to run.
 
 The example graph used in this file::
 
@@ -6,25 +6,21 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-Its record declares the graph input ``text`` on ``lines.text`` and the graph output ``result``, the output of
-``join``. Compiled, it is ``<Graph of 3 nodes, runnable>``. Its ``inputs`` has the one graph input, ``text``, its
-``outputs`` are ``["result"]``, and ``describe().nodes["shout"].per_item_of`` is ``"lines.result"``: ``shout`` is
-called once per item of it.
+``lines`` splits a text into lines. ``shout`` is called once for each line, and ``join`` gets all their results
+back as one list. The record makes ``lines.text`` the graph input ``text``, which the caller gives, and ``join``'s
+output the graph output ``result``. Compiled, it shows as ``<Graph of 3 nodes, runnable>``.
 
-A subgraph used as a node is one node of the graph. Its inputs and outputs are the graph inputs and outputs its
-own record declares, compiled once, on its own, and none of its nodes is copied into this graph's nodes. An edge
-names one of its outputs (``loud.result``), never a node inside it. The nodes of a graph are in
-``node.py``.
+A subgraph used as a node counts as one node of the graph. Its inputs and outputs are the graph inputs and outputs
+its own record declares. Its record is compiled once, on its own, and none of its nodes is copied into this graph.
+An edge reads one of its outputs, like ``loud.result``, and never a node inside it.
 
-A graph starts runs, and ``run/``, the package above this one, reads a graph's nodes, so ``run/`` imports this
-package when it loads. The layer contract in ``pyproject.toml`` lets this module import from ``run/``. It does so
-inside three methods, never when it loads: ``with_inputs``, which makes a run, and ``_blueprint`` and ``_codec``,
-which build what every run of the graph shares; and under ``TYPE_CHECKING`` for ``Run``, ``RunBlueprint`` and
-``SavedRun``, which its annotations name. ``Graph.compile`` imports ``compile.py`` inside its body too, since that
-module and this one import each other.
+This module and ``run/`` need each other. ``run/`` sits above this package and imports it when it loads. So this
+module imports from ``run/`` only inside the methods that need it (``with_inputs``, ``_blueprint`` and
+``_codec``), and under ``TYPE_CHECKING`` for its annotations. The layer contract in ``pyproject.toml`` allows
+that. ``compile.py`` and this module import each other too, so ``Graph.compile`` imports it inside its body.
 
-The names with an underscore (``_nodes``, ``_inputs``, ``_inputs_validator``, ...) are what the engine reads: the
-compiler, a subgraph node and a run. A host must not see them.
+Names with an underscore, like ``_nodes`` and ``_inputs``, are for the engine: the compiler, subgraph nodes and
+runs. A host never uses them.
 """
 
 from __future__ import annotations
@@ -62,10 +58,13 @@ if TYPE_CHECKING:
 
 
 class Definitions[C](Protocol):
-    """The node definitions a graph is compiled against: a ``NodeRegistry``, which stands above this package.
-    ``definitions["shout"]`` is the newest version of ``shout``, and a ``KeyError`` for an id it does not have;
-    iterating gives every definition. ``context_type`` is the class of the run's context the registry names,
-    ``None`` when it names none."""
+    """The node definitions a graph is compiled against.
+
+    In practice this is a ``NodeRegistry``. The registry lives in a package above this one, so this protocol names
+    just what the compiler uses. ``definitions["shout"]`` gives the newest version of ``shout``, and raises
+    ``KeyError`` for an id it doesn't know. Iterating gives every definition. ``context_type`` is the class of the
+    run's context that the registry names, or ``None``.
+    """
 
     def __getitem__(self, node_id: str, /) -> NodeDefinition: ...
 
@@ -77,46 +76,51 @@ class Definitions[C](Protocol):
 
 @dataclass(frozen=True, eq=False)
 class Graph[C]:
-    """A graph record checked against a registry's nodes, which can start a run: ``Graph.compile(record, registry)`` makes one.
+    """A graph record that has been checked against a registry's nodes and can start runs.
 
-    ``problems`` is everything wrong with it, and a graph with none runs: ``graph.run(**inputs)``. ``C`` is the class
-    of the run's context the registry names (``NodeRegistry(context_type=HostContext)`` compiles a
-    ``Graph[HostContext]``), and ``None`` for a registry that names none. A subgraph's own graph record is compiled
-    as a ``Graph`` too (``CompiledSubgraphNode.inner``), and never run on its own.
+    Make one with ``Graph.compile(record, registry)``. Compiling never fails on a wrong graph. Whatever is wrong
+    ends up in ``problems``, and only a graph with no problems runs: ``graph.run(**inputs)``.
+
+    ``C`` is the type of the run's context. A registry made with ``NodeRegistry(context_type=HostContext)``
+    compiles a ``Graph[HostContext]``. With no ``context_type``, ``C`` is ``None``.
+
+    A subgraph's own record is compiled into a ``Graph`` too (``CompiledSubgraphNode.inner``). That graph is never
+    run on its own.
 
     Attributes:
         record: The graph record it was compiled from.
-        problems: Everything wrong with it; empty for a graph that runs.
-        inputs: The graph inputs its record declares, by name: what a caller gives.
+        problems: Everything wrong with the graph. Empty when it can run.
+        inputs: The graph inputs the record declares, by name. These are what a caller gives.
     """
 
     record: GraphRecord
     problems: list[Problem]
-    #: Each node that was compiled, by id, each after the nodes upstream of it. A node with a problem on one of its
-    #: inputs is here too, with ``MissingInput`` for that input; a graph with problems never runs.
+    #: Every node that compiled, by id. Each comes after the nodes it reads from. A node with a problem on one of
+    #: its inputs is here too, with a ``MissingInput`` for that input. A graph with problems never runs anyway.
     _nodes: dict[str, CompiledNode]
-    #: Each graph input, by name, as the caller gives a value for it: its type, and the value used when the caller
-    #: gives none (``REQUIRED`` when the caller must give one).
+    #: Each graph input, by name, as a field: its type, and the value used when the caller gives none
+    #: (``REQUIRED`` when the caller must give one).
     _inputs: dict[str, Field]
-    #: The class the registry names with ``context_type``, which every node's ``Context[X]`` was checked against;
-    #: the ``context=`` of a run is an instance of it. ``None`` when the registry names none.
+    #: The ``context_type`` the registry names, or ``None``. Every node's ``Context[X]`` was checked against it,
+    #: and a run's ``context=`` is an instance of it.
     _context_type: type[C] | None
 
     @staticmethod
     def compile[R](
         record: GraphRecord | str | bytes | Mapping[str, Any], registry: Definitions[R]
     ) -> Graph[R]:
-        """Compile a graph record, given as a ``GraphRecord``, its JSON text, or the plain data ``read_json`` reads,
-        against the node definitions of ``registry``, a ``NodeRegistry``.
+        """Compiles a graph record against the node definitions in ``registry``, a ``NodeRegistry``.
 
-        Compiling never raises for a wrong graph, a half-finished one included: what is wrong is in
-        ``graph.problems``, and a graph with problems does not run. The graph keeps its own copy of the
-        definitions as they are when it is compiled, and the registry's ``context_type``.
+        The record can be a ``GraphRecord``, its JSON text, or the plain data ``read_json`` returns.
+
+        A graph that is wrong or half finished doesn't raise. What's wrong goes in ``graph.problems``, and a graph
+        with problems won't run. The graph keeps its own copy of the definitions it used, as they are now, and the
+        registry's ``context_type``.
 
         Raises:
-            InvalidCallError: ``record`` is not a graph record's shape, as ``RecordValidator`` raises.
+            InvalidCallError: ``record`` doesn't have the shape of a graph record (``invalid_record``).
         """
-        # compile.py makes a Graph, so it imports this module when it loads, and this one imports it here
+        # compile.py imports this module when it loads, so this module imports it here, not at the top
         from .compile import Compiler
 
         return Compiler(registry, inside_subgraphs=(), compiled_subgraphs={}).compile(record)
@@ -125,16 +129,16 @@ class Graph[C]:
         state = "runnable" if self.is_runnable else plural(len(self.problems), "problem")
         return f"<{type(self).__name__} of {plural(len(self.record.nodes), 'node')}, {state}>"
 
-    # -- what a host reads ------------------------------------------------------
+    # -- what a host uses -------------------------------------------------------
 
     @property
     def is_runnable(self) -> bool:
-        """Whether the graph has no problems, so it runs."""
+        """Whether the graph has no problems, so it can run."""
         return not self.problems
 
     @property
     def inputs(self) -> dict[str, FieldDescription]:
-        """The graph inputs, by name: what a caller gives a value for. In the example, ``text``."""
+        """The graph inputs, by name: what a caller gives values for. In the example, that's ``text``."""
         return {name: field.description for name, field in self._inputs.items()}
 
     @property
@@ -143,24 +147,23 @@ class Graph[C]:
         return sorted(self.record.outputs)
 
     def describe(self) -> GraphDescription:
-        """Returns the graph as an editor draws it: every node of the record, with its inputs and outputs and
-        whether it is called once or once per item.
+        """Returns the graph as an editor draws it.
 
-        Each node lists its own ``problems``, and the description's ``problems`` lists every problem of the graph.
-        A node with a problem is described with its inputs and outputs all the same; an input that gets no value
-        because of a problem has the source ``missing``. A ``type_mismatch`` names the input in its ``loc``; a
-        ``cycle`` and ``series_not_nested`` name the node.
+        Every node of the record is in it, with its inputs and outputs, and whether it's called once or once per
+        item. Each node lists its own problems, and the description's ``problems`` lists all of them.
 
-        Only a node that could not be compiled has ``found`` false and no inputs or outputs, and its problems say
-        why: its definition or version is not in the registry, its id cannot be written in a source, a hook
-        (``compute_added_inputs`` or ``compute_outputs``) failed or needs a constant it was not given, or it is a
-        subgraph that contains itself or has problems of its own. A subgraph node is one node, with the inputs and
-        outputs of its subgraph. Each problem of a subgraph is a problem of this graph, with a ``loc`` that starts
-        with the subgraph node's id and goes on with the place inside the subgraph.
+        A node with a problem is still described with its inputs and outputs. An input that gets no value because
+        of a problem has the source ``missing``.
+
+        Only a node that couldn't be compiled at all has ``found`` false, and no inputs or outputs. Its problems say
+        why. The reasons are listed in ``python -m conductor.about compiling``.
+
+        A subgraph node is one node, with its subgraph's inputs and outputs. A problem inside the subgraph is a
+        problem of this graph too. Its ``loc`` starts with the subgraph node's id, followed by the place inside.
         """
         problems_of: dict[
             Loc, list[Problem]
-        ] = {}  # by the start of each problem's loc: its node's id
+        ] = {}  # keyed by the first part of each problem's loc, its node's id
         for graph_problem in self.problems:
             problems_of.setdefault(graph_problem.loc[:1], []).append(graph_problem)
         nodes: dict[str, GraphNodeDescription] = {}
@@ -194,23 +197,25 @@ class Graph[C]:
             problems=list(self.problems),
         )
 
-    # -- what a subgraph node that uses this graph reads ------------------------
+    # -- what a subgraph node that uses this graph needs ------------------------
 
     def _node_returning(self, output: str) -> tuple[CompiledNode, str]:
-        """Returns the node of this graph that returns the graph output ``output``, and the output's name on that node.
+        """Returns the node that returns the graph output ``output``, and that output's name on the node.
 
-        Where the record declares the graph output ``loud`` as ``shout.result``, it is the node ``shout`` and
-        ``"result"``. The node may be a subgraph node, whose own graph says which node inside it returns the output.
+        If the record declares the graph output ``loud`` as ``shout.result``, this returns the node ``shout`` and
+        ``"result"``. The node may be a subgraph node. Then its own graph knows which node inside returns it.
         """
         source = self.record.outputs[output]
         return self._nodes[source.node], source.output
 
     def _output_field(self, output: str) -> Field:
-        """The graph output ``output`` as the output of a subgraph node that uses this graph: the field of the node's
-        output it is, under the graph output's name.
+        """Returns the graph output ``output`` as a field, for a subgraph node that uses this graph.
 
-        An exclusive group is named by the path of the node that chooses it, from this graph (``route.length``,
-        ``g/route.length`` for a node inside the subgraph node ``g``), so the groups of two nodes stay apart.
+        It's the field of the node output behind it, under the graph output's name.
+
+        The output may be in an exclusive group: a set of outputs of which a node fills exactly one per call. Then
+        the group is renamed after the path of the node that chooses it, like ``route.length``, or
+        ``g/route.length`` for a node inside the subgraph node ``g``. That keeps the groups of two nodes apart.
         """
         node, name = self._node_returning(output)
         field = node.outputs[name]
@@ -223,8 +228,10 @@ class Graph[C]:
         return Field(output, hint, field.default, is_output=True)
 
     def _group_of(self, output: str) -> tuple[NodePath, str] | None:
-        """Returns the exclusive group the graph output ``output`` is in: the path of the function node that chooses
-        it, from this graph, and the group's name; ``None`` for an output in no group."""
+        """Returns the exclusive group the graph output ``output`` is in, or ``None``.
+
+        The group is given as the path of the function node that chooses it, from this graph, and the group's name.
+        """
         node, name = self._node_returning(output)
         if isinstance(node, CompiledSubgraphNode):
             inside = node.inner._group_of(name)
@@ -236,13 +243,16 @@ class Graph[C]:
 
     @functools.cached_property
     def fingerprint(self) -> str:
-        """A short hash of the graph's shape: the graph record without each node's ``display`` (which conductor
-        never reads), and the fingerprint of every subgraph used in it. It leaves out the code of the nodes' functions:
-        a run checks that per call, and reuses a previous call's outcome only when the node's code is the same.
+        """A short hash of the graph's shape.
 
-        Keys are sorted first, so a record that a JSON store gives back with its keys in another order has the
-        same fingerprint. A saved run contains it, and loading a saved run into a graph whose fingerprint differs
-        is refused.
+        It covers the graph record, without each node's ``display`` (which conductor never reads), and the
+        fingerprint of every subgraph used in it. Keys are sorted first. So a record that comes back from a JSON
+        store with its keys in another order has the same fingerprint.
+
+        A saved run stores the fingerprint. Loading a saved run into a graph with a different one is refused.
+
+        The code of the nodes' functions isn't part of it. A run checks that per call instead, and reuses an
+        earlier call's outcome only when the node's code is the same.
         """
         own = self.record.model_dump(mode="json", exclude={"nodes": {"__all__": {"display"}}})
         subgraph_fingerprints = {
@@ -254,9 +264,11 @@ class Graph[C]:
 
     @functools.cached_property
     def _context_validator(self) -> ContextValidator:
-        """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
-        ``context_type`` and every function node of the run blueprint that takes the context, those inside subgraphs
-        too."""
+        """The validator for the ``context=`` passed when a run starts or resumes.
+
+        It's built once, from the registry's ``context_type`` and every function node that takes a context,
+        including those inside subgraphs.
+        """
         contexts = {
             path: node.compiled_node.definition.context
             for path, node in self._blueprint.function_nodes.items()
@@ -267,8 +279,10 @@ class Graph[C]:
         )
 
     def _asks(self) -> bool:
-        """Whether a call of a function node of the graph, or of its subgraphs at any depth, may wait for a person: the
-        node declares ``asks=True``."""
+        """Whether any function node may stop to ask a person, in this graph or in a subgraph at any depth.
+
+        A node says it may with ``asks=True``.
+        """
         return any(
             node.inner._asks() if isinstance(node, CompiledSubgraphNode) else node.definition.asks
             for node in self._nodes.values()
@@ -276,21 +290,25 @@ class Graph[C]:
 
     @functools.cached_property
     def _inputs_validator(self) -> InputsValidator:
-        """Reads the graph inputs of each call that makes a run: built when the first run is made."""
+        """The validator for the graph inputs a caller gives. Built when the first run is made."""
         return InputsValidator(self._inputs)
 
     @functools.cached_property
     def _blueprint(self) -> RunBlueprint:
-        """The blueprint every run of this graph works on: built on the first run and kept. A first run on two threads
-        at once may build two equal blueprints; one is kept."""
+        """The run blueprint every run of this graph works from. Built on the first run, and kept.
+
+        If two first runs start on two threads at once, each may build one. They're equal, and one is kept.
+        """
         from conductor._internal.run import RunBlueprint
 
         return RunBlueprint.of(self)
 
     @functools.cached_property
     def _codec(self) -> type[SavedRun]:
-        """The model this graph's runs are read from JSON and written as JSON by: built the first time a run is
-        saved or read, and kept."""
+        """The model that converts this graph's runs to and from JSON.
+
+        Built the first time a run is saved or loaded, and kept.
+        """
         from conductor._internal.run import codec_of
 
         return codec_of(self)
@@ -306,24 +324,25 @@ class Graph[C]:
         previous: Run[Any] | None = None,
         **by_name: Any,
     ) -> Run[C]:
-        """A run with the caller's inputs checked, not started; ``run.resume()`` starts it.
+        """Returns a run with the caller's inputs checked, but not started. ``run.resume()`` starts it.
 
         Args:
-            inputs: The inputs by name (``graph.inputs``), for a name Python can't take as a keyword
-                (``{"class": ...}``).
-            max_items: The most items any one Series a node works through may hold before the run stops.
-            previous: A run of this graph, or of an earlier version of it, that lends its work as ``run.again``
-                does: a node with the same id, version, code, fields and scope is not called where it receives
-                what it received there, so after an edit only the nodes it changes, and what they feed, run again.
+            inputs: The inputs by name (see ``graph.inputs``). Use this for a name that can't be a Python keyword,
+                like ``{"class": ...}``.
+            max_items: The most items any one ``Series`` that a node loops over may have. Past that, the run stops.
+            previous: An earlier run of this graph, or of an older version of it, to reuse work from, as
+                ``run.again`` does. A node isn't called again where it gets the same arguments it got there, as
+                long as its id, version, code, fields and loops are the same. So after an edit, only the nodes the
+                edit changed, and what they feed, run again.
             **by_name: The inputs, as keywords.
 
         Returns:
-            The run, ``ready``.
+            The run, with the status ``ready``.
 
         Raises:
-            InvalidCallError: The graph has problems; ``max_items`` is not a whole number of at least 1
-                (``invalid_limit``); or an input is missing, unknown, given twice or not of its type (the inputs
-                validator's problems, every one).
+            InvalidCallError: The graph has problems. Or ``max_items`` isn't a whole number of at least 1
+                (``invalid_limit``). Or an input is missing, unknown or not of its type. Every fault in the inputs
+                is listed.
         """
         from conductor._internal.run import make_run
 
@@ -344,8 +363,10 @@ class Graph[C]:
         timeout: float | None = None,
         **by_name: Any,
     ) -> Run[C]:
-        """Run the graph with these inputs until it is done, waits for a person, fails or stops:
-        ``graph.with_inputs(...).resume(context=context, timeout=timeout)``."""
+        """Runs the graph with these inputs until it's done, waits for a person, fails or stops.
+
+        It's the same as ``graph.with_inputs(...).resume(context=context, timeout=timeout)``.
+        """
         return self.with_inputs(inputs, max_items=max_items, **by_name).resume(
             context=context, timeout=timeout
         )

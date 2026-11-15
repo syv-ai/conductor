@@ -1,5 +1,8 @@
-"""Compiling a graph record: check every node and edge against the node definitions, and work out once, for
-every run, where each input gets its value, which loops each node is inside, and the order of the nodes.
+"""Compiling a graph record into a ``Graph``.
+
+Compiling does two jobs. It checks every node and edge against the node definitions. And it works out, once for
+every run, how the graph runs: the order of the nodes, where each input gets its value, and which loops each node is
+in. A loop here means a node called once for each item of a list.
 
 The example graph used in this file::
 
@@ -7,28 +10,30 @@ The example graph used in this file::
     shout(line: str, mark: str = "!") -> str   # wired to lines.result: called once per line
     join(texts: Series[str]) -> str            # wired to shout.result: called once, with ["A!", "B!"]
 
-``Graph.compile`` puts the nodes in the order ``lines``, ``shout``, ``join`` and gives every input a compiled input
-(``input.py``): ``lines.text`` is a graph input, ``shout.mark`` is the constant ``"!"``, ``shout.line`` reads
-one item of ``lines.result``, and ``join.texts`` collects what ``shout`` returned for every line. ``shout`` is
-inside the loop over ``lines.result``; ``lines`` and ``join`` are inside no loop.
+``Graph.compile`` puts the nodes in the order ``lines``, ``shout``, ``join``, and gives every input a compiled
+input (see ``input.py``). ``lines.text`` is a graph input, and ``shout.mark`` is the constant ``"!"``.
+``shout.line`` gets one item of ``lines.result`` per call, and ``join.texts`` collects what ``shout`` returned for
+every line. So ``shout`` is inside the loop over ``lines.result``, and ``lines`` and ``join`` are in no loop.
 
-Compiling never raises for a wrong graph. What is wrong becomes a ``Problem`` in the graph's ``problems``, naming
-the node and the input it is on, and a graph with problems does not run.
+Compiling never raises for a wrong graph. Each fault becomes a ``Problem`` in the graph's ``problems``, naming the
+node and input it's on, and a graph with problems doesn't run.
 
-The declared types alone decide the loops:
+Only the declared types decide the loops, never the values:
 
-- An input that takes one ``T``, wired to an output declared ``Series[T]``, reads one item per call: its node is
-  inside the loop over that output. A ``Table`` input wired to a ``Series`` of tables reads one table per call.
-- An input wired to an output of a node outside the loop gets the same value on every call inside it: an outer
-  value.
-- An input declared ``Series[T]``, or ``Table[R]`` wired to records, collects. Wired to an output inside a loop, it
-  gets one value per item of the innermost of those loops, as a list, and its node is outside that loop. Wired to
-  an output inside no loop, it gets that one value as a list of one.
-- A node is inside the loops of its input with the most loops. Every other input's loops must be the outermost of
-  those, because the items of two different lists are never paired; an input whose loops are not has the problem
+- An input that takes one ``T``, wired to an output declared ``Series[T]``, gets one item per call. Its node is
+  inside the loop over that output. A ``Table`` input wired to a ``Series`` of tables gets one table per call.
+- An input wired to an output of a node outside the loop gets the same value on every call inside it. That's an
+  outer value.
+- An input declared ``Series[T]``, or a ``Table[R]`` wired to records, collects. If what it's wired to is inside a
+  loop, it gets one value per item of the innermost of those loops, as a list, and its node is outside that loop.
+  If what it's wired to is in no loop, it gets that one value as a list of one.
+- A node is inside the loops of the input that has the most. Every other input's loops must be the outermost of
+  those, since the items of two different lists are never paired. An input whose loops aren't gets the problem
   ``series_not_nested``.
-- A loop is named by the output it loops over, so every node that reads items of ``lines.result`` is inside the
-  same loop.
+- A loop is named by the output it loops over. So every node that gets items of ``lines.result`` is in the same
+  loop.
+
+The full rules are in ``python -m conductor.about one-or-many``.
 """
 
 from __future__ import annotations
@@ -80,9 +85,9 @@ from .validator import ConstantValidator
 _logger = logging.getLogger("conductor")
 
 
-#: Stands in for a constant or default of the graph record that its input's type rejected, or a default the node
-#: declares that the type its edges bind refused, while a node is compiled. The input gets ``MissingInput``, and the
-#: problem ``invalid_value`` says why.
+#: Stands in, while a node is compiled, for a value its input's type refused. That's a constant or default from the
+#: graph record, or a default the node declares that the type bound by its edges refuses. The input gets a
+#: ``MissingInput``, and the ``invalid_value`` problem says why.
 _INVALID: Any = sentinel("_INVALID")
 
 
@@ -92,11 +97,11 @@ class _InputPlans:
 
     Attributes:
         inputs: The compiled input of each input, by name.
-        loops: The loops the node is inside, outermost first. In the example, ``shout`` is inside the loop over
+        loops: The loops the node is in, outermost first. In the example, ``shout`` is in the loop over
             ``lines.result``.
         required_branches: The branches that must be chosen upstream for the node to be called.
-        bound: For a node whose input types have type variables (``T``), the type each variable gets from the
-            edges into the node. ``None`` for every other node, which is nearly all of them.
+        bound: The type each type variable (like ``T``) of the node's inputs gets from the edges into the node.
+            ``None`` for a node with no type variables, which is nearly every node.
     """
 
     inputs: dict[str, Input]
@@ -106,22 +111,25 @@ class _InputPlans:
 
 
 class Compiler:
-    """Compiles one graph record. It compiles the nodes one at a time, each after the nodes upstream of it, and
-    keeps what it has found so far. A subgraph used as a node is compiled by a ``Compiler`` of its own.
+    """Compiles one graph record.
+
+    It compiles the nodes one at a time, each after the nodes it reads from, and keeps what it has found so far. A
+    subgraph used as a node is compiled by a ``Compiler`` of its own.
 
     Attributes:
-        definitions: The registry: the newest version of each node definition, looked up by id, and the class of the
-            run's context (``context_type``), which each node's ``Context[X]`` is checked against.
-        inside_subgraphs: The ids of the subgraph definitions whose records contain this record, outermost first.
-            A subgraph found among them contains itself.
-        compiled_subgraphs: Each subgraph compiled so far, by its id, its version and the subgraphs it is inside.
-            Every compiler of one ``Graph.compile`` call shares it, so a subgraph used twice is compiled once.
+        definitions: The registry. It gives the newest version of each node definition by id, and the class of the
+            run's context (``context_type``) that each node's ``Context[X]`` is checked against.
+        inside_subgraphs: The ids of the subgraph definitions whose records contain this one, outermost first. If
+            a subgraph turns up among them, it contains itself.
+        compiled_subgraphs: Each subgraph compiled so far, keyed by its id, its version and the subgraphs it's
+            inside. Every compiler in one ``Graph.compile`` call shares it, so a subgraph used twice is compiled
+            once.
         problems: The problems found so far.
         nodes: Each node compiled so far, by id.
-        graph_inputs: Each graph input found so far, by name, in the order found: the field the caller gives a
-            value for, with the type of the inputs it feeds and the default the caller's value replaces.
+        graph_inputs: Each graph input found so far, by name, in the order found. Each is the field a caller gives
+            a value for, with the type of the inputs it feeds and the default used when the caller gives none.
         record: The graph record being compiled.
-        position: Each node's index among the record's node ids, sorted: it breaks ties in the order of the nodes.
+        position: Each node's index among the record's node ids, sorted. It breaks ties in the order of the nodes.
     """
 
     def __init__(
@@ -139,13 +147,16 @@ class Compiler:
         self.position: dict[str, int] = {}
 
     def compile(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> Graph[Any]:
-        """Returns ``record`` compiled.
+        """Compiles ``record`` and returns the graph.
 
-        It never raises for a wrong record. The graph has the problems, and every node whose inputs and outputs
-        could be worked out. A node whose definition is not found, or whose hook failed, is left out.
+        A wrong record doesn't raise. The graph gets the problems, and every node whose inputs and outputs could be
+        worked out. A node whose definition isn't found, or whose hook failed, is left out.
+
+        Raises:
+            InvalidCallError: ``record`` doesn't have the shape of a graph record (``invalid_record``).
         """
         self.record = RecordValidator()(record)
-        ids = sorted(self.record.nodes)  # the record keeps no order of its nodes, so ties go by id
+        ids = sorted(self.record.nodes)  # the record doesn't order its nodes, so ties go by id
         self.position = {node_id: i for i, node_id in enumerate(ids)}
         edges_into = {node_id: _edges_into(self.record.nodes[node_id]) for node_id in ids}
         for node_id in self._order(ids, edges_into):
@@ -163,9 +174,11 @@ class Compiler:
         )
 
     def _check_graph_outputs(self) -> None:
-        """Gives the problem ``graph_output_not_found``, at no node, to each graph output whose node the record lacks,
-        or whose node has no such output. One whose node was not compiled has no problem here, as a problem of its own
-        says why."""
+        """Checks that every graph output names a node and an output that exist.
+
+        One that doesn't gets the problem ``graph_output_not_found``, which isn't on any node. A graph output whose
+        node didn't compile is skipped here, since that node already has a problem saying why.
+        """
         for name, source in sorted(self.record.outputs.items()):
             node = self.nodes.get(source.node)
             if source.node not in self.record.nodes or (
@@ -183,8 +196,11 @@ class Compiler:
                 )
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
-        """Returns the node definition a node of the record names, at the record's version; ``None``, with a
-        problem, when there is none."""
+        """Returns the node definition that a node of the record names, at the record's version.
+
+        Returns ``None``, and adds a problem, when there's no such definition (``unknown_node``) or no such version
+        (``unknown_version``).
+        """
         try:
             newest = self.definitions[record.node]
         except KeyError:
@@ -208,12 +224,13 @@ class Compiler:
     def _order(
         self, order: list[str], edges_into: Mapping[str, Mapping[str, tuple[Source, ...]]]
     ) -> list[str]:
-        """Returns the node ids in the order they are compiled: each after the nodes its edges come from, and
-        by id where that leaves a choice.
+        """Returns the node ids in the order they're compiled.
 
-        Every node on a cycle has the problem ``cycle``. To go on, the cycle's first node by id is put
-        first. The edge into it from inside the cycle then comes from a node that is not compiled yet, so the
-        input it leads to gets no value. The rest of the cycle follows in order.
+        Each node comes after the nodes its edges come from. Where that leaves a choice, they go by id.
+
+        Every node on a cycle gets the problem ``cycle``. To go on anyway, the cycle's first node by id is put
+        first. The edge into it from inside the cycle then comes from a node not compiled yet, so the input it
+        leads to gets no value. The rest of the cycle follows in order.
         """
         position = self.position
         reads = {
@@ -262,10 +279,12 @@ class Compiler:
     ) -> None:
         """Compiles a node whose definition is a function, and adds it to ``nodes``.
 
-        Its inputs are those its definition declares and those its ``compute_added_inputs`` hook adds; each gets
-        a compiled input. Its outputs are those its definition declares, or what its ``compute_outputs`` hook
-        returns, given the types its edges read. When a hook fails, the node is left out and the graph has the
-        problem. Every other node is added, even when some of its inputs have problems.
+        Its inputs are those its definition declares, plus any its ``compute_added_inputs`` hook adds. Each gets a
+        compiled input. Its outputs are those its definition declares, or what its ``compute_outputs`` hook
+        returns, given the types its edges carry.
+
+        If a hook fails, the node is left out and the graph gets the problem. Every other node is added, even when
+        some of its inputs have problems.
         """
         if (
             definition.context is not None
@@ -347,16 +366,17 @@ class Compiler:
     ) -> None:
         """Compiles a node whose definition is a subgraph, and adds it to ``nodes``.
 
-        Example: the subgraph ``strip -> shout`` used as the node ``loud``. The subgraph's graph record is
-        compiled first, on its own. The node's inputs and outputs are the graph inputs and outputs its record
-        declares, by name (``line``, ``result``), so an edge reads ``loud.result``. An output keeps the field the
-        node inside declares. The loops and the branches an output depends on are
-        asked of the compiled node (``loops_around``, ``branches_required_for``), which answers as it would if the
-        subgraph's nodes were drawn in this graph.
+        Say the subgraph ``strip -> shout`` is used as the node ``loud``. The subgraph's record is compiled first,
+        on its own. The node's inputs and outputs are the graph inputs and outputs that record declares, by name
+        (``line`` and ``result``), so an edge reads ``loud.result``. Each output keeps the field the node inside
+        declares.
+
+        The compiled node works out the loops and branches each output depends on itself (``loops_around`` and
+        ``branches_required_for``). It answers as it would if the subgraph's nodes were drawn in this graph.
 
         A subgraph that contains itself is a problem. So is every problem of the subgraph's own graph, with this
-        node's id put in front of its ``loc``. In both cases the node is left out, because the inputs and outputs
-        of a graph with problems are not known.
+        node's id put in front of its ``loc``. Either way, the node is left out, since the inputs and outputs of a
+        graph with problems aren't known.
         """
         if definition.id in self.inside_subgraphs:
             self.problems.append(
@@ -398,30 +418,38 @@ class Compiler:
         constants: Mapping[str, Any],
         edges: Mapping[str, tuple[Source, ...]],
     ) -> _InputPlans:
-        """Makes the compiled input of every input of a node, and works out which loops the node is inside.
+        """Makes the compiled input of every input of a node, and works out which loops the node is in.
 
-        In the example, ``shout.line`` reads one item of ``lines.result``, so ``shout`` is inside the loop over
-        ``lines.result``. A node is inside the loops of its input with the most loops, and the loops of every
-        other input must be the outermost of those (else ``series_not_nested``).
+        In the example, ``shout.line`` gets one item of ``lines.result``, so ``shout`` is in the loop over
+        ``lines.result``. A node is in the loops of the input that has the most. Every other input's loops must be
+        the outermost of those, or the input gets ``series_not_nested``.
 
-        Each input first gets its compiled input from what the record gives it (``_plan_input``). Then the checks that
-        need every input of the node at once refuse the inputs that cannot be read together: edges that are not
-        alternatives, and loops that do not nest. A refused input gets ``MissingInput``, and the graph has a problem
-        that says why. The node is kept so an editor can still draw it; the graph does not run.
+        It goes in four steps:
 
-        Whether a collecting input gets its value as a list of one is decided in two steps. ``_edge_input`` decides it
-        for an input whose edges are inside no loop. For the rest it needs the node's loops, and those come from the
-        inputs once the refused ones are left out, so ``_input_inside`` makes that change after. The conflicting-edges
-        check must come before it: two lists on opposite branches of a loop are refused even when another input puts
-        the node inside that loop (``lists_from_different_loops``), and the check finds the lists among the inputs
-        that collect. After the change those are one value per call, each ``None`` on the branch not chosen.
+        1. Each input gets its compiled input from what the record gives it (``_plan_input``).
+        2. Inputs whose edges can't be used together are refused (``_inputs_with_conflicting_edges``).
+        3. The node's loops are worked out from the inputs, and each collecting input is fitted to them
+           (``_input_inside``).
+        4. Inputs whose loops don't fit inside the node's are refused (``_inputs_not_nested``).
+
+        A refused input gets ``MissingInput``, and the graph gets a problem saying why. The node is still kept, so
+        an editor can draw it, but the graph won't run.
+
+        Step 3 is a step of its own because a collecting input can turn out to get just one value per call, as a
+        list of one. ``_edge_input`` already decides that for an input whose edges are in no loop. For the rest, it
+        depends on the node's loops, which are known only once step 2 has left out the refused inputs.
+
+        Step 2 has to come before step 3. It refuses two lists on opposite branches inside a loop
+        (``lists_from_different_loops``), even when another input puts the node inside that loop. It finds those
+        lists among the collecting inputs. After step 3 they'd no longer collect: each would be one value per call,
+        ``None`` on the branch not chosen.
 
         Args:
             node_id: The node's id.
             record: The node in the graph record.
             fields: The node's inputs, by name.
-            constants: The constant or default the record gives each input, already read by the input's type, by
-                name; ``_INVALID`` where the type rejected it.
+            constants: The constant or default the record gives each input, by name, already converted by the
+                input's type. ``_INVALID`` where the type refused it.
             edges: For each input that edges lead to, by name, the outputs they come from (``_edges_into``).
         """
         for name in sorted(record.inputs.keys() - fields.keys()):
@@ -430,17 +458,17 @@ class Compiler:
             name: self._sources(node_id, name, edges[name])
             for name, field in fields.items()
             if name in edges and not field.param.constant_only
-        }  # an edge into an input that takes only a constant is refused (_constants_of), so it binds no type
+        }  # _constants_of refuses an edge into an input that takes only a constant, so it binds no type
         bound = None
         refused_defaults: Mapping[str, list[Problem]] = {}
         if any(
             field.whole.variables for field in fields.values()
-        ):  # the compiled node's fields have no type variables left
+        ):  # bind the type variables, so the compiled node's fields have none left
             bound = _bound(fields, sources)
             fields, refused = _bind(node_id, fields, bound)
             refused_defaults = {
                 name: problems for name, problems in refused.items() if name not in record.inputs
-            }  # else the default is never used
+            }  # a declared default is used only where the record gives the input nothing
             self.problems += [
                 problem for problems in refused_defaults.values() for problem in problems
             ]
@@ -461,7 +489,7 @@ class Compiler:
         )  # only an edge puts a node inside a loop
         inputs = {
             name: _input_inside(node_input, loops) for name, node_input in inputs.items()
-        }  # after the conflicting edges, which read which inputs collect
+        }  # after the conflicting-edges check, which looks at which inputs collect
         for name in self._inputs_not_nested(node_id, inputs, loops):
             inputs[name] = MissingInput(inputs[name].field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
@@ -474,23 +502,24 @@ class Compiler:
         sources: list[Edge] | None,
         value: Any,
     ) -> Input:
-        """Returns the compiled input of the input ``field`` from what the record gives it, before the node's loops are
-        known: a collecting input whose node turns out to be inside the loop it collects is changed later
-        (``_input_inside``).
+        """Returns the compiled input of ``field``, from what the record gives it.
+
+        This runs before the node's loops are known. A collecting input whose node turns out to be inside the loop
+        it collects is changed later, by ``_input_inside``.
 
         Args:
             node_id: The node.
             field: The input.
-            entry: What the record gives the input; ``None`` when it gives nothing, and the input takes the default
+            entry: What the record gives the input. ``None`` when it gives nothing, and the input takes the default
                 its node declares.
-            sources: What the edges into the input read, when the record wires edges to it; ``None`` when one of
-                them cannot be read (the graph has the problem), and for every other input.
-            value: What the input gets when neither an edge nor the caller gives it a value, read by its type: the
-                record's constant, the default the record gives its graph input, or, when the record gives the input
-                nothing, the default its node declares. ``REQUIRED`` when there is none, and ``_INVALID`` when the
-                type refused it.
+            sources: What the edges into the input carry, when the record wires edges to it. ``None`` when one of
+                them can't be used (the graph has the problem), and for every other input.
+            value: What the input gets when no edge and no caller gives it a value, converted by its type. That's
+                the record's constant, the default the record gives its graph input, or, when the record gives the
+                input nothing, the default its node declares. ``REQUIRED`` when there's none, and ``_INVALID`` when
+                the type refused it.
         """
-        if field.param.constant_only:  # _constants_of refused an edge or a graph input into it
+        if field.param.constant_only:  # _constants_of refused an edge or graph input into it
             return _constant_input(field, value)
         if entry is None:
             if value is REQUIRED:
@@ -509,15 +538,17 @@ class Compiler:
         if entry.graph_input is not MISSING:
             return self._graph_input(
                 node_id, field, entry.graph_input, value
-            )  # with REQUIRED, the caller must give one
+            )  # a REQUIRED default means the caller must give a value
         return _constant_input(field, value)
 
     def _inputs_not_nested(
         self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]
     ) -> set[str]:
-        """Finds the inputs whose loops are not the outermost of the node's ``loops``, and adds a problem for each
-        (``series_not_nested``): the items of two different lists are never paired. Where one of the lists is
-        returned inside a subgraph, no edge of this graph can change that, and the problem says so.
+        """Finds the inputs whose loops aren't the outermost of the node's ``loops``, and adds a problem for each.
+
+        The items of two different lists are never paired, so such an input can't be used (``series_not_nested``).
+        When one of the lists is returned inside a subgraph, no edge of this graph can fix it, and the problem says
+        so.
 
         Returns:
             The names of the inputs with a problem.
@@ -556,25 +587,31 @@ class Compiler:
     def _graph_input(
         self, node_id: str, field: Field, name: str, default: Any
     ) -> GraphInput | MissingInput:
-        """Returns the compiled input of the input ``field`` of ``node_id``, whose value the caller gives as the graph
-        input ``name``, and adds the graph input to ``graph_inputs``.
+        """Returns the compiled input of ``field`` on ``node_id``, whose value the caller gives as the graph input
+        ``name``, and adds the graph input to ``graph_inputs``.
 
-        Example: ``strip.line`` and ``shout.line`` both name the graph input ``line``, so a caller's ``line="a"`` is
-        the value of both. The two must read the same type from their hints (one ``Type``, with its limits, choices
-        and validators) and be shown to a host the same way (one ``description``, the default aside), and the
-        record's defaults for it must agree; else the graph has the problem ``graph_input_used_two_ways`` and the
-        second gets no value. So ``int`` and ``Annotated[int, Param()]`` agree, and ``int`` and
-        ``Annotated[int, Param(title="Count")]`` do not; nor do ``Annotated[int, Ge(0)]`` and
-        ``Annotated[int, Param(ge=0)]``, one rule written two ways, though both take the same values. The graph input is
-        the first input's field, unless a later one brings the record's default and the first did not. The input's
-        own default plays no part: a graph input the record gives no default is required.
+        Several inputs may name one graph input. Say ``strip.line`` and ``shout.line`` both name ``line``. Then a
+        caller's ``line="a"`` is the value of both. For that to work, the inputs must agree:
+
+        - They read the same type from their hints, limits, choices and validators included (one ``Type``).
+        - A host is shown them the same way (one ``description``, apart from the default).
+        - Where the record gives both a default, it's the same default.
+
+        If they don't agree, the graph gets ``graph_input_used_two_ways``, and the second input gets no value.
+        ``int`` and ``Annotated[int, Param()]`` agree. ``int`` and ``Annotated[int, Param(title="Count")]`` don't.
+        Nor do ``Annotated[int, Ge(0)]`` and ``Annotated[int, Param(ge=0)]``. That's one rule written two ways, and
+        both take the same values, but they're read as two types.
+
+        The graph input is the first input's field. A later input replaces it only if it brings the record's
+        default and the first didn't. The input's own declared default plays no part: a graph input that the record
+        gives no default is required.
 
         Args:
             node_id: The node.
             field: The input.
             name: The graph input's name.
-            default: The record's default, read by the input's type; ``REQUIRED`` when the record gives none, and
-                ``_INVALID`` when the input's type refused it.
+            default: The record's default, converted by the input's type. ``REQUIRED`` when the record gives none,
+                and ``_INVALID`` when the input's type refused it.
         """
         if default is _INVALID:
             return MissingInput(field)
@@ -592,14 +629,16 @@ class Compiler:
     def _constants_of(
         self, node_id: str, record: NodeRecord, fields: Mapping[str, Field]
     ) -> dict[str, Any]:
-        """Returns the constant, or the graph input's default, the record gives each of ``fields``, read by the input's
-        type, by name. An input the record gives neither is left out. Where the type rejects the value, the graph gets
-        the problem ``invalid_value`` and the input gets ``_INVALID``.
+        """Returns the constant, or graph input default, that the record gives each of ``fields``, by name.
 
-        An input that takes only a constant (``constant_only``) is held to it here and nowhere else: one the record
-        gives an edge or a graph input gets ``input_takes_only_a_constant``, one with no constant and no default gets
-        ``input_has_no_value`` (variant ``constant_only``), and both get ``_INVALID``, so a hook that reads it is not
-        called and the input has no value."""
+        Each value is converted by the input's type. An input the record gives neither is left out. Where the type
+        refuses a value, the graph gets ``invalid_value`` and the input gets ``_INVALID``.
+
+        This is also the one place that checks ``constant_only``, on an input that takes only a constant. If the
+        record gives such an input an edge or a graph input, it gets ``input_takes_only_a_constant``. If it has no
+        constant and no default, it gets ``input_has_no_value`` (variant ``constant_only``). Both get ``_INVALID``,
+        so a hook that needs the input isn't called, and the input has no value.
+        """
         constants: dict[str, Any] = {}
         for name, field in fields.items():
             entry = record.inputs.get(name)
@@ -643,20 +682,25 @@ class Compiler:
         arriving: Mapping[str, Any],
         added: tuple[str, ...],
     ) -> dict[str, Field] | None:
-        """Calls one of a node's hooks and returns what it returned, as fields by name; ``None``, with a
-        problem, when the hook cannot be called, fails, or returns something that is not fields.
+        """Calls one of a node's hooks and returns what it returned, as fields by name.
 
-        ``@node`` read from the hook's signature what each parameter gets: the value of the input of the same
-        name (its constant or default), the type the edges into that input read (``Any`` when no edge leads to
-        it), or, for ``**added: type``, those types for every input ``compute_added_inputs`` added.
+        Returns ``None``, and adds a problem, when the hook can't be called, fails, or returns something that isn't
+        fields.
+
+        ``@node`` worked out from the hook's signature what each parameter gets. It's one of three things:
+
+        - the value of the input with the same name (its constant or default);
+        - the type the edges into that input carry (``Any`` when no edge leads to it);
+        - for ``**added: type``, those types for every input that ``compute_added_inputs`` added.
 
         Args:
             node_id: The node's id.
             definition: The node's definition.
             kind: Which hook it is: ``compute_added_inputs`` or ``compute_outputs``.
-            hook: The hook.
-            constants: The constant or default the record gives each input, read by the input's type, by name.
-            arriving: The type the edges into each input read, by input name.
+            hook: The hook function.
+            constants: The constant or default the record gives each input, by name, converted by the input's
+                type.
+            arriving: The type the edges into each input carry, by input name.
             added: The inputs ``compute_added_inputs`` added.
         """
         kwargs: dict[str, Any] = {}
@@ -688,7 +732,7 @@ class Compiler:
                 )
             )
             return None
-        except Exception as error:  # noqa: BLE001  any other exception of the hook is a problem of this node
+        except Exception as error:  # noqa: BLE001  any other exception from the hook becomes a problem of this node
             _logger.error("the %s hook of node %r failed", kind, node_id, exc_info=error)
             self.problems.append(
                 compile_problems.compute_hook_failed(
@@ -705,13 +749,14 @@ class Compiler:
     # -- edges ------------------------------------------------------------------
 
     def _sources(self, node_id: str, name: str, sources: tuple[Source, ...]) -> list[Edge] | None:
-        """Returns what the edges from ``sources`` into one input read, by the order of their nodes' ids and then
-        of the outputs of each node. A graph output is read as the input ``name`` of ``"outputs"``.
+        """Returns what the edges from ``sources`` into one input carry.
+
+        The edges are sorted by their nodes' order among the node ids, then by the order of each node's outputs.
 
         Returns:
-            The edges. ``None`` when an edge cannot be read: its node is not in the graph record, or its source
-            names no output of its node (the graph gets the problem), or its node was not compiled (a problem of
-            its own says why, or it is on a cycle and comes later).
+            The edges, or ``None`` when one of them can't be used. That's when its node isn't in the graph record,
+            or it names an output its node doesn't have (the graph gets the problem), or its node wasn't compiled
+            (a problem of its own says why, or it's on a cycle and comes later).
         """
         edges: list[Edge] = []
         for source in sources:
@@ -736,29 +781,31 @@ class Compiler:
         return edges
 
     def _edges_fit(self, node_id: str, field: Field, expected: Type, sources: list[Edge]) -> bool:
-        """Whether every edge into the input ``field`` reads a value of the type ``expected``; for the first that does
-        not, the graph gets the problem.
+        """Whether every edge into ``field`` carries a value of the type ``expected``.
 
-        ``expected`` is the input's type when it takes one value, the type of one item when it is a ``Series`` that
-        collects, and the record type when it is a ``Table`` that collects records (``_collects_and_expected_type``).
+        For the first edge that doesn't, the graph gets the problem.
+
+        ``expected`` is the input's type when it takes one value. When the input collects, it's the type of one item
+        of the ``Series``, or the record type of the ``Table`` (see ``_collects_and_expected_type``).
         """
         for source in sources:
             if (
                 expected is not source.type and expected.fits(source.type) is None
-            ):  # the identity test first: most edges read exactly the input's type
+            ):  # the identity check first, since most edges carry exactly the input's type
                 self.problems.append(_mismatch(node_id, field, source))
                 return False
         return True
 
     def _edge(self, source: Source, node_id: str, name: str) -> Edge | None:
-        """Returns the edge from ``source``, which reads an output, or one field of the record an output returns.
+        """Returns the edge from ``source``, which is an output, or one field of the record an output returns.
 
         Returns:
-            The edge, which reads one item per call when the output is a ``Series``. ``None``, with a
-            problem, when the source names no output of its node; ``None`` when its node was not compiled.
+            The edge. It gives one item per call when the output is a ``Series``. ``None``, with a problem, when the
+            source names an output or a field its node doesn't give. ``None`` with no problem when its node wasn't
+            compiled.
         """
         node = self.nodes.get(source.node)
-        if node is None:  # not compiled, or on a cycle and later: a problem of its own says why
+        if node is None:  # not compiled, or on a cycle; a problem of its own says why
             return None
         path, written = (source.node,), place_text((source.node,), source.output, source.field)
         if source.output not in node.outputs:
@@ -770,7 +817,7 @@ class Compiler:
         field = node.outputs[source.output]
         if source.field is not None and (
             parts := _taken_apart(field.type)
-        ):  # only a record has fields to wire; a whole table or list is taken apart first
+        ):  # only a record has fields to wire; a table or list must be taken apart first
             self.problems.append(
                 compile_problems.unknown_output_make_a_series(
                     node_id,
@@ -801,8 +848,11 @@ class Compiler:
         )
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
-        """Returns where an edge falls among several into one input: by its node's index among the node ids, then
-        by its output's index in that node, then by the record field it reads, the whole output first."""
+        """Returns where an edge goes among several into one input.
+
+        Edges are sorted by their node's place among the node ids, then by their output's place on that node, then
+        by the record field they read, with the whole output first.
+        """
         wired_to = edge.wired_to
         return (
             self.position[wired_to.node],
@@ -813,20 +863,20 @@ class Compiler:
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
-        """The branches that must be chosen for the output ``edge`` reads to have a value."""
+        """Returns the branches that must be chosen for the output ``edge`` reads to have a value."""
         return self.nodes[edge.wired_to.node].branches_required_for(edge.wired_to.output)
 
     def _inputs_with_conflicting_edges(self, node_id: str, inputs: Mapping[str, Input]) -> set[str]:
-        """Finds the inputs whose edges cannot be read together, and adds a problem for each.
+        """Finds the inputs whose edges can't be used together, and adds a problem for each.
 
-        Several edges into one input must be alternatives: each pair must need different outputs of one exclusive
-        group, so a call gets a value from at most one of them (else ``several_edges_into_one_input``). They must
-        also be inside the same loops, so the one that has the value is found by the same item indexes (else
-        ``alternatives_from_different_loops``).
+        Several edges into one input must be alternatives. Each pair has to need different outputs of one exclusive
+        group, so a call gets a value from at most one of them. Otherwise it's ``several_edges_into_one_input``.
+        They must also be in the same loops, so the one with the value is found at the same item indexes. Otherwise
+        it's ``alternatives_from_different_loops``.
 
-        Two collecting inputs that do not accept ``None`` items, and whose edges are all on opposite branches, are
-        a problem too (``lists_from_different_loops``). An item one list has no value for is left out of both
-        lists, so both would always be empty.
+        Two collecting inputs are a problem too, when neither takes ``None`` items and all their edges are on
+        opposite branches (``lists_from_different_loops``). An item that one list has no value for is left out of
+        both lists, so both would always be empty.
 
         Args:
             node_id: The node.
@@ -874,11 +924,12 @@ class Compiler:
         return refused
 
     def _required_branches(self, inputs: Mapping[str, Input]) -> frozenset[RequiredBranch]:
-        """Returns the branches that must be chosen for a node with these ``inputs`` to be called: for each
-        input, the branches that every edge into it needs.
+        """Returns the branches that must be chosen for a node with these ``inputs`` to be called.
 
-        A collecting input needs only the branches chosen outside the loop it collects. A branch chosen per
-        item inside the loop only leaves items out of the list; the node is still called.
+        For each input, those are the branches that every edge into it needs.
+
+        A collecting input needs only the branches chosen outside the loop it collects. A branch chosen per item
+        inside the loop just leaves items out of the list. The node is still called.
         """
         required_branches: set[RequiredBranch] = set()
         for node_input in inputs.values():
@@ -895,21 +946,23 @@ class Compiler:
 
 
 def _edges_into(record: NodeRecord) -> dict[str, tuple[Source, ...]]:
-    """The outputs the edges into each input of a node come from, by input name: in the example, ``shout``'s are
-    ``{"line": (Source("lines", "result"),)}``. An input with a constant or a default is not in it."""
+    """Returns the outputs that the edges into each input of a node come from, by input name.
+
+    In the example, ``shout``'s are ``{"line": (Source("lines", "result"),)}``. An input with a constant or a
+    default isn't in it.
+    """
     return {
         name: entry.sources for name, entry in record.inputs.items() if entry.sources is not MISSING
     }
 
 
 def _same_graph_input(found: Field, used: Field) -> bool:
-    """Whether two inputs that name one graph input can take the caller's one value: they read the same type from
-    their hints (with its limits, choices and validators, though a ``Ge(0)`` and a ``Param(ge=0)`` differ), a host
-    is shown them the same way (title, description, widget), and where the record gives both a default, it is one.
-    ``int`` and ``Annotated[int, Param()]`` are one graph input.
+    """Whether two inputs that name one graph input agree, so they can share the caller's one value.
+
+    ``Compiler._graph_input`` says what agreeing means.
 
     Args:
-        found: The graph input as the inputs before named it, with the record's default if one gave it.
+        found: The graph input as the earlier inputs named it, with the record's default if one gave it.
         used: The graph input as one more input names it, with the record's default for it, if any.
     """
     shown, shown_again = (
@@ -927,13 +980,14 @@ def _same_graph_input(found: Field, used: Field) -> bool:
 
 
 def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:
-    """Returns whether the input ``field`` collects what ``sources`` read, and the type each source must fit:
-    the input's whole type when it reads one value; when it collects, the type of one item of the ``Series`` or of
-    one record of the table.
+    """Returns whether ``field`` collects what ``sources`` carry, and the type each source must fit.
 
-    A ``Table`` input reads a whole table when every edge reads one, as one value or as each item of a ``Series``
-    of tables. An output declared ``Any`` could be a table or a record: it counts as a table when it has one value
-    in the run, and as a record when it has one value per item of a loop.
+    The type is the input's whole type when it takes one value. When it collects, it's the type of one item of the
+    ``Series``, or of one record of the table.
+
+    A ``Table`` input takes a whole table when every edge carries one, either as one value or as each item of a
+    ``Series`` of tables. An output declared ``Any`` could be a table or a record. It counts as a table where it has
+    one value in the run, and as a record where it has one value per item of a loop.
     """
     record = field.whole.record
     collects = field.is_series or (
@@ -954,22 +1008,24 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
 def _edge_input(
     field: Field, sources: list[Edge], *, collects: bool
 ) -> EdgeInput | CollectingInput:
-    """Returns the compiled input of an input whose edges read ``sources``, as if its node were inside no loop but
-    those its edges put it in (``_input_inside`` makes the input of a node inside more).
+    """Returns the compiled input of an input whose edges carry ``sources``.
 
-    In the example, ``shout.line`` reads one item of ``lines.result`` per call, and ``join.texts`` collects what
-    ``shout`` returned per line, so ``join`` is outside the loop over ``lines.result``. Wired to an output of a
-    node inside no loop, ``join.texts`` gets that one value as a list of one.
+    It assumes the node is in no loops but those its edges put it in. ``_input_inside`` later adjusts the input of
+    a node that's in more.
+
+    In the example, ``shout.line`` gets one item of ``lines.result`` per call. ``join.texts`` collects what
+    ``shout`` returned per line, so ``join`` is outside the loop over ``lines.result``. Wired to an output of a node
+    in no loop, ``join.texts`` would get that one value as a list of one.
 
     Args:
         field: The input.
-        sources: What its edges read. The edges of an input that is kept are all inside the same loops: one whose
-            edges are not has the problem ``alternatives_from_different_loops``, so the first edge's loops stand for
-            all of them.
-        collects: Whether the input's type takes a list of what the edges read (a ``Series``, or a ``Table`` of
-            records), rather than one value of it.
+        sources: What its edges carry. If the input is kept, its edges are all in the same loops, since one whose
+            edges aren't gets ``alternatives_from_different_loops``. So the first edge's loops stand for all of
+            them.
+        collects: Whether the input's type takes a list of what the edges carry (a ``Series``, or a ``Table`` of
+            records), rather than one value.
     """
-    loops = sources[0].loops_of_value  # the loops a node must be inside to read one value
+    loops = sources[0].loops_of_value  # the loops a node must be in to get one value
     if not collects:
         return EdgeInput(field, tuple(sources), loops)
     if not loops:
@@ -978,9 +1034,12 @@ def _edge_input(
 
 
 def _input_inside(node_input: Input, loops: tuple[tuple[NodePath, str], ...]) -> Input:
-    """Returns ``node_input`` as the input of a node inside ``loops``. A collecting input whose node another input
-    already puts inside the loop it would collect gets one value of that loop per call, its own item's, as a list of
-    one; every other input is returned as it is."""
+    """Returns ``node_input`` as the input of a node inside ``loops``.
+
+    Sometimes a collecting input's node is already inside the loop it would collect, because another input put it
+    there. Then each call gets only its own item's value from that loop, as a list of one. Every other input is
+    returned as it is.
+    """
     if not isinstance(node_input, CollectingInput):
         return node_input
     loops_of_value = (*node_input.loops, node_input.series)
@@ -994,11 +1053,12 @@ def _input_inside(node_input: Input, loops: tuple[tuple[NodePath, str], ...]) ->
 def _bound(
     fields: Mapping[str, Field], sources: Mapping[str, list[Edge] | None]
 ) -> dict[TypeVar, Any]:
-    """Returns the type each type variable of a node's inputs gets from the edges into them. When edges into
-    two inputs that share a variable read ``int`` and ``str``, the variable gets ``int | str``.
+    """Returns the type each type variable of a node's inputs gets from the edges into them.
 
-    Only an edge binds a variable: a constant, a default and a graph input bind nothing. A variable no edge binds
-    becomes its bound, else ``Any``, when the fields are bound.
+    If the edges into two inputs that share a variable carry ``int`` and ``str``, the variable gets ``int | str``.
+
+    Only an edge binds a variable. A constant, a default or a graph input binds nothing. A variable that no edge
+    binds becomes its bound, or else ``Any``, when the fields are bound.
     """
     bound: dict[TypeVar, Any] = {}
     for name, field in fields.items():
@@ -1015,9 +1075,11 @@ def _bound(
 def _bind(
     node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any]
 ) -> tuple[dict[str, Field], dict[str, list[Problem]]]:
-    """Returns the inputs or outputs ``fields`` of the node ``node_id`` with their type variables bound as ``bound``
-    says (``BoundDefaultValidator``), and the problem of each whose declared default the bound type refuses, by name.
-    Such a field keeps no default."""
+    """Returns ``fields``, the inputs or outputs of ``node_id``, with their type variables bound as ``bound`` says.
+
+    ``BoundDefaultValidator`` does the binding. It also checks each field's declared default against the bound
+    type. A field whose default is refused keeps no default, and its problems are returned too, by name.
+    """
     bind = BoundDefaultValidator(node_id, bound)
     bound_fields: dict[str, Field] = {}
     refused: dict[str, list[Problem]] = {}
@@ -1033,13 +1095,14 @@ def _bind(
 
 
 def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | None:
-    """Returns what a value of the type ``whole`` gives when a node takes it apart into a ``Series`` of its rows or
-    items, for a problem to suggest that node.
+    """Returns what a value of ``whole`` gives when a node takes it apart into a ``Series`` of its rows or items.
+
+    A problem uses this to suggest such a node.
 
     Returns:
-        ``"table"`` or ``"list"``, and the fields of each record or item it gives: none for a table whose columns
-        are not known, and none for a list whose items are not records. ``None`` for a type that is neither a
-        table nor a list.
+        ``"table"`` or ``"list"``, and the fields of each record or item it gives. There are none for a table whose
+        columns aren't known, or for a list whose items aren't records. ``None`` for a type that's neither a table
+        nor a list.
     """
     if whole.record is not None:
         return "table", list(whole.fields)
@@ -1050,11 +1113,11 @@ def _taken_apart(whole: Type) -> tuple[Literal["table", "list"], list[str]] | No
 
 
 def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
-    """Returns the ``type_mismatch`` problem of ``edge`` into the input ``field``.
+    """Returns the ``type_mismatch`` problem for ``edge`` into ``field``.
 
-    Where one mistake explains it, the problem says the fix: a whole table or list wired to an input that takes
-    one value needs a node first that takes it apart into a ``Series``, and a table input wired to records that lack one of its columns needs
-    that column added.
+    Where one mistake explains it, the problem says the fix. A whole table or list wired to an input that takes one
+    value needs a node first that takes it apart into a ``Series``. A table input wired to records that lack one of
+    its columns needs that column added.
     """
     written, expected = str(edge.wired_to), field.whole.id
     got = f"Series[{edge.type.text}]" if edge.per_item else edge.type.text
@@ -1090,18 +1153,21 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
 
 
 def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:
-    """Returns the compiled input of an input that gets ``value`` on every call: the record's constant, or the default
-    its node declares. ``ConstantInput``, or ``MissingInput`` when the input's type refused the value (``_INVALID``)."""
+    """Returns the compiled input of an input that gets ``value`` on every call.
+
+    The value is the record's constant, or the default the node declares. The result is a ``ConstantInput``, or a
+    ``MissingInput`` when the input's type refused the value (``_INVALID``).
+    """
     return MissingInput(field) if value is _INVALID else ConstantInput(field, value)
 
 
 def _field_type(record: Type, name: str) -> Type | None:
-    """Returns the type of the field ``name`` of a record of the type ``record``.
+    """Returns the type of the field ``name`` of a record of type ``record``.
 
     Returns:
-        A ``TypedDict``'s, dataclass's or pydantic model's declared type for it; a mapping's value type, ``Any``
-        for a bare ``dict`` and for a value of any type; ``None`` for a record without the field, and for a type
-        that is not a record.
+        For a ``TypedDict``, dataclass or pydantic model, the field's declared type. For a mapping, its value type.
+        ``Any`` for a bare ``dict``, and for a value of any type. ``None`` when the record has no such field, or the
+        type isn't a record.
     """
     one = record.options[0] if len(record.options) == 1 else None
     if one is Any or one is dict:
@@ -1112,8 +1178,10 @@ def _field_type(record: Type, name: str) -> Type | None:
 
 
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
-    """Whether two sets of required branches can never both be chosen: one exclusive group must choose one output
-    for ``a`` and another for ``b``."""
+    """Whether two sets of required branches can never both be chosen.
+
+    That's so when one exclusive group must choose one output for ``a`` and a different one for ``b``.
+    """
     return any(
         x.node == y.node and x.group == y.group and x.output != y.output for x in a for y in b
     )
