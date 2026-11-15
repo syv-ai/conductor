@@ -10,6 +10,7 @@ from conductor import (
     Graph,
     GraphRecord,
     InputEntry,
+    InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
     Run,
@@ -376,12 +377,63 @@ def test_a_call_that_takes_a_table_is_reused_when_the_table_has_the_same_cells()
     assert len(calls) == 3
 
 
-# -- the JSON a host gets for a table ------------------------------------------------------------------------
+# -- a table two outputs share is written under each in a saved run --------------------------------------------
 
 
 @node("people", title="People", description="For a test.")
 def people(text: str) -> Table[Contact]:
     return FRAME.select("name", "email")
+
+
+@node("records", title="Records", description="For a test.")
+def records(table: Table[Contact]) -> Series[Contact]:
+    return table  # type: ignore[return-value]  a table returned for a Series of records is the Series of its records
+
+
+def _people_as_records() -> Any:
+    return Graph.compile(
+        make_graph(
+            people,
+            records,
+            greet,
+            edges=[("people.result", "records.table"), ("records.result.name", "greet.name")],
+        ),
+        registry_of(people, records, greet),
+    )
+
+
+def test_a_table_returned_as_the_records_of_another_output_is_written_under_both_and_reads_back_equal() -> (
+    None
+):
+    graph = _people_as_records()
+    run = graph.run(text="x")
+    saved = json.loads(run.to_json())
+
+    assert (
+        saved["outcomes"]["records"]["outputs"]["result"]
+        == saved["outcomes"]["people"]["outputs"]["result"]
+    )
+    read_back = Run.from_json(run.to_json(), graph)
+    table, again = run.results["people"]["result"], read_back.results["people"]["result"]
+    assert again.equals(table) and again.schema == table.schema
+    assert read_back.results["records"]["result"] == run.results["records"]["result"]
+    assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
+    assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
+
+
+def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused() -> None:
+    graph = _people_as_records()
+    saved = json.loads(graph.run(text="x").to_json())
+    saved["outcomes"]["records"]["outputs"]["result"] = [None]  # not listed under "skipped"
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+    (found,) = refused.value.problems
+    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.records")
+    assert "call 0 is done and has null for 'result'" in found.msg
+
+
+# -- the JSON a host gets for a table ------------------------------------------------------------------------
 
 
 def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> (
