@@ -28,7 +28,7 @@ from collections.abc import AsyncGenerator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
 from threading import Event
-from typing import Any, Generic, Literal
+from typing import Any, Generic
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
 from conductor.events import RunCheckpoint, RunEnd
@@ -45,15 +45,14 @@ from conductor_providers.fastapi.problems import (
 from conductor_providers.fastapi.resume_end import HandedBack, Raised, ResumeEnd, end_of
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import (
+    M,
     Outcome,
-    RunAsRead,
     RunChanges,
+    RunView,
     StoredRun,
     StoredState,
 )
 
-#: The type of a run's metadata: what the host keeps on it. ``dict[str, str]`` unless the host names a model.
-M = TypeVar("M", default=dict[str, str])
 #: The class of the run's context, the registry's ``context_type``.
 X = TypeVar("X", default=None)
 
@@ -98,7 +97,7 @@ class Worker(Generic[M, X]):
 
     ``run_router`` is a thin layer of routes over one worker. A host with its own routes, and its own say on who may
     start which run, makes a worker and calls it as the routes do: ``begin`` a run (or ``estimate`` one first),
-    ``read`` it, show it with ``run.view()``, check whose it is with ``metadata_of``, follow its ``events``,
+    ``read`` it, check whose it is with ``metadata_of``, follow its ``events``,
     ``answer``, ``resume`` or ``cancel`` it, start it ``again`` with some inputs changed, and serve inside
     ``serving()``, which a lifespan enters. Each run is held under a lease while this worker resumes it, written to a
     checkpoint every few seconds, and taken over by another worker when its lease runs out.
@@ -109,16 +108,17 @@ class Worker(Generic[M, X]):
     builds the run's registry and context from it, so keep in it nothing that changes. ``X`` is the class of the
     run's context, the registry's ``context_type``.
 
-    Each method that takes a run takes it as the caller read it (``read``). A method that makes a run running
-    (``answer`` on a run that is not running, ``resume``, ``cancel`` on a waiting run) writes only if the run is
-    still at that ``rev``. What is asked of a running run (an answer to queue, a cancel) is written however the
-    ``rev`` moved, for as long as the run is running.
+    Each method that acts on a run takes its id, reads the run itself, acts on it as it is, and returns the run as
+    written. Every write is at the ``rev`` the method read: when another call wrote the run first, the method reads
+    it again and acts on it as it is then.
 
     A worker that has never entered ``serving()`` raises ``RuntimeError`` from ``begin``, ``again``, and an
     ``answer``, ``resume`` or ``cancel`` that would make a run running. Once it has left ``serving()``, such a call is
     taken and its run handed back at once, for a worker that serves to take over.
 
     Attributes:
+        metadata_type: The type of a run's metadata, as the worker was given it; the router's answers are declared
+            with it.
         nodes_for: The function that gives the registry for a run's metadata, as the worker was given it; the routes
             describe it for ``/nodes`` and compile on it for ``/compile``.
     """
@@ -164,6 +164,9 @@ class Worker(Generic[M, X]):
         self._id = uuid.uuid4().hex
         self._store = store
         self._metadata: TypeAdapter[M] = TypeAdapter(metadata_type)
+        # pydantic reads the metadata by the type given; mypy reads a subscript as a type, known only at run time
+        self._views: type[RunView[M]] = RunView[metadata_type]  # type: ignore[valid-type]
+        self.metadata_type = metadata_type
         self.nodes_for = nodes_for
         self._served = False
         self._context = context
@@ -176,6 +179,20 @@ class Worker(Generic[M, X]):
         self._handing_back = AsyncioEvent()
 
     # -- what a host calls ------------------------------------------------------------------------
+
+    async def read(self, run_id: str) -> RunView[M]:
+        """The run as a reader sees it: its status, what waits in it, its outputs once complete.
+
+        Args:
+            run_id: The run's id.
+
+        Returns:
+            The run's view, as it was when the run last stopped running.
+
+        Raises:
+            InvalidCallError: No run has the id (``no_such_run``).
+        """
+        return self._view(await self._row(run_id))
 
     async def metadata_of(self, run_id: str) -> M:
         """A run's metadata, as it was written when the run started.
@@ -192,32 +209,7 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: No run has the id (``no_such_run``).
         """
-        return self._metadata_in((await self.read(run_id))._row)
-
-    def _metadata_in(self, row: StoredRun) -> M:
-        """The metadata a row keeps, read from its JSON."""
-        return self._metadata.validate_json(row.metadata)
-
-    def _context_for(self, metadata: M, stop: Event) -> X | None:
-        """The context of a resume call: ``context(metadata, stop)``, or ``None`` when the worker was given none."""
-        return None if self._context is None else self._context(metadata, stop)
-
-    async def read(self, run_id: str) -> RunAsRead:
-        """The run as the store has it.
-
-        Args:
-            run_id: The run's id.
-
-        Returns:
-            The run as read.
-
-        Raises:
-            InvalidCallError: The store has no run by that id (``no_such_run``).
-        """
-        row = await self._store.get(run_id)
-        if row is None:
-            raise InvalidCallError([no_such_run()])
-        return RunAsRead._of(row)
+        return self._metadata_in(await self._row(run_id))
 
     async def begin(
         self,
@@ -225,43 +217,44 @@ class Worker(Generic[M, X]):
         inputs: Mapping[str, Any],
         metadata: M,
         *,
-        previous: RunAsRead | None = None,
-    ) -> str:
+        previous: str | None = None,
+    ) -> RunView[M]:
         """Start a run: store it and make its first resume call in the background.
 
         Args:
             graph: The graph record, as a ``GraphRecord``, as its JSON text or as the plain data a caller sent.
             inputs: Values for the graph's inputs, by name, every one the graph needs.
             metadata: The run's metadata, stored with it; the graph is compiled on its nodes.
-            previous: A run of this graph, or of an earlier version of it, as read, that lends its work as
+            previous: The id of a run of this graph, or of an earlier version of it, that lends its work as
                 ``graph.with_inputs(previous=...)`` takes it: a call that receives what a call of the same node
                 received there is not made again. It is loaded on ``metadata``'s nodes. The new run starts at this
                 worker's ``max_items``, not at a ceiling ``previous`` was resumed with; ``again`` keeps that one.
 
         Returns:
-            The run's id.
+            The new run, as written.
 
         Raises:
             InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs, each with
-                conductor's problems; else ``previous`` can't be loaded on those nodes (``previous_run_unloadable``,
-                which says why). Start without ``previous`` then.
+                conductor's problems; else no run has the id ``previous`` (``no_such_run``), or it can't be loaded
+                on those nodes (``previous_run_unloadable``, which says why). Start without ``previous`` then.
             RuntimeError: The worker has never served.
         """
         nodes = self.nodes_for(metadata)
+        lends = None if previous is None else await self._row(previous)
 
         def ready() -> Run[Any]:
             compiled = Graph.compile(graph, nodes)
             # the graph's own problems and the inputs' are refused before the previous run is loaded
             run = compiled.with_inputs(inputs, max_items=self._max_items)
-            if previous is None:
+            if lends is None:
                 return run
             try:
-                lent = _loaded(previous._row, nodes)
+                lent = _loaded(lends, nodes)
             except InvalidCallError as refusal:
                 raise InvalidCallError(
                     [
                         previous_run_unloadable(
-                            run_id=previous.id,
+                            run_id=lends.id,
                             reason="; ".join(problem.msg for problem in refusal.problems),
                         )
                     ]
@@ -301,97 +294,110 @@ class Worker(Generic[M, X]):
 
         return await asyncio.to_thread(estimated)
 
-    async def again(self, run: RunAsRead, inputs: Mapping[str, Any], metadata: M) -> str:
-        """Start a run of ``run``'s graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
+    async def again(self, run_id: str, inputs: Mapping[str, Any], metadata: M) -> RunView[M]:
+        """Start a run of a run's graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
         receives what it received before isn't made again.
 
-        The new run has ``run``'s graph, the inputs it had except those given, and its ceiling on items, a raised
+        The new run has the run's graph, the inputs it had except those given, and its ceiling on items, a raised
         one included. To start another graph, such as an edited one, from a run's work, ``begin`` with
         ``previous``.
 
         Args:
-            run: The run to start from, as read.
-            inputs: The inputs to change, by name; the rest stay as ``run`` had them.
-            metadata: The new run's metadata, stored with it; ``run`` is loaded on its nodes.
+            run_id: The id of the run to start from.
+            inputs: The inputs to change, by name; the rest stay as the run had them.
+            metadata: The new run's metadata, stored with it; the run is loaded on its nodes.
 
         Returns:
-            The new run's id.
+            The new run, as written.
 
         Raises:
-            InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs.
+            InvalidCallError: No run has the id (``no_such_run``), or the graph can't run on ``metadata``'s nodes,
+                or refuses the inputs.
             RuntimeError: The worker has never served.
         """
-        nodes = self.nodes_for(metadata)
-        again = await asyncio.to_thread(lambda: _loaded(run._row, nodes).with_inputs(inputs))
-        return await self._create(run._row.graph, metadata, again)
+        row, nodes = await self._row(run_id), self.nodes_for(metadata)
+        again = await asyncio.to_thread(lambda: _loaded(row, nodes).with_inputs(inputs))
+        return await self._create(row.graph, metadata, again)
 
-    async def answer(
-        self, run: RunAsRead, answers: Mapping[str, Any]
-    ) -> Literal["started", "queued"]:
+    async def answer(self, run_id: str, answers: Mapping[str, Any]) -> RunView[M]:
         """Answer what waits in a run, by waiting id.
 
         While the run is running, the answers are queued, as one call sent them, and given to the run when its
         resume call ends. Otherwise the run takes them as ``run.answer`` does, whatever its status, and it is
         resumed. An answer to a question that nothing waits on any more, such as one in a complete run, is refused
-        by conductor as ``not_waiting``.
+        by conductor as ``not_waiting``. No answers at all change nothing, as ``run.answer({})`` doesn't, so nothing
+        is written.
 
         When another call takes the run between this call's read and its write, the run is read again, and the
         answers are given to it as it is then: queued, if the other call started a resume.
 
         Args:
-            run: The run as read.
+            run_id: The run's id.
             answers: An answer for each waiting call, by its waiting id.
 
         Returns:
-            ``queued`` when the run was running, else ``started``.
+            The run as written: ``running`` whether the answers were queued or resumed the run.
 
         Raises:
-            InvalidCallError: The run refuses an answer; every answer it refuses is listed.
+            InvalidCallError: No run has the id (``no_such_run``), or the run refuses an answer; every answer it
+                refuses is listed.
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
         """
+        row = await self._row(run_id)
+        if not answers:
+            return self._view(row)
         while True:
-            run = await self._ask_of_a_running_run(run, lambda state: state.queued(answers))
-            if run._state.is_running:
-                return "queued"
-            row, nodes = run._row, self.nodes_for(self._metadata_in(run._row))
+            row = await self._ask_of_a_running_run(row, lambda state: state.queued(answers))
+            state = _state_of(row)
+            if state.is_running:
+                return self._view(row)
+            loaded, nodes = row, self.nodes_for(self._metadata_in(row))
             answered = await asyncio.to_thread(
-                lambda: _loaded(row, nodes).answer(answers).to_json()
+                lambda: _loaded(loaded, nodes).answer(answers).to_json()
             )
-            state = run._state.answered(answers.keys()).running()
-            if await self._claim(run, state, changed=answered):
-                return "started"
-            run = await self.read(run.id)
+            claimed = await self._claim(
+                row, state.answered(answers.keys()).running(), changed=answered
+            )
+            if claimed is not None:
+                return self._view(claimed)
+            row = await self._row(run_id)
 
-    async def resume(self, run: RunAsRead, max_items: int | None = None) -> None:
+    async def resume(self, run_id: str, max_items: int | None = None) -> RunView[M]:
         """Resume a run that ended early; no node call that finished is made again.
 
         When another call takes the run between this call's read and its write, the run is read again: it is
         resumed if it still ended early, and refused if it is running now.
 
         Args:
-            run: The run as read.
+            run_id: The run's id.
             max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling. The
                 run is stored with it as the run is claimed, so every later resume call has it.
 
+        Returns:
+            The run as written, ``running``.
+
         Raises:
-            InvalidCallError: The run did not end early (``run_not_resumable``), or, with ``max_items``, the stored
-                run can't be loaded to raise its ceiling.
+            InvalidCallError: No run has the id (``no_such_run``), the run did not end early
+                (``run_not_resumable``), or, with ``max_items``, the stored run can't be loaded to raise its
+                ceiling.
             RuntimeError: The worker has never served.
         """
         while True:
-            if run._state.cause is None:
-                raise InvalidCallError([run_not_resumable(status=run._state.status)])
+            row = await self._row(run_id)
+            state = _state_of(row)
+            if state.cause is None:
+                raise InvalidCallError([run_not_resumable(status=state.status)])
             raised = None
             if max_items is not None:
-                row, nodes = run._row, self.nodes_for(self._metadata_in(run._row))
+                nodes = self.nodes_for(self._metadata_in(row))
                 raised = await asyncio.to_thread(
                     lambda: _loaded(row, nodes).with_max_items(max_items).to_json()
                 )
-            if await self._claim(run, run._state.running(), changed=raised):
-                return
-            run = await self.read(run.id)
+            claimed = await self._claim(row, state.running(), changed=raised)
+            if claimed is not None:
+                return self._view(claimed)
 
-    async def cancel(self, run: RunAsRead) -> bool:
+    async def cancel(self, run_id: str) -> RunView[M]:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
 
         A running run is asked to stop: at once when this worker resumes it, at the next renewal of its lease when
@@ -400,40 +406,44 @@ class Worker(Generic[M, X]):
 
         A waiting run is claimed with the cancel already asked, as ``resume`` claims a run, and resumed: its resume
         call ends ``cancelled`` before it calls any node, as ``run.stream(cancel=...)`` ends a waiting run, and its
-        questions still wait. Like any resume call it loads the run with its metadata's registry and context, so a run
-        that can't be resumed ends ``failed`` instead, as it would on its next answer.
+        questions still wait. Like any resume call it loads the run with its metadata's registry and context, so a
+        run that can't be resumed ends ``failed`` instead, as it would on its next answer.
 
-        What is done is decided by the run's state as last read. When another call changed the run first (an answer
-        claimed it, or the run stopped), the run is read again and the cancel goes by what it is now. Each read again
-        follows a write of another call that landed, so this goes round only while other calls act on the run.
+        A run that is complete or already ended early has nothing to cancel, and is left as it is. When another
+        call changes the run between this call's read and its write, the run is read again and the cancel goes by
+        what it is then.
 
         Args:
-            run: The run as read.
+            run_id: The run's id.
 
         Returns:
-            Whether the cancel was asked: ``False`` only for a run that is complete or already ended early.
+            The run as written: ``running`` when the cancel was asked, else the run as it is.
 
         Raises:
+            InvalidCallError: No run has the id (``no_such_run``).
             RuntimeError: The run is waiting, so the cancel would resume it, and the worker has never served.
         """
 
         def asked_to_stop(state: StoredState) -> StoredState:
             return state.model_copy(update={"cancel_asked": True})
 
+        row = await self._row(run_id)
         while True:
-            run = await self._ask_of_a_running_run(run, asked_to_stop)
-            if run._state.is_running:
-                for hold in [hold for hold in self._holds if hold.run_id == run._row.id]:
+            row = await self._ask_of_a_running_run(row, asked_to_stop)
+            state = _state_of(row)
+            if state.is_running:
+                for hold in [hold for hold in self._holds if hold.run_id == run_id]:
                     async with hold.lock:
                         await self._read_again(hold)
-                return True
-            if run._state.status != "waiting":
-                return False
-            if await self._claim(run, asked_to_stop(run._state.running())):
-                return True
-            run = await self.read(run._row.id)
+                return self._view(row)
+            if state.status != "waiting":
+                return self._view(row)
+            claimed = await self._claim(row, asked_to_stop(state.running()))
+            if claimed is not None:
+                return self._view(claimed)
+            row = await self._row(run_id)
 
-    async def events(self, run: RunAsRead, after: int = -1) -> AsyncGenerator[tuple[int, str]]:
+    async def events(self, run_id: str, after: int = -1) -> AsyncGenerator[tuple[int, str]]:
         """The events of a run as they are stored, from whichever worker resumes it, until the run is not running.
 
         A row stops saying ``running`` only after the ``run_end`` of its resume call is stored. So the row is read
@@ -441,13 +451,12 @@ class Worker(Generic[M, X]):
         are read.
 
         Args:
-            run: The run as read.
+            run_id: The run's id.
             after: The number of the last event the follower has; ``-1`` for none.
 
         Yields:
             Each event numbered above ``after``, in order, as ``(number, body)``.
         """
-        run_id = run._row.id
         may_have_ended = True
         while True:
             new = await self._store.events(run_id, after)
@@ -456,7 +465,7 @@ class Worker(Generic[M, X]):
                 yield number, body
             if new:
                 may_have_ended = from_json(new[-1][1])["type"] == "run_end"
-            elif may_have_ended and not (await self.read(run_id))._state.is_running:
+            elif may_have_ended and not _state_of(await self._row(run_id)).is_running:
                 for event in await self._store.events(
                     run_id, after
                 ):  # stored before the row said so
@@ -472,8 +481,7 @@ class Worker(Generic[M, X]):
         for row in await self._store.expired(time.time()):
             if row.id not in held:
                 try:
-                    run = RunAsRead._of(row)
-                    await self._claim(run, run._state)
+                    await self._claim(row, _state_of(row))
                 except Exception:
                     log.exception(
                         "run %s, whose lease ran out, was not taken over; the next sweep tries again",
@@ -537,7 +545,40 @@ class Worker(Generic[M, X]):
         """The owner and lease of a row this worker holds."""
         return {"owner": self._id, "lease_until": time.time() + self._lease}
 
-    async def _create(self, graph: str, metadata: M, run: Run[Any]) -> str:
+    async def _row(self, run_id: str) -> StoredRun:
+        """A run's row, as the store has it.
+
+        Raises:
+            InvalidCallError: No run has the id (``no_such_run``).
+        """
+        row = await self._store.get(run_id)
+        if row is None:
+            raise InvalidCallError([no_such_run()])
+        return row
+
+    def _view(self, row: StoredRun) -> RunView[M]:
+        """The run in ``row`` as a reader sees it, from its state, its outcome and its metadata."""
+        state, outcome = _state_of(row), Outcome.model_validate_json(row.outcome)
+        return self._views(
+            id=row.id,
+            metadata=self._metadata_in(row),
+            status=state.status,
+            cause=state.cause,
+            waiting=outcome.waiting,
+            outputs=outcome.outputs,
+            progress=outcome.progress,
+            refused=state.refused,
+        )
+
+    def _metadata_in(self, row: StoredRun) -> M:
+        """The metadata a row keeps, read from its JSON."""
+        return self._metadata.validate_json(row.metadata)
+
+    def _context_for(self, metadata: M, stop: Event) -> X | None:
+        """The context of a resume call: ``context(metadata, stop)``, or ``None`` when the worker was given none."""
+        return None if self._context is None else self._context(metadata, stop)
+
+    async def _create(self, graph: str, metadata: M, run: Run[Any]) -> RunView[M]:
         """Store a run, held by this worker, and make its first resume call in the background.
 
         Args:
@@ -546,7 +587,7 @@ class Worker(Generic[M, X]):
             run: The run with its inputs, ready.
 
         Returns:
-            The run's id.
+            The run, as written.
 
         Raises:
             RuntimeError: The worker has never served.
@@ -566,22 +607,22 @@ class Worker(Generic[M, X]):
         )
         await self._store.create(row)
         self._resume_in_background(row, state)
-        return row.id
+        return self._view(row)
 
     async def _claim(
-        self, run: RunAsRead, state: StoredState, *, changed: str | None = None
-    ) -> bool:
+        self, row: StoredRun, state: StoredState, *, changed: str | None = None
+    ) -> StoredRun | None:
         """Take a run for this worker if it is still at the ``rev`` read, and resume it in the background. Of two
         workers, one wins.
 
         Args:
-            run: The run as read.
+            row: The run's row as read.
             state: The state the row takes with the claim; its ``status`` and ``state`` are written from it.
             changed: The run as the call that claims it changed it, as JSON (answers given, or its
                 ceiling raised); the row's ``run`` then. Left out, the row keeps the run it has.
 
         Returns:
-            Whether this worker took the run.
+            The row as written when this worker took the run; ``None`` when another call wrote it first.
 
         Raises:
             RuntimeError: The worker has never served.
@@ -590,10 +631,11 @@ class Worker(Generic[M, X]):
         written: RunChanges = {**state.columns(), **self._mine()}
         if changed is not None:
             written["run"] = changed
-        if not await self._store.update(run._row.id, run._row.rev, written):
-            return False
-        self._resume_in_background(replace(run._row, **written, rev=run._row.rev + 1), state)
-        return True
+        if not await self._store.update(row.id, row.rev, written):
+            return None
+        claimed = replace(row, **written, rev=row.rev + 1)
+        self._resume_in_background(claimed, state)
+        return claimed
 
     def _resume_in_background(self, row: StoredRun, state: StoredState) -> None:
         """Start a task that resumes a run this worker has just written. A cancel already asked in ``state`` stops
@@ -857,37 +899,41 @@ class Worker(Generic[M, X]):
         Args:
             hold: The hold on the run.
         """
-        run = await self.read(hold.run_id)
+        row = await self._row(hold.run_id)
         hold.reads += 1
-        hold.rev, hold.state = run._row.rev, run._state
-        hold.released = run._row.owner != self._id
+        hold.rev, hold.state = row.rev, _state_of(row)
+        hold.released = row.owner != self._id
         if hold.released or hold.state.cancel_asked:
             hold.stop.set()
 
     # -- a run another worker may hold ------------------------------------------------------------
 
     async def _ask_of_a_running_run(
-        self, run: RunAsRead, asked: Callable[[StoredState], StoredState]
-    ) -> RunAsRead:
+        self, row: StoredRun, asked: Callable[[StoredState], StoredState]
+    ) -> StoredRun:
         """Write what a caller asks of a running run (an answer to queue, a cancel) into the row's state. It is
         tried for as long as the run is running, reading the row again each time another writer moved its ``rev``
         on first.
 
         Args:
-            run: The run as read.
+            row: The run's row as read.
             asked: The state to write, made from the state as read for each try.
 
         Returns:
-            The run after the call: still running, with what was asked written; or as last read, not running, with
+            The row after the call: still running, with what was asked written; or as last read, not running, with
             nothing written.
         """
-        while run._state.is_running:
-            state = asked(run._state)
-            changes = state.columns()
-            if await self._store.update(run._row.id, run._row.rev, changes):
-                return RunAsRead(replace(run._row, **changes, rev=run._row.rev + 1), state)
-            run = await self.read(run._row.id)
-        return run
+        while (state := _state_of(row)).is_running:
+            changes = asked(state).columns()
+            if await self._store.update(row.id, row.rev, changes):
+                return replace(row, **changes, rev=row.rev + 1)
+            row = await self._row(row.id)
+        return row
+
+
+def _state_of(row: StoredRun) -> StoredState:
+    """The state a row keeps, read from its JSON."""
+    return StoredState.model_validate_json(row.state)
 
 
 def _loaded(row: StoredRun, nodes: NodeRegistry[Any]) -> Run[Any]:

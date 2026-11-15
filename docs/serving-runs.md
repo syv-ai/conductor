@@ -163,15 +163,15 @@ That gives these routes:
 |---|---|
 | `GET /nodes` | The request's palette: `describe()` of the registry for its metadata, each node with its fields. |
 | `POST /compile` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each a `field`, by name, and its outputs a list of names. |
-| `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with its `id`, 422 listing every problem. |
+| `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with the run, 422 listing every problem. |
 | `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
 | `POST /estimate` | How many calls a run of `{"graph": ..., "inputs": {...}}` will make, before any call that costs something: `run.progress` after `run.resume(only_costs_nothing=True)`, with the request's context and `resume_timeout`. Nothing is stored. `POST /graphs/{name}/estimate` does the same for a graph you offer. |
-| `GET /runs/{id}` | Its `status`, what is `waiting` for a person (as of when the run last stopped running, so while it is running it still lists what was just answered; a client hides the ones it answered), `outputs` once complete, by name (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, its `progress` (as `run.progress` says it, as of the last checkpoint while it runs), and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_limit` cause says the `items` and `max_items`, for choosing a higher item limit to resume with). |
+| `GET /runs/{id}` | The run: its `id`, its `metadata`, its `status`, what is `waiting` for a person (as of when the run last stopped running, so while it is running it still lists what was just answered; a client hides the ones it answered), `outputs` once complete, by name (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, its `progress` (as `run.progress` says it, as of the last checkpoint while it runs), and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_limit` cause says the `items` and `max_items`, for choosing a higher item limit to resume with). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
-| `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 `started` or `queued`, 422 listing every answer the run refuses (`not_waiting` for one to a complete run). A run that `failed`, `stopped`, `timed_out` or was `cancelled` takes answers to what waits in it. |
+| `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 with the run, `running` whether the answers resumed it or were queued for when it stops, 422 listing every answer the run refuses (`not_waiting` for one to a complete run). A run that `failed`, `stopped`, `timed_out` or was `cancelled` takes answers to what waits in it. |
 | `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |
 | `POST /runs/{id}/again` | A new run with some inputs changed; what didn't change isn't called again. |
-| `POST /runs/{id}/cancel` | Ask a running or waiting run to stop before its next node call, so that it ends `cancelled`. `{"cancelled": true}` says the cancel was asked, not how the run ended (`GET /runs/{id}` says that); `false` is for a run that is complete or already ended early. |
+| `POST /runs/{id}/cancel` | Ask a running or waiting run to stop before its next node call, so that it ends `cancelled`. It answers with the run: `running` when the cancel was asked, not how the run ended (`GET /runs/{id}` says that later); a run that is complete or already ended early is left as it is. |
 
 Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems, never in FastAPI's own validation shape. A 404 is `no_such_run`, and a 409 is `run_not_resumable`. A 404 your own `published` dependency raises is yours, as you wrote it. [The worker's own problems](#the-workers-own-problems) has each of the worker's codes, and `SERVING_PROBLEMS` is their catalogue: `SERVING_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as FastAPI's own `HTTPValidationError`, the shape of a 422, which a problem fits.
 
@@ -288,7 +288,7 @@ The worker's `M`, its `metadata_type`, is what a run keeps about itself: who sta
 from typing import Any
 
 from conductor import InvalidCallError
-from conductor_providers.fastapi import RunAsRead, RunView
+from conductor_providers.fastapi import RunView
 from fastapi import APIRouter, Body
 
 
@@ -314,40 +314,43 @@ def refused(error: InvalidCallError) -> HTTPException:
     return HTTPException(status, [problem.model_dump(mode="json") for problem in error.problems])
 
 
-async def admitted_run(run_id: str, person: str) -> RunAsRead:
-    """The run, if this person started it; any other is a 404, as one that isn't there."""
+async def check_admitted(run_id: str, person: str) -> None:
+    """Refuse a run this person didn't start with a 404, as one that isn't there."""
     try:
-        if (await admitted.metadata_of(run_id)).person != person:
-            raise HTTPException(404, "no such run")
-        return await admitted.read(run_id)
+        started_by = (await admitted.metadata_of(run_id)).person
     except InvalidCallError as error:
         raise refused(error) from None
+    if started_by != person:
+        raise HTTPException(404, "no such run")
 
 
 @own_routes.post("/graphs/{name}", status_code=202)
 async def start_admitted(
     name: str, inputs: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)], previous: str | None = None
-) -> dict[str, str]:
+) -> RunView[Admitted]:
     """Start a graph you offer; with `?previous=`, from the work of one of this person's runs."""
     graph = published(name)  # yours: whether this person may run it
-    earlier = None if previous is None else await admitted_run(previous, person)
+    if previous is not None:
+        await check_admitted(previous, person)
     try:
-        return {"id": await admitted.begin(graph, inputs, Admitted(person, name), previous=earlier)}
+        return await admitted.begin(graph, inputs, Admitted(person, name), previous=previous)
     except InvalidCallError as error:
         raise refused(error) from None
 
 
 @own_routes.get("/runs/{run_id}")
-async def read_admitted(run_id: str, person: Annotated[str, Depends(current_user)]) -> RunView:
-    return (await admitted_run(run_id, person)).view()
+async def read_admitted(run_id: str, person: Annotated[str, Depends(current_user)]) -> RunView[Admitted]:
+    await check_admitted(run_id, person)
+    return await admitted.read(run_id)
 
 
 @own_routes.post("/runs/{run_id}/answers", status_code=202)
 async def answer_admitted(
     run_id: str, answers: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)]
-) -> dict[str, str]:
+) -> RunView[Admitted]:
+    await check_admitted(run_id, person)
     try:
-        return {"answers": await admitted.answer(await admitted_run(run_id, person), answers)}
+        return await admitted.answer(run_id, answers)
     except InvalidCallError as error:
         raise refused(error) from None
 
@@ -355,7 +358,7 @@ async def answer_admitted(
 app.include_router(own_routes)
 ```
 
-`begin` stores the run and makes its first resume call in the background. With `previous`, a run as read of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the new run's nodes (its graph uses a node the registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, metadata)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: with an `InvalidCallError` whose problems are conductor's or the router's own, below. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(metadata).describe()`, as `GET /nodes` answers).
+`begin` stores the run and makes its first resume call in the background. With `previous`, the id of a run of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the new run's nodes (its graph uses a node the registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, metadata)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. Every method that acts on a run takes its id and returns the run as it wrote it, a `RunView`. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: with an `InvalidCallError` whose problems are conductor's or the router's own, below. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(metadata).describe()`, as `GET /nodes` answers).
 
 ## The worker's own problems
 

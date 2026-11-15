@@ -91,7 +91,7 @@ class MemoryStore:
         copy = MemoryStore()
         copy.rows[run_id] = self.rows[run_id]
         reader: Worker = Worker(copy, nodes_for=lambda metadata: NodeRegistry())
-        return (await reader.read(run_id)).view()
+        return await reader.read(run_id)
 
     def state(self, run_id: str) -> dict[str, Any]:
         """The run's ``state`` column, as the JSON the worker wrote."""

@@ -253,7 +253,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
             (waiting_call,) = (await b.read(run_id))["waiting"]
             assert (
                 await b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True})
-            ).json() == {"answers": "started"}
+            ).json()["status"] == "running"
             done = await a.until_status(run_id, "complete")
             assert done["outputs"] == {"result": True}
             assert served.calls == ["gate"]  # what ran did not run again
@@ -274,7 +274,7 @@ def test_two_workers_answering_one_run_at_once_start_one_resume_call(served: Ser
             )
             # the answer that lost reads the run again: still running, it is queued, and the run refuses it when it
             # stops; already complete, it is refused at once
-            lost = second if first.json() == {"answers": "started"} else first
+            lost = second if first.json().get("status") == "running" else first
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
             if lost.status_code == 202:
@@ -326,7 +326,7 @@ def test_a_cancel_sent_to_either_worker_stops_the_run_and_a_resume_finishes_it(
         async with _workers(served) as (a, b):
             run_id = await a.start(_GATE_ASK)
             await served.until_calls(1)
-            assert (await b.client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+            assert (await b.client.post(f"/runs/{run_id}/cancel")).json()["status"] == "running"
             # the worker resuming the run sees the cancel at its next lease renewal
             await asyncio.sleep(0.6)
             served.open_the_gate()  # a cancel waits for the node call already started, and keeps its outcome
@@ -363,11 +363,11 @@ def test_answers_sent_while_a_resume_call_runs_are_applied_when_it_ends(served: 
             first, second = (await a.until_status(run_id, "waiting"))["waiting"]
             assert (
                 await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})
-            ).json() == {"answers": "started"}
+            ).json()["status"] == "running"
             await served.until_calls(1)
             assert (
                 await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: False})
-            ).json() == {"answers": "queued"}
+            ).json()["status"] == "running"
             served.open_the_gate()
             done = await b.until_status(run_id, "complete")
             assert done["outputs"] == {"result": [True, False]}
@@ -384,13 +384,13 @@ def test_a_wrong_answer_sent_while_a_resume_call_runs_is_refused_alone_and_the_o
             first, second, third = (await a.until_status(run_id, "waiting"))["waiting"]
             assert (
                 await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})
-            ).json() == {"answers": "started"}
+            ).json()["status"] == "running"
             await served.until_calls(1)
             queued = await b.client.post(
                 f"/runs/{run_id}/answers",
                 json={second["id"]: False, third["id"]: "not a yes or no"},
             )
-            assert queued.json() == {"answers": "queued"}
+            assert queued.json()["status"] == "running"
             served.open_the_gate()
             # the first resume call ends, the queued answers are applied, and the next one ends
             for _ in range(1000):
@@ -415,11 +415,11 @@ def test_an_answer_sent_while_a_resume_call_runs_to_an_id_nothing_waits_on_is_re
             first, second = (await a.until_status(run_id, "waiting"))["waiting"]
             assert (
                 await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})
-            ).json() == {"answers": "started"}
+            ).json()["status"] == "running"
             await served.until_calls(1)
-            assert (
-                await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})
-            ).json() == {"answers": "queued"}
+            assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json()[
+                "status"
+            ] == "running"
             served.open_the_gate()
             row = await b.until_refused(run_id)
             assert row["status"] == "waiting" and [
@@ -439,12 +439,12 @@ def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_refused_
             first, second = (await a.until_status(run_id, "waiting"))["waiting"]
             assert (
                 await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})
-            ).json() == {"answers": "started"}
+            ).json()["status"] == "running"
             await served.until_calls(1)
             for worker, answer in ((a, False), (b, True)):
                 assert (
                     await worker.client.post(f"/runs/{run_id}/answers", json={second["id"]: answer})
-                ).json() == {"answers": "queued"}
+                ).json()["status"] == "running"
             served.open_the_gate()
             assert (await b.until_status(run_id, "complete"))["outputs"] == {
                 "result": [True, False]
@@ -462,9 +462,9 @@ def test_an_answer_sent_while_the_last_resume_call_runs_is_refused_when_the_run_
         async with _workers(served) as (a, b):
             run_id = await a.start(_graph({"gate": {}}))
             await served.until_calls(1)
-            assert (
-                await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})
-            ).json() == {"answers": "queued"}
+            assert (await b.client.post(f"/runs/{run_id}/answers", json={"nobody": True})).json()[
+                "status"
+            ] == "running"
             served.open_the_gate()
             row = await a.until_refused(run_id)
             assert row["status"] == "complete"
@@ -626,10 +626,13 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(
             assert (await a.client.get("/runs/nope/events")).status_code == 404
 
             schemas = (await a.client.get("/openapi.json")).json()["components"]["schemas"]
-            assert {"id", "status", "waiting", "outputs", "refused", "cause"} <= set(
-                schemas["RunView"]["properties"]
+            view = schemas[
+                "RunView_dict_str__str__"
+            ]  # the router's: a run whose metadata is a dict
+            assert {"id", "metadata", "status", "waiting", "outputs", "refused", "cause"} <= set(
+                view["properties"]
             )
-            assert "rev" not in schemas["RunView"]["properties"]
+            assert "rev" not in view["properties"]
             assert {"id", "loc", "prompt", "questions", "inputs"} <= set(
                 schemas["Waiting"]["required"]
             )
@@ -667,7 +670,7 @@ def test_a_host_s_own_routes_start_read_and_answer_runs_through_a_worker_on_eith
             answered = await b.client.post(
                 f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}
             )
-            assert answered.json() == {"answers": "started"}
+            assert answered.json()["status"] == "running"
             assert (await _admitted_until(a, run_id, "complete"))["outputs"] == {"result": [True]}
             twice = await a.client.post(
                 f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}

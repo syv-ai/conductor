@@ -306,7 +306,12 @@ async def test_one_registry_for_every_request_serves_its_nodes() -> None:
 # -- what each route answers ----------------------------------------------------------------------
 
 
-async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its_view() -> None:
+def _status(response: Any) -> tuple[int, str]:
+    """A route's answer as its HTTP status and the status of the run it answers with."""
+    return response.status_code, response.json()["status"]
+
+
+async def test_every_action_answers_with_the_run_as_it_wrote_it() -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
 
@@ -315,28 +320,28 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
             "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
         )
         run_id = started.json()["id"]
-        view = (await client.get(f"/runs/{run_id}")).json()
+        view = started.json()
         progress = view.pop("progress")
         assert (started.status_code, view) == (
             202,
             {
                 "id": run_id,
+                "metadata": {"user": "anna"},
                 "status": "running",
+                "cause": None,
                 "waiting": [],
                 "outputs": None,
                 "refused": {},
-                "cause": None,
             },
         )
         assert (progress["finished"], progress["waiting"]) == (
             0,
             0,
         )  # the run as it was stored, before any call
-        cancelled = await client.post(f"/runs/{run_id}/cancel")
-        assert (cancelled.status_code, cancelled.json()) == (200, {"cancelled": True})
+        assert _status(await client.post(f"/runs/{run_id}/cancel")) == (200, "running")
         gate.set()
         assert (await store.ended(run_id)).status == "cancelled"
-        assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": False}
+        assert _status(await client.post(f"/runs/{run_id}/cancel")) == (200, "cancelled")
 
         below_one = await client.post(f"/runs/{run_id}/resume", json={"max_items": 0})
         assert below_one.status_code == 422
@@ -355,13 +360,11 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
                 [problem["type"] for problem in refused.json()["detail"]],
             ) == (422, ["int_type"])
         assert (await client.get(f"/runs/{run_id}")).json()["status"] == "cancelled"
-        resumed = await client.post(f"/runs/{run_id}/resume")
-        assert (resumed.status_code, resumed.json()) == (202, {"id": run_id})
+        assert _status(await client.post(f"/runs/{run_id}/resume")) == (202, "running")
 
         waiting = await store.ended(run_id)
         assert (await client.get(f"/runs/{run_id}")).json() == waiting.model_dump(mode="json")
-        cancelled = await client.post(f"/runs/{run_id}/cancel")
-        assert (cancelled.status_code, cancelled.json()) == (200, {"cancelled": True})
+        assert _status(await client.post(f"/runs/{run_id}/cancel")) == (200, "running")
         await store.ended(run_id)
         view = (await client.get(f"/runs/{run_id}")).json()
         assert (view["status"], view["cause"]["type"], view["waiting"]) == (
@@ -370,8 +373,36 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
             waiting.model_dump(mode="json")["waiting"],
         )
         answered = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
-        assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
+        assert _status(answered) == (202, "running")
         assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
+        nothing = await client.post(f"/runs/{run_id}/answers", json={})  # changes nothing
+        assert _status(nothing) == (202, "complete")
+
+
+async def test_a_view_shows_no_queued_answer_nor_a_cancel_asked() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    store = MemoryStore()
+    app = _app(store=store, registry=lambda _: registry)
+
+    async with _serving(app) as client:
+        run_id = (
+            await client.post(
+                "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
+            )
+        ).json()["id"]
+        queued = (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json()
+        cancelled = (await client.post(f"/runs/{run_id}/cancel")).json()
+        gate.set()
+        await store.ended(run_id)
+
+    fields = {"id", "metadata", "status", "cause", "waiting", "outputs", "progress", "refused"}
+    assert set(queued) == set(cancelled) == fields
+    view_schema = next(
+        schema
+        for name, schema in app.openapi()["components"]["schemas"].items()
+        if name.startswith("RunView")
+    )
+    assert set(view_schema["properties"]) == fields
 
 
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_next_resume_call() -> (
@@ -409,7 +440,7 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
             )
         ).json()["id"]
         await asyncio.to_thread(asked.wait, 5)
-        assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+        assert _status(await client.post(f"/runs/{run_id}/cancel")) == (200, "running")
         gate.set()
         cancelled = await store.ended(run_id)
         assert (cancelled.status, len(cancelled.waiting)) == ("cancelled", 1)
@@ -417,7 +448,7 @@ async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_
         answered = await client.post(
             f"/runs/{run_id}/answers", json={cancelled.waiting[0].id: True}
         )
-        assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
+        assert _status(answered) == (202, "running")
         assert (await store.ended(run_id)).outputs == {"then": "X", "approve": True}
 
 
@@ -436,7 +467,7 @@ async def test_a_cancel_sent_to_the_route_sets_the_stop_event_a_node_of_the_run_
         )
         run_id = started.json()["id"]
         await asyncio.to_thread(graph.started.wait, 60)
-        assert (await client.post(f"/runs/{run_id}/cancel")).json() == {"cancelled": True}
+        assert _status(await client.post(f"/runs/{run_id}/cancel")) == (200, "running")
         assert (await store.ended(run_id)).status == "cancelled"
     assert graph.seen == [True]
 
@@ -464,7 +495,7 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
         )
         for answer in (True, False):  # the second is queued too, and refused once the run stops
             queued = await client.post(f"/runs/{run_id}/answers", json={waiting_id: answer})
-            assert (queued.status_code, queued.json()) == (202, {"answers": "queued"})
+            assert _status(queued) == (202, "running")
         assert refusal(await client.post(f"/runs/{run_id}/resume")) == (
             409,
             [("run_not_resumable", {"status": "running"})],

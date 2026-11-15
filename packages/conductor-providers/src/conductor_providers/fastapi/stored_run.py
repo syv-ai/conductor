@@ -7,11 +7,15 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import Any, Generic, TypedDict
 
 from conductor import Problem, Run, RunProgress, RunStatus, Waiting
 from pydantic import BaseModel
 from pydantic_core import from_json
+from typing_extensions import TypeVar
+
+#: The type of a run's metadata: what the host keeps on it. ``dict[str, str]`` unless the host names a model.
+M = TypeVar("M", default=dict[str, str])
 
 
 @dataclass(frozen=True)
@@ -231,12 +235,20 @@ class StoredState(BaseModel):
         return {"status": self.status, "state": self.model_dump_json()}
 
 
-class RunView(Outcome):
-    """A run as a reader is shown it, as it was when it last stopped running, read without loading the run.
+class RunView(Outcome, Generic[M]):
+    """A run as a reader sees it, as it was when it last stopped running, read without loading the run.
 
-    ``run.view()`` gives it, for a run as read; ``GET /runs/{id}`` answers with it.
+    ``Worker.read`` gives it, and every route under ``/runs`` answers with it, so an action answers with the run as
+    it wrote it. It shows only what a reader needs: the answers a running run has queued, and a cancel asked of it,
+    are the worker's own business and aren't shown.
 
     Attributes:
+        id: The run's id.
+        metadata: The run's metadata, as it was written when the run started.
+        status: Where the run is: ``running`` while a worker resumes it or is about to, ``waiting`` for answers,
+            ``complete``, or how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which
+            ``Worker.resume`` goes on from.
+        cause: Why the run ended early; ``None`` while it runs, waits or once complete.
         waiting: What waits for a person, as of when the run last stopped running; each ``id`` is what
             ``Worker.answer`` takes. When the worker raised while resuming the run, what waits in the run's last
             checkpoint.
@@ -244,63 +256,12 @@ class RunView(Outcome):
             columns); ``None`` until then.
         progress: How many calls of each node have an outcome, and how many there will be, as ``run.progress``
             says it: as of the last checkpoint while the run is running.
-        id: The run's id, as ``Worker.begin`` gave it.
-        status: Where the run is: ``running`` while a worker resumes it, ``waiting`` for answers, ``complete``, or
-            how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which ``Worker.resume``
-            goes on from.
         refused: By waiting id, the problems of the last answer sent to that question while the run was running,
             when the run refused it once it stopped.
-        cause: Why the run ended early; ``None`` while it runs, waits or once complete.
     """
 
     id: str
+    metadata: M
     status: RunStatus
-    refused: dict[str, list[Problem]]
     cause: Problem | None
-
-
-@dataclass(frozen=True)
-class RunAsRead:
-    """A run as read from the store: ``Worker.read`` gives it, and every ``Worker`` method that acts on a run takes it.
-
-    A method that changes the run writes only while the row is still as it was read, so a run read before another
-    call changed it is read again, and the method acts on it as it is then. ``view()`` is the run as
-    a reader is shown it.
-    """
-
-    _row: StoredRun
-    _state: StoredState
-
-    @classmethod
-    def _of(cls, row: StoredRun) -> RunAsRead:
-        """A row with its state read from its JSON once.
-
-        Args:
-            row: The row, as the store gave it.
-
-        Returns:
-            The run as read.
-        """
-        return cls(row, StoredState.model_validate_json(row.state))
-
-    @property
-    def id(self) -> str:
-        """The run's id."""
-        return self._row.id
-
-    def view(self) -> RunView:
-        """The run as a reader is shown it, from its state and its row's ``outcome``.
-
-        Returns:
-            What ``GET /runs/{id}`` answers for it.
-        """
-        outcome = Outcome.model_validate_json(self._row.outcome)
-        return RunView(
-            id=self._row.id,
-            status=self._state.status,
-            refused=self._state.refused,
-            cause=self._state.cause,
-            waiting=outcome.waiting,
-            outputs=outcome.outputs,
-            progress=outcome.progress,
-        )
+    refused: dict[str, list[Problem]]
