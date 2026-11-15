@@ -1,4 +1,9 @@
-"""Reading one field of a record, as an edge from ``read.result.name`` does: the field ``name`` of each invoice."""
+"""Getting one field out of a record.
+
+An edge can pick one field of the record an output returns. Say a node ``read`` returns invoices, each with a
+field ``name``. An edge from ``read.result.name`` passes on just the name of each invoice. ``field_of`` is how
+that field is fetched.
+"""
 
 from __future__ import annotations
 
@@ -7,13 +12,13 @@ from typing import Any
 
 
 def field_of(value: Any, name: str) -> Any:
-    """One field of a record: the key ``name`` of a mapping, else the attribute ``name``.
+    """Returns one field of a record: the key ``name`` of a mapping, or else the attribute ``name``.
 
-    ``field_of({"name": "Ida", "amount": 100}, "name")`` returns ``"Ida"``.
+    For example, ``field_of({"name": "Ida", "amount": 100}, "name")`` returns ``"Ida"``.
 
     Raises:
-        NoSuchFieldError: The record has no such field. This can happen only for a record whose type declares no
-            fields: a field that a type declares is checked when the graph is compiled.
+        NoSuchFieldError: The record has no such field. This can only happen when the record's type declares no
+            fields, like ``dict``. A field a type declares is checked when the graph is compiled.
     """
     try:
         return (
@@ -26,7 +31,7 @@ def field_of(value: Any, name: str) -> Any:
 
 
 class NoSuchFieldError(Exception):
-    """A record has no field with the name an edge reads.
+    """A record has no field with the name an edge picks.
 
     Attributes:
         field: The name of the field.

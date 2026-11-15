@@ -1,9 +1,14 @@
-"""``Type``: one type hint as conductor reads it. ``Type(int)`` returns the same object every time.
+"""``Type``: one type hint, wrapped with everything conductor needs to know about it.
 
-It gives the hint's id and title, its pydantic schema, writes a value as JSON, and says which other types fit it.
-It reads no value: ``validation.rules.schema_validator_of`` builds a validator from the type's schema, and when that
-refuses a value, ``refusal`` says why in words that quote nothing of the value. ``Series`` and ``Table`` each have a
-subclass of ``Type``, declared in their own packages.
+A node's hint, like ``int`` or ``Annotated[list[str], Param(max_length=3)]``, is just a Python object. ``Type``
+wraps it and answers conductor's questions about it. What is its id, and what title does a person see? What is its
+pydantic schema? How is a value written as JSON? Which other types fit it, so an edge may join them?
+
+``Type`` doesn't check values itself. ``validation.rules.schema_validator_of`` builds a validator from its schema.
+When that validator refuses a value, ``Type.refusal`` explains why without quoting the value.
+
+``Type(int)`` returns the same object every time, so the work of reading a hint is done once. ``Series`` and
+``Table`` each have a subclass of ``Type``, in their own packages.
 """
 
 from __future__ import annotations
@@ -47,15 +52,19 @@ from .hint import (
 from .host_type import NAMES, OWN_IDS, declaration_of
 from .param import Param, split_hint
 
-#: The generic classes whose arguments ``Type`` reads as types of their own, so its rules reach their items.
+#: Generic classes whose arguments are each read as a ``Type`` too, so conductor's rules reach their items.
 _CONTAINERS = (list, dict, tuple, set, frozenset)
 
-#: Maps ``Series`` and ``Table`` to their ``Type`` subclass (``SeriesType``, ``TableType``).
+#: The ``Type`` subclass for each generic class that has one: ``Series`` to ``SeriesType``, ``Table`` to
+#: ``TableType``.
 _KINDS: dict[Any, type[Type]] = {}
 
 
 def _written(hint: Any) -> str:
-    """One bare hint as ``Type.reads_as`` writes it; an ``Annotated`` inside it is written as the type it is."""
+    """Writes one bare hint as text, for ``Type.reads_as``.
+
+    An ``Annotated`` nested inside it is written in full, with its metadata.
+    """
     origin, args = get_origin(hint), get_args(hint)
     if origin is Annotated:
         return Type(hint).reads_as
@@ -70,16 +79,20 @@ def _written(hint: Any) -> str:
 
 
 def _written_metadata(metadata: Any) -> str:
-    """One thing ``Annotated`` holds beside the type, as ``Type.reads_as`` writes it::
+    """Writes one piece of ``Annotated`` metadata as text, for ``Type.reads_as``::
 
         _written_metadata(AfterValidator(strip))  # "AfterValidator(func=my_module.strip)"
 
-    Python's ``repr`` of a function, or of an object with no ``repr`` of its own, gives its memory address, which is
-    another number in every process. So a function is written as its module and qualified name, a dataclass
-    (pydantic's ``AfterValidator`` and ``Discriminator``, ``annotated_types``' ``Ge``) as its class name and each
-    field written this way, and an object with no ``repr`` of its own as its class. Anything else is its ``repr``.
+    The text must be the same in every process. Python's ``repr`` of a function, or of an object with no ``repr``
+    of its own, has a memory address in it, which changes every time. So:
 
-    Two lambdas written in one function have one name, so they are written the same.
+    - a function is written as its module and qualified name.
+    - a dataclass, such as pydantic's ``AfterValidator`` or ``annotated_types``' ``Ge``, is written as its class
+      name with each field written the same way.
+    - an object with no ``repr`` of its own is written as its class.
+    - anything else is its ``repr``.
+
+    Two lambdas in the same function have the same name, so they are written the same.
     """
     if isinstance(metadata, (FunctionType, MethodType)):
         return qualified_name(metadata)
@@ -97,15 +110,16 @@ def _written_metadata(metadata: Any) -> str:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class TypeRefusal:
-    """Why a type refused a value, in words that quote nothing of the value, as ``Type.refusal`` gives it.
+    """Why a type refused a value, without quoting the value.
 
-    A validator makes its problem from it: ``invalid_input``, ``invalid_output`` and the others take these three as
-    ``reason``, ``errors`` and ``column``.
+    ``Type.refusal`` returns one. A validator turns it into a problem: ``invalid_input``, ``invalid_output`` and
+    the others take these three fields as their ``reason``, ``errors`` and ``column``.
 
     Attributes:
         reason: The first error's message.
-        errors: pydantic's errors without the value, each with the ``loc`` steps the type declares.
-        column: The table column the first fault is in, else ``None``.
+        errors: Pydantic's errors with the value taken out. Each ``loc`` keeps only steps the type declares, like
+            list indexes and field names.
+        column: The table column the first error is in, or ``None``.
     """
 
     reason: str
@@ -114,24 +128,24 @@ class TypeRefusal:
 
 
 class Type:
-    """One annotation as conductor reads it. ``Type(hint)`` gives the one object of a hint, so what a hint costs
-    to read is paid once, and nothing is built until it is asked for.
+    """One type hint, with everything conductor needs to know about it.
 
-    The one object is kept for as long as something holds it (a field, a loaded graph), so a hint made while a
-    graph loads is let go with the graph.
+    ``Type(hint)`` returns the same object for equal hints, so the work of reading a hint is done once. Nothing is
+    worked out until it is asked for. The object lives as long as something uses it, such as a field or a loaded
+    graph. A hint made while a graph loads goes away with the graph.
 
-    ``Series`` and ``Table`` each have a subclass of ``Type``, registered with the class it is for::
+    ``Series`` and ``Table`` each have a subclass, registered with the class it is for::
 
         class SeriesType(Type, of=Series): ...
 
-    ``Type(Series[int])`` and ``Type(Series[int] | None)`` then return a ``SeriesType``. Code that has a ``Type``
-    calls the same attributes and methods whichever class it is; a subclass overrides the ones whose answer
-    differs for its values, so no caller tests for a ``Series`` or a ``Table``.
+    After that, ``Type(Series[int])`` and ``Type(Series[int] | None)`` return a ``SeriesType``. Every subclass has
+    the same attributes and methods. A subclass overrides only the ones whose answer differs for its values. So
+    code that has a ``Type`` never checks whether it is a ``Series`` or a ``Table``.
 
     Attributes:
-        hint: The annotation, with its ``Annotated`` metadata and its type variables as written.
-        typed_in_advice: Text added to the error for a value of the type that was typed into a graph and has no
-            JSON form, saying what to give instead; empty for most types.
+        hint: The hint, with its ``Annotated`` metadata and its type variables as written.
+        typed_in_advice: Text added to the error when a value of this type is typed into a graph record and can't
+            be written as JSON. It says what to give instead. Empty for most types.
     """
 
     hint: Any
@@ -139,28 +153,31 @@ class Type:
     _made: ClassVar[WeakValueDictionary[Any, Type]] = WeakValueDictionary()
 
     def __init_subclass__(cls, *, of: Any, value_class: type | None = None) -> None:
-        """Registers the subclass as the ``Type`` of hints written with the generic class ``of``.
+        """Registers the subclass as the ``Type`` of every hint written with the generic class ``of``.
 
         Args:
-            of: The generic class a node author writes in a hint (``Series``, ``Table``).
-            value_class: The class of the values at run time, when an author may write that class as the hint
-                too (``polars.DataFrame`` for ``Table``). A value of this class found where no type is declared
-                (inside an ``Any``) is written, hashed and compared by the subclass's ``untyped_`` methods.
+            of: The generic class a node author writes in a hint, such as ``Series`` or ``Table``.
+            value_class: The class of the values at run time, if an author may write that class as the hint too,
+                such as ``polars.DataFrame`` for ``Table``. A value of this class found where no type is declared,
+                such as inside an ``Any``, is written, hashed and compared by the subclass's ``untyped_`` methods.
         """
         _KINDS[of] = cls
-        # the generic class is named as a host imports it, which is its id
+        # the generic class's id is its name as a host imports it, so a host can't declare that id
         OWN_IDS.add(of.__qualname__)
         if value_class is not None:
             READ_AS[value_class] = of
 
     def __new__(cls, hint: Any) -> Type:
-        """Returns the ``Type`` of ``hint``: the existing object if an equal hint has one, else a new object of
-        the subclass registered for the hint."""
+        """Returns the ``Type`` of ``hint``.
+
+        If an equal hint already has one, that object is returned. Otherwise a new one is made, of the subclass
+        registered for the hint.
+        """
         try:
             return Type._made[hint]
         except KeyError:
             made = Type._made[hint] = super().__new__(_kind_of(hint))
-        # a hint that can't be hashed (a Param whose Choice holds a dict) is read each time
+        # a hint that can't be hashed, like a Param whose Choice has a dict, gets a new object each time
         except TypeError:
             made = super().__new__(_kind_of(hint))
         made.hint = hint
@@ -171,27 +188,30 @@ class Type:
 
     @functools.cached_property
     def closed(self) -> Any:
-        """The hint with each type variable read as its bound, else ``Any``."""
+        """The hint with each type variable replaced by its bound, or by ``Any`` if it has none."""
         return substituted(self.hint, {})
 
     @functools.cached_property
     def _parts(self) -> tuple[Any, Param, tuple[Any, ...]]:
-        """The closed hint as ``split_hint`` takes it apart."""
+        """The closed hint, taken apart by ``split_hint`` into its bare type, ``Param`` and other metadata."""
         return split_hint(self.closed)
 
     @property
     def bare(self) -> Any:
-        """The closed hint with ``Annotated`` taken off its members, which is what a hook is given as the type arriving."""
+        """The closed hint with ``Annotated`` taken off its members.
+
+        This is the type a hook gets, in a parameter annotated ``type``, for the type arriving on an edge.
+        """
         return self._parts[0]
 
     @functools.cached_property
     def options(self) -> tuple[Any, ...]:
-        """The members of the bare hint, ``| None`` taken off."""
+        """The members of the bare hint, without ``None``."""
         return tuple(option for option in union_members(self.bare) if option is not type(None))
 
     @functools.cached_property
     def optional(self) -> bool:
-        """Whether a blank (``None``) may arrive: ``X | None``, ``Any``, or a type alias that stands for either."""
+        """Whether the type allows ``None``: ``X | None``, ``Any``, or a type alias that stands for either."""
         options = union_members(self.bare)
         return (
             Any in options
@@ -201,18 +221,22 @@ class Type:
 
     @functools.cached_property
     def limited(self) -> bool:
-        """Whether a value of the right class may still be refused: the hint holds a limit, choices or other metadata."""
+        """Whether a value of the right class may still be refused, because the hint has limits, choices or other
+        metadata."""
         _, param, others = self._parts
         return bool(others or param.limits) or param.choices is not None
 
     @functools.cached_property
     def reads_as(self) -> str:
-        """A text that is the same in every process and differs between any two types that read a value differently.
+        """A text for the type that is the same in every process, and differs for any two types that check a value
+        differently.
 
-        A class is written by its module and name, a generic by its arguments, a ``Literal`` by its values, a type
-        alias by its name, a limit or a choice by what it holds, and anything else in ``Annotated`` by its name
-        (``_written_metadata``). A title, a description and a widget are left
-        out, as they change nothing that is read. What a unit's result rests on about a field is this text.
+        A class is written as its module and name, a generic with its arguments, a ``Literal`` with its values, and
+        a type alias by its name. A limit or a choice is written with its value. Anything else in ``Annotated`` is
+        written by ``_written_metadata``. A title, a description and a widget are left out, since they change
+        nothing about how a value is checked.
+
+        This is the text that goes into the hash that decides whether a call can be reused.
         """
         bare, param, others = self._parts
         held = [f"{limit}={value!r}" for limit, value in sorted(param.limits.items())]
@@ -225,28 +249,34 @@ class Type:
 
     @functools.cached_property
     def variables(self) -> tuple[TypeVar, ...]:
-        """The type variables the hint leaves open, which an edge binds."""
+        """The type variables in the hint, which an edge fills in."""
         if isinstance(self.hint, TypeVar):
             return (self.hint,)
         return (
             () if isinstance(self.hint, type) else getattr(self.hint, "__parameters__", ())
-        )  # typing's own, on every generic hint
+        )  # typing sets __parameters__ on every generic hint
 
     @functools.cached_property
     def id(self) -> str:
-        """The name an editor and a graph record know the type by, ``| None`` off.
+        """The name an editor and a graph record know the type by, without ``| None``.
 
-        A host's class is known by the id its ``@host_type`` declares, a union by its members' (``money | int``), a generic by its
-        class and arguments (``list[int]``, a bare ``list`` for ``list[Any]``), a ``Literal`` by the types of its values, a ``TypedDict`` as
-        ``record``, ``Series`` and ``Table`` by the id their own ``Type`` subclass gives (``Series[int]``), and a type alias
-        by its own name. A type variable is read as its bound,
-        else ``Any``.
+        For example:
+
+        - a host's class has the id its ``@host_type`` declares, like ``money``.
+        - a union joins its members' ids: ``money | int``.
+        - a generic has its class and arguments: ``list[int]``, or a bare ``list`` for ``list[Any]``.
+        - a ``Literal`` has the types of its values, and a ``TypedDict`` is ``record``.
+        - ``Series`` and ``Table`` get their id from their own subclass, like ``Series[int]``.
+        - a type alias has its own name, and a type variable the id of its bound, or ``Any``.
         """
         return self._named[0]
 
     @property
     def text(self) -> str:
-        """The id with its blank said (``str | None``): how a type inside another, and a type an edge brings, is named."""
+        """The id with ``| None`` added if the type allows ``None``, like ``str | None``.
+
+        This is the name used for a type inside another type, and for the type an edge brings.
+        """
         return (
             f"{self.id} | None"
             if type(None) in union_members(self.bare) and self.options
@@ -255,17 +285,17 @@ class Type:
 
     @functools.cached_property
     def title(self) -> str:
-        """What a person reads for the type, from the titles its classes declare."""
+        """What a person sees for the type, made from the titles its classes declare."""
         return self._named[1]
 
     @functools.cached_property
     def classes(self) -> tuple[type, ...]:
-        """The classes ``id`` names, each once: what a registry holding the type offers by id."""
+        """The classes the id names, each once. A registry lists them by id in ``registry.types``."""
         return self._named[2]
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
-        """The type's id, its title and the classes they name."""
+        """The type's id, its title and the classes they name, worked out together."""
         members = list(self.options) or [type(None)]
         if len(members) > 1:
             named = [Type(member)._named for member in members]
@@ -280,11 +310,13 @@ class Type:
             return one.__name__, one.__name__, ()
         if origin is Literal:
             return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
-        if typing.is_typeddict(one):  # a record declares no name of its own
+        if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "record"
             return "record", "Record", ()
         own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
         own = () if origin in (Any, type(None)) else (origin,)
-        if all(arg is Any for arg in args):  # a generic that says nothing of its items is said bare
+        if all(
+            arg is Any for arg in args
+        ):  # a generic that says nothing about its items is named bare
             return own_id, title, own
         inner = [Type(arg) for arg in args if arg is not Ellipsis]
         arguments_text = ", ".join("..." if arg is Ellipsis else Type(arg).text for arg in args)
@@ -296,8 +328,10 @@ class Type:
 
     @functools.cached_property
     def _built(self) -> tuple[Any, TypeAdapter[Any]]:
-        """The hint pydantic reads for the type, and pydantic's adapter of it, whose schema and serializer the type
-        gives. A container's arguments are each read as a type of their own.
+        """The hint pydantic is given for the type, and pydantic's adapter for it.
+
+        The type's schema and serializer come from the adapter. The arguments of a container, like the ``int`` of
+        ``list[int]``, are each built as a ``Type`` of their own first, so conductor's rules reach them too.
 
         Raises:
             NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, pydantic's ``Field(...)``
@@ -307,7 +341,7 @@ class Type:
         bare, param, others = self._parts
         pydantic_fields = [
             other for other in others if isinstance(other, FieldInfo)
-        ]  # Annotated[int, Field(ge=0)], here or on an item of a list
+        ]  # like Annotated[int, Field(ge=0)], here or on a list's item
         if any(field.discriminator is not None for field in pydantic_fields):
             raise NodeDeclarationError(declaration_problems.pydantic_discriminator_in_hint())
         if pydantic_fields:
@@ -322,13 +356,14 @@ class Type:
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):
             read = Annotated[(read, *metadata)]
-        try:  # a record is written by its own config; any other type writes a float that isn't finite as its text
+        # A record is written by its own config. Any other type writes a float that isn't finite as text.
+        try:
             adapter = (
                 TypeAdapter(read)
                 if len(options) == 1 and is_record(options[0])
                 else TypeAdapter(read, config=ConfigDict(ser_json_inf_nan=NON_FINITE_FLOATS))
             )
-        # a limit of the wrong kind for the type, such as ge="a" on an int
+        # a limit of the wrong kind for the type, like ge="a" on an int
         except SchemaError as error:
             raise NodeDeclarationError(
                 declaration_problems.bound_invalid_value(
@@ -343,23 +378,29 @@ class Type:
 
     @property
     def carried(self) -> Any:
-        """The hint pydantic reads for the type, for a hint that holds it (a list's item, a table's column)."""
+        """The hint pydantic is given for the type, for use inside another hint, like a list's item or a table's
+        column."""
         return self._built[0]
 
     @property
     def schema(self) -> CoreSchema:
-        """Pydantic's core schema of the type: how pydantic reads and writes a value of it. A type that cannot be
-        read by pydantic raises ``NodeDeclarationError`` here (``type_not_carried``)."""
+        """Pydantic's core schema of the type, which pydantic checks and writes a value of it by.
+
+        Raises ``NodeDeclarationError`` (``type_not_carried``) for a type pydantic can't handle.
+        """
         return self._built[1].core_schema
 
     @property
     def serializer(self) -> SchemaSerializer:
-        """Pydantic's writer of a value of the type."""
+        """Pydantic's serializer for a value of the type."""
         return self._built[1].serializer
 
     @functools.cached_property
     def json_schema(self) -> dict[str, Any]:
-        """The JSON schema of one value; ``{}`` for a type that writes none, which an editor offers no control for."""
+        """The JSON schema of one value of the type.
+
+        It is ``{}`` for a type pydantic can't write a JSON schema for. An editor then offers no control for it.
+        """
         try:
             return self._built[1].json_schema()
         except PydanticInvalidForJsonSchema:
@@ -367,8 +408,11 @@ class Type:
 
     @functools.cached_property
     def choices(self) -> tuple[Choice, ...] | None:
-        """The values the type takes when it names them: ``Param(choices=)``, else a ``Literal``'s, read by the type
-        (``read_choices``): ``Param(choices=[1])`` on a ``float`` has the id ``1.0``."""
+        """The choices the type takes, if it names any, or ``None``.
+
+        They come from ``Param(choices=...)``, or else from a ``Literal``'s values. Each is checked and converted
+        by the type (``read_choices``), so ``Param(choices=[1])`` on a ``float`` has the id ``1.0``.
+        """
         given = self._parts[1].choices
         if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
             given = get_args(self.options[0])
@@ -376,26 +420,30 @@ class Type:
 
     @property
     def item(self) -> Type | None:
-        """The type of one item when the type is a ``Series``; ``None`` for every other type."""
+        """The type of one item, for a ``Series``. ``None`` for every other type."""
         return None
 
     @property
     def record(self) -> Type | None:
-        """The type of one row when the type is a table (its ``TypedDict``, or ``dict``); ``None`` for every other
-        type. An input of a table type wired to a ``Series`` of records is called with all the records as one
-        table, and each record must be valid for this type."""
+        """The type of one row, for a table: its ``TypedDict``, or ``dict``. ``None`` for every other type.
+
+        A table input wired to a ``Series`` of records gets all the records as one table. Each record must be a
+        valid value of this type.
+        """
         return None
 
     @property
     def stored_hint(self) -> Any:
-        """The type hint a saved run reads and writes a stored value of the type by. For ``Type(int)`` it is
-        ``int``; a ``Series`` type gives the hint of the classes a run stores a Series as."""
+        """The type hint a saved run uses to write and read back a stored value of the type.
+
+        For ``Type(int)`` it is ``int``. A ``Series`` gives the hint of the classes a run stores a Series as.
+        """
         return self.hint
 
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
-        """The hint of each field a record declares, by name: a model's, a dataclass's, a ``TypedDict``'s. None
-        for any other type."""
+        """The type hint of each field, by name, for a record: a model, a dataclass or a ``TypedDict``. Empty for
+        any other type."""
         one = self.options[0] if len(self.options) == 1 else None
         return (
             {
@@ -409,28 +457,35 @@ class Type:
 
     @property
     def returned_schema(self) -> CoreSchema:
-        """The schema of an output of the type in the form a run keeps it: what a node returned, or a person
-        answered. It is ``schema``; a ``Series`` keeps its list in a form of its own (``SeriesItems``, ``Records``)."""
+        """The schema that checks what a node returned for an output of the type, or what a person answered.
+
+        For most types it is ``schema``. A ``Series`` differs, since a run stores it as a ``SeriesItems`` or
+        ``Records``.
+        """
         return self.schema
 
     def to_json(self, value: Any) -> JsonValue:
-        """Writes ``value``, one the type holds, in its JSON form; a float that isn't finite as its text.
+        """Converts ``value``, a value of the type, to JSON data.
+
+        A float that isn't finite, like ``inf``, becomes its text.
 
         Raises:
-            PydanticSerializationError: The value has no JSON form.
+            PydanticSerializationError: The value can't be written as JSON.
         """
         return plain_json(self.serializer.to_python(value, mode="json"))
 
     def fits(self, source: Type) -> dict[TypeVar, Any] | None:
-        """Says whether a value of ``source`` may land on this type, and what that binds its type variables to.
+        """Says whether an edge may pass a value of ``source`` to this type, and what that binds its type variables
+        to.
 
-        A blank that may arrive lands only where a hint says ``| None``; anywhere else the node isn't called for
-        it. So a variable that is the whole hint binds to ``source`` without its blank: ``value: T`` fed
-        ``str | None`` is a ``str``, and ``value: T | None`` takes the blank.
+        A ``None`` reaches an input only if its hint says ``| None``. Anywhere else, the node isn't called for it.
+        So when a type variable is the whole hint, it binds to ``source`` without its ``None``. Fed
+        ``str | None``, ``value: T`` binds ``T`` to ``str``, and ``value: T | None`` takes the ``None`` too.
 
         Returns:
-            What each variable binds to (``{}`` for a type that has none); ``None`` when the value may not land.
-            Two places sharing a variable join, and a source outside a variable's bound does not fit.
+            What each type variable binds to, or ``{}`` for a type without any. ``None`` if the value may not be
+            passed. When a variable appears in two places, it binds to the union of both. A source outside a
+            variable's bound doesn't fit.
         """
         bound: dict[TypeVar, Any] = {}
         lands_without_blank = isinstance(split_hint(self.hint)[0], TypeVar) and source.options
@@ -438,29 +493,29 @@ class Type:
         return bound if fit(self.hint, arriving, bound, False) else None
 
     def holds(self, source: Type) -> bool:
-        """Says whether every value of ``source`` already is one of this type as it is, so nothing is read per call."""
+        """Says whether every value of ``source`` is already a value of this type, so it needs no check per call."""
         return not self.limited and fit(self.closed, source.closed, {}, True)
 
     def bind(self, bound: Mapping[TypeVar, Any]) -> Type:
-        """Gives this type with its variables replaced by what ``bound`` binds them to."""
+        """Returns this type with its type variables replaced by what ``bound`` binds them to."""
         return Type(substituted(self.hint, bound))
 
     def refusal(self, error: ValidationError, under: tuple[str | int, ...] = ()) -> TypeRefusal:
-        """Says why the type refused a value, quoting nothing of the value.
+        """Explains why the type refused a value, without quoting the value.
 
-        Example: ``Type(list[int])`` refuses ``[1, "x"]``, and pydantic's error gives a ``TypeRefusal`` whose
-        ``reason`` is ``"Input should be a valid integer, unable to parse string as an integer"`` and whose one
-        error has the ``loc`` ``[1]``.
+        Say ``Type(list[int])`` refuses ``[1, "x"]``. The ``TypeRefusal`` has the ``reason``
+        ``"Input should be a valid integer, unable to parse string as an integer"``, and one error with the
+        ``loc`` ``[1]``.
 
-        A ``loc`` keeps list indexes, record fields and table columns, and is cut at the first other step, such
-        as a dict key, which is part of the value. An error in a table's column names the column.
+        A ``loc`` keeps list indexes, record fields and table columns. It stops at the first other step, such as a
+        dict key, since a key is part of the value. An error in a table's column names the column.
 
         Args:
-            error: What pydantic raised when it read a value of this type, or a value that has one of this type
+            error: What pydantic raised when it checked a value of this type, or a value with one of this type
                 inside it (see ``under``).
-            under: The steps from what pydantic read to the value of this type: ``("count",)`` when pydantic read
-                a mapping of outputs and this type is the output ``count``'s. Only the errors inside that value
-                are read, from that value on.
+            under: The ``loc`` steps from what pydantic checked down to the value of this type. Say pydantic
+                checked a mapping of outputs, and this is the type of the output ``count``: then ``under`` is
+                ``("count",)``. Only the errors inside that value are used, and their ``loc`` starts there.
         """
         start = len(under)
         pairs = [
@@ -486,19 +541,22 @@ class Type:
             if column is not None:
                 columns.append(column)
                 error_record["msg"] = owner._fault_in(column, raw["type"], error_record["msg"])
-            elif whole := raw.get("ctx", {}).get("column"):  # a fault of a whole column of a frame
+            elif whole := raw.get("ctx", {}).get(
+                "column"
+            ):  # an error about a whole column of a frame
                 columns.append(whole)
                 error_record["loc"] = [whole]
         return TypeRefusal(value_free[0]["msg"], value_free, columns[0] if columns else None)
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
-        """Takes one step of a pydantic error's ``loc`` (a list index or a field name) and returns where it leads.
-        For ``Type(list[Money])`` and the step ``0`` it leads to ``Type(Money)``.
+        """Follows one step of a pydantic error's ``loc``, a list index or a field name, and returns where it leads.
+
+        For ``Type(list[Money])`` and the step ``0``, it leads to ``Type(Money)``.
 
         Returns:
-            A tuple of the type of the part the step leads to, whether the step is kept in the ``loc`` a host is
-            shown, and a column name when the step names a table's column. ``None`` when the step is not an index
-            or field of this type, such as a dict's key.
+            Three things: the type the step leads to, whether the step is kept in the ``loc`` a host is shown, and
+            a column name if the step names a table's column. ``None`` if the step isn't an index or a field of
+            this type, such as a dict's key.
         """
         origin = (
             (get_origin(self.options[0]) or self.options[0]) if len(self.options) == 1 else None
@@ -515,14 +573,18 @@ class Type:
         return None
 
     def _fault_in(self, part: str, kind: str, msg: str) -> str:
-        """Returns the error message ``msg`` reworded to name ``part``, a column that ``_walked`` returned. ``kind``
-        is pydantic's error type. Only a table rewords; any other type returns ``msg``."""
+        """Returns the error message ``msg`` reworded to name the column ``part`` that ``_walked`` returned.
+
+        ``kind`` is pydantic's error type. Only a table rewords the message. Any other type returns ``msg`` as it
+        is.
+        """
         return msg
 
     @staticmethod
     def untyped_as_json(value: Any) -> Any:
-        """Returns the JSON form of ``value``, a value of this type's ``value_class`` found where no type is
-        declared. It is called as pydantic's ``to_json`` ``fallback``.
+        """Converts ``value`` to JSON, for a value of this type's ``value_class`` found where no type is declared.
+
+        Pydantic's ``to_json`` calls it as its ``fallback``.
 
         Raises:
             TypeError: Always, unless a subclass overrides this. Pydantic's ``to_json`` expects ``fallback`` to
@@ -532,18 +594,21 @@ class Type:
 
     @classmethod
     def untyped_to_hash(cls, value: Any) -> Any:
-        """Returns what is hashed for a value of this kind found in what a call received: its JSON, unless a
-        subclass has a shorter stand-in for it.
+        """Returns what to hash in place of a value of this kind that a call received.
+
+        It is the value's JSON, unless a subclass has something shorter to hash.
 
         Raises:
-            TypeError: The value has no JSON form.
+            TypeError: The value can't be written as JSON.
         """
         return cls.untyped_as_json(value)
 
     @staticmethod
     def untyped_equal(one: Any, other: Any) -> bool:
-        """Returns whether two values found where no type is declared are equal. If ``==`` raises for them, they
-        are equal only when they are the same object."""
+        """Returns whether two values found where no type is declared are equal.
+
+        If ``==`` raises for them, they are equal only when they are the same object.
+        """
         try:
             return bool(one == other)
         except (ValueError, TypeError):
@@ -551,11 +616,13 @@ class Type:
 
 
 def _host_name(cls: type) -> tuple[str, str]:
-    """Returns the id and title of a host's class: what its ``@host_type`` declared. ``Box[int]``, the class
-    pydantic makes of a generic model ``Box``, is ``box[int]`` with ``Box``'s title.
+    """Returns the id and title a host's class declared with ``@host_type``.
+
+    For a generic pydantic model ``Box``, pydantic makes a class ``Box[int]``. Its id is ``box[int]``, and its
+    title is ``Box``'s.
 
     Raises:
-        NodeDeclarationError: The class is not declared (``type_not_named``).
+        NodeDeclarationError: ``type_not_named`` if the class has no declaration.
     """
     generic = vars(cls).get("__pydantic_generic_metadata__")
     if generic is not None and generic["origin"] is not None:
@@ -569,8 +636,11 @@ def _host_name(cls: type) -> tuple[str, str]:
 
 
 def _kind_of(hint: Any) -> type[Type]:
-    """Returns the class to make the ``Type`` of ``hint`` from: the subclass registered for ``Series`` or ``Table``
-    when the hint is that generic class, with or without ``| None``, else ``Type``."""
+    """Returns the class to make the ``Type`` of ``hint`` from.
+
+    That is the subclass registered for ``Series`` or ``Table`` when the hint is one of them, with or without
+    ``| None``. For any other hint it is ``Type``.
+    """
     if type(hint) is type and hint not in READ_AS and hint not in _KINDS:
         return Type
     options = [
@@ -585,14 +655,18 @@ def _kind_of(hint: Any) -> type[Type]:
 
 
 def kind_of_value(value: Any) -> type[Type]:
-    """Returns the ``Type`` subclass registered for the class of ``value``, else ``Type``: ``TableType`` for a
-    frame, ``Type`` for ``5``. Used for a value found where no type is declared, such as inside an ``Any``."""
+    """Returns the ``Type`` subclass for the class of ``value``, or ``Type`` if none is registered.
+
+    It is ``TableType`` for a frame, and ``Type`` for ``5``. It is used for a value found where no type is
+    declared, such as inside an ``Any``.
+    """
     return _KINDS.get(READ_AS.get(type(value)), Type)
 
 
 def untyped_as_json(value: Any) -> Any:
-    """Returns the JSON form of a value pydantic can't write itself, such as a frame inside an ``Any``. It is
-    passed to pydantic's ``to_json`` as ``fallback``.
+    """Converts a value pydantic can't write itself to JSON, such as a frame inside an ``Any``.
+
+    It is passed to pydantic's ``to_json`` as ``fallback``.
 
     Raises:
         TypeError: No ``Type`` subclass is registered for the value's class.
@@ -601,8 +675,9 @@ def untyped_as_json(value: Any) -> Any:
 
 
 def untyped_to_hash(value: Any) -> Any:
-    """Returns what to hash for a value pydantic has no JSON form for, found in what a call received. It is the
-    ``fallback`` given to ``to_json`` when a call's arguments are fingerprinted: a frame becomes
+    """Returns what to hash in place of a value pydantic can't write as JSON, found in a call's arguments.
+
+    It is passed to ``to_json`` as ``fallback`` when a call's arguments are hashed. A frame becomes
     ``{"table": "<digest>"}``.
 
     Raises:

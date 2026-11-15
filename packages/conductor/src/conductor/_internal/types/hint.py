@@ -1,5 +1,7 @@
-"""Small helpers that take a type hint apart or build one: the members of a union, what a named alias stands for,
-whether a class declares fields or is a number, a hint with its type variables replaced.
+"""Small helpers for taking a type hint apart or building one.
+
+They answer questions like: what are the members of this union? What does this ``type X = ...`` alias stand
+for? Does this class declare fields? What is this hint with its type variables filled in?
 """
 
 from __future__ import annotations
@@ -14,47 +16,53 @@ from typing import Any, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_
 
 from pydantic import BaseModel, JsonValue
 
-#: Maps a run-time class to the hint it means when written as a hint: ``polars.DataFrame`` to ``Table``.
+#: Classes that mean another hint when written as a hint, such as ``polars.DataFrame``, which means ``Table``.
 READ_AS: dict[type, Any] = {}
 
 
 def union_members(hint: Any) -> tuple[Any, ...]:
-    """Gives the members of a union, or the hint itself as the one member of any other type."""
+    """Returns the members of a union. Any other hint is returned as a union of one member."""
     return get_args(hint) if get_origin(hint) in (Union, UnionType) else (hint,)
 
 
 def list_of(item: Any) -> Any:
-    """Gives ``list[item]`` for an ``item`` known only when a hint is read."""
+    """Returns ``list[item]``, for an item type known only at run time."""
     return GenericAlias(list, (item,))
 
 
 def union_of(options: Iterable[Any]) -> Any:
-    """Gives the union of ``options``, which is the option itself when there is one."""
+    """Returns the union of ``options``. With a single option, it returns that option."""
     return functools.reduce(operator.or_, options)
 
 
 def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
-    """Says whether ``hint`` is a named type alias (``type X = ...``): typing's, or the one pydantic's own aliases are."""
+    """Says whether ``hint`` is a named type alias, like ``type X = ...`` or pydantic's ``JsonValue``."""
     return isinstance(hint, (TypeAliasType, type(JsonValue)))
 
 
 def is_record(cls: Any) -> bool:
-    """Says whether ``cls`` is a class that declares fields: a pydantic model, a dataclass or a ``TypedDict``."""
+    """Says whether ``cls`` is a record: a pydantic model, a dataclass or a ``TypedDict``."""
     return isinstance(cls, type) and (
         issubclass(cls, BaseModel) or dataclasses.is_dataclass(cls) or typing.is_typeddict(cls)
     )
 
 
 def a_number(cls: type) -> bool:
-    """Says whether ``cls`` is a class of number that a yes or no must not be taken as: ``int``, ``float`` or a
-    subclass of theirs, never ``bool``, though Python counts ``True`` as 1. ``fit`` reads it for types when a graph
-    is compiled, and ``validation.rules`` for values."""
+    """Says whether ``cls`` is a number class: ``int``, ``float`` or a subclass of one, but not ``bool``.
+
+    Python counts ``True`` as ``1``, but conductor never takes a yes or no as a number. This is the one place that
+    rule says what a number is. ``fit`` uses it for types when a graph is compiled, and ``validation.rules`` for
+    values.
+    """
     return issubclass(cls, (int, float)) and not issubclass(cls, bool)
 
 
 @functools.cache
 def aliased(alias: Any) -> Any:
-    """Gives what a named type alias stands for, the names it holds as text resolved where it was written."""
+    """Returns what a named type alias stands for.
+
+    Names written as strings inside the alias are resolved in the module where the alias was written.
+    """
     holder = type(
         "_", (), {"__annotations__": {"value": alias.__value__}, "__module__": alias.__module__}
     )
@@ -62,7 +70,11 @@ def aliased(alias: Any) -> Any:
 
 
 def substituted(hint: Any, bound: Mapping[TypeVar, Any]) -> Any:
-    """Gives ``hint`` with each type variable replaced by what it is bound to, else its own bound, else ``Any``."""
+    """Returns ``hint`` with each type variable filled in.
+
+    A variable is replaced by what ``bound`` binds it to. If ``bound`` doesn't have it, it is replaced by the
+    variable's own bound, or by ``Any`` if it has none.
+    """
     if isinstance(hint, TypeVar):
         if hint in bound:
             return bound[hint]
@@ -71,7 +83,7 @@ def substituted(hint: Any, bound: Mapping[TypeVar, Any]) -> Any:
         return Any
     if isinstance(hint, type):
         return hint
-    variables = getattr(hint, "__parameters__", ())  # typing's own, on every generic hint
+    variables = getattr(hint, "__parameters__", ())  # typing sets this on every generic hint
     return (
         hint[tuple(substituted(variable, bound) for variable in variables)] if variables else hint
     )

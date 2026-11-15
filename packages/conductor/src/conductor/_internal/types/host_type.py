@@ -1,14 +1,15 @@
-"""``@host_type``: how a host declares a class of its own as a type conductor can name.
+"""Names for types: conductor's own, and the ones a host declares with ``@host_type``.
 
-Example::
+Every type on an input or output needs an id, which an editor and a graph record know it by, and a title, which a
+person sees. Conductor names the common Python types itself (``NAMES``): an ``int`` is ``"int"``, titled "Whole
+number". A host names a class of its own with ``@host_type``::
 
     @host_type("money", title="Money")
     class Money(BaseModel):
         amount: float
 
-A field typed ``Money`` then has the type id ``"money"`` in ``describe()``, and an editor shows "Money".
-The decorator checks the declaration when the class statement ends and stores it on the class as
-``__conductor_type__``. ``Type`` reads it from there with ``declaration_of``.
+A field typed ``Money`` then has the id ``"money"`` in ``describe()``, and an editor shows "Money". The decorator
+checks the declaration right away and stores it on the class, where ``declaration_of`` finds it.
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ from pydantic_core import core_schema
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.utils import qualified_name
 
-#: The id and title of each class conductor itself names. ``Series`` and ``Table`` name themselves in their own
-#: packages, and every other class a field has is declared with ``@host_type``.
+#: The id and title of each class conductor names itself. ``Series`` and ``Table`` are named in their own
+#: packages. Any other class on a field must be declared with ``@host_type``.
 NAMES: Mapping[Any, tuple[str, str]] = {
     Any: ("Any", "Any value"),
     object: ("object", "Any value"),
@@ -53,20 +54,22 @@ NAMES: Mapping[Any, tuple[str, str]] = {
     frozenset: ("frozenset", "Set"),
 }
 
-#: The ids a host can't declare, as they are conductor's own. ``Type`` adds the id of each generic class of its own
-#: (``Series``, ``Table``) when that class's package is imported.
+#: The ids a host can't declare, because conductor uses them. ``Type`` adds ``Series`` and ``Table`` here when
+#: their packages are imported.
 OWN_IDS: set[str] = {own_id for own_id, _ in NAMES.values()} | {"record"}
 
 
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True, "strict": True})
 class TypeDeclaration:
-    """What ``@host_type`` stores on a class as ``__conductor_type__``. It holds only these three values; a type
-    that needs behaviour of its own is a subclass of ``Type``, as ``Series`` and ``Table`` have.
+    """What ``@host_type`` stores on a class, as ``__conductor_type__``.
+
+    It is only these three values. A type that needs behaviour of its own is a subclass of ``Type`` instead, like
+    the ones for ``Series`` and ``Table``.
 
     Attributes:
-        id: The name an editor and a graph record know the type by, such as ``"money"``. A word with none of
-            ``[ ] | , :`` or a space, since the id of ``list[Money]`` is written ``list[money]``.
-        title: What a person reads for the type, such as ``"Money"``.
+        id: The name an editor and a graph record know the type by, such as ``"money"``. It is one word, with no
+            ``[ ] | , :`` or space, since it is written inside other ids: ``list[Money]`` is ``list[money]``.
+        title: What a person sees for the type, such as ``"Money"``.
         accepts: Other classes whose values an edge may pass to an input of this type.
     """
 
@@ -84,30 +87,34 @@ class TypeDeclaration:
 
 def host_type[C: type](
     id: str, *, title: str, accepts: list[type] | tuple[type, ...] = ()
-) -> Callable[[C], C]:  # noqa: A002  the word a type's id has in describe()
-    """Declares a class as a type of the host's. Write it above the class, and above ``@dataclass`` when there is
-    one::
+) -> Callable[[C], C]:  # noqa: A002  "id" is what describe() calls it
+    """Gives a class of your own the id and title conductor shows it by.
+
+    Write it above the class, and above ``@dataclass`` if there is one. For a class from a library, call it
+    directly::
 
         @host_type("text", title="Text")
         class Text(str): ...
 
         host_type("ip", title="IP address")(ipaddress.IPv4Address)   # a library's class
 
-    A subclass of ``str``, ``int`` or another class conductor names needs nothing more: a value is validated as
-    the parent class and then made the subclass. A subclass does not inherit the declaration; declare it too.
+    A subclass of ``str``, ``int`` or another class conductor names needs nothing more. A value is checked as the
+    parent class, then made into the subclass. A subclass doesn't inherit its parent's declaration, so declare it
+    too.
 
     Args:
         id: The name an editor and a graph record know the type by.
-        title: What a person reads for the type.
+        title: What a person sees for the type.
         accepts: Other classes whose values an edge may pass to an input of this type.
 
     Returns:
-        A decorator that returns the class it is given, unchanged but for the declaration stored on it.
+        A decorator that stores the declaration on the class and returns the class.
 
     Raises:
-        NodeDeclarationError: When the class statement ends: the id is not a word or is one of conductor's own,
-            the title is empty, ``accepts`` has something that is not a class, or the class can't be written on
-            (``type_declaration_invalid``); or pydantic can't validate the class (``type_not_carried``).
+        NodeDeclarationError: Right away, when the class is defined. ``type_declaration_invalid`` if the id isn't
+            one word or is one of conductor's own, the title is empty, ``accepts`` has something that isn't a
+            class, or the class can't take a new attribute. ``type_not_carried`` if pydantic can't check values of
+            the class.
     """
     try:
         stored = TypeDeclaration(
@@ -137,9 +144,9 @@ def host_type[C: type](
                     made, handler(parent)
                 )
             )
-            cls.__get_pydantic_core_schema__ = validated_as_parent  # type: ignore[attr-defined]  # the hook pydantic looks for on a class
+            cls.__get_pydantic_core_schema__ = validated_as_parent  # type: ignore[attr-defined]  # pydantic's hook for a class's schema
         try:
-            cls.__conductor_type__ = stored  # type: ignore[attr-defined]  # read back by declaration_of
+            cls.__conductor_type__ = stored  # type: ignore[attr-defined]  # declaration_of looks here
         except TypeError:  # a class written in C, such as int
             raise NodeDeclarationError(
                 declaration_problems.type_declaration_not_writable(id=id, cls=cls.__qualname__)
@@ -150,12 +157,13 @@ def host_type[C: type](
 
 
 def declaration_of(cls: type) -> TypeDeclaration:
-    """Returns what ``@host_type`` stored on ``cls`` itself. For a ``Money`` declared with
-    ``@host_type("money", title="Money")``, ``declaration_of(Money).id`` is ``"money"``. A parent's declaration
-    does not count.
+    """Returns what ``@host_type`` stored on ``cls``.
+
+    For a ``Money`` declared with ``@host_type("money", title="Money")``, ``declaration_of(Money).id`` is
+    ``"money"``. Only a declaration on ``cls`` itself counts, not one on a parent class.
 
     Raises:
-        NodeDeclarationError: ``cls`` has none (``type_not_named``).
+        NodeDeclarationError: ``type_not_named`` if ``cls`` has no declaration of its own.
     """
     declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
     if declared is None:
@@ -171,8 +179,10 @@ def declaration_of(cls: type) -> TypeDeclaration:
 
 
 def accepted_classes(cls: type) -> tuple[type, ...]:
-    """Returns the other classes whose values an edge may pass to an input of the class ``cls``: what its
-    ``@host_type(accepts=...)`` lists, and none for a class with no declaration. For a ``Temperature`` declared
-    with ``accepts=[Celsius]`` it is ``(Celsius,)``; for ``int`` it is ``()``."""
+    """Returns the other classes whose values an edge may pass to an input of type ``cls``.
+
+    These are the classes ``@host_type(accepts=...)`` lists. For a ``Temperature`` declared with
+    ``accepts=[Celsius]`` it is ``(Celsius,)``. For a class with no declaration, like ``int``, it is ``()``.
+    """
     declared: TypeDeclaration | None = vars(cls).get("__conductor_type__")
     return () if declared is None else declared.accepts

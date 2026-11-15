@@ -1,6 +1,15 @@
-"""``Choice``: one option a person can pick, with an id and a title; ``read_choices`` reads the choices of a type,
-``choice_texts`` keys them, ``pick_texts`` keys the picks a value makes, and ``check_one_of`` holds the picks to
-the choices."""
+"""Choices: a fixed list of values a person picks from.
+
+A type can say which values it takes, with ``Param(choices=...)`` or a ``Literal``. A node that raises ``Ask``
+can offer choices too. Each one is a ``Choice``, an id with a title::
+
+    Annotated[str, Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])]
+
+Two steps use them. First, the choices are checked against the type and converted to JSON (``read_choices``).
+Later, each value is checked against the choices. That second step compares JSON texts: ``choice_texts`` gives
+the text of each choice, ``pick_texts`` the text of each value picked, and ``check_one_of`` refuses a pick that
+isn't one of the choices.
+"""
 
 from __future__ import annotations
 
@@ -15,15 +24,15 @@ from conductor._internal.problem import value_free_errors
 
 
 class Choice(ConductorModel):
-    """One option a person may pick: ``Choice("ida", "Ida B.")``.
+    """One option a person can pick, with an id and a title: ``Choice("ida", "Ida B.")``.
 
-    A host gives it more fields to carry more about an option, as keywords or on a subclass of its own; they reach
-    the question, and a dropdown, as written, and a saved run or a description reads them back. A keyword it does
-    not declare is kept, never refused, so a misspelt one is kept too.
+    A host can add more fields to say more about an option, such as an icon. Pass them as keywords, or declare
+    them on a subclass. They are passed on as given to the question and to a dropdown, and they survive a saved run
+    and a description. A keyword the class doesn't declare is kept, not refused, so a misspelt one is kept too.
 
     Attributes:
-        id: The value an answer picking it holds.
-        title: What a person reads for it.
+        id: The value an answer has when this choice is picked.
+        title: What a person sees for it.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -31,19 +40,19 @@ class Choice(ConductorModel):
     id: Any
     title: str
 
-    def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  the word a host's option has
-        """Makes a choice from its id and title given in that order.
+    def __init__(self, id: Any, title: str, **more: Any) -> None:  # noqa: A002  "id" is what a host calls it
+        """Makes a choice from its id and title, given in that order.
 
         Args:
-            id: The value an answer picking it holds.
-            title: What a person reads for it.
-            **more: The other fields a host gives it.
+            id: The value an answer has when this choice is picked.
+            title: What a person sees for it.
+            **more: Any other fields a host gives it.
         """
         fields: dict[str, Any] = {
             "id": id,
             "title": title,
             **more,
-        }  # the base's own signature names no fields
+        }  # passed as keywords, since the base class's own signature names no fields
         super().__init__(**fields)
 
 
@@ -52,25 +61,31 @@ def read_choices(
     reader: SchemaValidator | TypeAdapter[Any],
     write: Callable[[Any], JsonValue],
 ) -> tuple[Choice, ...]:
-    """Reads the choices of a type: each id read by ``reader`` strictly from its JSON form (``validate_as_json``)
-    and written back in its JSON form by ``write``.
+    """Checks the choices of a type, and returns them with each id in its JSON form.
 
-    ``read_choices([1, Choice(2, "Two")], adapter, write)`` with the adapter and writer of ``float`` is
-    ``(Choice(1.0, "1"), Choice(2.0, "Two"))``: a bare value is titled by its text, and a ``Choice`` keeps its class
-    and every field it has. Two ids are the same choice when their texts are (``choice_texts``), so
-    ``{"a": 1, "b": 2}`` and ``{"b": 2, "a": 1}`` are one choice given twice. Who reads decides the rules:
-    ``Param`` reads by its limited type, the ``Ask`` validator by the pydantic validator of the output, which holds
-    every value to the rules of ``validation.rules`` (a yes or no is not a number).
+    Each id is checked by ``reader`` strictly, the way its JSON text would be (``validate_as_json``). Then
+    ``write`` turns it back into JSON. A bare value becomes a ``Choice`` titled by its text. A ``Choice`` keeps its
+    class and all its fields.
+
+    For a ``float``, ``read_choices([1, Choice(2, "Two")], adapter, write)`` gives
+    ``(Choice(1.0, "1"), Choice(2.0, "Two"))``.
+
+    Two ids are the same choice when their JSON texts match (``choice_texts``). So ``{"a": 1, "b": 2}`` and
+    ``{"b": 2, "a": 1}`` are one choice given twice, which is refused.
+
+    The caller's ``reader`` decides the rules. ``Param`` passes its own type, limits included. The ``Ask``
+    validator passes the output's validator, which also applies ``validation.rules``: a yes or no is not a
+    number.
 
     Args:
         given: The choices as a developer or a node gave them, each a value or a ``Choice``.
         reader: The validator of the type the choices are values of.
-        write: Writes a value ``reader`` gave in its JSON form.
+        write: Converts a value ``reader`` gave back to JSON.
 
     Raises:
-        PydanticCustomError: An id has no JSON form (``no_json_form``) or is not a value of the type
-            (``not_its_type``, whose message is the type's reason, quoting no value), or there are no choices
-            (``no_choices``) or an id is given twice (``choice_twice``).
+        PydanticCustomError: ``no_json_form`` if an id can't be written as JSON. ``not_its_type`` if an id isn't
+            a value of the type; its message is the type's reason, which quotes no value. ``no_choices`` if the
+            list is empty. ``choice_twice`` if an id is given twice.
     """
     choices = [
         choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in given
@@ -92,19 +107,19 @@ def read_choices(
 
 
 def choice_texts(choices: Iterable[Choice]) -> frozenset[str]:
-    """The ids of ``choices`` as the texts a pick is looked up by (``canonical_json``), each id in its JSON form.
+    """Returns the ids of ``choices`` as the JSON texts a pick is compared with (``canonical_json``).
 
-    Two ids are one choice when their texts are: ``1.0`` and ``1`` on a ``float`` are both read as ``1.0``, and
-    ``{"a": 1, "b": 2}`` and ``{"b": 2, "a": 1}`` are one text.
+    Two ids are one choice when their texts match. On a ``float``, ``1`` and ``1.0`` are both checked as ``1.0``.
+    And ``{"a": 1, "b": 2}`` and ``{"b": 2, "a": 1}`` have the same text, since the keys are sorted.
     """
     return frozenset(canonical_json(choice.id) for choice in choices)
 
 
 def pick_texts(written: Any, *, several: bool) -> list[str]:
-    """The picks ``written`` makes, each as the text it is looked up by (``canonical_json``): ``written`` is one
-    value in its JSON form, or with ``several`` a list of them.
+    """Returns the values picked in ``written``, as JSON texts to compare with the choices (``canonical_json``).
 
-    ``None``, the value or an item, is no pick: a type that takes ``None`` takes it beside its choices. So
+    ``written`` is one value in its JSON form, or a list of them when ``several`` is set. ``None`` is not a pick: a
+    type that allows ``None`` takes it besides its choices. For example,
     ``pick_texts(["a", None, {"b": 1}], several=True)`` is ``['"a"', '{"b":1}']``, and
     ``pick_texts(None, several=False)`` is ``[]``.
     """
@@ -116,13 +131,14 @@ def pick_texts(written: Any, *, several: bool) -> list[str]:
 
 
 def check_one_of(texts: frozenset[str], picks: list[str]) -> None:
-    """Refuses ``picks`` (``pick_texts``) unless each is one of the choices whose ``choice_texts`` are ``texts``.
+    """Checks that every pick is one of the choices.
 
-    An input ``Annotated[str | None, Param(choices=["a"])]`` takes ``"a"`` and ``None``, which is no pick.
+    ``texts`` comes from ``choice_texts`` and ``picks`` from ``pick_texts``. For example, an input
+    ``Annotated[str | None, Param(choices=["a"])]`` takes ``"a"``, and ``None`` too, since ``None`` is not a pick.
 
     Raises:
-        PydanticCustomError: A pick is not one of the choices (``not_a_choice``); the message quotes nothing of the
-            value.
+        PydanticCustomError: ``not_a_choice`` if a pick is not one of the choices. The message quotes nothing of
+            the value.
     """
     if not texts.issuperset(picks):
         raise PydanticCustomError("not_a_choice", "the value is not one of the choices")
