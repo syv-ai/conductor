@@ -59,7 +59,6 @@ from conductor._internal.validation import (
     bound_field,
     declared_input,
     declared_output,
-    read_constant,
     read_record,
 )
 
@@ -79,6 +78,7 @@ from .node import (
     RequiredBranch,
 )
 from .type import Definitions, Graph
+from .validator import read_constant
 
 _logger = logging.getLogger("conductor")
 

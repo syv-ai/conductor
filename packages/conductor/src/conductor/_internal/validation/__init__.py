@@ -21,10 +21,10 @@ Where a value enters, with the module that validates it (the problems page has t
         writes into one
     a default a node declares, and the same default read        declared
         again by the type an edge binds its type variable to
-    a constant or default written in a record                   constants
+    a constant or default written in a record                   graph/validator.py
     what a compute_added_inputs or compute_outputs hook         node/validator.py
         returns
-    a caller's graph inputs, max_items, timeout and             inputs
+    a caller's graph inputs, max_items, timeout and             graph/validator.py
         checkpoint_every
     a person's answer to a node's outputs                       answer
     what a node's function returns                              node/validator.py
@@ -42,18 +42,17 @@ A type's own declarations are read where the type is declared: ``Param`` reads i
 """
 
 from .answer import AnswerValidator
-from .constants import read_constant
 from .context import ContextValidator
 from .declared import bound_field, declared_input, declared_output
 from .edge import EdgeValidator, demands_more
 from .exclusive_group import exclusive_groups, groups_without_one_value
-from .inputs import InputsValidator, read_limits
 from .raised import AskValidator, undeclared_ask
 from .record import read_json, read_record, record_values
 from .rules import (
     exact_classes,
     numbers_refuse_bools,
     output_schema_of,
+    schema_of,
     schema_output_validator_of,
     schema_validator_of,
 )
@@ -63,7 +62,6 @@ __all__ = [
     "AskValidator",
     "ContextValidator",
     "EdgeValidator",
-    "InputsValidator",
     "bound_field",
     "declared_input",
     "declared_output",
@@ -73,9 +71,8 @@ __all__ = [
     "groups_without_one_value",
     "numbers_refuse_bools",
     "output_schema_of",
-    "read_constant",
+    "schema_of",
     "read_json",
-    "read_limits",
     "read_record",
     "record_values",
     "schema_output_validator_of",

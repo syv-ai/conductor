@@ -2,7 +2,9 @@
 
 Code outside this package imports from here only. ``type.py`` has ``Graph``, and ``Graph.compile`` compiles a
 record with ``compile.py``; ``node.py`` has its nodes; ``input.py`` how each input of a node gets its value;
-``describe.py`` what a host is shown of a graph; ``make.py`` is ``make_graph``, a graph record written from Python.
+``describe.py`` what a host is shown of a graph; ``make.py`` is ``make_graph``, a graph record written from Python;
+``validator.py`` reads what a graph is given: a caller's graph inputs and a run's limits, and the constants of its
+record.
 The record a graph is compiled from is ``record/``.
 """
 
@@ -25,6 +27,7 @@ from .node import (
     CompiledSubgraphNode,
 )
 from .type import Graph
+from .validator import read_limits
 
 __all__ = [
     "CollectingInput",
@@ -40,4 +43,5 @@ __all__ = [
     "InputSource",
     "MissingInput",
     "make_graph",
+    "read_limits",
 ]

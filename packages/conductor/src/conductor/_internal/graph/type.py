@@ -42,7 +42,7 @@ from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
 from conductor._internal.utils import plural
-from conductor._internal.validation import ContextValidator, InputsValidator, read_limits
+from conductor._internal.validation import ContextValidator
 
 from .describe import (
     GraphDescription,
@@ -55,6 +55,7 @@ from .node import (
     CompiledNode,
     CompiledSubgraphNode,
 )
+from .validator import InputsValidator, read_limits
 
 if TYPE_CHECKING:
     from conductor._internal.run import Run, RunBlueprint, SavedRun
