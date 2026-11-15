@@ -737,8 +737,10 @@ class Scheduler:
                     returned = self.returned.get()
                 else:
                     try:
-                        # CPython 3.12's SimpleQueue.get(timeout=) never returns when its timeout runs out before its
-                        # first look at an empty queue, so the first look is one that doesn't wait.
+                        # On CPython 3.12 (every release; 3.13 rewrote the method in python/cpython#114161), get(timeout=)
+                        # on an empty SimpleQueue that is new or has just given an item can wait for ever: when the
+                        # timeout runs out during its first look, its next look waits with no limit. A look that
+                        # doesn't wait is that first look, and get(timeout=) after it returns in time.
                         returned = self.returned.get(block=False)
                     except Empty:
                         if timeout <= 0:
