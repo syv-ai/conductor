@@ -1,6 +1,6 @@
 # Serving runs over HTTP
 
-A person who answers days later means a run has to outlive a request. `syv-conductor-providers` has a FastAPI router for that: it starts a run, streams its events, takes answers, resumes it and cancels it, and it does so on any number of workers sharing one database. You give it three things: where runs are kept, who is calling, and which nodes they may use.
+A person who answers days later means a run has to outlive a request. `syv-conductor-providers` has a FastAPI router for that: it starts a run, streams its events, takes answers, resumes it and cancels it, and it does so on any number of workers sharing one database. You give it three things: where runs are kept, who is calling, and which nodes they may use. Under the routes is a `Worker`, which a host with routes of its own calls directly ([without the router](#without-the-router)).
 
 ```bash
 uv add syv-conductor-providers
@@ -10,7 +10,7 @@ The test suite runs this page as written: two uvicorn workers on one database, a
 
 ## A store
 
-The router keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of ten columns, text and numbers. Your store acts on four of them: `id`, `rev`, `owner` and `lease_until`. `status` and `caller` are columns for your own queries, such as a page of the runs that wait for one person. `graph`, `run`, `state` and `outcome` are JSON the router writes and reads, which you only keep. Keep them, `caller` and each event's body as text or as `jsonb`: any form that reads back as the same JSON value, since the router parses them and never compares the text. `state` is where the run is (its status and why it ended early, the answers queued and refused, a cancel that was asked); it is small. `status` is there for your queries only: the router writes it in the same `update` as `state`, from it, and itself reads only `state`. `outcome` is what a reader gets without reading the whole run, written each time the run stops running: what waits, how far the run is (its progress, written with each checkpoint too) and, once complete, the outputs. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run. The protocol has no delete: purge old runs with your own statement, and never a run whose `status` is `running`, which its worker and its followers read again and take to be there.
+The worker keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of ten columns, text and numbers. Your store acts on four of them: `id`, `rev`, `owner` and `lease_until`. `status` and `caller` are columns for your own queries, such as a page of the runs that wait for one person. `graph`, `run`, `state` and `outcome` are JSON the router writes and reads, which you only keep. `id`, `graph` and `caller` are written once, by `create`, and no `update` changes them. Keep them, `caller` and each event's body as text or as `jsonb`: any form that reads back as the same JSON value, since the router parses them and never compares the text. `state` is where the run is (its status and why it ended early, the answers queued and refused, a cancel that was asked); it is small. `status` is there for your queries only: the router writes it in the same `update` as `state`, from it, and itself reads only `state`. `outcome` is what a reader gets without reading the whole run, written each time the run stops running: what waits, how far the run is (its progress, written with each checkpoint too) and, once complete, the outputs. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run. The protocol has no delete: purge old runs with your own statement, and never a run whose `status` is `running`, which its worker and its followers read again and take to be there.
 
 This one is SQLite, for one machine with several workers. Write yours the same way for Postgres:
 
@@ -91,13 +91,13 @@ async def test_run_store(tmp_path: Path) -> None:
 
 ## The app
 
-Mount the router in one line. `caller` is a FastAPI dependency, your login: a function, whose return annotation it must have, or a class used as the dependency. The type it gives is kept on each run as JSON, so whichever worker goes on with a run knows who started it; a function with no return annotation is a `TypeError` when the router is made:
+Make a `Worker` on your store and mount the router over it. The worker does the work: it keeps runs, resumes them, holds their leases and takes over another worker's. `caller_type` is the type of a run's caller, kept on each run as JSON so whichever worker goes on with a run knows who started it, and `nodes_for` and `context` make the run's registry and context from that caller. The router adds the routes: `caller` is a FastAPI dependency, your login, that gives a caller of that type (a function, or a class used as the dependency), and `may_see` says who may see a run:
 
 ```python
 from dataclasses import dataclass
 
 from conductor import GraphRecord, NodeRegistry
-from conductor_providers.fastapi import run_router
+from conductor_providers.fastapi import Worker, run_router
 from fastapi import FastAPI, HTTPException
 
 
@@ -140,13 +140,17 @@ def published(name: str) -> GraphRecord:
     return offered[name]
 
 
+worker = Worker(
+    store=SqliteRunStore(database.path),
+    caller_type=Caller,
+    nodes_for=lambda caller: registry,
+    context=context_of,
+)
 app = FastAPI()
 app.include_router(run_router(
-    store=SqliteRunStore(database.path),
-    registry=lambda caller: registry,
+    worker,
     caller=current_caller,
     may_see=lambda caller, started_by: caller.name == started_by.name,
-    context=context_of,
     published=published,
 ))
 ```
@@ -173,11 +177,11 @@ Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each 
 
 **Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
 
-**Who may see a run.** You say: `may_see(caller, started_by)` is asked on every route under `/runs/{id}`, and a caller it turns away gets 404, `no_such_run`, as for an id that names no run. Above, only the caller who started a run may read it or act on it; `may_see=lambda caller, started_by: caller.team == started_by.team` lets a team in. Both are required. There is no default rule, because the obvious one, the same caller, compares everything your `caller` returns: a record with a `last_login` would lock Anna out of her own run the next time she logs in. A host with no logins gives a caller of `None` and lets everyone in: `caller=nobody`, with `def nobody() -> None: return None`, and `may_see=lambda caller, started_by: True`.
+**Who may see a run.** You say: `may_see(caller, started_by)` is asked on every route under `/runs/{id}`, and a caller it turns away gets 404, `no_such_run`, as for an id that names no run. Above, only the caller who started a run may read it or act on it; `may_see=lambda caller, started_by: caller.team == started_by.team` lets a team in. Both are required. There is no default rule, because the obvious one, the same caller, compares everything your `caller` returns: a record with a `last_login` would lock Anna out of her own run the next time she logs in. A host with no logins gives a caller of `None` and lets everyone in: `caller_type=None` on the worker, and `caller=nobody`, with `def nobody() -> None: return None`, and `may_see=lambda caller, started_by: True` on the router.
 
 **What `caller` returns.** What identifies the caller and nothing that changes: an id, a tenant. It is kept on the run as JSON when the run starts, and the run's context (`context_of`) and registry are made from it as it was then each time the run is resumed, whichever worker does it.
 
-**A registry per tenant.** `registry=` is a function of the caller, so above it gives every caller the one registry. `registry.filter` gives each tenant the nodes it may use instead. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
+**A registry per tenant.** `nodes_for=` is a function of the caller, so above it gives every caller the one registry. `registry.filter` gives each tenant the nodes it may use instead. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
 
 ```python
 from functools import cache
@@ -198,7 +202,7 @@ def nodes_of(member: Member) -> NodeRegistry[AppContext]:
     return tenant_nodes(member.tenant)
 ```
 
-Pass `registry=nodes_of` and a `caller` that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
+Pass `nodes_for=nodes_of` and `caller_type=Member`, and a `caller` that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
 
 **What a node receives.** A node that takes the run's context takes it as its first parameter, `Context[AppContext]`, and gets the `AppContext` that `context_of` returns. A run's nodes are called on a thread of the run's own, and a node with `Policy(concurrency=4)` on four more, with at most four calls of it at once among all the runs of the worker; a node that sets no `concurrency` is called by each run on its own, whatever the others do. So the context gives a node a way to connect, and the node opens its own connection:
 
@@ -213,7 +217,7 @@ def count_runs(ctx: Context[AppContext], status: str) -> int:
         return count
 ```
 
-A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in the context as it is. The context is never part of a run's JSON; the router keeps the caller on the run and calls `context_of` again on any worker. A graph with a node whose `Context[...]` your `AppContext` does not satisfy has [`context_does_not_fit`](problems.md#context_does_not_fit) at that node: `/compile` shows it, and `POST /runs` answers 422.
+A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in the context as it is. The context is never part of a run's JSON; the worker keeps the caller on the run and calls `context_of` again on any worker. A graph with a node whose `Context[...]` your `AppContext` does not satisfy has [`context_does_not_fit`](problems.md#context_does_not_fit) at that node: `/compile` shows it, and `POST /runs` answers 422.
 
 **Two workers answering one run.** Answering reads the run, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `update` at that `rev`, and only one of them changes the row. The other answers 409 (`run_changed`) and calls no node. An answer to a waiting call whose question has changed since the client read it (after `again`, say) is refused as `answer_stale`, by its waiting id.
 
@@ -221,23 +225,104 @@ A connection or session opened on the event loop and passed in either fails or i
 
 **A kill.** A running run is saved every `checkpoint_every` seconds (5 by default), and its lease runs out `lease` seconds (30) after its worker stops renewing it. Then any worker takes the run and goes on from the checkpoint. Only the calls the checkpoint has no record of are made again: those in flight, and those finished since. A cancel sent while the dead worker held the run stays asked: the worker that takes it over ends it `cancelled` before calling anything; a resume or an answer goes on from there. A worker that lost its lease writes nothing more, and stops calling the run's nodes at its next renewal, checkpoint or event, whichever the store answers first: a renewal the store hasn't answered when the next is due is given up, so one that never returns blocks nothing else.
 
-**A deploy.** On shutdown, the router hands back every run its worker is resuming (`run.stream(hand_back=)`): no more nodes are started, the calls already made are waited for and kept, and the run is stored as it is, still `running`. The row is then handed back, its lease already run out, and any worker goes on with it. It repeats no call if the process is given the time to hand its runs back: a call on a thread is waited for as far as its `attempt_timeout`, and a process killed before that is a worker that died, whose run goes on from its last checkpoint. A run that stopped running for any other reason (it waits, is complete, or ended early) has no `lease_until` at all, so `expired` is the one comparison and never returns it. A handed-back run writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run before its worker shuts down ends the run `cancelled`; one that lands as the run is handed back is kept in its `state`, and the worker that takes the run ends it `cancelled` before calling anything.
+**A deploy.** On shutdown, the worker hands back every run its worker is resuming (`run.stream(hand_back=)`): no more nodes are started, the calls already made are waited for and kept, and the run is stored as it is, still `running`. The row is then handed back, its lease already run out, and any worker goes on with it. It repeats no call if the process is given the time to hand its runs back: a call on a thread is waited for as far as its `attempt_timeout`, and a process killed before that is a worker that died, whose run goes on from its last checkpoint. A run that stopped running for any other reason (it waits, is complete, or ended early) has no `lease_until` at all, so `expired` is the one comparison and never returns it. A handed-back run writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run before its worker shuts down ends the run `cancelled`; one that lands as the run is handed back is kept in its `state`, and the worker that takes the run ends it `cancelled` before calling anything.
 
-**Resuming.** A run can end `timed_out` (one call of `resume()` took longer than `resume_timeout`, 300 seconds by default), `stopped` (a Series outgrew `max_items`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_items": ...}`, a whole number of 1 or more (else 422: `true`, `2.5` or `"5"` as the body's own `int_type`, `0` as conductor's [`invalid_limit`](problems.md#invalid_limit)), raises the item limit for a stopped run: the run is stored with it (`run.with_max_items`) as the resume claims it, so it applies from then on, after a kill too (a stored run that can't be read is then a 422 from the resume itself); the router's `max_items` is the item limit a run starts with. Only `complete` is final. A run that ended early, a cancelled one included, still takes answers to what waits in it, as `run.answer` does, and they resume it: one item that keeps failing doesn't hold back the questions beside it, and an approver's answer carries a cancelled run on from where it stopped. A cancel of a waiting run ends it `cancelled` without calling a node, so a question nobody answers needn't leave the run `waiting` for ever: a host's own scheduler sends `POST /runs/{id}/cancel` when the person has had long enough, and the run stays answerable. The worker does it with a resume call that calls no node, which builds the run's `context` and compiles its graph as every resume does, so a run whose context or nodes can't be had any more ends `failed` instead, as it would on its next answer. A cancel and an answer sent at once end one of two ways: when the cancel lands first, its resume call ends `cancelled` and then takes the answer, and the run goes on; when the answer lands first, the cancel goes by the run as it then is: still running, it is asked to stop before its next node call, if there is one, so it ends `cancelled` with the answer kept, or `complete` when the answer left no node call to make; already complete, the cancel answers `false`. A host that wants a cancelled run to stay ended marks its own row. When the worker raises outside any node while resuming a run, in a way that would raise again, the run is written `failed`, in its state and on its `run_end`, so it doesn't stay `running` with nobody on it. Where conductor itself refused to resume the run, the cause is conductor's own problem, which says what to fix: [`context_missing`](problems.md#context_missing) or [`invalid_context`](problems.md#invalid_context) when your `context` gives no context or one of another class, [`saved_run_unreadable`](problems.md#saved_run_unreadable) for a stored run that can't be read. A cause is one problem, so of several it is the first, and the log has them all. For anything else (`context` or your registry function raised) the cause is [`resume_failed`](#resume_failed) and the exception is in the log. The run then lists as `waiting` what waits in it as stored, its last checkpoint, which is the run an answer is given to: those questions are answered without a resume. A run that could not be read lists nothing. The same goes for a run that can't be written as JSON (a node gave a value with no JSON form): `failed` the first time, with [`run_unwritable`](problems.md#run_unwritable) as the cause, which names the output; the fix is the node's type. A `run_end` is stored once, before the row says the run stopped running. If another worker takes the run between the two (its lease ran out just then), that worker ends the run too, so a follower sees two `run_end`s and no call is made twice.
+**Resuming.** A run can end `timed_out` (one call of `resume()` took longer than `resume_timeout`, 300 seconds by default), `stopped` (a Series outgrew `max_items`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_items": ...}`, a whole number of 1 or more (else 422: `true`, `2.5` or `"5"` as the body's own `int_type`, `0` as conductor's [`invalid_limit`](problems.md#invalid_limit)), raises the item limit for a stopped run: the run is stored with it (`run.with_max_items`) as the resume claims it, so it applies from then on, after a kill too (a stored run that can't be read is then a 422 from the resume itself); the worker's `max_items` is the item limit a run starts with. Only `complete` is final. A run that ended early, a cancelled one included, still takes answers to what waits in it, as `run.answer` does, and they resume it: one item that keeps failing doesn't hold back the questions beside it, and an approver's answer carries a cancelled run on from where it stopped. A cancel of a waiting run ends it `cancelled` without calling a node, so a question nobody answers needn't leave the run `waiting` for ever: a host's own scheduler sends `POST /runs/{id}/cancel` when the person has had long enough, and the run stays answerable. The worker does it with a resume call that calls no node, which builds the run's `context` and compiles its graph as every resume does, so a run whose context or nodes can't be had any more ends `failed` instead, as it would on its next answer. A cancel and an answer sent at once end one of two ways: when the cancel lands first, its resume call ends `cancelled` and then takes the answer, and the run goes on; when the answer lands first, the cancel goes by the run as it then is: still running, it is asked to stop before its next node call, if there is one, so it ends `cancelled` with the answer kept, or `complete` when the answer left no node call to make; already complete, the cancel answers `false`. A host that wants a cancelled run to stay ended marks its own row. When the worker raises outside any node while resuming a run, in a way that would raise again, the run is written `failed`, in its state and on its `run_end`, so it doesn't stay `running` with nobody on it. Where conductor itself refused to resume the run, the cause is conductor's own problem, which says what to fix: [`context_missing`](problems.md#context_missing) or [`invalid_context`](problems.md#invalid_context) when your `context` gives no context or one of another class, [`saved_run_unreadable`](problems.md#saved_run_unreadable) for a stored run that can't be read. A cause is one problem, so of several it is the first, and the log has them all. For anything else (`context` or your registry function raised) the cause is [`resume_failed`](#resume_failed) and the exception is in the log. The run then lists as `waiting` what waits in it as stored, its last checkpoint, which is the run an answer is given to: those questions are answered without a resume. A run that could not be read lists nothing. The same goes for a run that can't be written as JSON (a node gave a value with no JSON form): `failed` the first time, with [`run_unwritable`](problems.md#run_unwritable) as the cause, which names the output; the fix is the node's type. A `run_end` is stored once, before the row says the run stopped running. If another worker takes the run between the two (its lease ran out just then), that worker ends the run too, so a follower sees two `run_end`s and no call is made twice.
 
 **When your store raises.** A raise from your store never fails a run, wherever it comes: when it writes an event, a checkpoint, a renewal or how a run stopped. It is your outage. The worker logs it (`conductor_providers.fastapi`, with the run's id), stops the run before its next node call and gives the run up as the store has it, `running`; once the lease runs out, any worker goes on from the last checkpoint. A renewal that raises is only tried again. Going on from the checkpoint makes again the node calls made after it, a call that is still on a thread included (a node call longer than the lease can so run twice at once, as after any take-over), and a raise when the worker writes how the run stopped comes after its `run_end` is stored, so a follower then sees the run end twice. That is once per lease for as long as the store fails: a store that refuses a write every time (a size limit, not an outage) costs those calls every lease, so alert on that log.
 
 **Following from any worker.** The worker that resumes a run writes each event to the store, numbered in order. `GET /runs/{id}/events` streams them on whichever worker the client reached, until the run stops running, and goes on from `Last-Event-ID` after a reconnect. An open stream costs the store one `events` read per `poll`. It reads the run's row too only on a poll that found no event while the last event it sent was a `run_end`, or while it has sent none yet (a stream opened before the run's first event, or after its last): that is when the run may have stopped running. A client that connects after the run ended gets every event, and `GET /runs/{id}` has the outputs. Each frame is the event's JSON as `conductor.events` defines it, and `TypeAdapter(Event).validate_json(frame)` reads it back. `node_complete` carries counts only, and `run_end` its `status` and `cause` and leaves the run out, so a frame stays small whatever the size of the table.
 
-**The answer's shape.** `POST /runs/{id}/answers` takes `{waiting.id: value}`, each value what the node returns: its value for one output, a mapping by name for several. A client draws each one's `questions` and checks against their `schema` and `choices` before it sends, and the server checks again. A wrong answer is a 422 listing every fault, each naming what it answered in `ctx.waiting_id` and, for a form, the question in `ctx.question` ([problem codes](problems.md#a-refused-call)). One left out goes on waiting.
+**The answer's shape.** `POST /runs/{id}/answers` takes `{waiting.id: value}`, each value what the node returns: its value for one output, a mapping by name for several. A client draws each one's `questions` and checks against their `schema` and `choices` before it sends, and the server checks again. A wrong answer is a 422 listing every fault, each naming what it answered in `ctx.waiting_id` and, for a form, the question in `ctx.question` ([refused calls](problems.md#refused-calls)). One left out goes on waiting.
 
 **Running again.** `POST /runs/{id}/again` with `{"csv": edited}` starts a new run with that input changed. A call that would get the same arguments as a call in the previous run reuses that call's output or answer, so after one line of a CSV of 5,000 is edited, a node that runs per item is called for that one. The new run is the caller's, on the caller's own nodes: a caller who may see another's run (`may_see`) but whose registry can't run its graph gets the 422 at `again`, as starting the graph would.
 
-**Graphs that use saved graphs as subgraphs.** They are compiled with a registry of the request's own ([a graph inside a graph](subgraphs.md#graphs-saved-per-request)): pass `registry=` a function that builds it, so the shared registry is left as it was.
+**Graphs that use saved graphs as subgraphs.** They are compiled with a registry of the request's own ([a graph inside a graph](subgraphs.md#graphs-saved-per-request)): pass `nodes_for=` a function that builds it, so the shared registry is left as it was.
+
+## Without the router
+
+`run_router` is a thin layer over its `Worker`: each route reads its call, calls one method of the worker and says what it answered. A host with routes of its own, and its own say on who may start which run, calls the worker the same way.
+
+The worker's `C`, its `caller_type`, is the caller as the run was admitted: who started it and whatever else holds for the run's whole life, such as the graph a person was let run. It is written to the run once, as JSON, when the run begins, and never changed; every resume, on any worker, reads it back and makes the run's registry (`nodes_for`) and context (`context`) from it, so keep in it nothing that changes. Every worker on one store takes over any run in it, so they all read the caller, and make the registry and context from it, the same way; on this page the router's worker and this one sit in one app, so this one has a store of its own.
+
+```python
+from typing import Annotated, Any
+
+from conductor import InvalidCallError
+from conductor_providers.fastapi import NoSuchRunError, RefusedError, RunAsRead, RunView, Worker
+from fastapi import APIRouter, Body, Depends
+
+
+@dataclass(frozen=True)
+class Admitted:
+    """A caller as a run of theirs was admitted: who they are, and the graph they were let run."""
+
+    person: Caller
+    graph: str
+
+
+admitted = Worker(
+    store=SqliteRunStore("admitted.db"),
+    caller_type=Admitted,
+    nodes_for=lambda caller: registry,
+    context=lambda caller: context_of(caller.person),
+)
+own_routes = APIRouter(prefix="/admitted", lifespan=lambda _: admitted.serving())
+
+
+def refused(status_code: int, error: InvalidCallError | RefusedError | NoSuchRunError) -> HTTPException:
+    return HTTPException(status_code, [problem.model_dump(mode="json") for problem in error.problems])
+
+
+async def admitted_run(run_id: str, person: Caller) -> RunAsRead:
+    """The run, if this person started it; any other is a 404, as one that isn't there."""
+    try:
+        run = await admitted.read(run_id)
+    except NoSuchRunError as error:
+        raise refused(404, error) from None
+    if admitted.caller_of(run).person != person:
+        raise refused(404, NoSuchRunError())
+    return run
+
+
+@own_routes.post("/graphs/{name}", status_code=202)
+async def start_admitted(
+    name: str, inputs: Annotated[dict[str, Any], Body()], person: Annotated[Caller, Depends(current_caller)], previous: str | None = None
+) -> dict[str, str]:
+    """Start a graph you offer; with `?previous=`, from the work of one of this person's runs."""
+    graph = published(name)  # yours: whether this person may run it
+    earlier = None if previous is None else await admitted_run(previous, person)
+    try:
+        return {"id": await admitted.begin(graph, inputs, Admitted(person, name), previous=earlier)}
+    except InvalidCallError as error:
+        raise refused(422, error) from None
+
+
+@own_routes.get("/runs/{run_id}")
+async def read_admitted(run_id: str, person: Annotated[Caller, Depends(current_caller)]) -> RunView:
+    return (await admitted_run(run_id, person)).view()
+
+
+@own_routes.post("/runs/{run_id}/answers", status_code=202)
+async def answer_admitted(
+    run_id: str, answers: Annotated[dict[str, Any], Body()], person: Annotated[Caller, Depends(current_caller)]
+) -> dict[str, str]:
+    try:
+        return {"answers": await admitted.answer(await admitted_run(run_id, person), answers)}
+    except InvalidCallError as error:
+        raise refused(422, error) from None
+    except RefusedError as error:
+        raise refused(409, error) from None
+
+
+app.include_router(own_routes)
+```
+
+`begin` stores the run and makes its first resume call in the background. With `previous`, a run as read of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the caller's nodes (its graph uses a node the caller's registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, caller)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: `RefusedError` and `NoSuchRunError` carry the problems below, and `InvalidCallError` conductor's problems and `previous_run_unloadable`. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(caller).describe()`, as `GET /nodes` answers).
 
 ## The router's own problems
 
-What `run_router` reports itself, beside conductor's problems of the runs it serves. `loc` is `()`: each is about the run as a whole. They are not in `PROBLEMS.codes`; `ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The docs build writes each kind here from the function that declares it, in `conductor_providers/fastapi/router_problems.py`.
+What `run_router` and its worker report themselves, beside conductor's problems of the runs they serve. `loc` is `()`: each is about the run as a whole. They are not in `PROBLEMS.codes`; `ROUTER_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The docs build writes each kind here from the function that declares it, in `conductor_providers/fastapi/router_problems.py`.
 
 <!-- problems: conductor_providers.fastapi.ROUTER_PROBLEMS -->
 

@@ -26,7 +26,7 @@ from conductor import (  # noqa: E402
     Series,
     make_graph,
 )
-from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, run_router  # noqa: E402
+from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
 from tests.test_providers.in_memory import MemoryStore, asking  # noqa: E402
@@ -40,9 +40,22 @@ def _starter_only(caller: object, started_by: object) -> bool:
     return caller == started_by
 
 
-def _app(**settings: Any) -> FastAPI:
+def _app(
+    *,
+    registry: Any,
+    caller: Any = _caller,
+    caller_type: Any = str,
+    published: Any = None,
+    may_see: Any = _starter_only,
+    **settings: Any,
+) -> FastAPI:
+    """An app with the runs routes over a worker on ``settings`` (its ``store`` among them), whose callers are names
+    unless ``caller`` and ``caller_type`` say otherwise."""
+    worker = Worker(
+        store=settings.pop("store"), caller_type=caller_type, nodes_for=registry, **settings
+    )
     app = FastAPI()
-    app.include_router(run_router(**{"caller": _caller, "may_see": _starter_only, **settings}))
+    app.include_router(run_router(worker, caller=caller, may_see=may_see, published=published))
     return app
 
 
@@ -155,7 +168,11 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
 
     store = MemoryStore()
     app = _app(
-        store=store, registry=lambda _: registry, caller=_Member, context=lambda caller: caller
+        store=store,
+        registry=lambda _: registry,
+        caller=_Member,
+        caller_type=_Member,
+        context=lambda caller: caller,
     )
 
     async with _serving(app) as client:
@@ -170,16 +187,6 @@ async def test_a_class_as_the_caller_is_kept_as_that_class_so_its_starter_sees_t
         assert seen == [_Member("bo")]
 
 
-def test_a_caller_with_no_return_annotation_is_refused_when_the_router_is_made() -> None:
-    with pytest.raises(TypeError, match="return annotation"):
-        run_router(
-            store=MemoryStore(),
-            registry=lambda _: NodeRegistry(),
-            caller=lambda: "anna",
-            may_see=_starter_only,
-        )
-
-
 def _nobody() -> None:
     return None
 
@@ -190,8 +197,7 @@ async def test_a_router_with_no_logins_lets_every_request_see_every_run() -> Non
     app = FastAPI()
     app.include_router(
         run_router(
-            store=store,
-            registry=lambda _: registry,
+            Worker(store=store, caller_type=None, nodes_for=lambda _: registry),
             caller=_nobody,
             may_see=lambda caller, started_by: True,
         )
@@ -689,15 +695,3 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
         assert operations[key]["requestBody"]["content"]["application/json"]["schema"][
             "description"
         ], key
-
-
-def test_the_package_exports_what_a_host_writes_and_calls() -> None:
-    import conductor_providers.fastapi as provider
-
-    assert sorted(provider.__all__) == [
-        "ROUTER_PROBLEMS",
-        "RunChanges",
-        "RunStore",
-        "StoredRun",
-        "run_router",
-    ]

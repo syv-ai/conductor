@@ -68,7 +68,8 @@ Each input the record lists gets exactly one of a `constant` (the same on every 
 | To save | `record.model_dump_json()`; a run: `run.to_json()`, `Run.from_json(saved, graph)` |
 | A record an editor draws from | `graph.describe()`, and `registry.describe()` for the palette |
 | A registry for one request | `per_request = NodeRegistry()`, `per_request.add_subregistry(registry)`, `per_request.add(*definitions)` |
-| HTTP routes | `app.include_router(run_router(store=, registry=, caller=, may_see=))` from `conductor_providers.fastapi`; `docs/serving-runs.md` |
+| HTTP routes | `worker = Worker(store=, caller_type=, nodes_for=)`, then `app.include_router(run_router(worker, caller=, may_see=))`, from `conductor_providers.fastapi`; `docs/serving-runs.md` |
+| HTTP routes of your own | the same `Worker`, called from your routes and entered with `worker.serving()` in the lifespan; `docs/serving-runs.md#without-the-router` |
 
 ## Common mistakes
 

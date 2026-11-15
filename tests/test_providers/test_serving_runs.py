@@ -57,10 +57,10 @@ def _app_source() -> str:
     blocks = re.findall(r"```python\n(.*?)```", PAGE.read_text(), re.S)
     source = "from typing import Annotated\n" + "\n".join(blocks)
     settings = 'lease=0.6, checkpoint_every=0.05, resume_timeout=float(os.environ.get("RESUME_TIMEOUT", "300")), '
-    assert source.count("run_router(\n") == 1
+    assert source.count("\nworker = Worker(\n") == 1
     return (
         "import os\n"
-        + source.replace("run_router(\n", "run_router(\n    " + settings, 1)
+        + source.replace("\nworker = Worker(\n", "\nworker = Worker(\n    " + settings, 1)
         + _TEST_SETTINGS
     )
 
@@ -643,5 +643,73 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(
             assert {"id", "loc", "prompt", "questions", "inputs"} <= set(
                 schemas["Waiting"]["required"]
             )
+
+    _run(scenario)
+
+
+async def _admitted_until(worker: Worker, run_id: str, status: str) -> dict[str, Any]:
+    """The run once the page's own routes read it with ``status``."""
+    for _ in range(3000):
+        run: dict[str, Any] = (await worker.client.get(f"/admitted/runs/{run_id}")).json()
+        if run["status"] == status:
+            return run
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"never {status}: {run}")
+
+
+def test_a_host_s_own_routes_start_read_and_answer_runs_through_a_worker_on_either_worker(
+    served: Served,
+) -> None:
+    (served.directory / "served_app.py").write_text(
+        _app_source() + f"\noffered['approve'] = GraphRecord.model_validate({_APPROVE!r})\n"
+    )
+
+    async def scenario() -> None:
+        async with _workers(served) as (a, b):
+            served.open_the_gate()
+            started = await a.client.post("/admitted/graphs/approve", json={"n": 1})
+            assert started.status_code == 202, started.text
+            run_id = started.json()["id"]
+
+            (waiting_call,) = (await _admitted_until(b, run_id, "waiting"))["waiting"]
+            seen_by_bob = await b.client.get(f"/admitted/runs/{run_id}", headers={"x-user": "bob"})
+            assert [problem["type"] for problem in seen_by_bob.json()["detail"]] == ["no_such_run"]
+            answered = await b.client.post(
+                f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}
+            )
+            assert answered.json() == {"answers": "started"}
+            assert (await _admitted_until(a, run_id, "complete"))["outputs"] == {"result": [True]}
+            twice = await a.client.post(f"/admitted/runs/{run_id}/answers", json={})
+            assert [problem["type"] for problem in twice.json()["detail"]] == ["run_complete"]
+            assert served.calls == ["after"]
+
+    _run(scenario)
+
+
+def test_a_host_s_own_route_starts_a_run_from_the_work_of_a_previous_one(served: Served) -> None:
+    (served.directory / "served_app.py").write_text(
+        _app_source() + f"\noffered['work'] = GraphRecord.model_validate({_WORK!r})\n"
+    )
+
+    async def scenario() -> None:
+        async with _workers(served) as (a, b):
+            first = (await a.client.post("/admitted/graphs/work", json={"n": 3})).json()["id"]
+            await _admitted_until(b, first, "complete")
+            again = await b.client.post(
+                "/admitted/graphs/work", params={"previous": first}, json={"n": 4}
+            )
+            assert again.status_code == 202, again.text
+            assert (await _admitted_until(a, again.json()["id"], "complete"))["outputs"] == {
+                "result": [0, 1, 2, 3]
+            }
+            assert served.calls == ["work 0", "work 1", "work 2", "work 3"]
+            # a run the caller didn't start is not theirs to start from
+            refused = await a.client.post(
+                "/admitted/graphs/work",
+                params={"previous": first},
+                headers={"x-user": "bob"},
+                json={"n": 4},
+            )
+            assert refused.status_code == 404
 
     _run(scenario)

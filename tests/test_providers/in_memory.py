@@ -11,19 +11,24 @@ from threading import Event as ThreadEvent
 from typing import Any
 
 from conductor import Ask, Graph, GraphRecord, NodeRegistry, Run, Series, make_graph
-from conductor_providers.fastapi import RunChanges, StoredRun
-from conductor_providers.fastapi.router import RunView
-from conductor_providers.fastapi.stored_run import Outcome, RunAsRead, StoredState
+from conductor_providers.fastapi import RunChanges, RunView, StoredRun, Worker
+
+#: A just-begun run's ``state`` column in its stored form, as hosts' databases hold it: the rows a test writes as an
+#: earlier worker left them read it, so a change to the form that would break those databases breaks them too.
+BEGUN_RUN_STATE = json.dumps(
+    {"status": "running", "cause": None, "queued_answers": {}, "refused": {}, "cancel_asked": False}
+)
 
 
 class MemoryStore:
     """A ``RunStore`` in a dict. ``until`` waits for a run's row to change, so a test awaits what a worker writes
-    where it would sleep and read again."""
+    where it would sleep and read again; ``swept`` is set once a worker has asked for the runs whose lease ran out."""
 
     def __init__(self) -> None:
         self.rows: dict[str, StoredRun] = {}
         self.written: dict[str, list[str]] = {}
         self._changed = AsyncioEvent()
+        self.swept = AsyncioEvent()
 
     async def create(self, run: StoredRun) -> None:
         self.rows[run.id], self.written[run.id] = run, []
@@ -41,6 +46,7 @@ class MemoryStore:
         return True
 
     async def expired(self, now: float) -> list[StoredRun]:
+        self.swept.set()
         return [
             row
             for row in self.rows.values()
@@ -66,9 +72,21 @@ class MemoryStore:
 
     async def ended(self, run_id: str) -> RunView:
         """The run as its view once its row is no longer running."""
-        return RunView.of(
-            RunAsRead.of(await self.until(run_id, lambda row: row.status != "running"))
-        )
+        await self.until(run_id, lambda row: row.status != "running")
+        return await self.view(run_id)
+
+    async def view(self, run_id: str) -> RunView:
+        """The run as a reader is shown it now, read by a worker that serves nothing, from a copy of its row, so a
+        store that counts its reads counts none of these."""
+        copy = MemoryStore()
+        copy.rows[run_id] = self.rows[run_id]
+        reader = Worker(store=copy, caller_type=object, nodes_for=lambda caller: NodeRegistry())
+        return (await reader.read(run_id)).view()
+
+    def state(self, run_id: str) -> dict[str, Any]:
+        """The run's ``state`` column, as the JSON the worker wrote."""
+        written: dict[str, Any] = json.loads(self.rows[run_id].state)
+        return written
 
     async def stored_events(self, run_id: str) -> list[dict[str, Any]]:
         """Every event stored for the run, in order."""
@@ -82,8 +100,9 @@ def left_running(run_id: str, graph: GraphRecord, run: Run, *, owner: str | None
         graph=graph.model_dump_json(),
         caller='"anna"',
         run=run.to_json(),
-        **StoredState.started().columns(),
-        outcome=Outcome.empty().model_dump_json(),
+        status="running",
+        state=BEGUN_RUN_STATE,
+        outcome=json.dumps({"waiting": [], "outputs": None, "progress": None}),
         rev=0,
         owner=owner,
         lease_until=0.0,

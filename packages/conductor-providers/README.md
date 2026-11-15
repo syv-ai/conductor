@@ -6,11 +6,11 @@
 uv add syv-conductor-providers
 ```
 
-You write a `RunStore`, six async methods against your database, and mount the router in one line with your login:
+You write a `RunStore`, six async methods against your database, make a `Worker` on it, and mount the router over the worker with your login:
 
 ```python
 from conductor import NodeRegistry
-from conductor_providers.fastapi import RunStore, run_router
+from conductor_providers.fastapi import RunStore, Worker, run_router
 from fastapi import FastAPI
 
 
@@ -19,11 +19,13 @@ def current_caller() -> str:
 
 
 def mount(app: FastAPI, store: RunStore, registry: NodeRegistry) -> None:
+    worker = Worker(store=store, caller_type=str, nodes_for=lambda caller: registry)
     app.include_router(run_router(
-        store=store, registry=lambda caller: registry, caller=current_caller,
-        may_see=lambda caller, started_by: caller == started_by,
+        worker, caller=current_caller, may_see=lambda caller, started_by: caller == started_by,
     ))
 ```
+
+A host with routes of its own calls the same `Worker` from them.
 
 [`docs/serving-runs.md`](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md) is the guide: a store on SQLite, the routes, a registry per tenant, and what happens when a worker dies or two people answer at once.
 

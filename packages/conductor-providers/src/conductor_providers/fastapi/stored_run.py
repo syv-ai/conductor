@@ -19,7 +19,8 @@ class StoredRun:
     """One run as the store keeps it.
 
     A store acts on ``id``, ``rev``, ``owner`` and ``lease_until``. ``status`` and ``caller`` are columns for the
-    host's own queries. The other four are text the router writes and reads, which a store only keeps.
+    host's own queries. The other four are text the router writes and reads, which a store only keeps. ``id``,
+    ``graph`` and ``caller`` are written once, by ``create``, and no ``update`` changes them.
 
     ``graph``, ``caller``, ``run``, ``state`` and ``outcome`` are JSON, and so is an event's body. A store may keep
     them in any form that reads back as the same JSON value, such as a Postgres ``jsonb`` column, which orders keys and
@@ -27,8 +28,9 @@ class StoredRun:
 
     Attributes:
         id: The run's id.
-        graph: The ``GraphRecord`` the run is of, as JSON; never changed.
-        caller: The caller who started it, as JSON, so any worker can build the run's ``context`` again; never changed.
+        graph: The ``GraphRecord`` the run is of, as JSON.
+        caller: The run's caller, as the run was admitted (a ``Worker``'s ``caller_type``: who started it, and what
+            else holds for its life), as JSON, so any worker can build the run's registry and ``context`` again.
         run: ``run.to_json()``: the last checkpoint while the run is running, the whole run once it stops.
         status: ``running`` while a worker resumes the run or is to, else how the run was left. It is for the host's own
             queries: the router writes it in the same ``update`` as ``state``, from it, and reads only ``state``.
@@ -220,26 +222,76 @@ class StoredState(BaseModel):
         return {"status": self.status, "state": self.model_dump_json()}
 
 
-@dataclass(frozen=True)
-class RunAsRead:
-    """A run as read from the store: its row, with the row's state read from its JSON once.
+class RunView(Outcome):
+    """A run as a reader is shown it, as it was when it last stopped running, read without loading the run.
+
+    ``run.view()`` gives it, for a run as read; ``GET /runs/{id}`` answers with it.
 
     Attributes:
-        row: The row.
-        state: The row's ``state``.
+        waiting: What waits for a person, as of when the run last stopped running; each ``id`` is what
+            ``Worker.answer`` takes. When the worker raised while resuming the run, what waits in the run's last
+            checkpoint.
+        outputs: The graph's outputs by name once the run is complete, each as its type writes it (a table as its
+            columns); ``None`` until then.
+        progress: How many calls of each node have an outcome, and how many there will be, as ``run.progress``
+            says it: as of the last checkpoint while the run is running.
+        id: The run's id, as ``Worker.begin`` gave it.
+        status: Where the run is: ``running`` while a worker resumes it, ``waiting`` for answers, ``complete``, or
+            how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which ``Worker.resume``
+            goes on from.
+        refused: Answers sent while the run was running that were refused when it stopped, by waiting id, each
+            with its problems.
+        cause: Why the run ended early; ``None`` while it runs, waits or once complete.
     """
 
-    row: StoredRun
-    state: StoredState
+    id: str
+    status: RunStatus
+    refused: dict[str, list[Problem]]
+    cause: Problem | None
+
+
+@dataclass(frozen=True)
+class RunAsRead:
+    """A run as read from the store: ``Worker.read`` gives it, and every ``Worker`` method that acts on a run takes it.
+
+    A method that changes the run writes only while the row is still as it was read, so a run read before another
+    call changed it is refused with ``run_changed``, or read again where the method says so. ``view()`` is the run as
+    a reader is shown it, and ``Worker.caller_of(run)`` the caller it was admitted for.
+    """
+
+    _row: StoredRun
+    _state: StoredState
 
     @classmethod
-    def of(cls, row: StoredRun) -> RunAsRead:
-        """A row with its state read.
+    def _of(cls, row: StoredRun) -> RunAsRead:
+        """A row with its state read from its JSON once.
 
         Args:
             row: The row, as the store gave it.
 
         Returns:
-            The row and its state.
+            The run as read.
         """
         return cls(row, StoredState.model_validate_json(row.state))
+
+    @property
+    def id(self) -> str:
+        """The run's id."""
+        return self._row.id
+
+    def view(self) -> RunView:
+        """The run as a reader is shown it, from its state and its row's ``outcome``.
+
+        Returns:
+            What ``GET /runs/{id}`` answers for it.
+        """
+        outcome = Outcome.model_validate_json(self._row.outcome)
+        return RunView(
+            id=self._row.id,
+            status=self._state.status,
+            refused=self._state.refused,
+            cause=self._state.cause,
+            waiting=outcome.waiting,
+            outputs=outcome.outputs,
+            progress=outcome.progress,
+        )

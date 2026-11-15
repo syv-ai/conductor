@@ -6,33 +6,28 @@ answered; the worker resumes the runs.
 
 from collections.abc import AsyncIterable, Callable, Coroutine
 from operator import attrgetter
-from typing import Annotated, Any, Literal, TypeVar, get_type_hints, overload
+from typing import Annotated, Any, Literal, TypeVar
 
 from conductor import (
     Graph,
     GraphDescription,
     GraphRecord,
     InvalidCallError,
-    NodeRegistry,
     Problem,
     RegistryDescription,
     RunProgress,
-    RunStatus,
     read_json,
 )
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
 from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, PlainValidator, StrictInt, TypeAdapter
+from pydantic import BaseModel, PlainValidator, StrictInt
 
 from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
-from conductor_providers.fastapi.store import RunStore
-from conductor_providers.fastapi.stored_run import Outcome, RunAsRead
+from conductor_providers.fastapi.stored_run import RunAsRead, RunView
 from conductor_providers.fastapi.worker import Worker
 
 C = TypeVar("C")
-#: The class of the run's context that the registry names.
-X = TypeVar("X")
 
 
 #: A graph record as a caller sent it: read by conductor's record door when the graph is compiled, so every fault in
@@ -125,53 +120,6 @@ class Cancelled(BaseModel):
     cancelled: bool
 
 
-class RunView(Outcome):
-    """The body of ``GET /runs/{id}``: a run as it was when it last stopped running, read without loading the run.
-
-    Attributes:
-        waiting: What waits for a person, as of when the run last stopped running; each ``id`` is what
-            ``POST /runs/{id}/answers`` takes. When the worker raised while resuming the run, what waits in the
-            run's last checkpoint.
-        outputs: The graph's outputs by name once the run is complete, each as its type writes it (a table as its
-            columns); ``None`` until then.
-        progress: How many calls of each node have an outcome, and how many there will be, as ``run.progress``
-            says it: as of the last checkpoint while the run is running.
-        id: The run's id, as ``POST /runs`` gave it.
-        status: Where the run is: ``running`` while a worker resumes it, ``waiting`` for answers, ``complete``, or
-            how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which
-            ``POST /runs/{id}/resume`` goes on from.
-        refused: Answers sent while the run was running that were refused when it stopped, by waiting id, each
-            with its problems.
-        cause: Why the run ended early; ``None`` while it runs, waits or once complete.
-    """
-
-    id: str
-    status: RunStatus
-    refused: dict[str, list[Problem]]
-    cause: Problem | None
-
-    @classmethod
-    def of(cls, run: RunAsRead) -> "RunView":
-        """The view of a run, from its state and its row's ``outcome``.
-
-        Args:
-            run: The run as read.
-
-        Returns:
-            What ``GET /runs/{id}`` answers for it.
-        """
-        outcome = Outcome.model_validate_json(run.row.outcome)
-        return cls(
-            id=run.row.id,
-            status=run.state.status,
-            refused=run.state.refused,
-            cause=run.state.cause,
-            waiting=outcome.waiting,
-            outputs=outcome.outputs,
-            progress=outcome.progress,
-        )
-
-
 class _RefusingRoute(APIRoute):
     """A route whose refused call answers with the problems: a 422 for what the graph or the run refused, a 404 for a
     run that isn't there for the caller, a 409 for a run in a state that doesn't take the call."""
@@ -210,103 +158,31 @@ def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
     return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
 
 
-def _no_context(caller: object) -> None:
-    """The run's context when the host gives none: none, for a registry that names no ``context_type``."""
-    return None
-
-
-@overload
 def run_router(
+    worker: Worker[C],
     *,
-    store: RunStore,
-    registry: Callable[[C], NodeRegistry[X]],
-    caller: Callable[..., C],
-    may_see: Callable[[C, C], bool],
-    context: Callable[[C], X],
-    published: Callable[..., GraphRecord] | None = None,
-    max_items: int | None = None,
-    lease: float = 30.0,
-    checkpoint_every: float = 5.0,
-    resume_timeout: float | None = 300.0,
-    poll: float = 0.1,
-) -> APIRouter: ...
-
-
-@overload
-def run_router(
-    *,
-    store: RunStore,
-    registry: Callable[[C], NodeRegistry[None]],
     caller: Callable[..., C],
     may_see: Callable[[C, C], bool],
     published: Callable[..., GraphRecord] | None = None,
-    max_items: int | None = None,
-    lease: float = 30.0,
-    checkpoint_every: float = 5.0,
-    resume_timeout: float | None = 300.0,
-    poll: float = 0.1,
-) -> APIRouter: ...
-
-
-def run_router(
-    *,
-    store: RunStore,
-    registry: Callable[[C], NodeRegistry[Any]],
-    caller: Callable[..., C],
-    may_see: Callable[[C, C], bool],
-    context: Callable[[C], Any] = _no_context,
-    published: Callable[..., GraphRecord] | None = None,
-    max_items: int | None = None,
-    lease: float = 30.0,
-    checkpoint_every: float = 5.0,
-    resume_timeout: float | None = 300.0,
-    poll: float = 0.1,
 ) -> APIRouter:
-    """The runs routes, with the worker that resumes their runs; mount them with ``app.include_router(...)``.
+    """The runs routes over ``worker``, which resumes their runs; mount them with ``app.include_router(...)``.
 
     Args:
-        store: Where runs and events are kept.
-        registry: Gives the nodes a caller's graphs may use, from the caller: ``lambda caller: registry`` for one
-            registry, or a registry per tenant. It is called for every request and every time a run is resumed, so
-            it caches what it builds.
-        caller: A FastAPI dependency giving who is calling: your login. The type it gives (a class used as the
-            dependency, or a function's return annotation, which it must have) is kept on the run as JSON, so a
-            run is built again on any worker. Let it hold what identifies the caller and nothing that changes: a
-            run keeps its caller as they were when it started. A host with no logins gives a function annotated
-            ``-> None``.
+        worker: The worker the routes call: where runs are kept, the nodes and context a run's caller gets, and the
+            settings of its leases.
+        caller: A FastAPI dependency giving who is calling: your login, of the worker's ``caller_type``. A run
+            keeps the caller who started it as they were then, so let it hold what identifies the caller and nothing
+            that changes. A host with no logins gives a function that returns ``None``.
         may_see: ``may_see(caller, started_by)`` says whether a caller may read and act on a run:
             ``lambda caller, started_by: caller.id == started_by.id`` for the starter alone,
             ``lambda caller, started_by: True`` for everyone.
-        context: Gives a run its context, an instance of the registry's ``context_type``, from the caller who
-            started it, each time it is resumed: ``def context_of(caller: Member) -> HostContext``. A run's nodes
-            are called on threads of their own, so the object holds a way to connect, never an open connection.
         published: A FastAPI dependency taking the path's ``name`` and giving a ``GraphRecord``, raising
             ``HTTPException(404)`` for one it doesn't offer; with it, ``POST /graphs/{name}/runs`` starts that
             graph on inputs alone.
-        max_items: The ceiling on the items of any one Series a node works through, which a run starts with; a
-            resume may raise it for that run, and the raised ceiling holds for that run from then on.
-        lease: The seconds a worker holds a run between renewals.
-        checkpoint_every: The seconds between saves of a running run.
-        resume_timeout: The seconds one call of ``resume()`` may take before the run ends ``timed_out``; ``None`` for no limit.
-        poll: The seconds between a follower's reads of new events.
 
     Returns:
         The router, whose lifespan runs the worker.
-
-    Raises:
-        TypeError: ``caller`` is a function with no return annotation.
     """
-    worker: Worker[C] = Worker(
-        store=store,
-        nodes_for=registry,
-        callers=TypeAdapter(_caller_type(caller)),
-        context=context,
-        max_items=max_items,
-        lease=lease,
-        checkpoint_every=checkpoint_every,
-        resume_timeout=resume_timeout,
-        poll=poll,
-    )
     router = APIRouter(
         lifespan=lambda _: worker.serving(),
         route_class=_RefusingRoute,
@@ -328,14 +204,14 @@ def run_router(
                 same (a 404), so a caller learns nothing about a run that isn't theirs.
         """
         run = await worker.read(run_id)
-        if not may_see(who, worker.started_by(run.row)):
+        if not may_see(who, worker.caller_of(run)):
             raise NoSuchRunError
         return run
 
     @router.get("/nodes")
     def list_nodes(who: Annotated[C, Depends(caller)]) -> RegistryDescription:
         """The nodes the caller may use, as an editor's palette reads them."""
-        return registry(who).describe()
+        return worker.nodes_for(who).describe()
 
     @router.post("/compile")
     async def compile_graph(
@@ -344,7 +220,7 @@ def run_router(
         """Compile the graph record and describe the result: each node's inputs and outputs, how often it is called,
         and every problem. Nothing is run or stored."""
         return Graph.compile(
-            await request.body(), registry(who)
+            await request.body(), worker.nodes_for(who)
         ).describe()  # the record door reads the body's text
 
     @router.post("/runs", status_code=202)
@@ -397,7 +273,7 @@ def run_router(
     def read_run(run: Annotated[RunAsRead, Depends(stored)]) -> RunView:
         """The run as it was when it last stopped running: its status, what waits for a person, its outputs once complete, the
         queued answers that were refused, and why it ended early if it did."""
-        return RunView.of(run)
+        return run.view()
 
     @router.get(
         "/runs/{run_id}/events",
@@ -437,7 +313,7 @@ def run_router(
         """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
         the ceiling of a run that stopped at it; a resume needs no body."""
         await worker.resume(run, body.max_items)
-        return Started(id=run.row.id)
+        return Started(id=run.id)
 
     @router.post("/runs/{run_id}/again", status_code=202, responses=_NOT_FOUND)
     async def run_again(
@@ -462,25 +338,3 @@ def run_router(
         return Cancelled(cancelled=await worker.cancel(run))
 
     return router
-
-
-def _caller_type(caller: Callable[..., Any]) -> Any:
-    """The type a ``caller`` dependency gives.
-
-    Args:
-        caller: The dependency: a class, or a function.
-
-    Returns:
-        The class itself, or the function's return annotation.
-
-    Raises:
-        TypeError: The function has no return annotation.
-    """
-    if isinstance(caller, type):
-        return caller
-    returns = get_type_hints(caller).get("return")
-    if returns is None:
-        raise TypeError(
-            f"caller {caller!r} has no return annotation; annotate it with the type it gives, so a run keeps its caller as that type"
-        )
-    return returns

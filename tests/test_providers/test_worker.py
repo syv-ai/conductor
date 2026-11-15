@@ -28,34 +28,20 @@ from conductor import (
     host_type,
     make_graph,
 )
-from conductor_providers.fastapi import RunChanges, StoredRun
-from conductor_providers.fastapi.router import RunView
-from conductor_providers.fastapi.router_problems import RefusedError
-from conductor_providers.fastapi.stored_run import RunAsRead, StoredState
-from conductor_providers.fastapi.worker import Worker
-from pydantic import GetCoreSchemaHandler, TypeAdapter
+from conductor_providers.fastapi import RefusedError, RunChanges, StoredRun, Worker
+from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
 
-from tests.test_providers.in_memory import MemoryStore, asking, gated, left_running
+from tests.test_providers.in_memory import BEGUN_RUN_STATE, MemoryStore, asking, gated, left_running
 
 
 def _worker(store: MemoryStore, registry: NodeRegistry[Any], **settings: Any) -> Worker[str]:
-    """A worker on ``store`` whose callers are names, with the router's own defaults where ``settings`` name none."""
-    defaults: dict[str, Any] = {
-        "context": lambda who: None,
-        "max_items": None,
-        "lease": 30.0,
-        "checkpoint_every": 5.0,
-        "resume_timeout": 300.0,
-        "poll": 0.1,
-    }
-    return Worker(
-        store=store,
-        nodes_for=lambda who: registry,
-        callers=TypeAdapter(str),
-        **{**defaults, **settings},
+    """A worker on ``store`` whose callers are names, with the worker's own settings where ``settings`` name none."""
+    worker: Worker[str] = Worker(
+        store=store, caller_type=str, nodes_for=lambda caller: registry, **settings
     )
+    return worker
 
 
 async def _started(worker: Worker[str], graph: GraphRecord, inputs: Mapping[str, Any]) -> str:
@@ -65,6 +51,137 @@ async def _started(worker: Worker[str], graph: GraphRecord, inputs: Mapping[str,
 async def _resume_calls(store: MemoryStore, run_id: str) -> int:
     """How many resume calls of the run have started: one ``run_start`` event each."""
     return [event["type"] for event in await store.stored_events(run_id)].count("run_start")
+
+
+# -- beginning a run ------------------------------------------------------------------------------
+
+
+async def test_a_run_begun_from_a_previous_one_of_an_earlier_version_of_its_graph_calls_only_what_the_edit_changed() -> (
+    None
+):
+    registry, store, calls = NodeRegistry(), MemoryStore(), []
+
+    @registry.node("split", title="Split", description="For a test.")
+    def split(n: int) -> Series[int]:
+        return list(range(n))
+
+    @registry.node("square", title="Square", description="For a test.")
+    def square(i: int) -> int:
+        calls.append(f"square {i}")
+        return i * i
+
+    @registry.node("add", title="Add", description="For a test.")
+    def add(i: int, amount: int) -> int:
+        calls.append(f"add {i}")
+        return i + amount
+
+    worker = _worker(store, registry)
+    async with worker.serving():
+        first = await _started(worker, make_graph(split, square), {"n": 3})
+        assert (await store.ended(first)).status == "complete"
+
+        edited = make_graph(split, square, add, constants={"add.amount": 1})
+        second = await worker.begin(edited, {"n": 3}, "anna", previous=await worker.read(first))
+        ended = await store.ended(second)
+        assert (ended.status, ended.outputs) == ("complete", {"result": [1, 2, 5]})
+        assert calls == ["square 0", "square 1", "square 2", "add 0", "add 1", "add 4"]
+
+
+def _registry_that_drops_old() -> tuple[
+    NodeRegistry[Any], NodeRegistry[Any], GraphRecord, GraphRecord
+]:
+    """A registry with the nodes ``split``, ``square`` and ``old``, the same registry without ``old``, a graph that
+    uses ``old`` and its edit without it."""
+    later: NodeRegistry[Any] = NodeRegistry()
+
+    @later.node("split", title="Split", description="For a test.")
+    def split(n: int) -> Series[int]:
+        return list(range(n))
+
+    @later.node("square", title="Square", description="For a test.")
+    def square(i: int) -> int:
+        return i * i
+
+    earlier: NodeRegistry[Any] = NodeRegistry()
+    earlier.add_subregistry(later)
+
+    @earlier.node("old", title="Old", description="For a test.")
+    def old(i: int) -> int:
+        return i
+
+    return earlier, later, make_graph(split, square, old), make_graph(split, square)
+
+
+async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_callers_nodes_is_refused_saying_so() -> (
+    None
+):
+    earlier, later, uses_old, edited = _registry_that_drops_old()
+    store = MemoryStore()
+    starter = _worker(store, earlier)
+    async with starter.serving():
+        first = await _started(starter, uses_old, {"n": 2})
+        assert (await store.ended(first)).status == "complete"
+    worker = _worker(store, later)
+    async with worker.serving():
+        with pytest.raises(InvalidCallError) as refused:
+            await worker.begin(edited, {"n": 2}, "anna", previous=await worker.read(first))
+
+        (problem,) = refused.value.problems
+        assert (problem.type, problem.ctx["run_id"]) == ("previous_run_unloadable", first)
+        assert "'old'" in str(problem.ctx["reason"])
+        assert list(store.rows) == [first]  # nothing is stored
+        begun = await worker.begin(edited, {"n": 2}, "anna")  # without it, the start is taken
+        assert (await store.ended(begun)).outputs == {"result": [0, 1]}
+
+
+async def test_a_graph_begun_from_a_previous_run_is_refused_for_its_own_problems_and_its_inputs_before_the_previous_runs() -> (
+    None
+):
+    earlier, later, uses_old, edited = _registry_that_drops_old()
+    store = MemoryStore()
+    starter = _worker(store, earlier)
+    async with starter.serving():
+        first = await _started(starter, uses_old, {"n": 2})
+        await store.ended(first)
+    worker = _worker(store, later)
+    async with worker.serving():
+        previous = await worker.read(first)
+        with pytest.raises(InvalidCallError) as broken:
+            await worker.begin(
+                {"nodes": {"x": {"node": "nonesuch"}}}, {}, "anna", previous=previous
+            )
+        with pytest.raises(InvalidCallError) as wrong_input:
+            await worker.begin(edited, {"n": "two"}, "anna", previous=previous)
+
+    assert [problem.type for problem in broken.value.problems] == ["unknown_node"]
+    assert [problem.type for problem in wrong_input.value.problems] == ["invalid_input"]
+
+
+async def test_a_worker_that_never_served_refuses_to_make_a_run_running_and_one_that_left_hands_the_run_back() -> (
+    None
+):
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+
+    with pytest.raises(RuntimeError, match=r"serving\(\)"):
+        await _started(worker, graph, inputs)
+    assert store.rows == {}
+
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert (await store.ended(run_id)).status == "waiting"
+
+    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+    begun = await _started(worker, graph, inputs)
+    for handed_back in (run_id, begun):  # for a worker that serves to take over
+        row = await store.until(handed_back, lambda row: row.owner is None)
+        assert (row.status, row.lease_until) == ("running", 0.0)
+
+    async with _worker(store, registry).serving():
+        assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
+        assert (await store.ended(begun)).status == "waiting"
 
 
 # -- what a run reads as --------------------------------------------------------------------------
@@ -77,9 +194,13 @@ async def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
     def edges(x: int) -> list[float]:
         return [float("inf"), float("-inf"), float("nan"), x]
 
-    run_id = await _started(_worker(store, registry), make_graph(edges), {"x": 1})
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(edges), {"x": 1})
 
-    assert (await store.ended(run_id)).outputs == {"result": ["Infinity", "-Infinity", "NaN", 1.0]}
+        assert (await store.ended(run_id)).outputs == {
+            "result": ["Infinity", "-Infinity", "NaN", 1.0]
+        }
 
 
 @host_type("cents", title="Cents")
@@ -119,14 +240,16 @@ async def test_an_output_only_its_own_type_can_write_completes_as_it_does_in_the
         inputs={"price": "price.cents", "prices": "prices.cents"},
         outputs={"price": "price.result", "prices": "prices.result"},
     )
-    run_id = await _started(_worker(store, registry), graph, {"price": 5, "prices": 7})
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"price": 5, "prices": 7})
 
-    ended = await store.ended(run_id)
-    assert (ended.status, ended.outputs, ended.cause) == (
-        "complete",
-        {"price": 5, "prices": [7, 8]},
-        None,
-    )
+        ended = await store.ended(run_id)
+        assert (ended.status, ended.outputs, ended.cause) == (
+            "complete",
+            {"price": 5, "prices": [7, 8]},
+            None,
+        )
 
 
 class Part(TypedDict):
@@ -144,13 +267,15 @@ async def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> Non
     def as_table(text: str) -> Table[Part]:
         return pl.DataFrame({"text": [text]})
 
-    run_id = await _started(_worker(store, registry), make_graph(split, as_table), {"text": "a,b"})
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(split, as_table), {"text": "a,b"})
 
-    ended = await store.ended(run_id)
-    columns = [
-        {"columns": [{"name": "text", "type": "str", "values": [text]}]} for text in ("a", "b")
-    ]
-    assert (ended.status, ended.outputs) == ("complete", {"result": columns})
+        ended = await store.ended(run_id)
+        columns = [
+            {"columns": [{"name": "text", "type": "str", "values": [text]}]} for text in ("a", "b")
+        ]
+        assert (ended.status, ended.outputs) == ("complete", {"result": columns})
 
 
 # -- an item limit, a resume ----------------------------------------------------------------------
@@ -170,24 +295,25 @@ async def test_a_run_stopped_at_its_item_limit_says_why_and_is_resumed_at_the_sa
         return text.upper()
 
     worker = _worker(store, registry, max_items=1)
+    async with worker.serving():
 
-    async def last_end() -> dict[str, Any]:
-        return [event for event in await store.stored_events(run_id) if event["type"] == "run_end"][
-            -1
-        ]
+        async def last_end() -> dict[str, Any]:
+            return [
+                event for event in await store.stored_events(run_id) if event["type"] == "run_end"
+            ][-1]
 
-    run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
-    stopped = await store.ended(run_id)
-    assert stopped.status == "stopped" and stopped.cause is not None
-    assert stopped.cause.type == (await last_end())["cause"]["type"] == "item_limit"
-    assert stopped.cause.ctx == {"series": "split.result", "items": 2, "max_items": 1}
+        run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
+        stopped = await store.ended(run_id)
+        assert stopped.status == "stopped" and stopped.cause is not None
+        assert stopped.cause.type == (await last_end())["cause"]["type"] == "item_limit"
+        assert stopped.cause.ctx == {"series": "split.result", "items": 2, "max_items": 1}
 
-    await worker.resume(await worker.read(run_id))
-    assert (await store.ended(run_id)).status == "stopped"
-    await worker.resume(await worker.read(run_id), max_items=2)
-    completed = await store.ended(run_id)
-    assert completed.outputs == {"result": ["A", "B"]}
-    assert completed.cause is None and (await last_end())["cause"] is None
+        await worker.resume(await worker.read(run_id))
+        assert (await store.ended(run_id)).status == "stopped"
+        await worker.resume(await worker.read(run_id), max_items=2)
+        completed = await store.ended(run_id)
+        assert completed.outputs == {"result": ["A", "B"]}
+        assert completed.cause is None and (await last_end())["cause"] is None
 
 
 async def test_an_item_limit_raised_by_a_resume_applies_to_every_resume_call_after_it() -> None:
@@ -202,22 +328,23 @@ async def test_an_item_limit_raised_by_a_resume_applies_to_every_resume_call_aft
         raise Ask("ok?")
 
     worker = _worker(store, registry, max_items=3)
-    run_id = await _started(
-        worker,
-        make_graph(split, ask, edges=[("split.result", "ask.x")], constants={"split.n": 5}),
-        {},
-    )
-    assert (await store.ended(run_id)).status == "stopped"
+    async with worker.serving():
+        run_id = await _started(
+            worker,
+            make_graph(split, ask, edges=[("split.result", "ask.x")], constants={"split.n": 5}),
+            {},
+        )
+        assert (await store.ended(run_id)).status == "stopped"
 
-    await worker.resume(await worker.read(run_id), max_items=10)
-    assert (
-        json.loads(store.rows[run_id].run)["max_items"] == 10
-    )  # written with the claim, so a resume call given up before its first checkpoint is resumed under it
-    waiting = (await store.ended(run_id)).waiting
-    assert len(waiting) == 5
-    assert await worker.answer(await worker.read(run_id), {waiting[0].id: 7}) == "started"
-    after = await store.ended(run_id)
-    assert (after.status, len(after.waiting)) == ("waiting", 4)
+        await worker.resume(await worker.read(run_id), max_items=10)
+        assert (
+            json.loads(store.rows[run_id].run)["max_items"] == 10
+        )  # written with the claim, so a resume call given up before its first checkpoint is resumed under it
+        waiting = (await store.ended(run_id)).waiting
+        assert len(waiting) == 5
+        assert await worker.answer(await worker.read(run_id), {waiting[0].id: 7}) == "started"
+        after = await store.ended(run_id)
+        assert (after.status, len(after.waiting)) == ("waiting", 4)
 
 
 async def test_a_resume_with_a_higher_item_limit_of_an_unreadable_saved_run_is_refused_and_leaves_the_row() -> (
@@ -234,16 +361,17 @@ async def test_a_resume_with_a_higher_item_limit_of_an_unreadable_saved_run_is_r
         return text.upper()
 
     worker = _worker(store, registry, max_items=1)
-    run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
-    assert (await store.ended(run_id)).status == "stopped"
-    store.rows[run_id] = unreadable = dataclasses.replace(store.rows[run_id], run="{")
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(split, up), {"text": "a,b"})
+        assert (await store.ended(run_id)).status == "stopped"
+        store.rows[run_id] = unreadable = dataclasses.replace(store.rows[run_id], run="{")
 
-    with pytest.raises(InvalidCallError) as refused:
-        await worker.resume(await worker.read(run_id), max_items=5)
+        with pytest.raises(InvalidCallError) as refused:
+            await worker.resume(await worker.read(run_id), max_items=5)
 
-    assert [problem.type for problem in refused.value.problems] == [
-        "saved_run_unreadable"
-    ] and store.rows[run_id] == unreadable
+        assert [problem.type for problem in refused.value.problems] == [
+            "saved_run_unreadable"
+        ] and store.rows[run_id] == unreadable
 
 
 @pytest.mark.parametrize("status", ["running", "waiting", "complete"])
@@ -251,21 +379,22 @@ async def test_only_a_run_whose_last_resume_call_ended_early_is_resumed(status: 
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
-    if status != "running":
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        if status != "running":
+            gate.set()
+            await store.ended(run_id)
+        if status == "complete":
+            await worker.answer(await worker.read(run_id), {waiting_id: True})
+            await store.ended(run_id)
+
+        with pytest.raises(RefusedError) as refused:
+            await worker.resume(await worker.read(run_id))
+
+        assert [(problem.type, problem.ctx) for problem in refused.value.problems] == [
+            ("run_not_resumable", {"status": status})
+        ]
         gate.set()
-        await store.ended(run_id)
-    if status == "complete":
-        await worker.answer(await worker.read(run_id), {waiting_id: True})
-        await store.ended(run_id)
-
-    with pytest.raises(RefusedError) as refused:
-        await worker.resume(await worker.read(run_id))
-
-    assert [(problem.type, problem.ctx) for problem in refused.value.problems] == [
-        ("run_not_resumable", {"status": status})
-    ]
-    gate.set()
 
 
 # -- a cancel -------------------------------------------------------------------------------------
@@ -284,15 +413,15 @@ async def test_a_cancel_reaches_the_resume_call_that_an_answer_queued_during_the
     calls.clear()
     store = MemoryStore()
     worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert await worker.answer(await worker.read(run_id), {waiting.id: True}) == "queued"
+        gates["first"].set()
+        await asyncio.to_thread(gates["per_item_called"].wait, 5)
+        assert await worker.cancel(await worker.read(run_id))
+        gates["second"].set()
 
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting.id: True}) == "queued"
-    gates["first"].set()
-    await asyncio.to_thread(gates["per_item_called"].wait, 5)
-    assert await worker.cancel(await worker.read(run_id))
-    gates["second"].set()
-
-    assert (await store.ended(run_id)).status == "cancelled" and calls == ["a"]
+        assert (await store.ended(run_id)).status == "cancelled" and calls == ["a"]
 
 
 async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_another_takes_it_over() -> (
@@ -309,11 +438,11 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     await store.create(left_running("taken", graph, answered, owner="a-dead-worker"))
 
     assert await worker.cancel(await worker.read("taken"))
-    await worker.sweep()
-    assert (await store.ended("taken")).status == "cancelled" and calls == []
+    async with worker.serving():  # which takes over at once the run whose lease ran out
+        assert (await store.ended("taken")).status == "cancelled" and calls == []
 
-    await worker.resume(await worker.read("taken"))
-    assert (await store.ended("taken")).status == "complete" and calls == ["a", "b"]
+        await worker.resume(await worker.read("taken"))
+        assert (await store.ended("taken")).status == "complete" and calls == ["a", "b"]
 
 
 async def test_a_cancel_of_a_waiting_run_ends_it_cancelled_with_its_question_waiting_and_an_answer_carries_it_on() -> (
@@ -323,31 +452,34 @@ async def test_a_cancel_of_a_waiting_run_ends_it_cancelled_with_its_question_wai
     gate.set()
     store = MemoryStore()
     worker = _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
-    assert (await store.ended(run_id)).status == "waiting"
-    events_while_waiting = len(await store.stored_events(run_id))
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert (await store.ended(run_id)).status == "waiting"
+        events_while_waiting = len(await store.stored_events(run_id))
 
-    assert await worker.cancel(await worker.read(run_id))
-    cancelled = await store.ended(run_id)
-    assert cancelled.cause is not None
-    assert (
-        cancelled.status,
-        cancelled.cause.type,
-        [waiting.id for waiting in cancelled.waiting],
-    ) == (
-        "cancelled",
-        "run_cancelled",
-        [waiting_id],
-    )
-    assert [
-        (event["type"], event.get("status"))
-        for event in (await store.stored_events(run_id))[events_while_waiting:]
-    ] == [("run_start", None), ("run_end", "cancelled")]
-    assert not await worker.cancel(await worker.read(run_id))  # it ended early: nothing to cancel
+        assert await worker.cancel(await worker.read(run_id))
+        cancelled = await store.ended(run_id)
+        assert cancelled.cause is not None
+        assert (
+            cancelled.status,
+            cancelled.cause.type,
+            [waiting.id for waiting in cancelled.waiting],
+        ) == (
+            "cancelled",
+            "run_cancelled",
+            [waiting_id],
+        )
+        assert [
+            (event["type"], event.get("status"))
+            for event in (await store.stored_events(run_id))[events_while_waiting:]
+        ] == [("run_start", None), ("run_end", "cancelled")]
+        assert not await worker.cancel(
+            await worker.read(run_id)
+        )  # it ended early: nothing to cancel
 
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
-    assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
-    assert not await worker.cancel(await worker.read(run_id))
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+        assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
+        assert not await worker.cancel(await worker.read(run_id))
 
 
 async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column() -> None:
@@ -364,17 +496,20 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
 
     store = DropsStatus()
     worker = _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
-    waiting = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
-    assert (waiting.row.status, RunView.of(waiting).status) == ("running", "waiting")
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        row = await store.until(run_id, lambda row: row.owner is None)
+        waiting = await worker.read(run_id)
+        assert (row.status, waiting.view().status) == ("running", "waiting")
 
-    with pytest.raises(RefusedError) as refused:
-        await worker.resume(waiting)
-    assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
-    assert await worker.answer(waiting, {waiting_id: True}) == "started"
-    completed = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
-    assert RunView.of(completed).outputs == {"busy": "x", "after": True}
-    assert not await worker.cancel(completed)
+        with pytest.raises(RefusedError) as refused:
+            await worker.resume(waiting)
+        assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
+        assert await worker.answer(waiting, {waiting_id: True}) == "started"
+        await store.until(run_id, lambda row: row.owner is None)
+        completed = await worker.read(run_id)
+        assert completed.view().outputs == {"busy": "x", "after": True}
+        assert not await worker.cancel(completed)
 
 
 # -- answers --------------------------------------------------------------------------------------
@@ -385,22 +520,27 @@ async def test_two_workers_answering_one_run_at_once_start_one_resume_call() -> 
     gate.set()
     store = MemoryStore()
     one, other = _worker(store, registry), _worker(store, registry)
-    run_id = await _started(one, graph, inputs)
-    await store.ended(run_id)
-    row = await one.read(run_id)
+    async with one.serving(), other.serving():
+        run_id = await _started(one, graph, inputs)
+        await store.ended(run_id)
+        row = await one.read(run_id)
 
-    outcomes = await asyncio.gather(
-        one.answer(row, {waiting_id: True}),
-        other.answer(row, {waiting_id: True}),
-        return_exceptions=True,
-    )
+        outcomes = await asyncio.gather(
+            one.answer(row, {waiting_id: True}),
+            other.answer(row, {waiting_id: True}),
+            return_exceptions=True,
+        )
 
-    lost = [outcome for outcome in outcomes if isinstance(outcome, RefusedError)]
-    assert [outcome for outcome in outcomes if not isinstance(outcome, RefusedError)] == ["started"]
-    assert [[problem.type for problem in refused.problems] for refused in lost] == [["run_changed"]]
-    assert (await store.ended(run_id)).status == "complete" and await _resume_calls(
-        store, run_id
-    ) == 2
+        lost = [outcome for outcome in outcomes if isinstance(outcome, RefusedError)]
+        assert [outcome for outcome in outcomes if not isinstance(outcome, RefusedError)] == [
+            "started"
+        ]
+        assert [[problem.type for problem in refused.problems] for refused in lost] == [
+            ["run_changed"]
+        ]
+        assert (await store.ended(run_id)).status == "complete" and await _resume_calls(
+            store, run_id
+        ) == 2
 
 
 async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_run_takes_none() -> (
@@ -409,20 +549,21 @@ async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_r
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
 
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    with pytest.raises(RefusedError) as twice:
-        await worker.answer(await worker.read(run_id), {waiting_id: False})
-    assert [(problem.type, problem.ctx) for problem in twice.value.problems] == [
-        ("already_answered", {"waiting_id": waiting_id})
-    ]
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+        with pytest.raises(RefusedError) as twice:
+            await worker.answer(await worker.read(run_id), {waiting_id: False})
+        assert [(problem.type, problem.ctx) for problem in twice.value.problems] == [
+            ("already_answered", {"waiting_id": waiting_id})
+        ]
 
-    gate.set()
-    assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
-    with pytest.raises(RefusedError) as complete:
-        await worker.answer(await worker.read(run_id), {})
-    assert [problem.type for problem in complete.value.problems] == ["run_complete"]
+        gate.set()
+        assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
+        with pytest.raises(RefusedError) as complete:
+            await worker.answer(await worker.read(run_id), {})
+        assert [problem.type for problem in complete.value.problems] == ["run_complete"]
 
 
 async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_long_the_first_takes_to_write_its_end() -> (
@@ -476,18 +617,19 @@ async def test_the_end_of_a_resume_call_costs_one_read_one_event_and_one_write_a
 
     store = Counts()
     worker = _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
-    row = await worker.read(run_id)
-    assert await worker.answer(row, {waiting_id: True}) == "queued"
-    store.reads = store.writes = 0
-    gate.set()
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        row = await worker.read(run_id)
+        assert await worker.answer(row, {waiting_id: True}) == "queued"
+        store.reads = store.writes = 0
+        gate.set()
 
-    assert (await store.ended(run_id)).status == "complete"
-    assert (store.reads, store.writes) == (
-        2,
-        2,
-    )  # one of each for the end of each of the two resume calls
-    assert [event["type"] for event in await store.stored_events(run_id)].count("run_end") == 2
+        assert (await store.ended(run_id)).status == "complete"
+        assert (store.reads, store.writes) == (
+            2,
+            2,
+        )  # one of each for the end of each of the two resume calls
+        assert [event["type"] for event in await store.stored_events(run_id)].count("run_end") == 2
 
 
 async def test_an_answer_queued_just_before_a_resume_call_writes_its_end_starts_the_next_resume_call() -> (
@@ -504,25 +646,25 @@ async def test_an_answer_queued_just_before_a_resume_call_writes_its_end_starts_
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if not self.answered and changes.get("status") == "waiting":
                 self.answered = True
-                assert (
-                    await other.answer(RunAsRead.of(self.rows[run_id]), {waiting_id: True})
-                    == "queued"
-                )
+                assert await other.answer(await other.read(run_id), {waiting_id: True}) == "queued"
             return await super().update(run_id, rev, changes)
 
     store = AnswerAtTheEnd()
     worker, other = _worker(store, registry), _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
-    ended = await store.ended(run_id)
+    async with worker.serving(), other.serving():
+        run_id = await _started(worker, graph, inputs)
+        ended = await store.ended(run_id)
 
-    assert store.answered and (ended.status, ended.refused, ended.outputs) == (
-        "complete",
-        {},
-        {"busy": "x", "after": True},
-    )
-    assert [
-        event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"
-    ] == ["waiting", "complete"]
+        assert store.answered and (ended.status, ended.refused, ended.outputs) == (
+            "complete",
+            {},
+            {"busy": "x", "after": True},
+        )
+        assert [
+            event["status"]
+            for event in await store.stored_events(run_id)
+            if event["type"] == "run_end"
+        ] == ["waiting", "complete"]
 
 
 async def test_a_run_that_takes_longer_than_the_lease_to_write_stays_with_its_worker_and_is_written_once(
@@ -548,9 +690,9 @@ async def test_a_run_that_takes_longer_than_the_lease_to_write_stays_with_its_wo
         # a second worker that took the run would be running it again by now
         await asyncio.sleep(0.4)
 
-    assert [waiting_call.id for waiting_call in ended.waiting] == [waiting_id] and RunView.of(
+    assert [waiting_call.id for waiting_call in ended.waiting] == [waiting_id] and (
         await one.read(run_id)
-    ) == ended
+    ).view() == ended
     assert await _resume_calls(store, run_id) == 1
     assert slow_writes == ["waiting"]
 
@@ -561,14 +703,14 @@ async def test_an_answer_queued_during_a_resume_call_stopped_at_the_item_limit_s
     registry, graph, gate, inputs, waiting_id = asking(items=True)
     store = MemoryStore()
     worker = _worker(store, registry, max_items=1)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+        gate.set()
+        ended = await store.ended(run_id)  # the next resume call stops at the same item limit
 
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    gate.set()
-    ended = await store.ended(run_id)  # the next resume call stops at the same item limit
-
-    assert (ended.status, ended.waiting, ended.refused) == ("stopped", [], {})
-    assert await _resume_calls(store, run_id) == 2
+        assert (ended.status, ended.waiting, ended.refused) == ("stopped", [], {})
+        assert await _resume_calls(store, run_id) == 2
 
 
 async def test_an_answer_queued_for_a_question_a_timed_out_resume_call_never_asked_is_refused_as_not_waiting() -> (
@@ -577,19 +719,19 @@ async def test_an_answer_queued_for_a_question_a_timed_out_resume_call_never_ask
     registry, graph, gate, inputs, waiting_id = asking(items=True)
     store = MemoryStore()
     worker = _worker(store, registry, resume_timeout=0.2)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+        # past the resume call's timeout; the node call it waits for then finishes
+        await asyncio.sleep(0.3)
+        gate.set()
+        ended = await store.ended(run_id)
 
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    # past the resume call's timeout; the node call it waits for then finishes
-    await asyncio.sleep(0.3)
-    gate.set()
-    ended = await store.ended(run_id)
-
-    assert ended.status == "timed_out"
-    assert [(problem.type, problem.ctx["status"]) for problem in ended.refused[waiting_id]] == [
-        ("not_waiting", "timed_out")
-    ]
-    assert await _resume_calls(store, run_id) == 1
+        assert ended.status == "timed_out"
+        assert [(problem.type, problem.ctx["status"]) for problem in ended.refused[waiting_id]] == [
+            ("not_waiting", "timed_out")
+        ]
+        assert await _resume_calls(store, run_id) == 1
 
 
 async def test_an_answer_queued_before_a_cancelled_run_asks_its_question_is_refused_as_not_waiting_and_starts_nothing() -> (
@@ -598,18 +740,18 @@ async def test_an_answer_queued_before_a_cancelled_run_asks_its_question_is_refu
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+        assert await worker.cancel(await worker.read(run_id))
+        gate.set()
+        ended = await store.ended(run_id)
 
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    assert await worker.cancel(await worker.read(run_id))
-    gate.set()
-    ended = await store.ended(run_id)
-
-    assert ended.status == "cancelled"
-    assert [(problem.type, problem.ctx["status"]) for problem in ended.refused[waiting_id]] == [
-        ("not_waiting", "cancelled")
-    ]
-    assert await _resume_calls(store, run_id) == 1
+        assert ended.status == "cancelled"
+        assert [(problem.type, problem.ctx["status"]) for problem in ended.refused[waiting_id]] == [
+            ("not_waiting", "cancelled")
+        ]
+        assert await _resume_calls(store, run_id) == 1
 
 
 async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_and_is_taken_after_a_resume() -> (
@@ -632,17 +774,16 @@ async def test_an_answer_queued_during_a_resume_call_that_raised_stays_queued_an
     await store.create(left)
     assert await worker.answer(await worker.read("left"), {waiting_id: True}) == "queued"
 
-    await worker.sweep()
-    failed = await store.ended("left")
-    assert (failed.status, failed.refused, (await worker.read("left")).state.queued_answers) == (
-        "failed",
-        {},
-        {waiting_id: True},
-    )
+    async with worker.serving():
+        failed = await store.ended("left")
+        assert (failed.status, failed.refused) == (
+            "failed",
+            {},
+        )  # the answer stays queued, as the resume below shows
 
-    await worker.resume(await worker.read("left"))
-    # the resume call after the resume ended waiting, and took the answer queued two resume calls before
-    completed = await store.ended("left")
+        await worker.resume(await worker.read("left"))
+        # the resume call after the resume ended waiting, and took the answer queued two resume calls before
+        completed = await store.ended("left")
     assert (completed.status, completed.refused, completed.outputs) == (
         "complete",
         {},
@@ -654,26 +795,26 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert (
+            await worker.answer(await worker.read(run_id), {waiting_id: "not a bool"}) == "queued"
+        )
+        gate.set()
+        waiting = await store.ended(run_id)
+        assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
+        store.rows[run_id] = dataclasses.replace(
+            store.rows[run_id],
+            state=json.dumps({**store.state(run_id), "queued_answers": {waiting_id: False}}),
+        )  # as a resume call that raised leaves an answer queued; the test above reaches that through a raise
 
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: "not a bool"}) == "queued"
-    gate.set()
-    waiting = await store.ended(run_id)
-    assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
-    queued_before = (await worker.read(run_id)).state.model_copy(
-        update={"queued_answers": {waiting_id: False}}
-    )
-    store.rows[run_id] = dataclasses.replace(
-        store.rows[run_id], **queued_before.columns()
-    )  # as a resume call that raised leaves an answer queued
-
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
-    completed = await store.ended(run_id)
-    assert (completed.status, completed.refused, completed.outputs) == (
-        "complete",
-        {},
-        {"busy": "x", "after": True},
-    )
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+        completed = await store.ended(run_id)
+        assert (completed.status, completed.refused, completed.outputs) == (
+            "complete",
+            {},
+            {"busy": "x", "after": True},
+        )
 
 
 @host_type("fragile", title="Fragile")
@@ -730,10 +871,10 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
         "waiting",
         [("answer_check_failed", {"waiting_id": waiting.id, "error": "KeyError"})],
     )
-    assert (
-        await _resume_calls(store, run_id) == 1
-        and (await worker.read(run_id)).state.queued_answers == {}
-    )
+    assert await _resume_calls(store, run_id) == 1
+    # no host reads the queue, and an answer left in it would show only at the run's next stop, which this run, waiting
+    # on a question only a fixed type can answer, never has; so the stored state is read here
+    assert store.state(run_id)["queued_answers"] == {}
 
 
 async def test_a_cancel_given_a_waiting_run_an_answer_resumed_first_stops_the_answered_resume_call() -> (
@@ -742,28 +883,29 @@ async def test_a_cancel_given_a_waiting_run_an_answer_resumed_first_stops_the_an
     registry, graph, gates, calls = gated()
     store = MemoryStore()
     worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"csv": "a,b", "text": "x", "question": "y"})
+        gates["first"].set()
+        waiting = await store.ended(run_id)
+        read_while_it_waited = await worker.read(run_id)
+        assert (
+            await worker.answer(await worker.read(run_id), {waiting.waiting[0].id: True})
+            == "started"
+        )
+        await asyncio.to_thread(gates["per_item_called"].wait, 5)
 
-    run_id = await _started(worker, graph, {"csv": "a,b", "text": "x", "question": "y"})
-    gates["first"].set()
-    waiting = await store.ended(run_id)
-    read_while_it_waited = await worker.read(run_id)
-    assert (
-        await worker.answer(await worker.read(run_id), {waiting.waiting[0].id: True}) == "started"
-    )
-    await asyncio.to_thread(gates["per_item_called"].wait, 5)
+        assert await worker.cancel(read_while_it_waited)
+        gates["second"].set()
+        cancelled = await store.ended(run_id)
+        assert (cancelled.status, cancelled.waiting, calls) == ("cancelled", [], ["a"])
 
-    assert await worker.cancel(read_while_it_waited)
-    gates["second"].set()
-    cancelled = await store.ended(run_id)
-    assert (cancelled.status, cancelled.waiting, calls) == ("cancelled", [], ["a"])
-
-    await worker.resume(await worker.read(run_id))  # the answer is kept: nothing is asked again
-    completed = await store.ended(run_id)
-    assert (completed.status, completed.outputs, calls) == (
-        "complete",
-        {"busy": "x", "per_item": ["a", "b"]},
-        ["a", "b"],
-    )
+        await worker.resume(await worker.read(run_id))  # the answer is kept: nothing is asked again
+        completed = await store.ended(run_id)
+        assert (completed.status, completed.outputs, calls) == (
+            "complete",
+            {"busy": "x", "per_item": ["a", "b"]},
+            ["a", "b"],
+        )
 
 
 async def test_a_cancel_given_a_waiting_run_that_an_answer_completed_first_answers_false() -> None:
@@ -771,14 +913,15 @@ async def test_a_cancel_given_a_waiting_run_that_an_answer_completed_first_answe
     gate.set()
     store = MemoryStore()
     worker = _worker(store, registry)
-    run_id = await _started(worker, graph, inputs)
-    assert (await store.ended(run_id)).status == "waiting"
-    read_while_it_waited = await worker.read(run_id)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
-    assert (await store.ended(run_id)).status == "complete"
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert (await store.ended(run_id)).status == "waiting"
+        read_while_it_waited = await worker.read(run_id)
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+        assert (await store.ended(run_id)).status == "complete"
 
-    assert not await worker.cancel(read_while_it_waited)
-    assert (await worker.read(run_id)).state.status == "complete"
+        assert not await worker.cancel(read_while_it_waited)
+        assert (await worker.read(run_id)).view().status == "complete"
 
 
 def _asked_beside_a_chain() -> tuple[
@@ -839,23 +982,27 @@ async def test_a_cancel_ends_the_resume_call_it_reached_and_not_the_one_an_answe
     registry, graph, inputs, gates, calls, waiting_id = _asked_beside_a_chain()
     store = MemoryStore()
     worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        gates["first"].set()
+        await asyncio.to_thread(gates["in_second"].wait, 5)
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+        assert await worker.cancel(await worker.read(run_id))
+        gates["second"].set()
 
-    run_id = await _started(worker, graph, inputs)
-    gates["first"].set()
-    await asyncio.to_thread(gates["in_second"].wait, 5)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    assert await worker.cancel(await worker.read(run_id))
-    gates["second"].set()
-
-    completed = await store.until(run_id, lambda row: row.status not in ("running", "cancelled"))
-    ends = [
-        event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"
-    ]
-    assert (completed.status, ends, calls) == (
-        "complete",
-        ["cancelled", "complete"],
-        ["one", "two", "three"],
-    )
+        completed = await store.until(
+            run_id, lambda row: row.status not in ("running", "cancelled")
+        )
+        ends = [
+            event["status"]
+            for event in await store.stored_events(run_id)
+            if event["type"] == "run_end"
+        ]
+        assert (completed.status, ends, calls) == (
+            "complete",
+            ["cancelled", "complete"],
+            ["one", "two", "three"],
+        )
 
 
 async def test_a_cancel_sent_as_a_resume_call_ends_cancels_the_one_an_answer_queued_meanwhile_starts() -> (
@@ -871,26 +1018,31 @@ async def test_a_cancel_sent_as_a_resume_call_ends_cancels_the_one_an_answer_que
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if not self.cancelled and "outcome" in changes:
                 self.cancelled = True
-                assert await other.cancel(RunAsRead.of(self.rows[run_id]))
+                assert await other.cancel(await other.read(run_id))
             return await super().update(run_id, rev, changes)
 
     store = CancelAtTheEnd()
     worker, other = _worker(store, registry), _worker(store, registry)
+    async with worker.serving(), other.serving():
+        run_id = await _started(worker, graph, inputs)
+        assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
+        gate.set()
 
-    run_id = await _started(worker, graph, inputs)
-    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-    gate.set()
-
-    ended = await store.ended(run_id)
-    ends = [
-        event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"
-    ]
-    assert store.cancelled and (ended.status, ends, ended.outputs) == (
-        "cancelled",
-        ["waiting", "cancelled"],
-        None,
-    )
-    assert not (await worker.read(run_id)).state.cancel_asked
+        ended = await store.ended(run_id)
+        ends = [
+            event["status"]
+            for event in await store.stored_events(run_id)
+            if event["type"] == "run_end"
+        ]
+        assert store.cancelled and (ended.status, ends, ended.outputs) == (
+            "cancelled",
+            ["waiting", "cancelled"],
+            None,
+        )
+        await worker.resume(
+            await worker.read(run_id)
+        )  # the cancel that ended it does not end this one
+        assert (await store.ended(run_id)).status == "complete"
 
 
 async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resume() -> None:
@@ -907,16 +1059,20 @@ async def test_a_question_that_waits_in_a_failed_run_is_answered_without_a_resum
         raise Ask(f"approve {x}?")
 
     worker = _worker(store, registry)
-    run_id = await _started(worker, make_graph(many, approve), {"n": 3})
-    failed = await store.ended(run_id)
-    assert (failed.status, len(failed.waiting)) == ("failed", 2)
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(many, approve), {"n": 3})
+        failed = await store.ended(run_id)
+        assert (failed.status, len(failed.waiting)) == ("failed", 2)
 
-    assert await worker.answer(await worker.read(run_id), {failed.waiting[0].id: True}) == "started"
-    after = await store.ended(run_id)
-    assert (after.status, [waiting_call.id for waiting_call in after.waiting]) == (
-        "failed",
-        [failed.waiting[1].id],
-    )
+        assert (
+            await worker.answer(await worker.read(run_id), {failed.waiting[0].id: True})
+            == "started"
+        )
+        after = await store.ended(run_id)
+        assert (after.status, [waiting_call.id for waiting_call in after.waiting]) == (
+            "failed",
+            [failed.waiting[1].id],
+        )
 
 
 # -- a resume call that raised --------------------------------------------------------------------
@@ -999,17 +1155,23 @@ async def test_a_resume_call_that_raised_outside_a_node_fails_the_run_with_a_cau
     registry, graph = _shout()
     store = MemoryStore()
 
-    run_id = await _started(_worker(store, registry, context=_context_raises), graph, {"text": "a"})
-    failed = await store.ended(run_id)
+    worker = _worker(store, registry, context=_context_raises)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"text": "a"})
+        failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == (
-        "failed",
-        "resume_failed",
-        (),
-    )
-    assert await store.stored_events(run_id) == [
-        {"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}
-    ]
+        assert failed.cause is not None and (
+            failed.status,
+            failed.cause.type,
+            failed.cause.loc,
+        ) == (
+            "failed",
+            "resume_failed",
+            (),
+        )
+        assert await store.stored_events(run_id) == [
+            {"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}
+        ]
 
 
 class Tenant:
@@ -1029,20 +1191,28 @@ async def test_a_run_conductor_refuses_to_resume_fails_with_its_first_problem_an
     def seal(tenant: Context[Tenant], text: str) -> str:
         return text
 
-    run_id = await _started(_worker(store, registry), make_graph(stamp, seal), {"text": "a"})
-    failed = await store.ended(run_id)
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(stamp, seal), {"text": "a"})
+        failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type, failed.cause.loc) == (
-        "failed",
-        "context_missing",
-        ("stamp", "tenant"),
-    )
-    assert failed.cause.ctx["needs"] == "Tenant"
-    assert await store.stored_events(run_id) == [
-        {"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}
-    ]
-    (logged,) = [record.getMessage() for record in caplog.records if run_id in record.getMessage()]
-    assert "stamp.tenant" in logged and "seal.tenant" in logged and "\n" not in logged
+        assert failed.cause is not None and (
+            failed.status,
+            failed.cause.type,
+            failed.cause.loc,
+        ) == (
+            "failed",
+            "context_missing",
+            ("stamp", "tenant"),
+        )
+        assert failed.cause.ctx["needs"] == "Tenant"
+        assert await store.stored_events(run_id) == [
+            {"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}
+        ]
+        (logged,) = [
+            record.getMessage() for record in caplog.records if run_id in record.getMessage()
+        ]
+        assert "stamp.tenant" in logged and "seal.tenant" in logged and "\n" not in logged
 
 
 async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls_waiting_in_that_checkpoint() -> (
@@ -1070,21 +1240,21 @@ async def test_a_run_whose_resume_call_raised_after_a_checkpoint_lists_the_calls
         edges=[("busy.result", "opaque.text")],
         outputs={"approve": "approve.result", "opaque": "opaque.result"},
     )
-    run_id = await _started(
-        _worker(store, registry, checkpoint_every=0.01), graph, {"question": "y", "text": "x"}
-    )
-    await asyncio.sleep(0.05)  # a checkpoint is due by the time the busy step ends
-    gate.set()
-    failed = await store.ended(run_id)
+    worker = _worker(store, registry, checkpoint_every=0.01)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"question": "y", "text": "x"})
+        await asyncio.sleep(0.05)  # a checkpoint is due by the time the busy step ends
+        gate.set()
+        failed = await store.ended(run_id)
 
-    assert failed.cause is not None and (failed.status, failed.cause.type) == (
-        "failed",
-        "run_unwritable",
-    )
-    stored = Run.from_json(store.rows[run_id].run, Graph.compile(graph, registry))
-    assert [waiting_call.id for waiting_call in failed.waiting] == [
-        waiting_call.id for waiting_call in stored.waiting
-    ] and len(failed.waiting) == 1
+        assert failed.cause is not None and (failed.status, failed.cause.type) == (
+            "failed",
+            "run_unwritable",
+        )
+        stored = Run.from_json(store.rows[run_id].run, Graph.compile(graph, registry))
+        assert [waiting_call.id for waiting_call in failed.waiting] == [
+            waiting_call.id for waiting_call in stored.waiting
+        ] and len(failed.waiting) == 1
 
 
 async def test_a_run_whose_resume_call_raised_lists_the_calls_waiting_as_stored_and_takes_answers_without_a_resume() -> (
@@ -1106,19 +1276,22 @@ async def test_a_run_whose_resume_call_raised_lists_the_calls_waiting_as_stored_
             raise ConnectionError("the secrets service is down")
 
     worker = _worker(store, registry, context=fails_on_the_second_resume_call)
-    run_id = await _started(worker, make_graph(many, approve), {"n": 3})
-    first, second, third = (waiting_call.id for waiting_call in (await store.ended(run_id)).waiting)
+    async with worker.serving():
+        run_id = await _started(worker, make_graph(many, approve), {"n": 3})
+        first, second, third = (
+            waiting_call.id for waiting_call in (await store.ended(run_id)).waiting
+        )
 
-    assert await worker.answer(await worker.read(run_id), {first: True}) == "started"
-    failed = await store.ended(run_id)
-    assert failed.cause is not None and (
-        failed.status,
-        failed.cause.type,
-        [waiting_call.id for waiting_call in failed.waiting],
-    ) == ("failed", "resume_failed", [second, third])
+        assert await worker.answer(await worker.read(run_id), {first: True}) == "started"
+        failed = await store.ended(run_id)
+        assert failed.cause is not None and (
+            failed.status,
+            failed.cause.type,
+            [waiting_call.id for waiting_call in failed.waiting],
+        ) == ("failed", "resume_failed", [second, third])
 
-    assert await worker.answer(await worker.read(run_id), {second: True}) == "started"
-    assert [waiting_call.id for waiting_call in (await store.ended(run_id)).waiting] == [third]
+        assert await worker.answer(await worker.read(run_id), {second: True}) == "started"
+        assert [waiting_call.id for waiting_call in (await store.ended(run_id)).waiting] == [third]
 
 
 async def test_a_saved_run_that_cant_be_read_fails_the_run_and_lists_nothing_as_waiting() -> None:
@@ -1135,8 +1308,8 @@ async def test_a_saved_run_that_cant_be_read_fails_the_run_and_lists_nothing_as_
         )
     )
 
-    await worker.sweep()
-    failed = await store.ended("left")
+    async with worker.serving():
+        failed = await store.ended("left")
     assert failed.cause is not None and (failed.status, failed.cause.type, failed.waiting) == (
         "failed",
         "saved_run_unreadable",
@@ -1228,7 +1401,7 @@ async def test_a_run_that_cant_be_written_fails_with_run_unwritable_the_first_ti
     )
     assert (
         await _resume_calls(store, run_id) == 1
-        and (await worker.read(run_id)).state.status == "failed"
+        and (await worker.read(run_id)).view().status == "failed"
     )
 
 
@@ -1247,25 +1420,26 @@ async def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_
 
     store = CountsReads()
     worker = _worker(store, registry, poll=0.01)
-    run = await worker.read(await _started(worker, graph, inputs))
+    async with worker.serving():
+        run = await worker.read(await _started(worker, graph, inputs))
 
-    async def followed(after: int = -1) -> list[tuple[int, str]]:
-        return [event async for event in worker.events(run, after)]
+        async def followed(after: int = -1) -> list[tuple[int, str]]:
+            return [event async for event in worker.events(run, after)]
 
-    following = asyncio.create_task(followed())
-    await asyncio.sleep(0.1)  # the follower has the resume call's first events by now
-    before = store.reads
-    await asyncio.sleep(0.3)  # thirty polls that find no event
-    during = store.reads - before
-    gate.set()
-    events = await following
+        following = asyncio.create_task(followed())
+        await asyncio.sleep(0.1)  # the follower has the resume call's first events by now
+        before = store.reads
+        await asyncio.sleep(0.3)  # thirty polls that find no event
+        during = store.reads - before
+        gate.set()
+        events = await following
 
-    assert during == 0 and [number for number, _ in events] == list(range(len(events)))
-    assert [json.loads(body) for _, body in events] == await store.stored_events(run.row.id)
-    assert (
-        await followed(len(events) - 1) == []
-    )  # a follower that has every event of a run that waits is told so at once
-    assert await followed(len(events) - 2) == events[-1:]
+        assert during == 0 and [number for number, _ in events] == list(range(len(events)))
+        assert [json.loads(body) for _, body in events] == await store.stored_events(run.id)
+        assert (
+            await followed(len(events) - 1) == []
+        )  # a follower that has every event of a run that waits is told so at once
+        assert await followed(len(events) - 2) == events[-1:]
 
 
 async def test_a_follower_that_got_a_run_end_while_the_row_still_reads_running_keeps_asking_until_it_changes() -> (
@@ -1282,21 +1456,24 @@ async def test_a_follower_that_got_a_run_end_while_the_row_still_reads_running_k
             row = self.rows[run_id]
             if row.status == "complete" and self.lagged < 5:
                 self.lagged += 1
-                return dataclasses.replace(row, **StoredState.started().columns())
+                return dataclasses.replace(row, status="running", state=BEGUN_RUN_STATE)
             return row
 
     store = RowLags()
     worker = _worker(store, registry, poll=0.01)
-    run_id = await _started(worker, graph, {"text": "a"})
-    await store.ended(run_id)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"text": "a"})
+        await store.ended(run_id)
 
-    async with asyncio.timeout(5):
-        events = [json.loads(body) async for _, body in worker.events(await worker.read(run_id))]
+        async with asyncio.timeout(5):
+            events = [
+                json.loads(body) async for _, body in worker.events(await worker.read(run_id))
+            ]
 
-    assert [event["type"] for event in events].count("run_end") == 1 and events[-1][
-        "type"
-    ] == "run_end"
-    assert store.lagged >= 5
+        assert [event["type"] for event in events].count("run_end") == 1 and events[-1][
+            "type"
+        ] == "run_end"
+        assert store.lagged >= 5
 
 
 # -- several workers, a shutdown ------------------------------------------------------------------
@@ -1334,18 +1511,20 @@ async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run
             return await super().update(run_id, rev, changes)
 
     store = Recording()
-    run_id = await _started(_worker(store, registry, checkpoint_every=0.01), graph, {"n": 20})
-    await store.ended(run_id)
+    worker = _worker(store, registry, checkpoint_every=0.01)
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"n": 20})
+        await store.ended(run_id)
 
-    assert written and {
-        outcome["waiting"] == [] and outcome["outputs"] is None for outcome in written
-    } == {True}
-    finished = [outcome["progress"]["nodes"]["slow"]["finished"] for outcome in written]
-    assert (
-        finished == sorted(finished)
-        and finished[0] < 20
-        and written[0]["progress"]["nodes"]["slow"]["total"] == 20
-    )
+        assert written and {
+            outcome["waiting"] == [] and outcome["outputs"] is None for outcome in written
+        } == {True}
+        finished = [outcome["progress"]["nodes"]["slow"]["finished"] for outcome in written]
+        assert (
+            finished == sorted(finished)
+            and finished[0] < 20
+            and written[0]["progress"]["nodes"]["slow"]["total"] == 20
+        )
 
 
 async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_its_saved_run_as_its_outcomes_say() -> (
@@ -1359,16 +1538,15 @@ async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with
         run_id = await _started(worker, graph, {"n": 40})
         await asyncio.to_thread(called.wait, 5)
 
-    run = await worker.read(run_id)
-    view = RunView.of(run)
-    assert (view.status, view.cause, run.row.owner, run.row.lease_until) == (
+    row, view = store.rows[run_id], (await worker.read(run_id)).view()
+    assert (view.status, view.cause, row.owner, row.lease_until) == (
         "running",
         None,
         None,
         0.0,
     )
     assert (
-        Run.from_json(run.row.run, Graph.compile(run.row.graph, registry)).status == "ready"
+        Run.from_json(row.run, Graph.compile(row.graph, registry)).status == "ready"
     )  # only the row says a worker is to go on
 
 
@@ -1384,8 +1562,8 @@ async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_th
         await asyncio.to_thread(called.wait, 5)
     assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
 
-    await second.sweep()
-    assert (await store.ended(run_id)).outputs == {"result": list(range(40))}
+    async with second.serving():
+        assert (await store.ended(run_id)).outputs == {"result": list(range(40))}
     events = [event["type"] for event in await store.stored_events(run_id)]
     assert (events.count("run_start"), events.count("run_end"), events[-1]) == (2, 1, "run_end")
     assert sorted(calls) == list(range(40))
@@ -1404,7 +1582,7 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if not self.cancelled and changes.get("lease_until") == 0.0:
                 self.cancelled = True
-                assert await other.cancel(RunAsRead.of(self.rows[run_id]))
+                assert await other.cancel(await other.read(run_id))
             return await super().update(run_id, rev, changes)
 
     store = CancelAtHandBack()
@@ -1414,17 +1592,17 @@ async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run
         run_id = await _started(worker, graph, inputs)
         asyncio.get_running_loop().call_later(0.05, gate.set)
 
-    handed_back = await worker.read(run_id)
-    assert store.cancelled and handed_back.state.cancel_asked
-    assert (handed_back.row.status, handed_back.row.owner, handed_back.row.lease_until) == (
+    handed_back = store.rows[run_id]
+    assert store.cancelled  # and the worker that takes the run hears the cancel, below
+    assert (handed_back.status, handed_back.owner, handed_back.lease_until) == (
         "running",
         None,
         0.0,
     )
     assert "run_end" not in [event["type"] for event in await store.stored_events(run_id)]
 
-    await other.sweep()
-    row = await store.until(run_id, lambda row: row.status != "running")
+    async with other.serving():
+        row = await store.until(run_id, lambda row: row.status != "running")
     assert (row.status, row.owner, row.lease_until) == ("cancelled", None, None)
     assert [
         event["status"] for event in await store.stored_events(run_id) if event["type"] == "run_end"
@@ -1468,6 +1646,11 @@ async def test_a_worker_whose_renewal_never_returns_stops_once_another_took_the_
 
         of: str | None = None
 
+        async def create(self, run: StoredRun) -> None:
+            if self.of is None:
+                self.of = run.owner  # the worker that begins the run
+            await super().create(run)
+
         async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
             if changes.keys() == {"lease_until"} and self.rows[run_id].owner == self.of:
                 await AsyncioEvent().wait()
@@ -1478,7 +1661,6 @@ async def test_a_worker_whose_renewal_never_returns_stops_once_another_took_the_
         _worker(store, registry, lease=0.15, checkpoint_every=0.02),
         _worker(store, registry, lease=0.15, checkpoint_every=0.02),
     )
-    store.of = hung.id
 
     async with asyncio.timeout(8):
         async with hung.serving():
@@ -1521,10 +1703,11 @@ async def test_a_deploy_whose_last_checkpoint_the_store_fails_to_take_leaves_the
 
     async with deployed.serving():
         run_id = await _started(deployed, graph, {"n": 40})
+        owner = store.rows[run_id].owner
         await asyncio.to_thread(called.wait, 5)
         store.armed = True
     row = store.rows[run_id]
-    assert store.raised and (row.status, row.owner) == ("running", deployed.id)
+    assert store.raised and (row.status, row.owner) == ("running", owner)
 
     async with other.serving():
         ended = await store.ended(run_id)  # once the lease the deployed worker left ran out
@@ -1627,7 +1810,7 @@ async def test_a_renewal_that_raises_is_logged_and_the_next_one_keeps_the_lease_
 
     store = RenewalFailsOnce()
     holder, other = _worker(store, registry, lease=0.3), _worker(store, registry, lease=0.3)
-    async with other.serving():
+    async with holder.serving(), other.serving():
         run_id = await _started(holder, graph, {"n": 40})
         ended = await store.ended(run_id)
 
@@ -1656,16 +1839,19 @@ async def test_a_run_that_stopped_running_has_no_lease_so_no_sweep_takes_it_agai
         raise Ask("Go on?")
 
     store = MemoryStore()
-    worker = _worker(store, registry)
-    run_id = await _started(
-        worker, make_graph(shout if ends == "complete" else approve), {"text": "a"}
-    )
-    assert (await store.ended(run_id)).status == ends
+    worker = _worker(store, registry, lease=0.3)  # a sweep each tenth of a second
+    async with worker.serving():
+        run_id = await _started(
+            worker, make_graph(shout if ends == "complete" else approve), {"text": "a"}
+        )
+        assert (await store.ended(run_id)).status == ends
 
-    row = (await worker.read(run_id)).row
-    assert (row.owner, row.lease_until) == (None, None) and await store.expired(time.time()) == []
-    await worker.sweep()
-    assert (await worker.read(run_id)).row == row and await _resume_calls(store, run_id) == 1
+        row = store.rows[run_id]
+        assert (row.owner, row.lease_until) == (None, None)
+        assert await store.expired(time.time()) == []
+        store.swept.clear()
+        await store.swept.wait()
+    assert store.rows[run_id] == row and await _resume_calls(store, run_id) == 1
 
 
 async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finished_from_its_checkpoint() -> (
@@ -1681,9 +1867,10 @@ async def test_a_run_whose_worker_died_is_taken_by_one_of_two_workers_and_finish
     one, other = _worker(store, registry), _worker(store, registry)
     await store.create(left_running("left", graph, checkpoint, owner="a-dead-worker"))
 
-    await asyncio.gather(one.sweep(), other.sweep())
+    async with one.serving(), other.serving():
+        ended = await store.ended("left")
 
-    assert (await store.ended("left")).outputs == {"busy": "x", "per_item": ["a", "b"]}
+    assert ended.outputs == {"busy": "x", "per_item": ["a", "b"]}
     assert calls == ["a", "b"] and await _resume_calls(store, "left") == 1
 
 
@@ -1695,18 +1882,18 @@ async def test_a_worker_whose_run_another_took_stops_resuming_it_and_writes_noth
 
     async with slow.serving():  # leaving it waits for the resume call the slow worker still runs
         run_id = await _started(slow, graph, inputs)
-        row = (await slow.read(run_id)).row
+        row = store.rows[run_id]
         assert await store.update(
             run_id, row.rev, {"lease_until": 0.0}
         )  # as when its lease ran out unrenewed
-        await taker.sweep()
-        taken = await taker.read(run_id)
-        await asyncio.sleep(0.2)  # the slow worker's renewals would have landed by now
-        assert taken.row.owner == taker.id and await taker.read(run_id) == taken
-        gates["first"].set()
-        ended = await store.ended(run_id)
+        async with taker.serving():
+            taken = await store.until(run_id, lambda now: now.owner not in (None, row.owner))
+            await asyncio.sleep(0.2)  # the slow worker's renewals would have landed by now
+            assert store.rows[run_id] == taken
+            gates["first"].set()
+            ended = await store.ended(run_id)
 
-    assert ended.status == "waiting" and RunView.of(await taker.read(run_id)) == ended
+    assert ended.status == "waiting" and await store.view(run_id) == ended
     assert [event["type"] for event in await store.stored_events(run_id)].count("run_end") == 1
     for gate in gates.values():
         gate.set()
