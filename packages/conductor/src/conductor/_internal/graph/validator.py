@@ -243,7 +243,7 @@ class LimitsValidator(Validator[Limits, Limits]):
             ) from None
 
 
-class RecordValueValidator(Validator[JsonValue, Any]):
+class ConstantValidator(Validator[JsonValue, Any]):
     """Reads a value a graph record holds for one input of a node, a constant or a graph input's default, out of its
     JSON by the input's type.
 

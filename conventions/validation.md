@@ -19,7 +19,7 @@ Why: one shape and one place for every validator, so a reader finds each where i
 
 ```python
 read_constant(node_id, field, value)       # bad: a function with a signature of its own, in validation/
-RecordValueValidator(node_id, field)(value)   # good: in graph/validator.py
+ConstantValidator(node_id, field)(value)   # good: in graph/validator.py
 ```
 
 ## Text is read once, where it enters

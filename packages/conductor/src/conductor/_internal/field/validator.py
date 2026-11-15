@@ -9,7 +9,7 @@ Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and
 refuses ``0`` for it: ``invalid_value`` (variant ``bound_default``), a problem of the graph.
 
 A default is read as a Python value is read (``1`` for a ``float`` is ``1.0``). The defaults a graph record gives
-are read by ``RecordValueValidator`` instead.
+are read by ``ConstantValidator`` instead.
 """
 
 from __future__ import annotations
