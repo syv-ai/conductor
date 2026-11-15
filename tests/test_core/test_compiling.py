@@ -31,7 +31,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Dropdown, Textarea
-from pydantic import ValidationError
+from pydantic import AfterValidator, ValidationError
 from pydantic_core import core_schema
 
 from tests.test_core.nodes import registry_of
@@ -1087,27 +1087,45 @@ def _taking(node_id, hint):
     return node(node_id, title=node_id, description="For a test.")(count)
 
 
-def _one_graph_input_feeding(a_hint, b_hint):
-    """The graph whose graph input ``x`` feeds ``a.n``, declared ``a_hint``, and ``b.n``, declared ``b_hint``."""
+def _one_graph_input_feeding(a_hint, b_hint, defaults=None):
+    """The graph whose graph input ``x`` feeds ``a.n``, declared ``a_hint``, and ``b.n``, declared ``b_hint``, with
+    the record's ``defaults``, keyed ``"a.n"`` or ``"b.n"``."""
     a, b = _taking("a", a_hint), _taking("b", b_hint)
     record = make_graph(
-        a, b, edges=[], inputs={"x": ["a.n", "b.n"]}, outputs={"a": "a.result", "b": "b.result"}
+        a,
+        b,
+        edges=[],
+        defaults=defaults or {},
+        inputs={"x": ["a.n", "b.n"]},
+        outputs={"a": "a.result", "b": "b.result"},
     )
     return Graph.compile(record, registry_of(a, b))
 
 
 @pytest.mark.parametrize(
-    "written_again",
-    [Annotated[int, Param()], Annotated[int, Param(title=None)]],
-    ids=["empty param", "param of defaults"],
+    ("a_hint", "b_hint"),
+    [
+        (int, Annotated[int, Param()]),
+        (int, Annotated[int, Param(title=None)]),
+        (Annotated[int, Param()], int),
+    ],
+    ids=["empty param", "param of defaults", "param first"],
 )
 def test_two_inputs_of_one_graph_input_written_differently_but_meaning_the_same_agree(
-    written_again,
+    a_hint, b_hint
 ):
-    graph = _one_graph_input_feeding(int, written_again)
+    graph = _one_graph_input_feeding(a_hint, b_hint)
     assert graph.problems == []
     assert graph.inputs == _one_graph_input_feeding(int, int).inputs
     assert graph.run(x=3).outputs == {"a": 3, "b": 3}
+
+
+@pytest.mark.parametrize("given_on", ["a.n", "b.n"])
+def test_the_record_default_on_one_of_two_inputs_written_differently_is_the_graph_inputs(given_on):
+    graph = _one_graph_input_feeding(int, Annotated[int, Param()], defaults={given_on: 5})
+    assert graph.problems == []
+    assert graph.inputs["x"].default == 5
+    assert graph.run().outputs == {"a": 5, "b": 5}
 
 
 @pytest.mark.parametrize(
@@ -1120,8 +1138,13 @@ def test_two_inputs_of_one_graph_input_written_differently_but_meaning_the_same_
         (Annotated[int, Param(title="Count")], Annotated[int, Param(title="Total")]),
         (int, Annotated[int, Param(description="How many.")]),
         (int, Annotated[int, Param(widget=Textarea())]),
+        # Two functions of one qualified name are written alike in the description, so only the type tells them apart.
+        (
+            Annotated[int, AfterValidator(lambda v: v)],
+            Annotated[int, AfterValidator(lambda v: -v)],
+        ),
     ],
-    ids=["type", "limit", "choices", "title", "two titles", "description", "widget"],
+    ids=["type", "limit", "choices", "title", "two titles", "description", "widget", "validator"],
 )
 def test_two_inputs_of_one_graph_input_that_take_other_values_or_are_shown_otherwise_are_used_two_ways(
     a_hint, b_hint
