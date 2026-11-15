@@ -37,7 +37,6 @@ from pydantic_core import from_json
 
 from conductor_providers.fastapi import router_problems
 from conductor_providers.fastapi.resume_end import HandedBack, Raised, ResumeEnd, end_of
-from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import (
     Outcome,
@@ -256,11 +255,11 @@ class Worker(Generic[C]):
             The run as read.
 
         Raises:
-            NoSuchRunError: The store has no run by that id.
+            InvalidCallError: The store has no run by that id (``no_such_run``).
         """
         row = await self._store.get(run_id)
         if row is None:
-            raise NoSuchRunError
+            raise InvalidCallError([router_problems.no_such_run()])
         return RunAsRead._of(row)
 
     async def begin(
@@ -386,19 +385,19 @@ class Worker(Generic[C]):
             ``queued`` when the run was running, else ``started``.
 
         Raises:
-            RefusedError: An answer is queued for one of the ids already (``already_answered``, one problem for
-                each), the run is complete (``run_complete``), or another call claimed it first (``run_changed``).
+            InvalidCallError: An answer is queued for one of the ids already (``already_answered``, one problem for
+                each), the run is complete (``run_complete``), another call claimed it first (``run_changed``), or
+                the run refuses an answer (every answer it refuses is listed).
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
-            InvalidCallError: The run refuses an answer; every answer it refuses is listed.
         """
 
         def queued_with_these(state: StoredState) -> StoredState:
             if twice := state.queued_answers.keys() & answers.keys():
-                raise RefusedError(
-                    *(
+                raise InvalidCallError(
+                    [
                         router_problems.already_answered(waiting_id=waiting_id)
                         for waiting_id in sorted(twice)
-                    )
+                    ]
                 )
             return state.model_copy(update={"queued_answers": {**state.queued_answers, **answers}})
 
@@ -406,12 +405,12 @@ class Worker(Generic[C]):
         if run._state.is_running:
             return "queued"
         if run._state.status == "complete":
-            raise RefusedError(router_problems.run_complete())
+            raise InvalidCallError([router_problems.run_complete()])
         row, nodes = run._row, self.nodes_for(self.caller_of(run))
         answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
         state = run._state.answered(answers.keys()).running()
         if not await self._claim(run, state, changed=answered):
-            raise RefusedError(router_problems.run_changed())
+            raise InvalidCallError([router_problems.run_changed()])
         return "started"
 
     async def resume(self, run: RunAsRead, max_items: int | None = None) -> None:
@@ -423,13 +422,12 @@ class Worker(Generic[C]):
                 run is stored with it as the run is claimed, so every later resume call has it.
 
         Raises:
-            RefusedError: The run did not end early (``run_not_resumable``), or another call claimed
-                the run first (``run_changed``).
+            InvalidCallError: The run did not end early (``run_not_resumable``), another call claimed the run first
+                (``run_changed``), or, with ``max_items``, the stored run can't be loaded to raise its ceiling.
             RuntimeError: The worker has never served.
-            InvalidCallError: With ``max_items``, the stored run can't be loaded to raise its ceiling.
         """
         if run._state.cause is None:
-            raise RefusedError(router_problems.run_not_resumable(status=run._state.status))
+            raise InvalidCallError([router_problems.run_not_resumable(status=run._state.status)])
         state = run._state.running()
         raised = None
         if max_items is not None:
@@ -438,7 +436,7 @@ class Worker(Generic[C]):
                 lambda: _loaded(row, nodes).with_max_items(max_items).to_json()
             )
         if not await self._claim(run, state, changed=raised):
-            raise RefusedError(router_problems.run_changed())
+            raise InvalidCallError([router_problems.run_changed()])
 
     async def cancel(self, run: RunAsRead) -> bool:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.

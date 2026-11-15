@@ -174,7 +174,7 @@ That gives these routes:
 | `POST /runs/{id}/again` | A new run with some inputs changed; what didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Ask a running or waiting run to stop before its next node call, so that it ends `cancelled`. `{"cancelled": true}` says the cancel was asked, not how the run ended (`GET /runs/{id}` says that); `false` is for a run that is complete or already ended early. |
 
-Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems, never in FastAPI's own validation shape. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. A 404 your own `published` dependency raises is yours, as you wrote it. [The router's own problems](#the-routers-own-problems) has each of the router's codes, and `ROUTER_PROBLEMS` is their catalogue: `ROUTER_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as `Refused`.
+Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems, never in FastAPI's own validation shape. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. A 404 your own `published` dependency raises is yours, as you wrote it. [The router's own problems](#the-routers-own-problems) has each of the router's codes, and `ROUTER_PROBLEMS` is their catalogue: `ROUTER_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as FastAPI's own `HTTPValidationError`, the shape of a 422, which a problem fits.
 
 A host's text for a code cannot be derived from conductor, so a test like this one is how its catalogue stays complete when a code is added; the router's codes join conductor's when the host serves runs, and `own_codes` lists the host's own `NodeError` codes:
 
@@ -289,7 +289,7 @@ The worker's `C`, its `caller_type`, is the caller as the run was admitted: who 
 from typing import Annotated, Any
 
 from conductor import InvalidCallError
-from conductor_providers.fastapi import NoSuchRunError, RefusedError, RunAsRead, RunView, Worker
+from conductor_providers.fastapi import RunAsRead, RunView, Worker
 from fastapi import APIRouter, Body, Depends
 
 
@@ -310,18 +310,19 @@ admitted = Worker(
 own_routes = APIRouter(prefix="/admitted", lifespan=lambda _: admitted.serving())
 
 
-def refused(status_code: int, error: InvalidCallError | RefusedError | NoSuchRunError) -> HTTPException:
-    return HTTPException(status_code, [problem.model_dump(mode="json") for problem in error.problems])
+def refused(error: InvalidCallError) -> HTTPException:
+    status = {"no_such_run": 404, "run_complete": 409}.get(error.problems[0].type, 422)  # yours: the statuses you want
+    return HTTPException(status, [problem.model_dump(mode="json") for problem in error.problems])
 
 
 async def admitted_run(run_id: str, person: Caller) -> RunAsRead:
     """The run, if this person started it; any other is a 404, as one that isn't there."""
     try:
         run = await admitted.read(run_id)
-    except NoSuchRunError as error:
-        raise refused(404, error) from None
+    except InvalidCallError as error:
+        raise refused(error) from None
     if admitted.caller_of(run).person != person:
-        raise refused(404, NoSuchRunError())
+        raise HTTPException(404, "no such run")
     return run
 
 
@@ -335,7 +336,7 @@ async def start_admitted(
     try:
         return {"id": await admitted.begin(graph, inputs, Admitted(person, name), previous=earlier)}
     except InvalidCallError as error:
-        raise refused(422, error) from None
+        raise refused(error) from None
 
 
 @own_routes.get("/runs/{run_id}")
@@ -350,15 +351,13 @@ async def answer_admitted(
     try:
         return {"answers": await admitted.answer(await admitted_run(run_id, person), answers)}
     except InvalidCallError as error:
-        raise refused(422, error) from None
-    except RefusedError as error:
-        raise refused(409, error) from None
+        raise refused(error) from None
 
 
 app.include_router(own_routes)
 ```
 
-`begin` stores the run and makes its first resume call in the background. With `previous`, a run as read of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the caller's nodes (its graph uses a node the caller's registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, caller)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: `RefusedError` and `NoSuchRunError` carry the problems below, and `InvalidCallError` conductor's problems and `previous_run_unloadable`. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(caller).describe()`, as `GET /nodes` answers).
+`begin` stores the run and makes its first resume call in the background. With `previous`, a run as read of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the caller's nodes (its graph uses a node the caller's registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, caller)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: with an `InvalidCallError` whose problems are conductor's or the router's own, below. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(caller).describe()`, as `GET /nodes` answers).
 
 ## The router's own problems
 

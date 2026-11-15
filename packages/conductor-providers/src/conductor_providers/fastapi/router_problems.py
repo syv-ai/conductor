@@ -1,5 +1,5 @@
 """The kinds of problem the runs router and its ``Worker`` report themselves, one function each, in ``ROUTER_PROBLEMS``,
-and the two exceptions that carry them.
+and the HTTP status of each that a route answers with.
 
 A kind is a function that returns the message; the decorator makes it a kind, which is called to make its ``Problem``,
 as the kinds of ``conductor.PROBLEMS`` are. ``ProblemCatalogue.problem`` says how the function's signature is read::
@@ -7,16 +7,16 @@ as the kinds of ``conductor.PROBLEMS`` are. ``ProblemCatalogue.problem`` says ho
     already_answered(waiting_id="approve")
     # Problem(type="already_answered", loc=(), msg="An answer to 'approve' is already queued ...", ctx={"waiting_id": "approve"})
 
-Each is about a run as a whole, so its ``loc`` is ``()``. Five are carried by ``NoSuchRunError`` or ``RefusedError``
-(the ``detail`` of a 404 or a 409), ``previous_run_unloadable`` by an ``InvalidCallError`` from ``Worker.begin``,
-``answer_check_failed`` is in a run's ``refused``, and ``resume_failed`` is a run's ``cause``. The problems of the runs
+Each is about a run as a whole, so its ``loc`` is ``()``. Six are raised by the ``Worker`` in an ``InvalidCallError``,
+as conductor's own refusals are (``STATUS`` gives the status of each), ``answer_check_failed`` is in a run's
+``refused``, and ``resume_failed`` is a run's ``cause``. The problems of the runs
 themselves are conductor's, in ``conductor.PROBLEMS``. Each kind's docstring is its entry in the docs' page on serving
 runs.
 """
 
 from __future__ import annotations
 
-from conductor import Problem, ProblemCatalogue, RunStatus
+from conductor import ProblemCatalogue, RunStatus
 
 #: The kinds of problem the runs router writes itself.
 ROUTER_PROBLEMS = ProblemCatalogue()
@@ -26,7 +26,7 @@ ROUTER_PROBLEMS = ProblemCatalogue()
 def no_such_run() -> str:
     """No run has the id, or the caller may not see the run that has it.
 
-    Raised as ``NoSuchRunError`` by ``Worker.read`` (a 404 from every route under ``/runs/{run_id}``). The router
+    Raised by ``Worker.read`` (a 404 from every route under ``/runs/{run_id}``). The router
     raises it too for a run ``may_see`` turns the caller away from, so the two cases read the same and a caller learns
     nothing about a run that is not theirs. Use the id ``Worker.begin`` returned, as the caller who started the run
     or one ``may_see`` lets in.
@@ -38,7 +38,7 @@ def no_such_run() -> str:
 def already_answered(*, waiting_id: str) -> str:
     """An answer sent while the run is running is for a waiting id that an earlier call already sent an answer for.
 
-    Raised as ``RefusedError`` by ``Worker.answer`` (a 409 from ``POST /runs/{run_id}/answers``); nothing of the call
+    Raised by ``Worker.answer`` (a 409 from ``POST /runs/{run_id}/answers``); nothing of the call
     was queued. There is one problem for each waiting
     id sent twice. Wait until the run stops running: the queued answer is given to the run then, or is in its
     ``refused`` with the reason. Then answer what still waits.
@@ -76,7 +76,7 @@ def answer_check_failed(*, waiting_id: str, error: str) -> str:
 def run_complete() -> str:
     """An answer is sent to a run that is complete.
 
-    Raised as ``RefusedError`` by ``Worker.answer`` (a 409 from ``POST /runs/{run_id}/answers``). Nothing waits;
+    Raised by ``Worker.answer`` (a 409 from ``POST /runs/{run_id}/answers``). Nothing waits;
     ``Worker.again`` (``POST /runs/{run_id}/again``) starts a new run with some inputs changed.
     """
     return (
@@ -88,7 +88,7 @@ def run_complete() -> str:
 def run_not_resumable(*, status: RunStatus) -> str:
     """A resume is asked of a run that did not end early.
 
-    Raised as ``RefusedError`` by ``Worker.resume`` (a 409 from ``POST /runs/{run_id}/resume``) on a run that is
+    Raised by ``Worker.resume`` (a 409 from ``POST /runs/{run_id}/resume``) on a run that is
     ``running``, ``waiting`` or ``complete``. A waiting run
     goes on when it is answered, a running one is already going on, and a complete one is done.
 
@@ -102,7 +102,7 @@ def run_not_resumable(*, status: RunStatus) -> str:
 def run_changed() -> str:
     """Another call changed the run between this call's read of it and its write.
 
-    Raised as ``RefusedError`` by ``Worker.answer`` or ``Worker.resume`` (a 409 from ``POST /runs/{run_id}/answers``
+    Raised by ``Worker.answer`` or ``Worker.resume`` (a 409 from ``POST /runs/{run_id}/answers``
     or ``/resume``). Of two calls at once (an answer, a resume, on any worker), one wins and the other gets this; no
     node is called twice. Read the run again (``Worker.read``, ``GET /runs/{run_id}``), and repeat the call if the
     run still needs it.
@@ -140,26 +140,12 @@ def resume_failed() -> str:
     return "The run's worker failed while it resumed the run; its operator finds why in the server log. Resume it to carry on."
 
 
-class RefusedError(Exception):
-    """A call the worker refused because of how the run stands.
-
-    Attributes:
-        problems: Why, each with one of the router's own codes.
-    """
-
-    def __init__(self, *problems: Problem) -> None:
-        super().__init__(" ".join(problem.msg for problem in problems))
-        self.problems = list(problems)
-
-
-class NoSuchRunError(Exception):
-    """No run has the id, or the caller may not see the one that has.
-
-    Attributes:
-        problems: The one problem, ``no_such_run``.
-    """
-
-    def __init__(self) -> None:
-        problem = no_such_run()
-        super().__init__(problem.msg)
-        self.problems = [problem]
+#: The HTTP status a route answers with when the worker refuses a call, by the code of its first problem; any code not
+#: here, conductor's own among them, is a 422.
+STATUS: dict[str, int] = {
+    "no_such_run": 404,
+    "already_answered": 409,
+    "run_complete": 409,
+    "run_not_resumable": 409,
+    "run_changed": 409,
+}

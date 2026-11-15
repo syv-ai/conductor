@@ -4,7 +4,7 @@ Each route parses its call, asks the process's ``Worker`` and says what it
 answered; the worker resumes the runs.
 """
 
-from collections.abc import AsyncIterable, Callable, Coroutine
+from collections.abc import AsyncIterable, AsyncIterator, Callable
 from operator import attrgetter
 from typing import Annotated, Any, Literal, TypeVar
 
@@ -13,17 +13,15 @@ from conductor import (
     GraphDescription,
     GraphRecord,
     InvalidCallError,
-    Problem,
     RegistryDescription,
     RunProgress,
     read_json,
 )
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request, Response
-from fastapi.routing import APIRoute
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, PlainValidator, StrictInt
 
-from conductor_providers.fastapi.router_problems import NoSuchRunError, RefusedError
+from conductor_providers.fastapi.router_problems import STATUS, no_such_run
 from conductor_providers.fastapi.stored_run import RunAsRead, RunView
 from conductor_providers.fastapi.worker import Worker
 
@@ -48,31 +46,16 @@ class StartRun(BaseModel):
     inputs: dict[str, Any] = {}
 
 
-class Refused(BaseModel):
-    """The body of a 404 or a 409: a call the router itself refused.
-
-    Attributes:
-        detail: Every problem with the call, each with one of the router's own codes (``ROUTER_PROBLEMS``).
-    """
-
-    detail: list[Problem]
-
-
-#: What a route declares beside its own answer: a run that isn't there for the caller, and a run in another state.
-_NOT_FOUND: dict[int | str, dict[str, Any]] = {
-    404: {"model": Refused, "description": "No such run for the caller: `no_such_run`."}
+#: What a route under ``/runs/{run_id}`` declares for a refusal beside its own answer: the 404 of a run that isn't there
+#: for the caller, and the 409 of a run in a state that doesn't take the call. A refusal's body is FastAPI's own
+#: ``HTTPValidationError``, which a conductor ``Problem`` fits, so a client reads every refusal one way.
+_REFUSED: dict[str, Any] = {
+    "content": {
+        "application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}
+    }
 }
-_CONFLICT: dict[int | str, dict[str, Any]] = {
-    409: {"model": Refused, "description": "The run is in a state that doesn't take the call."}
-}
-#: The same 404 for a route that answers with a stream: its refusal is JSON, where a model would be declared as the
-#: stream's type, so it names the component the other routes' model declares.
-_NOT_FOUND_FOR_A_STREAM: dict[int | str, dict[str, Any]] = {
-    404: {
-        "description": _NOT_FOUND[404]["description"],
-        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}},
-    },
-}
+_NOT_FOUND: dict[int | str, dict[str, Any]] = {404: _REFUSED}
+_NOT_FOUND_OR_CONFLICT: dict[int | str, dict[str, Any]] = {404: _REFUSED, 409: _REFUSED}
 
 
 class Started(BaseModel):
@@ -120,42 +103,24 @@ class Cancelled(BaseModel):
     cancelled: bool
 
 
-class _RefusingRoute(APIRoute):
-    """A route whose refused call answers with the problems: a 422 for what the graph or the run refused, a 404 for a
-    run that isn't there for the caller, a 409 for a run in a state that doesn't take the call."""
+async def _refused_as_responses() -> AsyncIterator[None]:
+    """Answers every call a route's worker refuses with the problems.
 
-    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
-        """The route's handler, with each refusal raised under it answered as its status and problems.
+    The worker raises conductor's ``InvalidCallError`` for every refusal. Its first problem's code picks the status
+    from ``STATUS`` (404 or 409), and any other code is a 422.
 
-        Returns:
-            The handler FastAPI calls for a request.
-        """
-        handle = super().get_route_handler()
+    Yields:
+        Nothing; the route runs inside it.
 
-        async def refusing(request: Request) -> Response:
-            try:
-                return await handle(request)
-            except InvalidCallError as error:
-                raise _refusal(422, error.problems) from None
-            except NoSuchRunError as error:
-                raise _refusal(404, error.problems) from None
-            except RefusedError as error:
-                raise _refusal(409, error.problems) from None
-
-        return refusing
-
-
-def _refusal(status_code: int, problems: list[Problem]) -> HTTPException:
-    """The refusal of a call.
-
-    Args:
-        status_code: The status of the response.
-        problems: Why the call is refused; the response's ``detail``.
-
-    Returns:
-        The exception FastAPI answers with.
+    Raises:
+        HTTPException: For a refused call, with the problems as its ``detail``.
     """
-    return HTTPException(status_code, [problem.model_dump(mode="json") for problem in problems])
+    try:
+        yield
+    except InvalidCallError as refused:
+        status = STATUS.get(refused.problems[0].type, 422)
+        detail = [problem.model_dump(mode="json") for problem in refused.problems]
+        raise HTTPException(status, detail) from None
 
 
 def run_router(
@@ -185,7 +150,7 @@ def run_router(
     """
     router = APIRouter(
         lifespan=lambda _: worker.serving(),
-        route_class=_RefusingRoute,
+        dependencies=[Depends(_refused_as_responses)],
         generate_unique_id_function=attrgetter("name"),
     )
 
@@ -200,12 +165,12 @@ def run_router(
             The run as the store has it.
 
         Raises:
-            NoSuchRunError: No run has the id, or ``may_see`` says the caller may not see it. The two read the
-                same (a 404), so a caller learns nothing about a run that isn't theirs.
+            InvalidCallError: No run has the id, or ``may_see`` says the caller may not see it (``no_such_run``).
+                The two read the same (a 404), so a caller learns nothing about a run that isn't theirs.
         """
         run = await worker.read(run_id)
         if not may_see(who, worker.caller_of(run)):
-            raise NoSuchRunError
+            raise InvalidCallError([no_such_run()])
         return run
 
     @router.get("/nodes")
@@ -278,7 +243,7 @@ def run_router(
     @router.get(
         "/runs/{run_id}/events",
         response_class=EventSourceResponse,
-        responses=_NOT_FOUND_FOR_A_STREAM,
+        responses=_NOT_FOUND,
     )
     async def follow_run(
         run: Annotated[RunAsRead, Depends(stored)], last_event_id: Annotated[int, Header()] = -1
@@ -287,7 +252,7 @@ def run_router(
         async for number, body in worker.events(run, last_event_id):
             yield ServerSentEvent(raw_data=body, id=str(number))
 
-    @router.post("/runs/{run_id}/answers", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
+    @router.post("/runs/{run_id}/answers", status_code=202, responses=_NOT_FOUND_OR_CONFLICT)
     async def answer_run(
         run: Annotated[RunAsRead, Depends(stored)],
         answers: Annotated[
@@ -306,7 +271,7 @@ def run_router(
         """
         return Answered(answers=await worker.answer(run, answers))
 
-    @router.post("/runs/{run_id}/resume", status_code=202, responses={**_NOT_FOUND, **_CONFLICT})
+    @router.post("/runs/{run_id}/resume", status_code=202, responses=_NOT_FOUND_OR_CONFLICT)
     async def resume_run(
         run: Annotated[RunAsRead, Depends(stored)], body: Resume = Resume()
     ) -> Started:

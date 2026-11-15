@@ -445,7 +445,7 @@ async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_
         )
         assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
 
-    refused = {"application/json": {"schema": {"$ref": "#/components/schemas/Refused"}}}
+    refused = {"application/json": {"schema": {"$ref": "#/components/schemas/HTTPValidationError"}}}
     declared = {
         (verb, path): {
             code: response["content"]

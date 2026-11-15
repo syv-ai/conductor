@@ -673,7 +673,7 @@ def test_a_host_s_own_routes_start_read_and_answer_runs_through_a_worker_on_eith
 
             (waiting_call,) = (await _admitted_until(b, run_id, "waiting"))["waiting"]
             seen_by_bob = await b.client.get(f"/admitted/runs/{run_id}", headers={"x-user": "bob"})
-            assert [problem["type"] for problem in seen_by_bob.json()["detail"]] == ["no_such_run"]
+            assert seen_by_bob.status_code == 404
             answered = await b.client.post(
                 f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}
             )

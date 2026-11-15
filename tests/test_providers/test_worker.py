@@ -29,7 +29,7 @@ from conductor import (
     host_type,
     make_graph,
 )
-from conductor_providers.fastapi import RefusedError, RunChanges, StoredRun, Worker
+from conductor_providers.fastapi import RunChanges, StoredRun, Worker
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
@@ -398,7 +398,7 @@ async def test_only_a_run_whose_last_resume_call_ended_early_is_resumed(status: 
             await worker.answer(await worker.read(run_id), {waiting_id: True})
             await store.ended(run_id)
 
-        with pytest.raises(RefusedError) as refused:
+        with pytest.raises(InvalidCallError) as refused:
             await worker.resume(await worker.read(run_id))
 
         assert [(problem.type, problem.ctx) for problem in refused.value.problems] == [
@@ -512,7 +512,7 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
         waiting = await worker.read(run_id)
         assert (row.status, waiting.view().status) == ("running", "waiting")
 
-        with pytest.raises(RefusedError) as refused:
+        with pytest.raises(InvalidCallError) as refused:
             await worker.resume(waiting)
         assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
         assert await worker.answer(waiting, {waiting_id: True}) == "started"
@@ -767,8 +767,8 @@ async def test_two_workers_answering_one_run_at_once_start_one_resume_call() -> 
             return_exceptions=True,
         )
 
-        lost = [outcome for outcome in outcomes if isinstance(outcome, RefusedError)]
-        assert [outcome for outcome in outcomes if not isinstance(outcome, RefusedError)] == [
+        lost = [outcome for outcome in outcomes if isinstance(outcome, InvalidCallError)]
+        assert [outcome for outcome in outcomes if not isinstance(outcome, InvalidCallError)] == [
             "started"
         ]
         assert [[problem.type for problem in refused.problems] for refused in lost] == [
@@ -789,7 +789,7 @@ async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_r
         run_id = await _started(worker, graph, inputs)
 
         assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-        with pytest.raises(RefusedError) as twice:
+        with pytest.raises(InvalidCallError) as twice:
             await worker.answer(await worker.read(run_id), {waiting_id: False})
         assert [(problem.type, problem.ctx) for problem in twice.value.problems] == [
             ("already_answered", {"waiting_id": waiting_id})
@@ -797,7 +797,7 @@ async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_r
 
         gate.set()
         assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
-        with pytest.raises(RefusedError) as complete:
+        with pytest.raises(InvalidCallError) as complete:
             await worker.answer(await worker.read(run_id), {})
         assert [problem.type for problem in complete.value.problems] == ["run_complete"]
 
