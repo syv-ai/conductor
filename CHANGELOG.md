@@ -74,6 +74,13 @@ What changes in how you work, before the name-by-name tables:
   `compute_outputs` hook that gives one is the hook's failure, `compute_hook_failed` with `ctx.error`
   `default_invalid`. It was accepted and shown as the output's default, while leaving the output out gave a branch
   not chosen, and returning the other branch failed with `invalid_output`.
+- **A node returns a value on exactly one output of an `exclusive_group`.** A returned dataclass or mapping that
+  gives none of a group a value fails the call with `invalid_output` ("none of the exclusive group 'length' (long,
+  short) holds a value; ..."), as one that gives two already did; it was accepted, every branch of the group not
+  chosen. `return SKIPPED` chooses no branch, and skips every output of the node with it. A node that has other
+  outputs beside a group, or two groups, and may choose none in a group while giving the rest values, makes "none"
+  a branch of that group (an output such as `neither`), or is split in two. An answer was already held to exactly
+  one.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
@@ -91,8 +98,8 @@ What changes in how you work, before the name-by-name tables:
   has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
   `Outcome`), written before this change no longer loads: a required question there has `"default": null`.
   There is no migration.
-  An `Ask` that proposes a default for an output of an `exclusive_group` fails the node (`invalid_ask`): left
-  out, a group member is a branch not chosen, so the question showed a default an answer never gave.
+  An `Ask` that proposes a default for an output of an `exclusive_group` fails the node (`invalid_ask`): an answer
+  that left that output out would give it the default, so no other output of the group could be answered.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,

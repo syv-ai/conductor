@@ -649,7 +649,8 @@ def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node
     assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
     assert (
         run.cause.ctx["reason"]
-        == "'keep' is one of an exclusive group, and left out it is a branch not chosen; an Ask proposes no default for it"
+        == "'keep' is one of an exclusive group, so an Ask proposes no default for it: an answer that left it out would"
+        " give it the default, and no other output of the group could be answered"
     )
 
 

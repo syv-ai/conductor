@@ -24,7 +24,8 @@ def as_asked(
     ``assign(ticket: str) -> str`` asks ``result`` with ``required=True`` and no default; with ``Ask("Who?",
     default="bo")`` it asks with ``default="bo"``, ``required=False``. Choices the ``Ask`` sets limit the question
     as a type's choices do, so ``-> str | None`` asked with ``choices=["a"]`` must be answered. The ``Ask`` validator
-    refuses a default for an output of an exclusive group, which left out is always a branch not chosen.
+    refuses a default for an output of an exclusive group: an answer that left it out would give it the default, and no
+    other output of the group could be answered.
 
     Args:
         field: The output the answer fills.

@@ -489,7 +489,7 @@ def empty_title_or_description(
 def exclusive_group_on_input() -> str:
     """An input's ``Param`` names an ``exclusive_group``.
 
-    An exclusive group is a set of outputs of which a call gives at most one. Put ``exclusive_group`` on the outputs
+    An exclusive group is a set of outputs of which a call gives exactly one. Put ``exclusive_group`` on the outputs
     that are branches, the fields of the frozen dataclass the node returns.
 
     Example:

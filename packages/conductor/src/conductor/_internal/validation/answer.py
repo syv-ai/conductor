@@ -36,6 +36,7 @@ from conductor._internal.types import (
 )
 from conductor._internal.utils import comma_separated
 
+from .exclusive_group import exclusive_groups, groups_without_one_value
 from .rules import schema_output_validator_of
 
 
@@ -56,11 +57,7 @@ class AnswerValidator:
             outputs: The node's outputs, which the answer fills, by name.
         """
         self._outputs = outputs
-        groups: dict[str, list[str]] = {}
-        for name, field in outputs.items():
-            if field.param.exclusive_group is not None:
-                groups.setdefault(field.param.exclusive_group, []).append(name)
-        self._groups = groups  # the outputs of each exclusive group, by group
+        self._groups = exclusive_groups(outputs)
 
     def __call__(
         self,
@@ -139,9 +136,8 @@ class AnswerValidator:
                     faults.append((name, f"'{name}' was not answered"))
             except PydanticCustomError as refused:
                 faults.append((name, f"'{name}': {refused.message()}"))
-        for members in self._groups.values():
-            if sum(name in answer for name in members) != 1:
-                faults.append((None, f"answer exactly one of {', '.join(members)}"))
+        for fault in groups_without_one_value(self._groups, answer):
+            faults.append((None, f"answer exactly one of {comma_separated(fault.members)}"))
         return read, faults
 
 

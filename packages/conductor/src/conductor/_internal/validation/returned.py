@@ -8,8 +8,9 @@ is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every 
 
 A node with several outputs returns a frozen dataclass, or a mapping when its ``compute_outputs`` hook gave the
 outputs. Its validator reads every output in one call of one validator. First the shape: the dataclass or a mapping,
-no output missing or unknown, and of an exclusive group at most one output with a value. Then each output's value,
-by its type, in the order the outputs are declared. Only the first fault is reported, as one problem.
+no output missing or unknown, and of each exclusive group exactly one output with a value (``exclusive_group.py``).
+Then each output's value, by its type, in the order the outputs are declared. Only the first fault is reported, as
+one problem.
 
 Every rule inside the validator raises ``PydanticCustomError``: any other exception would escape pydantic with the
 value in its message.
@@ -33,6 +34,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.utils import comma_separated
 
+from .exclusive_group import exclusive_groups, groups_without_one_value
 from .rules import exact_classes, output_schema_of, schema_output_validator_of
 
 
@@ -128,22 +130,25 @@ def _several_outputs(
             ``SKIPPED``; it raises ``PydanticCustomError`` for a value of the wrong shape.
     """
     names = list(outputs)
-    groups: dict[str, list[str]] = {}
-    for name, field in outputs.items():
-        if field.param.exclusive_group is not None:
-            groups.setdefault(field.param.exclusive_group, []).append(name)
+    groups = exclusive_groups(outputs)
 
     def taken_apart(returned: Any) -> dict[str, Any]:
         given = by_name(returned)
-        for group, members in groups.items():
-            chosen = [name for name in members if name in given]
-            if len(chosen) > 1:
-                raise PydanticCustomError(
-                    "alternatives_both_given",
-                    "'{first}' and '{second}' are alternatives of '{group}', and both hold a value",
-                    {"first": chosen[0], "second": chosen[1], "group": group},
-                )
-        return given
+        fault = next(groups_without_one_value(groups, given), None)
+        if fault is None:
+            return given
+        if len(fault.given) > 1:
+            raise PydanticCustomError(
+                "alternatives_both_given",
+                "'{first}' and '{second}' are alternatives of '{group}', and both hold a value",
+                {"first": fault.given[0], "second": fault.given[1], "group": fault.group},
+            )
+        raise PydanticCustomError(
+            "no_alternative_given",
+            "none of the exclusive group '{group}' ({members}) holds a value; give one of them a value and the "
+            "others SKIPPED, or return SKIPPED to choose no branch",
+            {"group": fault.group, "members": comma_separated(fault.members)},
+        )
 
     def with_skipped(read: dict[str, Any]) -> dict[str, Any]:
         return (

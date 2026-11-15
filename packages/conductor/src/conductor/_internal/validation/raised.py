@@ -78,9 +78,9 @@ class AskValidator:
                     ) from None
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
-                # left out, a branch is not chosen, so nothing can be proposed for it
+                # a default would give the output a value whenever another of its group is answered
                 if outputs[name].param.exclusive_group is not None:
-                    reason = f"'{name}' is one of an exclusive group, and left out it is a branch not chosen; an Ask proposes no default for it"
+                    reason = f"'{name}' is one of an exclusive group, so an Ask proposes no default for it: an answer that left it out would give it the default, and no other output of the group could be answered"
                     raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
         return choices, defaults

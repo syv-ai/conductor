@@ -329,6 +329,20 @@ class Routed:
     short: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
 
 
+def test_a_return_that_gives_no_output_of_a_group_a_value_is_refused():
+    """A call gives a value on exactly one output of an exclusive group, so ``count`` alone is refused; returning
+    ``SKIPPED`` chooses no branch, and skips ``count`` with it."""
+    neither = _returning(Routed(count=2), Routed).cause
+
+    assert (neither.type, neither.ctx.get("name"), neither.ctx["reason"]) == (
+        "invalid_output",
+        None,
+        "none of the exclusive group 'length' (long, short) holds a value; give one of them a value and the others"
+        " SKIPPED, or return SKIPPED to choose no branch",
+    )
+    assert _returning(SKIPPED, Routed).results["g"] == {"count": None, "long": None, "short": None}
+
+
 def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values():
     """Both branches given a value is the problem reported, though ``count``, declared first, is refused too."""
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
