@@ -1,7 +1,7 @@
-"""``NodeRegistry`` — the nodes a host offers, by id, and the types they use.
+"""``NodeRegistry``, the nodes a host offers, by id, and the types they use.
 
-Defining a node (``@node``) and offering it are two acts; a registry is the
-second. Nodes go on one as FastAPI's routes go on a router::
+Making a node and offering it are two steps. ``@node`` makes it, and a registry offers it. Nodes go on a registry
+much like routes go on a FastAPI router::
 
     text = NodeRegistry(category="text", tags=["builtin"])
 
@@ -13,34 +13,15 @@ second. Nodes go on one as FastAPI's routes go on a router::
     registry.add_subregistry(text)
     registry.add(shout)              # a plain @node from elsewhere
 
-Every node that enters a registry, by ``add``, ``replace``, the decorator
-or a subregistry, takes the registry's defaults by one rule: its tags
-follow the registry's, its ``category`` is its own when it sets one, and
-each ``extra`` key is its own when it sets that key. A subregistry is
-copied in when it is added, so changing it afterwards changes nothing here.
+A registry can give its nodes a default ``category``, ``tags`` and ``extra``. A node keeps any of its own. Here
+``upper`` gets the category ``"text"`` and the tag ``"builtin"``.
 
-A registry also knows which value types exist: the ones its nodes
-declare on their inputs and outputs, plus the ``types`` a host names, each
-under its id: conductor's own types from a fixed table, a host's class by
-the id its ``@host_type`` declares. Nothing about a type is process-wide, so two
-registries in one process may each have a ``text`` of their own; one id
-claimed by two classes in one registry raises where the second arrives,
-naming both. ``describe()`` is what an editor reads: every node and every
-type, once, as a ``RegistryDescription``, each type with the ids of every
-type here that admits it (``accepted_as``).
+A registry also knows every value type its nodes use, each by its id. Types belong to one registry, not the whole
+process, so two registries may each have their own ``text`` type. ``registry.describe()`` shows an editor every node
+and every type.
 
-A registry may name the class of the run's context, the one object a host
-passes to each run (``NodeRegistry(context_type=HostContext)``). A node that
-takes the context names the class, a base of it or a ``Protocol`` it
-satisfies, and a graph compiled here has a problem at any node whose
-``Context[X]`` the class does not satisfy. A subregistry names the same
-class or none.
-
-``Graph.compile(record, registry)`` compiles a graph record against the
-registry's definitions into a ``Graph`` that keeps its own copy of the
-definitions it resolved, so a later change to the registry doesn't reach it.
-``registry.upgrade(record, node_id)`` moves one node of a record to a newer
-version.
+``Graph.compile(record, registry)`` compiles a graph record against a registry. The graph keeps its own copy of the
+nodes it used, so a later change to the registry doesn't reach it.
 """
 
 from __future__ import annotations
@@ -74,7 +55,7 @@ from .upgrade import upgraded
 def _takes_the_arguments_of[**P, R](
     declare: Callable[P, R],
 ) -> Callable[[Callable[..., Any]], Callable[Concatenate[Any, P], R]]:
-    """Types a method as taking ``declare``'s arguments, so ``@registry.node`` is written as ``@node`` is."""
+    """Gives a method ``declare``'s arguments for type checkers, so ``@registry.node`` reads like ``@node``."""
 
     def typed(method: Callable[..., Any]) -> Callable[Concatenate[Any, P], R]:
         return method
@@ -83,14 +64,19 @@ def _takes_the_arguments_of[**P, R](
 
 
 class NodeRegistry[C]:
-    """The nodes a host offers, by id, the types they use, and the class of the context a run of its graphs is given.
+    """The nodes a host offers, by id, and the types they use.
 
-    ``"upper" in registry`` and ``registry["upper"]`` look a node up by id;
-    looping yields the definitions in the order they arrived. It is not a
-    ``Mapping``: there is no ``get`` to answer a misspelled id with ``None``.
+    Look a node up with ``"upper" in registry`` or ``registry["upper"]``. Looping over a registry gives the nodes in
+    the order they were added. It isn't a ``Mapping``, so there is no ``get`` that would quietly answer a misspelled
+    id with ``None``.
 
-    ``NodeRegistry(context_type=HostContext)`` is a ``NodeRegistry[HostContext]``: every graph compiled against it is
-    a ``Graph[HostContext]``, whose runs take ``context=HostContext(...)``. ``NodeRegistry()`` names no class and is a
+    Every node that comes in, by ``add``, ``replace``, ``@registry.node`` or a subregistry, gets the registry's
+    defaults. The registry's tags come first, then the node's own. A node's own ``category`` and ``extra`` keys win.
+
+    A registry can name the class of the run's context, the one object a host passes to each run:
+    ``NodeRegistry(context_type=HostContext)``. That registry is a ``NodeRegistry[HostContext]``. Every graph
+    compiled against it is a ``Graph[HostContext]``, and its runs take ``context=HostContext(...)``. A node whose
+    ``Context[X]`` the class doesn't satisfy is a problem in that graph. ``NodeRegistry()`` names no class, and is a
     ``NodeRegistry[None]``.
     """
 
@@ -125,27 +111,31 @@ class NodeRegistry[C]:
         types: Iterable[type] = (),
         context_type: type[C] | None = None,
     ) -> None:
-        """An empty registry whose nodes default to ``category``, ``tags`` and ``extra``, holding the host's types in
-        ``types`` whether or not a node uses them.
+        """Makes an empty registry.
 
-        ``context_type`` is the class of the object the host passes as ``context=`` to every run of a graph compiled
-        here. Each node's ``Context[X]`` is checked against it when a graph is compiled.
+        Args:
+            category: The category a node gets if it has none of its own.
+            tags: Tags every node gets, before its own.
+            extra: ``extra`` keys every node gets, unless it sets the same key itself.
+            types: Host types to offer, whether or not a node uses them.
+            context_type: The class of the object the host passes as ``context=`` to every run of a graph compiled
+                here. Each node's ``Context[X]`` is checked against it when a graph is compiled.
         """
         self._context_type = context_type
         self._category = category
         self._tags = tuple(tags)
         self._extra = dict(extra)
-        #: The types a host names, whether or not a node declares them.
+        #: The types the host named, whether or not a node uses them.
         self._named_types = tuple(types)
-        #: The definitions, by id, in the order they arrived.
+        #: The nodes, by id, in the order they were added.
         self._nodes: dict[str, NodeDefinition] = {}
-        #: Every type, by id: the ones the nodes declare, then the named ones.
+        #: Every type, by id: first the ones the nodes use, then the ones the host named.
         self._types: dict[str, type] = _by_id(self._named_types)
-        #: Each subgraph's description, by id, as these nodes make it; emptied whenever what is held changes.
+        #: Each subgraph's description, by id, worked out against this registry. Cleared whenever the nodes change.
         self._graph_descriptions: dict[str, NodeDescription] = {}
 
     def __repr__(self) -> str:
-        """How many nodes it holds, then each as its own repr, one per line."""
+        """Shows how many nodes there are, then each node's own repr, one per line."""
         if not self._nodes:
             return "<NodeRegistry of 0 nodes>"
         lines = "".join(f"    {definition!r}\n" for definition in self._nodes.values())
@@ -155,7 +145,11 @@ class NodeRegistry[C]:
         return node_id in self._nodes
 
     def __getitem__(self, node_id: str) -> NodeDefinition:
-        """The definition registered under ``node_id``; an unknown id is a ``KeyError`` naming the ids there are."""
+        """Returns the node with the id ``node_id``.
+
+        Raises:
+            KeyError: There is no such node. The message lists the ids there are.
+        """
         if node_id not in self._nodes:
             raise self._not_here(node_id)
         return self._nodes[node_id]
@@ -164,20 +158,19 @@ class NodeRegistry[C]:
         return len(self._nodes)
 
     def __iter__(self) -> Iterator[NodeDefinition]:
-        """The definitions, in the order they arrived."""
+        """Loops over the nodes, in the order they were added."""
         return iter(self._nodes.values())
 
-    # -- what it holds -----------------------------------------------------------
+    # -- the nodes ---------------------------------------------------------------
 
     @_takes_the_arguments_of(node)
     def node(self, *args: Any, **kwargs: Any) -> Any:
-        """Declare a node as ``@node`` does, with the same arguments, and add it here.
+        """Makes a node, as ``@node`` does with the same arguments, and adds it here.
 
-        An id already held raises, whatever ``replaces=`` names; ``replace``
-        swaps a held node. The older versions of a chain are plain ``@node``
-        definitions never registered, and only the newest is declared here.
-        The function's name is bound to the definition this registry holds,
-        with the registry's defaults applied.
+        An id that is already here raises, whatever ``replaces=`` names. Use ``replace`` to swap a node. Only the
+        newest version goes here. Its older versions are plain ``@node`` definitions that are never added.
+
+        The decorated name is bound to the node as this registry has it, with the registry's defaults applied.
         """
         declare = node(*args, **kwargs)
 
@@ -190,13 +183,14 @@ class NodeRegistry[C]:
 
     @_takes_the_arguments_of(subgraph)
     def subgraph(self, *args: Any, **kwargs: Any) -> Any:
-        """Make a graph record a node, a subgraph, as ``subgraph`` does, with the same arguments, and add it here::
+        """Turns a graph record into a node, as ``subgraph`` does with the same arguments, and adds it here.
+
+        ::
 
             enrich = registry.subgraph("enrich", title="Enrich", description="Adds the company's details.")(record)
 
-        An id already held raises, as with ``registry.node``. The definition
-        returned is the one this registry holds, with the registry's defaults
-        applied.
+        An id that is already here raises, as with ``registry.node``. What it returns is the node as this registry
+        has it, with the registry's defaults applied.
         """
         declare = subgraph(*args, **kwargs)
 
@@ -208,11 +202,19 @@ class NodeRegistry[C]:
         return add
 
     def add(self, *definitions: NodeDefinition) -> None:
-        """Add these nodes, each under its id; an id already here raises, naming where both were declared."""
+        """Adds nodes, each under its id.
+
+        Raises:
+            NodeDeclarationError: ``duplicate_node_id`` if an id is already here. It names where both were declared.
+        """
         self._set_contents(self._nodes_with(definitions), self._named_types)
 
     def replace(self, definition: NodeDefinition) -> None:
-        """Put ``definition`` in place of the node registered under its id; an id not here is a ``KeyError``."""
+        """Puts ``definition`` in place of the node with the same id.
+
+        Raises:
+            KeyError: There is no node with that id.
+        """
         if definition.id not in self._nodes:
             raise self._not_here(definition.id)
         nodes = {
@@ -224,7 +226,11 @@ class NodeRegistry[C]:
         self._set_contents(nodes, self._named_types)
 
     def remove(self, node_id: str) -> None:
-        """Take out the node registered under ``node_id``; an id not here is a ``KeyError``."""
+        """Takes out the node with the id ``node_id``.
+
+        Raises:
+            KeyError: There is no such node.
+        """
         if node_id not in self._nodes:
             raise self._not_here(node_id)
         nodes = {
@@ -233,17 +239,17 @@ class NodeRegistry[C]:
         self._set_contents(nodes, self._named_types)
 
     def add_subregistry(self, subregistry: NodeRegistry[C] | NodeRegistry[None]) -> None:
-        """Add every node of ``subregistry`` as ``add`` does, and the types it names.
+        """Adds every node of ``subregistry``, as ``add`` does, and the types it names.
 
-        Its nodes arrive with its defaults applied, and this registry's go
-        over them. They are copied in, so a later change to ``subregistry``
-        does not reach this one.
+        Its nodes come with its own defaults applied, and then this registry's are applied on top. They are copied
+        in, so a later change to ``subregistry`` doesn't reach this one.
 
-        ``subregistry`` names this registry's ``context_type`` or none, as a
-        registry of pre-built nodes does; its nodes are checked against this
-        registry's class when a graph is compiled. Naming another class
-        raises, and so does naming one when this registry names none: name it
-        here too.
+        ``subregistry`` must name the same ``context_type`` as this registry, or none, as a registry of pre-built
+        nodes does. Its nodes are checked against this registry's class when a graph is compiled.
+
+        Raises:
+            NodeDeclarationError: ``subregistry`` names another context class, or names one while this registry
+                names none. Name it here too.
         """
         if subregistry._context_type not in (None, self._context_type):
             if self._context_type is None:
@@ -266,7 +272,10 @@ class NodeRegistry[C]:
         self._set_contents(self._nodes_with(added), named)
 
     def filter(self, predicate: Callable[[NodeDefinition], bool]) -> NodeRegistry[C]:
-        """A new registry with this one's defaults, named types and ``context_type``, holding the nodes ``predicate`` keeps."""
+        """Returns a new registry with only the nodes ``predicate`` keeps.
+
+        It has the same defaults, named types and ``context_type`` as this one.
+        """
         kept = copy.copy(self)
         nodes = {
             definition.id: definition
@@ -277,7 +286,11 @@ class NodeRegistry[C]:
         return kept
 
     def _nodes_with(self, definitions: Iterable[NodeDefinition]) -> dict[str, NodeDefinition]:
-        """What this registry holds plus ``definitions``, each under this registry's defaults; a repeated id raises."""
+        """Returns this registry's nodes plus ``definitions``, with the registry's defaults applied.
+
+        Raises:
+            NodeDeclarationError: ``duplicate_node_id`` if an id is already here.
+        """
         nodes = dict(self._nodes)
         for definition in definitions:
             held = nodes.get(definition.id)
@@ -297,7 +310,10 @@ class NodeRegistry[C]:
     def _set_contents(
         self, nodes: dict[str, NodeDefinition], named_types: tuple[type, ...]
     ) -> None:
-        """Hold exactly ``nodes`` and ``named_types``, and the types they give: each node's declared ones in order, then the named ones."""
+        """Replaces what the registry has with ``nodes`` and ``named_types``, and works out its types again.
+
+        The types are each node's own, in order, then the named ones.
+        """
         self._types = _by_id((*_types_declared_by(nodes.values()), *named_types))
         self._nodes, self._named_types = nodes, named_types
         self._graph_descriptions = {}
@@ -311,19 +327,19 @@ class NodeRegistry[C]:
 
     @property
     def context_type(self) -> type[C] | None:
-        """The class of the run's context that every graph compiled here takes; ``None`` when the registry names none."""
+        """The class of the run's context every graph compiled here takes, or ``None`` if it names none."""
         return self._context_type
 
     @property
     def types(self) -> Mapping[str, type]:
-        """Every type by its id: the ones the nodes declare, then the ones a host named. Read-only."""
+        """Every type by its id, first the ones the nodes use, then the ones the host named. Read-only."""
         return MappingProxyType(self._types)
 
     def describe(self) -> RegistryDescription:
-        """This registry as an editor reads it: every node, and every type with where a value of it may land.
+        """Describes the registry for an editor's palette: every node, and every type.
 
-        Where a value lands, its own type included, is worked out from subclassing and each type's ``accepts``, so no
-        table of it is kept by hand.
+        Each type lists the types that take a value of it, its own type included. That list is worked out from
+        subclassing and each type's ``accepts``, so nobody keeps a table of it by hand.
         """
         types = self._types.items()
         return RegistryDescription(
@@ -343,8 +359,11 @@ class NodeRegistry[C]:
         )
 
     def _described(self, definition: NodeDefinition) -> NodeDescription:
-        """A node as the palette shows it; a subgraph with the fields it offers and whether a node inside it asks, worked out
-        against this registry once."""
+        """Describes one node for the palette.
+
+        A subgraph's inputs, outputs and whether a node inside it asks depend on this registry's nodes. So the
+        subgraph is compiled here once to find them, and the result is kept.
+        """
         match definition:
             case FunctionDefinition():
                 return definition.describe()
@@ -370,28 +389,40 @@ class NodeRegistry[C]:
     def upgrade(
         self, record: GraphRecord | str | bytes, node_id: str, *, to: int | None = None
     ) -> GraphRecord:
-        """``record`` with the node ``node_id`` moved from the version it was saved at to ``to``, the newest by default.
+        """Returns ``record`` with the node ``node_id`` moved to a newer version.
 
-        Runs each newer version's ``Upgrade`` in order and sets the version. Each step first moves what the record
-        gives each input it renames (a constant, a graph input or the edges into it) to the new name, then rewrites
-        what is typed into the node, its constants and its graph inputs' defaults, as one map: a key that was a graph
-        input's default stays one, and every other key the rewrite returns is a constant, fixed as the author's. An
-        input the newer version neither has nor renames goes, with its constant, its graph input or the edges into it,
-        whether the node is a function or a subgraph; a rewrite still reads its constant or default. Every edge and graph output from a renamed output,
-        or from a field of it, reads the new name. A
-        node already at ``to`` returns the record as it is. The record returned is not compiled here: compile it to
-        show the author what the newer version makes of it.
+        The node moves from the version it was saved at to ``to``, or to the newest if ``to`` is ``None``. Each newer
+        version's ``Upgrade`` runs in turn. A step works like this:
 
-        What a rewrite returns is written as JSON, as ``make_graph`` writes a value typed in. A node the record does
-        not have, a node this registry does not, a version it can't move to, a rewrite returning a value with no
-        JSON form (``invalid_value``) and a rewrite giving a value to an input that edges lead into
-        (``invalid_record``) are each an ``InvalidCallError``.
+        - Each renamed input takes along what it got: its constant, its graph input or the edges into it.
+        - The ``rewrite``, if there is one, gets the node's constants and graph-input defaults as one dict. A key that
+          was a default stays a default. Every other key it returns becomes a constant.
+        - An input the newer version neither has nor renames is dropped, with whatever it got. The rewrite still
+          sees its value first.
+        - Every edge and graph output from a renamed output, or from a field of it, moves to the new name.
+
+        A node already at ``to`` gives back the record as it is. The record returned isn't compiled. Compile it to
+        show the author what the newer version makes of it. Compiling never upgrades on its own.
+
+        Args:
+            record: The graph record to upgrade.
+            node_id: The id of the node in the record to move.
+            to: The version to move it to, or ``None`` for the newest.
+
+        Raises:
+            InvalidCallError: The record has no node ``node_id``, this registry doesn't have its node, or it can't
+                move to ``to``. Also ``invalid_value`` if the rewrite returns a value that can't be written as
+                JSON, and ``invalid_record`` if it gives a value to an input that edges lead into.
         """
         return upgraded(self._nodes, record, node_id, to=to)
 
 
 def _by_id(types: Iterable[type]) -> dict[str, type]:
-    """``types`` by id; raises when one id names two classes."""
+    """Returns ``types`` by id.
+
+    Raises:
+        NodeDeclarationError: ``duplicate_type_id`` if two classes have the same id.
+    """
     by_id: dict[str, type] = {}
     for held in types:
         existing = by_id.setdefault(Type(held).id, held)
@@ -405,14 +436,17 @@ def _by_id(types: Iterable[type]) -> dict[str, type]:
 
 
 def _types_declared_by(definitions: Iterable[NodeDefinition]) -> list[type]:
-    """Every class the versions of ``definitions`` declare on their inputs and outputs, each once, node by node in declaration order."""
+    """Returns every class the nodes use on their inputs and outputs, each once.
+
+    Every version of each node counts. The classes come node by node, in the order they are declared.
+    """
     found: list[type] = []
     for definition in definitions:
         for step in definition.versions.values():
             match step:
                 case FunctionDefinition():
                     fields = (*step.inputs.values(), *step.outputs.values())
-                case SubgraphDefinition():  # a graph declares no classes of its own
+                case SubgraphDefinition():  # a subgraph declares no classes of its own
                     continue
             found.extend(cls for field in fields for cls in field.whole.classes)
     return list(dict.fromkeys(found))
