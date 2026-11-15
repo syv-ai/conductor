@@ -1,6 +1,10 @@
-"""The kinds of problem a run ends early on, its ``run.cause``: the section "Why a run stopped" of ``PROBLEMS``.
+"""The problems a run can stop on, in ``run.cause``.
 
-A module that reports one imports this module and calls the kind: ``run_problems.timeout(*loc, seconds=30.0)``.
+This is the "Why a run stopped" section of the problems page. A run that stops early doesn't raise. ``run.resume()``
+returns the run, and ``run.cause`` is one of these problems. Most are about one call of a node that failed. A few,
+like a timeout or a cancel, are about the run as a whole.
+
+Code that reports one imports this module and calls the kind, like ``run_problems.timeout(*loc, seconds=30.0)``.
 """
 
 from __future__ import annotations
@@ -9,7 +13,7 @@ from typing import Any
 
 from .type import ProblemCatalogue
 
-#: The kinds of this section of the problems page.
+#: This module's section of the problems page, with its kinds.
 RUN_PROBLEMS = ProblemCatalogue(
     "Why a run stopped",
     "The `run.cause` of a run that ended early, and the `problem` of a `node_failed` event. For a call that failed, "
@@ -20,10 +24,12 @@ RUN_PROBLEMS = ProblemCatalogue(
 
 @RUN_PROBLEMS.problem()
 def ask_not_declared(*loc: str | int) -> str:
-    """A node raised ``Ask``, and its ``@node`` does not say ``asks=True``.
+    """A node raised ``Ask``, and its ``@node`` doesn't say ``asks=True``.
 
-    A node that may wait for a person says so where it is declared, so a host knows before a run which graphs can
-    pause. Add ``asks=True`` to the ``@node``.
+    A node that may wait for a person says so where it is declared. That way a host knows, before a run, which graphs
+    can pause for a person.
+
+    To fix it, add ``asks=True`` to the ``@node``.
 
     Args:
         loc: The call that raised it.
@@ -41,10 +47,12 @@ def ask_not_declared(*loc: str | int) -> str:
 
 @RUN_PROBLEMS.problem()
 def execution_failed(*loc: str | int, error: str) -> str:
-    """A node raised an exception that is not a ``NodeError``.
+    """A node raised an exception that isn't a ``NodeError``.
 
-    The exception's text and traceback go to the ``conductor`` log and never into the problem, since a problem may be
-    shown to anyone; ``ctx.error`` is its class name. Fix the node, then ``resume()``.
+    A problem may be shown to anyone, and the exception's text might quote a value. So the text and the traceback go to
+    the ``conductor`` logger, and ``ctx.error`` only has the exception's class name.
+
+    To fix it, fix the node, then call ``resume()``.
 
     Args:
         loc: The call that failed.
@@ -63,15 +71,16 @@ def execution_failed(*loc: str | int, error: str) -> str:
 
 @RUN_PROBLEMS.problem()
 def external_failed(*loc: str | int, error: str | None = None) -> str:
-    """A node raised an exception its ``Policy(retry_on=)`` names, on every attempt.
+    """A node kept raising an exception that its ``Policy(retry_on=)`` names, on every attempt.
 
-    The outside world failed: a network error, a rate limit, a server error. ``resume()`` tries again; raise
-    ``Policy(retries=)`` for more attempts. An ``ExternalError`` a node raises itself has this code too, with the
-    node's own message and ``ctx``.
+    This means the outside world failed, with a network error, a rate limit or a server error. An ``ExternalError`` the
+    node raises itself gets this code too, with the node's own message and ``ctx``.
+
+    To fix it, call ``resume()`` to try again. For more attempts each time, increase ``Policy(retries=)``.
 
     Args:
         loc: The call that failed.
-        error: The exception's class name; absent for an ``ExternalError`` the node raised, whose ``ctx`` is its own.
+        error: The exception's class name. Missing for an ``ExternalError`` the node raised, whose ``ctx`` is its own.
 
     Example:
         @registry.node("fetch", title="Fetch", description="Fetches a page, and fails.", policy=Policy(retry_on=(ConnectionError,)))
@@ -86,12 +95,13 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
 
 @RUN_PROBLEMS.problem()
 def failed(*loc: str | int) -> str:
-    """A node raised a ``NodeError`` that gives no code of its own.
+    """A node raised a ``NodeError`` without a code of its own.
 
-    The problem is made from the node's ``NodeError``, not by calling this function: its message and ``ctx`` are the
-    ones the node gave. This function declares the code, and its message is a fallback for a host that has no message
-    of its own for the code. A node gives a code of its own with
-    ``NodeError(message, code=)``, and the values a host fills its own message from with ``ctx=``, JSON values only.
+    The problem's message and ``ctx`` are the ones the node gave its ``NodeError``. The message below is only a fallback,
+    for a host that has no message of its own for this code.
+
+    A node gives a code of its own with ``NodeError(message, code=...)``. It gives the values a host can make its own
+    message from with ``ctx=``, which takes JSON values only.
 
     Args:
         loc: The call that failed.
@@ -109,10 +119,12 @@ def failed(*loc: str | int) -> str:
 
 @RUN_PROBLEMS.problem()
 def invalid_ask(*loc: str | int, reason: str) -> str:
-    """A node raised an ``Ask`` whose choices or default are not values of the type its answer is read by.
+    """A node raised an ``Ask`` whose choices or default don't fit the node's outputs.
 
-    The answer to an ``Ask`` is the node's outputs, a value of its function's return type. So its choices and default
-    must be of that type. Fix the ``Ask``; ``ctx.reason`` says which part does not fit.
+    The answer to an ``Ask`` becomes the node's outputs. So its choices and its default must be values the outputs'
+    types take. In the example, ``confirm`` returns a ``bool``, and ``"maybe"`` isn't one.
+
+    To fix it, fix the ``Ask``. ``ctx.reason`` says which part doesn't fit.
 
     Args:
         loc: The call that asked.
@@ -140,16 +152,23 @@ def invalid_edge_value(
 ) -> str:
     """The value an edge gives an input is refused by the input's type, just before the call.
 
-    Compiling checks that an edge's types fit; some things it cannot check, and those are checked on each call: a
-    limit or choices on the input, a host type's own check, a table whose columns are known only once it is made, a
-    field of a record whose type declares no fields. Make the upstream node return what the input takes, or put a
-    node between that converts it. In the example, ``letters`` returns 12 and ``small`` takes at most 3.
+    Compiling checks that the types on each edge fit. Some things it can't check until there is a value, so they are
+    checked on each call:
+
+    - a limit or choices on the input,
+    - a host type's own check,
+    - a table whose columns are only known once it is made,
+    - a field of a record whose type declares no fields.
+
+    In the example, ``letters`` returns 12, and ``small`` takes at most 3.
+
+    To fix it, make the node upstream return what the input takes. Or put a node in between that converts it.
 
     Args:
         loc: The call that was about to be made.
         name: The input.
         reason: Why the value is refused, without quoting it.
-        record_field: The field of a record the edge names, when the record has no field by that name.
+        record_field: The field of a record the edge names, if the record has no field by that name.
         errors: pydantic's list of what it refused, without the value.
         column: For a table, the column of the first value refused.
 
@@ -180,14 +199,16 @@ def invalid_output(
     errors: list[dict[str, Any]] | None = None,
     column: str | None = None,
 ) -> str:
-    """A node returned a value its return type does not declare.
+    """A node returned a value that its return type doesn't allow.
 
-    Return what the node declares. Return values are checked strictly: ``"12"`` is never an ``int``.
+    Return values are checked strictly, so ``"12"`` is never an ``int``.
+
+    To fix it, make the node return what it declares.
 
     Args:
         loc: The call that returned it.
         reason: Why the value is refused, without quoting it.
-        name: The output, when the node has several.
+        name: The output, if the node has several.
         errors: pydantic's list of what it refused, without the value.
         column: For a table, the column of the first value refused.
 
@@ -206,12 +227,13 @@ def invalid_output(
 def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     """A series has more items than the run's ``max_items``, so the run stopped before calling any node for them.
 
-    Only a series that a node loops over counts: one that is collected or passed on whole costs no calls.
-    ``run.with_max_items(n).resume()`` goes on with a higher limit, and calls nothing again.
+    Only a series that a node loops over counts. A series that is collected, or passed on whole, costs no calls.
+
+    To fix it, call ``run.with_max_items(n).resume()``. It goes on with a higher limit, and calls nothing again.
 
     Args:
         loc: The call that returned the series.
-        series: The series, as its source is written: ``"lines.result"``.
+        series: The series, written as its source, like ``"lines.result"``.
         items: How many items it has.
         max_items: The run's item limit.
 
@@ -223,14 +245,15 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
 
 @RUN_PROBLEMS.problem()
 def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noqa: A002  the ctx key a host reads
-    """A node asked a person, and one of its arguments cannot be written as JSON to show them.
+    """A node asked a person, and one of its arguments can't be written as JSON to show them.
 
-    A question carries the arguments of the call that asked, for the person answering it. Give the input a type
-    pydantic writes as JSON, or ask in a node that takes one.
+    A question carries the arguments of the call that asked, so the person answering can see them. Those must be JSON.
+
+    To fix it, give the input a type that pydantic can write as JSON. Or ask in a node that takes such a type.
 
     Args:
         loc: The call that asked.
-        reason: Why the argument cannot be written.
+        reason: Why the argument can't be written.
         input: The input.
 
     Example:
@@ -251,7 +274,7 @@ def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noq
 def run_cancelled() -> str:
     """The ``cancel`` event given to ``run.stream`` was set.
 
-    Save the run and ``resume()`` it to go on. Calls that returned before the cancel are kept.
+    Calls that returned before the cancel are kept. To go on, save the run and call ``resume()`` on it.
 
     Example:
         async def cancelled() -> Run:
@@ -272,7 +295,8 @@ def run_cancelled() -> str:
 def run_timed_out(*, timeout: float) -> str:
     """A call of ``run``, ``resume`` or ``stream`` took longer than the ``timeout`` it was given.
 
-    ``resume()`` goes on, and calls nothing again that returned. Give a longer ``timeout``, or none.
+    To fix it, call ``resume()``. It goes on, and calls nothing again that already returned. Or give a longer
+    ``timeout``, or none.
 
     Args:
         timeout: The ``timeout`` given, in seconds.
@@ -291,9 +315,11 @@ def run_timed_out(*, timeout: float) -> str:
 
 @RUN_PROBLEMS.problem()
 def timeout(*loc: str | int, seconds: float) -> str:
-    """A node's call took longer than its ``Policy(attempt_timeout=)``.
+    """One call of a node took longer than its ``Policy(attempt_timeout=)``.
 
-    Raise the node's ``attempt_timeout``, or make the call faster. A call that timed out is not retried.
+    A call that timed out isn't retried.
+
+    To fix it, increase the node's ``attempt_timeout``, or make the call faster.
 
     Args:
         loc: The call that failed.

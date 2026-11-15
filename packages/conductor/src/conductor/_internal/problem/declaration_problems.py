@@ -1,21 +1,22 @@
-"""Every kind of problem a node's or a type's declaration can have, one function each, in ``DECLARATION_PROBLEMS``.
+"""The faults a node's or a type's declaration can have, in ``DECLARATION_PROBLEMS``.
 
-``@node``, ``subgraph``, ``@host_type``, ``Param`` and ``NodeRegistry`` raise them as a ``NodeDeclarationError`` while
-the module that declares the node or the type is imported, so only the node's developer meets them::
+These are the mistakes a node's developer can make in code: an ``async def`` node, an input with no type hint, a
+limit that doesn't fit its type. They are found as soon as the module that declares the node or the type is
+imported. ``@node``, ``subgraph``, ``@host_type``, ``Param`` and ``NodeRegistry`` raise them as a
+``NodeDeclarationError``, so only the developer meets them::
 
     @node("fetch", title="Fetch", description="Fetches a page.")
     async def fetch(url: str) -> str: ...
     # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def; ...
     # error.problems == [async_run()], whose type is "async_run"
 
-A kind is declared as the kinds of ``PROBLEMS`` are (``ProblemCatalogue.problem`` gives the rules): its function
-returns the message, and its keyword-only parameters are the keys of ``ctx``. A declaration problem has no ``loc``;
-the error's ``where`` says where the fault is (``@node('fetch') on fetch``, then the input's name), and its text puts
-that in front of the message. Some codes have several kinds, one per mistake, each with a message of its own: the
-decorator names the code and a variant, which the problem's ``ctx.variant`` gives. Each kind's docstring is its entry on the problems page
-(``python -m conductor.about problems``), and its example runs after the setup at the top of that page; its last
-line, ``declaration_refused(lambda: ...)``, gives the problem the declaration raises, and a test checks it is of
-this kind.
+A kind is declared the same way as the other kinds of problem (see ``ProblemCatalogue.problem``). The difference is
+that a declaration problem has no ``loc``. The error's ``where`` says where the fault is instead, like
+``@node('fetch') on fetch`` and then the input's name, and the error's text puts that in front of the message.
+
+Each kind's docstring is its entry on the problems page (``python -m conductor.about problems``). Its example runs
+after the setup at the top of that page. The example's last line, ``declaration_refused(lambda: ...)``, returns the
+problem the declaration raises, and a test checks that it is of this kind.
 """
 
 from __future__ import annotations
@@ -35,10 +36,12 @@ DECLARATION_PROBLEMS = ProblemCatalogue(
 
 @DECLARATION_PROBLEMS.problem()
 def arriving_on_compute_added_inputs(*, parameter: str) -> str:
-    """A ``compute_added_inputs`` hook takes the type arriving on an input.
+    """A ``compute_added_inputs`` hook asks for the type arriving on an input.
 
-    The inputs a node adds are decided before any edge is read, so nothing has arrived yet. Read the arriving type in
-    ``compute_outputs``.
+    A hook parameter annotated ``type`` gets the type on the edge into that input. But the inputs a node adds are worked
+    out before any edge is read, so nothing has arrived yet.
+
+    To fix it, read the arriving type in ``compute_outputs`` instead.
 
     Args:
         parameter: The hook's parameter.
@@ -62,9 +65,9 @@ def arriving_on_compute_added_inputs(*, parameter: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def async_run() -> str:
-    """A node's function is ``async def``.
+    """A node's function is an ``async def``.
 
-    Write a plain ``def``. For a slow call, ``Policy(concurrency=8)`` makes several calls at once on threads.
+    To fix it, write a plain ``def``. For a slow call, ``Policy(concurrency=8)`` runs several calls at once, on threads.
 
     Example:
         async def fetch_async(url: str) -> str:
@@ -78,15 +81,20 @@ def async_run() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def bound_invalid(*, unheld: list[str], type: str) -> str:
-    """A ``Param`` sets a limit pydantic holds no rule for on the input's type.
+    """A ``Param`` sets a limit that pydantic has no rule for on the input's type.
 
-    Use limits pydantic holds on the type: ``ge``, ``gt``, ``le``, ``lt`` and ``multiple_of`` on numbers (a
-    ``Decimal`` too), dates, times and durations; ``min_length`` and ``max_length`` on texts, bytes, lists, tuples, sets
-    and dicts; ``pattern`` on texts. A table takes none. The same holds for a ``Param`` on a field of a model a node
-    takes.
+    pydantic knows these limits:
+
+    - ``ge``, ``gt``, ``le``, ``lt`` and ``multiple_of`` on numbers (``Decimal`` too), dates, times and durations,
+    - ``min_length`` and ``max_length`` on texts, bytes, lists, tuples, sets and dicts,
+    - ``pattern`` on texts.
+
+    A table takes no limits. The same goes for a ``Param`` on a field of a model that a node takes.
+
+    To fix it, use only limits pydantic knows for the type.
 
     Args:
-        unheld: The limits pydantic holds no rule for.
+        unheld: The limits pydantic has no rule for.
         type: The type, as its developer wrote it.
 
     Example:
@@ -101,14 +109,14 @@ def bound_invalid(*, unheld: list[str], type: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("bound_invalid", variant="limit_value")
 def bound_invalid_value(*, limits: str, type: str, error: str) -> str:
-    """A ``Param`` sets a limit to a value of the wrong kind for the type, such as ``ge="a"`` on an ``int``.
+    """A ``Param`` sets a limit to the wrong kind of value for the type, such as ``ge="a"`` on an ``int``.
 
-    Give each limit a value of the input's type: a number for ``ge`` on an ``int``.
+    To fix it, give each limit a value of the input's type, such as a number for ``ge`` on an ``int``.
 
     Args:
         limits: The limits, as written.
         type: The type's id.
-        error: pydantic's account of why it cannot build the type with them.
+        error: pydantic's reason why it can't build the type with those limits.
 
     Example:
         def narrow(number: Annotated[int, Param(ge="a")]) -> int:  # type: ignore[arg-type]
@@ -122,9 +130,9 @@ def bound_invalid_value(*, limits: str, type: str, error: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def choices_invalid() -> str:
-    """A ``Param``'s choices give one id twice, or give none.
+    """A ``Param``'s choices list the same id twice, or list none at all.
 
-    Give each choice once, each a value of the input's type.
+    To fix it, give each choice once, each as a value of the input's type.
 
     Example:
         from conductor import Choice
@@ -141,9 +149,11 @@ def choices_invalid() -> str:
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="on_a_literal")
 def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
-    """A ``Param``'s choices on a ``Literal`` do not title its values, one each.
+    """A ``Param`` gives choices for a ``Literal``, and they don't give each of its values one title.
 
-    On a ``Literal``, the choices give its values titles: ``[Choice("s", "Small"), Choice("m", "Medium")]`` for
+    On a ``Literal``, the choices are there to give its values titles. So there must be one choice for each value.
+
+    To fix it, give one choice for each value, like ``[Choice("s", "Small"), Choice("m", "Medium")]`` for
     ``Literal["s", "m"]``.
 
     Args:
@@ -166,9 +176,9 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="not_a_value")
 def choices_invalid_not_a_value(*, reason: str) -> str:
-    """A ``Param``'s choice is not a value of the input's type.
+    """A ``Param``'s choice isn't a value of the input's type.
 
-    Give each choice as a value of the input's type: a number for an ``int``.
+    To fix it, give each choice as a value of the input's type, such as a number for an ``int``.
 
     Args:
         reason: What the type refused, without quoting the value.
@@ -188,9 +198,12 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")
 def choices_invalid_no_json_form() -> str:
-    """A ``Param``'s choice has no JSON form, so an editor cannot show it nor a saved graph store it.
+    """A ``Param``'s choice can't be written as JSON.
 
-    Give each choice as a value of the input's type that writes as JSON.
+    An editor gets the choices as JSON to show them, and a saved graph stores them as JSON. So each choice must have a
+    JSON form.
+
+    To fix it, give each choice as a value of the input's type that can be written as JSON.
 
     Example:
         from conductor import Choice
@@ -207,9 +220,9 @@ def choices_invalid_no_json_form() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def compute_added_inputs_without_var_keyword() -> str:
-    """A node with a ``compute_added_inputs`` hook has no ``**`` parameter to take the inputs it adds.
+    """A node has a ``compute_added_inputs`` hook, but no ``**`` parameter to take the inputs it adds.
 
-    Take the added inputs as ``**values: float``.
+    To fix it, take the added inputs with a ``**`` parameter, like ``**values: float``.
 
     Example:
         def operands(count: int) -> dict[str, type]:
@@ -227,11 +240,12 @@ def compute_added_inputs_without_var_keyword() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def context_misplaced() -> str:
-    """A ``Context[...]`` is written anywhere but as the whole of a node's first parameter.
+    """A ``Context[...]`` is written somewhere other than as the whole of a node's first parameter.
 
-    Make the context the node's first parameter, ``def maybe(ctx: Context[HostContext], text: str)``, never a later
-    one, a keyword-only one, inside ``| None``, a list or a return type. The host passes it on every run, so a node can
-    trust it; anywhere else it would be an input a caller fills.
+    The host passes the context on every run, so a node can trust it. Anywhere else, it would be an input that a caller
+    fills in. So it can't be a later parameter, a keyword-only one, or be inside ``| None``, a list or a return type.
+
+    To fix it, make the context the node's first parameter, like ``def maybe(ctx: Context[HostContext], text: str)``.
 
     Example:
         def later(text: str, ctx: Context[HostContext]) -> str:
@@ -245,9 +259,9 @@ def context_misplaced() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def context_not_a_class() -> str:
-    """A ``Context[...]`` names something that is not a class.
+    """A ``Context[...]`` names something that isn't a class.
 
-    Name a class: the registry's ``context_type``, a base of it, or a ``Protocol`` it satisfies.
+    To fix it, name a class: the registry's ``context_type``, a base class of it, or a ``Protocol`` it satisfies.
 
     Example:
         def listed(ctx: Context[list[str]]) -> str:
@@ -263,11 +277,13 @@ def context_not_a_class() -> str:
 def context_type_differs(*, subregistry_type: str, registry_type: str) -> str:
     """A registry added to another names a different ``context_type``.
 
-    Name one class on a registry and on each registry added to it, or none on a subregistry, as a registry of nodes
-    that do not know the host does.
+    A registry and each registry added to it must agree on the class of the context. A registry of nodes that don't
+    know about any host names no class, and that is fine too.
+
+    To fix it, name the same class on both, or none on the registry being added.
 
     Args:
-        subregistry_type: The class the subregistry names.
+        subregistry_type: The class the added registry names.
         registry_type: The class this registry names.
 
     Example:
@@ -286,13 +302,15 @@ def context_type_differs(*, subregistry_type: str, registry_type: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("context_type_differs", variant="on_subregistry_only")
 def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
-    """A registry that names no ``context_type`` is given a subregistry that names one.
+    """A registry that names no ``context_type`` is given a registry that names one.
 
-    Name the class on the registry too. A registry that names none is a ``NodeRegistry[None]`` to a type checker, so
-    taking the subregistry's class when a run starts would make every ``graph.run(context=...)`` on it a type error.
+    A registry that names no class is a ``NodeRegistry[None]`` to a type checker. If it took on the added registry's
+    class, every ``graph.run(context=...)`` on it would be a type error.
+
+    To fix it, name the class on this registry too.
 
     Args:
-        subregistry_type: The class the subregistry names.
+        subregistry_type: The class the added registry names.
 
     Example:
         @dataclass(frozen=True)
@@ -312,9 +330,11 @@ def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
 def costs_nothing_takes_context() -> str:
     """A node whose ``Policy`` says ``costs_nothing`` takes the run's context.
 
-    ``Policy(costs_nothing=True)`` is for a node whose call costs nothing and touches nothing outside the run, which
-    ``run.resume(only_costs_nothing=True)`` calls before any call that costs something. A node that needs the host's
-    objects is not that: drop ``costs_nothing``, or give the node what it needs as an input.
+    ``Policy(costs_nothing=True)`` is for a node whose call costs nothing and touches nothing outside the run.
+    ``run.resume(only_costs_nothing=True)`` calls only such nodes. A node that needs the host's objects isn't one of
+    them.
+
+    To fix it, drop ``costs_nothing``. Or give the node what it needs as an input.
 
     Example:
         def stamp(ctx: Context[HostContext], text: str) -> str:
@@ -333,14 +353,16 @@ def costs_nothing_takes_context() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def default_invalid(*, default: str, type: str, reason: str) -> str:
-    """An input's default is not a value of its type, or has no JSON form.
+    """An input's default isn't a value of its type, or can't be written as JSON.
 
-    Give a default of the input's type that writes as JSON: an editor shows it, and a saved graph stores it.
+    An editor shows the default, and a saved graph stores it, both as JSON.
+
+    To fix it, give a default of the input's type that can be written as JSON.
 
     Args:
         default: The default, as Python writes it.
         type: The input's type.
-        reason: Why the type refuses it, or why it has no JSON form.
+        reason: Why the type refuses it, or why it can't be written as JSON.
 
     Example:
         def counted(number: int = "many") -> int:  # type: ignore[assignment]
@@ -354,9 +376,9 @@ def default_invalid(*, default: str, type: str, reason: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("default_invalid", variant="none_not_taken")
 def default_none_not_taken() -> str:
-    """An input's default is ``None``, and its type does not take ``None``.
+    """An input's default is ``None``, and its type doesn't take ``None``.
 
-    Write ``text: str | None = None`` for an input that may be ``None``.
+    To fix it, write the type with ``| None``, like ``text: str | None = None``.
 
     Example:
         def maybe(text: str = None) -> str:  # type: ignore[assignment]
@@ -370,10 +392,12 @@ def default_none_not_taken() -> str:
 
 @DECLARATION_PROBLEMS.problem("default_invalid", variant="on_exclusive_group")
 def default_on_exclusive_group() -> str:
-    """An output of an exclusive group has a default other than ``SKIPPED``.
+    """An output in an exclusive group has a default other than ``SKIPPED``.
 
-    Of an exclusive group a call gives one output, and every other is a branch not chosen: left out of an answer,
-    or not returned, it is ``SKIPPED``, never a default. Give the output the default ``SKIPPED``, or none.
+    A call gives exactly one output of an exclusive group. Every other output in the group is a branch not chosen. An
+    output that is left out, of a return or of an answer, is ``SKIPPED``, never a default.
+
+    To fix it, give the output the default ``SKIPPED``, or no default.
 
     Example:
         @dataclass(frozen=True)
@@ -395,8 +419,9 @@ def default_on_exclusive_group() -> str:
 def default_skipped_on_input() -> str:
     """An input's default is ``SKIPPED``.
 
-    ``SKIPPED`` is the value of an output on a branch that was not chosen, so only an output's default can be it.
-    Give the input a value of its type, or no default.
+    ``SKIPPED`` is the value of an output on a branch that wasn't chosen. So only an output can have it as its default.
+
+    To fix it, give the input a value of its type as its default, or no default.
 
     Example:
         def carried(text: str = SKIPPED) -> str:
@@ -412,14 +437,16 @@ def default_skipped_on_input() -> str:
 def duplicate_node_id(*, id: str, first: str, second: str) -> str:
     """Two nodes added to one registry have the same id.
 
-    For a node the registry already has, swap one for the other with ``registry.replace(newer)``, or give the new
-    node an id of its own. The older versions of a chain are plain ``@node`` definitions that are never added; only
-    the newest is added, with ``replaces=``.
+    To fix it, give the new node an id of its own. Or, to swap a node the registry already has for another, use
+    ``registry.replace(newer)``.
+
+    For a node with several versions, only the newest is added to the registry, with ``replaces=``. The older versions
+    are plain ``@node`` definitions that are never added.
 
     Args:
         id: The id.
-        first: Where the node the registry has was declared.
-        second: Where the node added was declared.
+        first: Where the node the registry already has was declared.
+        second: Where the node being added was declared.
 
     Example:
         def upper_again(text: str) -> str:
@@ -437,7 +464,7 @@ def duplicate_node_id(*, id: str, first: str, second: str) -> str:
 def duplicate_type_id(*, id: str, first: str, second: str) -> str:
     """Two classes given to one registry are declared with the same type id.
 
-    Give one of the classes another id in its ``@host_type``.
+    To fix it, give one of the classes another id in its ``@host_type``.
 
     Args:
         id: The type id.
@@ -468,7 +495,9 @@ def empty_title_or_description(
 ) -> str:
     """A node is declared with an empty title or description.
 
-    Give the node a title and a description: they are what a person reads for it in a palette.
+    The title and the description are what a person reads about the node in a palette.
+
+    To fix it, give the node both.
 
     Args:
         declared_with: ``@node`` or ``subgraph``.
@@ -489,8 +518,10 @@ def empty_title_or_description(
 def exclusive_group_on_input() -> str:
     """An input's ``Param`` names an ``exclusive_group``.
 
-    An exclusive group is a set of outputs of which a call gives exactly one. Put ``exclusive_group`` on the outputs
-    that are branches, the fields of the frozen dataclass the node returns.
+    An exclusive group is a set of outputs, and a call gives exactly one of them. It means nothing on an input.
+
+    To fix it, put ``exclusive_group`` on the outputs that are branches. Those are fields of the frozen dataclass the
+    node returns.
 
     Example:
         def branchy(text: Annotated[str, Param(exclusive_group="x")]) -> str:
@@ -506,8 +537,10 @@ def exclusive_group_on_input() -> str:
 def constant_only_on_output() -> str:
     """An output's ``Param`` says ``constant_only``.
 
-    ``constant_only`` says an input takes only a constant, never an edge or a graph input; an output gives a value
-    and takes none. Put it on the input.
+    ``constant_only`` says that an input only takes a constant, never an edge or a graph input. An output gives a value
+    rather than taking one, so it means nothing there.
+
+    To fix it, put it on the input.
 
     Example:
         def loud(text: str) -> Annotated[str, Param(constant_only=True)]:
@@ -521,10 +554,11 @@ def constant_only_on_output() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> str:
-    """A hook's parameter names no input of the node.
+    """A hook's parameter doesn't match any input of the node.
 
-    A hook's parameter gets the constant or default of the input of its name, so name each parameter after an input
-    of the node.
+    Each parameter of a hook gets the constant or default of the input with the same name.
+
+    To fix it, name each parameter after an input of the node.
 
     Args:
         hook: ``compute_added_inputs`` or ``compute_outputs``.
@@ -549,8 +583,9 @@ def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> s
 def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
     """A hook's parameter is ``*args`` or positional-only.
 
-    A hook is called with each input's value by the input's name. Name each parameter after an input of the node,
-    and take it by name.
+    A hook is called with each input's value passed by the input's name.
+
+    To fix it, name each parameter after an input of the node, and let it be passed by name.
 
     Args:
         hook: ``compute_added_inputs`` or ``compute_outputs``.
@@ -572,10 +607,13 @@ def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="var_keyword")
 def hook_parameter_var_keyword(*, hook: str, parameter: str) -> str:
-    """A hook takes ``**`` other than as ``**name: type`` on ``compute_outputs`` of a node with ``compute_added_inputs``.
+    """A hook takes a ``**`` parameter where it can't.
 
-    That one ``**`` gets the type arriving on each input ``compute_added_inputs`` added. Annotate it ``type`` and
-    give the node that hook, or name each parameter after an input.
+    A hook may take ``**`` in one case only: ``**name: type`` on the ``compute_outputs`` of a node that also has
+    ``compute_added_inputs``. That ``**`` gets the type arriving on each input ``compute_added_inputs`` added.
+
+    To fix it, annotate the ``**`` parameter ``type`` and give the node a ``compute_added_inputs`` hook. Or name each
+    parameter after an input instead.
 
     Args:
         hook: ``compute_added_inputs`` or ``compute_outputs``.
@@ -602,7 +640,9 @@ def hook_parameter_var_keyword(*, hook: str, parameter: str) -> str:
 def input_without_type() -> str:
     """An input has no type hint.
 
-    Give the input a type hint. The hint is the input's interface: what an edge may bring, and what a caller gives.
+    The hint is the input's interface. It says what an edge may bring, and what a caller must give.
+
+    To fix it, give the input a type hint.
 
     Example:
         def untyped(text) -> str:  # type: ignore[no-untyped-def]
@@ -616,11 +656,13 @@ def input_without_type() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def invalid_node_id(*, declared_with: str, id: str) -> str:
-    """A node is declared with an id that is empty or contains ``.``, ``/``, ``@`` or ``~``.
+    """A node is declared with an id that is empty, or that contains ``.``, ``/``, ``@`` or ``~``.
 
-    Those characters are written in sources (``a.result``), node paths (``loud/shout``) and waiting ids
-    (``a@1~3fa2``). Pick an id without them. The same rule holds for a node's id in a graph record, and for the names
-    a hook gives inputs and outputs.
+    Those characters are used to write sources (``a.result``), node paths (``loud/shout``) and waiting ids
+    (``a@1~3fa2``). The same rule holds for a node's id in a graph record, and for the names a hook gives inputs and
+    outputs.
+
+    To fix it, pick an id without them.
 
     Args:
         declared_with: ``@node`` or ``subgraph``.
@@ -643,8 +685,10 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
 def nested_series() -> str:
     """An input or output is a ``Series`` of ``Series``.
 
-    Return one ``Series``. A node after it that is called once per item and returns a ``Series`` of its own makes the
-    next level of items.
+    A ``Series`` has one level of items. The next level comes from the next node: a node that is called once per item
+    and returns a ``Series`` of its own.
+
+    To fix it, return one ``Series``.
 
     Example:
         def nested(text: str) -> Series[Series[str]]:
@@ -660,7 +704,7 @@ def nested_series() -> str:
 def output_without_type() -> str:
     """A node's function has no return type.
 
-    Write the return type. ``-> None`` declares no outputs.
+    To fix it, write the return type. ``-> None`` means the node has no outputs.
 
     Example:
         def silent(text: str):  # type: ignore[no-untyped-def]
@@ -674,9 +718,11 @@ def output_without_type() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def outputs_not_frozen() -> str:
-    """A node returns a dataclass that is not frozen.
+    """A node returns a dataclass that isn't frozen.
 
-    Write ``@dataclass(frozen=True)``: several calls in a run can be given the same value, so none may change it.
+    Several calls in a run can be given the same value, so no call may change it.
+
+    To fix it, write ``@dataclass(frozen=True)``.
 
     Example:
         @dataclass
@@ -696,9 +742,11 @@ def outputs_not_frozen() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def parameter_not_by_name() -> str:
-    """A node's function takes an input by position only (before ``/``) or as ``*args``.
+    """A node's function takes an input by position only, before a ``/``, or as ``*args``.
 
-    Drop the ``/`` and ``*args``: the engine passes every input by its name.
+    Conductor passes every input by its name.
+
+    To fix it, drop the ``/`` and the ``*args``.
 
     Example:
         def positional(text: str, /) -> str:
@@ -714,12 +762,15 @@ def parameter_not_by_name() -> str:
 def pydantic_field_in_hint() -> str:
     """An input's or output's hint has pydantic's ``Field(...)`` in it.
 
-    Write the title, the description and the limits on ``Param``, which takes them by the same names:
-    ``Annotated[int, Param(ge=0)]``. There is one way to write them on an input or an output, so ``Field(...)`` is
-    refused wherever it is written in the hint: on the parameter, on the return type, on an item
-    (``Series[Annotated[int, Field(ge=0)]]``) and on a column of a table's row type. A type that has its limits is
-    still a type: ``PositiveInt``, ``constr(min_length=1)`` and ``Annotated[int, annotated_types.Gt(0)]`` are read as
-    pydantic reads them, and ``Field(...)`` on the fields of your own model or dataclass is that class's.
+    On an input or an output, the title, the description and the limits are written one way: on ``Param``, which takes
+    them by the same names as ``Field``. So ``Field(...)`` is refused anywhere in the hint: on the parameter, on the
+    return type, on an item (``Series[Annotated[int, Field(ge=0)]]``) and on a column of a table's row type.
+
+    A type that carries its own limits is still fine. ``PositiveInt``, ``constr(min_length=1)`` and
+    ``Annotated[int, annotated_types.Gt(0)]`` are read just as pydantic reads them. ``Field(...)`` on the fields of
+    your own model or dataclass is fine too, since it belongs to that class.
+
+    To fix it, write the same thing on ``Param``, like ``Annotated[int, Param(ge=0)]``.
 
     Example:
         from pydantic import Field
@@ -741,8 +792,9 @@ def pydantic_field_in_hint() -> str:
 def pydantic_discriminator_in_hint() -> str:
     """An input's or output's hint has pydantic's ``Field(discriminator=...)`` on a union.
 
-    pydantic's ``Discriminator`` says which member of a union a value is: write
-    ``Annotated[Cat | Dog, Discriminator("kind")]``.
+    pydantic's ``Discriminator`` says which member of a union a value is, without ``Field``.
+
+    To fix it, write ``Annotated[Cat | Dog, Discriminator("kind")]``.
 
     Example:
         from typing import Literal
@@ -772,9 +824,11 @@ def pydantic_discriminator_in_hint() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
-    """A node's ``replaces=`` names a node of another id.
+    """A node's ``replaces=`` names a node with a different id.
 
-    A version replaces an earlier ``@node`` of its own id. A different node gets no ``replaces=``.
+    A new version replaces an earlier ``@node`` with the same id. A different node gets no ``replaces=``.
+
+    To fix it, name the earlier version of this node, or drop ``replaces=``.
 
     Args:
         declared_with: ``@node`` or ``subgraph``.
@@ -793,10 +847,14 @@ def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def type_declaration_invalid(*, id: str, faults: str) -> str:
-    """``@host_type`` is given an id, title or ``accepts`` it cannot take.
+    """``@host_type`` is given an id, a title or an ``accepts`` it can't take.
 
-    Give the type an id that is one word (letters, digits, ``_``, ``.`` or ``-``) and is not the id of one of
-    conductor's own types, a title that is not empty, and only classes in ``accepts``.
+    To fix it, give the type:
+
+    - an id that is one word, made of letters, digits, ``_``, ``.`` or ``-``, and that isn't the id of one of
+      conductor's own types,
+    - a title that isn't empty,
+    - only classes in ``accepts``.
 
     Args:
         id: The id given.
@@ -810,10 +868,11 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_on_a_class")
 def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
-    """``@host_type`` is put above something that is not a class it can name, such as a function or a ``TypedDict``.
+    """``@host_type`` is put above something that isn't a class it can name, such as a function or a ``TypedDict``.
 
-    Put ``@host_type`` above a class. A ``TypedDict`` is a record, which conductor reads by its fields and which needs
-    no declaration.
+    A ``TypedDict`` is a record. Conductor reads a record by its fields, so it needs no declaration.
+
+    To fix it, put ``@host_type`` above a class.
 
     Args:
         id: The id given.
@@ -831,9 +890,9 @@ def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_writable")
 def type_declaration_not_writable(*, id: str, cls: str) -> str:
-    """``@host_type`` is put above a class Python lets nobody change, such as ``int``.
+    """``@host_type`` is put above a class that Python doesn't let anyone change, such as ``int``.
 
-    Put the value in a class of your own and declare that.
+    To fix it, put the value in a class of your own, and declare that class.
 
     Args:
         id: The id given.
@@ -847,16 +906,17 @@ def type_declaration_not_writable(*, id: str, cls: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def row_field_optional(*, row: str, field: str) -> str:
-    """The row type of a ``Table`` or of a ``Series`` of records leaves a field out: a ``NotRequired`` field, or a
-    ``TypedDict`` declared ``total=False``.
+    """The row type of a ``Table``, or of a ``Series`` of records, lets a field be left out.
 
-    Every row of a table has every column, so every field of its row type is required. Declare a field a row may
-    have no value for as ``X | None``: its column then holds ``None`` for that row. A table with a column some rows
-    leave out is not supported.
+    That is a ``NotRequired`` field, or any field of a ``TypedDict`` declared ``total=False``. But every row of a table
+    has every column, so every field of its row type is required. A table with a column that some rows leave out isn't
+    supported.
+
+    To fix it, declare a field a row may have no value for as ``X | None``. Its column then has ``None`` for that row.
 
     Args:
         row: The row type's name.
-        field: The first field it leaves out.
+        field: The first field it lets be left out.
 
     Example:
         from typing import NotRequired
@@ -878,11 +938,12 @@ def row_field_optional(*, row: str, field: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def type_not_carried(*, type: str) -> str:
-    """An input's or output's type is one pydantic cannot validate or write as JSON, such as a record with a field of
-    a plain class.
+    """An input's or output's type is one pydantic can't validate or write as JSON, such as a record with a field of a plain
+    class.
 
-    Use a type pydantic can validate and write as JSON: a pydantic model, a dataclass or a subclass of a builtin
-    (``class Text(str)``). A class that needs its own way gives its own ``__get_pydantic_core_schema__``.
+    To fix it, use a type pydantic can validate and write as JSON: a pydantic model, a dataclass, or a subclass of a
+    builtin such as ``class Text(str)``. A class that needs a way of its own can give its own
+    ``__get_pydantic_core_schema__``.
 
     Args:
         type: The type's id.
@@ -910,10 +971,10 @@ def type_not_carried(*, type: str) -> str:
 
 @DECLARATION_PROBLEMS.problem("type_not_carried", variant="declared")
 def type_not_carried_declared(*, id: str, cls: str) -> str:
-    """``@host_type`` is put above a class pydantic cannot validate or write as JSON.
+    """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 
-    Make it a pydantic model or a dataclass, with ``@host_type`` above ``@dataclass``, or give the class its own
-    ``__get_pydantic_core_schema__``.
+    To fix it, make the class a pydantic model or a dataclass, with ``@host_type`` above ``@dataclass``. Or give the
+    class its own ``__get_pydantic_core_schema__``.
 
     Args:
         id: The id given.
@@ -935,14 +996,16 @@ def type_not_carried_declared(*, id: str, cls: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def type_not_named(*, cls: str, parent: str | None = None) -> str:
-    """An input's or output's type is a class of the host's with no ``@host_type``.
+    """An input's or output's type is a class of the host's that has no ``@host_type``.
 
-    Write ``@host_type("...", title="...")`` above the class: its id is what an editor and a saved graph call the type.
-    A subclass does not inherit its parent's declaration.
+    The id that ``@host_type`` gives is what an editor and a saved graph call the type. A subclass doesn't inherit its
+    parent's declaration, so it needs one of its own.
+
+    To fix it, write ``@host_type("...", title="...")`` above the class.
 
     Args:
         cls: The class, by its module and name.
-        parent: A base class that is declared, when there is one.
+        parent: A base class that is declared, if there is one.
 
     Example:
         @dataclass
@@ -962,10 +1025,11 @@ def type_not_named(*, cls: str, parent: str | None = None) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def type_variable_constrained(*, variable: str) -> str:
-    """A type variable is constrained to a few types (``T: (int, str)``).
+    """A type variable is constrained to a few types, like ``T: (int, str)``.
 
-    Give the variable a bound (``T: int | str``), or write the union in the signature. A bound says what may arrive;
-    the variable is then whatever does.
+    A bound says what may arrive on the edge, and the variable is then whatever type does arrive.
+
+    To fix it, give the variable a bound, like ``T: int | str``. Or write the union in the signature.
 
     Args:
         variable: The type variable.
@@ -984,8 +1048,10 @@ def type_variable_constrained(*, variable: str) -> str:
 def type_variable_only_in_return(*, variable: str) -> str:
     """A type variable is in the return type and on no input.
 
-    A type variable is what arrives on an edge, so it stands on an input. An output whose type depends on a constant,
-    not on an edge, is typed by a ``compute_outputs`` hook.
+    A type variable stands for the type that arrives on an edge, so it has to be on an input. An output whose type
+    depends on a constant, not on an edge, gets its type from a ``compute_outputs`` hook.
+
+    To fix it, put the type variable on an input, or use ``compute_outputs``.
 
     Args:
         variable: The type variable.
@@ -1002,14 +1068,15 @@ def type_variable_only_in_return(*, variable: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def upgrade_missing(*, gone: list[str]) -> str:
-    """A node's newer version has lost an input or output of the version it replaces, and its ``Upgrade`` does not say
-    where it went.
+    """A node's new version drops an input or output of the version it replaces, and its ``Upgrade`` doesn't say where it
+    went.
 
-    Say where each went: ``upgrade=Upgrade(renamed_inputs={"name": "first"})``, or a ``rewrite=`` for an input; a
-    gone output takes ``renamed_outputs=``, since a rewrite reads only the node's constants and defaults.
+    To fix it, say where each one went. For an input, use ``upgrade=Upgrade(renamed_inputs={"name": "first"})`` or a
+    ``rewrite=``. For an output, use ``renamed_outputs=``, since a rewrite only reads the node's constants and
+    defaults.
 
     Args:
-        gone: The inputs and outputs gone.
+        gone: The inputs and outputs that are gone.
 
     Example:
         @node("hello", title="Hello v1", description="Says hello to a person.")
@@ -1030,9 +1097,9 @@ def upgrade_missing(*, gone: list[str]) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def upgrade_without_replaces(*, declared_with: str, id: str) -> str:
-    """A node has an ``upgrade=`` and no ``replaces=``.
+    """A node has an ``upgrade=`` but no ``replaces=``.
 
-    Name the version it upgrades with ``replaces=``.
+    To fix it, name the version it upgrades from with ``replaces=``.
 
     Args:
         declared_with: ``@node`` or ``subgraph``.
@@ -1050,9 +1117,11 @@ def upgrade_without_replaces(*, declared_with: str, id: str) -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def var_keyword_without_hook() -> str:
-    """A node takes ``**`` and has no ``compute_added_inputs`` hook.
+    """A node takes a ``**`` parameter, and has no ``compute_added_inputs`` hook.
 
-    The ``**`` parameter takes the inputs that hook adds. Remove it, or add the hook, ``compute_added_inputs=``.
+    The ``**`` parameter is where a node takes the inputs that hook adds.
+
+    To fix it, remove the ``**`` parameter, or add the hook with ``compute_added_inputs=``.
 
     Example:
         def loose(**values: str) -> str:
@@ -1066,9 +1135,9 @@ def var_keyword_without_hook() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def version_not_after(*, declared_with: str, id: str, version: int, replaced: int) -> str:
-    """A node's ``version=`` is not above the version it replaces.
+    """A node's ``version=`` isn't higher than the version it replaces.
 
-    Leave ``version=`` out (one past the version replaced), or give a number above it.
+    To fix it, leave ``version=`` out, which makes it one more than the version replaced. Or give a higher number.
 
     Args:
         declared_with: ``@node`` or ``subgraph``.
@@ -1093,11 +1162,13 @@ def version_not_after(*, declared_with: str, id: str, version: int, replaced: in
 
 @DECLARATION_PROBLEMS.problem()
 def widget_outside_param() -> str:
-    """A widget is written in ``Annotated`` beside the type, not on ``Param``.
+    """A widget is written in ``Annotated`` next to the type, instead of on ``Param``.
 
-    Put the widget on the input's ``Param``: ``Annotated[str, Param(widget=Textarea())]``. Other metadata in
-    ``Annotated`` is pydantic's and is read as pydantic reads it, except ``Field(...)`` (``pydantic_field_in_hint``);
-    a widget there would be passed by, and the input would show no control.
+    Other metadata in ``Annotated`` belongs to pydantic, and is read the way pydantic reads it. The one exception is
+    ``Field(...)``, which is refused (see ``pydantic_field_in_hint``). A widget there would be ignored, and the input
+    would show no control.
+
+    To fix it, put the widget on the input's ``Param``, like ``Annotated[str, Param(widget=Textarea())]``.
 
     Example:
         from conductor.widgets import Textarea
@@ -1114,11 +1185,12 @@ def widget_outside_param() -> str:
 
 @DECLARATION_PROBLEMS.problem()
 def widget_without_json_form(*, widget: str) -> str:
-    """A field's widget holds a value with no JSON form, so it cannot be sent to an editor.
+    """A field's widget has a value that can't be written as JSON, so it can't be sent to an editor.
 
-    A widget is sent to an editor as JSON. A field of a widget class typed ``Any`` takes any value, and one pydantic
-    cannot write as JSON (an object of a class of your own) is found here, where the node is declared. Give the
-    widget's fields values that write as JSON, such as the id of what the control shows.
+    A widget is sent to an editor as JSON. A widget field typed ``Any`` takes any value, including one pydantic can't
+    write as JSON, such as an object of a class of your own. That is caught here, when the node is declared.
+
+    To fix it, give the widget's fields values that can be written as JSON, such as the id of what the control shows.
 
     Args:
         widget: The widget's class.

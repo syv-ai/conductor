@@ -1,6 +1,11 @@
-"""The kinds of problem a refused call raises, in its ``InvalidCallError``: the section "Refused calls" of ``PROBLEMS``.
+"""The problems a refused call raises, in its ``InvalidCallError``.
 
-A module that reports one imports this module and calls the kind: ``call_problems.missing_input("inputs", name, name=name)``.
+This is the "Refused calls" section of the problems page. A call such as ``graph.run`` or ``run.answer`` checks what
+it is given before it does anything. If something is wrong, it raises ``InvalidCallError`` with these problems, and
+nothing changes.
+
+Code that reports one imports this module and calls the kind, like
+``call_problems.missing_input("inputs", name, name=name)``.
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ from conductor._internal.utils import comma_separated
 
 from .type import ProblemCatalogue
 
-#: The kinds of this section of the problems page.
+#: This module's section of the problems page, with its kinds.
 CALL_PROBLEMS = ProblemCatalogue(
     "Refused calls",
     "Raised as `InvalidCallError` by a call given what it cannot act on: `graph.run`, `run.answer`, `Run.from_json`, "
@@ -26,17 +31,19 @@ CALL_PROBLEMS = ProblemCatalogue(
 def answer_stale(
     *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
 ) -> str:
-    """An answer is for a question that another question has replaced.
+    """An answer is for a question that a newer question has replaced.
 
-    A run made with other inputs (``run.again``, ``run.with_inputs``) asks again where the inputs of the call changed,
-    under a new waiting id. Answer the question that waits now: ``ctx.current`` is its id, and ``run.waiting`` has it.
+    A run made with other inputs, by ``run.again`` or ``run.with_inputs``, asks again wherever a call's inputs changed.
+    The new question has a new waiting id.
+
+    To fix it, answer the question that is waiting now. ``ctx.current`` is its id, and ``run.waiting`` lists it.
 
     Args:
         loc: The node and the item indexes of the call the answer is for.
         waiting_id: The waiting id the answer was given for.
         current: The waiting id of the question that waits in its place.
-        moved_to: The waiting id the same question has now, when it waits for another call of the node: a change of
-            inputs gave its item another index.
+        moved_to: The waiting id the same question has now, if it waits for another call of the node. That happens
+            when a change of inputs gave its item another index.
 
     Example:
         asked = Graph.compile(make_graph(approve), registry).run(amount=5000)
@@ -50,9 +57,9 @@ def answer_stale(
 def cannot_move_to_version(
     *loc: str | int, node: str, version: int, target: int, versions: list[int]
 ) -> str:
-    """``registry.upgrade`` is asked to move a node to a version it cannot reach from the version it is at.
+    """``registry.upgrade`` is asked to move a node to a version it can't reach from the version it is at.
 
-    Ask for a version ``ctx.versions`` lists, or leave ``to`` out for the newest.
+    To fix it, ask for a version in ``ctx.versions``, or leave ``to`` out to get the newest.
 
     Args:
         loc: The node.
@@ -71,13 +78,15 @@ def cannot_move_to_version(
 def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
     """A node takes the run's context, and the call that starts or resumes the run gives no ``context``.
 
-    Pass the object on every call that goes on with the run: ``graph.run(context=HostContext(...))``,
-    ``run.resume(context=...)``, ``run.stream(context=...)``. A run never saves its context. Every node that takes it
-    has this problem.
+    A run never saves its context, so every call that goes on with the run must pass it again. Every node that takes
+    the context gets this problem.
+
+    To fix it, pass the object on each such call: ``graph.run(context=HostContext(...))``, ``run.resume(context=...)``
+    and ``run.stream(context=...)``.
 
     Args:
         loc: The node's path, then its ``Context`` parameter.
-        parameter: The node's ``Context`` parameter, its first.
+        parameter: The node's ``Context`` parameter, which is its first.
         needs: The name of the class inside ``Context[...]``.
 
     Example:
@@ -90,15 +99,17 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
 def invalid_answer(
     *loc: str | int, waiting_id: str, reason: str, question: str | None = None
 ) -> str:
-    """An answer is not a value of the type the question takes.
+    """An answer isn't a value of the type the question takes.
 
-    Answer with a value of the question's type, as JSON reads it: ``true``, not ``"yes"``.
+    Answers are checked the way their JSON would be, so a yes or no is ``true``, not ``"yes"``.
+
+    To fix it, answer with a value of the question's type.
 
     Args:
         loc: The node and the item indexes of the call the answer is for.
         waiting_id: The waiting id the answer was given for.
         reason: What is wrong with the answer.
-        question: For a node that asks several questions (one per output), the name of the one the fault is in.
+        question: For a node that asks several questions, one per output, the name of the question that is wrong.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
@@ -109,9 +120,9 @@ def invalid_answer(
 
 @CALL_PROBLEMS.problem()
 def invalid_context(*loc: str | int, expected: str, got: str) -> str:
-    """A call gives ``context`` an object that is not an instance of the class the registry names.
+    """A call gives ``context`` an object that isn't an instance of the class the registry names.
 
-    Pass an instance of the registry's ``context_type``, or of a subclass of it.
+    To fix it, pass an instance of the registry's ``context_type``, or of a subclass of it.
 
     Args:
         loc: ``"context"``.
@@ -128,7 +139,7 @@ def invalid_context(*loc: str | int, expected: str, got: str) -> str:
 def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
     """A call gives ``context`` to a run of a graph whose registry names no ``context_type``.
 
-    Pass no context, or name the class on the registry, ``NodeRegistry(context_type=HostContext)``.
+    To fix it, pass no context. Or name the class on the registry, like ``NodeRegistry(context_type=HostContext)``.
 
     Args:
         loc: ``"context"``.
@@ -150,10 +161,12 @@ def invalid_input(
     errors: list[dict[str, Any]] | None = None,
     column: str | None = None,
 ) -> str:
-    """A call gives a graph input a value its type does not take.
+    """A call gives a graph input a value its type doesn't take.
 
-    Give a value of the input's type; ``graph.inputs[name].json_schema`` is its schema, limits included. ``reason``
-    and ``errors`` are as ``invalid_value`` has them.
+    ``ctx.reason`` and ``ctx.errors`` say what was refused, just as they do for ``invalid_value``.
+
+    To fix it, give a value of the input's type. ``graph.inputs[name].json_schema`` is the input's schema, with its
+    limits.
 
     Args:
         loc: ``"inputs"`` and the input's name.
@@ -170,11 +183,13 @@ def invalid_input(
 
 @CALL_PROBLEMS.problem("invalid_input", variant="make_a_series")
 def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, length: int) -> str:
-    """A call gives a list to a graph input whose type takes no list.
+    """A call gives a list to a graph input that doesn't take a list.
 
-    A graph loops over a list only when a node returns it as a series, so a list given to an input of one value is
-    refused. Give the list to a node that returns it as a series, or give one value. A ``Series`` graph input takes a
-    list, and a single value as a list of one.
+    A graph only loops over a list when a node returns it as a ``Series``. So a list given to an input of one value is
+    refused.
+
+    To fix it, give the list to a node that returns it as a ``Series``, or give one value. A ``Series`` graph input
+    takes a list, and takes a single value as a list of one.
 
     Args:
         loc: ``"inputs"`` and the input's name.
@@ -193,13 +208,15 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
 
 @CALL_PROBLEMS.problem()
 def invalid_limit(limit: str, /, *, value: Any) -> str:
-    """A call gives ``max_items`` a value that is not a whole number of at least 1: ``0``, ``2.5`` or ``True``.
+    """A call gives ``max_items`` a value that isn't a whole number of at least 1, such as ``0``, ``2.5`` or ``True``.
 
-    A yes or no is not a number. Give a whole number of 1 or more, or leave it out for no item limit.
+    A yes or no isn't a number, so ``True`` is refused too.
+
+    To fix it, give a whole number of 1 or more. Or leave it out, for no limit on items.
 
     Args:
         limit: ``max_items``.
-        value: The value given, of any type: ``True`` and ``"5"`` are refused as they are.
+        value: The value given, of any type. ``True`` and ``"5"`` are refused as they are.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", max_items=0))
@@ -209,14 +226,15 @@ def invalid_limit(limit: str, /, *, value: Any) -> str:
 
 @CALL_PROBLEMS.problem("invalid_limit", variant="seconds")
 def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
-    """A call gives ``timeout`` or ``checkpoint_every`` a value that is not a finite number of seconds above 0.
+    """A call gives ``timeout`` or ``checkpoint_every`` a value that isn't a finite number of seconds above 0.
 
-    ``0``, ``inf``, ``nan`` and ``True`` are refused: a yes or no is not a number. Give a number of seconds above 0,
-    or leave the limit out: no time limit, no checkpoints.
+    So ``0``, ``inf``, ``nan`` and ``True`` are all refused. A yes or no isn't a number.
+
+    To fix it, give a number of seconds above 0. Or leave the limit out, for no time limit or no checkpoints.
 
     Args:
         limit: ``timeout`` or ``checkpoint_every``.
-        value: The value given, of any type: ``True`` and ``"5"`` are refused as they are.
+        value: The value given, of any type. ``True`` and ``"5"`` are refused as they are.
 
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").resume(timeout=0))
@@ -228,18 +246,20 @@ def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
 def invalid_record(
     *loc: str | int, where: str, reason: str, error: str, written_by: str | None = None
 ) -> str:
-    """What was given as a graph record is not one: its JSON does not have a graph record's shape.
+    """What was given as a graph record isn't one, because its JSON doesn't have a graph record's shape.
 
-    Fix the JSON: ``ctx.where`` says where it stops being a graph record. A graph record of the right shape is always
-    compiled, however unfinished; what is wrong with it is in ``graph.problems``. In the example, the node says
-    ``type`` where a graph record says ``node``.
+    A graph record of the right shape is always compiled, however unfinished it is. What is wrong with it then goes in
+    ``graph.problems``. This problem is only for JSON that isn't shaped like a record at all. In the example, the node
+    says ``type`` where a graph record says ``node``.
+
+    To fix it, fix the JSON. ``ctx.where`` says where it stops being a graph record.
 
     Args:
         loc: ``"record"`` and the steps to the fault inside the graph record.
-        where: The same steps as one text, joined by dots; ``the record`` for the graph record as a whole.
+        where: The same steps as one text, joined by dots. ``the record`` means the graph record as a whole.
         reason: What is wrong there.
         error: The type of pydantic's error, such as ``extra_forbidden``.
-        written_by: What wrote the record when it was not its JSON: ``make_graph``'s arguments, or a node's
+        written_by: What wrote the record, when it wasn't given as JSON: ``make_graph``'s arguments, or a node's
             ``Upgrade``.
 
     Example:
@@ -252,7 +272,7 @@ def invalid_record(
 def missing_input(*loc: str | int, name: str) -> str:
     """A call leaves out a graph input that has no default.
 
-    Give it in the call. ``graph.inputs`` lists the graph inputs, and which of them are required.
+    To fix it, give the input in the call. ``graph.inputs`` lists the graph inputs, and says which are required.
 
     Args:
         loc: ``"inputs"`` and the input's name.
@@ -266,9 +286,9 @@ def missing_input(*loc: str | int, name: str) -> str:
 
 @CALL_PROBLEMS.problem()
 def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
-    """A call names a node the graph does not have.
+    """A call names a node the graph doesn't have.
 
-    Name one of the nodes ``ctx.nodes`` lists.
+    To fix it, name one of the nodes in ``ctx.nodes``.
 
     Args:
         node_id: The id given.
@@ -283,14 +303,16 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
 
 @CALL_PROBLEMS.problem()
 def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: list[str]) -> str:
-    """``make_graph`` is given no edges, and cannot wire one of its nodes to the node before it.
+    """``make_graph`` is given no edges, and it can't wire one of its nodes to the node before it.
 
-    Without ``edges=``, ``make_graph`` wires each node's one required input that has no constant and that an edge
-    can feed to the one output of the node before it. Pass the edges instead: ``make_graph(upper, greet,
-    edges=[("upper.result", "greet.name")])``.
+    Without ``edges=``, ``make_graph`` wires the nodes in a chain. It takes the one output of the node before, and wires
+    it to the node's one required input that has no constant and that an edge can feed. When a node doesn't have
+    exactly one such input, or the node before it doesn't have exactly one output, it can't.
+
+    To fix it, pass the edges, like ``make_graph(upper, greet, edges=[("upper.result", "greet.name")])``.
 
     Args:
-        node_id: The node that cannot be wired.
+        node_id: The node that can't be wired.
         before: The node before it.
         inputs: The required inputs of ``node_id`` that have no constant and that an edge can feed.
         outputs: The outputs of ``before``.
@@ -306,16 +328,18 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
 
 @CALL_PROBLEMS.problem("not_a_chain", variant="constant_only")
 def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]) -> str:
-    """``make_graph`` is given no edges, and every required input of a node that has no constant takes only a
-    constant.
+    """``make_graph`` is given no edges, and the node's required inputs only take a constant.
 
-    An input whose description says ``constant_only`` takes a constant and no edge. Give it a constant, and pass the
-    edges: ``make_graph(upper, pick, edges=[], constants={"pick.names": "a,b"})``.
+    An input whose description says ``constant_only`` takes a constant, never an edge. So ``make_graph`` has nothing to
+    wire the node before into.
+
+    To fix it, give the input a constant and pass the edges, like
+    ``make_graph(upper, pick, edges=[], constants={"pick.names": "a,b"})``.
 
     Args:
-        node_id: The node that cannot be wired.
+        node_id: The node that can't be wired.
         before: The node before it.
-        inputs: The required inputs of ``node_id`` that take only a constant and have none.
+        inputs: The required inputs of ``node_id`` that only take a constant and have none.
 
     Example:
         refused(lambda: make_graph(upper, pick))
@@ -328,17 +352,19 @@ def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]
 
 @CALL_PROBLEMS.problem()
 def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> str:
-    """``make_graph`` would make two inputs graph inputs of one name, though nothing says they take one value.
+    """``make_graph`` would make two inputs into graph inputs with the same name, and nothing says they take one value.
 
-    ``make_graph`` makes each required input that gets nothing (no edge, no constant) a graph input of the input's
-    name, and each key of ``defaults`` too. Two inputs of one name would then share the caller's one value, so it
-    asks: give them names with ``inputs={"name": "greet.name", "who": "greet-2.name"}``, or say they share one with
-    ``inputs={"text": ["a.text", "b.text"]}``.
+    ``make_graph`` turns each required input that gets nothing, no edge and no constant, into a graph input with the
+    input's name. Each key of ``defaults`` becomes one too. Two inputs with the same name would then share the caller's
+    one value. That may not be what you meant, so ``make_graph`` asks you to say.
+
+    To fix it, give them names, like ``inputs={"name": "greet.name", "who": "greet-2.name"}``. Or say they share one
+    value, like ``inputs={"text": ["a.text", "b.text"]}``.
 
     Args:
         loc: ``"inputs"`` and the name.
         name: The name.
-        inputs: The inputs, each ``node.input``.
+        inputs: The inputs, each as ``node.input``.
 
     Example:
         refused(lambda: make_graph(upper, upper, edges=[], outputs={"a": "upper-1.result", "b": "upper-2.result"}))
@@ -348,15 +374,17 @@ def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> 
 
 @CALL_PROBLEMS.problem()
 def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -> str:
-    """``make_graph`` would make two outputs graph outputs of one name.
+    """``make_graph`` would make two outputs into graph outputs with the same name.
 
-    ``make_graph`` makes each output of a node no edge leaves a graph output of the output's name. Two of one name are
-    two values, so name them with ``outputs={"long": "a.result", "short": "b.result"}``.
+    ``make_graph`` turns each output that no edge leaves into a graph output with the output's name. Two outputs with
+    the same name are still two values, so they can't share it.
+
+    To fix it, name them, like ``outputs={"long": "a.result", "short": "b.result"}``.
 
     Args:
         loc: ``"outputs"`` and the name.
         name: The name.
-        outputs: The outputs, each ``node.output``.
+        outputs: The outputs, each as ``node.output``.
 
     Example:
         refused(lambda: make_graph(upper, words, edges=[], inputs={"a": "upper.text", "b": "words.text"}))
@@ -366,15 +394,15 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
 
 @CALL_PROBLEMS.problem()
 def not_a_place(*loc: str | int, text: str) -> str:
-    """``make_graph`` is given a place in the graph that is not ``"node.name"``.
+    """``make_graph`` is given a place in the graph that isn't written ``"node.name"``.
 
-    An edge's two ends, a key of ``constants`` or ``defaults``, and a place in ``inputs`` or ``outputs`` are each a
-    node's id and a name, joined by a dot; an edge's source may add a field of the record its output returns
-    (``"read.result.email"``).
+    Each end of an edge, each key of ``constants`` or ``defaults``, and each place in ``inputs`` or ``outputs`` is a
+    node's id and a name, joined by a dot. An edge's source may add one field of the record its output returns, like
+    ``"read.result.email"``.
 
     Args:
-        loc: The argument and where in it: ``("edges", 1, 0)`` for the source of the second edge, ``("constants",
-            key)``.
+        loc: The argument, and where in it. ``("edges", 1, 0)`` is the source of the second edge, and
+            ``("constants", key)`` is a key of ``constants``.
         text: The text given.
 
     Example:
@@ -385,9 +413,9 @@ def not_a_place(*loc: str | int, text: str) -> str:
 
 @CALL_PROBLEMS.problem()
 def not_offered(*loc: str | int, name: str, inputs: list[str]) -> str:
-    """A call gives a value under a name that is not a graph input.
+    """A call gives a value under a name that isn't a graph input.
 
-    Use one of the names ``ctx.inputs`` lists.
+    To fix it, use one of the names in ``ctx.inputs``.
 
     Args:
         loc: ``"inputs"`` and the name.
@@ -404,15 +432,15 @@ def not_offered(*loc: str | int, name: str, inputs: list[str]) -> str:
 def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | None = None) -> str:
     """An answer is for a waiting id that no call of the run is waiting under.
 
-    Answer one of the ids in ``run.waiting``.
+    To fix it, answer one of the ids in ``run.waiting``.
 
     Args:
-        loc: The node and the item indexes the waiting id names; for an id with an index that is not a number, those
-            read up to that index.
+        loc: The node and the item indexes the waiting id names. If one of the indexes isn't a number, only the
+            indexes before it.
         waiting_id: The waiting id the answer was given for.
         status: The run's status.
-        moved_to: The waiting id the same question has now, when it waits for another call of the node: a change of
-            inputs gave its item another index.
+        moved_to: The waiting id the same question has now, if it waits for another call of the node. That happens
+            when a change of inputs gave its item another index.
 
     Example:
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
@@ -423,14 +451,15 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
 
 @CALL_PROBLEMS.problem()
 def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
-    """``run.outputs`` is read on a run that is not complete.
+    """``run.outputs`` is read on a run that isn't complete.
 
-    Answer what waits and ``resume()``, or read ``run.results``, which has every node's outputs so far.
+    To fix it, answer what is waiting and call ``resume()``. Or read ``run.results``, which has every node's outputs so
+    far.
 
     Args:
         loc: ``"outputs"``.
         status: The run's status.
-        reason: The message of the problem the run ended on; empty when the run did not end early.
+        reason: The message of the problem the run stopped on. Empty if the run didn't stop early.
 
     Example:
         stopped = Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2)
@@ -441,9 +470,9 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
 
 @CALL_PROBLEMS.problem()
 def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
-    """A saved run is loaded into another graph than the one it was saved from.
+    """A saved run is loaded into a different graph from the one it was saved from.
 
-    Load it into the graph it was saved from. A changed graph starts a new run.
+    To fix it, load it into the graph it was saved from. A graph that has changed starts a new run.
 
     Args:
         loc: ``"saved_run"``.
@@ -459,15 +488,17 @@ def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
 
 @CALL_PROBLEMS.problem()
 def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
-    """A saved run of this graph cannot be read back.
+    """A saved run of this graph can't be read back.
 
-    The text may have been changed after it was written; other code may have written it, another version of
-    conductor or of a node or a type in the run; or a value the run holds may have a JSON form that does not read
-    back. Start a new run. ``ctx.where`` says where the saved run stops fitting.
+    There are a few ways this happens. The text may have been changed after it was written. Other code may have written
+    it, such as another version of conductor, or of a node or a type in the run. Or a value in the run may have a JSON
+    form that doesn't read back. ``ctx.where`` says where the saved run stops fitting.
+
+    To fix it, start a new run.
 
     Args:
         loc: ``"saved_run"`` and the steps to the fault inside the saved run.
-        where: The same steps as one text, joined by dots; ``the run`` for the saved run as a whole.
+        where: The same steps as one text, joined by dots. ``the run`` means the saved run as a whole.
         reason: What is wrong there.
 
     Example:
@@ -481,15 +512,16 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
 
 @CALL_PROBLEMS.problem()
 def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
-    """A run has a value that cannot be written as JSON.
+    """A run has a value that can't be written as JSON.
 
-    Give the output a type pydantic writes as JSON. ``ctx.where`` names the output. In the example, ``raw`` returns
-    bytes that are not text.
+    ``ctx.where`` names the output. In the example, ``raw`` returns bytes that aren't text.
+
+    To fix it, give the output a type that pydantic can write as JSON.
 
     Args:
         loc: ``"saved_run"`` and the steps to the value, or ``"outputs"`` and the graph output's name.
         where: The same steps as one text.
-        reason: Why the value cannot be written.
+        reason: Why the value can't be written.
 
     Example:
         @registry.node("raw", title="Raw", description="Turns a text into raw bytes.")
