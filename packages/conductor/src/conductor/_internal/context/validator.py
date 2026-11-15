@@ -15,8 +15,9 @@ from collections.abc import Iterable
 from typing import Any
 
 from conductor._internal.base import NodePath
-from conductor._internal.context import ContextParameter
 from conductor._internal.problem import InvalidCallError, call_problems
+
+from .type import ContextParameter
 
 
 class ContextValidator:

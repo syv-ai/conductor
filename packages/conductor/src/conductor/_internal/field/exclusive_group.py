@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Container, Iterator, Mapping
 from typing import NamedTuple
 
-from conductor._internal.field import Field
+from .type import Field
 
 
 class GroupWithoutOneValue(NamedTuple):

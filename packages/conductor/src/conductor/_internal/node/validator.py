@@ -10,7 +10,7 @@ is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every 
 
 A node with several outputs returns a frozen dataclass, or a mapping when its ``compute_outputs`` hook gave the
 outputs. Its validator reads every output in one call of one validator. First the shape: the dataclass or a mapping,
-no output missing or unknown, and of each exclusive group exactly one output with a value (``exclusive_group.py``).
+no output missing or unknown, and of each exclusive group exactly one output with a value (``field/exclusive_group.py``).
 Then each output's value, by its type, in the order the outputs are declared. Only the first fault is reported, as
 one problem.
 
@@ -39,7 +39,7 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import REQUIRED, SKIPPED, Name
-from conductor._internal.field import Field
+from conductor._internal.field import Field, exclusive_groups, groups_without_one_value
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
@@ -49,8 +49,6 @@ from conductor._internal.problem import (
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import (
     exact_classes,
-    exclusive_groups,
-    groups_without_one_value,
     output_schema_of,
     schema_output_validator_of,
 )

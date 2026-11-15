@@ -1,52 +1,23 @@
-"""Validation: every place a value from outside enters the engine, and the validator that checks it there.
+"""Validation: the rules every validator reads values by.
 
-A value is checked once, where it comes in. Inside, nothing checks it again. A validator takes the value from outside
-and returns it as the engine keeps it::
+A value from outside is checked once, where it comes in, and nothing inside checks it again. Each package whose
+values come from outside reads them in its ``validator.py``: a graph record in ``record/``, a default a node declares
+in ``field/``, what a node's function or hook returns in ``node/``, a caller's graph inputs, the run's limits and a
+record's constants in ``graph/``, the ``context=`` in ``context/``, an ``Ask`` and a person's answer in ``ask/``, a
+value an edge gives in ``run/``. A saved run is read in ``run/json/``, whose reader and writer are one schema, and a
+``NodeError``'s ``ctx`` by ``NodeError``, where a node makes one. A validator returns the value as the engine keeps
+it, or raises ``InvalidCallError``, whose problems carry the validator's code (a default a node declares raises
+``NodeDeclarationError``: it is a fault in the node's code, met at import). Its caller decides what becomes of the
+problems: a public method lets them reach its caller; compiling keeps them in ``graph.problems``, and a run keeps
+the problem as the outcome of the call it belongs to.
 
-    outputs = compiled_node.return_validator(returned)   # {"result": "B!"} for shout returning "B!"
-
-or raises ``InvalidCallError``, whose problems carry the validator's code (a default a node declares raises
-``NodeDeclarationError``: it is a fault in the node's code, met at import). A validator is a class when it is built
-once for what it reads (a node's outputs, a graph's inputs), and a function when it reads one value by a type. Its
-caller decides what becomes of the problems: a public method lets them reach its caller; compiling keeps them in
-``graph.problems``, and a run keeps the problem as the outcome of the call it belongs to.
 Every validator reads values with the pydantic validators of ``rules.py``, built there from a type's schema with the
-rules every type is held to (a yes or no is not a number); no module outside this package builds one.
-
-Where a value enters, with the module that validates it (the problems page has the codes each refuses with):
-
-    where a value enters                                        module
-    a graph record, from JSON or from what make_graph and       record
-        registry.upgrade write, and the values make_graph
-        writes into one
-    a default a node declares, and the same default read        declared
-        again by the type an edge binds its type variable to
-    a constant or default written in a record                   graph/validator.py
-    what a compute_added_inputs or compute_outputs hook         node/validator.py
-        returns
-    a caller's graph inputs, max_items, timeout and             graph/validator.py
-        checkpoint_every
-    a person's answer to a node's outputs                       answer
-    what a node's function returns                              node/validator.py
-    a value an edge gives an input that demands more than       run/validator.py
-        the edge's source declares
-    what a node raises: an Ask's choices and default            raised
-    what a node raises: a NodeError's ctx                       problem/errors.py, which stays there: NodeError
-                                                                reads it when the node makes one
-    the context= a host passes to start or resume a run         context
-    a saved run                                                 run/json/, which stays there: its reader and its
-                                                                writer are one schema, with the rules of rules.py
+rules every type is held to (a yes or no is not a number); no module outside a ``validator.py`` builds one.
 
 A type's own declarations are read where the type is declared: ``Param`` reads its choices by the type it limits
 (``types/param.py``), and ``@host_type`` its arguments.
 """
 
-from .answer import AnswerValidator
-from .context import ContextValidator
-from .declared import bound_field, declared_input, declared_output
-from .exclusive_group import exclusive_groups, groups_without_one_value
-from .raised import AskValidator, undeclared_ask
-from .record import read_json, read_record, record_values
 from .rules import (
     exact_classes,
     numbers_refuse_bools,
@@ -57,22 +28,10 @@ from .rules import (
 )
 
 __all__ = [
-    "AnswerValidator",
-    "AskValidator",
-    "ContextValidator",
-    "bound_field",
-    "declared_input",
-    "declared_output",
     "exact_classes",
-    "exclusive_groups",
-    "groups_without_one_value",
     "numbers_refuse_bools",
     "output_schema_of",
     "schema_of",
-    "read_json",
-    "read_record",
-    "record_values",
     "schema_output_validator_of",
     "schema_validator_of",
-    "undeclared_ask",
 ]

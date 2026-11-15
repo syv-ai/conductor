@@ -60,10 +60,10 @@ from conductor._internal.node import (
     SubgraphDefinition,
 )
 from conductor._internal.problem import InvalidCallError, Problem, compile_problems
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, record_values
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
-from conductor._internal.validation import record_values, schema_validator_of
+from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
 
 #: What ``_made_up`` gives for a field no value can be made for.

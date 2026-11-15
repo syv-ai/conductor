@@ -22,9 +22,10 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
-from conductor._internal.record import GraphRecord
 from conductor._internal.series import set_has_no_order
 from conductor._internal.types import kind_of_value
+
+from .graph import GraphRecord
 
 
 def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

@@ -44,7 +44,7 @@ from pydantic import MISSING, JsonValue
 from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED, NodePath, Source, place_text
-from conductor._internal.field import Field
+from conductor._internal.field import Field, bound_field, declared_input, declared_output
 from conductor._internal.node import (
     FunctionDefinition,
     HookName,
@@ -53,14 +53,8 @@ from conductor._internal.node import (
     read_hook_fields,
 )
 from conductor._internal.problem import InvalidCallError, NodeError, Problem, compile_problems
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, read_record
 from conductor._internal.types import Type
-from conductor._internal.validation import (
-    bound_field,
-    declared_input,
-    declared_output,
-    read_record,
-)
 
 from .input import (
     CollectingInput,

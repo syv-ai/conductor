@@ -20,7 +20,6 @@ from pydantic import ValidationError
 from pydantic_core import PydanticCustomError, PydanticSerializationError
 
 from conductor._internal.base import REQUIRED, SKIPPED
-from conductor._internal.field import Field
 from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
@@ -28,8 +27,9 @@ from conductor._internal.problem import (
     declaration_problems,
 )
 from conductor._internal.types import Type
+from conductor._internal.validation import schema_validator_of
 
-from .rules import schema_validator_of
+from .type import Field
 
 
 def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> Field:

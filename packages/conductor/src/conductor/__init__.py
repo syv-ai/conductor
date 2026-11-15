@@ -47,7 +47,7 @@ from conductor._internal.problem import (
     ProblemCatalogue,
     ProblemKind,
 )
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
+from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, read_json
 from conductor._internal.registry import NodeRegistry, RegistryDescription, TypeDescription
 from conductor._internal.run import (
     CallCount,
@@ -60,7 +60,6 @@ from conductor._internal.run import (
 from conductor._internal.series import Series
 from conductor._internal.table import Table
 from conductor._internal.types import Choice, Param, host_type
-from conductor._internal.validation import read_json
 
 # The reference lists these names in this order, so they are kept by subject.
 __all__ = [

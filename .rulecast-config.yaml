@@ -28,7 +28,7 @@ repos:
 
       - id: touch/places
         name: Where JSON and place text are read
-        files: '^(packages/conductor/src/conductor/_internal/(base/place|validation/record|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
+        files: '^(packages/conductor/src/conductor/_internal/(base/place|record/validator|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
         stages: [touch]
         context:
           - "@conventions/validation.md#text-is-read-once-where-it-enters"
@@ -391,8 +391,8 @@ repos:
                 limit = getattr(field, "max_length", None)
 
       # ---------------------------------------------------------------- validation
-      - id: validation/validator-outside-validation
-        name: Validators are built only in validation/
+      - id: validation/validator-outside-validator-module
+        name: Validators are built only in a validator.py
         files: '^packages/conductor/src/conductor/.*\.py$'
         exclude: '^packages/conductor/src/conductor/_internal/([^/]+/validator\.py$|validation/|types/|run/json/|problem/errors\.py$|base/json\.py$)'
         detect:
@@ -407,7 +407,7 @@ repos:
                 - pattern: $V.validate_strings($$$)
                 - pattern: $M.model_validate($$$)
                 - pattern: $M.model_validate_json($$$)
-        message: "{{file}}:{{line}} validates outside validation/: `{{text}}`. Read outside data where it enters, in _internal/validation/, and trust its types inside."
+        message: "{{file}}:{{line}} validates outside a validator: `{{text}}`. Read outside data where it enters, in the validator.py of the concept it is a value of, and trust its types inside."
         context:
           - "@conventions/validation.md#validation-is-the-wall"
         examples:
@@ -506,14 +506,14 @@ repos:
           - "@conventions/validation.md#validation-is-the-wall"
         examples:
           bad:
-            - path: packages/conductor/src/conductor/_internal/validation/record.py
+            - path: packages/conductor/src/conductor/_internal/record/validator.py
               code: |
                 try:
                     return json.loads(text)
                 except JSONDecodeError as not_json:
                     raise InvalidCallError([]) from None
               expect: { lines: [3] }
-            - path: packages/conductor/src/conductor/_internal/validation/record.py
+            - path: packages/conductor/src/conductor/_internal/record/validator.py
               code: |
                 try:
                     return json.loads(text)
@@ -521,7 +521,7 @@ repos:
                     raise ValueError("not JSON") from None
               expect: { lines: [3] }
           good:
-            - path: packages/conductor/src/conductor/_internal/validation/record.py
+            - path: packages/conductor/src/conductor/_internal/record/validator.py
               code: |
                 try:
                     return json.loads(text)

@@ -2,7 +2,7 @@
 
 ## A concept is a package
 
-Put each concept of `_internal/` in its own package, its surface in `__init__.py` with `__all__`, and name its files by job (`type.py` the class, `read.py` its schema for untyped data, `write.py` its JSON form, `stored.py` how a run stores it, `describe.py` what a host is shown) or by the noun they are about.
+Put each concept of `_internal/` in its own package, its surface in `__init__.py` with `__all__`, and name its files by job (`type.py` the class, `read.py` its schema for untyped data, `write.py` its JSON form, `stored.py` how a run stores it, `describe.py` what a host is shown, `validator.py` its validators) or by the noun they are about.
 
 Why: a few large files mix many jobs; a package per concept lets each module have one reason to change.
 
@@ -29,7 +29,7 @@ Keep reading and writing JSON apart from the class it is about (a run's JSON for
 Why: JSON read or written in several places is several rules that can disagree.
 
 ```python
-def from_json(text: str) -> dict[str, Any]: ...         # bad: in validation/answer.py
+def from_json(text: str) -> dict[str, Any]: ...         # bad: in ask/validator.py
 def read_as_answer(value: Any) -> dict[str, Any]: ...   # good: the validator reads a value
 ```
 

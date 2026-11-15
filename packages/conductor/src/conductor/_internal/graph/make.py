@@ -18,8 +18,13 @@ from pydantic import MISSING
 from conductor._internal.base import REQUIRED, Source
 from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
-from conductor._internal.validation import read_record, record_values
+from conductor._internal.record import (
+    GraphRecord,
+    InputEntry,
+    NodeRecord,
+    read_record,
+    record_values,
+)
 
 
 def make_graph(

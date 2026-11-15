@@ -16,8 +16,13 @@ from pydantic import MISSING
 from conductor._internal.base import Source
 from conductor._internal.node import NodeDefinition, gone_inputs
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
-from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
-from conductor._internal.validation import read_record, record_values
+from conductor._internal.record import (
+    GraphRecord,
+    InputEntry,
+    NodeRecord,
+    read_record,
+    record_values,
+)
 
 
 def upgraded(
