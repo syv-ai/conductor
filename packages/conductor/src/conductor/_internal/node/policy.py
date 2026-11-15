@@ -27,7 +27,9 @@ class Policy:
     Without it, each run calls the node one item at a time and ignores other runs.
 
     Only some failures are tried again: an ``ExternalError``, or an exception class named in ``retry_on``. Anything
-    else fails at once, since running the same computation again fails the same way.
+    else fails at once, since running the same computation again fails the same way. A ``NodeError`` other than
+    ``ExternalError``, an output its type refuses and an ``Ask`` are never tried again, even with
+    ``retry_on=(Exception,)``.
 
     ``reuse_when_inputs_match=False`` is for a node that reads the outside world, not only its inputs. ``run.again``
     then calls it again for every item. ``costs_nothing=True`` is for a cheap node that touches nothing outside the
@@ -41,8 +43,9 @@ class Policy:
     Attributes:
         concurrency: How many calls of the node may run at once in the whole process, at least 1. ``None``, the
             default, means each run calls the node one item at a time. Careful with a node whose function runs a
-            graph that uses the same node again: once the nesting reaches ``concurrency``, the outer calls take
-            every place and the inner run waits forever.
+            graph that uses this node again, or a node that uses this one back. Once the outer calls take every
+            place, the inner run waits for one forever. With ``concurrency=2``, two items or two runs calling the
+            node at once are already enough.
         retries: How many more times a failed call is tried, at least 0.
         retry_delay: How many seconds the first retry waits. Each later retry waits twice as long.
         attempt_timeout: How many seconds one attempt may take, or ``None`` for no limit. An attempt that runs over
