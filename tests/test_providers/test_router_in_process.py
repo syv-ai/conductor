@@ -29,7 +29,7 @@ from conductor import (  # noqa: E402
 )
 from conductor_providers.fastapi import RunView, StoredRun, Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel, Field, ValidationError  # noqa: E402
 
 from tests.test_providers.in_memory import (  # noqa: E402
     MemoryStore,
@@ -910,7 +910,11 @@ async def test_metadata_with_an_alias_is_stored_so_it_reads_back_and_a_resume_ge
         assert (await client.get(f"/runs/{run_id}")).status_code == 200
 
 
-async def test_metadata_not_of_the_workers_type_is_a_422_and_nothing_is_stored() -> None:
+async def test_metadata_not_of_the_workers_type_is_a_bug_of_the_host_that_raises_before_anything_is_stored() -> (
+    None
+):
+    """Metadata comes from the host's own dependency, so a value of another type is the host's bug: pydantic's
+    error is raised as it is, a 500, and no run is stored."""
     registry, _, graph = _doubling()
     store = MemoryStore()
     app = _app(
@@ -922,9 +926,8 @@ async def test_metadata_not_of_the_workers_type_is_a_422_and_nothing_is_stored()
 
     async with _serving(app) as client:
         for path in ("/runs", "/estimate"):
-            refused = await client.post(path, json={"graph": graph, "inputs": {"x": 1}})
-            assert refused.status_code == 422, path
-            assert [problem["type"] for problem in refused.json()["detail"]] == ["invalid_metadata"]
+            with pytest.raises(ValidationError):
+                await client.post(path, json={"graph": graph, "inputs": {"x": 1}})
 
     assert store.rows == {}
 

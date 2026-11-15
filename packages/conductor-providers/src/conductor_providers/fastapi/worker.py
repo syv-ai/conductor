@@ -22,13 +22,12 @@ from threading import Event
 from typing import Any, Generic
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings, loaded
 from conductor_providers.fastapi.problems import (
-    invalid_metadata,
     no_such_run,
     previous_run_unloadable,
     run_not_resumable,
@@ -588,19 +587,13 @@ class Worker(Generic[M, X]):
         )
 
     def _checked(self, metadata: M) -> M:
-        """The metadata for a new run, checked once against the worker's ``metadata_type``.
+        """The metadata for a new run, checked once against the worker's ``metadata_type`` before anything is stored.
 
-        It comes from the host's code, a dependency or a call of its own, so it is checked where it enters, and
-        what is stored is what reads back.
-
-        Raises:
-            InvalidCallError: It isn't of that type (``invalid_metadata``), so nothing is stored.
+        It comes from the host's own code, a dependency or a call, never from the client, so a value of another type
+        is a bug in that code: pydantic's ``ValidationError`` is raised as it is, a 500, as a ``nodes_for`` that
+        raises is.
         """
-        try:
-            return self._settings.metadata.validate_python(metadata)
-        except ValidationError as refused:
-            reason = "; ".join(error["msg"] for error in refused.errors(include_url=False))
-            raise InvalidCallError([invalid_metadata(reason=reason)]) from None
+        return self._settings.metadata.validate_python(metadata)
 
     def _metadata_in(self, row: StoredRun) -> M:
         """The metadata a row keeps, read from its JSON."""
