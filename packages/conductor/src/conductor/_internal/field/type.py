@@ -101,7 +101,7 @@ class Field:
         )
 
     @functools.cached_property
-    def accepts_none_items(self) -> bool:
+    def keeps_none_items(self) -> bool:
         """Whether a ``Series`` input that collects a loop keeps an item that is ``None``, or drops it.
 
         A loop over ``["a", "b", "c"]`` whose node returns ``None`` for ``"b"``: an input ``Series[str | None]``

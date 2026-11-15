@@ -175,7 +175,7 @@ class ResultReader:
         value = self.read_edges(graph_path, node_input.sources, item_indexes)
         return (
             [value]
-            if _may_have_value(value, node_input.field.accepts_none_items) is MAY_HAVE_VALUE
+            if _may_have_value(value, node_input.field.keeps_none_items) is MAY_HAVE_VALUE
             else value
         )
 
@@ -285,10 +285,10 @@ class ResultReader:
             ``SKIPPED``, ``NOT_READY`` or ``None`` that every item reads.
         """
         series_node = function_node_in_run(self.function_nodes, graph_path, node_input.series[0])
-        depth, accepts_none_items = len(series_node.loops), node_input.field.accepts_none_items
+        depth, keeps_none_items = len(series_node.loops), node_input.field.keeps_none_items
         if len(item_indexes) < depth:
             return _may_have_value(
-                self.read_edges(graph_path, node_input.sources, item_indexes), accepts_none_items
+                self.read_edges(graph_path, node_input.sources, item_indexes), keeps_none_items
             )
         item_indexes = item_indexes[:depth]
         loop = series_node.node_path, node_input.series[1]
@@ -299,7 +299,7 @@ class ResultReader:
         for_any_item = self._for_any_item_of(loop, sources, item_indexes).read_edges(
             graph_path, node_input.sources, item_indexes
         )
-        series = self._list_looped_over(loop, for_any_item, accepts_none_items, item_indexes)
+        series = self._list_looped_over(loop, for_any_item, keeps_none_items, item_indexes)
         if series is None or series is SKIPPED or series is NotReady.NOT_READY:
             return series
         edges = node_input.sources
@@ -326,7 +326,7 @@ class ResultReader:
         self,
         loop: tuple[NodePath, str],
         for_any_item: Any,
-        accepts_none_items: bool,
+        keeps_none_items: bool,
         item_indexes: ItemIndexes,
     ) -> Any:
         """Returns the list looped over, when an item of it may have a value. When no item can, returns what
@@ -342,7 +342,7 @@ class ResultReader:
                 the output.
             for_any_item: What a read returns for any item of the loop: ``MAY_HAVE_VALUE``, or the ``SKIPPED``,
                 ``NOT_READY`` or ``None`` that every item reads.
-            accepts_none_items: Whether a ``None`` item counts as a value (``Series[str | None]``).
+            keeps_none_items: Whether a ``None`` item counts as a value (``Series[str | None]``).
             item_indexes: The item indexes of the list.
 
         Returns:
@@ -350,7 +350,7 @@ class ResultReader:
             no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
             ``NOT_READY``.
         """
-        value = _may_have_value(for_any_item, accepts_none_items)
+        value = _may_have_value(for_any_item, keeps_none_items)
         if value is not MAY_HAVE_VALUE:
             return value
         node_path, output = loop
@@ -392,8 +392,8 @@ class ResultReader:
             dropped: set[int] = (
                 set()
             )  # the indexes at which an input that accepts no None item has one
-            for name, accepts_none_items in inputs:
-                if not accepts_none_items and arguments[name] is not None:
+            for name, keeps_none_items in inputs:
+                if not keeps_none_items and arguments[name] is not None:
                     dropped.update(indexes_of_none(arguments[name]))
             if dropped:
                 for name, _ in inputs:
@@ -402,15 +402,11 @@ class ResultReader:
         return arguments
 
 
-def _may_have_value(value: Any, accepts_none_items: bool) -> Any:
+def _may_have_value(value: Any, keeps_none_items: bool) -> Any:
     """Returns ``MAY_HAVE_VALUE`` when ``value``, what an input's edges read, can be an item of the input's list;
     else ``value``: the ``SKIPPED``, ``NOT_READY`` or ``None`` the input gets in place of a list. A ``None`` counts
     as an item where the items accept ``None`` (``Series[str | None]``). Read for any item of a loop, the answer
     says whether some item of the loop may have a value."""
-    if (
-        value is SKIPPED
-        or value is NotReady.NOT_READY
-        or (value is None and not accepts_none_items)
-    ):
+    if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not keeps_none_items):
         return value
     return MAY_HAVE_VALUE

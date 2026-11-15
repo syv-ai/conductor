@@ -82,12 +82,12 @@ class DisplayReader(ResultReader):
         self,
         loop: tuple[NodePath, str],
         for_any_item: Any,
-        accepts_none_items: bool,
+        keeps_none_items: bool,
         item_indexes: ItemIndexes,
     ) -> Any:
         """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
         looped_over = ResultReader._list_looped_over(
-            self, loop, for_any_item, accepts_none_items, item_indexes
+            self, loop, for_any_item, keeps_none_items, item_indexes
         )
         return None if looped_over is NotReady.NOT_READY else looped_over
 

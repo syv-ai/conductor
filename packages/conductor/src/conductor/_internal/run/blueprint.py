@@ -368,7 +368,7 @@ def _function_node(
                 outside_the_loop = [
                     (read, shared) for read, shared in read_inside if looped_over not in read.loops
                 ]
-                collecting.setdefault(looped_over, []).append((name, field.accepts_none_items))
+                collecting.setdefault(looped_over, []).append((name, field.keeps_none_items))
             case _:
                 assert_never(node_input)
         edge_inputs[name] = graph_path, node_input

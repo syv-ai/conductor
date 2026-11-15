@@ -871,7 +871,7 @@ class Compiler:
             (name, [self._branches_required_for(s) for s in node_input.sources])
             for name, node_input in inputs.items()
             if isinstance(node_input, CollectingInput)
-            and not node_input.field.accepts_none_items
+            and not node_input.field.keeps_none_items
             and name not in refused
         ]
         for i, (a, branches_a) in enumerate(aligned):
