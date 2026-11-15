@@ -36,6 +36,11 @@ EXAMPLES = {
     "regex-replace": [{"text": "a1b2", "pattern": r"\d", "replacement": "-"}],
     "regex-extract": [{"text": "a1b22", "pattern": r"\d+"}],
     "control-decide": [{"value": "x", "when": False}],
+    "control-switch": [
+        {"value": 1, "case": "b", "cases": ["a", "b"]},
+        {"value": 1, "case": "z", "cases": ["a"]},
+    ],
+    "control-default": [{"value": None, "fallback": "x"}, {"value": "y", "fallback": "x"}],
     "series-split": [{"value": ["a", "b"]}],
     "series-collect": [{"values": ["a", "b"]}],
     "series-stack": [{"tables": [[{"name": "Ann"}], [{"name": "Bo"}]]}],

@@ -6,7 +6,7 @@ import conductor_nodes
 import polars as pl
 import pytest
 from conductor import Graph, InvalidCallError, NodeRegistry, Table, make_graph
-from conductor_nodes import control, json_ops, logic, regex_ops, text
+from conductor_nodes import control, json_ops, logic, regex_ops, series, text
 from pytest import MonkeyPatch
 
 
@@ -160,6 +160,79 @@ def test_is_empty_is_true_for_nothing_found_and_for_a_table_of_no_rows() -> None
     assert found.run(value={"user": {}}).outputs == {"result": True}
     assert found.run(value={"user": {"name": "Ida"}}).outputs == {"result": False}
     assert table.run().outputs == {"result": True}
+
+
+def test_a_switch_sends_each_item_down_its_cases_branch_and_the_node_after_them_takes_the_chosen_one() -> (
+    None
+):
+    graph = Graph.compile(
+        make_graph(
+            series.split,
+            control.switch,
+            text.uppercase,
+            series.collect,
+            edges=[
+                ("series-split.result.label", "control-switch.case"),
+                ("series-split.result.text", "control-switch.value"),
+                ("control-switch.invoice", "text-uppercase.text"),
+                ("control-switch.receipt", "text-uppercase.text"),
+                ("control-switch.other", "text-uppercase.text"),
+                ("text-uppercase.result", "series-collect.values"),
+            ],
+            constants={"control-switch.cases": ["invoice", "receipt"]},
+        ),
+        conductor_nodes.registry,
+    )
+    documents = [
+        {"label": "invoice", "text": "a"},
+        {"label": "receipt", "text": "b"},
+        {"label": "letter", "text": "c"},
+    ]
+
+    run = graph.run(value=documents)
+
+    assert [output.name for output in graph.describe().nodes["control-switch"].outputs] == [
+        "invoice",
+        "receipt",
+        "other",
+    ]
+    assert run.outputs == {"result": ["A", "B", "C"]}
+    assert run.results["control-switch"] == {
+        "invoice": ["a", None, None],
+        "receipt": [None, "b", None],
+        "other": [None, None, "c"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("cases", "error"),
+    [(["invoice", "other"], "case_named_other"), (["a", "b", "a"], "case_given_twice")],
+)
+def test_a_switch_whose_cases_name_other_or_one_case_twice_is_a_problem_when_compiled(
+    cases: list[str], error: str
+) -> None:
+    graph = Graph.compile(
+        make_graph(control.switch, constants={"control-switch.cases": cases}, outputs={}),
+        conductor_nodes.registry,
+    )
+
+    assert [(problem.type, problem.ctx["error"]) for problem in graph.problems] == [
+        ("compute_hook_failed", error)
+    ]
+
+
+def test_default_gives_the_fallback_for_nothing_found_and_the_value_otherwise() -> None:
+    graph = Graph.compile(
+        make_graph(
+            json_ops.get_path,
+            control.default,
+            constants={"json-get.path": "user.name", "control-default.fallback": "nobody"},
+        ),
+        conductor_nodes.registry,
+    )
+
+    assert graph.run(value={"user": {}}).outputs == {"result": "nobody"}
+    assert graph.run(value={"user": {"name": "Ida"}}).outputs == {"result": "Ida"}
 
 
 def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:

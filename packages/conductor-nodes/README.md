@@ -28,7 +28,7 @@ print(graph.run(text="a\nb").outputs)  # {'result': ['A', 'B']}
 | `regex_ops` | `regex` | `regex-match`, `regex-replace`, `regex-extract` |
 | `series` | `series` | `series-split`, `series-collect`, `series-stack` |
 | `tables` | `table` | `table-collect` |
-| `control` | `control` | `control-decide` |
+| `control` | `control` | `control-decide`, `control-switch`, `control-default` |
 
 Each module is one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
@@ -76,7 +76,7 @@ When a whole table or list is wired to an input that takes one value, compiling 
 
 `text-split` splits a text into its lines, or at another separator. `text-list` returns the texts set in its constant; wire a series to `for_each` and it returns them once for each item of it, so each document gets every question.
 
-`control-decide` gives its `value` on `if_true` or `if_false` by `when`, and the nodes wired to the other output are skipped for that call. Its outputs take the type that arrives on `value`:
+`control-decide` gives its `value` on `if_true` or `if_false` by `when`, and the nodes wired to the other output are skipped for that call. `when` comes from a node that gives a yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`. `control-switch` has a branch per name in its constant `cases`, and `other` for a case with none; wire its branches into one input and the node there takes whichever was chosen. `control-default` gives its `value`, or its `fallback` when the value is `None`. Its outputs take the type that arrives on `value`:
 
 ```python
 from conductor_nodes.control import decision

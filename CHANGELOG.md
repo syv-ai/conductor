@@ -244,7 +244,7 @@ What changes in how you work, before the name-by-name tables:
 - **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
   a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
   A node's own exception goes to the `conductor` logger; only its class name reaches the problem, as `ctx.error`.
-- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 34 nodes that only
+- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 36 nodes that only
   compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
   `conductor_nodes.registry`. `series-split` takes a table or a list apart into a `Series` (a node may return a table for `Series[R]`, and a run stores that table, not a copy of its rows), `series-stack` puts the table of each item into one, `table-collect` puts records back into a
   table with new columns (its `records` input is a `Table`, so records split from a table arrive as that table and the new columns are added beside its own, with no copy and their column types kept), `text-list` gives a list of texts a person enters, and `text-split` is titled "Split text" and splits on a newline. A saved run writes each output's value under that output, a table that two outputs share (a table read and then split) under both.
@@ -264,7 +264,10 @@ What changes in how you work, before the name-by-name tables:
   and gives the value of every item as one list. `split` and `stack` are `series-split` and
   `series-stack` and live in `conductor_nodes.series`. `decision` is `control-decide`. `logic-if-empty` and
   `logic-if-equals`, which sent a text one way or the other, are gone: `logic-is-empty` and `logic-equals` give a
-  yes or no on a value of any type, to wire into `control-decide.when`. A graph record that names an old id
+  yes or no on a value of any type, to wire into `control-decide.when`. `control-switch` sends its `value` down the
+  branch its `case` names, one output per name in the constant `cases`, or down `other` (a case named `other` or
+  given twice is `compute_hook_failed`, `ctx.error` `case_named_other` or `case_given_twice`), and `control-default`
+  gives its `value`, or its `fallback` when the value is `None`. A graph record that names an old id
   needs the new one, and a run saved from a graph that used an old id is refused by `Run.from_json`
   (`saved_run_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
 - **`syv-conductor-nodes` gives a widget only where it says more than the type.** A text to work on
@@ -501,7 +504,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`logic-equals`, `logic-is-empty`, `text-contains`, `regex-match`), wired into `control-decide.when` |
 | `conductor_nodes`: `get_default_registry`, `register_all` | `conductor_nodes.registry`, added with `registry.add_subregistry(...)` |
 | `conductor_nodes`: `CATEGORIES` | gone: each node has its `category`; `conductor_nodes.registry.filter(lambda d: d.category == "math")` |
-| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`control-decide`), `json_ops`, `logic` (`logic-not`, `logic-equals`, `logic-is-empty`), `math`, `regex_ops`, `text`; `decision` is `control-decide`, `logic-if-empty` and `logic-if-equals` are gone (`logic-is-empty` and `logic-equals` wired into `control-decide.when`), and the other node ids are unchanged |
+| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`control-decide`, `control-switch`, `control-default`), `json_ops`, `logic` (`logic-not`, `logic-equals`, `logic-is-empty`), `math`, `regex_ops`, `text`; `decision` is `control-decide`, `logic-if-empty` and `logic-if-equals` are gone (`logic-is-empty` and `logic-equals` wired into `control-decide.when`), and the other node ids are unchanged |
 | `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per item of a `Series` wired to it, and a pause is `raise Ask(...)` |
 | `conductor_providers.fastapi.conductor_router` | `conductor_providers.fastapi.run_router(worker, caller=, may_see=)` over a `Worker(store=, caller_type=, nodes_for=)`, `nodes_for=` a function of the caller: runs by id, kept in a `RunStore`, on several workers; `/nodes` is the caller's registry's `describe()`, `/compile` is `POST /compile` (`graph.describe()`), `/execute-stream` is `POST /runs` and `GET /runs/{id}/events` |
 | `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |
