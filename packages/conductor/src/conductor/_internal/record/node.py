@@ -1,5 +1,7 @@
-"""``NodeRecord``: one node of a graph record, ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``, and
-``InputEntry``, what each of its inputs gets."""
+"""``NodeRecord``, one node of a graph record, and ``InputEntry``, what one of its inputs gets.
+
+In JSON, a node looks like ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}``.
+"""
 
 from __future__ import annotations
 
@@ -13,19 +15,21 @@ from conductor._internal.base import ConductorModel, Name, Source
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
+    """Whether a mapping is empty, so it is left out when the record is saved."""
     return not value
 
 
-#: A record holds JSON, which has no float that isn't finite: one is refused, so a record equals what its JSON reads back.
+#: A record is JSON, and JSON has no ``inf`` or ``nan``. Refusing them keeps a record equal to its JSON read back.
 JSON_ONLY = ConfigDict(allow_inf_nan=False)
 
 
 def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
-    """Returns ``sources`` sorted, so two records that list one input's sources in another order are equal and
-    save alike.
+    """Checks an input's sources and returns them sorted.
+
+    Sorting means two records that list the same sources in a different order are equal, and save the same.
 
     Raises:
-        PydanticCustomError: There is no source (``no_sources``), or one is listed twice (``repeated_source``).
+        PydanticCustomError: ``no_sources`` if the list is empty, ``repeated_source`` if a source is listed twice.
     """
     if not sources:
         raise PydanticCustomError("no_sources", "an input's sources list at least one output")
@@ -42,20 +46,24 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
 
 
 class InputEntry(ConductorModel):
-    """What one input of a node gets in a graph record: exactly one of a constant, a graph input or sources.
+    """What one input of a node gets in a graph record: a constant, a graph input or sources.
 
-    - ``{"constant": "?"}``: the same value on every call in every run; no caller can change it.
-    - ``{"graph_input": "text"}``: the value the caller gives when a run starts, ``graph.run(text="a b")``. With
-      ``"default"``, the value when the caller gives none; without, the caller must give one. Several inputs may name
-      one graph input, and each then gets the caller's one value.
-    - ``{"sources": [{"node": "lines", "output": "result"}]}``: the outputs the edges into the input come from.
-      Several are alternatives, from opposite branches of one decision, so they are kept sorted.
+    Each entry is exactly one of the three:
+
+    - ``{"constant": "?"}`` is a fixed value. The input has it on every call of every run, and no caller can change
+      it.
+    - ``{"graph_input": "text"}`` is a value the caller gives when a run starts, as in ``graph.run(text="a b")``.
+      Add ``"default"`` for a value to use when the caller gives none. Without one, the caller must give it.
+      Several inputs may name the same graph input, and then they all get the caller's one value.
+    - ``{"sources": [{"node": "lines", "output": "result"}]}`` lists the outputs whose edges lead into the input.
+      A source may also name one field of a record, as in ``{"node": "read", "output": "result", "field":
+      "email"}``. Several sources are alternatives, from opposite branches of one decision.
 
     Attributes:
-        constant: The constant.
-        graph_input: The graph input's name.
+        constant: The fixed value.
+        graph_input: The name of the graph input.
         default: The graph input's default.
-        sources: The outputs the edges come from.
+        sources: The outputs the edges come from, sorted.
     """
 
     model_config = ConductorModel.model_config | JSON_ONLY
@@ -67,8 +75,12 @@ class InputEntry(ConductorModel):
 
     @model_validator(mode="after")
     def _one_kind(self) -> Self:
-        """Refuses an entry with more or less than one of a constant, a graph input and sources
-        (``one_of_constant_graph_input_sources``), or a default without a graph input (``default_without_graph_input``)."""
+        """Checks that the entry is exactly one kind, and has a default only beside a graph input.
+
+        Raises:
+            PydanticCustomError: ``one_of_constant_graph_input_sources`` if the entry is none of the three kinds or
+                more than one. ``default_without_graph_input`` if it has a default but no graph input.
+        """
         if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
             raise PydanticCustomError(
                 "one_of_constant_graph_input_sources",
@@ -83,19 +95,20 @@ class InputEntry(ConductorModel):
 
 
 class NodeRecord(ConductorModel):
-    """One node of a graph record: which node definition it uses, and what each of its inputs gets.
+    """One node of a graph record: which node it uses, and what each of its inputs gets.
 
-    Its id is its key in ``GraphRecord.nodes``. The node's inputs and outputs are not stored here: compiling works them
-    out (``graph.describe()``). An input the record leaves out gets the node's own default.
+    The node's id is its key in ``GraphRecord.nodes``. The record doesn't list the node's inputs and outputs.
+    Compiling the graph works those out, and ``graph.describe()`` shows them. An input the record leaves out gets
+    the node's own default.
     """
 
     model_config = ConductorModel.model_config | JSON_ONLY
 
     #: The id of the node definition this node uses.
     node: str
-    #: Left out of the saved record when it is 1, as is each field below when empty.
+    #: The version of the node definition. Left out of the saved record when it is 1, like each field below when empty.
     version: int = Field(default=1, exclude_if=lambda version: version == 1)
     #: What each input gets, by the input's name.
     inputs: Mapping[Name, InputEntry] = Field(default_factory=dict, exclude_if=_empty)
-    #: The host's own: position, size, titles a person edited. Stored and never read here.
+    #: The host's own data, like position, size or a title a person edited. Conductor saves it and never looks at it.
     display: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)

@@ -1,5 +1,4 @@
-"""``GraphRecord``: a graph as a host stores it, its nodes by id, ``{"nodes": {"shout": {"node": "shout"}}}``. The
-package's docstring has a whole record."""
+"""``GraphRecord``, a whole graph as a host saves it: its nodes by id, and its outputs."""
 
 from __future__ import annotations
 
@@ -15,10 +14,12 @@ from .node import JSON_ONLY, NodeRecord
 
 
 def _whole_output(source: Source) -> Source:
-    """Returns ``source`` when it names a whole output.
+    """Checks that a graph output is a whole output, not one field of it.
+
+    An edge into a node may take one field of a record, but a graph output can't.
 
     Raises:
-        PydanticCustomError: It names one field of an output (``output_has_field``): a graph output is a whole output.
+        PydanticCustomError: ``output_has_field`` if ``source`` names a field.
     """
     if source.field is not None:
         raise PydanticCustomError(
@@ -29,17 +30,19 @@ def _whole_output(source: Source) -> Source:
 
 
 class GraphRecord(ConductorModel):
-    """A graph as a host stores it: its nodes by id, each with what its inputs get, and the graph's outputs.
+    """A graph as a host saves it: its nodes by id, and the graph's outputs.
 
-    A graph declares what it takes and returns, as a function declares its parameters and its return value: a graph
-    input is an input of a node whose entry names it (``InputEntry(graph_input=...)``), and a graph output is an output of a
-    node, by name. Used as a subgraph, these are the node's inputs and outputs. What a host keeps about the whole
-    graph (its name, a viewport) it stores beside the record. The record keeps no order of its nodes: where order
-    matters, nodes are taken by id.
+    A graph has inputs and outputs, much like a function has parameters and a return value. A graph input is
+    declared by a node's input that names it, as in ``InputEntry(graph_input="text")``. A graph output is one
+    node's output, listed under ``outputs``. When the graph is used as a subgraph, these become the subgraph node's
+    inputs and outputs.
+
+    Things a host keeps about the whole graph, like its name or a viewport, are saved beside the record, not in it.
+    The nodes have no order. Where order matters, they are taken by id.
 
     Attributes:
         nodes: Each node, by id.
-        outputs: Each graph output, by name, as the output of a node it is: ``{"result": {"node": "join",
+        outputs: Each graph output, by name, with the node output it is, as in ``{"result": {"node": "join",
             "output": "result"}}``. Empty for a graph that returns nothing.
     """
 
@@ -50,7 +53,10 @@ class GraphRecord(ConductorModel):
 
     @property
     def input_names(self) -> tuple[Name, ...]:
-        """The graph inputs its entries name, in the order its nodes name them. Two entries may name one."""
+        """The names of the graph inputs, in the order the nodes name them.
+
+        Two inputs may name the same graph input. It is listed once.
+        """
         return tuple(
             dict.fromkeys(
                 entry.graph_input
@@ -62,9 +68,9 @@ class GraphRecord(ConductorModel):
 
     @property
     def required_inputs(self) -> tuple[Name, ...]:
-        """The graph inputs a caller must give: each one that no entry naming it gives a default.
+        """The names of the graph inputs a caller must give, because none of them has a default.
 
-        Two entries may name one graph input; a default on either is the graph input's default.
+        When two inputs name the same graph input, a default on either one counts for both.
         """
         defaulted = {
             entry.graph_input

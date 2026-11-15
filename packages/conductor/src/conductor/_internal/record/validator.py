@@ -1,14 +1,17 @@
-"""The record validator: a graph record a host hands in, and the values ``make_graph`` writes into one.
+"""Checking a graph record a host hands in, and the values Python code writes into one.
 
-Example: ``Graph.compile('{"nodes": {"shout": {"node": "shout"}}}', registry)`` reads the text with ``RecordValidator``
-into a ``GraphRecord``. The text ``'{"nodes": {"shout": {}}}'`` is refused with one ``invalid_record`` problem at
-``("record", "nodes", "shout", "node")``: the node names no definition. And ``make_graph(shout, constants={"shout.mark":
-{"!"}})`` is refused by ``WrittenValuesValidator`` with ``invalid_value`` at ``("shout", "mark")``: a set has no order,
-so the record would list it in another order in another process.
+A host hands conductor a record as JSON text, as plain data or as a ``GraphRecord``. ``RecordValidator`` checks
+that it has a record's shape and returns a ``GraphRecord``. Say a host compiles the text
+``'{"nodes": {"shout": {}}}'``. The node doesn't say which node it uses, so the record is refused with one
+``invalid_record`` problem at ``("record", "nodes", "shout", "node")``.
 
-What the record says that is wrong as a graph (an edge into an input the node does not have, an edge from a node the
-record lacks, a constant its input's type refuses) is not refused: compiling says so in ``graph.problems``, so an
-editor can show the graph while it is being drawn.
+``WrittenValuesValidator`` checks the Python values that ``make_graph`` and ``registry.upgrade`` write into a
+record, and converts them to JSON. A date becomes its ISO text. A set is refused, since it has no order and the
+record could list it differently in another process.
+
+Only the shape is checked here. A record can have the right shape and still be wrong as a graph, for example with
+an edge from a node it doesn't have. That isn't refused: compiling lists it in ``graph.problems``, so an editor can
+still show a graph while a person is drawing it.
 """
 
 from __future__ import annotations
@@ -30,11 +33,13 @@ from .graph import GraphRecord
 
 
 def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    """The object of ``pairs``, the keys and values of one JSON object as the text has them.
+    """Builds one JSON object from its keys and values, and refuses a key written twice.
+
+    ``json.loads`` calls this for each object, with the pairs in the order the text has them. A plain ``dict``
+    would quietly keep only the last value of a repeated key. In a record, that would lose a node with the same id.
 
     Raises:
-        InvalidCallError: A key is in it twice, such as the id of two nodes, where a ``dict`` would keep only the last:
-            one ``invalid_record`` problem, ``repeated_key``.
+        InvalidCallError: One ``invalid_record`` problem, ``repeated_key``, if a key is written twice.
     """
     read: dict[str, Any] = {}
     for key, value in pairs:
@@ -52,21 +57,22 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def read_json(text: str | bytes) -> Any:
-    """Returns JSON text as plain data, the way conductor reads a graph record's text: with every object's keys seen,
-    so a key written twice is refused where a ``dict`` would keep the last. A host's route that takes a body holding
-    a graph record reads the body with it, ``body = read_json(await request.body())``, and hands the record on to
-    ``Graph.compile`` as data.
+    """Parses JSON text into plain data, and refuses a key written twice in one object.
 
-    ``read_json('{"nodes": {"a": {"node": "upper"}, "a": {"node": "count"}}}')`` is refused: a dict would keep the
-    second node ``a`` and lose the first without a word.
+    This is how conductor parses a graph record's text. Plain ``json.loads`` would keep only the last of two equal
+    keys. So ``read_json('{"nodes": {"a": {"node": "upper"}, "a": {"node": "count"}}}')`` is refused, where
+    ``json.loads`` would drop the first node ``a`` without a word.
+
+    A host whose route takes a graph record in its body can parse the body with it,
+    ``body = read_json(await request.body())``, and hand the data on to ``Graph.compile``.
 
     Raises:
-        InvalidCallError: The text is not JSON, bytes that are not UTF-8 included (``json_invalid``), or writes a
-            key twice in one object (``repeated_key``): one ``invalid_record`` problem at ``("record",)``.
+        InvalidCallError: One ``invalid_record`` problem at ``("record",)``. Its error is ``json_invalid`` if the
+            text isn't JSON (bytes that aren't UTF-8 included), or ``repeated_key`` if a key is written twice.
     """
     try:
         return json.loads(text, object_pairs_hook=_each_key_once)
-    except InvalidCallError:  # a key written twice; also a ValueError, which is what json.loads raises for text that is not JSON
+    except InvalidCallError:  # a repeated key; also a ValueError, so let through first
         raise
     except ValueError as not_json:
         raise InvalidCallError(
@@ -82,27 +88,28 @@ def read_json(text: str | bytes) -> Any:
 
 
 class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], GraphRecord]):
-    """Reads a graph record into a ``GraphRecord``: a ``GraphRecord`` as it is; JSON text (read by ``read_json``), or
-    the plain data ``make_graph`` and ``registry.upgrade`` write, read into one.
+    """A validator for a graph record a host hands in.
+
+    It returns a ``GraphRecord``. A ``GraphRecord`` is returned as it is. JSON text is parsed with ``read_json``.
+    Plain data, like what ``make_graph`` and ``registry.upgrade`` write, is checked as it is.
 
     Raises (when called):
-        InvalidCallError: The text is not JSON or writes a key twice in one object, or the record is not a record's
-            shape (a key a record does not have, an id or input that is not a name, an input given more than one of
-            a constant, a graph input and sources, a source listed twice, a field on a graph output): one
-            ``invalid_record`` problem per fault, each at ``("record", *where)``.
+        InvalidCallError: One ``invalid_record`` problem per fault, each at ``("record", *where)``. The faults
+            include text that isn't JSON, a key written twice, a key a record doesn't have, an id that isn't a
+            name, and an input given more than one kind of entry.
     """
 
     def __init__(self, written_by: str | None = None) -> None:
-        """Builds the validator for a record that ``written_by`` wrote.
+        """Builds the validator.
 
         Args:
-            written_by: What wrote it when it is not JSON a host sent, for the refusal to say what to fix:
-                ``make_graph``'s arguments, or a node's ``Upgrade``.
+            written_by: What wrote the record, when it isn't JSON a host sent: ``make_graph``'s arguments, or a
+                node's ``Upgrade``. A refusal names it, so the reader knows what to fix.
         """
         self._written_by = written_by
 
     def __call__(self, record: GraphRecord | str | bytes | Mapping[str, Any]) -> GraphRecord:
-        """Returns ``record`` as a ``GraphRecord``.
+        """Checks ``record`` and returns it as a ``GraphRecord``.
 
         Raises:
             InvalidCallError: See the class.
@@ -127,21 +134,26 @@ class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], G
 
 
 class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]]):
-    """Reads the constants or defaults Python writes into a graph record for one node, into the JSON the record
-    keeps: each value as its JSON reads back. ``{"day": date(2026, 1, 2)}`` gives ``{"day": "2026-01-02"}``, and a
-    float that is not finite is its text (``"NaN"``, ``"Infinity"``).
+    """A validator for the constants or defaults Python code writes into a graph record for one node.
+
+    It converts each value to the JSON the record stores. ``{"day": date(2026, 1, 2)}`` becomes
+    ``{"day": "2026-01-02"}``. A float that isn't finite becomes its text, ``"NaN"`` or ``"Infinity"``.
 
     Raises (when called):
-        InvalidCallError: One ``invalid_value`` problem, at ``(node_id, input)``, for each value with no JSON form or
-            holding a set (``set_has_no_order``).
+        InvalidCallError: One ``invalid_value`` problem at ``(node_id, input)`` for each value that can't be written
+            as JSON, or that has a set in it (``set_has_no_order``).
     """
 
     def __init__(self, node_id: str) -> None:
-        """Builds the validator for the values given to the node ``node_id``."""
+        """Builds the validator for the values written for one node.
+
+        Args:
+            node_id: The node's id. The problems name it.
+        """
         self._node_id = node_id
 
     def __call__(self, values: Mapping[str, Any]) -> dict[str, JsonValue]:
-        """Returns ``values``, by input name, as the record keeps them.
+        """Checks ``values`` and returns them as JSON, by input name.
 
         Raises:
             InvalidCallError: See the class.
@@ -174,7 +186,7 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
 
 
 def _holds_a_set(value: Any) -> bool:
-    """Whether ``value`` is a set, or a list, tuple or dict with a set anywhere inside."""
+    """Whether ``value`` is a set, or a list, tuple or dict with a set somewhere inside."""
     if isinstance(value, (set, frozenset)):
         return True
     if isinstance(value, dict):
