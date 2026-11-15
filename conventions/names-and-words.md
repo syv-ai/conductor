@@ -2,7 +2,7 @@
 
 ## Plain words a stranger reads right
 
-Write every name, docstring and comment for a Python developer who has never seen conductor. Say what the thing is first, in words they already know. Then say where it fits and why it exists. Never assume they know the rest of the codebase: someone who opens one file should understand it from that file. Use plain Python and graph words, with no coined metaphors and no word taken from a plan.
+Write every name, docstring and comment for a Python developer who has never seen conductor. Say what the thing is first, in words they already know. Then say where it fits and why it exists. Never assume they know the rest of the codebase: someone who opens one file should understand it from that file. Use plain Python and graph words, with no coined metaphors and no word taken from a plan. Use the plain verb for what the code does: check, convert or store, not "read" for all three, "the form a run keeps" or "holds to". A problem's message is written in the same voice.
 
 Why: a sentence that only makes sense once you know the rest of the code isn't understood. If it can't be said simply, the idea isn't clear yet.
 
@@ -17,7 +17,7 @@ A node that raises ``Ask`` is answered by filling in its outputs, and each outpu
 
 ## One idea per sentence
 
-Write short sentences with one idea each, in the tone you would use to explain the code to a colleague. Don't fit every fact into one sentence: split it, and leave out what the code or the reference already says. Where it helps, add an example with real values.
+Write short sentences with one idea each, in the tone you would use to explain the code to a colleague. Don't fit every fact into one sentence: split it. Say each thing once, where a reader looks for it: the package docstring says what the concept is and where it fits, the class teaches how to use it, and a helper says what it checks. Leave out what the code says, and point to the reference (`python -m conductor.about <section>`) instead of repeating its rules. Where it helps, add an example with real values.
 
 Why: a sentence that carries five facts has to be read three times. Short, relaxed sentences are read once.
 
@@ -66,7 +66,7 @@ class InvalidAskError(Exception): ...  # good
 
 ## Google-style docstrings
 
-Give every public class and function a Google-style docstring. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for.
+Give every public class and function a Google-style docstring, and hold a private helper's docstring to the same rule. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for.
 
 Why: one format is easy to read and to find things in. The reference shows a public name's first paragraph alone, so that paragraph has to make sense on its own.
 
