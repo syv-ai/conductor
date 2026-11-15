@@ -1,5 +1,8 @@
-"""The command ``python -m conductor.about [section]``: prints the reference, the slugs of its sections, or one
-section."""
+"""The command ``python -m conductor.about``, which prints the reference.
+
+With no argument it prints the rules. It can also print the problems page, the slugs of every section, or one
+section.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ Usage: python -m conductor.about [section]
 
 
 def main(argv: list[str]) -> int:
-    """Print the reference, the problems page, the section slugs or one section, as ``argv`` asks.
+    """Prints the rules, the problems page, the section slugs or one section, as ``argv`` asks.
 
     Args:
         argv: The command's arguments, without the program name.

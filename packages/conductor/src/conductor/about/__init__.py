@@ -1,9 +1,14 @@
-"""Conductor's reference, shipped in the package: the rules on one page, ``llms.txt``, and every problem on another, ``problems.md``.
+"""Conductor's reference, shipped inside the package.
 
-Both pages are templates. A line ``<!-- names: conductor.events -->`` is replaced by the names the module exports, from
-its ``__all__``, each with the first paragraph of its docstring. A line ``<!-- problems: conductor.PROBLEMS -->`` is
-replaced by every kind of problem the catalogue declares, each from the function that declares it: its docstring, its
-example, its sentence and its ``ctx`` keys. So nothing on either page is a copy of something in the code.
+The reference has two pages. ``llms.txt`` has the rules, and ``problems.md`` has every problem conductor can report.
+
+Both pages are templates, filled in from the code when they are read. That way nothing on them is a copy of something
+in the code. Two kinds of line get replaced:
+
+- ``<!-- names: conductor.events -->`` becomes the names the module exports, in the order of its ``__all__``. Each
+  name comes with the first paragraph of its docstring.
+- ``<!-- problems: conductor.PROBLEMS -->`` becomes every kind of problem in that catalogue. Each entry is written
+  from the function that declares the kind: its docstring, its example, its message and its ``ctx`` keys.
 
 From a shell::
 
@@ -12,8 +17,10 @@ From a shell::
     python -m conductor.about sections         # the section slugs of both pages
     python -m conductor.about one-or-many      # one section, by its slug or a part of it
 
-A section's slug is its heading in lower case with a hyphen for each run of other characters: the heading "One or
-many" has the slug ``one-or-many``. ``__main__.py`` calls the functions here; the module exports no names.
+A section's slug is its heading in lower case, with a hyphen in place of any run of other characters. So the
+heading "One or many" has the slug ``one-or-many``.
+
+``__main__.py`` is the command, and it calls the functions here. The module exports no names.
 """
 
 from __future__ import annotations
@@ -35,12 +42,13 @@ _DOCSTRING_SECTION = re.compile(r"^(Args|Example):\n", re.MULTILINE)
 
 
 def _names(module_name: str) -> str:
-    """The names a public module exports, as a Markdown list in the order of its ``__all__``.
+    """Lists the names a public module exports, as Markdown, in the order of its ``__all__``.
 
-    ``_names("conductor.widgets")`` starts ``"- `Widget`: The base class of every widget. ..."``. A class or a
-    function is followed by the first paragraph of its docstring on one line, with reStructuredText's double
-    backticks made Markdown's single ones; a paragraph that ends ``::``, to introduce an example, ends with a full
-    stop instead. A constant or a type alias has no docstring of its own, so it is listed by its name alone.
+    For example, ``_names("conductor.widgets")`` starts with ``"- `Widget`: The base class of every widget."``.
+
+    A class or a function gets the first paragraph of its docstring, joined onto one line. Its double backticks
+    become Markdown's single ones. A paragraph that ends in ``::`` to introduce an example ends with a full stop
+    instead. A constant or a type alias has no docstring of its own, so it is listed by its name alone.
 
     Args:
         module_name: The dotted name of the module, as ``"conductor.widgets"``.
@@ -63,12 +71,12 @@ def _names(module_name: str) -> str:
 
 @dataclass(frozen=True)
 class _KindDocs:
-    """The docstring of the function that declares a kind of problem, in the parts the problems page prints.
+    """The parts of a problem function's docstring that the problems page prints.
 
     Attributes:
-        text: The paragraphs before ``Args:``, in Markdown's single backticks.
-        arguments: The line under ``Args:`` for each parameter, by the parameter's name, on one line.
-        example: The code under ``Example:``, without its indent; empty when there is none.
+        text: The paragraphs before ``Args:``, with Markdown's single backticks.
+        arguments: Each parameter's line under ``Args:``, joined onto one line, by the parameter's name.
+        example: The code under ``Example:``, without its indent. It is empty when there is none.
     """
 
     text: str
@@ -77,10 +85,10 @@ class _KindDocs:
 
 
 def _kind_docs(kind: ProblemKind[...]) -> _KindDocs:
-    """Splits the docstring of the function that declares ``kind``.
+    """Splits the docstring of the function that declares a kind of problem into its parts.
 
-    The docstring is the kind's text, then ``Args:`` with a line for each parameter, then ``Example:`` with code that
-    makes the problem::
+    The docstring has the kind's text first. Then comes ``Args:``, with a line for each parameter. Last comes
+    ``Example:``, with code that makes the problem::
 
         A node is on a cycle of edges.
 
@@ -106,15 +114,20 @@ def _kind_docs(kind: ProblemKind[...]) -> _KindDocs:
 
 
 def _problems(catalogue: ProblemCatalogue) -> str:
-    """Every kind of problem a catalogue declares, a ``###`` section each, under a ``##`` heading for each section of
-    the catalogue.
+    """Writes every kind of problem in a catalogue as Markdown, for the problems page.
 
-    A kind's section has its docstring's text, its example, its sentence with a slot for each ``ctx`` value, what
-    its ``*loc`` is when it has one, and, when it has any, a table of its ``ctx`` keys: the type, whether the key is always given,
-    and the key's line under ``Args:``.
+    Each section of the catalogue gets a ``##`` heading, and each kind a ``###`` section under it. A kind's section
+    has, in order:
+
+    - the text of its docstring;
+    - its example;
+    - its message, with a slot for each ``ctx`` value;
+    - what its ``loc`` is, when it has one;
+    - a table of its ``ctx`` keys, when it has any. Each row gives the key's type, whether it is always given, and
+      its line under ``Args:``.
 
     Args:
-        catalogue: The catalogue.
+        catalogue: The catalogue to write.
 
     Returns:
         The sections, in the order the kinds are declared.
@@ -168,17 +181,28 @@ def _problems(catalogue: ProblemCatalogue) -> str:
 
 
 def fill_placeholders(page: str) -> str:
-    """``page`` with each ``names`` and ``problems`` placeholder line replaced by what it stands for."""
+    """Fills in a page's placeholders.
+
+    Each ``names`` and ``problems`` placeholder line is replaced by the list or the entries it stands for.
+
+    Args:
+        page: The page's Markdown text.
+
+    Returns:
+        The page with every placeholder filled in.
+    """
     page = _NAMES.sub(lambda line: _names(line[1]), page)
     return _PROBLEMS.sub(lambda line: _problems(getattr(import_module(line[1]), line[2])), page)
 
 
 def _parse_sections(text: str) -> dict[str, str]:
-    """Each section by its slug: every heading of two or more ``#``, with the text under it.
+    """Splits a page into its sections, by slug.
 
-    A section runs from its heading to the next heading with as many ``#`` or fewer. So a ``###`` section inside a
-    ``##`` section ends at the next ``###`` heading or where the ``##`` section ends. Of two headings with one slug
-    (a code of both a problem and a declaration fault would have two), the first is kept.
+    A section starts at a heading of two or more ``#``. It runs to the next heading with as many ``#`` or fewer. So
+    a ``###`` section inside a ``##`` section ends at the next ``###`` heading, or where the ``##`` section ends.
+
+    Two headings can have the same slug, such as a code that is both a problem and a declaration fault. Then only
+    the first is kept.
     """
     matches = list(_HEADING.finditer(text))
     out: dict[str, str] = {}
@@ -193,40 +217,49 @@ def _parse_sections(text: str) -> dict[str, str]:
         slug = re.sub(r"[^a-z0-9]+", "-", m.group(2).lower()).strip("-")
         out.setdefault(
             slug, text[start:end].rstrip() + "\n"
-        )  # a code with several kinds, or in two catalogues, is found by its first
+        )  # a code with several kinds, or in two catalogues, is found by its first heading
     return out
 
 
 def get_content() -> str:
-    """The rules, ``llms.txt``, with each public module's names written in."""
+    """Returns the rules page, ``llms.txt``, with each public module's names filled in."""
     return fill_placeholders(
         files("conductor.about").joinpath("llms.txt").read_text(encoding="utf-8")
     )
 
 
 def problems_page() -> str:
-    """The problems page, ``problems.md``, with every kind of problem of the core, of a declaration and of ``check_registry``
-    written in."""
+    """Returns the problems page, ``problems.md``, with every kind of problem filled in.
+
+    That is the problems of a graph and a run, the faults in a node's declaration, and the problems
+    ``check_registry`` returns.
+    """
     return fill_placeholders(
         files("conductor.about").joinpath("problems.md").read_text(encoding="utf-8")
     )
 
 
 def _both_pages() -> list[dict[str, str]]:
-    """The sections of the rules, then those of the problems page."""
+    """Returns the sections of the rules page, then those of the problems page."""
     return [_parse_sections(get_content()), _parse_sections(problems_page())]
 
 
 def list_sections() -> list[str]:
-    """The slug of every ``##`` and ``###`` section, the rules' first."""
+    """Returns the slug of every section of both pages, the rules page first."""
     return [slug for sections in _both_pages() for slug in sections]
 
 
 def get_section(name: str) -> str | None:
-    """One section by its slug, or the first whose slug contains ``name``; ``None`` when none does.
+    """Finds one section of the reference, by its slug or a part of it.
 
-    The rules are searched before the problems page, so ``asking`` finds the rules' section and ``cycle`` the problem.
-    ``get_section("one-or")`` returns the section "One or many", heading included.
+    A section whose slug is exactly ``name`` comes first. Otherwise it is the first section whose slug contains
+    ``name``. The rules page is searched before the problems page. So ``asking`` finds the rules' section on asking a
+    person, and ``cycle`` finds the problem.
+
+    For example, ``get_section("one-or")`` returns the section "One or many", heading included.
+
+    Returns:
+        The section's text, or ``None`` when no slug matches.
     """
     pages = _both_pages()
     for sections in pages:
