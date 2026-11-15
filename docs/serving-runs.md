@@ -173,6 +173,19 @@ That gives these routes:
 
 Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems, never in FastAPI's own validation shape. A 404 is `no_such_run`, and a 409 is one of the router's own: `already_answered`, `run_complete`, `run_not_resumable` or `run_changed`. A 404 your own `published` dependency raises is yours, as you wrote it. [The router's own problems](#the-routers-own-problems) has each of the router's codes, and `ROUTER_PROBLEMS` is their catalogue: `ROUTER_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as `Refused`.
 
+A host's text for a code cannot be derived from conductor, so a test like this one is how its catalogue stays complete when a code is added; the router's codes join conductor's when the host serves runs, and `own_codes` lists the host's own `NodeError` codes:
+
+```python
+from conductor import PROBLEMS
+from conductor_providers.fastapi import ROUTER_PROBLEMS
+
+
+def test_translations_match_the_codes(translations: dict[str, str], own_codes: set[str]) -> None:
+    codes = PROBLEMS.codes | ROUTER_PROBLEMS.codes
+    assert codes <= translations.keys()  # every code is translated
+    assert translations.keys() - own_codes <= codes  # every other translation names a real code
+```
+
 ## What each part is for
 
 **Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
