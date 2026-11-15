@@ -1,11 +1,21 @@
-"""A problem, the kinds of problem conductor's core reports, and the exceptions.
+"""Problems: how conductor tells a person that something is wrong.
 
-Code outside this package imports from here. ``type.py`` is ``Problem`` and how a package declares the kinds of
-problem it reports (``ProblemCatalogue``). The core's kinds are one function each, in one module per section of the
-problems page: ``compile_problems.py``, ``call_problems.py`` and ``run_problems.py``; a module that reports one
-imports the module that declares it and calls ``compile_problems.cycle(node_id)``. ``catalogue.py`` joins them as
-``PROBLEMS``. ``declaration_problems.py`` is the kinds of a wrong declaration, which a ``NodeDeclarationError``
-carries, imported and called the same way: ``declaration_problems.async_run()``. ``errors.py`` is the exceptions.
+Whatever goes wrong, conductor reports it the same way, as a ``Problem``. A problem has a code such as
+``unknown_input``, a place, a message for a person, and the values the message was made from. So a host handles one
+kind of record, whether the fault is in a graph, in a call or in a run.
+
+Each kind of problem is a small function that writes its message, and calling it makes the problem. The kinds live
+in one module for each section of the problems page:
+
+- ``compile_problems``: faults in a graph, found when it is compiled.
+- ``call_problems``: a call that conductor refuses.
+- ``run_problems``: why a run stopped.
+- ``declaration_problems``: faults in how a node or a type is declared.
+
+Code that reports a problem imports the module and calls the kind, like ``compile_problems.cycle(node_id)``.
+
+The exceptions conductor raises live here too, in ``errors.py``, which says who meets which one and when. Every code,
+with an example of each, is on the problems page: ``python -m conductor.about problems``.
 """
 
 from . import call_problems, compile_problems, declaration_problems, run_problems
