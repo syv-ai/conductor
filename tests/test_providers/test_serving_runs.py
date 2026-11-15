@@ -55,11 +55,11 @@ app.dependency_overrides[current_user] = header_user
 
 def _app_source() -> str:
     blocks = re.findall(r"```python\n(.*?)```", PAGE.read_text(), re.S)
-    source = "from typing import Annotated\n" + "\n".join(blocks)
+    source = "\n".join(blocks)
     settings = 'lease=0.6, checkpoint_every=0.05, resume_timeout=float(os.environ.get("RESUME_TIMEOUT", "300")),'
-    store = "\nworker = Worker(\n    SqliteRunStore(database.path),\n"
-    assert source.count(store) == 1
-    return "import os\n" + source.replace(store, f"{store}    {settings}\n", 1) + _TEST_SETTINGS
+    worker = '\nworker = Worker(\n    SqliteRunStore("runs.db"),\n'
+    assert source.count(worker) == 1
+    return "import os\n" + source.replace(worker, f"{worker}    {settings}\n", 1) + _TEST_SETTINGS
 
 
 def _free_port() -> int:
@@ -493,7 +493,7 @@ def test_a_node_the_run_context_does_not_fit_is_shown_at_compile_and_its_run_is_
     _run(scenario)
 
 
-def test_a_node_connects_to_the_database_itself_and_gets_the_caller_who_started_the_run(
+def test_a_node_connects_to_the_database_itself_and_gets_the_user_who_started_the_run(
     served: Served,
 ) -> None:
     async def scenario() -> None:
@@ -510,7 +510,7 @@ def test_a_node_connects_to_the_database_itself_and_gets_the_caller_who_started_
     _run(scenario)
 
 
-def test_a_run_is_seen_only_by_the_caller_who_started_it(served: Served) -> None:
+def test_a_run_is_seen_only_by_the_user_who_started_it(served: Served) -> None:
     async def scenario() -> None:
         async with _workers(served, count=1) as (a,):
             run_id = await a.start(
@@ -620,71 +620,58 @@ def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(
     _run(scenario)
 
 
-async def _admitted_until(worker: Worker, run_id: str, status: str) -> dict[str, Any]:
-    """The run once the page's own routes read it with ``status``."""
-    for _ in range(3000):
-        run: dict[str, Any] = (await worker.client.get(f"/admitted/runs/{run_id}")).json()
-        if run["status"] == status:
-            return run
-        await asyncio.sleep(0.01)
-    raise AssertionError(f"never {status}: {run}")
-
-
-def test_a_host_s_own_routes_start_read_and_answer_runs_through_a_worker_on_either_worker(
+def test_the_pages_own_route_starts_a_saved_graph_that_either_worker_then_serves(
     served: Served,
 ) -> None:
     (served.directory / "served_app.py").write_text(
-        _app_source() + f"\noffered['approve'] = GraphRecord.model_validate({_APPROVE!r})\n"
+        _app_source() + f"\nsaved_graphs['approve'] = GraphRecord.model_validate({_APPROVE!r})\n"
     )
 
     async def scenario() -> None:
         async with _workers(served) as (a, b):
             served.open_the_gate()
-            started = await a.client.post("/admitted/graphs/approve", json={"n": 1})
+            started = await a.client.post("/saved/approve/runs", json={"n": 1})
             assert started.status_code == 202, started.text
             run_id = started.json()["id"]
 
-            (waiting_call,) = (await _admitted_until(b, run_id, "waiting"))["waiting"]
-            seen_by_bob = await b.client.get(f"/admitted/runs/{run_id}", headers={"x-user": "bob"})
-            assert seen_by_bob.status_code == 404
+            (waiting_call,) = (await b.until_status(run_id, "waiting"))["waiting"]
+            assert (
+                await b.client.get(f"/runs/{run_id}", headers={"x-user": "bob"})
+            ).status_code == 404
             answered = await b.client.post(
-                f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}
+                f"/runs/{run_id}/answers", json={waiting_call["id"]: True}
             )
             assert answered.json()["status"] == "running"
-            assert (await _admitted_until(a, run_id, "complete"))["outputs"] == {"result": [True]}
-            twice = await a.client.post(
-                f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}
-            )
-            assert [problem["type"] for problem in twice.json()["detail"]] == ["not_waiting"]
+            assert (await a.until_status(run_id, "complete"))["outputs"] == {"result": [True]}
             assert served.calls == ["after"]
+            assert (await a.client.post("/saved/nope/runs", json={})).status_code == 404
+            refused = await a.client.post("/saved/approve/runs", json={})
+            assert [problem["type"] for problem in refused.json()["detail"]] == ["missing_input"]
 
     _run(scenario)
 
 
-def test_a_host_s_own_route_starts_a_run_from_the_work_of_a_previous_one(served: Served) -> None:
-    (served.directory / "served_app.py").write_text(
-        _app_source() + f"\noffered['work'] = GraphRecord.model_validate({_WORK!r})\n"
-    )
-
+def test_a_run_started_from_the_work_of_a_previous_one_calls_only_what_changed(
+    served: Served,
+) -> None:
     async def scenario() -> None:
         async with _workers(served) as (a, b):
-            first = (await a.client.post("/admitted/graphs/work", json={"n": 3})).json()["id"]
-            await _admitted_until(b, first, "complete")
+            first = await a.start(_WORK, {"n": 3})
+            await b.until_status(first, "complete")
             again = await b.client.post(
-                "/admitted/graphs/work", params={"previous": first}, json={"n": 4}
+                "/runs", json={"graph": _WORK, "inputs": {"n": 4}, "previous": first}
             )
             assert again.status_code == 202, again.text
-            assert (await _admitted_until(a, again.json()["id"], "complete"))["outputs"] == {
+            assert (await a.until_status(again.json()["id"], "complete"))["outputs"] == {
                 "result": [0, 1, 2, 3]
             }
             assert served.calls == ["work 0", "work 1", "work 2", "work 3"]
-            # a run the caller didn't start is not theirs to start from
-            refused = await a.client.post(
-                "/admitted/graphs/work",
-                params={"previous": first},
+            # a run the request may not see is not one to start from
+            hidden = await a.client.post(
+                "/runs",
+                json={"graph": _WORK, "inputs": {"n": 4}, "previous": first},
                 headers={"x-user": "bob"},
-                json={"n": 4},
             )
-            assert refused.status_code == 404
+            assert hidden.status_code == 404
 
     _run(scenario)

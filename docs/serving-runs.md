@@ -1,18 +1,24 @@
 # Serving runs over HTTP
 
-A person who answers days later means a run has to outlive a request. `syv-conductor-providers` has a FastAPI router for that: it starts a run, streams its events, takes answers, resumes it and cancels it, and it does so on any number of workers sharing one database. You give it three things: where runs are kept, who is calling, and which nodes they may use. Under the routes is a `Worker`, which a host with routes of its own calls directly ([without the router](#without-the-router)).
+Some runs outlive a request. A node might ask a person to approve something, and the answer comes the next day. Or the server restarts halfway through a long run. For that, `syv-conductor-providers` gives you a FastAPI router that keeps runs in your database. You can start a run, follow its events, answer its questions, resume it and cancel it, with one server process or ten.
 
 ```bash
 uv add syv-conductor-providers
 ```
 
-The test suite runs this page as written: two uvicorn workers on one database, a worker killed mid-run, a worker shut down mid-run, and two answers sent to one run at once.
+The test suite runs this page as written: two uvicorn workers on one SQLite file, one of them killed mid-run, one shut down mid-run, and two answers sent to one run at once.
 
-## A store
+## Writing a store
 
-The worker keeps runs in a `RunStore`, six async methods you write against your database. A run is one row of ten columns, text and numbers. Your store acts on four of them: `id`, `rev`, `owner` and `lease_until`. `status` and `metadata` are columns for your own queries, such as a page of the runs that wait for one person. `graph`, `run`, `state` and `outcome` are JSON the router writes and reads, which you only keep. `id`, `graph` and `metadata` are written once, by `create`, and no `update` changes them. Keep them, `metadata` and each event's body as text or as `jsonb`: any form that reads back as the same JSON value, since the router parses them and never compares the text. `state` is where the run is (its status and why it ended early, the answers queued and refused, a cancel that was asked); it is small. `status` is there for your queries only: the router writes it in the same `update` as `state`, from it, and itself reads only `state`. `outcome` is what a reader gets without reading the whole run, written each time the run stops running: what waits, how far the run is (its progress, written with each checkpoint too) and, once complete, the outputs. Every change is `update(run_id, rev, changes)`, written only while the row is still at the `rev` the writer read. That one rule is what lets several workers act on one run. The protocol has no delete: purge old runs with your own statement, and never a run whose `status` is `running`, which its worker and its followers read again and take to be there.
+You need three things: a store, a worker and the router. The store comes first. It is a small class you write over your database.
 
-This one is SQLite, for one machine with several workers. Write yours the same way for Postgres:
+The worker keeps each run as one row of ten columns, a `StoredRun`. Your store does six things with rows: `create` one, `get` one, `update` one, list the `expired` ones, `add_event` and read the `events`.
+
+There is one rule that matters. `update(run_id, rev, changes)` writes only while the row is still at the `rev` it was given, and then moves `rev` on by one. That is what lets several workers share one run safely: of two writes made from the same read, the second loses.
+
+Your store only looks at four columns: `id`, `rev`, `owner` and `lease_until`. `status` and `metadata` are there for your own queries, such as a page of the runs that wait for one person. The rest is JSON the worker writes and reads. Keep it as text, or as `jsonb`: anything that reads back as the same JSON value.
+
+Here is a store on SQLite, good for one machine with several workers. One on Postgres looks the same.
 
 ```python
 import asyncio
@@ -31,7 +37,7 @@ class SqliteRunStore:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 "CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, graph TEXT, metadata TEXT, run TEXT, status TEXT,"
-                " state TEXT, outcome TEXT, rev INTEGER, owner TEXT, lease_until REAL);"  # a StoredRun's fields, in their order
+                " state TEXT, outcome TEXT, rev INTEGER, owner TEXT, lease_until REAL);"  # a StoredRun's fields, in order
                 "CREATE TABLE IF NOT EXISTS events (run_id TEXT, seq INTEGER, body TEXT, PRIMARY KEY (run_id, seq));"
             )
 
@@ -77,7 +83,9 @@ class SqliteRunStore:
         return [(seq, body) for seq, body in found]
 ```
 
-Test your store with one call, on an empty database of the test's own. `check_run_store` writes runs and events through the six methods and reads them back, and returns one plain message for each fault it finds, starting with the method at fault, such as `"update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given"`.
+A store raises only when the database fails, since the worker takes an exception for an outage. It never deletes a run whose `status` is `running`. Deleting old runs is up to you.
+
+Test your store with one line, on an empty database of the test's own. `check_run_store` gives one plain message per fault it finds, such as `"update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given"`.
 
 ```python
 from pathlib import Path
@@ -89,9 +97,9 @@ async def test_run_store(tmp_path: Path) -> None:
     assert await check_run_store(SqliteRunStore(str(tmp_path / "check.db"))) == []
 ```
 
-## The app
+## The smallest app
 
-Make a `Worker` on your store and mount the router over it. The worker does the work: it keeps runs, resumes them, holds their leases and takes over another worker's. Each run keeps its metadata, what you want to know about the run, such as who started it; here it is a `dict[str, str]`. `nodes_for` and `context` build the run's registry and context from that metadata, on whichever worker goes on with the run (`context` is also given the stop event of each resume call, which a slow node reads: [stopping a slow call](#what-each-part-is-for)). The router adds the routes: `metadata` is a FastAPI dependency that gives the metadata for a request, and `run_filter` one that says which runs the request may see:
+With a store in hand, you need two more things: a worker, which does the real work, and the router, which puts routes in front of it.
 
 ```python
 from collections.abc import Callable
@@ -101,23 +109,14 @@ from typing import Annotated
 
 from conductor import NodeRegistry
 from conductor_providers.fastapi import Worker, run_router
-from fastapi import Depends, FastAPI, HTTPException
-
-
-@dataclass(frozen=True)
-class Database:
-    """How a node reaches the database: given this, never a connection, it connects on its own thread."""
-
-    path: str
+from fastapi import Depends, FastAPI
 
 
 @dataclass(frozen=True)
 class AppContext:
-    """What a run's nodes get from the host: who started the run, how to reach the database, and whether the run
-    was asked to stop."""
+    """What a run's nodes get from you: who started the run, and whether it was asked to stop."""
 
     user: str
-    database: Database
     stop: Event
 
 
@@ -126,105 +125,134 @@ def current_user() -> str:
 
 
 def run_metadata(user: Annotated[str, Depends(current_user)]) -> dict[str, str]:
-    return {"user": user}
+    return {"user": user}  # kept on every run this user starts
 
 
 def own_runs(user: Annotated[str, Depends(current_user)]) -> Callable[[dict[str, str]], bool]:
-    return lambda metadata: metadata["user"] == user
+    return lambda metadata: metadata["user"] == user  # a user sees only their own runs
 
 
-def context_of(metadata: dict[str, str], stop: Event) -> AppContext:
-    return AppContext(user=metadata["user"], database=database, stop=stop)
-
-
-registry = NodeRegistry(context_type=AppContext)  # yours: @registry.node(...) or registry.add(...)
-database = Database("runs.db")  # yours
+registry = NodeRegistry(context_type=AppContext)  # yours: your nodes
 worker = Worker(
-    SqliteRunStore(database.path),
+    SqliteRunStore("runs.db"),
     nodes_for=lambda metadata: registry,
-    context=context_of,
+    context=lambda metadata, stop: AppContext(metadata["user"], stop),
 )
 app = FastAPI()
 app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs))
 ```
 
-That gives these routes:
+Start it with `uvicorn app:app`, and drive a run with `curl`:
+
+```bash
+curl -X POST localhost:8000/runs -d '{"graph": {...}, "inputs": {"invoice": "A-17"}}'
+# {"id": "8f1c...", "status": "running", "waiting": [], ...}
+curl localhost:8000/runs/8f1c...
+# {"status": "waiting", "waiting": [{"id": "approve~3fa2c0d1", "prompt": "Approve A-17?", ...}], ...}
+curl -X POST localhost:8000/runs/8f1c.../answers -d '{"approve~3fa2c0d1": true}'
+# {"status": "running", ...}; a moment later GET says "complete", with the run's outputs
+```
+
+## Who sees which run
+
+Every run keeps some metadata: whatever you want to know about it later, such as who started it. The router asks your `metadata` dependency for it when a run starts, and writes it to the run once. Above, it is `{"user": "anna"}`.
+
+Your `run_filter` dependency decides which runs a request may open. It gives back a test of a run's metadata, and the router asks it on every route under `/runs/{id}`. A run it turns away answers 404, just like an id that doesn't exist. So nobody learns about runs they may not see.
+
+The metadata can be a pydantic model of yours instead of a dict. Here a run is seen by everyone in the team it was started in:
+
+```python
+from pydantic import BaseModel
+
+
+class Member(BaseModel):
+    user: str
+    team: str
+
+
+def current_member() -> Member:
+    return Member(user="anna", team="sales")  # yours: your login
+
+
+def team_runs(member: Annotated[Member, Depends(current_member)]) -> Callable[[Member], bool]:
+    return lambda started: started.team == member.team
+```
+
+Make the worker with `metadata_type=Member`, so it reads the metadata back as a `Member`, and pass `metadata=current_member, run_filter=team_runs` to the router. `nodes_for` and `context` then get a `Member` too, which is how you give each team its own nodes.
+
+A host with no logins gives every run empty metadata and lets everyone in:
+
+```python
+def no_metadata() -> dict[str, str]:
+    return {}
+
+
+def every_run() -> Callable[[dict[str, str]], bool]:
+    return lambda metadata: True
+```
+
+Neither dependency has a default, since no rule is safe for every host.
+
+The routes that take any graph (`POST /runs`, `/estimate`, `/compile` and `/nodes`) run whatever nodes the graph names. Guard them the usual FastAPI way: `app.include_router(router, dependencies=[Depends(is_author)])`. On those routes, the metadata picks the nodes the request may use, through `nodes_for`.
+
+## The routes
+
+Every route under `/runs` answers with the run as it is after the call: its `id`, `metadata`, `status`, `cause`, `waiting`, `outputs`, `progress` and `refused`.
 
 | Route | What it does |
 |---|---|
-| `GET /nodes` | The request's palette: `describe()` of the registry for its metadata, each node with its fields. |
-| `POST /compile` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each a `field`, by name, and its outputs a list of names. |
-| `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with the run, 422 listing every problem. With `"previous": run_id`, a run the request may see, the new run reuses that run's work. |
-| `POST /estimate` | How many calls a run of `{"graph": ..., "inputs": {...}}` will make, before any call that costs something: `run.progress` after `run.resume(only_costs_nothing=True)`, with the request's context and `resume_timeout`. Nothing is stored. With `"previous"`, the previous run is checked as `POST /runs` checks it. |
-| `GET /runs/{id}` | The run: its `id`, its `metadata`, its `status`, what is `waiting` for a person (as of when the run last stopped running, so while it is running it still lists what was just answered; a client hides the ones it answered), `outputs` once complete, by name (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, its `progress` (as `run.progress` says it, as of the last checkpoint while it runs), and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_limit` cause says the `items` and `max_items`, for choosing a higher item limit to resume with). |
-| `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
-| `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 with the run, `running` whether the answers resumed it or were queued for when it stops, 422 listing every answer the run refuses (`not_waiting` for one to a complete run). A run that `failed`, `stopped`, `timed_out` or was `cancelled` takes answers to what waits in it. |
-| `POST /runs/{id}/resume` | Go on with a run that `timed_out`, `stopped`, was `cancelled` or `failed`. |
-| `POST /runs/{id}/again` | A new run with some inputs changed; what didn't change isn't called again. |
-| `POST /runs/{id}/cancel` | Ask a running or waiting run to stop before its next node call, so that it ends `cancelled`. It answers with the run: `running` when the cancel was asked, not how the run ended (`GET /runs/{id}` says that later); a run that is complete or already ended early is left as it is. |
+| `GET /nodes` | The nodes this request may use, as an editor's palette shows them. |
+| `POST /compile` | Compiles a graph record and describes it, with every problem. Nothing runs. |
+| `POST /runs` | Starts a run of `{"graph", "inputs"}`. With `"previous": run_id`, the run reuses that run's work. |
+| `POST /estimate` | Says how many calls that run would make, calling only the nodes that cost nothing. Nothing is stored. |
+| `GET /runs/{id}` | The run, as of when it last stopped running. |
+| `GET /runs/{id}/events` | The run's events, as server-sent events, from whichever worker runs it. |
+| `POST /runs/{id}/answers` | Answers what waits, as `{waiting_id: value}`, and goes on with the run. |
+| `POST /runs/{id}/resume` | Goes on with a run that ended early. `{"max_items": n}` raises its item limit. |
+| `POST /runs/{id}/again` | A new run of the same graph with some inputs changed. What didn't change isn't called again. |
+| `POST /runs/{id}/cancel` | Asks the run to stop before its next node call. |
 
-Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems; a fault in the rest of the body, such as inputs that aren't an object, is refused as FastAPI refuses any body (`dict_type` at `["body", "inputs"]`). Both are `{"detail": [{type, loc, msg, ...}]}`. A 404 is `no_such_run`, and a 409 is `run_not_resumable`. [The worker's own problems](#the-workers-own-problems) has each of the worker's codes, and `SERVING_PROBLEMS` is their catalogue: `SERVING_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as FastAPI's own `HTTPValidationError`, the shape of a 422, which a problem fits.
+Answers sent while a run is running are queued and given to the run when it stops. The route still answers 202, with the run `running`. An answer the run turns down then shows up in the run's `refused`, by its waiting id.
 
-A host's text for a code cannot be derived from conductor, so a test like this one is how its catalogue stays complete when a code is added; the router's codes join conductor's when the host serves runs, and `own_codes` lists the host's own `NodeError` codes:
+## When a call is refused
+
+Every refusal has one shape, `{"detail": [{"type", "loc", "msg", "ctx"}, ...]}`, the same as FastAPI's own 422. A missing run, or one the filter hides, is a 404. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md).
+
+The worker has four codes of its own, in `SERVING_PROBLEMS`:
+
+<!-- problems: conductor_providers.fastapi.SERVING_PROBLEMS -->
+
+If you show people your own text for each code, one test keeps your translations complete when a code is added:
 
 ```python
 from conductor import PROBLEMS
 from conductor_providers.fastapi import SERVING_PROBLEMS
 
 
-def test_translations_match_the_codes(translations: dict[str, str], own_codes: set[str]) -> None:
-    codes = PROBLEMS.codes | SERVING_PROBLEMS.codes
-    assert codes <= translations.keys()  # every code is translated
-    assert translations.keys() - own_codes <= codes  # every other translation names a real code
+def test_every_code_is_translated(translations: dict[str, str]) -> None:
+    assert PROBLEMS.codes | SERVING_PROBLEMS.codes <= translations.keys()
 ```
 
-## What each part is for
+## What a node gets
 
-**Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with a route of your own that calls the worker ([without the router](#without-the-router)): the body fills a graph's inputs and nothing else.
+A node that takes the run's context as its first parameter gets what your `context` function returns. The worker calls it with the run's metadata and a stop event each time it resumes the run, on whichever worker that is.
 
-**Who may see a run.** You say: `run_filter` gives, for each request, a test of a run's metadata, asked on every route under `/runs/{id}`. A run it turns away is a 404, `no_such_run`, as for an id that names no run. Above, only the user who started a run may read it or act on it; `lambda metadata: metadata["team"] == user.team` lets a team in. Only the run's metadata is read to decide, never what waits in it. Both dependencies are required, since no default rule is safe for every host. A host with no logins gives `metadata` a function that returns `{}` and `run_filter` one that returns `lambda metadata: True`.
-
-**What `metadata` returns.** What identifies the request and nothing that changes: a user id, a team. It is kept on the run as JSON when the run starts, and the run's context (`context_of`) and registry are built from it as it was then each time the run is resumed, whichever worker does it. On the routes that store no run (`/nodes`, `/compile`, `/estimate`, and the check of `again`), it picks the nodes the request may use.
-
-**A registry per tenant.** `nodes_for=` is a function of the run's metadata, so above it gives every run the one registry. `registry.filter` gives each tenant the nodes it may use instead. The function is called for every request and every time a run is resumed, so it builds each tenant's registry once:
+Each run's nodes are called on threads of their own. So give a node a way to connect, never an open connection, and let the node open its own:
 
 ```python
-from functools import cache
+from contextlib import closing
 
-
-@dataclass(frozen=True)
-class Member:
-    user: str
-    tenant: str
-
-
-@cache
-def tenant_nodes(tenant: str) -> NodeRegistry[AppContext]:
-    return registry.filter(lambda definition: "public" in definition.tags or f"tenant:{tenant}" in definition.tags)
-
-
-def nodes_of(member: Member) -> NodeRegistry[AppContext]:
-    return tenant_nodes(member.tenant)
-```
-
-Pass `nodes_for=nodes_of` and `metadata_type=Member` to the worker, and a `metadata` dependency that returns a `Member`. A graph that names a node its tenant can't use compiles with `unknown_node` at that node, so `/compile` shows the author where.
-
-**What a node receives.** A node that takes the run's context takes it as its first parameter, `Context[AppContext]`, and gets the `AppContext` that `context_of` returns. A run's nodes are called on a thread of the run's own, and a node with `Policy(concurrency=4)` on four more, with at most four calls of it at once among all the runs of the worker; a node that sets no `concurrency` is called by each run on its own, whatever the others do. So the context gives a node a way to connect, and the node opens its own connection:
-
-```python
 from conductor import Context
 
 
 @registry.node("count_runs", title="Count runs", description="Counts how many runs have a given status.")
 def count_runs(ctx: Context[AppContext], status: str) -> int:
-    with closing(sqlite3.connect(ctx.database.path)) as connection:
+    with closing(sqlite3.connect("runs.db")) as connection:
         count: int = connection.execute("SELECT COUNT(*) FROM runs WHERE status = ?", (status,)).fetchone()[0]
         return count
 ```
 
-A connection or session opened on the event loop and passed in either fails or is shared between threads without a word. `sqlite3` refuses it, so the node fails as `execution_failed`, and the real error is only in the `conductor` log. A pool that is safe across threads (SQLAlchemy's engine, not its session) can go in the context as it is. The context is never part of a run's JSON; the worker keeps the metadata on the run and calls `context_of` again on any worker. A graph with a node whose `Context[...]` your `AppContext` does not satisfy has [`context_does_not_fit`](problems.md#context_does_not_fit) at that node: `/compile` shows it, and `POST /runs` answers 422.
-
-**Stopping a slow call.** A cancel stops a run before its next node call, so a call already going on runs to its end. For a call that takes long and costs money, such as a language model that streams its reply for a minute, the worker gives your `context` function a `threading.Event` with the run's metadata, new for each resume call, and sets it when that call stops early: the run was cancelled, on this worker or on another (heard at the next renewal of the lease), or another worker took the run over, so what this one makes would be thrown away. Put it in the context, and a node reads it between chunks, on whatever thread it runs, with `is_set()`, or waits on it with `wait(seconds)`:
+A cancel stops a run before its next node call, so a call that is already going on runs to its end. For a slow call that costs money, such as a language model streaming its reply, read the stop event. The worker sets it when the run is cancelled, or when another worker takes the run over.
 
 ```python
 from collections.abc import Iterator
@@ -246,115 +274,54 @@ def reply(ctx: Context[AppContext], prompt: str) -> str:
     return " ".join(chunks)
 ```
 
-Raise, never return what you have: a value a node returns is kept, and a resume would not call it again. A call that fails once its run was cancelled ends the run `cancelled`, not `failed`, since the cancel came first; the call has no outcome, so a resume calls the node again. A call that fails for any other stop (the `resume_timeout` passed, the worker shuts down) ends the run `failed`: a node is never told of those. A node reads the event and never sets it: setting it cancels the run with no cancel asked. The worker also sets it when your store raises and it gives the run up, since another worker makes the call again once the lease runs out. The event is not set when the worker shuts down: the calls going on are then waited for and kept, so the worker that goes on with the run doesn't make them again.
+Raise when you stop, and never return what you have so far. A value a node returns is kept, so a resume wouldn't call the node again.
 
-**Two workers answering one run.** Answering reads the run, checks the answers, then claims the run at the `rev` it read. Two workers that both read `waiting` both send an `update` at that `rev`, and only one of them changes the row. The other reads the run again, finds it running, and queues its answer, which the run then refuses as `not_waiting`, since the first answer was taken. An answer to a waiting call whose question has changed since the client read it (after `again`, say) is refused as `answer_stale`, by its waiting id.
+## Many workers
 
-**Answers while a run is running.** A worker resumes a run with one call of `resume()`: it calls every node that is ready, until the run is complete, waits, fails or is stopped, and the run is `running` meanwhile. Answers sent then wait in the run's `state`, and the route says `queued`. A second answer to a question is queued too. The write that records how the call ended reads them, so none is dropped however the two cross. Each is then given to the run as `run.answer` takes one, on its own, whatever status the run stopped with: a wrong one, or one for something that isn't waiting (`not_waiting`, with the run's `status` in its `ctx`, as when the run completed), stays in `refused` with its problems, for the client to show the person who gave it, and the others make the worker resume the run again. So a question answered while a run was running that then failed on another item, stopped at its item limit, timed out or was cancelled is answered all the same. A cancel ends the call of `resume()` that is going on and no other: an answer queued meanwhile resumes the run again, and it runs. A cancel that came after the last node call is kept when a queued answer resumes the run, and ends that call before it calls anything. An answer that is taken clears what `refused` had for its question, so `refused` says what became of the last answer to each question. When the worker raised while resuming, there is no run to give the answers to, so they stay queued until the run is resumed and stops again; the run meanwhile lists their questions as waiting again, and an answer sent then is taken at once and replaces the queued one. An answer whose type's own check raises what is no refusal is in `refused` as [`raised_outside_a_node`](#raised_outside_a_node). Checking an answer reads the whole run and writes it again; at 10,000 items that waited that is about 100 ms and a 1 MB write, so a client with many single clicks does better to send them together.
+Run as many workers on one store as you like. Each of them serves every run.
 
-**A kill.** A running run is saved every `checkpoint_every` seconds (5 by default), and its lease runs out `lease` seconds (30) after its worker stops renewing it. Then any worker takes the run and goes on from the checkpoint. Only the calls the checkpoint has no record of are made again: those in flight, and those finished since. A cancel sent while the dead worker held the run stays asked: the worker that takes it over ends it `cancelled` before calling anything; a resume or an answer goes on from there. A worker that lost its lease writes nothing more, and stops calling the run's nodes at its next renewal, checkpoint or event, whichever the store answers first: a renewal the store hasn't answered when the next is due is given up, so one that never returns blocks nothing else.
+**A kill.** A running run is saved every few seconds (`checkpoint_every`). Its worker holds a lease on it and keeps renewing it. When a worker dies, its lease runs out (`lease`, 30 seconds), and another worker goes on from the last checkpoint. Only the calls made since that checkpoint are made again.
 
-**A deploy.** On shutdown, the worker hands back every run its worker is resuming (`run.stream(hand_back=)`): no more nodes are started, the calls already made are waited for and kept, and the run is stored as it is, still `running`. The row is then handed back, its lease already run out, and any worker goes on with it. It repeats no call if the process is given the time to hand its runs back: a call on a thread is waited for as far as its `attempt_timeout`, and a process killed before that is a worker that died, whose run goes on from its last checkpoint. A run that stopped running for any other reason (it waits, is complete, or ended early) has no `lease_until` at all, so `expired` is the one comparison and never returns it. A handed-back run writes no `run_end`: the run did not end, so a follower's stream goes on into the next worker's events. A cancel asked of the run before its worker shuts down ends the run `cancelled`; one that lands as the run is handed back is kept in its `state`, and the worker that takes the run ends it `cancelled` before calling anything.
+**A deploy.** When a worker shuts down, it stops starting nodes, waits for the calls already going on, saves the run and hands it back. Another worker picks it up within seconds, and no call is made twice.
 
-**Resuming.** A run can end `timed_out` (one call of `resume()` took longer than `resume_timeout`, 300 seconds by default), `stopped` (a Series outgrew `max_items`), `cancelled` or `failed`. `POST /runs/{id}/resume` goes on from where it stopped and calls nothing that finished. It takes no body; `{"max_items": ...}`, a whole number of 1 or more (else 422: `true`, `2.5` or `"5"` as the body's own `int_type`, `0` as conductor's [`invalid_limit`](problems.md#invalid_limit)), raises the item limit for a stopped run: the run is stored with it (`run.with_max_items`) as the resume claims it, so it applies from then on, after a kill too (a stored run that can't be read is then a 422 from the resume itself); the worker's `max_items` is the item limit a run starts with. Only `complete` is final. A run that ended early, a cancelled one included, still takes answers to what waits in it, as `run.answer` does, and they resume it: one item that keeps failing doesn't hold back the questions beside it, and an approver's answer carries a cancelled run on from where it stopped. A cancel of a waiting run ends it `cancelled` without calling a node, so a question nobody answers needn't leave the run `waiting` for ever: a host's own scheduler sends `POST /runs/{id}/cancel` when the person has had long enough, and the run stays answerable. The worker does it with a resume call that calls no node, which builds the run's `context` and compiles its graph as every resume does, so a run whose context or nodes can't be had any more ends `failed` instead, as it would on its next answer. A cancel and an answer sent at once end one of two ways: when the cancel lands first, its resume call ends `cancelled` and then takes the answer, and the run goes on; when the answer lands first, the cancel goes by the run as it then is: still running, it is asked to stop before its next node call, if there is one, so it ends `cancelled` with the answer kept, or `complete` when the answer left no node call to make; already complete, the cancel answers `false`. A host that wants a cancelled run to stay ended marks its own row. When the worker raises outside any node while resuming a run, in a way that would raise again, the run is written `failed`, in its state and on its `run_end`, so it doesn't stay `running` with nobody on it. Where conductor itself refused to resume the run, the cause is conductor's own problem, which says what to fix: [`context_missing`](problems.md#context_missing) or [`invalid_context`](problems.md#invalid_context) when your `context` gives no context or one of another class, [`saved_run_unreadable`](problems.md#saved_run_unreadable) for a stored run that can't be read. A cause is one problem, so of several it is the first, and the log has them all. For anything else (`context` or your registry function raised) the cause is [`raised_outside_a_node`](#raised_outside_a_node), with the exception's class name in `ctx.error`, and the traceback is in the log. The run then lists as `waiting` what waits in it as stored, its last checkpoint, which is the run an answer is given to: those questions are answered without a resume. A run that could not be read lists nothing. The same goes for a run that can't be written as JSON (a node gave a value with no JSON form): `failed` the first time, with [`run_unwritable`](problems.md#run_unwritable) as the cause, which names the output; the fix is the node's type. A `run_end` is stored once, before the row says the run stopped running. If another worker takes the run between the two (its lease ran out just then), that worker ends the run too, so a follower sees two `run_end`s and no call is made twice.
+**A store outage.** If your store raises, the worker never fails the run for it. It stops the run and lets the lease run out. Once the store is back, a worker goes on from the last checkpoint.
 
-**When your store raises.** A raise from your store never fails a run, wherever it comes: when it writes an event, a checkpoint, a renewal or how a run stopped. It is your outage. The worker logs it (`conductor_providers.fastapi`, with the run's id), stops the run before its next node call and gives the run up as the store has it, `running`; once the lease runs out, any worker goes on from the last checkpoint. A renewal that raises is only tried again. Going on from the checkpoint makes again the node calls made after it, a call that is still on a thread included (a node call longer than the lease can so run twice at once, as after any take-over), and a raise when the worker writes how the run stopped comes after its `run_end` is stored, so a follower then sees the run end twice. That is once per lease for as long as the store fails: a store that refuses a write every time (a size limit, not an outage) costs those calls every lease, so alert on that log.
+**Two answers at once.** Of two workers that answer one run at the same moment, one goes on with the run. The other reads the run again. If the run is still running, the second answer is queued, and the run turns it down as `not_waiting` in its `refused` when it stops. If the run has already finished, the second answer is a 422 with the same code. Either way, the question was answered once.
 
-**Following from any worker.** The worker that resumes a run writes each event to the store, numbered in order. `GET /runs/{id}/events` streams them on whichever worker the client reached, until the run stops running, and goes on from `Last-Event-ID` after a reconnect. An open stream costs the store one `events` read per `poll`. It reads the run's row too only on a poll that found no event while the last event it sent was a `run_end`, or while it has sent none yet (a stream opened before the run's first event, or after its last): that is when the run may have stopped running. A client that connects after the run ended gets every event, and `GET /runs/{id}` has the outputs. Each frame is the event's JSON as `conductor.events` defines it, and `TypeAdapter(Event).validate_json(frame)` reads it back. `node_complete` carries counts only, and `run_end` its `status` and `cause` and leaves the run out, so a frame stays small whatever the size of the table.
+The worker's docstrings have the finer points, such as a cancel during a take-over, a run that can't be saved, or an answer that lands while a run's end is being written.
 
-**The answer's shape.** `POST /runs/{id}/answers` takes `{waiting.id: value}`, each value what the node returns: its value for one output, a mapping by name for several. A client draws each one's `questions` and checks against their `schema` and `choices` before it sends, and the server checks again. A wrong answer is a 422 listing every fault, each naming what it answered in `ctx.waiting_id` and, for a form, the question in `ctx.question` ([refused calls](problems.md#refused-calls)). One left out goes on waiting.
+## Your own routes
 
-**Running again.** `POST /runs/{id}/again` with `{"csv": edited}` starts a new run with that input changed. A call that would get the same arguments as a call in the previous run reuses that call's output or answer, so after one line of a CSV of 5,000 is edited, a node that runs per item is called for that one. The new run is the request's: it keeps the request's metadata and runs on the request's own nodes, so a user who may see another's run but whose registry can't run its graph gets the 422 at `again`, as starting the graph would.
-
-**Graphs that use saved graphs as subgraphs.** They are compiled with a registry of the request's own ([a graph inside a graph](subgraphs.md#graphs-saved-per-request)): pass `nodes_for=` a function that builds it, so the shared registry is left as it was.
-
-## Without the router
-
-`run_router` is a thin layer over its `Worker`: each route reads its call, calls one method of the worker and says what it answered. A host with routes of its own, and its own say on who may start which run, calls the worker the same way.
-
-The worker's `M`, its `metadata_type`, is what a run keeps about itself: who started it and whatever else holds for the run's whole life, such as the graph a person was let run. It is written to the run once, as JSON, when the run begins, and never changed; every resume, on any worker, reads it back and builds the run's registry (`nodes_for`) and context (`context`) from it, so keep in it nothing that changes. Every worker on one store takes over any run in it, so they all read the metadata the same way; on this page the router's worker and this one sit in one app, so this one has a store of its own.
+The router is a thin layer over the `Worker`, and you can call the worker from routes of your own. Here is a route that offers a saved graph by name, so an end user fills in its inputs and never sends a graph:
 
 ```python
 from typing import Any
 
-from conductor import InvalidCallError
-from conductor import GraphRecord
+from conductor import GraphRecord, InvalidCallError
 from conductor_providers.fastapi import RunView
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, HTTPException
+
+saved_graphs: dict[str, GraphRecord] = {}  # yours: the graphs you offer
+own_routes = APIRouter(prefix="/saved")
 
 
-@dataclass(frozen=True)
-class Admitted:
-    """What a run started by these routes keeps: who started it, and the graph they were let run."""
-
-    person: str
-    graph: str
-
-
-admitted = Worker(
-    SqliteRunStore("admitted.db"),
-    metadata_type=Admitted,
-    nodes_for=lambda metadata: registry,
-    context=lambda metadata, stop: context_of({"user": metadata.person}, stop),
-)
-own_routes = APIRouter(prefix="/admitted", lifespan=lambda _: admitted.serving())
-offered: dict[str, GraphRecord] = {}  # yours: the graphs an end user may run
-
-
-def refused(error: InvalidCallError) -> HTTPException:
-    status = {"no_such_run": 404}.get(error.problems[0].type, 422)  # yours: the statuses you want
-    return HTTPException(status, [problem.model_dump(mode="json") for problem in error.problems])
-
-
-async def check_admitted(run_id: str, person: str) -> None:
-    """Refuse a run this person didn't start with a 404, as one that isn't there."""
+@own_routes.post("/{name}/runs", status_code=202)
+async def start_saved_graph(
+    name: str,
+    inputs: Annotated[dict[str, Any], Body()],
+    metadata: Annotated[dict[str, str], Depends(run_metadata)],
+) -> RunView:
+    if name not in saved_graphs:
+        raise HTTPException(404, "There is no saved graph by that name.")
     try:
-        started_by = (await admitted.metadata_of(run_id)).person
-    except InvalidCallError as error:
-        raise refused(error) from None
-    if started_by != person:
-        raise HTTPException(404, "no such run")
-
-
-@own_routes.post("/graphs/{name}", status_code=202)
-async def start_admitted(
-    name: str, inputs: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)], previous: str | None = None
-) -> RunView[Admitted]:
-    """Start a graph you offer; with `?previous=`, from the work of one of this person's runs."""
-    if name not in offered:  # yours: whether this person may run it
-        raise HTTPException(404, "no such graph")
-    if previous is not None:
-        await check_admitted(previous, person)
-    try:
-        return await admitted.begin(offered[name], inputs, Admitted(person, name), previous=previous)
-    except InvalidCallError as error:
-        raise refused(error) from None
-
-
-@own_routes.get("/runs/{run_id}")
-async def read_admitted(run_id: str, person: Annotated[str, Depends(current_user)]) -> RunView[Admitted]:
-    await check_admitted(run_id, person)
-    return await admitted.read(run_id)
-
-
-@own_routes.post("/runs/{run_id}/answers", status_code=202)
-async def answer_admitted(
-    run_id: str, answers: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)]
-) -> RunView[Admitted]:
-    await check_admitted(run_id, person)
-    try:
-        return await admitted.answer(run_id, answers)
-    except InvalidCallError as error:
-        raise refused(error) from None
+        return await worker.begin(saved_graphs[name], inputs, metadata)
+    except InvalidCallError as refused:
+        raise HTTPException(422, [problem.model_dump(mode="json") for problem in refused.problems]) from None
 
 
 app.include_router(own_routes)
 ```
 
-`begin` stores the run and makes its first resume call in the background. With `previous`, the id of a run of the same graph or of an earlier version of it, the new run reuses its work as `graph.with_inputs(previous=...)` does, so after an edit only what changed is called; it starts at the worker's `max_items`. When the previous run can't be loaded on the new run's nodes (its graph uses a node the registry no longer has, say), `begin` refuses with `previous_run_unloadable`, which says why, and stores nothing: start without `previous` then, and every node is called. `again(run, inputs, metadata)` is `run.with_inputs`: the run's own graph with some inputs changed, the rest as they were, at the run's own item ceiling. Every method that acts on a run takes its id and returns the run as it wrote it, a `RunView`. `estimate`, `resume`, `cancel` and `events` are called as the routes above call them, and refuse as they do: with an `InvalidCallError` whose problems are conductor's or the router's own, below. `serving()` is the worker's life: enter it in your app's lifespan, and on leaving it the worker hands its runs back for another worker to go on with. A worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running (`begin`, `again`, an `answer` or `resume` of a run that is not running, a `cancel` of a waiting one), since no sweep of its own would ever take its runs over. Once it has served and left, such a call is taken as before and its run handed back at once, so a call that lands during a deploy is carried on by whichever worker serves next. The worker's `nodes_for` is the function you gave it, for a palette of your own (`worker.nodes_for(metadata).describe()`, as `GET /nodes` answers).
+The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. The run this route starts is read, answered and followed through the router's routes.
 
-## The worker's own problems
-
-What the worker reports itself, beside conductor's problems of the runs it serves. `loc` is `()`: each is about the run as a whole. They are not in `PROBLEMS.codes`; `SERVING_PROBLEMS` is their catalogue, and each kind in it has its `code`, its `sentence` and the type of its `ctx`, as the kinds of `PROBLEMS` have. The docs build writes each kind here from the function that declares it, in `conductor_providers/fastapi/problems.py`.
-
-<!-- problems: conductor_providers.fastapi.SERVING_PROBLEMS -->
+Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to start a run, since nothing of its own would ever pick the run up.

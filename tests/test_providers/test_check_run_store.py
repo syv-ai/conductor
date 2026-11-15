@@ -29,7 +29,7 @@ async def test_the_pages_test_of_its_sqlite_store_passes(
     monkeypatch: MonkeyPatch, tmp_path: Path
 ) -> None:
     text = PAGE.read_text()
-    section = text[text.index("## A store") : text.index("## The app")]
+    section = text[text.index("## Writing a store") : text.index("## The smallest app")]
     page = ModuleType("serving_runs_page")
     monkeypatch.setitem(sys.modules, page.__name__, page)
     exec(

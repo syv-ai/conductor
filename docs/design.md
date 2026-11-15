@@ -485,5 +485,5 @@ React and Mermaid adapters, an `/execute` endpoint and a built-in store were lef
 
 Start at `packages/conductor/src/conductor/__init__.py`. Then read `_internal/` from the bottom up: `base`, `types`
 and `field`, then `record`, then `graph` (`input`, `node`, `compile`, then `type`), then `run` (`blueprint`,
-`outcome`, `json`, `scheduler`, `arguments`, then `type`), and `registry`. The providers' `router.py`, `worker.py`
-and `store.py` come after, and `conductor-nodes` last.
+`outcome`, `json`, `scheduler`, `arguments`, then `type`), and `registry`. The providers' `router.py`, `store.py`,
+`worker.py` and `held_run.py` come after, and `conductor-nodes` last.

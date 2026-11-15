@@ -42,34 +42,26 @@ log = logging.getLogger("conductor_providers.fastapi")
 
 
 class Worker(Generic[M, X]):
-    """Starts, answers, resumes and cancels stored runs for one process, on any number of processes sharing one store.
+    """Starts, answers, resumes and cancels the runs kept in one store, on as many processes as share it.
 
-    ``run_router`` is a thin layer of routes over one worker. A host with its own routes, and its own say on who may
-    start which run, makes a worker and calls it as the routes do: ``begin`` a run (or ``estimate`` one first),
-    ``read`` it, check whose it is with ``metadata_of``, follow its ``events``,
-    ``answer``, ``resume`` or ``cancel`` it, start it ``again`` with some inputs changed, and serve inside
-    ``serving()``, which a lifespan enters. Each run is held under a lease while this worker resumes it, written to a
-    checkpoint every few seconds, and taken over by another worker when its lease runs out.
+    ``run_router`` is a thin layer of routes over one worker. With routes of your own, you call the worker as the
+    routes do: ``begin`` a run (or ``estimate`` one first), ``read`` it, ``answer``, ``resume`` or ``cancel`` it,
+    follow its ``events``, or start it ``again`` with some inputs changed. Each method that acts on a run takes its id,
+    reads the run itself, and returns the run as it is after the call.
 
-    ``M`` is the type of a run's metadata: what the host keeps on a run, such as who started it and in which team.
-    It is ``dict[str, str]`` unless you name a pydantic model with ``metadata_type``. The metadata is written to the
-    run once, as JSON, when the run starts, and never changed. Every resume call, on any worker, reads it back and
-    builds the run's registry and context from it, so keep in it nothing that changes. ``X`` is the class of the
-    run's context, the registry's ``context_type``.
+    Every run keeps some metadata, of type ``M``: what you want to know about the run, such as who started it. It is
+    a ``dict[str, str]`` unless you name a pydantic model with ``metadata_type``. It is written once, when the run
+    starts. Each time any worker resumes the run, it builds the run's registry and context from it, so keep in it
+    nothing that changes. ``X`` is the class of the run's context, the registry's ``context_type``.
 
-    Each method that acts on a run takes its id, reads the run itself, acts on it as it is, and returns the run as
-    written. Every write is at the ``rev`` the method read: when another call wrote the run first, the method reads
-    it again and acts on it as it is then.
-
-    A worker that has never entered ``serving()`` raises ``RuntimeError`` from ``begin``, ``again``, and an
-    ``answer``, ``resume`` or ``cancel`` that would make a run running. Once it has left ``serving()``, such a call is
-    taken and its run handed back at once, for a worker that serves to take over.
+    A worker works only inside ``serving()``, which your server's lifespan enters. While this worker resumes a run, it
+    holds a lease on it and saves it every few seconds. When a worker dies, another one takes the run over once the
+    lease runs out.
 
     Attributes:
-        metadata_type: The type of a run's metadata, as the worker was given it; the router's answers are declared
-            with it.
-        nodes_for: The function that gives the registry for a run's metadata, as the worker was given it; the routes
-            describe it for ``/nodes`` and compile on it for ``/compile``.
+        metadata_type: The type of a run's metadata, as given; the router declares its answers with it.
+        nodes_for: The function that gives the registry for a run's metadata, as given; ``/nodes`` describes it and
+            ``/compile`` compiles on it.
     """
 
     def __init__(
@@ -90,24 +82,21 @@ class Worker(Generic[M, X]):
 
         Args:
             store: Where runs and their events are kept.
-            nodes_for: The nodes a run's graph may use, from the run's metadata: ``lambda metadata: registry`` for
-                one registry, or a registry per team. Called for every method call and every resume call, so it
-                caches what it builds.
+            nodes_for: The registry a run's graph compiles on, from the run's metadata: ``lambda metadata:
+                registry`` for one registry, or one per team. It is called on every call and every resume, so let it
+                cache what it builds.
             context: The run's context, an instance of the registry's ``context_type``, from the run's metadata and
-                the resume call's stop event, a ``threading.Event``; called for every resume call. The event is set
-                when that call stops early because the run was cancelled, because another worker took the run over,
-                or because the store raised and this worker gave the run up, so a node given it in the context can
-                stop a slow call and raise (what it returns would be kept); a node reads it and never sets it. It is
-                not set when this worker shuts down, since the calls going on then are waited for and kept, and the
-                next resume call gets a new one. Left out for a registry that names no ``context_type``.
-            metadata_type: The type of a run's metadata, ``M``: a pydantic model of yours, or ``dict[str, str]``.
-                The metadata is kept on the run as JSON and read back by this type.
-            max_items: The ceiling on the items of any one Series that a run starts with; ``None`` for none. A
-                resume may raise it for that run, and the raised ceiling holds for that run from then on.
+                a stop event. It is called on every resume. The worker sets the stop event when that resume call
+                stops early: the run was cancelled, another worker took it over, or the store failed. A slow node
+                reads it and raises; it is not set when the worker shuts down, since the calls going on then are
+                kept. Leave it out for a registry with no ``context_type``.
+            metadata_type: The type of a run's metadata: a pydantic model of yours, or ``dict[str, str]``.
+            max_items: The item limit a run starts with, for any one Series; ``None`` for none. A resume may raise
+                it for one run.
             lease: The seconds this worker holds a run between renewals.
             checkpoint_every: The seconds between saves of a running run.
-            resume_timeout: The seconds one call of ``resume()`` may take before the run ends ``timed_out``; ``None``
-                for no limit.
+            resume_timeout: The seconds one resume call may take before the run ends ``timed_out``; ``None`` for no
+                limit.
             poll: The seconds between a follower's reads of new events.
         """
         self.metadata_type = metadata_type
@@ -266,7 +255,8 @@ class Worker(Generic[M, X]):
         is written.
 
         When another call takes the run between this call's read and its write, the run is read again, and the
-        answers are given to it as it is then: queued, if the other call started a resume.
+        answers are given to it as it is then: queued if it is running, refused as ``not_waiting`` if the other
+        call already answered the question and the run finished.
 
         Args:
             run_id: The run's id.
@@ -426,14 +416,15 @@ class Worker(Generic[M, X]):
 
     @asynccontextmanager
     async def serving(self) -> AsyncGenerator[None]:
-        """The context a worker serves in: a lifespan enters it.
+        """The time the worker serves: your server's lifespan enters it.
 
-        A worker that has never entered it raises ``RuntimeError`` from a method that would make a run running
-        (``begin``, ``again``, ``answer`` and ``resume`` of a run that is not running, ``cancel`` of a waiting one),
-        since no sweep of its own would ever take over its runs. While entered, runs whose lease ran out are taken over, three times a lease; a sweep that raises
-        is logged and the next one runs. On leaving, every resume call this worker has going is stopped and its run
-        handed back, and so is a run begun or taken after that, at once: another worker that serves takes it over. A run handed back keeps the node calls already made, so the next
-        worker repeats none of them once the last checkpoint is written.
+        While it is entered, the worker takes over the runs whose lease ran out, three times a lease. On leaving, it
+        hands back every run it is resuming: no more nodes are started, the calls going on are waited for and kept,
+        and another worker that serves goes on with the run. A run begun or taken while it leaves is handed back too.
+
+        A worker that has never served raises ``RuntimeError`` from any call that would make a run running, since no
+        sweep of its own would ever pick the run up. One that served and left takes such a call and hands the run
+        back at once.
 
         Yields:
             Nothing; the worker serves until the context is left.
