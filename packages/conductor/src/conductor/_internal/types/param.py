@@ -1,6 +1,6 @@
 """``Param``: what a node author adds to a type hint, inside ``Annotated``.
 
-A plain hint like ``int`` says what kind of value a field takes. ``Param``says the rest: the title and
+A plain hint like ``int`` says what kind of value a field takes. ``Param`` says the rest: the title and
 description a person sees, the widget they edit it with, limits like ``ge=0``, and choices to pick from::
 
     times: Annotated[int, Param(title="Times", ge=0)] = 1
@@ -149,9 +149,11 @@ class Param:
             Annotated[source, PydanticField(**self.limits)] if self.limits else source
         )
         limited = handler(limited_hint)
-        # When pydantic has no rule for a limit on a type, it wraps the type's schema in a function that fails on
-        # every value. So a limit with no rule shows up as a missing key plus one function layer. Any further
-        # function layer is a host's own schema, which may enforce the limit in a way only the host knows.
+        # When pydantic has no rule for a limit on a type, it wraps the type's schema in one function per such
+        # limit, and that function compares each value directly. On a type like ``str`` that fails for every value.
+        # So each limit with no rule shows up as a missing key plus one function layer. Any further function layer
+        # is a host's own schema. Only the host knows whether its values support the comparison, so the limit is
+        # let through.
         held, functions, layer = set[str](), 0, limited
         while True:
             held |= layer.keys()
