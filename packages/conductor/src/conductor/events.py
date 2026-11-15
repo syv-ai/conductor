@@ -1,11 +1,16 @@
-"""The events a run reports while ``resume()`` calls its nodes.
+"""The events a run reports while it calls its nodes.
 
-``async for event in run.stream()`` gets them one at a time; the last is ``RunEnd``. For the README graph,
-``lines -> shout -> join``, the events start ``RunStart()``, ``NodeStart(loc=("lines",))`` and end
-``NodeComplete(loc=("join",), outcomes=1)``, ``RunEnd(status="complete")``. A host that shows a run as it goes,
-such as a web page fed by server-sent events, imports them from here. Each is a frozen pydantic model with a
-``type`` (``"node_complete"``), written as JSON with ``model_dump(mode="json")``; ``Event`` is their union, which
-reads any of them back.
+A host that shows a run as it happens, such as a web page fed by server-sent events, reads them one at a time::
+
+    async for event in run.stream():
+        ...
+
+The first event is ``RunStart`` and the last is ``RunEnd``. Take the README graph, ``lines -> shout -> join``. Its
+events start with ``RunStart()`` and ``NodeStart(loc=("lines",))``. They end with
+``NodeComplete(loc=("join",), outcomes=1)`` and ``RunEnd(status="complete")``.
+
+Each event is a frozen pydantic model with a ``type``, such as ``"node_complete"``. Write one as JSON with
+``model_dump(mode="json")``. ``Event`` is the union of them all, so it reads any of them back.
 """
 
 from conductor._internal.run import (
@@ -21,7 +26,7 @@ from conductor._internal.run import (
     RunStart,
 )
 
-# The order in which the reference (``python -m conductor.about``) lists them: the order in which a run reports them.
+# The reference (``python -m conductor.about``) lists the events in this order, which is the order a run reports them in.
 __all__ = [
     "Event",
     "RunStart",

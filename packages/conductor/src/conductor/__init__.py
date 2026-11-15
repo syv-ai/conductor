@@ -1,16 +1,22 @@
-"""Conductor: typed Python functions as nodes, graphs of them as data, runs as JSON.
+"""Conductor runs graphs of typed Python functions.
 
-A node author writes ``@node`` functions with ``Param``, ``Series``, ``Table``,
-``SKIPPED``, ``Ask`` and ``Choice``. A host collects them in a ``NodeRegistry``, loads a
-``GraphRecord`` into a ``Graph``, and runs it: a ``Run`` pauses for a person,
-takes answers, resumes and goes again, and is JSON throughout.
+A node is a plain Python function under ``@node``. Its type hints say what it takes and what it returns. A graph is
+data: a ``GraphRecord`` lists the nodes it uses and which outputs feed which inputs. A run is data too, so it can be
+saved as JSON and picked up again later.
 
-This module, ``conductor.widgets`` (the input controls), ``conductor.events``
-(what a run says as it goes), ``conductor.testing`` (one test for a whole
-registry) and ``conductor.about`` (this reference, ``python -m conductor.about``)
-are everything a caller outside the library imports; each lists its names in
-``__all__``.
-Everything in ``conductor._internal`` is the library's own and may move.
+A node author writes nodes with ``@node``, and uses ``Param``, ``Series``, ``Table``, ``SKIPPED``, ``Ask`` and
+``Choice`` inside them. A host puts the nodes in a ``NodeRegistry``, compiles a record into a ``Graph`` and runs it.
+A ``Run`` can stop to wait for a person, take their answer and carry on.
+
+Code outside conductor imports from five modules, and each lists its names in ``__all__``:
+
+- ``conductor``, this module.
+- ``conductor.widgets``, the controls an editor shows for an input.
+- ``conductor.events``, what a run reports as it goes.
+- ``conductor.testing``, one test for a whole registry.
+- ``conductor.about``, the reference, also printed by ``python -m conductor.about``.
+
+Everything in ``conductor._internal`` is private and may change.
 """
 
 from typing import TYPE_CHECKING
@@ -61,7 +67,7 @@ from conductor._internal.series import Series
 from conductor._internal.table import Table
 from conductor._internal.types import Choice, Param, host_type
 
-# The reference lists these names in this order, so they are kept by subject.
+# The reference (``python -m conductor.about``) lists the names in this order, so they are grouped by subject.
 __all__ = [
     # Writing a node
     "node",
