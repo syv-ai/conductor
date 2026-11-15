@@ -66,7 +66,7 @@ class InvalidAskError(Exception): ...  # good
 
 ## Google-style docstrings
 
-Give every public class and function a Google-style docstring, and hold a private helper's docstring to the same rule. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for.
+Give every public class and function a Google-style docstring, and hold a private helper's docstring to the same rule. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for. A kind of problem's docstring is its entry on the problems page, so it says what is wrong, then why, then "To fix it, ...".
 
 Why: one format is easy to read and to find things in. The reference shows a public name's first paragraph alone, so that paragraph has to make sense on its own.
 
@@ -82,6 +82,14 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
 
     Raises (when called):
         InvalidCallError: One ``invalid_answer`` problem per fault.
+    """                                                                                        # good
+
+def ask_not_declared(*loc: str | int) -> str:
+    """A node raised ``Ask``, and its ``@node`` doesn't say ``asks=True``.
+
+    A host has to know before a run which graphs can pause for a person.
+
+    To fix it, add ``asks=True`` to the ``@node``.
     """                                                                                        # good
 ```
 

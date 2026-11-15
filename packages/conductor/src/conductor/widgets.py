@@ -13,9 +13,10 @@ Conductor itself never reads a widget, not when it compiles a graph and not when
 the control looks. Everything else about the input is on its ``Param``: its title, its description, its choices and
 its limits, such as ``ge`` and ``le``. A value outside the limits is refused, whatever the widget.
 
-An input with no widget gets no control in an editor. Its value comes from an edge, or from a constant in the graph
-record. No type has a default widget, since a text could be a text area, a single line or a dropdown. So an input
-that a person fills in declares its own.
+An input with no widget is shown with the control the host's editor picks for its type, such as a line of text for a
+``str``. So give an input a widget only when the editor should show something its type doesn't say: a ``Textarea``
+for a long text, a ``Slider`` for a number in a range, or a ``DatePicker`` that starts at today. Conductor gives no
+type a widget of its own, so an input without one has ``"widget": null`` in its description.
 
 A widget is a frozen pydantic model. Each class writes out its ``type`` by hand: its name in lower case, with a
 hyphen between words, so ``TextInput`` is ``"text-input"``.
