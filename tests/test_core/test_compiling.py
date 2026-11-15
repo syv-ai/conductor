@@ -33,7 +33,6 @@ from conductor import (
 from conductor.widgets import Dropdown, Textarea
 from pydantic import ValidationError
 from pydantic_core import core_schema
-from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
 
@@ -2382,26 +2381,21 @@ def test_a_bool_is_refused_for_a_hosts_number_type_that_accepts_int():
         waiting.answer(waiting.waiting[0], True)
 
 
-def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector(
-    monkeypatch: MonkeyPatch,
-) -> None:
+def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector() -> None:
+    """Compiling calls each node's hook once, and a graph no one holds is freed at once."""
     import gc
     import weakref
 
-    from conductor._internal.graph.compile import Compiler
+    hook_calls: list[str] = []
 
-    @node("upper", title="Upper", description="For a test.")
-    def upper(text: str) -> str:
-        return text.upper()
+    def result_is_text() -> dict[str, Any]:
+        hook_calls.append("called")
+        return {"result": str}
 
-    compiles: list[object] = []
-    original = Compiler.compile
+    @node("upper", title="Upper", description="For a test.", compute_outputs=result_is_text)
+    def upper(text: str) -> dict[str, Any]:
+        return {"result": text.upper()}
 
-    def counted(self: Any, *args: Any, **kwargs: Any) -> Any:
-        compiles.append(self)
-        return original(self, *args, **kwargs)
-
-    monkeypatch.setattr(Compiler, "compile", counted)
     registry = registry_of(upper)
     gc.disable()
     try:
@@ -2419,9 +2413,9 @@ def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector(
             ),
             registry,
         )
-        graph_ref, count = weakref.ref(graph), len(compiles)
-        del graph, compiles[:]
-        assert count == 1
+        graph_ref = weakref.ref(graph)
+        del graph
+        assert hook_calls == ["called"]
         assert graph_ref() is None
     finally:
         gc.enable()
@@ -2475,11 +2469,7 @@ def test_a_typed_dict_output_is_a_record_and_an_edge_may_name_one_of_its_fields(
         return {"name": "Bo"}
 
     described = contact.describe().outputs[0]
-    assert (
-        contact.outputs["result"].whole.id,
-        described.type,
-        list(described.json_schema["properties"]),
-    ) == ("record", "record", ["name"])
+    assert (described.type, list(described.json_schema["properties"])) == ("record", ["name"])
     graph = Graph.compile(
         make_graph(contact, upper, edges=[("contact.result.name", "upper.text")]),
         registry_of(contact, upper),

@@ -8,9 +8,11 @@ import re
 import subprocess
 import sys
 import typing
+from types import ModuleType
 
 import pytest
-from conductor import about
+from conductor import ProblemCatalogue, about
+from pytest import MonkeyPatch
 
 from tests.test_core.test_doors import PUBLIC_MODULES
 
@@ -235,10 +237,17 @@ def test_the_cli_prints_the_problems_page():
     assert result.stdout == about.problems_page()
 
 
-def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
-    from conductor import ProblemCatalogue
-    from conductor.about import _problems
+def _written(catalogue: ProblemCatalogue, monkeypatch: MonkeyPatch) -> str:
+    """A page's placeholder for ``catalogue`` with the catalogue written in, as the reference writes its own."""
+    module = ModuleType("rooms")
+    module.CATALOGUE = catalogue  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    return about.fill_placeholders("<!-- problems: rooms.CATALOGUE -->")
 
+
+def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry(
+    monkeypatch: MonkeyPatch,
+):
     catalogue = ProblemCatalogue()
 
     @catalogue.problem()
@@ -268,7 +277,7 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
         """
         return f"The room is closed over the holiday, until {until}."
 
-    entries = _problems(catalogue)
+    entries = _written(catalogue, monkeypatch)
 
     assert (
         "### `room_closed`\n\nA room is closed.\n\nCome back later.\n\n"
@@ -285,10 +294,9 @@ def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry():
     )
 
 
-def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_reference_is_read():
-    from conductor import ProblemCatalogue
-    from conductor.about import _problems
-
+def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_reference_is_read(
+    monkeypatch: MonkeyPatch,
+):
     catalogue = ProblemCatalogue()
 
     @catalogue.problem()
@@ -301,4 +309,4 @@ def test_a_kind_with_a_key_its_docstring_does_not_explain_fails_when_the_referen
         return f"The room is closed until {until}."
 
     with pytest.raises(LookupError, match="room_closed.*'until'"):
-        _problems(catalogue)
+        _written(catalogue, monkeypatch)

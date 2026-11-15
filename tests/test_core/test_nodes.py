@@ -38,7 +38,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.gate import validator_of
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema
@@ -1348,7 +1347,8 @@ def test_annotated_metadata_that_is_not_a_param_is_pydantics_so_a_note_is_ignore
     def limited(x: Annotated[int, Ge(0)]) -> str:
         return str(x)
 
-    assert declared(noted).inputs["x"].type.bare is int
+    assert field_of(declared(noted), "x").type == "int"
+    assert compiled_graph(declared(noted)).run(x=3).outputs == {"result": 3}
     graph = compiled_graph(
         declared(limited),
         record=GraphRecord(nodes={"l": node_record("x", constants={"x": -1})}),
@@ -1362,14 +1362,13 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
     def f(separator: Annotated[line, Param(min_length=1, title="Separator")] = ",") -> int:
         return 1
 
-    field = declared(f).inputs["separator"]
-    assert (field.description.title, field.param.widget, field.param.limits) == (
+    (field,) = declared(f).describe().inputs
+    assert (field.title, field.widget, field.json_schema) == (
         "Separator",
-        TextInput(),
-        {"min_length": 1},
+        {"type": "text-input"},
+        {"type": "string", "minLength": 1},
     )
-    with pytest.raises(ValidationError):
-        validator_of(field.whole).validate_python("")
+    assert codes(compiled_graph(declared(f), constants={"x.separator": ""})) == ["invalid_value"]
 
 
 def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_does_not():
@@ -1389,15 +1388,20 @@ def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_d
         return sum(n)
 
     for name, may_be_none in (("n", False), ("m", True)):
-        field = total.inputs[name]
-        assert (field.type.bare, field.description.title, field.param.limits) == (
-            int | None if may_be_none else int,
+        field = field_of(total, name)
+        item_schema = {"type": "integer", "minimum": 0}
+        assert (field.type, field.title, field.is_series, field.json_schema) == (
+            "int",
             "Count",
-            {"ge": 0},
+            True,
+            {"anyOf": [item_schema, {"type": "null"}]} if may_be_none else item_schema,
         )
         for wrong in ([-1], [True]):
-            with pytest.raises(ValidationError):
-                validator_of(field.whole).validate_python(wrong)
+            with pytest.raises(InvalidCallError) as refused:
+                Graph.compile(make_graph(total, inputs={name: f"total.{name}"}), registry).run(
+                    **{"n": [1], name: wrong}
+                )
+            assert [problem.type for problem in refused.value.problems] == ["invalid_input"]
     graph = Graph.compile(
         make_graph(
             words,
@@ -1810,8 +1814,7 @@ def test_choices_that_are_not_finite_floats_are_told_apart_and_matched_by_their_
         return str(limit)
 
     assert [c.id for c in cap.describe().inputs[0].choices or ()] == ["Infinity", "NaN"]
-    taken = validator_of(cap.inputs["limit"].type).validate_python(float("nan"))
-    assert taken != taken  # nan, one of the choices, is taken
+    assert compiled_graph(cap).run(limit=float("nan")).outputs == {"result": "nan"}
 
 
 @pytest.mark.parametrize(
@@ -1841,11 +1844,14 @@ def test_a_limit_pydantic_supports_on_a_type_is_kept_and_one_it_does_not_is_refu
     ) -> int:
         return 0
 
-    spec = declared(limited).inputs
-    with pytest.raises(ValidationError, match="greater than or equal"):
-        validator_of(spec["price"].whole).validate_python(Decimal("-1"))
-    with pytest.raises(ValidationError, match="at least 1"):
-        validator_of(spec["tags"].whole).validate_python([])
+    right = {"x.price": Decimal("1"), "x.wait": datetime.timedelta(1), "x.tags": ["a"]}
+    assert compiled_graph(declared(limited), constants=right).run().outputs == {"result": 0}
+    for wrong, reason in (
+        ({"x.price": Decimal("-1")}, "greater than or equal"),
+        ({"x.tags": []}, "at least 1"),
+    ):
+        (problem,) = compiled_graph(declared(limited), constants=right | wrong).problems
+        assert problem.type == "invalid_value" and reason in problem.msg
 
     with pytest.raises(NodeDeclarationError) as raised:
 

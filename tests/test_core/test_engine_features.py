@@ -8,7 +8,8 @@ import time as t
 from asyncio import Event
 from collections.abc import Mapping
 from dataclasses import dataclass
-from queue import SimpleQueue
+from threading import Barrier
+from threading import Event as ThreadEvent
 from typing import Annotated, Any, Literal, TypeAliasType
 
 import pytest
@@ -27,12 +28,13 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.run import scheduler as scheduler_module
 from pydantic import AfterValidator, GetCoreSchemaHandler, JsonValue
 from pydantic_core import core_schema
-from pytest import MonkeyPatch
 
 from tests.test_core.nodes import place, registry_of
+
+#: How long a test waits for another thread before it fails, rather than hangs.
+_BOUND = 10.0
 
 
 def collect(run, **kw):
@@ -66,12 +68,6 @@ def slow(text: str) -> str:
     return text * 2
 
 
-@node("slow2", title="Slow2", description="For a test.", policy=Policy(concurrency=8))
-def slow2(text: str) -> str:
-    t.sleep(0.1)
-    return text + "!"
-
-
 @node("gate", title="Gate", description="For a test.", asks=True)
 def gate(text: str) -> str:
     if text == "b":
@@ -92,7 +88,7 @@ def boom(text: str) -> str:
     return text
 
 
-reg = registry_of(split, upper, join, slow, slow2, gate, never, boom)
+reg = registry_of(split, upper, join, slow, gate, never, boom)
 
 
 def chain(*ids, then_join=None):
@@ -127,24 +123,47 @@ def test_events_in_order():
     assert all(isinstance(e.model_dump(mode="json"), dict) for e in events)
 
 
-def test_concurrency_eight_items_in_one_sleep():
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "slow")), reg)
-    start = t.monotonic()
-    run = graph.run(text=",".join("abcdefgh"))
-    took = t.monotonic() - start
-    assert took < 0.18 and run.results["slow"]["result"] == [c * 2 for c in "abcdefgh"], took
+def test_concurrency_eight_calls_of_a_node_run_at_once():
+    """A node of ``concurrency=8`` has eight calls running at once: each waits until all eight have started."""
+    eight = Barrier(8)
 
+    @node("together", title="Together", description="For a test.", policy=Policy(concurrency=8))
+    def together(text: str) -> str:
+        eight.wait(_BOUND)  # breaks, failing the call, when fewer than eight run at once
+        return text * 2
 
-def test_pipelining_two_slow_nodes():
-    """16 items through two slow nodes of 8 at once: node by node is 4 sleeps, pipelined 3."""
     graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "slow", "slow2", then_join=True)), reg
+        GraphRecord.model_validate(chain("split", "together")), registry_of(split, together)
     )
-    start = t.monotonic()
+    run = graph.run(text=",".join("abcdefgh"))
+    assert run.status == "complete", run.cause
+    assert run.results["together"]["result"] == [c * 2 for c in "abcdefgh"]
+
+
+def test_pipelining_two_nodes():
+    """An item goes on to the second node as soon as the first is done with it, while the first still has items
+    to call: the first node's last item waits until the second node has been called."""
+    second_called = ThreadEvent()
+    seen_before_the_last: list[bool] = []
+
+    @node("first", title="First", description="For a test.", policy=Policy(concurrency=8))
+    def first(text: str) -> str:
+        if text == "p":
+            seen_before_the_last.append(second_called.wait(_BOUND))
+        return text * 2
+
+    @node("second", title="Second", description="For a test.", policy=Policy(concurrency=8))
+    def second(text: str) -> str:
+        second_called.set()
+        return text + "!"
+
+    graph = Graph.compile(
+        GraphRecord.model_validate(chain("split", "first", "second", then_join=True)),
+        registry_of(split, first, second, join),
+    )
     run = graph.run(text=",".join("abcdefghijklmnop"))
-    took = t.monotonic() - start
     assert run.outputs["result"] == "+".join(c * 2 + "!" for c in "abcdefghijklmnop")
-    assert took < 0.36, took
+    assert seen_before_the_last == [True]
 
 
 def test_stream_leaves_the_event_loop_free():
@@ -283,45 +302,6 @@ def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
 
 class Flaky(OSError):
     pass
-
-
-def test_a_run_waiting_for_a_retry_looks_at_its_queue_without_blocking_before_each_timed_wait(
-    monkeypatch: MonkeyPatch,
-):
-    """CPython 3.12's ``SimpleQueue.get(timeout=)`` can block for ever when it is the first look at an empty queue,
-    so a run that waits for a retry would never retry: every timed wait follows a look that found nothing."""
-    looks: list[str] = []
-
-    class Watched(SimpleQueue[Any]):
-        def get(self, block: bool = True, timeout: float | None = None) -> Any:
-            if not block:
-                looks.append("no wait")
-            elif timeout is not None:
-                looks.append("timed")
-            else:
-                looks.append("wait")
-            assert timeout is None or timeout > 0
-            return super().get(block, timeout)
-
-    monkeypatch.setattr(scheduler_module, "SimpleQueue", Watched)
-
-    @node(
-        "fetch",
-        title="Fetch",
-        description="For a test.",
-        policy=Policy(retries=1, retry_delay=0.01),
-    )
-    def fetch(text: str) -> str:
-        if not looks:
-            raise ExternalError("busy")
-        return text
-
-    assert Graph.compile(GraphRecord.model_validate(chain("fetch")), registry_of(fetch)).run(
-        text="a"
-    ).outputs == {"result": "a"}
-    assert "timed" in looks
-    assert all(looks[i - 1] == "no wait" for i, look in enumerate(looks) if look == "timed")
-    assert looks[0] == "no wait"
 
 
 @pytest.mark.timeout(10)

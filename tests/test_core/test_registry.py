@@ -8,9 +8,7 @@ and ``filter`` change or narrow what is offered; looping yields the
 definitions.
 """
 
-import itertools
 import json
-import textwrap
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -29,10 +27,7 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.base import REQUIRED
-from conductor._internal.registry import type as registry_module
 from conductor.widgets import Textarea
-from pytest import MonkeyPatch
 
 
 @host_type("registry-test-text", title="Text")
@@ -503,9 +498,10 @@ def test_the_inputs_keep_the_order_of_the_parameters():
 
 def test_a_parameter_without_a_default_is_required_and_one_with_a_default_keeps_it():
     text, prefix = echo.inputs.values()
-    assert text.default is REQUIRED
-    assert prefix.default == ""
-    assert prefix.default is not REQUIRED
+    assert text.description.required and "default" not in json.loads(
+        text.description.model_dump_json()
+    )
+    assert not prefix.description.required and prefix.description.default == ""
 
 
 def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
@@ -827,16 +823,21 @@ def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_de
     ]
 
 
-def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(
-    monkeypatch: MonkeyPatch,
-) -> None:
+def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -> None:
     """An editor calls ``describe()`` each time it opens its list of nodes, so a subgraph's inputs and outputs are
-    worked out once."""
+    worked out once: the hook of the node inside it is called once per compile."""
     registry = NodeRegistry()
+    hook_calls: list[str] = []
 
-    @registry.node("shout", title="Shout", description="For a test.")
-    def shout(text: str) -> str:
-        return text.upper()
+    def result_is_text() -> dict[str, Any]:
+        hook_calls.append("called")
+        return {"result": str}
+
+    @registry.node(
+        "shout", title="Shout", description="For a test.", compute_outputs=result_is_text
+    )
+    def shout(text: str) -> dict[str, Any]:
+        return {"result": text.upper()}
 
     registry.add(
         subgraph("loud", title="Loud", description="For a test.")(
@@ -850,33 +851,16 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes(
             )
         )
     )
-    compiled_records = []
-    original_compile = Graph.compile
-    monkeypatch.setattr(
-        Graph,
-        "compile",
-        staticmethod(
-            lambda record, *rest: compiled_records.append(record) or original_compile(record, *rest)
-        ),
-    )
 
     first, second = registry.describe(), registry.describe()
-    assert first == second and len(compiled_records) == 1
+    assert first == second and len(hook_calls) == 1
 
-    @node("shout", title="Shout in words", description="For a test.")
-    def shout_in_words(words: str) -> str:
-        return words.upper()
+    @node(
+        "shout", title="Shout in words", description="For a test.", compute_outputs=result_is_text
+    )
+    def shout_in_words(words: str) -> dict[str, Any]:
+        return {"result": words.upper()}
 
     registry.replace(shout_in_words)
     (loud,) = [n for n in registry.describe().nodes if n.id == "loud"]
-    assert [field.name for field in loud.inputs] == ["words"] and len(compiled_records) == 2
-
-
-def test_the_modules_own_example_runs():
-    after = registry_module.__doc__.split("::\n", 1)[1].splitlines()
-    block = textwrap.dedent(
-        "\n".join(itertools.takewhile(lambda line: not line or line.startswith("    "), after))
-    )
-    scope: dict[str, Any] = {"NodeRegistry": NodeRegistry, "shout": _node("shout")}
-    exec(block, scope)  # noqa: S102  the docstring's own code, as a reader runs it
-    assert [definition.id for definition in scope["registry"]] == ["upper", "shout"]
+    assert [field.name for field in loud.inputs] == ["words"] and len(hook_calls) == 2

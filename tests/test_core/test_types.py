@@ -19,10 +19,11 @@ from conductor import (
     Series,
     Table,
     host_type,
+    make_graph,
     node,
 )
 from conductor.widgets import Widget
-from pydantic import BaseModel, GetCoreSchemaHandler, JsonValue, model_validator
+from pydantic import AfterValidator, BaseModel, GetCoreSchemaHandler, JsonValue, model_validator
 from pydantic_core import CoreSchema, core_schema
 
 from tests.test_core.nodes import registry_of
@@ -367,12 +368,11 @@ def test_a_subclass_of_a_builtin_with_no_schema_of_its_own_is_validated_as_the_b
     class Bare(str):
         pass
 
-    from conductor._internal.gate import validator_of
-    from conductor._internal.types import Type
+    @node("kinds", title="Kinds", description="For a test.")
+    def kinds(one: Bare, many: list[Bare]) -> str:
+        return " ".join(type(value).__name__ for value in [one, *many])
 
-    assert type(validator_of(Type(Bare)).validate_python("x")) is Bare and validator_of(
-        Type(list[Bare])
-    ).validate_python(["x"]) == ["x"]
+    assert _run(kinds, one="x", many=["x"]).outputs == {"result": "Bare Bare"}
 
 
 # -- a table is a type like any other -------------------------------------------------------------
@@ -560,15 +560,6 @@ def test_a_host_type_names_the_other_classes_it_takes() -> None:
     ] == ["celsius", "kelvin"]
 
 
-def test_one_hint_is_read_once() -> None:
-    from conductor._internal.types import Type
-
-    hint = Annotated[int, Param(ge=0)]
-    assert (
-        Type(hint) is Type(Annotated[int, Param(ge=0)]) and Type(hint).schema is Type(hint).schema
-    )
-
-
 def test_a_widget_in_annotated_outside_param_is_refused_saying_where_it_goes() -> None:
     from conductor.widgets import Textarea
 
@@ -604,19 +595,20 @@ def _returning_its_input(hint: Any) -> Any:
     return passes
 
 
-def _stripped(text: str) -> str:
-    return text.strip()
+def _shout_checked_by(check: Any, calls: list[str]) -> Graph[None]:
+    """A graph of the node ``shout``, whose input is checked by ``check``; each call appends its text to ``calls``."""
+
+    @node("shout", title="Shout", description="For a test.")
+    def shout(text: Annotated[str, AfterValidator(check)]) -> str:
+        calls.append(text)
+        return text.upper()
+
+    return Graph.compile(make_graph(shout), registry_of(shout))
 
 
-class _Marked:
-    """Metadata with no ``repr`` of its own: Python writes it with its memory address."""
-
-
-def test_the_code_fingerprint_of_a_hint_has_no_memory_address() -> None:
-    """A function or an object in ``Annotated`` is written by its name, never by ``repr``, which gives its address in
-    this process. The fingerprint is saved with a run, so it has to come out the same in the process that reads the run back."""
-    from conductor._internal.types import Type
-    from pydantic import AfterValidator
+def test_a_function_in_a_hint_is_told_apart_by_where_it_is_written() -> None:
+    """A node redeclared with another function of the same name in its hint is another node: its call is made again,
+    where the same function lets the previous call be reused."""
 
     def local(text: str) -> str:
         return text
@@ -627,28 +619,14 @@ def test_the_code_fingerprint_of_a_hint_has_no_memory_address() -> None:
 
         return local
 
-    assert (
-        Type(Annotated[str, AfterValidator(_stripped)]).reads_as
-        == f"builtins.str['AfterValidator(func={__name__}._stripped)']"
-    )
-    assert Type(Annotated[str, _Marked()]).reads_as == f"builtins.str['{__name__}._Marked']"
-    here = f"{__name__}.test_the_code_fingerprint_of_a_hint_has_no_memory_address.<locals>"
-    assert (
-        Type(Annotated[str, AfterValidator(local)]).reads_as
-        == f"builtins.str['AfterValidator(func={here}.local)']"
-    )
-    assert (
-        Type(Annotated[str, AfterValidator(lambda text: text)]).reads_as
-        == f"builtins.str['AfterValidator(func={here}.<lambda>)']"
-    )
-    assert (
-        Type(Annotated[str, AfterValidator(another_of_the_same_name())]).reads_as
-        != Type(Annotated[str, AfterValidator(local)]).reads_as
-    )  # named by where it is written
-    assert (
-        Type(Annotated[str, AfterValidator(str.strip)]).reads_as
-        == "builtins.str[\"AfterValidator(func=<method 'strip' of 'str' objects>)\"]"
-    )  # a repr with no address stays
+    calls: list[str] = []
+    first = _shout_checked_by(local, calls).run(text="a")
+    _shout_checked_by(local, calls).with_inputs(text="a", previous=first).resume()
+    assert calls == ["a"]
+    _shout_checked_by(another_of_the_same_name(), calls).with_inputs(
+        text="a", previous=first
+    ).resume()
+    assert calls == ["a", "a"]
 
 
 _A_NODE_WITH_A_FUNCTION_IN_ITS_HINT = """
@@ -666,11 +644,17 @@ def stripped(text: str) -> str:
     return text.strip()
 
 
+class Marked:  # no repr of its own: Python writes it with its memory address
+    pass
+
+
 registry = NodeRegistry()
 
 
 @registry.node("shout", title="Shout", description="For a test.")
-def shout(text: Annotated[str, AfterValidator(stripped)]) -> str:
+def shout(
+    text: Annotated[str, AfterValidator(stripped), AfterValidator(lambda text: text), Marked()],
+) -> str:
     calls.append(text)
     return text.upper()
 
@@ -704,11 +688,5 @@ def test_a_run_saved_in_one_process_is_reused_in_another_when_a_hint_has_a_funct
         assert child.stdout == printed
 
 
-def test_what_a_code_fingerprint_says_of_a_series_and_a_table_names_no_internal_module() -> None:
-    """A node's code fingerprint is made of each input's and output's ``reads_as``, and a saved waiting call's id of
-    that fingerprint. So the text must not change when the class behind ``Series`` or ``Table`` moves to another file."""
-    from conductor._internal.types import Type
-
-    assert Type(Series[int]).reads_as == "conductor.Series[builtins.int]"
-    assert Type(Table).reads_as == "conductor.Table"
+def test_a_series_is_written_by_its_public_name() -> None:
     assert repr(Series[int]) == "conductor.Series[int]"

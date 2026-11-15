@@ -12,7 +12,7 @@ from types import ModuleType
 
 import pytest
 from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemKind
-from conductor.about import _kind_docs
+from conductor.about import fill_placeholders, problems_page
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 from conductor_providers.fastapi.testing.problems import RUN_STORE_CHECK_PROBLEMS
 from pytest import MonkeyPatch
@@ -63,24 +63,49 @@ def _is_of_kind(kind: ProblemKind[...], problem: Problem) -> bool:
     return re.fullmatch(pattern, problem.msg, re.S) is not None
 
 
-#: Each kind with an example, and the setup its example runs after: that of the page its catalogue is written on.
+def _examples(page: str) -> dict[tuple[str, str | None], str]:
+    """The example of each kind of problem on a page as it is printed, by the kind's code and variant: the first
+    Python block in the section the kind's heading starts; empty for a kind with none."""
+    examples = {}
+    for code, variant, body in re.findall(
+        r"^### `(\w+)`(?:, variant `(\w+)`)?\n(.*?)(?=^##|\Z)", page, re.S | re.M
+    ):
+        block = re.search(r"```python\n(.*?)```", body, re.S)
+        examples[code, variant or None] = block[1] if block else ""
+    return examples
+
+
+_PAGE_EXAMPLES = _examples(problems_page())
+_STORE_EXAMPLES = _examples(fill_placeholders(_SERVING_RUNS))
+
+#: Each kind with an example, the setup its example runs after, and the examples of the page its catalogue is
+#: written on.
 _KINDS = [
-    *((kind, _setup) for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]),
-    *((kind, _store_setup) for kind in RUN_STORE_CHECK_PROBLEMS),
+    *(
+        (kind, _setup, _PAGE_EXAMPLES)
+        for kind in [*PROBLEMS, *DECLARATION_PROBLEMS, *REGISTRY_CHECK_PROBLEMS]
+    ),
+    *((kind, _store_setup, _STORE_EXAMPLES) for kind in RUN_STORE_CHECK_PROBLEMS),
 ]
 
 
 @pytest.mark.parametrize(
-    ("kind", "setup"), _KINDS, ids=[f"{kind.code}-{kind.variant}" for kind, _ in _KINDS]
+    ("kind", "setup", "examples"),
+    _KINDS,
+    ids=[f"{kind.code}-{kind.variant}" for kind, _, _ in _KINDS],
 )
 def test_a_kinds_example_makes_its_problem_and_no_other(
-    kind: ProblemKind[...], setup: Callable[[], str], monkeypatch: MonkeyPatch, tmp_path: Path
+    kind: ProblemKind[...],
+    setup: Callable[[], str],
+    examples: dict[tuple[str, str | None], str],
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """The example runs after the page's setup, alone, and its last line gives problems of this kind only."""
     monkeypatch.chdir(tmp_path)
     page = ModuleType("problems_page")  # a dataclass in an example looks its module up by name
     monkeypatch.setitem(sys.modules, page.__name__, page)
-    example = _kind_docs(kind).example
+    example = examples[kind.code, kind.variant]
     assert example, f"{kind.code} has no example"
     *body, last = ast.parse(example).body
     assert isinstance(last, Expr), f"{kind.code}: the example's last line gives its problems"
@@ -114,7 +139,7 @@ def test_a_kinds_example_meets_its_problem_where_its_sections_text_says(
     kind: ProblemKind[...],
 ) -> None:
     """The example's last line calls its section's helper, and the test above runs it, so the problem is met there."""
-    *_, last = ast.parse(_kind_docs(kind).example).body
+    *_, last = ast.parse(_PAGE_EXAMPLES[kind.code, kind.variant]).body
     assert (
         isinstance(last, Expr)
         and isinstance(last.value, Call)

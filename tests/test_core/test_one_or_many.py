@@ -21,7 +21,9 @@ from conductor import (
     Param,
     Run,
     Series,
+    host_type,
     make_graph,
+    node,
     subgraph,
 )
 from pydantic import BaseModel, ValidationError
@@ -458,13 +460,41 @@ def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
     assert graph.run(tree=[1, [2]]).outputs == {"result": "[1, [2]]"}
 
 
+def _taking(hint: Any) -> tuple[Graph[None], NodeRegistry]:
+    """A graph of one node that takes ``hint`` as its graph input ``value`` and returns it, and its registry."""
+
+    def take(value: Any) -> Any:
+        return value
+
+    take.__annotations__ = {"value": hint, "return": hint}
+    definition = node("take", title="Take", description="For a test.")(take)
+    local_registry = NodeRegistry()
+    local_registry.add(definition)
+    return Graph.compile(make_graph(definition), local_registry), local_registry
+
+
+def _refused_reasons(hint: Any, value: Any) -> list[str]:
+    """The types of pydantic's errors in the problem a graph input of ``hint`` given ``value`` is refused with."""
+    graph, _ = _taking(hint)
+    with pytest.raises(InvalidCallError) as refused:
+        graph.run(value=value)
+    (problem,) = refused.value.problems
+    assert problem.type == "invalid_input"
+    return [error["type"] for error in problem.ctx["errors"]]
+
+
+def _taken(hint: Any, value: Any) -> Any:
+    """``value`` as a graph input of ``hint`` takes it."""
+    graph, _ = _taking(hint)
+    return graph.run(value=value).outputs["result"]
+
+
 def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_table():
-    """``True`` for an ``int`` field is refused alike in a ``TypedDict``, a list or dict of them, and a ``Table``."""
+    """``True`` for an ``int`` field is refused alike in a ``TypedDict``, a list or dict of them, and a ``Table``:
+    given to a graph input and as a constant of a record read from JSON."""
     from typing import TypedDict
 
     from conductor import Table
-    from conductor._internal.gate import validator_of
-    from conductor._internal.types import Type
 
     class Row(TypedDict):
         n: int
@@ -478,40 +508,31 @@ def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_
         (Table[Row], [right, wrong]),
         (Row, {"n": 1, "share": False}),
     ):
-        with pytest.raises(ValidationError) as refused:
-            validator_of(Type(hint)).validate_python(value)
-        assert refused.value.errors()[0]["type"] == "bool_is_not_a_number", hint
-    assert validator_of(Type(Row)).validate_python(right) == right and validator_of(
-        Type(list[Row])
-    ).validate_python([right]) == [right]
-    assert validator_of(Type(Row)).validate_json(json.dumps(right), strict=True) == right
-    with pytest.raises(
-        ValidationError, match="valid integer"
-    ):  # from JSON, strictly, the refusal is pydantic's own
-        validator_of(Type(Row)).validate_json(json.dumps(wrong), strict=True)
+        assert _refused_reasons(hint, value) == ["bool_is_not_a_number"], hint
+        _, local_registry = _taking(hint)
+        record = {"nodes": {"take": {"node": "take", "inputs": {"value": {"constant": value}}}}}
+        (problem,) = Graph.compile(
+            GraphRecord.model_validate_json(json.dumps(record)), local_registry
+        ).problems
+        assert [error["type"] for error in problem.ctx["errors"]] == ["bool_is_not_a_number"], hint
+    assert _taken(Row, right) == right and _taken(list[Row], [right]) == [right]
 
 
 def test_an_enum_of_numbers_is_a_type_and_refuses_true_alone_and_in_a_list():
     from enum import Enum, IntEnum
 
-    from conductor._internal.gate import validator_of
-    from conductor._internal.types import Type
-
+    @host_type("level", title="Level")
     class Level(IntEnum):
         LOW = 1
 
+    @host_type("share", title="Share")
     class Share(float, Enum):
         HALF = 0.5
 
-    def read(hint: Any, value: Any) -> Any:
-        return validator_of(Type(hint)).validate_python(value)
-
     assert (
-        read(Level, 1) is Level.LOW
-        and read(list[Level], [1]) == [Level.LOW]
-        and read(Share, 0.5) is Share.HALF
+        _taken(Level, 1) is Level.LOW
+        and _taken(list[Level], [1]) == [Level.LOW]
+        and _taken(Share, 0.5) is Share.HALF
     )
     for hint, value in ((Level, True), (list[Level], [True])):
-        with pytest.raises(ValidationError) as refused:
-            read(hint, value)
-        assert refused.value.errors()[0]["type"] == "bool_is_not_a_number"
+        assert _refused_reasons(hint, value) == ["bool_is_not_a_number"], hint

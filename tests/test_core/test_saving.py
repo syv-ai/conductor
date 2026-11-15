@@ -30,6 +30,7 @@ from conductor import (
     InvalidCallError,
     NodeRecord,
     NotCalled,
+    Run,
     Series,
     Source,
     Table,
@@ -38,7 +39,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.run import Run
 from pydantic import BaseModel, TypeAdapter
 from pytest import MonkeyPatch
 

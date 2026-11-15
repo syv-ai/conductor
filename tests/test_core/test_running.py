@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from threading import Condition, Thread
 from threading import Event as ThreadEvent
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
 import polars as pl
 import pytest
@@ -42,7 +42,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import BaseModel, model_serializer
+from pydantic import AfterValidator, BaseModel, model_serializer
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import place, registry_of
@@ -1282,29 +1282,25 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
         )
 
 
-def test_a_defect_in_the_engine_reaches_the_caller_rather_than_hanging_the_stream(monkeypatch):
-    from conductor._internal.run.arguments import ResultReader
+def _broken_check(text: str) -> str:
+    raise RuntimeError("a defect in a type's own check")
 
-    @node("echo", title="Echo", description="For a test.")
-    def echo(text: str) -> str:
+
+@pytest.mark.parametrize(
+    "policy", [Policy(), Policy(concurrency=2)], ids=["on the run's thread", "on a pool thread"]
+)
+def test_a_defect_outside_the_nodes_function_reaches_the_caller_rather_than_hanging_the_stream(
+    policy: Policy,
+) -> None:
+    """A type whose own check raises something other than a refusal is a defect, not the node's failure: it ends
+    the stream by raising, wherever the node is called."""
+
+    @node("echo", title="Echo", description="For a test.", policy=policy)
+    def echo(text: str) -> Annotated[str, AfterValidator(_broken_check)]:
         return text
 
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {"e": {"node": "echo", "inputs": {"text": {"graph_input": "text"}}}},
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
-        ),
-        registry_of(echo),
-    )
-    prepared = graph.with_inputs(text="x")
-
-    def broken(*args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("an engine defect")
-
-    monkeypatch.setattr(ResultReader, "arguments_for", broken)
-    with pytest.raises(RuntimeError, match="an engine defect"):
+    prepared = Graph.compile(make_graph(echo), registry_of(echo)).with_inputs(text="x")
+    with pytest.raises(RuntimeError, match="a defect in a type's own check"):
         _events(prepared)
 
 

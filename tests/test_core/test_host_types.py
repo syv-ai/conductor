@@ -109,13 +109,30 @@ def test_a_subclass_of_a_builtin_needs_no_schema_of_its_own_and_its_own_check_ru
     assert refused.value.problems[0].type == "invalid_input"
 
 
-def test_a_type_that_accepts_another_takes_its_values_on_an_edge() -> None:
-    from conductor._internal.types import Type
+def test_an_edge_may_join_a_type_to_one_that_accepts_it_and_not_the_other_way() -> None:
+    @node("measure", title="Measure", description="For a test.")
+    def measure(degrees: float) -> Celsius:
+        return Celsius(degrees=degrees)
 
-    assert (
-        Type(Temperature).fits(Type(Celsius)) is not None
-        and Type(Celsius).fits(Type(Temperature)) is None
-    )
+    @node("read", title="Read", description="For a test.")
+    def read(temperature: Temperature) -> float:
+        return temperature.degrees
+
+    @node("warmth", title="Warmth", description="For a test.")
+    def warmth(degrees: float) -> Temperature:
+        return Temperature(degrees=degrees)
+
+    @node("in-celsius", title="In Celsius", description="For a test.")
+    def in_celsius(celsius: Celsius) -> float:
+        return celsius.degrees
+
+    registry = NodeRegistry()
+    registry.add(measure, read, warmth, in_celsius)
+    accepted = Graph.compile(make_graph(measure, read), registry)
+    refused = Graph.compile(make_graph(warmth, in_celsius), registry)
+
+    assert accepted.problems == []
+    assert [problem.type for problem in refused.problems] == ["type_mismatch"]
 
 
 def test_a_generic_pydantic_model_is_named_by_its_declared_id_and_its_arguments() -> None:

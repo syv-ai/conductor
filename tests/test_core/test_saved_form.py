@@ -1,6 +1,7 @@
 """A saved run: it reads back as the same run and resumes to the same result, a float that is not finite is read by
 its declared type, and a damaged saved run is refused at the place pydantic names."""
 
+import asyncio
 import datetime
 import json
 import math
@@ -26,7 +27,6 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor._internal.run.json.write import saved_run
 from pydantic import BaseModel
 
 
@@ -595,39 +595,53 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
     )
 
 
-def test_a_key_a_saved_record_does_not_declare_cannot_be_written() -> None:
-    """A saved run is written only from its models' fields, so no key can be written that the reader does not know."""
-    saved = saved_run(_everything().run(_inputs("a,bb")))
-    for record in (saved, saved.outcomes["ask"]):
-        with pytest.raises(ValueError, match="has no field"):
-            record.undeclared = {0: "x"}
-        with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            type(record).model_validate({"undeclared": {0: "x"}})
+def test_a_key_a_saved_run_does_not_declare_is_refused_where_it_is() -> None:
+    """A saved run reads only the keys its records declare, so a key it does not know is refused, not dropped."""
+    graph = _everything()
+    written = json.loads(graph.run(_inputs("a,bb")).to_json())
+    for record, where in (
+        (written, "undeclared"),
+        (written["outcomes"]["ask"], "outcomes.ask.undeclared"),
+    ):
+        record["undeclared"] = {"0": "x"}
+        with pytest.raises(InvalidCallError) as refused:
+            Run.from_json(json.dumps(written), graph)
+        (problem,) = refused.value.problems
+        assert (problem.type, problem.ctx["where"]) == ("saved_run_unreadable", where)
+        del record["undeclared"]
 
 
-def test_every_field_a_run_sets_in_its_saved_run_is_a_key_of_the_json_and_reads_back() -> None:
+def test_a_run_read_back_goes_on_as_the_run_it_was_saved_from() -> None:
+    """A run that reuses calls of the run before it is saved with what it may still reuse: read back, it waits for
+    the same calls, has the same results and progress, and reuses the same calls when it goes on."""
     graph = _everything()
     first = _finished(graph.run(_inputs("a,bb,ccc,xax,b")))
     waiting = first.with_inputs({"lines": "a,ccc,ab,xax"}).resume()
-    saved = saved_run(waiting)
-    written = json.loads(waiting.to_json())
+    read_back = Run.from_json(waiting.to_json(), graph)
 
-    def set_fields(record: Any) -> set[str]:
-        return {
-            name
-            for name, declared in type(record).model_fields.items()
-            if declared.is_required()
-            or getattr(record, name) != declared.get_default(call_default_factory=True)
-        }
+    assert waiting.status == "waiting"
+    assert (read_back.status, read_back.waiting, read_back.progress) == (
+        waiting.status,
+        waiting.waiting,
+        waiting.progress,
+    )
+    assert _same(read_back.results, waiting.results)
+    assert _went_on(read_back) == _went_on(waiting)
 
-    assert set(written) == set_fields(saved)
-    for name, node_outcomes in saved.outcomes.items():
-        assert set(written["outcomes"][name]) == set_fields(node_outcomes), name
-    for name, kept in saved.reusable.items():
-        assert set(written["reusable"][name]) == set_fields(kept) and set(
-            written["reusable"][name]["outcomes"]
-        ) == set_fields(kept.outcomes), name
-    assert Run.from_json(waiting.to_json(), graph).to_json() == waiting.to_json()
+
+def _went_on(run: Any) -> list[tuple[Any, ...]]:
+    """Each node's calls as ``run``, its waiting calls answered, goes on: how many outcomes and how many reused."""
+    for call in run.waiting:
+        run = run.answer(call, "bee")
+
+    async def streamed() -> list[Any]:
+        return [event async for event in run.stream()]
+
+    return [
+        (event.loc, event.outcomes, event.reused)
+        for event in asyncio.run(streamed())
+        if event.type == "node_complete"
+    ]
 
 
 def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -> None:
