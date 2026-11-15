@@ -1,4 +1,8 @@
-"""``Field``: one input or output of a node, made of its name, its type hint and its default."""
+"""``Field``, one input or output of a node.
+
+A field is a name, a type hint and maybe a default. ``Field`` works out everything else conductor needs from the
+hint once, when the field is made: the type of its value, its ``Param`` and whether it is a ``Series``.
+"""
 
 from __future__ import annotations
 
@@ -27,27 +31,32 @@ from .describe import FieldDescription
 
 @dataclass(frozen=True, eq=False)
 class Field:
-    """One input or output of a node: ``Field("times", Annotated[int, Param(ge=0)], 1, is_output=False)``, and
-    ``Field("result", str | None, is_output=True)``.
+    """One input or output of a node.
 
-    The constructor is the only way to a field: one renamed, given another default or bound to a type variable
-    is a new ``Field`` of the changed ``name``, ``default`` or ``hint``, so nothing it holds can go stale. Two fields
-    are equal only when they are the same object (``eq=False``), so a field is a weak dictionary key even when its
-    default or hint can't be hashed (a list default): ``run/json/codec.py`` keeps a saved run's types per field so.
-    What the hint costs to read is kept per hint, so a second field of it is cheap.
+    Here are an input with a limit and a default, and an output that may be ``None``::
+
+        Field("times", Annotated[int, Param(ge=0)], 1, is_output=False)
+        Field("result", str | None, is_output=True)
+
+    A field never changes once it is made. To rename one, give it another default or fill in a type variable, you
+    make a new ``Field``. That way nothing worked out from the hint can go out of date.
+
+    Two fields are equal only when they are the same object. So a field can be a key in a weak dictionary, even
+    when its default is a list and can't be hashed. A saved run uses this to keep the types it stores each field's
+    values by.
 
     Attributes:
         name: The parameter's name, or the output's.
-        hint: The annotation as written.
-        default: The default as its type holds it, already read by it and with a JSON form (``DeclaredInputValidator``
-            and ``DeclaredOutputValidator`` in ``validator.py`` read a default a node declares); ``REQUIRED`` for none,
-            ``SKIPPED`` for an output on a branch not taken, ``None`` for a blank.
-        is_output: Whether it is an output, which its description shows as the question an answer to the node fills.
-            Every field says which it is, since an input and an output whose type takes ``None`` differ in what
-            leaving them out gives.
-        param: The ``Param``s of the hint as one; an empty one when it has none.
-        type: The type of one value: a ``Series``' item, else ``whole``.
-        whole: The type of the field's whole value, which reads it and writes it: a ``Series``' list.
+        hint: The type hint as written.
+        default: The default, already checked by the field's type and converted to it. ``REQUIRED`` when there is
+            none, and ``SKIPPED`` for an output on a branch that may not be taken. ``validator.py`` checks the
+            defaults a node declares.
+        is_output: Whether it is an output. An input and an output whose type takes ``None`` differ when they are
+            left out, so every field says which it is.
+        param: The hint's ``Param``, all of them merged into one. An empty ``Param`` when the hint has none.
+        type: The type of one value. For a ``Series``, that is the type of one item.
+        whole: The type of the field's whole value. For a ``Series``, that is the list. Values are checked and
+            written as JSON by this type.
     """
 
     name: str
@@ -59,11 +68,12 @@ class Field:
     whole: Type = field(init=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Reads the hint once, refusing a type conductor can't carry.
+        """Works out the field's types from its hint, and refuses a type conductor can't pass along an edge.
 
         Raises:
-            NodeDeclarationError: Naming the field: a type pydantic has no schema for, a ``Series`` of ``Series``, a
-                ``Param`` that doesn't fit, or a widget with no JSON form.
+            NodeDeclarationError: Naming the field. The hint is a type pydantic has no schema for, a ``Series`` of
+                ``Series``, a class not declared with ``@host_type``, a ``Param`` that doesn't fit, or a widget with
+                no JSON form.
         """
         keep = functools.partial(object.__setattr__, self)
         try:
@@ -71,29 +81,37 @@ class Field:
             keep("param", param)
             keep("whole", whole)
             keep("type", one)
-            whole.schema  # noqa: B018  a type pydantic can't carry fails here
-            whole.returned_schema  # noqa: B018  a Series of records may be kept as a table, whose row type fails here
-            whole.id  # noqa: B018  a class with no @host_type fails here (type_not_named)
+            whole.schema  # noqa: B018  fails for a type pydantic has no schema for
+            whole.returned_schema  # noqa: B018  a Series of records may be stored as a table, and fails here if its rows can't be
+            whole.id  # noqa: B018  fails for a class with no @host_type (type_not_named)
         except NodeDeclarationError as error:
             raise error.within(self.name) from None
 
     @property
     def is_branch(self) -> bool:
-        """Whether it is an output on a branch: one the node may give no value on a call, ``SKIPPED`` instead. An
-        output of an exclusive group is one, and so is one whose default is ``SKIPPED``. Left out of an answer, or on a
-        call the node did not make, a branch is not chosen."""
+        """Whether it is an output the node may leave without a value on a call.
+
+        Such an output is a branch. On a call that doesn't take the branch, its value is ``SKIPPED``. An output of an
+        exclusive group is a branch, and so is an output whose default is ``SKIPPED``.
+        """
         return self.param.exclusive_group is not None or self.default is SKIPPED
 
     @property
     def is_series(self) -> bool:
-        """Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input that
-        takes every item of a loop as one list."""
+        """Whether it is declared ``Series[T]``.
+
+        A ``Series`` output returns a list that the graph can loop over. A ``Series`` input collects every item of a
+        loop into one list.
+        """
         return self.type is not self.whole
 
     @functools.cached_property
     def default_json(self) -> JsonValue | MISSING:
-        """The default as JSON: ``"!"`` for ``mark: str = "!"``, ``None`` for ``note: str | None = None``, and
-        ``MISSING`` for no default (``REQUIRED``) and for ``SKIPPED``, which have no JSON form."""
+        """The default as JSON.
+
+        ``mark: str = "!"`` gives ``"!"``, and ``note: str | None = None`` gives ``None``. A field with no default, or
+        with the default ``SKIPPED``, gives ``MISSING``, since neither can be written as JSON.
+        """
         return (
             MISSING
             if self.default is REQUIRED or self.default is SKIPPED
@@ -102,37 +120,45 @@ class Field:
 
     @functools.cached_property
     def keeps_none_items(self) -> bool:
-        """Whether a ``Series`` input that collects a loop keeps an item that is ``None``, or drops it.
+        """Whether a ``Series`` input that collects a loop keeps the items that are ``None``.
 
-        A loop over ``["a", "b", "c"]`` whose node returns ``None`` for ``"b"``: an input ``Series[str | None]``
-        collects ``["a", None, "c"]``, and an input ``Series[str]`` collects ``["a", "c"]``. True only for a
-        ``Series`` whose item type takes ``None``; never for a table, as a record is never ``None``."""
+        Say a loop runs over ``["a", "b", "c"]``, and the node in it returns ``None`` for ``"b"``. An input
+        ``Series[str | None]`` collects ``["a", None, "c"]``. An input ``Series[str]`` drops the ``None`` and collects
+        ``["a", "c"]``. A table never keeps one, since a record is never ``None``.
+        """
         return self.is_series and self.type.optional
 
     @functools.cached_property
     def description(self) -> FieldDescription:
-        """The field as it is declared, as an editor reads it, made once: ``description_with`` the choices its type
-        names.
-        A palette shows it so, and a waiting call asks an output so unless its ``Ask`` sets choices or a default."""
+        """The field as JSON for an editor, with the choices its own type names.
+
+        A palette shows a node's fields this way. A node that raises ``Ask`` asks about its outputs this way too,
+        unless the ``Ask`` sets choices or a default of its own.
+        """
         return self.description_with(self.type.choices)
 
     def description_with(self, choices: tuple[Choice, ...] | None) -> FieldDescription:
-        """The field as an editor reads it, its values limited to ``choices`` (``None`` for none), with
-        ``required`` and ``default`` saying what leaving it out gives:
+        """The field as JSON for an editor, with its values limited to ``choices``.
 
-        - its own default, as JSON: ``mark: str = "!"`` gives ``"!"``;
-        - ``None`` for an output that has no default, whose type takes ``None``, that no choices limit, and that is
-          neither of an exclusive group nor a ``Series``: ``-> str | None``;
-        - a branch not chosen (no default, ``required`` false) for an output of an exclusive group or whose default
-          is ``SKIPPED``;
-        - else nothing: leaving it out is refused (no default, ``required`` true), as for ``text: str`` and ``-> str``.
+        ``required`` and ``default`` say what happens when the field is left out. There are four cases:
 
-        An input whose type takes ``None`` and that has no default is ``required``: an edge or a constant gives it.
+        - A field with a default gets it. ``mark: str = "!"`` gets ``"!"``.
+        - An output like ``-> str | None`` gets ``None``. That holds for an output with no default whose type takes
+          ``None``, unless it has choices, is a ``Series`` or is in an exclusive group.
+        - A branch (an output of an exclusive group, or one whose default is ``SKIPPED``) is a branch not chosen. It
+          has no default, and isn't required.
+        - Anything else can't be left out. ``text: str`` and ``-> str`` are required.
+
+        An input whose type takes ``None`` but has no default is still required. An edge or a constant gives it its
+        value.
+
+        Args:
+            choices: The values the field takes, or ``None`` for no limit.
         """
         branch = self.is_branch
         default: JsonValue | MISSING
         if self.default is not REQUIRED:
-            default = self.default_json  # MISSING for SKIPPED
+            default = self.default_json  # MISSING when the default is SKIPPED
         elif (
             self.is_output
             and not branch
@@ -162,31 +188,34 @@ class Field:
 
 
 def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
-    """Reads a field's hint: its ``Param``, the type of its whole value and the type of one value.
+    """Splits a field's hint into its ``Param``, the type of its whole value and the type of one value.
 
-    A type is made of the hint and what a value must keep (limits, choices, other metadata), so fields that
-    differ only in what a person reads share one. A ``Series``' limits and choices are its items', wherever in
-    the hint they were written.
+    The types keep only what limits a value: its limits, its choices and any other metadata. A title or a widget is
+    left out of them, so two fields that differ only in what a person reads get the same type.
+
+    On a ``Series``, the limits and choices are for its items. ``Annotated[Series[int], Param(ge=0)]`` and
+    ``Series[Annotated[int, Param(ge=0)]]`` both say each item is at least 0.
 
     Raises:
-        NodeDeclarationError: A ``Series`` of ``Series`` (``nested_series``), a widget in ``Annotated`` that is
-            not on a ``Param`` (``widget_outside_param``), or a widget with no JSON form (``widget_without_json_form``).
+        NodeDeclarationError: ``nested_series`` for a ``Series`` of ``Series``. ``widget_outside_param`` for a
+            widget put in ``Annotated`` on its own, not on a ``Param``. ``widget_without_json_form`` for a widget
+            that can't be written as JSON.
     """
     bare, param, others = split_hint(hint)
     beside_param = (
-        others  # what Annotated holds that is no Param, on the field and on a Series' item
+        others  # the metadata in Annotated that isn't a Param, on the field and on a Series' item
     )
     written, of_items = bare, Type(bare).item is not None
-    if of_items:  # the item as written, its type variables still open
+    if of_items:  # read the item's own hint, with its type variables not yet filled in
         (items,) = (option for option in union_members(written) if option is not type(None))
         bare, of_item, others = split_hint((get_args(items) or (Any,))[0])
         beside_param = (*beside_param, *others)
         if Type(bare).item is not None:
             raise NodeDeclarationError(declaration_problems.nested_series())
-        param = merged_param(of_item, param)  # the field's own Param after its item's
+        param = merged_param(of_item, param)  # the field's own Param wins over its item's
     if any(
         isinstance(metadata, Widget) for metadata in beside_param
-    ):  # pydantic would pass it by, and the field would show no control
+    ):  # pydantic would ignore it, and the editor would show no control for the field
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
     if param.widget is not None:
         try:

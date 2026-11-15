@@ -1,4 +1,4 @@
-"""``FieldDescription``: one input or output of a node as JSON, for an editor to show."""
+"""``FieldDescription``, one input or output of a node as JSON, for an editor to show."""
 
 from __future__ import annotations
 
@@ -13,52 +13,57 @@ from conductor._internal.types import Choice
 
 
 class FieldDescription(ConductorModel):
-    """An input or output as an editor reads it, and a question a waiting call asks. It reads back what it wrote.
+    """One input or output of a node, as JSON for an editor to show.
 
-    ``required`` and ``default`` say what leaving the field out gives, and a host tells the three cases apart by them:
+    An editor shows a node's inputs and outputs this way. A node that raises ``Ask`` asks its questions this way
+    too, one per output. The JSON it writes can be read back into the same description.
 
-    - ``"default": "a"`` or ``"default": null``: the value it then has, ``null`` being ``None`` and nothing else.
-      ``required`` is false.
-    - no ``default`` key and ``"required": true``: leaving it out is refused, as for ``text: str``.
-    - no ``default`` key and ``"required": false``: left out, it is a branch not chosen (``SKIPPED``): an output in
-      an ``exclusive_group``, or an output whose default is ``SKIPPED`` (a field of a returned dataclass, or one a
-      ``compute_outputs`` hook gives as ``(type, SKIPPED)``).
+    ``required`` and ``default`` together say what happens when the field is left out. There are three cases:
 
-    In Python a ``default`` that is not there is pydantic's ``MISSING``, as an ``InputEntry``'s is. The record refuses
-    parts that contradict each other: ``required`` with a ``default``, an output of an ``exclusive_group`` that is
-    ``required`` or has a ``default``, and ``loops`` on a field that is not ``is_series``.
+    - It has a ``default``, such as ``"default": "a"`` or ``"default": null``. Left out, it gets that value, and
+      ``null`` means ``None``. ``required`` is false.
+    - It has no ``default`` key and ``"required": true``. It can't be left out, like ``text: str``.
+    - It has no ``default`` key and ``"required": false``. Left out, it is a branch not chosen (``SKIPPED``). That
+      is an output in an ``exclusive_group``, or an output whose default is ``SKIPPED``.
+
+    In Python, a ``default`` that isn't there is pydantic's ``MISSING``. A description whose parts contradict each
+    other is refused: ``required`` with a ``default``, an output of an ``exclusive_group`` that is ``required`` or has
+    a ``default``, and ``loops`` on a field that isn't ``is_series``.
 
     Attributes:
         name: The parameter's name, or the output's.
-        title: What a person reads as its name, as its ``Param(title=)`` declares; ``None`` when it declares none.
-        description: A longer text for its help.
-        is_series: Whether its value is a list a graph can loop over: an output declared ``Series[T]``, an input that
-            takes every item of a loop as one list, or an output of a subgraph returned inside loops, a list per loop
-            (``loops`` names them).
-        type: The id of one value's type, the innermost item's: a ``Series``' item's, and for an output of a subgraph
-            the value the node inside returns for one item of its innermost loop; a table's names its columns.
-        type_variables: The names of the type variables its hint leaves open, which an edge binds; two fields that
-            share a name have the same type once it is bound.
-        json_schema: The JSON schema of one value, the same one value as ``type``, written as ``schema``; a table's
-            columns are in it.
-        required: Whether leaving it out is refused: an input with no default; an output whose question an answer
-            must give (``-> str`` must, ``-> str | None`` may be left out and is then ``None``).
-        default: What leaving it out gives, as JSON; ``MISSING``, and no key in the JSON, when that is no value:
-            when it is ``required``, or left out it is a branch not chosen.
-        choices: The values it takes when it names them, each a ``Choice`` with every field a host gave it: from a
-            ``Literal``, ``Param(choices=)`` or, on a question, the ``Ask``.
-        widget: The control a person edits it with, as JSON.
-        exclusive_group: The group of alternative outputs it belongs to.
-        constant_only: Whether an input takes only a constant, its field's ``constant_only``, so an editor offers it
-            no edge and no graph input.
-        loops: For an output of a subgraph returned inside loops: the lists it is one list per item of, outermost
-            first, each as its source inside the subgraph is written, then the list the node inside returns when it
-            returns a ``Series``. ``documents -> lines -> shout`` returning one ``str`` per line is
-            ``["documents.result", "lines.result"]``, a list of lists of ``str``. How many levels of list the value
-            has: one per entry of ``loops`` when it has any, else one when ``is_series`` (a ``Series`` returned outside
-            every loop has ``loops`` ``[]`` and is one list), else none. Two outputs
-            whose loops start the same are returned in the same loops, so a node outside that reads both is
-            called once per item with the values of that item. Empty for every other field.
+        title: The name a person reads, from ``Param(title=)``. ``None`` when the field declares none.
+        description: A longer help text.
+        is_series: Whether the value is a list the graph can loop over. That is an output declared ``Series[T]``, an
+            input that collects every item of a loop, or an output of a subgraph that comes from inside a loop.
+        type: The id of the type of one value. For a ``Series``, that is one item's type. For an output of a
+            subgraph from inside loops, it is what the node inside returns for one item. A table's type id names its
+            columns.
+        type_variables: The names of the type variables the hint leaves open, for an edge to fill in. Two fields
+            that share a name have the same type once it is filled in.
+        json_schema: The JSON schema of one value, the same value ``type`` names. In the JSON it is ``schema``. A
+            table's schema lists its columns.
+        required: Whether the field can't be left out. An input with no default is required. So is an output an
+            answer must give: ``-> str`` is required, while ``-> str | None`` may be left out and is then ``None``.
+        default: What the field gets when it is left out, as JSON. ``MISSING``, with no key in the JSON, when it
+            gets no value: it is ``required``, or it is a branch not chosen.
+        choices: The values the field takes, when it names them. They come from a ``Literal``, from
+            ``Param(choices=)`` or, on a question, from the ``Ask``. Each is a ``Choice`` with every field a host
+            gave it.
+        widget: The control a person edits the field with, as JSON.
+        exclusive_group: The group of alternative outputs this output belongs to.
+        constant_only: Whether an input takes only a constant. An editor then offers it no edge and no graph input.
+        loops: For an output of a subgraph that comes from inside loops: the lists it loops over, outermost first,
+            each written as its source inside the subgraph. If the node inside returns a ``Series``, that list comes
+            last. Empty for every other field.
+
+            Say a subgraph loops over ``documents``, then over the ``lines`` of each one, and ``shout`` returns one
+            ``str`` per line. Its output has ``loops`` ``["documents.result", "lines.result"]``, and its value is a
+            list of lists of ``str``. The value has one level of list per entry in ``loops``. With no loops, it is
+            one list if ``is_series``, else a single value.
+
+            Two outputs whose loops start the same come from the same loops. A node outside that reads both is called
+            once per item, with the two values for that item.
     """
 
     model_config = ConfigDict(
@@ -82,7 +87,7 @@ class FieldDescription(ConductorModel):
 
     @model_validator(mode="after")
     def _check_invariants(self) -> Self:
-        """Refuses a field whose parts contradict each other, each with its own error type."""
+        """Refuses a description whose parts contradict each other, each case with its own error type."""
         has_default = self.default is not MISSING
         in_group = self.exclusive_group is not None
         if self.required and has_default:

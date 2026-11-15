@@ -1,8 +1,16 @@
-"""``Field``, one input or output of a node, and ``FieldDescription``, the same as JSON for an editor.
+"""The inputs and outputs of a node.
 
-``type.py`` is ``Field``; ``describe.py`` is ``FieldDescription``; ``exclusive_group.py`` the rule of an exclusive
-group of outputs, exactly one of them with a value on a call; ``validator.py`` reads a default a node declares by its
-field's type, and again by the type an edge binds its type variable to.
+A node is a Python function. Each of its parameters is an input, and what it returns is one or more outputs. For
+``shout(line: str, mark: str = "!") -> str``, the inputs are ``line`` and ``mark``, and the one output is
+``result``. Conductor calls each of these a ``Field``: a name, a type hint and maybe a default.
+
+The package has four parts:
+
+- ``Field`` (``type.py``) is one input or output, built from its hint.
+- ``FieldDescription`` (``describe.py``) is the same field as JSON, for an editor to show.
+- ``exclusive_group.py`` has the rule for outputs that are alternatives: exactly one of them gets a value on a call.
+- ``validator.py`` checks the default a node gives a field, when the node is declared and again when a graph is
+  compiled.
 """
 
 from .describe import FieldDescription
