@@ -1,20 +1,22 @@
-"""Validation: the rules every validator reads values by.
+"""Checking the values that come into conductor from outside.
 
-A value from outside is checked once, where it comes in, and nothing inside checks it again. Each package whose values
-come from outside reads them in its ``validator.py``, each with a ``Validator`` (``type.py``), built with what it reads
-a value by and called with the value alone. A saved run is read in ``run/json/``, whose reader and writer are one
-schema, and a ``NodeError``'s ``ctx`` by ``NodeError``, where a node makes one. A validator returns the value as the
-engine keeps it, or raises ``InvalidCallError``, whose problems carry the validator's code (a default a node declares
-raises ``NodeDeclarationError``: it is a fault in the node's code, met at import). Its caller decides what becomes of
-the problems: a public method lets them reach its caller; compiling keeps them in ``graph.problems``, and a run keeps
-the problem as the outcome of the call it belongs to.
+Values reach the engine from many places: a caller's graph inputs, a constant in a graph record, what a node
+returns, a person's answer. Each is checked once, where it comes in. After that, nothing inside the engine checks
+it again.
 
-Every validator reads values with the pydantic validators of ``rules.py``, built there from a type's schema with the
-rules every type is held to (a yes or no is not a number); no module of the engine outside a ``validator.py``
-builds one (``conductor.testing`` does, to make up values a node's inputs take).
+Every check is a ``Validator`` (``type.py``). A package whose values come from outside keeps its validators in its
+own ``validator.py``. A validator returns the value ready for the engine, or raises ``InvalidCallError`` with a
+problem for each fault. Whoever called it decides what happens to the problems. A public method lets them reach
+its own caller, compiling keeps them in ``graph.problems``, and a run keeps the problem as the outcome of the call.
 
-A type's own declarations are read where the type is declared: ``Param`` reads its choices by the type it limits
-(``types/param.py``), and ``@host_type`` its arguments.
+Validators check values with the pydantic validators built in ``rules.py``. Those add a few rules that hold for
+every type, such as "a yes or no is not a number". Outside a ``validator.py``, nothing in the engine builds one.
+``conductor.testing`` does, to make up values for a node's inputs.
+
+A few values are checked elsewhere. A saved run is checked in ``run/json/``, where one schema both reads and writes
+it. A ``NodeError``'s ``ctx`` is checked by ``NodeError`` itself, where a node makes one. And a type's own
+declarations are checked where the type is declared: ``Param`` checks its choices against the type it limits
+(``types/param.py``), and ``@host_type`` checks its arguments.
 """
 
 from .rules import (

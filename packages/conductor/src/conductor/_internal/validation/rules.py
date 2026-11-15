@@ -1,29 +1,30 @@
-"""The rules every type's values are held to, and the pydantic validators built from a type's schema with them.
+"""The rules every value is checked by, whatever its type, and the pydantic validators that add them.
 
-Example: pydantic reads ``True`` as 1 for an ``int``, so ``Type(list[int]).schema``, pydantic's own schema, takes
-``[1, True]`` as ``[1, 1]``. ``schema_validator_of(Type(list[int]))`` is the pydantic validator built from that schema,
-with the rules below put in, and it refuses ``[1, True]``: ``bool_is_not_a_number`` at ``loc`` ``(1,)``.
+Pydantic on its own is a little too forgiving for conductor. For example, it takes ``True`` as the number 1, so
+the schema of ``Type(list[int])``, pydantic's own, turns ``[1, True]`` into ``[1, 1]``. The validators built here
+add conductor's rules to a type's schema. So ``schema_validator_of(Type(list[int]))`` refuses ``[1, True]``, with
+``bool_is_not_a_number`` at ``loc`` ``(1,)``.
 
-A type's own rules (what a ``Series`` is, a table's columns, ``Param``'s limits and choices) are part of its schema,
-declared in the type's own package. The rules here hold for a value of any type, so this package puts them into a
-type's schema when it builds a validator from it, once per type:
+Two rules are added here, to every type:
 
 - A yes or no is not a number (``numbers_refuse_bools``).
-- A host's class whose own check gives another class is refused when a node returns it or a person answers with it
-  (``not_its_class``, in ``output_schema_of``).
+- When a node returns a value or a person answers, a host's class must come out as itself. A host's class that
+  defines its own check can give back an object of another class, and that is refused with ``not_its_class``
+  (``output_schema_of``).
 
-Two more rules hold for every value and are declared where the order of imports needs them: a node id and the
-name of an input or output hold none of the characters sources are written with (``place.is_name``), and a
-set has no order, so it is never read as a list (``series.set_has_no_order``). A run's limits are read by the
-limits validator (``LimitsValidator``).
+A type's own rules, such as a ``Param``'s limits or a table's columns, are already part of its schema, declared in
+the type's own package. Two more rules hold for every value but live elsewhere, where the order of imports needs
+them. A name can't contain the characters places are written with (``is_name``, in ``base/place.py``). And a set
+is never read as a list, since a set has no order (``set_has_no_order``, in ``series/``).
 
-What a validator reads a value as:
+There are two validators for each type, each built once:
 
-- ``schema_validator_of`` reads it as an argument a node is called with: a constant, a default, a graph input, a value
-  an edge gives. Called lax (``"3"`` for an ``int`` is 3) or strict.
-- ``schema_output_validator_of`` reads it as an output a run keeps: what a node returns and a person's answer, read
-  strictly. A ``Series`` is kept in the form a run stores it in (``SeriesItems``, ``Records``).
-- ``exact_classes`` says which values need no reading at all, so a validator can skip pydantic for them.
+- ``schema_validator_of`` checks an argument a node is called with: a constant, a default, a graph input, or a
+  value from an edge. It may be called lax, where ``"3"`` is the ``int`` 3, or strict.
+- ``schema_output_validator_of`` checks an output: what a node returns, or a person's answer. It is called
+  strictly. A ``Series`` comes out as the type a run stores it as (``SeriesItems`` or ``Records``).
+
+``exact_classes`` says which values are already right, so a validator can skip pydantic for them.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from conductor._internal.types import NAMES, Type, a_number, union_members
 
 
 def _once_per_type[R](build: Callable[[Type], R]) -> Callable[[Type], R]:
-    """Makes ``build`` run once per ``Type``, keeping its result for as long as the type lives."""
+    """Makes ``build`` run only once for each ``Type``, keeping its result for as long as the type lives."""
     built: WeakKeyDictionary[Type, R] = WeakKeyDictionary()
 
     @functools.wraps(build)
@@ -56,32 +57,36 @@ def _once_per_type[R](build: Callable[[Type], R]) -> Callable[[Type], R]:
 
 @_once_per_type
 def schema_of(value_type: Type) -> CoreSchema:
-    """The schema an argument of ``value_type`` is read by: the type's schema with every rule above put in. A validator
-    that reads several values in one pydantic validator (the inputs validator) puts these schemas together."""
+    """Returns the schema for checking an argument of ``value_type``: the type's schema with the rules above added.
+
+    A validator that checks several values with one pydantic validator, such as the graph inputs validator, puts
+    these schemas together.
+    """
     return numbers_refuse_bools(value_type.schema)
 
 
 @_once_per_type
 def schema_validator_of(value_type: Type) -> SchemaValidator:
-    """The validator an argument of ``value_type`` is read by, built from ``schema_of``.
+    """Returns the pydantic validator for an argument of ``value_type``, built from ``schema_of``.
 
-    Example: ``schema_validator_of(Type(Annotated[int, Param(le=3)])).validate_python(12)`` raises pydantic's
-    ``ValidationError`` (``less_than_equal``), and ``value_type.refusal`` says why in words a host is shown.
+    For example, ``schema_validator_of(Type(Annotated[int, Param(le=3)])).validate_python(12)`` raises pydantic's
+    ``ValidationError`` (``less_than_equal``). ``value_type.refusal`` turns that error into a reason a host is
+    shown.
     """
     return SchemaValidator(schema_of(value_type))
 
 
 @_once_per_type
 def output_schema_of(value_type: Type) -> CoreSchema:
-    """The schema an output of ``value_type`` is read by, strictly, into the form a run keeps.
+    """Returns the schema for checking an output of ``value_type``, strictly.
 
-    It is the type's ``returned_schema`` with the rules above put in. A host's class may give its own schema,
-    and so another class than itself; where the type's classes are a host's, a value pydantic reads as another
-    class is refused (``not_its_class``).
+    It is the type's ``returned_schema`` with the rules above added. A host's class may give its own pydantic
+    schema, and that schema may give back an object of another class. So where the type is made of a host's
+    classes, a value that comes out of pydantic as another class is refused with ``not_its_class``.
     """
     schema = numbers_refuse_bools(value_type.returned_schema)
     exact = exact_classes(value_type)
-    # conductor's own classes, which pydantic always reads as themselves
+    # Conductor's own classes always come out of pydantic as themselves, so there is nothing to check.
     if all(cls in NAMES for cls in exact):
         return schema
     type_id = value_type.id
@@ -100,18 +105,23 @@ def output_schema_of(value_type: Type) -> CoreSchema:
 
 @_once_per_type
 def schema_output_validator_of(value_type: Type) -> SchemaValidator:
-    """The validator an output of ``value_type`` is read by, built from ``output_schema_of``. A validator calls it
-    with ``strict=True``: ``"12"`` is never an ``int`` and ``"no"`` never a ``bool``."""
+    """Returns the pydantic validator for an output of ``value_type``, built from ``output_schema_of``.
+
+    Validators call it with ``strict=True``, so ``"12"`` is never an ``int`` and ``"no"`` is never a ``bool``.
+    """
     return SchemaValidator(output_schema_of(value_type))
 
 
 @_once_per_type
 def exact_classes(value_type: Type) -> tuple[type, ...]:
-    """The classes whose values, of exactly that class, a validator keeps as they are, with no call to pydantic.
+    """Returns the classes whose values a validator can keep as they are, without calling pydantic.
 
-    ``(str,)`` for ``Type(str)``, ``(int, type(None))`` for ``Type(int | None)``. Empty when every value must be
-    read: an option is no plain class (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``, a ``Series`` or a
-    table), or the type has a limit, choices or other metadata.
+    A value whose class is exactly one of these needs no checking. ``Type(str)`` gives ``(str,)``, and
+    ``Type(int | None)`` gives ``(int, type(None))``.
+
+    It returns ``()`` when every value has to be checked. That is when an option of the type isn't a plain class
+    (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``, a ``Series`` or a table), or when the type has a limit,
+    choices or other metadata.
     """
     options = union_members(value_type.bare)
     plain = all(
@@ -126,8 +136,10 @@ def exact_classes(value_type: Type) -> tuple[type, ...]:
 
 
 def _not_a_bool(value: Any) -> Any:
-    """Raises for a ``bool``; returns any other value unchanged, for pydantic to read as a number. ``bool`` can't be
-    subclassed, so ``True`` and ``False`` are its only values."""
+    """Raises for a ``bool``, and returns any other value unchanged for pydantic to check as a number.
+
+    ``bool`` can't be subclassed, so ``True`` and ``False`` are its only values.
+    """
     if value is True or value is False:
         raise PydanticCustomError(
             "bool_is_not_a_number", "a yes or no is not a number; give a number"
@@ -135,36 +147,37 @@ def _not_a_bool(value: Any) -> Any:
     return value
 
 
-#: The keys of a core schema that hold no schema that reads a value.
+#: The keys of a core schema whose values are not schemas that check a value, so the walk leaves them alone.
 _NOT_VALIDATORS = frozenset({"serialization", "metadata"})
 
-#: The core schemas of a host's own model or dataclass, whose fields pydantic reads by the host's rules.
+#: The core schema types of a host's own model or dataclass. Pydantic checks their fields by the host's own rules.
 _HOSTS_OWN = frozenset({"model", "dataclass"})
 
 
 def numbers_refuse_bools(schema: CoreSchema) -> CoreSchema:
-    """Returns a copy of the pydantic core schema ``schema`` in which every ``int`` and ``float`` refuses a ``bool``.
+    """Returns a copy of a pydantic core schema in which every ``int`` and ``float`` refuses a ``bool``.
 
-    Example: for the schema of ``list[int]`` the result reads ``[1, 2]`` and refuses ``[1, True]``, where pydantic
-    alone returns ``[1, 1]``. The same holds for a field of a ``TypedDict``, a value of a dict, an item of a
-    ``Series`` and a cell of a table. A ``Literal`` of numbers and an enum of numbers refuse a ``bool`` too. The
+    For the schema of ``list[int]``, the result takes ``[1, 2]`` and refuses ``[1, True]``, where pydantic alone
+    returns ``[1, 1]``. It reaches numbers anywhere inside: a field of a ``TypedDict``, a value of a dict, an item
+    of a ``Series`` and a cell of a table. A ``Literal`` of numbers and an enum of numbers refuse a ``bool`` too. The
     fields of a host's own pydantic model or dataclass are left to pydantic.
 
-    The rule holds for a value read from JSON text as for a Python value: ``true`` in a saved run or a person's
-    answer is refused for an ``int`` as ``True`` from a caller is, with the same message. ``schema`` itself is not
-    changed.
+    The rule holds for JSON text too. A ``true`` in a saved run or in a person's answer is refused for an ``int``,
+    just like ``True`` from a caller, and with the same message. ``schema`` itself is left unchanged.
     """
     walked: CoreSchema = _walked(schema, {})
     return walked
 
 
 def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
-    """``schema``, or a part of one, with every number in it refusing a ``bool``.
+    """Returns ``schema``, or a part of one, with every number in it set to refuse a ``bool``.
+
+    It walks down through the schema and wraps each number schema it finds with ``_guarded``.
 
     Args:
         schema: A core schema, or a list, tuple or other value found inside one.
-        definitions: The schemas pydantic declared beside the schema (a ``TypedDict``'s, an enum's), by their
-            ``ref``, so a reference to one is read as what it names.
+        definitions: The schemas pydantic declared beside the schema, such as a ``TypedDict``'s or an enum's, by
+            their ``ref``. The walk looks a reference up here to see what it points to.
     """
     if isinstance(schema, list):
         return [_walked(part, definitions) for part in schema]
@@ -173,11 +186,11 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
     if not isinstance(schema, dict):
         return schema
     kind = schema.get("type")
-    if not isinstance(kind, str):  # a mapping of fields by name, one of which may be named "type"
+    if not isinstance(kind, str):  # not a schema but fields by name, and one may be named "type"
         return {key: _walked(part, definitions) for key, part in schema.items()}
     if kind in _HOSTS_OWN or _guarded_already(schema):
         return schema
-    # each schema declared here is changed once, here; a reference to it below is left as it is
+    # Walk each declared schema once, here. A declared number is kept as it is: each reference to it is wrapped.
     if kind == "definitions":
         declared = {
             **definitions,
@@ -200,7 +213,7 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
 
 
 def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> dict[str, Any]:
-    """``schema`` with every schema inside it walked, the schema itself kept."""
+    """Returns ``schema`` with every schema inside it walked, and ``schema``'s own type kept."""
     return {
         key: part if key in _NOT_VALIDATORS else _walked(part, definitions)
         for key, part in schema.items()
@@ -208,13 +221,13 @@ def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> di
 
 
 def _guarded_already(schema: dict[str, Any]) -> bool:
-    """Whether ``schema`` is one ``_guarded`` made, so a schema walked twice is changed once."""
+    """Whether ``_guarded`` already made ``schema``, so that a schema walked twice is only wrapped once."""
     return schema["type"] == "function-before" and schema["function"]["function"] is _not_a_bool
 
 
 def _a_number_schema(schema: Any) -> bool:
-    """Whether the core schema reads one number: an ``int``, a ``float``, a ``Literal`` of numbers, or an enum whose
-    members are ints or floats."""
+    """Whether the core schema checks one number: an ``int``, a ``float``, a ``Literal`` of numbers, or an enum of
+    ints or floats."""
     kind = schema.get("type")
     if kind == "literal":
         return all(a_number(type(value)) for value in schema["expected"])
@@ -224,6 +237,8 @@ def _a_number_schema(schema: Any) -> bool:
 
 
 def _guarded(number: Any) -> CoreSchema:
-    """Returns a schema that refuses a ``bool`` and reads any other value by ``number``, the schema of one number or a
-    reference to it."""
+    """Returns a schema that refuses a ``bool`` and checks any other value with ``number``.
+
+    ``number`` is the schema of one number, or a reference to one.
+    """
     return core_schema.no_info_before_validator_function(_not_a_bool, number)

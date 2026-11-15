@@ -1,16 +1,6 @@
-"""``Validator``, the base class of every validator: what reads a value from outside the engine where it enters.
+"""``Validator``, the base class of every check on a value that comes into the engine from outside.
 
-A validator is built with what it reads a value by (a node's outputs, a graph's inputs, the input a constant is for)
-and where the value belongs (a node id), and is called with the value alone::
-
-    outputs = compiled_node.return_validator("B!")   # {"result": "B!"} for shout
-
-It returns the value as the engine keeps it, or raises ``InvalidCallError`` with a problem for each fault it reports;
-its caller decides what becomes of the problems. Two read a node's declaration rather than a value from outside:
-``DeclaredInputValidator`` and ``DeclaredOutputValidator`` are built for each field a node declares, called once with
-its default, return the ``Field``, and raise ``NodeDeclarationError``, a fault in the node's code met at import. Each
-package whose values come from outside keeps its validators in its ``validator.py``, and a subclass declared in any
-other module is refused when the module is imported.
+The class below shows how a validator is built and called.
 """
 
 from __future__ import annotations
@@ -20,15 +10,25 @@ from typing import Any
 
 
 class Validator[V, T](ABC):
-    """Reads one value of type ``V`` from outside the engine into the ``T`` the engine keeps, or refuses it.
+    """The base class of every validator: a check on one value of type ``V`` that comes in from outside.
 
-    A subclass takes what it reads by in ``__init__`` and the value alone in ``__call__``, so every validator is
-    called the same way. It is declared in a module named ``validator.py``.
+    A validator is built with what it checks against, such as a node's outputs, a graph's inputs or the input a
+    constant is for, and sometimes where the value belongs, such as a node id. Then it is called with the value
+    alone, so every validator is called the same way. It returns the value as a ``T`` the engine can use, or
+    refuses it.
+
+    For example, a compiled node's ``return_validator`` checks what the node's function returned. For the node
+    ``shout``, it turns ``"B!"`` into the node's outputs::
+
+        outputs = compiled_node.return_validator("B!")   # {"result": "B!"}
+
+    Declare a subclass in a module named ``validator.py``. A subclass declared anywhere else is refused when its
+    module is imported.
 
     Raises (when called):
-        InvalidCallError: The value is refused, with a problem for each fault the validator reports.
-        NodeDeclarationError: Instead, for the two validators of a node's declaration (``DeclaredInputValidator``,
-            ``DeclaredOutputValidator``): the default a node declares is a fault in the node's code, met at import.
+        InvalidCallError: The value is refused, with a problem for each fault found.
+        NodeDeclarationError: Raised instead by ``DeclaredInputValidator`` and ``DeclaredOutputValidator``. They
+            check a default the node declares, so a fault there is in the node's own code, found when it is imported.
     """
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -46,7 +46,7 @@ class Validator[V, T](ABC):
 
     @abstractmethod
     def __call__(self, value: V, /) -> T:
-        """Returns ``value`` as the engine keeps it.
+        """Checks ``value`` and returns it ready for the engine.
 
         Raises:
             InvalidCallError: The value is refused.
