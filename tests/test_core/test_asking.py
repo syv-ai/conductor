@@ -834,7 +834,9 @@ def test_a_table_answer_is_read_as_a_callers_records_are_with_its_cells_read_str
     }
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}]))[
         0
-    ].msg == ("That is not a valid answer: column 'qty': Input should be a valid integer")
+    ].msg == (
+        "That is not a valid answer: column 'qty': a yes or no is not a number; give a number"
+    )
 
 
 def test_a_hooks_outputs_are_asked_by_their_types():
@@ -1906,9 +1908,16 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
     ) and "(the run is complete)" in problem.msg
 
 
-@pytest.mark.parametrize("choices", [[True, 2], ["1"]], ids=["a bool", "a number as text"])
+@pytest.mark.parametrize(
+    ("choices", "reason"),
+    [
+        ([True, 2], "a yes or no is not a number; give a number"),
+        (["1"], "Input should be a valid integer"),
+    ],
+    ids=["a bool", "a number as text"],
+)
 def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_the_node(
-    choices: list[object],
+    choices: list[object], reason: str
 ) -> None:
     @node("pick", title="Pick", description="For a test.", asks=True)
     def pick() -> int:
@@ -1916,10 +1925,7 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
 
     _, run = _once(pick)
     assert (run.status, run.cause.type) == ("failed", "invalid_ask")
-    assert (
-        run.cause.ctx["reason"]
-        == "the choices for 'result' are refused: Input should be a valid integer"
-    )
+    assert run.cause.ctx["reason"] == f"the choices for 'result' are refused: {reason}"
 
 
 def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_answer_is() -> None:

@@ -1048,6 +1048,83 @@ def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quotin
     assert "secret" not in json.dumps(problem.model_dump(mode="json"))
 
 
+class Counted(TypedDict):
+    n: int
+
+
+@pytest.mark.parametrize(
+    ("damage", "at"),
+    [
+        ("an int input", "inputs.x"),
+        ("a float input", "inputs.f"),
+        ("an int output", "outcomes.whole.outputs.result.0"),
+        ("an item of a Series of ints", "outcomes.many.outputs.result.0"),
+        ("an int field of a record", "outcomes.one.outputs.result.0"),
+        ("a cell of an int column", "outcomes.table.outputs.result.0"),
+    ],
+)
+def test_a_yes_or_no_saved_for_a_number_is_refused_as_every_door_refuses_it(
+    damage: str, at: str
+) -> None:
+    """A store may hand back JSON something else wrote; ``true`` is no more a number there than given by a caller."""
+
+    @node("whole", title="Whole", description="For a test.")
+    def whole(x: int, f: float) -> int:
+        return x
+
+    @node("many", title="Many", description="For a test.")
+    def many(x: int) -> Series[int]:
+        return [x, x]
+
+    @node("one", title="One", description="For a test.")
+    def one(x: int) -> Counted:
+        return {"n": x}
+
+    @node("table", title="Table", description="For a test.")
+    def table(x: int) -> Table[Counted]:
+        return pl.DataFrame({"n": [x]})
+
+    from_x = {"x": {"graph_input": "x"}}
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "whole": {"node": "whole", "inputs": {**from_x, "f": {"graph_input": "f"}}},
+                    "many": {"node": "many", "inputs": from_x},
+                    "one": {"node": "one", "inputs": from_x},
+                    "table": {"node": "table", "inputs": from_x},
+                },
+                "outputs": {
+                    name: {"node": name, "output": "result"}
+                    for name in ("whole", "many", "one", "table")
+                },
+            }
+        ),
+        registry_of(whole, many, one, table),
+    )
+    saved = json.loads(graph.run(x=1, f=1.0).to_json())
+    outputs = {
+        name: saved["outcomes"][name]["outputs"]["result"]
+        for name in ("whole", "many", "one", "table")
+    }
+    if damage == "an int input":
+        saved["inputs"]["x"] = True
+    elif damage == "a float input":
+        saved["inputs"]["f"] = True
+    elif damage == "an int output":
+        outputs["whole"][0] = True
+    elif damage == "an item of a Series of ints":
+        outputs["many"][0][1] = True
+    elif damage == "an int field of a record":
+        outputs["one"][0]["n"] = True
+    else:
+        outputs["table"][0]["columns"][0]["values"][0] = True
+
+    problem = _refused(graph, saved)
+
+    assert problem.ctx == {"where": at, "reason": "a yes or no is not a number; give a number"}
+
+
 def test_a_null_saved_for_a_done_call_whose_output_takes_no_none_is_refused():
     graph, saved = _saved_echoes()
     saved["outcomes"]["echo"]["outputs"]["result"][1] = None

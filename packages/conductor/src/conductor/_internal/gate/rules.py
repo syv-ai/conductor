@@ -149,9 +149,9 @@ def numbers_refuse_bools(schema: CoreSchema) -> CoreSchema:
     ``Series`` and a cell of a table. A ``Literal`` of numbers and an enum of numbers refuse a ``bool`` too. The
     fields of a host's own pydantic model or dataclass are left to pydantic.
 
-    The rule applies to a Python value. A number read from JSON text is left to pydantic, which in strict mode (a
-    person's answer) refuses ``true`` for an ``int`` or ``float`` with its own message; a ``Literal`` and an enum
-    refuse ``true`` from JSON as well, since pydantic would read it as 1. ``schema`` itself is not changed.
+    The rule holds for a value read from JSON text as for a Python value: ``true`` in a saved run or a person's
+    answer is refused for an ``int`` as ``True`` from a caller is, with the same message. ``schema`` itself is not
+    changed.
     """
     walked: CoreSchema = _walked(schema, {})
     return walked
@@ -192,13 +192,9 @@ def _walked(schema: Any, definitions: Mapping[str, Any]) -> Any:
         }
     if kind == "definition-ref":
         referred = definitions[schema["schema_ref"]]
-        return (
-            _guarded(schema, json_too=referred["type"] not in ("int", "float"))
-            if _a_number_schema(referred)
-            else schema
-        )
+        return _guarded(schema) if _a_number_schema(referred) else schema
     if _a_number_schema(schema):
-        return _guarded(schema, json_too=kind not in ("int", "float"))
+        return _guarded(schema)
     return _walked_inside(schema, definitions)
 
 
@@ -212,8 +208,6 @@ def _walked_inside(schema: dict[str, Any], definitions: Mapping[str, Any]) -> di
 
 def _guarded_already(schema: dict[str, Any]) -> bool:
     """Whether ``schema`` is one ``_guarded`` made, so a schema walked twice is changed once."""
-    if schema["type"] == "json-or-python":
-        schema = schema["python_schema"]
     return schema["type"] == "function-before" and schema["function"]["function"] is _not_a_bool
 
 
@@ -228,19 +222,7 @@ def _a_number_schema(schema: Any) -> bool:
     )
 
 
-def _guarded(number: Any, *, json_too: bool) -> CoreSchema:
-    """Returns a schema that refuses a ``bool`` and reads any other value by the schema ``number``.
-
-    Args:
-        number: The schema of one number, or a reference to it.
-        json_too: Whether a value read from JSON text is guarded too. False for ``int`` and ``float``: in strict
-            mode pydantic refuses ``true`` for them itself, and the only JSON read in lax mode is a saved run,
-            which conductor wrote, so reading one costs no call per number. True for a ``Literal`` and an enum,
-            which pydantic reads ``true`` as 1 from JSON as well.
-    """
-    refusing = core_schema.no_info_before_validator_function(_not_a_bool, number)
-    return (
-        refusing
-        if json_too
-        else core_schema.json_or_python_schema(json_schema=number, python_schema=refusing)
-    )
+def _guarded(number: Any) -> CoreSchema:
+    """Returns a schema that refuses a ``bool`` and reads any other value by ``number``, the schema of one number or a
+    reference to it."""
+    return core_schema.no_info_before_validator_function(_not_a_bool, number)

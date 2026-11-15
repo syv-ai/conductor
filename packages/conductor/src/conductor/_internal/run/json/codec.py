@@ -39,8 +39,8 @@ def saved_type(output: Field) -> Type:
 
 class _SavedValue:
     """The hint a saved run declares a value of one type by: a graph input, an output's value on one call, or a
-    person's answer. Pydantic reads the value by the type's own schema with ``numbers_refuse_bools`` put in. That rule
-    holds for a Python value; read from a saved run's JSON, an ``int`` or a ``float`` still reads ``true`` as 1.
+    person's answer. Pydantic reads the value by the type's own schema with ``numbers_refuse_bools`` put in, so
+    ``true`` saved for an ``int`` is refused.
 
     ``inf`` is written as ``"Infinity"`` by the codec's config, which a ``float`` reads back as the float. A pydantic
     model or a dataclass writes its fields by its own config, whatever schema it is inside, and by default writes
