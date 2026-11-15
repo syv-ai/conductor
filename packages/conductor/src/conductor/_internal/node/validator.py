@@ -168,12 +168,12 @@ def _several_outputs(
             holding = "both" if len(quoted) == 2 else "all"
             raise PydanticCustomError(
                 "alternatives_both_given",
-                f"{holders} are alternatives of '{fault.group}', and {holding} hold a value",
+                f"{holders} are in the exclusive group '{fault.group}', and {holding} have a value. Give only one of them a value",
                 {"given": fault.given, "group": fault.group},
             )
         raise PydanticCustomError(
             "no_alternative_given",
-            "none of the exclusive group '{group}' ({members}) holds a value; give one of them a value and the "
+            "no output of the exclusive group '{group}' ({members}) has a value. Give one of them a value and the "
             "others SKIPPED, or return SKIPPED to choose no branch",
             {"group": fault.group, "members": comma_separated(fault.members)},
         )
@@ -255,7 +255,7 @@ def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict
         if not isinstance(returned, cls):
             raise PydanticCustomError(
                 "not_the_class",
-                "the node returns a {cls}, not a {got}",
+                "the node must return a {cls}, not a {got}",
                 {"cls": cls.__name__, "got": type(returned).__name__},
             )
         return {name: value for name in names if (value := getattr(returned, name)) is not SKIPPED}
@@ -276,20 +276,20 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
         if not isinstance(returned, Mapping):
             raise PydanticCustomError(
                 "not_a_mapping",
-                "the node returns its outputs as a mapping of {names}, not a {got}",
+                "the node must return its outputs as a mapping of {names}, not a {got}",
                 {"names": listed, "got": type(returned).__name__},
             )
         for name in names:
             if name not in returned:
                 raise PydanticCustomError(
                     "output_missing",
-                    "'{name}' is missing from the outputs it returns",
+                    "'{name}' is missing from the outputs the node returned",
                     {"name": name},
                 )
         if unknown := sorted(set(returned) - declared):
             raise PydanticCustomError(
                 "output_unknown",
-                "'{name}' is not one of the outputs it returns",
+                "'{name}' isn't one of the node's outputs",
                 {"name": str(unknown[0])},
             )
         return {name: value for name, value in returned.items() if value is not SKIPPED}
@@ -339,8 +339,8 @@ class HookValidator(Validator[Any, dict[str, Field]]):
         except ValidationError as invalid:
             if not invalid.errors()[0]["loc"]:  # no location: not a mapping
                 reason = (
-                    f"its {self._hook} hook returned a {type(returned).__name__}; a hook returns its fields by name,"
-                    " as a mapping of each name to its type"
+                    f"its {self._hook} hook returned a {type(returned).__name__}, not a mapping of each field's name"
+                    " to its type"
                 )
                 raise InvalidCallError(
                     [
@@ -353,7 +353,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 compile_problems.compute_hook_failed(
                     self._node_id,
                     str(fault["loc"][0]),
-                    reason=f"what its {self._hook} hook returned has a field name it cannot have ({fault['msg']})",
+                    reason=f"its {self._hook} hook returned a name a field can't have ({fault['msg']})",
                     error="not_a_name",
                 )
                 for fault in invalid.errors()

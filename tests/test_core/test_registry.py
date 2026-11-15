@@ -529,7 +529,7 @@ def test_var_keyword_is_where_added_inputs_arrive_and_needs_the_hook():
 
 def test_var_positional_is_refused():
     """A ``*args`` parameter has no name an edge could land on."""
-    with pytest.raises(NodeDeclarationError, match="passed by name"):
+    with pytest.raises(NodeDeclarationError, match="passes every input by name"):
 
         @node("varpos", title="VarPos", description="Dynamic", category="test")
         def var_pos(

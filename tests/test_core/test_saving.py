@@ -545,7 +545,7 @@ def test_a_returned_table_column_a_saved_run_reads_back_changed_is_refused(
 
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("odd",))
     assert (
-        f"column 'a' is {column.dtype}, which a saved run reads back as {saved_as}; cast it to {saved_as}"
+        f"column 'a' is {column.dtype}, and a saved run would read it back as {saved_as}. Cast it to {saved_as}"
         in run.cause.msg
     )
 
@@ -581,7 +581,7 @@ class _Numbers(TypedDict):
         (
             pl.Series([2**64 - 1], dtype=pl.UInt64),
             _Count,
-            "has a whole number past the largest Int64",
+            "has a whole number too big for an Int64",
         ),
         (_NANOSECOND.cast(pl.Time), _Clock, "has a time finer than a microsecond"),
         (_NANOSECOND.cast(pl.Datetime("ns")), _Moment, "has a time finer than a microsecond"),
@@ -594,12 +594,12 @@ class _Numbers(TypedDict):
         (
             pl.Series([[1.5, math.nan]]),
             _Numbers,
-            "has a float that is not finite inside a list or struct",
+            "has a float that isn't finite (nan or inf) inside a list or struct",
         ),
         (
             pl.Series([[math.inf]]),
             _Numbers,
-            "has a float that is not finite inside a list or struct",
+            "has a float that isn't finite (nan or inf) inside a list or struct",
         ),
     ],
 )
@@ -620,7 +620,7 @@ def test_a_returned_table_cell_a_saved_run_reads_back_otherwise_is_refused(
         assert (run.cause.type, run.cause.loc) == ("invalid_output", (returns.id,))
         assert (
             f"column 'count' {fault}" in run.cause.msg
-            or f"column 'count' is {column.dtype} and {fault}" in run.cause.msg
+            or f"column 'count' is {column.dtype}, and {fault}" in run.cause.msg
         )
 
 
@@ -636,11 +636,11 @@ def test_a_struct_column_with_a_float_that_is_not_finite_is_refused_and_a_whole_
     graph = Graph.compile(make_graph(rows), registry_of(rows))
 
     assert (
-        "column 'point' has a float that is not finite inside a list or struct"
+        "column 'point' has a float that isn't finite (nan or inf) inside a list or struct"
         in graph.run(text="nan").cause.msg
     )
     assert (
-        "column 'big' is List(UInt64) and has a whole number past the largest Int64"
+        "column 'big' is List(UInt64), and has a whole number too big for an Int64"
         in graph.run(text="big").cause.msg
     )
 
@@ -1122,7 +1122,7 @@ def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets
 
     problem = _refused(graph, saved)
 
-    assert problem.ctx == {"where": at, "reason": "a yes or no is not a number; give a number"}
+    assert problem.ctx == {"where": at, "reason": "a yes or no is not a number"}
 
 
 def test_a_null_saved_for_a_done_call_whose_output_takes_no_none_is_refused():

@@ -32,7 +32,7 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
         PydanticCustomError: ``no_sources`` if the list is empty, ``repeated_source`` if a source is listed twice.
     """
     if not sources:
-        raise PydanticCustomError("no_sources", "an input's sources list at least one output")
+        raise PydanticCustomError("no_sources", "an input's sources must list at least one output")
     seen: set[Source] = set()
     for source in sources:
         if source in seen:
@@ -84,12 +84,12 @@ class InputEntry(ConductorModel):
         if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
             raise PydanticCustomError(
                 "one_of_constant_graph_input_sources",
-                "an input gets exactly one of a constant, a graph input or sources",
+                "an input must get exactly one of a constant, a graph input or sources",
             )
         if self.default is not MISSING and self.graph_input is MISSING:
             raise PydanticCustomError(
                 "default_without_graph_input",
-                "a default is the default of a graph input; give the input a graph_input",
+                "only a graph input can have a default. Give the input a graph_input, or drop the default",
             )
         return self
 

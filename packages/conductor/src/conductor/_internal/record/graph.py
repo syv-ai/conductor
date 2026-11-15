@@ -24,7 +24,7 @@ def _whole_output(source: Source) -> Source:
     if source.field is not None:
         raise PydanticCustomError(
             "output_has_field",
-            "a graph output is a whole output; give a node the field through an edge",
+            "a graph output can't name a field. Wire the field into a node with an edge, and use that node's output",
         )
     return source
 

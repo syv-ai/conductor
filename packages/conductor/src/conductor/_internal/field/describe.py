@@ -93,21 +93,21 @@ class FieldDescription(ConductorModel):
         if self.required and has_default:
             raise PydanticCustomError(
                 "required_with_default",
-                "a required field has no default; leaving out a field with a default gives the default",
+                "a field can't be required and have a default, since leaving it out gives the default",
             )
         if self.required and in_group:
             raise PydanticCustomError(
                 "required_in_exclusive_group",
-                "an output of an exclusive group is never required; left out, it is a branch not chosen",
+                "an output of an exclusive group is never required, since leaving it out means its branch wasn't chosen",
             )
         if has_default and in_group:
             raise PydanticCustomError(
                 "default_in_exclusive_group",
-                "an output of an exclusive group has no default; left out, it is a branch not chosen",
+                "an output of an exclusive group can't have a default, since leaving it out means its branch wasn't chosen",
             )
         if self.loops and not self.is_series:
             raise PydanticCustomError(
                 "loops_without_series",
-                "a field with loops is a list (is_series), one level of list per loop",
+                "a field with loops must be a list (is_series), with one level of list per loop",
             )
         return self

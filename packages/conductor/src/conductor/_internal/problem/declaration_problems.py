@@ -7,7 +7,7 @@ imported. ``@node``, ``subgraph``, ``@host_type``, ``Param`` and ``NodeRegistry`
 
     @node("fetch", title="Fetch", description="Fetches a page.")
     async def fetch(url: str) -> str: ...
-    # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def; ...
+    # NodeDeclarationError: @node('fetch') on fetch: a node is a plain def, not an async def. ...
     # error.problems == [async_run()], whose type is "async_run"
 
 A kind is declared the same way as the other kinds of problem (see ``ProblemCatalogue.problem``). The difference is
@@ -23,14 +23,16 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from conductor._internal.utils import comma_separated
+
 from .type import ProblemCatalogue
 
 #: Every kind of problem a declaration can have.
 DECLARATION_PROBLEMS = ProblemCatalogue(
     "Declaring a node",
-    "Raised as `NodeDeclarationError` when the module that declares the node or the type is imported. `error.problems` "
-    "is the one problem, its `type` the code and its message written for the node's developer; the error's text puts "
-    "where the fault is in front of it: `@node('adds') on adds: value: ...`.",
+    "These are raised as `NodeDeclarationError` when the module that declares the node or the type is imported. "
+    "`error.problems` has the one problem. Its `type` is the code, and its message is written for the node's "
+    "developer. The error's text puts where the fault is in front of it: `@node('adds') on adds: value: ...`.",
 )
 
 
@@ -58,8 +60,8 @@ def arriving_on_compute_added_inputs(*, parameter: str) -> str:
         declaration_refused(lambda: node("adds", title="Adds", description="Passes the text on as it is.", compute_added_inputs=added)(adds))
     """
     return (
-        f"compute_added_inputs parameter {parameter!r} reads an arriving type, but inputs are decided before anything arrives; "
-        "read it in compute_outputs"
+        f"the compute_added_inputs parameter {parameter!r} asks for the type arriving on an input, but added inputs are worked out "
+        "before any edge is read. Read the arriving type in compute_outputs instead."
     )
 
 
@@ -76,7 +78,7 @@ def async_run() -> str:
 
         declaration_refused(lambda: node("fetch_async", title="Fetch async", description="Fetches a page from an address.")(fetch_async))
     """
-    return "a node is a plain def; the engine gives a slow one threads with Policy(concurrency=)"
+    return "a node is a plain def, not an async def. For slow calls, Policy(concurrency=) runs several at once on threads."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -104,7 +106,7 @@ def bound_invalid(*, unheld: list[str], type: str) -> str:
 
         declaration_refused(lambda: node("short", title="Short", description="Passes the text on as it is.")(short))
     """
-    return f"{unheld} can't apply to {type}, as pydantic holds no such limit on it; take them off, or check the value in the node"
+    return f"pydantic has no rule for {comma_separated(unheld)} on {type}. Remove it from the Param, or check the value in the node instead."
 
 
 @DECLARATION_PROBLEMS.problem("bound_invalid", variant="limit_value")
@@ -125,7 +127,7 @@ def bound_invalid_value(*, limits: str, type: str, error: str) -> str:
 
         declaration_refused(lambda: node("narrow", title="Narrow", description="Passes the number on as it is.")(narrow))
     """
-    return f"the limits {limits} don't fit {type}, so change one: {error}"
+    return f"the limits {limits} don't fit {type}: {error}. Give each limit a value that fits the type."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -144,7 +146,7 @@ def choices_invalid() -> str:
 
         declaration_refused(lambda: node("doubled", title="Doubled", description="Hands back the chosen size.")(doubled))
     """
-    return "the choices hold an id twice, or none; give each choice once, as a value of the field's type"
+    return "the choices give an id twice, or give none at all. Give each choice once, as a value of the field's type."
 
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="on_a_literal")
@@ -171,7 +173,7 @@ def choices_invalid_on_a_literal(*, values: list[Any]) -> str:
 
         declaration_refused(lambda: node("size", title="Size", description="Hands back the chosen size.")(size))
     """
-    return f"on a Literal the choices title its values, one each: {values}; give each choice once, as a value of the field's type"
+    return f"on a Literal, the choices give its values titles. Give exactly one choice for each of {comma_separated(values)}."
 
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="not_a_value")
@@ -193,7 +195,7 @@ def choices_invalid_not_a_value(*, reason: str) -> str:
 
         declaration_refused(lambda: node("number_size", title="Number size", description="Hands back the chosen size.")(number_size))
     """
-    return f"a choice is not a value of the field's type: {reason}; give each choice once, as a value of the field's type"
+    return f"a choice isn't a value of the field's type: {reason}. Give each choice as a value of that type."
 
 
 @DECLARATION_PROBLEMS.problem("choices_invalid", variant="no_json_form")
@@ -215,7 +217,7 @@ def choices_invalid_no_json_form() -> str:
 
         declaration_refused(lambda: node("object_size", title="Object size", description="Hands back the chosen size.")(object_size))
     """
-    return "a choice has no JSON form; give each choice once, as a value of the field's type"
+    return "a choice can't be written as JSON. Give each choice a value of the field's type that can be."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -235,7 +237,7 @@ def compute_added_inputs_without_var_keyword() -> str:
 
         declaration_refused(lambda: node("sum_of", title="Sum of", description="Adds up numbers.", compute_added_inputs=operands)(sum_of))
     """
-    return "a node with compute_added_inputs takes them as **kwargs; add **values to its signature"
+    return "the node has compute_added_inputs, but no ** parameter to take the inputs it adds. Add one, like **values: float."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -254,7 +256,7 @@ def context_misplaced() -> str:
 
         declaration_refused(lambda: node("later", title="Later", description="Passes the text on as it is.")(later))
     """
-    return "Context is the whole first parameter, def sign(ctx: Context[HostContext], text: str); anywhere else a caller would give its value"
+    return "Context[...] must be the whole of the node's first parameter, like def sign(ctx: Context[HostContext], text: str). Anywhere else, a caller would have to give its value."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -270,7 +272,7 @@ def context_not_a_class() -> str:
 
         declaration_refused(lambda: node("listed", title="Listed", description="Hands back an empty text.")(listed))
     """
-    return "Context names the class of the object the host passes; write Context[HostContext]"
+    return "Context[...] names the class of the object the host passes. Write a class, like Context[HostContext]."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -295,8 +297,8 @@ def context_type_differs(*, subregistry_type: str, registry_type: str) -> str:
         declaration_refused(lambda: registry.add_subregistry(NodeRegistry(context_type=OtherContext)))  # type: ignore[arg-type]
     """
     return (
-        f"the subregistry names context_type={subregistry_type}, and this registry names context_type={registry_type}; "
-        "a registry and its subregistries name one class, or the subregistry names none"
+        f"the registry being added names context_type={subregistry_type}, but this registry names context_type={registry_type}. "
+        "Name the same class on both, or none on the one being added."
     )
 
 
@@ -321,8 +323,8 @@ def context_type_on_subregistry_only(*, subregistry_type: str) -> str:
         declaration_refused(lambda: NodeRegistry().add_subregistry(NodeRegistry(context_type=ThirdContext)))  # type: ignore[arg-type]
     """
     return (
-        f"the subregistry names context_type={subregistry_type}, and this registry names no context_type; "
-        "a registry and its subregistries name one class, or the subregistry names none"
+        f"the registry being added names context_type={subregistry_type}, but this registry names none. "
+        "Name the same class on this registry too."
     )
 
 
@@ -346,8 +348,8 @@ def costs_nothing_takes_context() -> str:
         )
     """
     return (
-        "a node that takes the run's context uses the host's objects, so its call is not free; "
-        "take what it needs as an input, or drop costs_nothing from its Policy"
+        "the node takes the run's context, so it uses the host's objects and its call isn't free. "
+        "Drop costs_nothing from its Policy, or give the node what it needs as an input."
     )
 
 
@@ -371,7 +373,7 @@ def default_invalid(*, default: str, type: str, reason: str) -> str:
 
         declaration_refused(lambda: node("counted", title="Counted", description="Passes the number on as it is.")(counted))
     """
-    return f"the default {default} is not a value of {type} that it writes as JSON: {reason}; give one that is"
+    return f"the default {default} isn't a value of {type} that can be written as JSON: {reason}. Give a default that is."
 
 
 @DECLARATION_PROBLEMS.problem("default_invalid", variant="none_not_taken")
@@ -387,7 +389,7 @@ def default_none_not_taken() -> str:
 
         declaration_refused(lambda: node("maybe", title="Maybe", description="Passes the text on as it is.")(maybe))
     """
-    return "the default is None, and the type does not take None; write the type with | None"
+    return "the default is None, but the type doesn't take None. Write the type with | None, like str | None."
 
 
 @DECLARATION_PROBLEMS.problem("default_invalid", variant="on_exclusive_group")
@@ -412,7 +414,7 @@ def default_on_exclusive_group() -> str:
 
         declaration_refused(lambda: node("keep", title="Keep", description="Keeps the text.")(keep))
     """
-    return "an output of an exclusive group is a branch not chosen when it is left out; give it the default SKIPPED, or none"
+    return "an output of an exclusive group that is left out is a branch not chosen, so it can't have a default. Give it the default SKIPPED, or none."
 
 
 @DECLARATION_PROBLEMS.problem("default_invalid", variant="skipped_on_input")
@@ -430,7 +432,7 @@ def default_skipped_on_input() -> str:
 
         declaration_refused(lambda: node("carried", title="Carried", description="Passes the text on as it is.")(carried))
     """
-    return "the default is SKIPPED, which only an output on a branch not chosen has; give the input a value of its type, or none"
+    return "an input can't default to SKIPPED, since only an output on a branch not chosen is SKIPPED. Give the input a value of its type as its default, or none."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -457,7 +459,7 @@ def duplicate_node_id(*, id: str, first: str, second: str) -> str:
         twice.add(upper)
         declaration_refused(lambda: twice.node("upper", title="Uppercase", description="Turns a text into capital letters.")(upper_again))
     """
-    return f"two nodes have the id {id!r}: {first} and {second}; ids are unique, so swap one for the other with registry.replace(...)"
+    return f"two nodes have the id {id!r}: {first} and {second}. Give one of them another id, or swap the old one for the new one with registry.replace(...)."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -486,7 +488,9 @@ def duplicate_type_id(*, id: str, first: str, second: str) -> str:
 
         declaration_refused(lambda: NodeRegistry(types=[Amount, Price]))
     """
-    return f"type id {id!r} is declared by both {first} and {second}; one registry holds one type per id"
+    return (
+        f"the type id {id!r} is declared by both {first} and {second}. Give one of them another id."
+    )
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -511,7 +515,7 @@ def empty_title_or_description(
 
         declaration_refused(lambda: node("whisper", title="Whisper", description="")(whisper))
     """
-    return f"{declared_with}({id!r}) has an empty {empty}; write the words a person reads for the node in a palette"
+    return f"{declared_with}({id!r}) has an empty {empty}. Write what a person should read about the node in a palette."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -530,7 +534,7 @@ def exclusive_group_on_input() -> str:
 
         declaration_refused(lambda: node("branchy", title="Branchy", description="Passes the text on as it is.")(branchy))
     """
-    return "exclusive_group is for outputs; put it on an output's Param"
+    return "exclusive_group is for outputs, not inputs. Put it on an output's Param."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -549,7 +553,7 @@ def constant_only_on_output() -> str:
 
         declaration_refused(lambda: node("loud", title="Loud", description="Shouts the text.")(loud))
     """
-    return "constant_only is for inputs; put it on an input's Param"
+    return "constant_only is for inputs, not outputs. Put it on an input's Param."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -576,7 +580,7 @@ def hook_parameter_unknown(*, hook: str, parameter: str, inputs: list[str]) -> s
 
         declaration_refused(lambda: node("named", title="Named", description="Gives one answer per label.", compute_outputs=from_names)(named))
     """
-    return f"{hook} parameter {parameter!r} names no input of the node; it has {inputs}"
+    return f"the {hook} parameter {parameter!r} isn't an input of the node. Its inputs are {comma_separated(inputs)}."
 
 
 @DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="not_by_name")
@@ -602,7 +606,7 @@ def hook_parameter_not_by_name(*, hook: str, parameter: str) -> str:
 
         declaration_refused(lambda: node("starred", title="Starred", description="Gives one answer per label.", compute_outputs=from_any)(starred))
     """
-    return f"{hook} parameter {parameter!r}: a hook's parameters are passed by name; name each after an input of the node"
+    return f"the {hook} parameter {parameter!r} can't be passed by name, and a hook gets each input by name. Make it a plain parameter named after an input."
 
 
 @DECLARATION_PROBLEMS.problem("hook_parameter_unknown", variant="var_keyword")
@@ -631,8 +635,8 @@ def hook_parameter_var_keyword(*, hook: str, parameter: str) -> str:
         declaration_refused(lambda: node("keyed", title="Keyed", description="Gives one answer per label.", compute_outputs=from_keywords)(keyed))
     """
     return (
-        f"{hook} parameter **{parameter}: a hook takes ** only as **{parameter}: type on compute_outputs, for the types arriving on "
-        "the inputs compute_added_inputs added; annotate it type and give the node that hook, or name each parameter after an input"
+        f"the {hook} parameter **{parameter} isn't allowed here. A hook only takes **{parameter}: type on compute_outputs, for the types "
+        "arriving on the inputs compute_added_inputs adds. Annotate it type and add that hook, or name each parameter after an input."
     )
 
 
@@ -651,7 +655,7 @@ def input_without_type() -> str:
 
         declaration_refused(lambda: node("untyped", title="Untyped", description="Passes the text on as it is.")(untyped))
     """
-    return "an input needs a type hint; write one, as it is the input's interface"
+    return "the input has no type hint. Give it one, since the hint says what the input takes."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -676,8 +680,8 @@ def invalid_node_id(*, declared_with: str, id: str) -> str:
         declaration_refused(lambda: node("a.b", title="Dotted id", description="Passes the text on as it is.")(dotted_id))
     """
     return (
-        f"{declared_with} takes the node's id first, a non-empty string without '.', '/', '@' or '~', which mean something in a source "
-        f"or a waiting id: {declared_with}('upper'); got {id!r}"
+        f"{declared_with} got {id!r} as the node's id. An id can't be empty, and can't contain '.', '/', '@' or '~', since those mean "
+        f"something in sources and waiting ids. Pick another, like {declared_with}('upper')."
     )
 
 
@@ -697,7 +701,7 @@ def nested_series() -> str:
 
         declaration_refused(lambda: node("nested", title="Nested", description="Wraps a text in lists.")(nested))
     """
-    return "a Series of Series; a field holds one level of items, so return one Series"
+    return "a Series of Series isn't allowed, since a Series has one level of items. Use one Series, and let the next node make the next level."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -713,7 +717,7 @@ def output_without_type() -> str:
 
         declaration_refused(lambda: node("silent", title="Silent", description="Passes the text on as it is.")(silent))
     """
-    return "a node needs a return type; write one, or -> None for no outputs"
+    return "the node has no return type. Write one, or -> None for no outputs."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -737,7 +741,7 @@ def outputs_not_frozen() -> str:
 
         declaration_refused(lambda: node("parts", title="Parts", description="Splits a name into first and last name.")(parts))
     """
-    return "a dataclass of outputs is frozen; write @dataclass(frozen=True)"
+    return "the dataclass the node returns isn't frozen. Write @dataclass(frozen=True)."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -755,7 +759,7 @@ def parameter_not_by_name() -> str:
 
         declaration_refused(lambda: node("positional", title="Positional", description="Passes the text on as it is.")(positional))
     """
-    return "a node's inputs are passed by name; drop the / and *args"
+    return "the node takes an input by position only. Conductor passes every input by name, so drop the / and *args."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -783,8 +787,8 @@ def pydantic_field_in_hint() -> str:
         declaration_refused(lambda: node("repeat", title="Repeat", description="Repeats a text.")(repeat))
     """
     return (
-        "pydantic's Field(...) in the hint; an input or output takes its title, description and limits from Param, "
-        "so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]"
+        "the hint uses pydantic's Field(...). An input or output takes its title, description and limits from Param, "
+        "so write Annotated[int, Param(ge=0)] where you had Annotated[int, Field(ge=0)]."
     )
 
 
@@ -817,8 +821,8 @@ def pydantic_discriminator_in_hint() -> str:
         declaration_refused(lambda: node("pet", title="Pet", description="Says what kind of animal it is.")(pet))
     """
     return (
-        "pydantic's Field(discriminator=...) in the hint; pydantic's Discriminator says which member of a union a value is, "
-        'so write Annotated[Cat | Dog, Discriminator("kind")] where you had Annotated[Cat | Dog, Field(discriminator="kind")]'
+        "the hint uses pydantic's Field(discriminator=...). Use pydantic's Discriminator instead: write "
+        'Annotated[Cat | Dog, Discriminator("kind")] where you had Annotated[Cat | Dog, Field(discriminator="kind")].'
     )
 
 
@@ -842,7 +846,7 @@ def replaces_another_node(*, declared_with: str, id: str, replaces: str) -> str:
 
         declaration_refused(lambda: node("lower", title="Lower", description="Turns a text into small letters.", replaces=upper)(lower))
     """
-    return f"{declared_with}({id!r}) replaces {replaces}; a node replaces an earlier node of its own id"
+    return f"{declared_with}({id!r}) replaces {replaces}, which is another node. A node only replaces an earlier version of itself, with the same id."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -863,7 +867,7 @@ def type_declaration_invalid(*, id: str, faults: str) -> str:
     Example:
         declaration_refused(lambda: host_type("str", title="My text")(type("MyText", (str,), {})))
     """
-    return f"@host_type({id!r}): {faults}; give an id that is one word and not one of conductor's own, a title, and classes in accepts"
+    return f"@host_type({id!r}) can't take these arguments: {faults}. Give an id that is one word and not one of conductor's own, a title, and only classes in accepts."
 
 
 @DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_on_a_class")
@@ -885,7 +889,7 @@ def type_declaration_not_on_a_class(*, id: str, given: str) -> str:
 
         declaration_refused(lambda: host_type("row", title="Row")(Row))
     """
-    return f"@host_type({id!r}) goes above a class, and {given} is not one it can name; a TypedDict is a record and needs no declaration"
+    return f"@host_type({id!r}) goes above a class, and {given} isn't one it can name. A TypedDict is a record, and needs no declaration."
 
 
 @DECLARATION_PROBLEMS.problem("type_declaration_invalid", variant="not_writable")
@@ -901,7 +905,7 @@ def type_declaration_not_writable(*, id: str, cls: str) -> str:
     Example:
         declaration_refused(lambda: host_type("whole", title="Whole number")(int))
     """
-    return f"@host_type({id!r}) on {cls}: Python lets nobody write on this class; put its value in a class of your own and declare that"
+    return f"@host_type({id!r}) can't declare {cls}, since Python doesn't let anyone change that class. Put the value in a class of your own, and declare that."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -933,7 +937,7 @@ def row_field_optional(*, row: str, field: str) -> str:
 
         declaration_refused(lambda: node("signups", title="Signups", description="Reads the signups in a text.")(signups))
     """
-    return f"the row type {row} leaves out the field '{field}', and every row of a table has every column; declare it '{field}: X | None' instead"
+    return f"the row type {row} lets '{field}' be left out, but every row of a table has every column. Declare it '{field}: X | None' instead."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -964,8 +968,8 @@ def type_not_carried(*, type: str) -> str:
         declaration_refused(lambda: node("opened", title="Opened", description="Reads an opened file.")(opened))
     """
     return (
-        f"conductor can't check or write {type} as JSON; use a type pydantic knows, such as a pydantic model or a dataclass, "
-        "or give the class its own __get_pydantic_core_schema__"
+        f"conductor can't check {type} or write it as JSON. Use a type pydantic knows, such as a pydantic model or a dataclass, "
+        "or give the class its own __get_pydantic_core_schema__."
     )
 
 
@@ -989,8 +993,8 @@ def type_not_carried_declared(*, id: str, cls: str) -> str:
         declaration_refused(lambda: host_type("plain", title="Plain")(Plain))
     """
     return (
-        f"@host_type({id!r}) on {cls}: pydantic can't validate it or write it as JSON; make it a pydantic model or a "
-        "dataclass (with @host_type above @dataclass), or give it its own __get_pydantic_core_schema__"
+        f"@host_type({id!r}) can't declare {cls}, since pydantic can't check it or write it as JSON. Make it a pydantic model or a "
+        "dataclass, with @host_type above @dataclass, or give it its own __get_pydantic_core_schema__."
     )
 
 
@@ -1019,8 +1023,10 @@ def type_not_named(*, cls: str, parent: str | None = None) -> str:
 
         declaration_refused(lambda: node("unnamed-type", title="Unnamed type", description="Hands back an empty text.")(unnamed_type))
     """
-    why = f"; {parent}'s declaration is its own and is not inherited" if parent else ""
-    return f'{cls} is the type of a field and is not declared; write @host_type("...", title="...") above the class{why}'
+    why = (
+        f" {parent} is declared, but a subclass doesn't inherit its declaration." if parent else ""
+    )
+    return f'{cls} is the type of a field, and it has no @host_type. Write @host_type("...", title="...") above the class.{why}'
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1041,7 +1047,7 @@ def type_variable_constrained(*, variable: str) -> str:
 
         declaration_refused(lambda: node("hand-on", title="Hand on", description="Hands a value on.")(hand_on))
     """
-    return f"the type variable {variable} is constrained to a few types; give it a bound, or write the union"
+    return f"the type variable {variable} is constrained to a few types. Give it a bound instead, like T: int | str, or write the union."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1063,7 +1069,7 @@ def type_variable_only_in_return(*, variable: str) -> str:
 
         declaration_refused(lambda: node("make", title="Make", description="Makes an empty list.")(make))
     """
-    return f"the type variable {variable} is on no input, so no edge can say what it is; put it on an input"
+    return f"the type variable {variable} is on no input, so no edge can say what it is. Put it on an input, or use compute_outputs."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1090,9 +1096,7 @@ def upgrade_missing(*, gone: list[str]) -> str:
 
         declaration_refused(lambda: node("hello", title="Hello", description="Says hello to a person.", replaces=hello_v1)(hello))
     """
-    return (
-        f"the version it replaces has {gone}, gone from this one; its Upgrade says where they went"
-    )
+    return f"the new version drops {comma_separated(gone)}, which the version it replaces has. Say where they went in its Upgrade."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1112,7 +1116,7 @@ def upgrade_without_replaces(*, declared_with: str, id: str) -> str:
 
         declaration_refused(lambda: node("hi", title="Hi", description="Says hi to a person.", upgrade=Upgrade(renamed_inputs={"name": "first"}))(hi))
     """
-    return f"{declared_with}({id!r}) has an upgrade but replaces nothing; name the version it upgrades with replaces="
+    return f"{declared_with}({id!r}) has an upgrade= but no replaces=. Name the version it upgrades from with replaces=."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1130,7 +1134,7 @@ def var_keyword_without_hook() -> str:
 
         declaration_refused(lambda: node("loose", title="Loose", description="Hands back an empty text.")(loose))
     """
-    return "**kwargs takes the inputs compute_added_inputs adds; the node has no such hook, so remove **kwargs or add compute_added_inputs="
+    return "the node takes a ** parameter, but has no compute_added_inputs hook to fill it. Remove the ** parameter, or add compute_added_inputs=."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1157,7 +1161,7 @@ def version_not_after(*, declared_with: str, id: str, version: int, replaced: in
 
         declaration_refused(lambda: node("greeting", title="Greeting", description="Says hello to a person.", replaces=greeting_v1, version=1)(greeting_again))
     """
-    return f"{declared_with}({id!r}) is version {version}, not after the version {replaced} it replaces; leave version= out, or give one above {replaced}"
+    return f"{declared_with}({id!r}) is version {version}, which isn't after version {replaced}, the one it replaces. Leave version= out, or give a number above {replaced}."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1180,7 +1184,7 @@ def widget_outside_param() -> str:
 
         declaration_refused(lambda: node("note", title="Note", description="Hands a note on.")(note))
     """
-    return "a widget in Annotated goes on Param: Annotated[..., Param(widget=...)]"
+    return "the widget is written in Annotated next to the type, where it is ignored. Put it on Param: Annotated[..., Param(widget=...)]."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -1216,4 +1220,4 @@ def widget_without_json_form(*, widget: str) -> str:
 
         declaration_refused(lambda: node("pick_from_shelf", title="Pick a book", description="Picks a book from a shelf.")(pick_from_shelf))
     """
-    return f"the widget {widget} holds a value with no JSON form; give its fields values that write as JSON"
+    return f"the widget {widget} has a value that can't be written as JSON. Give its fields values that can be."

@@ -56,7 +56,7 @@ def _frame_of(columns: Iterable[tuple[str, list[Any], Any]], *, strict: bool) ->
     except (PolarsError, TypeError):  # polars' own message may quote a cell, so it isn't passed on
         raise PydanticCustomError(
             "not_a_table",
-            "the columns don't make a table: one name twice, lengths that differ, or cells of no one type",
+            "the columns don't make a table. Check for a name used twice, columns of different lengths, or a column whose cells don't share one type",
         ) from None
 
 
@@ -228,7 +228,7 @@ def _not_finite_inside(column: pl.Series) -> str | None:
         What is wrong with the column, or ``None`` if nothing is.
     """
     if any((floats.is_nan() | floats.is_infinite()).any() for floats in _floats_inside(column)):
-        return "has a float that is not finite inside a list or struct, which a saved run does not keep"
+        return "has a float that isn't finite (nan or inf) inside a list or struct, and a saved run can't keep it"
     return None
 
 
@@ -304,12 +304,12 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
             if saved is None:
                 raise PydanticCustomError(
                     "column_not_saved",
-                    "column '{column}' is {type}, which has no JSON form",
+                    "column '{column}' is {type}, which can't be written as JSON",
                     {"column": name, "type": str(dtype)},
                 )
             raise PydanticCustomError(
                 "column_not_saved",
-                "column '{column}' is {type}, which a saved run reads back as {saved}; cast it to {saved}",
+                "column '{column}' is {type}, and a saved run would read it back as {saved}. Cast it to {saved}",
                 {"column": name, "type": str(dtype), "saved": str(saved)},
             )
         for check in checks:
@@ -328,7 +328,7 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
         failed = next(name for name, kept in casts.items() if not _casts(frame[name], kept))
         raise PydanticCustomError(
             "column_not_saved",
-            "column '{column}' is {type} and has a whole number past the largest Int64, which a saved run reads it back as",
+            "column '{column}' is {type}, and has a whole number too big for an Int64, which is what a saved run reads its whole numbers back as",
             {"column": failed, "type": str(frame.schema[failed])},
         ) from None
 
@@ -404,13 +404,13 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             if name not in frame.columns:
                 raise PydanticCustomError(
                     "column_missing",
-                    "the column '{column}' its row type declares is missing",
+                    "the column '{column}' is missing, and the row type needs it",
                     {"column": name},
                 )
             if not column.optional and frame[name].null_count():
                 raise PydanticCustomError(
                     "column_blank",
-                    "column '{column}': a cell is blank, and the column's type takes no blank",
+                    "column '{column}' has a blank cell, and its type doesn't allow blanks",
                     {"column": name},
                 )
         unread = [
@@ -474,7 +474,7 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         },
         discriminator=_table_form,
         custom_error_type="not_a_table",
-        custom_error_message="a table is a frame or a list of records, one object per row",
+        custom_error_message="a table must be a frame, or a list of records with one object per row",
     )
     kept = core_schema.no_info_after_validator_function(as_saved, any_form)
     # The same schema for JSON and for Python. It is deliberately not a function schema at the top: that way, a

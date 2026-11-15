@@ -170,7 +170,7 @@ def test_an_answer_is_checked_against_its_types_own_class_as_a_return_is():
         waiting.answer(waiting.waiting[0].id, {"side": 2})
 
     assert [(p.type, p.ctx["reason"]) for p in refused.value.problems] == [
-        ("invalid_answer", "its type's own check gave a dict, not a Square")
+        ("invalid_answer", "its type's own check returned a dict, not a Square")
     ]
 
 
@@ -190,7 +190,7 @@ def test_an_asks_choice_is_checked_against_its_types_own_class_as_an_answer_is()
     ).run()
     assert (run.cause.type, run.cause.ctx["reason"]) == (
         "invalid_ask",
-        "the choices for 'result' are refused: its type's own check gave a dict, not a Square",
+        "the choices for 'result' are wrong (its type's own check returned a dict, not a Square)",
     )
 
 
@@ -318,7 +318,7 @@ def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_in_o
 
     assert (run.cause.ctx["name"], run.cause.ctx["reason"]) == (
         "beta",
-        "'beta' is not one of the outputs it returns",
+        "'beta' isn't one of the node's outputs",
     )
 
 
@@ -337,7 +337,7 @@ def test_a_return_that_gives_no_output_of_a_group_a_value_is_refused():
     assert (neither.type, neither.ctx.get("name"), neither.ctx["reason"]) == (
         "invalid_output",
         None,
-        "none of the exclusive group 'length' (long, short) holds a value; give one of them a value and the others"
+        "no output of the exclusive group 'length' (long, short) has a value. Give one of them a value and the others"
         " SKIPPED, or return SKIPPED to choose no branch",
     )
     assert _returning(SKIPPED, Routed).results["g"] == {"count": None, "long": None, "short": None}
@@ -350,7 +350,7 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
     assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
     assert (
         run.cause.ctx["reason"]
-        == "'long' and 'short' are alternatives of 'length', and both hold a value"
+        == "'long' and 'short' are in the exclusive group 'length', and both have a value. Give only one of them a value"
     )
     assert _returning(Routed(long="a", count=2), Routed).results["g"] == {
         "count": 2,
@@ -372,10 +372,10 @@ def test_a_return_giving_three_outputs_of_a_group_a_value_names_all_three():
     assert run.cause.type == "invalid_output"
     assert (
         run.cause.ctx["reason"]
-        == "'long', 'medium' and 'short' are alternatives of 'length', and all hold a value"
+        == "'long', 'medium' and 'short' are in the exclusive group 'length', and all have a value. Give only one of them a value"
     )
     assert (
-        "'long' and 'medium' are alternatives of 'length', and both hold a value"
+        "'long' and 'medium' are in the exclusive group 'length', and both have a value. Give only one of them a value"
         == _returning(Routed3(long="a", medium="b"), Routed3).cause.ctx["reason"]
     )
 
@@ -395,7 +395,7 @@ def test_an_output_of_several_is_refused_as_its_own_type_says_naming_the_output(
     run = _returning(Squares(Shape(side=2), [{"item": "a", "amount": 1}]), Squares)  # type: ignore[arg-type]
 
     assert (run.cause.ctx["name"], run.cause.ctx["errors"][0]["type"]) == ("first", "not_its_class")
-    assert run.cause.ctx["reason"] == "its type's own check gave a Shape, not a Square"
+    assert run.cause.ctx["reason"] == "its type's own check returned a Shape, not a Square"
     run = _returning(
         Squares(Square(side=2), pl.DataFrame({"item": ["a"], "amount": [1.5]})), Squares
     )  # type: ignore[arg-type]

@@ -80,7 +80,7 @@ def read_json(text: str | bytes) -> Any:
                 call_problems.invalid_record(
                     "record",
                     where="the record",
-                    reason=f"it is not JSON: {not_json}",
+                    reason=f"it isn't JSON ({not_json})",
                     error="json_invalid",
                 )
             ]
@@ -176,7 +176,7 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
                 written[name] = plain_json(value)
             except PydanticSerializationError:
                 reason = (
-                    "a value written in a graph record is saved with it as JSON"
+                    "it can't be written as JSON, and a graph record is saved as JSON"
                     + kind_of_value(value).typed_in_advice
                 )
                 problems.append(compile_problems.invalid_value(self._node_id, name, reason=reason))

@@ -227,7 +227,7 @@ def _read_default(whole: Type, default: Any) -> Any:
     try:
         whole.to_json(read)
     except (PydanticSerializationError, UnicodeDecodeError):
-        no_json_form = PydanticCustomError("no_json_form", "it has no JSON form")
+        no_json_form = PydanticCustomError("no_json_form", "it can't be written as JSON")
         raise ValidationError.from_exception_data(
             whole.id, [{"type": no_json_form, "loc": (), "input": default}]
         ) from None

@@ -313,7 +313,7 @@ def test_what_is_not_a_record_is_refused_as_invalid_record_never_a_validation_er
         problems[0].ctx["error"],
     ) == (loc, error)
     assert not isinstance(refused.value, ValidationError) and problems[0].msg.startswith(
-        "The record is not a graph record at"
+        "This isn't a valid graph record. At"
     )
 
 
@@ -2352,7 +2352,7 @@ def test_a_bool_as_a_constant_or_a_graph_input_is_refused_for_a_float_input():
     ).problems
     assert (problem.type, problem.ctx["reason"]) == (
         "invalid_value",
-        "a yes or no is not a number; give a number",
+        "a yes or no is not a number",
     )
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(

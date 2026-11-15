@@ -120,7 +120,7 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     (failed,) = [e for e in events if e.type == "node_failed"]
     assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == (
         "execution_failed",
-        "The node raised an exception; its developer finds it in the conductor log.",
+        "The node raised KeyError. Its developer can find the details in the conductor log.",
         ("n",),
         {"error": "KeyError"},
     )
@@ -183,7 +183,7 @@ def test_a_foreign_exception_named_in_retry_on_is_external_and_retries():
     ]
     assert (
         retries[0].cause.type == "external_failed"
-        and retries[0].cause.msg == "An outside service did not answer."
+        and retries[0].cause.msg == "A call to an outside service failed."
     )
     assert events[-1].run.outputs == {"result": "ok"}
 
@@ -206,7 +206,7 @@ def test_an_exhausted_external_failure_is_external_failed_without_its_text():
     assert len(calls) == 3 and run.status == "failed"
     assert (run.cause.type, run.cause.msg) == (
         "external_failed",
-        "An outside service did not answer.",
+        "A call to an outside service failed.",
     )
 
 

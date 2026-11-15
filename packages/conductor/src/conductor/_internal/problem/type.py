@@ -11,10 +11,10 @@ and calling a kind makes a ``Problem``::
 
     @PROBLEMS.problem()
     def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
-        return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
+        return f"'{node_id}' has no input '{field}'. Its inputs are {comma_separated(inputs)}."
 
     unknown_input("upper", "txet", inputs=["text"])
-    # Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'; it has text.",
+    # Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'. Its inputs are text.",
     #         ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
 
 Since each kind is a plain function, a type checker checks every call to it. A host that writes its own messages
@@ -40,7 +40,7 @@ class Problem(ConductorModel):
 
     It has the same four fields as a pydantic error. Here is one::
 
-        Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'; it has text.",
+        Problem(type="unknown_input", loc=("upper", "txet"), msg="'upper' has no input 'txet'. Its inputs are text.",
                 ctx={"node_id": "upper", "field": "txet", "inputs": ["text"]})
 
     ``loc`` says where the problem is. What it names depends on where the problem was found:
@@ -81,8 +81,8 @@ class ProblemKind[**Params]:
 
     It wraps the function that writes the message, and calling it makes a ``Problem``. ``@catalogue.problem()``
     builds one from a function, and works out a few things from the function's signature. For ``unknown_input``
-    above, ``code`` is ``"unknown_input"``, ``sentence`` is ``"'{node_id}' has no input '{field}'; it has
-    {inputs}."``, and ``ctx_type`` is a ``TypedDict`` with the keys ``node_id``, ``field`` and ``inputs``.
+    above, ``code`` is ``"unknown_input"``, ``sentence`` is ``"'{node_id}' has no input '{field}'. Its inputs
+    are {inputs}."``, and ``ctx_type`` is a ``TypedDict`` with the keys ``node_id``, ``field`` and ``inputs``.
 
     Attributes:
         code: The problem's ``type``.

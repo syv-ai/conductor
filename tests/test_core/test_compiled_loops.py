@@ -592,7 +592,7 @@ def test_a_list_given_to_a_graph_input_of_one_value_is_refused_saying_how_a_loop
         ("inputs", "text"),
         {"name": "text", "expected": "str", "length": 3, "variant": "make_a_series"},
     )
-    assert "only when a node returns it as a Series" in problem.msg
+    assert "only loops over a list that a node returns as a Series" in problem.msg
 
 
 # -- a subgraph is one node ------------------------------------------------------------------------

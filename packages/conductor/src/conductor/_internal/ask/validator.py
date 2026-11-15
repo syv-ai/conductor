@@ -95,7 +95,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     raise InvalidCallError(
                         [
                             run_problems.invalid_ask(
-                                reason=f"the choices for '{name}' are refused: {refused.message()}"
+                                reason=f"the choices for '{name}' are wrong ({refused.message()})"
                             )
                         ]
                     ) from None
@@ -103,7 +103,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
             for name, default in self._by_output(ask.default, "default").items():
                 # A default would give this output a value even when the person picks another of its group.
                 if outputs[name].param.exclusive_group is not None:
-                    reason = f"'{name}' is one of an exclusive group, so an Ask proposes no default for it: an answer that left it out would give it the default, and no other output of the group could be answered"
+                    reason = f"'{name}' is in an exclusive group, and an output of a group can't have a default"
                     raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
         return choices, defaults
@@ -124,17 +124,17 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 raise InvalidCallError(
                     [
                         run_problems.invalid_ask(
-                            reason="the node asks one question, so it is answered with a value, and choices= is a list"
+                            reason="the node has one output, so choices= is a list, not a mapping"
                         )
                     ]
                 )
             return {next(iter(outputs)): given}
         if not isinstance(given, Mapping):
-            reason = f"the node has {len(outputs)} outputs, so it is answered by output name, and {argument}= goes by output name too"
+            reason = f"the node has {len(outputs)} outputs, so {argument}= must be a mapping by output name"
             raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
         for name in given:
             if name not in outputs:
-                reason = f"the {argument} names '{name}', which is not an output; the outputs are {comma_separated(outputs)}"
+                reason = f"{argument}= names '{name}', which isn't an output. The outputs are {comma_separated(outputs)}"
                 raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
         return dict(given)
 
@@ -163,7 +163,7 @@ def _proposed(field: Field, default: Any, choices: tuple[Choice, ...] | None) ->
         raise InvalidCallError(
             [
                 run_problems.invalid_ask(
-                    reason=f"the default for '{field.name}' is not an answer it takes: {refused.message()}"
+                    reason=f"the default for '{field.name}' isn't an answer a person could give ({refused.message()})"
                 )
             ]
         ) from None
@@ -259,7 +259,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             return {}, [
                 (
                     None,
-                    f"answer each question by name: a mapping of {comma_separated(outputs, empty='nothing')}",
+                    f"answer each question by name, as a mapping of {comma_separated(outputs, empty='nothing')}",
                 )
             ]
         faults: list[tuple[str | None, str]] = [
@@ -277,7 +277,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
                 elif not question.required:
                     read[name] = SKIPPED
                 else:
-                    faults.append((name, f"'{name}' was not answered"))
+                    faults.append((name, f"'{name}' has no answer"))
             except PydanticCustomError as refused:
                 faults.append((name, f"'{name}': {refused.message()}"))
         for fault in groups_without_one_value(self._groups, answer):
@@ -369,7 +369,7 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
             schema_output_validator_of(value_type), value, fallback=untyped_as_json
         )
     except PydanticSerializationError:
-        raise PydanticCustomError("no_json_form", "the value has no JSON form") from None
+        raise PydanticCustomError("no_json_form", "the value can't be written as JSON") from None
     except PydanticCustomError as refused:  # a table with a column a saved run can't keep as it is
         raise PydanticCustomError("not_its_type", refused.message()) from None
     except ValidationError as error:

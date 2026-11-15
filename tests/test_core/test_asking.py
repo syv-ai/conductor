@@ -209,7 +209,7 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
     _, run = _once(assign, ticket="T-1")
     assert run.waiting[0].questions[0].choices == (Choice("ida", "Ida B."), Choice("bo", "bo"))
     (fault,) = _refused(lambda: run.answer("q", "carl"))
-    assert fault.msg == "That is not a valid answer: the value is not one of the choices"
+    assert fault.msg == "That isn't a valid answer: the value is not one of the choices."
     assert run.answer("q", "bo").resume().outputs == {"result": "bo"}
 
 
@@ -225,7 +225,7 @@ def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_flo
     assert run.answer("q", 1).resume().outputs == {"result": 1.0}
     assert (
         _refused(lambda: run.answer("q", 2))[0].msg
-        == "That is not a valid answer: the value is not one of the choices"
+        == "That isn't a valid answer: the value is not one of the choices."
     )
 
 
@@ -287,7 +287,7 @@ def test_a_series_whose_items_take_none_is_answered_with_none_beside_its_picks()
     }
     assert (
         _refused(lambda: run.answer("q", ["a", None, "a"]))[0].msg
-        == "That is not a valid answer: a choice is picked twice"
+        == "That isn't a valid answer: a choice is picked twice."
     )
 
 
@@ -407,8 +407,9 @@ def test_no_choices_or_one_twice_are_refused_by_param_when_declared_and_by_ask_w
     cause = _once(pick)[1].cause
     assert (cause.type, cause.ctx["reason"]) == (
         "invalid_ask",
-        "the choices for 'result' are refused: "
-        + ("none is given" if not choices else "one is given twice"),
+        "the choices for 'result' are wrong ("
+        + ("none is given" if not choices else "one is given twice")
+        + ")",
     )
 
 
@@ -429,7 +430,7 @@ def test_two_dict_choices_with_their_keys_in_another_order_are_one_choice_given_
     cause = _once(pick)[1].cause
     assert (cause.type, cause.ctx["reason"]) == (
         "invalid_ask",
-        "the choices for 'result' are refused: one is given twice",
+        "the choices for 'result' are wrong (one is given twice)",
     )
 
 
@@ -447,7 +448,7 @@ def test_the_choices_an_ask_offers_a_series_are_each_read_as_one_item():
     assert run.answer("q", [2, 1]).resume().outputs == {"result": [2.0, 1.0]}
     assert (
         _once(lists)[1].cause.ctx["reason"]
-        == "the choices for 'result' are refused: Input should be a valid number"
+        == "the choices for 'result' are wrong (Input should be a valid number)"
     )
 
 
@@ -551,13 +552,13 @@ def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_a
     }
     faults = _refused(lambda: run.answer("q@0", {"amount": "lots", "colour": "red"}))
     assert [(f.ctx.get("question"), f.msg) for f in faults] == [
-        ("colour", "That is not a valid answer: there is no question 'colour'"),
-        ("approved", "That is not a valid answer: 'approved' was not answered"),
-        ("amount", "That is not a valid answer: 'amount': Input should be a valid number"),
+        ("colour", "That isn't a valid answer: there is no question 'colour'."),
+        ("approved", "That isn't a valid answer: 'approved' has no answer."),
+        ("amount", "That isn't a valid answer: 'amount': Input should be a valid number."),
     ]
     assert (
         _refused(lambda: run.answer("q@0", True))[0].msg
-        == "That is not a valid answer: answer each question by name: a mapping of approved, amount, note, due"
+        == "That isn't a valid answer: answer each question by name, as a mapping of approved, amount, note, due."
     )
 
 
@@ -649,8 +650,7 @@ def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node
     assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
     assert (
         run.cause.ctx["reason"]
-        == "'keep' is one of an exclusive group, so an Ask proposes no default for it: an answer that left it out would"
-        " give it the default, and no other output of the group could be answered"
+        == "'keep' is in an exclusive group, and an output of a group can't have a default"
     )
 
 
@@ -715,7 +715,7 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_held_to():
     assert [
         f.msg for f in _refused(lambda: run.answer("q", {"note": "fine", "escalate": "ceo"}))
     ] == [
-        "That is not a valid answer: 'escalate': the value is not one of the choices",
+        "That isn't a valid answer: 'escalate': the value is not one of the choices.",
     ]
 
 
@@ -811,18 +811,18 @@ def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refuse
         and done.results["e"]["result"] == []
     )
     assert [f.msg for f in _refused(lambda: run.answer("q", [{"sku": "B"}]))] == [
-        "That is not a valid answer: the column 'qty' its row type declares is missing",
+        "That isn't a valid answer: the column 'qty' is missing, and the row type needs it.",
     ]
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "two"}]))[0].msg.startswith(
-        "That is not a valid answer: column 'qty':"
+        "That isn't a valid answer: column 'qty':"
     )
     # read as a one-value answer is: strictly
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "2"}]))[0].msg.startswith(
-        "That is not a valid answer: column 'qty':"
+        "That isn't a valid answer: column 'qty':"
     )
     assert (
         _refused(lambda: run.answer("q", "B,2"))[0].msg
-        == "That is not a valid answer: a table is a frame or a list of records, one object per row"
+        == "That isn't a valid answer: a table must be a frame, or a list of records with one object per row."
     )
 
 
@@ -835,9 +835,7 @@ def test_a_table_answer_is_read_as_a_callers_records_are_with_its_cells_read_str
     }
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": True}, {"sku": "C", "qty": 1}]))[
         0
-    ].msg == (
-        "That is not a valid answer: column 'qty': a yes or no is not a number; give a number"
-    )
+    ].msg == ("That isn't a valid answer: column 'qty': a yes or no is not a number.")
 
 
 def test_a_hooks_outputs_are_asked_by_their_types():
@@ -914,11 +912,11 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
     )
     assert (
         _refused(lambda: run.answer("q", {"keep": "a", "drop": "a"}))[0].msg
-        == "That is not a valid answer: answer exactly one of keep, drop"
+        == "That isn't a valid answer: answer exactly one of keep, drop."
     )
     assert (
         _refused(lambda: run.answer("q", {}))[0].msg
-        == "That is not a valid answer: answer exactly one of keep, drop"
+        == "That isn't a valid answer: answer exactly one of keep, drop."
     )
 
 
@@ -994,8 +992,8 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
     )
     faults = _refused(lambda: run.answer({"q@0": ["red", "red"], "q@1": ["pink"]}))
     assert [f.msg for f in faults] == [
-        "That is not a valid answer: a choice is picked twice",
-        "That is not a valid answer: Input should be 'red', 'green' or 'blue'",
+        "That isn't a valid answer: a choice is picked twice.",
+        "That isn't a valid answer: Input should be 'red', 'green' or 'blue'.",
     ]
     answered = Run.from_json(run.answer({"q@0": ["red", "blue"], "q@1": []}).to_json(), graph)
     assert answered.results["u"]["result"] == [
@@ -1026,7 +1024,7 @@ def test_a_series_with_choices_the_run_knows_is_a_pick_of_several_of_those():
     )
     assert (
         _refused(lambda: run.answer("q", ["ida", "eve"]))[0].msg
-        == "That is not a valid answer: the value is not one of the choices"
+        == "That isn't a valid answer: the value is not one of the choices."
     )
     assert run.answer("q", ["carl", "ida"]).resume().outputs == {"result": ["carl", "ida"]}
 
@@ -1044,17 +1042,17 @@ def test_a_choice_whose_id_is_a_dict_or_a_list_is_picked_by_its_json():
     assert one.answer("q", {"b": 2, "a": 1}).resume().outputs == {"result": {"b": 2, "a": 1}}
     assert (
         _refused(lambda: one.answer("q", {"c": 4}))[0].msg
-        == "That is not a valid answer: the value is not one of the choices"
+        == "That isn't a valid answer: the value is not one of the choices."
     )
     _, several = _once(picks, ticket="t")
     assert several.answer("q", [[3], [1, 2]]).resume().outputs == {"result": [[3], [1, 2]]}
     assert (
         _refused(lambda: several.answer("q", [[3], [3]]))[0].msg
-        == "That is not a valid answer: a choice is picked twice"
+        == "That isn't a valid answer: a choice is picked twice."
     )
     assert (
         _refused(lambda: several.answer("q", [[3], [3], [4]]))[0].msg
-        == "That is not a valid answer: the value is not one of the choices"
+        == "That isn't a valid answer: the value is not one of the choices."
     )
 
 
@@ -1087,36 +1085,36 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
     [
         (
             lambda: Ask("?", default=3),
-            "the default for 'result' is not an answer it takes: Input should be a valid string",
+            "the default for 'result' isn't an answer a person could give (Input should be a valid string)",
         ),
         (
             lambda: Ask("?", default=SKIPPED),
-            "the default for 'result' is not an answer it takes: the value has no JSON form",
+            "the default for 'result' isn't an answer a person could give (the value can't be written as JSON)",
         ),
         (
             lambda: Ask("?", choices=["a", 2]),
-            "the choices for 'result' are refused: Input should be a valid string",
+            "the choices for 'result' are wrong (Input should be a valid string)",
         ),
         (
             lambda: Ask("?", choices=["a"], default="b"),
-            "the default for 'result' is not an answer it takes: the value is not one of the choices",
+            "the default for 'result' isn't an answer a person could give (the value is not one of the choices)",
         ),
         (
             lambda: Ask("?", choices=["a", object()]),
-            "the choices for 'result' are refused: one has no JSON form",
+            "the choices for 'result' are wrong (one can't be written as JSON)",
         ),
         (
             lambda: Ask("?", choices=[Choice(object(), "Thing")]),
-            "the choices for 'result' are refused: one has no JSON form",
+            "the choices for 'result' are wrong (one can't be written as JSON)",
         ),
         (
             lambda: Ask("?", choices=["a", "a"]),
-            "the choices for 'result' are refused: one is given twice",
+            "the choices for 'result' are wrong (one is given twice)",
         ),
-        (lambda: Ask("?", choices=[]), "the choices for 'result' are refused: none is given"),
+        (lambda: Ask("?", choices=[]), "the choices for 'result' are wrong (none is given)"),
         (
             lambda: Ask("?", choices={"result": ["a"]}),
-            "the node asks one question, so it is answered with a value, and choices= is a list",
+            "the node has one output, so choices= is a list, not a mapping",
         ),
     ],
 )
@@ -1182,15 +1180,15 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     [
         (
             lambda: Ask("?", default="a"),
-            "the node has 2 outputs, so it is answered by output name, and default= goes by output name too",
+            "the node has 2 outputs, so default= must be a mapping by output name",
         ),
         (
             lambda: Ask("?", default={"stay": "a"}),
-            "the default names 'stay', which is not an output; the outputs are keep, drop",
+            "default= names 'stay', which isn't an output. The outputs are keep, drop",
         ),
         (
             lambda: Ask("?", choices=["a"]),
-            "the node has 2 outputs, so it is answered by output name, and choices= goes by output name too",
+            "the node has 2 outputs, so choices= must be a mapping by output name",
         ),
     ],
 )
@@ -1216,7 +1214,7 @@ def test_a_default_obeys_what_an_answer_must_and_none_is_no_pick():
     assert (question.default, question.required) == (None, False)
     assert (
         _once(twice)[1].cause.ctx["reason"]
-        == "the default for 'result' is not an answer it takes: a choice is picked twice"
+        == "the default for 'result' isn't an answer a person could give (a choice is picked twice)"
     )
 
 
@@ -1234,7 +1232,7 @@ def test_a_question_whose_choices_limit_it_must_be_answered_even_if_its_type_tak
     assert [q.required for q in run.waiting[0].questions] == [True, False]
     assert (
         _refused(lambda: run.answer("q", {}))[0].msg
-        == "That is not a valid answer: 'who' was not answered"
+        == "That isn't a valid answer: 'who' has no answer."
     )
     assert run.answer("q", {"who": "a"}).resume().outputs == {"who": "a", "note": None}
 
@@ -1274,7 +1272,7 @@ def test_a_choice_offered_for_a_table_is_a_table_like_any_choice_of_its_type():
 
     assert (
         _once(wrong)[1].cause.ctx["reason"]
-        == "the choices for 'result' are refused: a table is a frame or a list of records, one object per row"
+        == "the choices for 'result' are wrong (a table must be a frame, or a list of records with one object per row)"
     )
 
 
@@ -1937,13 +1935,13 @@ def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
     assert (problem.type, problem.ctx["status"]) == (
         "not_waiting",
         "complete",
-    ) and "(the run is complete)" in problem.msg
+    ) and "The run is complete" in problem.msg
 
 
 @pytest.mark.parametrize(
     ("choices", "reason"),
     [
-        ([True, 2], "a yes or no is not a number; give a number"),
+        ([True, 2], "a yes or no is not a number"),
         (["1"], "Input should be a valid integer"),
     ],
     ids=["a bool", "a number as text"],
@@ -1957,7 +1955,7 @@ def test_a_choice_is_read_as_its_answer_would_be_so_one_a_number_refuses_fails_t
 
     _, run = _once(pick)
     assert (run.status, run.cause.type) == ("failed", "invalid_ask")
-    assert run.cause.ctx["reason"] == f"the choices for 'result' are refused: {reason}"
+    assert run.cause.ctx["reason"] == f"the choices for 'result' are wrong ({reason})"
 
 
 def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_answer_is() -> None:
@@ -1968,7 +1966,7 @@ def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_
     cause = _once(pick)[1].cause
     assert (cause.type, cause.ctx["reason"]) == (
         "invalid_ask",
-        "the choices for 'result' are refused: a yes or no is not a number; give a number",
+        "the choices for 'result' are wrong (a yes or no is not a number)",
     )
 
 
@@ -1996,7 +1994,7 @@ def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> No
     assert (run.status, run.cause.type) == ("failed", "invalid_ask")
     assert (
         run.cause.ctx["reason"]
-        == "the choices for 'result' are refused: Input should be a valid string"
+        == "the choices for 'result' are wrong (Input should be a valid string)"
     )
 
 

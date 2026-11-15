@@ -24,7 +24,7 @@ def set_has_no_order() -> PydanticCustomError:
     """
     return PydanticCustomError(
         "set_has_no_order",
-        "a set has no order, so its items would come in another order in another process; give a list",
+        "a set has no order, so its items could come in a different order each time. Give a list",
     )
 
 

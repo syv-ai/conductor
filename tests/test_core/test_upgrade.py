@@ -415,7 +415,7 @@ def test_an_edge_reading_a_field_of_a_renamed_output_moves_with_it():
 
 def test_a_downgrade_or_an_unknown_node_raises():
     registry = _registry()
-    with pytest.raises(InvalidCallError, match="cannot move from version 3 to 1"):
+    with pytest.raises(InvalidCallError, match="can't move from version 3 to version 1"):
         registry.upgrade(_graph(version=3), "r", to=1)
     with pytest.raises(InvalidCallError, match="nope"):
         registry.upgrade(_graph(), "nope")
@@ -547,7 +547,7 @@ def test_upgrading_a_subgraph_sets_only_its_version():
 
     assert upgraded.nodes["f"].version == 2
     assert _inputs(upgraded, "f") == {"text": {"constant": "x"}}
-    with pytest.raises(InvalidCallError, match="it has 1, 2"):
+    with pytest.raises(InvalidCallError, match="Its versions are 1, 2"):
         registry.upgrade(graph, "f", to=5)
 
 
@@ -576,7 +576,9 @@ def test_an_upgrade_that_drops_an_output_without_renaming_it_is_refused_where_it
     upgrade: Upgrade,
 ) -> None:
     """A rewrite reads the node's constants, never the edges out of it, so it cannot say where an output went."""
-    with pytest.raises(NodeDeclarationError, match="'x'") as raised:
+    with pytest.raises(
+        NodeDeclarationError, match="the new version drops x, which the version it replaces has"
+    ) as raised:
         node(
             "o",
             title="Newer out",

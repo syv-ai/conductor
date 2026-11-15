@@ -65,7 +65,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
     A plain ``polars.DataFrame`` written as a hint is read as a bare ``Table``: a table with any columns.
     """
 
-    typed_in_advice: ClassVar[str] = "; give a table as a list of records"
+    typed_in_advice: ClassVar[str] = " (give a table as a list of records)"
 
     @functools.cached_property
     def _row(self) -> Any:
@@ -117,7 +117,7 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         A missing column gets a message of its own, since pydantic's "Field required" doesn't say it is a column.
         """
         return (
-            f"the column '{part}' its row type declares is missing"
+            f"the column '{part}' is missing, and the row type needs it"
             if kind == "missing"
             else f"column '{part}': {msg}"
         )

@@ -111,8 +111,8 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
         "fields": ["name", "email"],
     }
     assert found.msg == (
-        "'read.result' is a whole table, and 'send.to' takes one str. To call 'send' once per row or item, "
-        "put a node between them that returns its rows or items as a Series, and wire that node's result, or one field of it."
+        "'read.result' is a whole table, but 'send.to' takes one str. To call 'send' once per row or item, "
+        "put a node in between that returns them as a Series. Then wire its result, or one field of it."
     )
 
 
@@ -134,7 +134,7 @@ def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
         found.ctx["whole"],
         found.ctx["fields"],
     ) == ("type_mismatch", ("send", "to"), "make_a_series", "list", [])
-    assert found.msg.startswith("'tags.result' is a whole list, and 'send.to' takes one str.")
+    assert found.msg.startswith("'tags.result' is a whole list, but 'send.to' takes one str.")
     assert problem({"people": "people", "send": "send"}, [("people.result", "send.to")]).ctx[
         "fields"
     ] == ["name", "email"]
@@ -157,8 +157,8 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series()
         "fields": ["name", "email"],
     }
     assert found.msg == (
-        "'read.result.email' names a field of a whole table, which has no fields to wire. Put a node after it that returns "
-        "its rows or items as a Series, and wire the field from that node's result."
+        "'read.result.email' names a field of a whole table, and a whole table has no fields to wire. Put a node after it that returns "
+        "its rows or items as a Series. Then wire the field from that node's result."
     )
 
 
@@ -224,7 +224,7 @@ def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_
     }
     assert (
         found.msg
-        == "'report.table' needs the column 'amount' (float); 'read.result' has name, email. Add the column in a node between, or connect a table that has it."
+        == "'report.table' needs the column 'amount' (float), and 'read.result' doesn't have it. It has name, email. Add the column in a node in between, or wire a table that has it."
     )
 
 
@@ -286,7 +286,7 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
         "inputs": ["question", "document"],
     }
     assert found.msg == (
-        "'ask' reads items of list.result, docs.result, and neither is inside the loop over the other, so nothing says which items go together. "
+        "'ask' reads items from list.result, docs.result, but nothing says which items go together. "
         "Wire an item of one into the node that returns the other, or give one of them whole to a Series input."
     )
 

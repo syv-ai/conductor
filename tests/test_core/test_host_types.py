@@ -242,9 +242,9 @@ def test_a_subclass_does_not_inherit_its_parents_declaration() -> None:
         return ""
 
     refused = _refused(lambda: declared(f))
-    assert refused.problems[0].type == "type_not_named" and "Money's declaration is its own" in str(
-        refused
-    )
+    assert refused.problems[
+        0
+    ].type == "type_not_named" and "a subclass doesn't inherit its declaration" in str(refused)
 
 
 def test_a_hook_that_returns_a_class_that_is_not_declared_is_the_hooks_failure() -> None:

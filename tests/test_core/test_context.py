@@ -137,7 +137,7 @@ def test_the_context_anywhere_but_the_whole_first_parameter_is_refused_at_declar
 
 
 def test_the_context_names_a_class():
-    with pytest.raises(NodeDeclarationError, match="Context names the class") as raised:
+    with pytest.raises(NodeDeclarationError, match=r"Context\[\.\.\.\] names the class") as raised:
 
         @node("bare", title="Bare", description="For a test.")
         def bare(ctx: Context[list[str]], text: str) -> str:
@@ -279,7 +279,7 @@ def test_a_class_that_is_not_the_registrys_nor_a_base_of_it_does_not_fit():
             "context_type": "AppContext",
         },
     )
-    assert "AppContext is not a Caller" in problem.msg
+    assert "the registry's context class is AppContext" in problem.msg
 
 
 def test_a_node_that_takes_a_context_on_a_registry_that_names_no_class_is_a_problem():

@@ -17,9 +17,9 @@ from .type import ProblemCatalogue
 #: This module's section of the problems page, with its kinds.
 COMPILE_PROBLEMS = ProblemCatalogue(
     "Compiling a graph",
-    "In `graph.problems`; compiling never raises for them, and a graph with problems does not run. `loc` is "
-    "`(node_id,)` or `(node_id, input)`, and `()` for a problem of the graph's declared outputs. For a node inside a "
-    'subgraph, the subgraph node\'s id comes first: `("loud", "shout", "line")`.',
+    "These are listed in `graph.problems`. Compiling never raises for them, but a graph with any of them doesn't "
+    "run. `loc` is `(node_id,)` or `(node_id, input)`, or `()` for a problem with the graph's declared outputs. For a "
+    'node inside a subgraph, the subgraph node\'s id comes first: `("loud", "shout", "line")`.',
 )
 
 
@@ -55,8 +55,8 @@ def alternatives_from_different_loops(
         ["none (not in a loop)" if one is None else one for one in series]
     )
     return (
-        f"'{field}' has edges from branches inside different loops ({series_text}), so a call never has the other branch's value. "
-        f"Collect the inner loop first, or wire '{field}' from one branch."
+        f"'{field}' has edges from branches inside different loops: {series_text}. One call can never get a value from both. "
+        f"Collect the inner loop first, or wire '{field}' from one branch only."
     )
 
 
@@ -90,7 +90,7 @@ def compute_hook_failed(
             "pick": {"node": "pick", "inputs": {"names": {"constant": ""}}}
         }})
     """
-    return f"The node could not work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired to it."
+    return f"The node couldn't work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired into it."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -119,7 +119,7 @@ def context_does_not_fit(node_id: str, parameter: str, /, *, needs: str, context
             "count": {"node": "count_it"}
         }})
     """
-    return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} is not a {needs}; ask for {context_type}, a base of it or a Protocol it satisfies."
+    return f"'{node_id}' asks for the run's context as {needs}, but the registry's context class is {context_type}. Ask for {context_type}, a base class of it, or a Protocol it satisfies."
 
 
 @COMPILE_PROBLEMS.problem("context_does_not_fit", variant="lacks")
@@ -154,7 +154,7 @@ def context_does_not_fit_lacks(
             "tables": {"node": "tables"}
         }})
     """
-    return f"'{node_id}' takes the run's context as a {needs}, and the registry's context class {context_type} lacks {comma_separated(lacks)}; give {context_type} what the node reads, or change what it asks for."
+    return f"'{node_id}' asks for the run's context as {needs}, but the registry's context class, {context_type}, has no {comma_separated(lacks)}. Add what the node reads to {context_type}, or change what the node asks for."
 
 
 @COMPILE_PROBLEMS.problem("context_does_not_fit", variant="no_context_type")
@@ -176,7 +176,7 @@ def context_does_not_fit_no_context_type(node_id: str, parameter: str, /, *, nee
         plain.add(who)
         problems(make_graph(who), plain)
     """
-    return f"'{node_id}' takes the run's context as a {needs}, and the registry names no context class; name one with NodeRegistry(context_type=...)."
+    return f"'{node_id}' asks for the run's context as {needs}, but the registry doesn't say what the context is. Name its class with NodeRegistry(context_type=...)."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -197,7 +197,7 @@ def cycle(*loc: str | int) -> str:
             "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "result"}]}}}
         }})
     """
-    return "The node is part of a cycle, so the graph cannot run; remove one of the edges that close it."
+    return "The node is part of a cycle, so the graph can't run. Remove one of the edges that close the cycle."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -219,8 +219,8 @@ def graph_output_not_found(*, output: str, source: str, outputs: list[str]) -> s
         }, "outputs": {"result": {"node": "u", "output": "shout"}}})
     """
     if outputs:
-        return f"The graph output '{output}' is '{source}', which its node does not have; it has {comma_separated(outputs)}."
-    return f"The graph output '{output}' is '{source}', whose node is not in the graph; name an output of a node it has."
+        return f"The graph output '{output}' reads '{source}', but that node has no such output. It has {comma_separated(outputs)}."
+    return f"The graph output '{output}' reads '{source}', but the graph has no such node. Name an output of a node in the graph."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -240,7 +240,7 @@ def edge_names_missing_node(*loc: str | int, missing: str, source: str, target: 
             "a": {"node": "upper", "inputs": {"text": {"sources": [{"node": "ghost", "output": "result"}]}}}
         }})
     """
-    return f"The edge from '{source}' to '{target}' names '{missing}', which is not a node of the graph; add that node or remove the edge."
+    return f"The edge from '{source}' to '{target}' comes from '{missing}', which isn't a node in the graph. Add that node, or remove the edge."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -264,7 +264,7 @@ def subgraph_contains_itself(*loc: str | int, node: str) -> str:
         looping.add(itself)
         problems({"nodes": {"i": {"node": "itself"}}}, looping)
     """
-    return f"The subgraph '{node}' contains itself; remove the node that leads back to it."
+    return f"The subgraph '{node}' contains itself. Remove the node that leads back to it."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -298,7 +298,7 @@ def invalid_value(
             "c": {"node": "count", "inputs": {"n": {"constant": "many"}}}
         }, "outputs": {"result": {"node": "c", "output": "result"}}})
     """
-    return f"The value the graph record gives '{field}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
+    return f"The graph record gives '{field}' a value that isn't valid: {reason.rstrip('.')}. Give it a value of the input's type."
 
 
 @COMPILE_PROBLEMS.problem("invalid_value", variant="bound_default")
@@ -332,7 +332,7 @@ def invalid_value_bound_default(
             "f": {"node": "first", "inputs": {"one": {"sources": [{"node": "u", "output": "result"}]}}}
         }})
     """
-    return f"The default of '{field}' is not a value of {type}, the type the edges into '{node_id}' give it: {reason.rstrip('.')}. Give a default of that type, or none."
+    return f"The edges into '{node_id}' make '{field}' of type {type}, and its default doesn't fit: {reason.rstrip('.')}. Give it a constant or an edge, or change its default."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -362,8 +362,8 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
         }})
     """
     return (
-        f"{comma_separated(inputs)} read branches that never both have a value for the same item, so the node would get no items. "
-        "Write Series[X | None] on them to keep every item, or wire both branches into one input."
+        f"{comma_separated(inputs)} read branches that never have a value for the same item, so the node would get no items at all. "
+        "Write Series[X | None] on both to keep every item, or wire both branches into one input."
     )
 
 
@@ -392,8 +392,7 @@ def series_not_nested(node_id: str, /, *, series: list[str], inputs: list[str]) 
         }, "outputs": {"result": {"node": "g", "output": "result"}}})
     """
     return (
-        f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
-        "so nothing says which items go together. "
+        f"'{node_id}' reads items from {comma_separated(series)}, but nothing says which items go together. "
         "Wire an item of one into the node that returns the other, or give one of them whole to a Series input."
     )
 
@@ -426,9 +425,8 @@ def loops_not_nested_inside_subgraph(
         }, "outputs": {"result": {"node": "g", "output": "result"}}})
     """
     return (
-        f"'{node_id}' reads items of {comma_separated(series)}, and neither is inside the loop over the other, "
-        "so nothing says which items go together. "
-        f"One is inside a subgraph ({comma_separated(subgraphs)}), so no edge here can change that. "
+        f"'{node_id}' reads items from {comma_separated(series)}, but nothing says which items go together. "
+        f"One of them is made inside a subgraph ({comma_separated(subgraphs)}), so no edge here can fix that. "
         "Give one of them whole to a Series input, or change the subgraph so it returns both from the same loop."
     )
 
@@ -457,8 +455,8 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
         }, "outputs": {"result": {"node": "c", "output": "result"}}})
     """
     return (
-        f"More than one edge into '{field}' (from {comma_separated(sources)}) can give it a value on the same call. "
-        "Wire it from different branches of one node, or add a node with an input for each."
+        f"'{field}' has edges from {comma_separated(sources)}, and more than one of them can give it a value on the same call. "
+        "Wire it from different branches of one node, or add a node with an input for each edge."
     )
 
 
@@ -485,8 +483,8 @@ def type_mismatch(node_id: str, field: str, /, *, source: str, got: str, expecte
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
-        f"'{source}' gives {got}, but '{node_id}.{field}' takes {expected}; "
-        f"connect an output that gives {expected}, or convert it in a node between."
+        f"'{source}' gives {got}, but '{node_id}.{field}' takes {expected}. "
+        f"Wire an output that gives {expected}, or convert the value in a node in between."
     )
 
 
@@ -524,8 +522,8 @@ def type_mismatch_make_a_series(
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
-        f"'{source}' is a whole {whole}, and '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
-        "put a node between them that returns its rows or items as a Series, and wire that node's result, or one field of it."
+        f"'{source}' is a whole {whole}, but '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
+        "put a node in between that returns them as a Series. Then wire its result, or one field of it."
     )
 
 
@@ -574,8 +572,8 @@ def type_mismatch_add_column(
         }})
     """
     return (
-        f"'{node_id}.{field}' needs the column '{column}' ({column_type}); '{source}' has {comma_separated(has)}. "
-        "Add the column in a node between, or connect a table that has it."
+        f"'{node_id}.{field}' needs the column '{column}' ({column_type}), and '{source}' doesn't have it. It has {comma_separated(has)}. "
+        "Add the column in a node in between, or wire a table that has it."
     )
 
 
@@ -593,7 +591,7 @@ def input_has_no_value(node_id: str, field: str, /) -> str:
     Example:
         problems({"nodes": {"g": {"node": "greet", "inputs": {"name": {"constant": "Ida"}}}}})
     """
-    return f"'{field}' gets no value: wire an edge into it, give it a constant, or make it a graph input."
+    return f"'{field}' gets no value. Wire an edge into it, give it a constant, or make it a graph input."
 
 
 @COMPILE_PROBLEMS.problem("input_has_no_value", variant="constant_only")
@@ -614,7 +612,7 @@ def input_has_no_value_constant_only(node_id: str, field: str, /) -> str:
             "pick": {"node": "pick"}
         }})
     """
-    return f"'{field}' gets no value: it takes only a constant; give it one."
+    return f"'{field}' gets no value, and it only takes a constant. Give it one."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -639,7 +637,7 @@ def input_takes_only_a_constant(
             "pick": {"node": "pick", "inputs": {"names": {"sources": [{"node": "u", "output": "result"}]}}}
         }})
     """
-    return f"'{field}' takes only a constant, never an edge or a graph input; give it a constant."
+    return f"'{field}' only takes a constant, not an edge or a graph input. Give it a constant."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -669,7 +667,7 @@ def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) 
             "c": {"node": "count", "inputs": {"n": {"graph_input": "x"}}},
         }})
     """
-    return f"'{field}' and another input both take the graph input '{graph_input}' but read it as different types, are shown differently or have different defaults; give each its own graph input."
+    return f"'{field}' and another input both take the graph input '{graph_input}', but they don't agree on its type, how it's shown or its default. Give each input a graph input of its own."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -689,7 +687,7 @@ def unknown_input(node_id: str, field: str, /, *, inputs: list[str]) -> str:
             "u": {"node": "upper", "inputs": {"txt": {"constant": "a"}, "text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
-    return f"'{node_id}' has no input '{field}'; it has {comma_separated(inputs)}."
+    return f"'{node_id}' has no input '{field}'. Its inputs are {comma_separated(inputs)}."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -709,7 +707,9 @@ def unknown_node(*loc: str | int, node: str, choices: list[str]) -> str:
             "m": {"node": "send-mail"}
         }})
     """
-    return f"There is no node '{node}'; the nodes are {comma_separated(choices)}."
+    if not choices:
+        return f"The registry has no node '{node}'. It has no nodes at all."
+    return f"The registry has no node '{node}'. Its nodes are {comma_separated(choices)}."
 
 
 @COMPILE_PROBLEMS.problem()
@@ -734,7 +734,7 @@ def unknown_output(
             "b": {"node": "upper", "inputs": {"text": {"sources": [{"node": "a", "output": "text"}]}}}
         }, "outputs": {"result": {"node": "b", "output": "result"}}})
     """
-    return f"'{source}' is not an output of that node; it has {comma_separated(outputs)}."
+    return f"'{source}' isn't an output. That node has {comma_separated(outputs)}."
 
 
 @COMPILE_PROBLEMS.problem("unknown_output", variant="make_a_series")
@@ -767,8 +767,8 @@ def unknown_output_make_a_series(
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
-        f"'{source}' names a field of a whole {whole}, which has no fields to wire. Put a node after it that returns its rows "
-        "or items as a Series, and wire the field from that node's result."
+        f"'{source}' names a field of a whole {whole}, and a whole {whole} has no fields to wire. Put a node after it that returns its rows "
+        "or items as a Series. Then wire the field from that node's result."
     )
 
 
@@ -790,4 +790,4 @@ def unknown_version(*loc: str | int, node: str, version: int, newest: int) -> st
             "u": {"node": "upper", "version": 9, "inputs": {"text": {"graph_input": "text"}}}
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
-    return f"'{node}' has no version {version}; the newest is {newest}."
+    return f"'{node}' has no version {version}. The newest is {newest}."

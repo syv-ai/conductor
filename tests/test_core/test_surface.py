@@ -257,7 +257,7 @@ def test_an_edge_to_a_missing_output_says_what_the_node_has():
     assert (
         found.type == "unknown_output"
         and found.ctx["outputs"] == ["a.result"]
-        and "it has a.result" in found.msg
+        and "That node has a.result" in found.msg
     )
 
 
@@ -277,7 +277,7 @@ def test_an_unknown_input_names_the_inputs_the_node_has():
     )
 
     (found,) = graph.problems
-    assert found.msg == "'s' has no input 'facter'; it has value, factor."
+    assert found.msg == "'s' has no input 'facter'. Its inputs are value, factor."
 
 
 def test_a_wrong_constant_names_the_input_and_the_type_but_never_the_value():
@@ -322,7 +322,7 @@ def test_a_refused_run_lists_each_problem_with_its_place_and_code():
 
     assert (
         str(raised.value)
-        == "1 problem(s):\n  s.facter — unknown_input: 's' has no input 'facter'; it has value, factor."
+        == "1 problem(s):\n  s.facter — unknown_input: 's' has no input 'facter'. Its inputs are value, factor."
     )
 
 
@@ -794,7 +794,10 @@ def test_a_problems_ctx_keeps_lists_as_lists_and_its_message_writes_them():
     empty = Graph.compile(
         GraphRecord.model_validate({"nodes": {"x": {"node": "read"}}}), NodeRegistry()
     ).problems[0]
-    assert (empty.ctx["choices"], empty.msg) == ([], "There is no node 'read'; the nodes are none.")
+    assert (empty.ctx["choices"], empty.msg) == (
+        [],
+        "The registry has no node 'read'. It has no nodes at all.",
+    )
 
 
 def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():

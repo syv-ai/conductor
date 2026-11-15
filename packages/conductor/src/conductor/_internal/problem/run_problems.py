@@ -16,9 +16,10 @@ from .type import ProblemCatalogue
 #: This module's section of the problems page, with its kinds.
 RUN_PROBLEMS = ProblemCatalogue(
     "Why a run stopped",
-    "The `run.cause` of a run that ended early, and the `problem` of a `node_failed` event. For a call that failed, "
-    "`loc` is the node's id and the call's item indexes: `(\"shout\", 1)`; inside a subgraph, the subgraph node's id "
-    "comes first. For the run as a whole, `loc` is `()`. `resume()` goes on from where the run stopped.",
+    "A run that ends early has one of these as its `run.cause`. It is also the `problem` of a `node_failed` event. "
+    "For a call that failed, `loc` is the node's id and the call's item indexes, like `(\"shout\", 1)`. Inside a "
+    "subgraph, the subgraph node's id comes first. For the run as a whole, `loc` is `()`. `resume()` goes on from "
+    "where the run stopped.",
 )
 
 
@@ -42,7 +43,7 @@ def ask_not_declared(*loc: str | int) -> str:
 
         why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run(text="a"))
     """
-    return "The node asked a person without saying so; add asks=True to its @node."
+    return "The node asked a person, but its @node doesn't say it may. Add asks=True to its @node."
 
 
 @RUN_PROBLEMS.problem()
@@ -66,7 +67,7 @@ def execution_failed(*loc: str | int, error: str) -> str:
 
         why_it_stopped(Graph.compile(make_graph(divide), registry).run(n=0))
     """
-    return "The node raised an exception; its developer finds it in the conductor log."
+    return f"The node raised {error}. Its developer can find the details in the conductor log."
 
 
 @RUN_PROBLEMS.problem()
@@ -90,7 +91,7 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
 
         why_it_stopped(Graph.compile(make_graph(fetch), registry).run(url="https://example.com"))
     """
-    return "An outside service did not answer."
+    return "A call to an outside service failed."
 
 
 @RUN_PROBLEMS.problem()
@@ -138,7 +139,7 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
 
         why_it_stopped(Graph.compile(make_graph(confirm), registry).run(text="a"))
     """
-    return f"The node asked a question with choices or a default the answer's type does not take: {reason.rstrip('.')}. Fix the node's Ask."
+    return f"The node's Ask doesn't fit its outputs: {reason.rstrip('.')}. Fix the Ask."
 
 
 @RUN_PROBLEMS.problem()
@@ -186,8 +187,8 @@ def invalid_edge_value(
         why_it_stopped(Graph.compile(make_graph(letters, small), registry).run(text="many letters"))
     """
     return (
-        f"The value an edge gave '{name}' is not one it takes: {reason.rstrip('.')}. "
-        "Fix the node upstream, or wire an output of the type the input takes."
+        f"The value an edge gave '{name}' isn't one it takes: {reason.rstrip('.')}. "
+        "Fix the node upstream, or put a node in between that converts the value."
     )
 
 
@@ -220,7 +221,7 @@ def invalid_output(
 
         why_it_stopped(Graph.compile(make_graph(guess), registry).run(text="12"))
     """
-    return f"The node returned a value that is not what it declares: {reason.rstrip('.')}. Fix what the node returns."
+    return f"The node returned something it doesn't declare: {reason.rstrip('.')}. Fix what the node returns."
 
 
 @RUN_PROBLEMS.problem()
@@ -240,7 +241,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
     Example:
         why_it_stopped(Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2))
     """
-    return f"{series} has {items} items, more than this run's max_items of {max_items}; raise max_items and resume the run."
+    return f"{series} has {items} items, more than this run's max_items of {max_items}. Raise max_items and resume the run."
 
 
 @RUN_PROBLEMS.problem()
@@ -265,8 +266,8 @@ def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noq
         why_it_stopped(Graph.compile(make_graph(approve_file), registry).run(data=b"\\xff"))
     """
     return (
-        f"The node asked a person, but its argument '{input}' cannot be written as JSON to show them: {reason.rstrip('.')}. "
-        "Give that input a type pydantic writes as JSON."
+        f"The node asked a person, but its input '{input}' can't be written as JSON to show them: {reason.rstrip('.')}. "
+        "Give that input a type pydantic can write as JSON."
     )
 
 
@@ -288,7 +289,7 @@ def run_cancelled() -> str:
 
         why_it_stopped(asyncio.run(cancelled()))
     """
-    return "The run was cancelled. Resume it to carry on, or start a new run."
+    return "The run was cancelled. Resume it to go on, or start a new run."
 
 
 @RUN_PROBLEMS.problem()
@@ -310,7 +311,7 @@ def run_timed_out(*, timeout: float) -> str:
 
         why_it_stopped(Graph.compile(make_graph(slow, upper), registry).run(text="a", timeout=0.05))  # upper is never called
     """
-    return "The run took too long and was stopped; run.resume() goes on from where it stopped."
+    return f"The run took longer than its timeout of {timeout} seconds, so it stopped. Resume it to go on from where it stopped."
 
 
 @RUN_PROBLEMS.problem()
@@ -334,6 +335,4 @@ def timeout(*loc: str | int, seconds: float) -> str:
 
         why_it_stopped(Graph.compile(make_graph(stuck), registry).run(text="a"))
     """
-    return (
-        "The node did not return in time; its Policy(attempt_timeout=) sets how long it may take."
-    )
+    return f"The node didn't return within {seconds} seconds. Its Policy(attempt_timeout=) sets how long it may take."

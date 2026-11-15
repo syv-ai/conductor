@@ -190,7 +190,7 @@ def test_a_widget_with_no_json_form_is_a_declaration_problem_naming_the_field() 
 
     with pytest.raises(
         NodeDeclarationError,
-        match=r"@node\('pick'\) on .*pick: value: the widget Picker holds a value with no JSON form",
+        match=r"@node\('pick'\) on .*pick: value: the widget Picker has a value that can't be written as JSON",
     ) as raised:
         node("pick", title="Pick", description="For a test.")(pick)
     assert [(p.type, p.ctx["widget"]) for p in raised.value.problems] == [
@@ -290,7 +290,7 @@ def test_a_pydantic_field_in_a_hint_is_refused_showing_the_param_to_write() -> N
     for hint in hints:
         with pytest.raises(
             NodeDeclarationError,
-            match=r"value: pydantic's Field\(\.\.\.\) in the hint.*Annotated\[int, Param\(ge=0\)\]",
+            match=r"value: the hint uses pydantic's Field\(\.\.\.\).*Annotated\[int, Param\(ge=0\)\]",
         ) as raised:
             node("count", title="Count", description="For a test.")(_returning_its_input(hint))
         assert raised.value.problems[0].type == "pydantic_field_in_hint", hint
@@ -319,7 +319,7 @@ def test_a_pydantic_field_that_tells_a_union_apart_is_refused_showing_the_discri
 
     with pytest.raises(
         NodeDeclarationError,
-        match=r"value: pydantic's Field\(discriminator=\.\.\.\) in the hint.*Annotated\[Cat \| Dog, Discriminator\(\"kind\"\)\]",
+        match=r"value: the hint uses pydantic's Field\(discriminator=\.\.\.\).*Annotated\[Cat \| Dog, Discriminator\(\"kind\"\)\]",
     ) as raised:
         node("pet", title="Pet", description="For a test.")(
             _returning_its_input(Annotated[Cat | Dog, Field(discriminator="kind")])

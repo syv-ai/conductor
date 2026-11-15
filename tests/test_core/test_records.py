@@ -153,9 +153,12 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
     [
         (
             pl.DataFrame({"name": ["ida", None], "email": ["a", "b"]}),
-            "column 'name': a cell is blank, and the column's type takes no blank",
+            "column 'name' has a blank cell, and its type doesn't allow blanks",
         ),
-        (pl.DataFrame({"email": ["a", "b"]}), "the column 'name' its row type declares is missing"),
+        (
+            pl.DataFrame({"email": ["a", "b"]}),
+            "the column 'name' is missing, and the row type needs it",
+        ),
         (
             pl.DataFrame({"name": [1, 2], "email": ["a", "b"]}),
             "column 'name': Input should be a valid string",

@@ -531,7 +531,7 @@ def test_a_refusal_of_a_name_says_which_text_is_not_a_name():
         )
 
     [problem] = refused.value.problems
-    assert problem.ctx["reason"].startswith("'a.b' is not a name") and problem.msg.endswith(
+    assert problem.ctx["reason"].startswith("'a.b' isn't a valid name") and problem.msg.endswith(
         "Fix the record's JSON."
     )
 
@@ -926,7 +926,7 @@ def test_make_graph_with_edges_takes_those_as_every_edge_and_matches_nothing_by_
 
 
 def test_make_graph_without_edges_refuses_nodes_it_cannot_chain_and_says_to_pass_edges():
-    with pytest.raises(InvalidCallError, match="pass edges=") as refused:
+    with pytest.raises(InvalidCallError, match="Pass edges=") as refused:
         make_graph(_email, _count, outputs={"email": "email.result", "result": "count.result"})
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_a_chain", ("count",))]
     with pytest.raises(InvalidCallError) as refused:
@@ -947,8 +947,8 @@ def test_make_graph_without_edges_refuses_nodes_it_cannot_chain_and_says_to_pass
         "outputs": ["result"],
     }
     assert refused.value.problems[0].msg == (
-        "'hello' can't follow 'count' without edges: make_graph wires a node's one required input (it has none) to the one output of the node "
-        "before it (that has result); pass edges= to make_graph."
+        "make_graph can't wire 'hello' after 'count' by itself. That needs exactly one required input on 'hello' (it has none) "
+        "and one output on 'count' (it has result). Pass edges= to make_graph."
     )
 
 
@@ -986,8 +986,8 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
         ),
     ]
     assert refused.value.problems[0].msg == (
-        "'blank' can't follow 'hello' without edges: only a constant can give width a value, never an edge; "
-        "give width a constant and pass edges= to make_graph."
+        "make_graph can't wire 'blank' after 'hello' by itself, because only a constant can give width a value. "
+        "Give width a constant, and pass edges= to make_graph."
     )
 
 
@@ -2100,7 +2100,7 @@ def test_a_table_as_a_constant_is_refused_at_the_call_and_said_to_be_given_as_re
     assert (problem.type, problem.loc) == ("invalid_value", ("count", "rows"))
     assert (
         problem.ctx["reason"]
-        == "a value written in a graph record is saved with it as JSON; give a table as a list of records"
+        == "it can't be written as JSON, and a graph record is saved as JSON (give a table as a list of records)"
     )
 
 
@@ -2200,7 +2200,7 @@ def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_wr
         ("edges", 1, 0),
         {"text": "count"},
     )
-    assert "write 'node.name'" in problem.msg and "column" not in problem.msg
+    assert "Write it as 'node.name'" in problem.msg and "column" not in problem.msg
 
 
 def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_as_it_refuses_such_an_edge():
@@ -2248,7 +2248,7 @@ def test_make_graph_refuses_a_text_that_is_not_node_and_name_at_the_argument_and
         ("not_a_place", ("outputs", "r"), {"text": "shout"}),
     ]
     assert all(
-        p.msg.endswith("write 'node.name' in make_graph's arguments.") and "JSON" not in p.msg
+        p.msg.endswith("Write it as 'node.name'.") and "JSON" not in p.msg
         for p in [*edge, *constant, *output]
     )
 

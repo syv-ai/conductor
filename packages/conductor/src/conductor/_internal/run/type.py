@@ -432,7 +432,7 @@ class Run[C]:
             if (node, item_indexes) in answered:
                 problems.append(
                     call_problems.invalid_answer(
-                        *loc, waiting_id=waiting_id, reason="the call is answered twice"
+                        *loc, waiting_id=waiting_id, reason="the same call is answered twice"
                     )
                 )
                 continue

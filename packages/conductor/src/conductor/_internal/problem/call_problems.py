@@ -19,11 +19,11 @@ from .type import ProblemCatalogue
 #: This module's section of the problems page, with its kinds.
 CALL_PROBLEMS = ProblemCatalogue(
     "Refused calls",
-    "Raised as `InvalidCallError` by a call given what it cannot act on: `graph.run`, `run.answer`, `Run.from_json`, "
-    "`make_graph` and the like; `error.problems` lists them. `loc` is what in the call is wrong: an argument "
-    '(`("timeout",)`), a name inside one (`("inputs", "text")`), the steps to the fault in a graph record or a saved '
-    'run (`("record", "nodes", "u", "node")`), or the node it is about, with the parameter that is wrong '
-    '(`("approve",)`, `("who", "ctx")`).',
+    "A call raises these as `InvalidCallError` when it is given something it can't act on. That is `graph.run`, "
+    "`run.answer`, `Run.from_json`, `make_graph` and the like, and `error.problems` lists them. `loc` says what in the "
+    'call is wrong. It can be an argument (`("timeout",)`), a name inside one (`("inputs", "text")`), the steps to the '
+    'fault in a graph record or a saved run (`("record", "nodes", "u", "node")`), or the node the problem is about, '
+    'with the parameter that is wrong (`("approve",)`, `("who", "ctx")`).',
 )
 
 
@@ -50,7 +50,7 @@ def answer_stale(
         asked_again = asked.again(amount=5500)
         refused(lambda: asked_again.answer(asked.waiting[0].id, True))
     """
-    return f"The answer is for {waiting_id!r}, and another question, {current!r}, has replaced it; answer that one."
+    return f"This answer is for {waiting_id!r}, but a newer question, {current!r}, has replaced it. Answer that one instead."
 
 
 @CALL_PROBLEMS.problem()
@@ -71,7 +71,7 @@ def cannot_move_to_version(
     Example:
         refused(lambda: registry.upgrade(make_graph(upper), "upper", to=3))
     """
-    return f"'{node}' cannot move from version {version} to {target}; it has {comma_separated(versions)}."
+    return f"'{node}' can't move from version {version} to version {target}. Its versions are {comma_separated(versions)}."
 
 
 @CALL_PROBLEMS.problem()
@@ -92,7 +92,7 @@ def context_missing(*loc: str | int, parameter: str, needs: str) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(who), registry).run())
     """
-    return f"The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
+    return f"The node takes the run's context as '{parameter}', of class {needs}, but the call gave no context. Pass context= on every call that starts or resumes the run."
 
 
 @CALL_PROBLEMS.problem()
@@ -115,7 +115,7 @@ def invalid_answer(
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
         refused(lambda: waiting.answer(waiting.waiting[0].id, "yes"))
     """
-    return f"That is not a valid answer: {reason.rstrip('.')}"
+    return f"That isn't a valid answer: {reason.rstrip('.')}."
 
 
 @CALL_PROBLEMS.problem()
@@ -132,7 +132,7 @@ def invalid_context(*loc: str | int, expected: str, got: str) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(who), registry).run(context=Caller("Ida")))  # type: ignore[arg-type]
     """
-    return f"context was given a {got}; pass a {expected}, the class the registry names."
+    return f"The context given is of class {got}, but the registry's context class is {expected}. Pass an instance of {expected}."
 
 
 @CALL_PROBLEMS.problem("invalid_context", variant="no_context_type")
@@ -150,7 +150,7 @@ def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
         plain.add(upper)
         refused(lambda: Graph.compile(make_graph(upper), plain).run(text="a", context=Caller("Ida")))  # type: ignore[arg-type]
     """
-    return f"context was given a {got}, and the graph's registry names no context class; pass no context, or name one with NodeRegistry(context_type=...)."
+    return f"The context given is of class {got}, but this graph's registry takes no context. Pass no context, or name its class with NodeRegistry(context_type=...)."
 
 
 @CALL_PROBLEMS.problem()
@@ -178,7 +178,7 @@ def invalid_input(
     Example:
         refused(lambda: Graph.compile(make_graph(count), registry).run(n="many"))
     """
-    return f"The value given for '{name}' is not valid: {reason.rstrip('.')}. Give a value of the input's type."
+    return f"The value given for '{name}' isn't valid: {reason.rstrip('.')}. Give a value of the input's type."
 
 
 @CALL_PROBLEMS.problem("invalid_input", variant="make_a_series")
@@ -201,8 +201,8 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text=["a", "b"]))
     """
     return (
-        f"'{name}' takes one {expected} and was given a list of {length}. A graph loops over a list only when a node returns it "
-        "as a Series: give the list to such a node, or give one value."
+        f"'{name}' takes one {expected}, but it was given a list of {length}. A graph only loops over a list that a node returns "
+        "as a Series. Give the list to such a node, or give one value."
     )
 
 
@@ -221,7 +221,7 @@ def invalid_limit(limit: str, /, *, value: Any) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", max_items=0))
     """
-    return f"{limit} must be a whole number of at least 1; it was {value}."
+    return f"{limit} must be a whole number of 1 or more, not {value}. Leave it out for no limit on items."
 
 
 @CALL_PROBLEMS.problem("invalid_limit", variant="seconds")
@@ -239,7 +239,7 @@ def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").resume(timeout=0))
     """
-    return f"{limit} must be a finite number of seconds above 0; it was {value}."
+    return f"{limit} must be a finite number of seconds above 0, not {value}. Leave it out for no limit."
 
 
 @CALL_PROBLEMS.problem()
@@ -265,7 +265,7 @@ def invalid_record(
     Example:
         refused(lambda: Graph.compile('{"nodes": {"u": {"type": "upper"}}}', registry))
     """
-    return f"The record is not a graph record at '{where}': {reason.rstrip('.')}. Fix {written_by or "the record's JSON"}."
+    return f"This isn't a valid graph record. At '{where}': {reason.rstrip('.')}. Fix {written_by or "the record's JSON"}."
 
 
 @CALL_PROBLEMS.problem()
@@ -281,7 +281,7 @@ def missing_input(*loc: str | int, name: str) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run())
     """
-    return f"'{name}' is required; give it in the call."
+    return f"The graph input '{name}' is required. Give it in the call."
 
 
 @CALL_PROBLEMS.problem()
@@ -298,7 +298,7 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
         done = Graph.compile(make_graph(upper), registry).run(text="a")
         refused(lambda: done.forget("lower"))
     """
-    return f"'{node_id}' is not a node of this graph; it has {comma_separated(nodes)}."
+    return f"'{node_id}' isn't a node of this graph. Its nodes are {comma_separated(nodes)}."
 
 
 @CALL_PROBLEMS.problem()
@@ -321,8 +321,8 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
         refused(lambda: make_graph(upper, greet, outputs={"shouted": "upper.result"}))
     """
     return (
-        f"'{node_id}' can't follow '{before}' without edges: make_graph wires a node's one required input (it has {comma_separated(inputs)}) "
-        f"to the one output of the node before it (that has {comma_separated(outputs)}); pass edges= to make_graph."
+        f"make_graph can't wire '{node_id}' after '{before}' by itself. That needs exactly one required input on '{node_id}' "
+        f"(it has {comma_separated(inputs)}) and one output on '{before}' (it has {comma_separated(outputs)}). Pass edges= to make_graph."
     )
 
 
@@ -345,8 +345,8 @@ def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]
         refused(lambda: make_graph(upper, pick))
     """
     return (
-        f"'{node_id}' can't follow '{before}' without edges: only a constant can give {comma_separated(inputs)} a value, "
-        f"never an edge; give {comma_separated(inputs)} a constant and pass edges= to make_graph."
+        f"make_graph can't wire '{node_id}' after '{before}' by itself, because only a constant can give {comma_separated(inputs)} a value. "
+        f"Give {comma_separated(inputs)} a constant, and pass edges= to make_graph."
     )
 
 
@@ -369,7 +369,7 @@ def graph_inputs_share_a_name(*loc: str | int, name: str, inputs: list[str]) -> 
     Example:
         refused(lambda: make_graph(upper, upper, edges=[], outputs={"a": "upper-1.result", "b": "upper-2.result"}))
     """
-    return f"Two inputs would both be the graph input '{name}' ({comma_separated(inputs)}); name them, or join them, with make_graph's inputs=."
+    return f"Two inputs, {comma_separated(inputs)}, would both become the graph input '{name}'. Name them, or say they share one value, with make_graph's inputs=."
 
 
 @CALL_PROBLEMS.problem()
@@ -389,7 +389,7 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
     Example:
         refused(lambda: make_graph(upper, words, edges=[], inputs={"a": "upper.text", "b": "words.text"}))
     """
-    return f"Two outputs would both be the graph output '{name}' ({comma_separated(outputs)}); name them with make_graph's outputs=."
+    return f"Two outputs, {comma_separated(outputs)}, would both become the graph output '{name}'. Name them with make_graph's outputs=."
 
 
 @CALL_PROBLEMS.problem()
@@ -408,7 +408,7 @@ def not_a_place(*loc: str | int, text: str) -> str:
     Example:
         refused(lambda: make_graph(upper, constants={"upper": "a"}))
     """
-    return f"{text!r} is not a place in the graph; write 'node.name' in make_graph's arguments."
+    return f"{text!r} isn't a place in the graph. Write it as 'node.name'."
 
 
 @CALL_PROBLEMS.problem()
@@ -425,7 +425,7 @@ def not_offered(*loc: str | int, name: str, inputs: list[str]) -> str:
     Example:
         refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", txt="a"))
     """
-    return f"The graph has no input '{name}'; it has {comma_separated(inputs)}."
+    return f"The graph has no input '{name}'. Its inputs are {comma_separated(inputs)}."
 
 
 @CALL_PROBLEMS.problem()
@@ -446,7 +446,7 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
         refused(lambda: waiting.answer("upper", True))
     """
-    return f"Nothing in the run waits for an answer under {waiting_id!r} (the run is {status}); run.waiting lists what does."
+    return f"Nothing in the run is waiting for an answer under {waiting_id!r}. The run is {status}. run.waiting lists the questions that are waiting."
 
 
 @CALL_PROBLEMS.problem()
@@ -465,7 +465,7 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
         stopped = Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2)
         refused(lambda: stopped.outputs)
     """
-    return f"The run is {status}, so it has no outputs yet; run.results has the outputs so far. {reason.rstrip('.')}".rstrip()
+    return f"The run is {status}, so it has no outputs yet. run.results has the outputs so far. {reason}".rstrip()
 
 
 @CALL_PROBLEMS.problem()
@@ -483,7 +483,7 @@ def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
         saved = Graph.compile(make_graph(upper), registry).run(text="a").to_json()
         refused(lambda: Run.from_json(saved, Graph.compile(make_graph(count), registry)))
     """
-    return f"The saved run is of another graph ({saved}) than this one ({graph}); load it into the graph it was saved from."
+    return f"This saved run is of another graph ({saved}), not this one ({graph}). Load it into the graph it was saved from."
 
 
 @CALL_PROBLEMS.problem()
@@ -507,7 +507,9 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
         changed["outcomes"] = {"upper": "not outcomes"}
         refused(lambda: Run.from_json(json.dumps(changed), uppering))
     """
-    return f"The saved run does not fit this graph at '{where}': {reason.rstrip('.')}. The text may have been changed, other code may have written it, or a value may not read back from its JSON; start a new run."
+    return (
+        f"The saved run doesn't fit this graph at '{where}': {reason.rstrip('.')}. Start a new run."
+    )
 
 
 @CALL_PROBLEMS.problem()
@@ -532,4 +534,4 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
         unwritable = Graph.compile(make_graph(raw), registry).run(text="a")
         refused(lambda: unwritable.to_json())
     """
-    return f"The run cannot be written as JSON at '{where}': {reason.rstrip('.')}. Give that output a type pydantic writes as JSON."
+    return f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}. Give that output a type pydantic can write as JSON."

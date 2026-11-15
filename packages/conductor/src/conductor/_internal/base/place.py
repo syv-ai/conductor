@@ -78,7 +78,7 @@ def _a_name(text: str) -> str:
     if not is_name(text):
         raise PydanticCustomError(
             "not_a_name",
-            "'{text}' is not a name: a name is not empty and has none of '.', '/', '@' and '~'",
+            "'{text}' isn't a valid name. A name can't be empty, and can't contain '.', '/', '@' or '~'",
             {"text": text},
         )
     return text
@@ -125,7 +125,7 @@ class Source:
         if text is not None and (not text or text.startswith(".")):
             raise PydanticCustomError(
                 "not_a_field",
-                "'{text}' is not the name of a field: a field's name is not empty and does not start with '.'",
+                "'{text}' isn't a valid field name. A field's name can't be empty or start with '.'",
                 {"text": text},
             )
         return text

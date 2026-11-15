@@ -96,7 +96,7 @@ def read_choices(
             for choice in choices
         )
     except PydanticSerializationError:
-        raise PydanticCustomError("no_json_form", "one has no JSON form") from None
+        raise PydanticCustomError("no_json_form", "one can't be written as JSON") from None
     except ValidationError as refused:
         raise PydanticCustomError("not_its_type", value_free_errors(refused)[0]["msg"]) from None
     if not read:

@@ -95,7 +95,7 @@ def output_schema_of(value_type: Type) -> CoreSchema:
         if not isinstance(read, exact):
             raise PydanticCustomError(
                 "not_its_class",
-                "its type's own check gave a {got}, not a {type}",
+                "its type's own check returned a {got}, not a {type}",
                 {"got": type(read).__name__, "type": type_id},
             )
         return read
@@ -141,9 +141,7 @@ def _not_a_bool(value: Any) -> Any:
     ``bool`` can't be subclassed, so ``True`` and ``False`` are its only values.
     """
     if value is True or value is False:
-        raise PydanticCustomError(
-            "bool_is_not_a_number", "a yes or no is not a number; give a number"
-        )
+        raise PydanticCustomError("bool_is_not_a_number", "a yes or no is not a number")
     return value
 
 

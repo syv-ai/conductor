@@ -91,7 +91,7 @@ def test_the_problem_says_what_the_record_gave_and_what_to_give():
     assert problem.ctx == {"node_id": "p", "field": "width", "given": "graph_input"}
     assert (
         problem.msg
-        == "'width' takes only a constant, never an edge or a graph input; give it a constant."
+        == "'width' only takes a constant, not an edge or a graph input. Give it a constant."
     )
 
 
@@ -113,7 +113,7 @@ def test_an_input_a_hook_reads_with_no_value_has_no_value_and_is_told_to_take_a_
         ("p", "width"),
         "constant_only",
     )
-    assert problem.msg == "'width' gets no value: it takes only a constant; give it one."
+    assert problem.msg == "'width' gets no value, and it only takes a constant. Give it one."
 
 
 def test_describe_says_which_inputs_take_only_a_constant():
@@ -163,8 +163,8 @@ def test_the_chain_problem_reads_right_for_several_inputs():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(word, cut)
     assert refused.value.problems[0].msg == (
-        "'cut' can't follow 'word' without edges: only a constant can give at, to a value, never an edge; "
-        "give at, to a constant and pass edges= to make_graph."
+        "make_graph can't wire 'cut' after 'word' by itself, because only a constant can give at, to a value. "
+        "Give at, to a constant, and pass edges= to make_graph."
     )
 
 

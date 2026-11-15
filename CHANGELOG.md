@@ -131,6 +131,10 @@ What changes in how you work, before the name-by-name tables:
   `ProblemCatalogue.joined(...)` one catalogue of several, and `ProblemKind.section` says which a kind is in.
   `PROBLEMS` has three: compiling a graph (in `graph.problems`), refused calls (raised as `InvalidCallError`)
   and why a run stopped.
+- **Problem messages are short and plain.** Each says what is wrong, then what to do, in a sentence or two
+  (`'upper' has no input 'txet'. Its inputs are text.`), and so do the reasons inside them. Codes and `ctx`
+  are unchanged, so a host that translates by code needs nothing new. The messages of `execution_failed`,
+  `timeout` and `run_timed_out` name the exception's class and the seconds from their `ctx`.
 - **A refused call lists its problems in `problems`.** `InvalidCallError.problems` is every `Problem` the call
   was refused for, as `graph.problems` is for a graph, and `read_json` raises it too.
 - **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the

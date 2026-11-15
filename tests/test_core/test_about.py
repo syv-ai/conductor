@@ -242,7 +242,7 @@ def test_the_problems_page_has_every_kind_of_problem_with_its_sentence_its_ctx_k
     entry = about.get_section("context-missing")
     assert entry is not None
     assert (
-        "> The node takes the run's context, of class {needs}, as '{parameter}', and the call gave none; pass context= on every call that starts or resumes the run."
+        "> The node takes the run's context as '{parameter}', of class {needs}, but the call gave no context. Pass context= on every call that starts or resumes the run."
         in entry
     )
     assert "`loc`: The node's path, then its `Context` parameter." in entry

@@ -1271,7 +1271,7 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
         ("h",),
         "not_a_mapping",
     )
-    assert f"a {type(returned).__name__}" in problem.msg and "by name" in problem.msg
+    assert f"returned a {type(returned).__name__}, not a mapping" in problem.msg
 
 
 def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
@@ -1521,9 +1521,7 @@ def test_a_limit_its_type_cannot_take_is_refused_naming_the_type_as_written():
 
     with pytest.raises(NodeDeclarationError) as raised:
         declared(f)
-    assert "['ge'] can't apply to str | None, as pydantic holds no such limit on it" in str(
-        raised.value
-    )
+    assert "pydantic has no rule for ge on str | None" in str(raised.value)
 
 
 def test_a_wrongly_typed_limit_is_refused_as_a_bound():
@@ -1612,7 +1610,7 @@ def test_a_fields_choices_have_one_home_that_titles_a_literal_and_limits_any_oth
                 return level
 
         assert raised.value.problems[0].type == "choices_invalid"
-        assert str(raised.value).endswith("; give each choice once, as a value of the field's type")
+        assert ". Give " in str(raised.value)
 
 
 def test_the_choices_of_a_literal_are_its_values_by_their_text_and_none_is_never_one() -> None:
@@ -1681,7 +1679,7 @@ def test_an_input_a_hook_adds_may_have_a_default_and_a_hook_may_give_its_own_cod
         "compute_hook_failed",
         "no_column",
         {"names": "boom"},
-        "The node could not work out its inputs and outputs: No such column. Check the node's constants and what is wired to it.",
+        "The node couldn't work out its inputs and outputs: No such column. Check the node's constants and what is wired into it.",
     )
 
 
@@ -1778,7 +1776,7 @@ def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(
             return n
 
     assert raised.value.problems[0].type == "choices_invalid"
-    assert f"a choice is not a value of the field's type: {reason};" in str(raised.value)
+    assert f"a choice isn't a value of the field's type: {reason}." in str(raised.value)
 
 
 def test_a_declared_choice_is_read_as_an_answer_is_so_an_enums_value_or_its_member_is_a_choice() -> (
