@@ -1,35 +1,35 @@
-"""Works out the arguments of one call of a node from the outcomes a run has so far.
+"""Works out the arguments of one call of a node, from the outcomes a run has so far.
 
-The example graph used in this file::
+The example graph in this file::
 
     lines(text: str) -> Series[str]          # called once; returns ["a", "b"]
     shout(line: str, mark: str) -> str       # wired to lines.result: called once per line
     join(texts: Series[str]) -> str          # wired to shout.result: called once, with ["A!", "B!"]
 
-``ResultReader.arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``: the arguments of the call
-of ``shout`` for the second line. ``(1,)`` is the call's item indexes: one index per loop the node is inside.
+``shout`` is called once per line. Its call for the second line has the item indexes ``(1,)``, one index per
+loop the node is inside. ``ResultReader.arguments_for(shout, (1,))`` returns its arguments,
+``{"line": "b", "mark": "!"}``.
 
-When a node cannot be called, ``arguments_for`` returns why instead. The checks are made in this order:
+Sometimes a node can't be called, and ``arguments_for`` says why instead. It checks these in order:
 
-1. An input has only ``SKIPPED`` to read, because every edge into it comes from a branch that was not chosen.
-   The node is skipped, whatever its other inputs are: the result is a ``Skipped`` outcome.
-2. A value an input reads does not exist yet. The result is ``NOT_READY``, and the node is tried again later.
-3. An edge reads a field of a record (``lines.result.name``) that the record does not have. The call fails with
+1. An input gets only ``SKIPPED``, because every edge into it comes from a branch that wasn't chosen. The call is
+   ``Skipped``, whatever the other inputs get.
+2. A value an input needs doesn't exist yet. The call is ``NOT_READY``, and the run tries it again later.
+3. An edge reads a field of a record (``lines.result.name``) that the record doesn't have. The call fails with
    ``invalid_edge_value``.
-4. An input reads ``None`` and its parameter does not accept ``None``. The node is not called: the result is a
-   ``NoneInput`` outcome.
+4. An input gets ``None``, and its parameter doesn't take ``None``. The call is a ``NoneInput``, and the
+   function isn't called.
 
-``join.texts`` is a collecting input: it gets one value per item of a loop, as a list. Before it reads the
-items it asks one question: can any item have a value here? Suppose ``mark`` comes from a branch that was not
-chosen. Then every call of ``shout`` is skipped. With two lines ``join`` could be called with ``[None, None]``
-and with no lines with ``[]``. The engine gives one answer for any number of lines instead: ``join`` is
-skipped.
+``join.texts`` is a collecting input: it gets a list with one value per item of a loop. Before it looks at the
+items, it asks whether any item could have a value at all. Say ``mark`` comes from a branch that wasn't chosen.
+Then every call of ``shout`` is skipped. With two lines, ``join`` would get ``[None, None]``, and with no lines
+``[]``. Instead, ``join`` is skipped either way, so the answer doesn't depend on how many lines there are.
 
-That question is ``arguments_for`` again, asked for ``shout`` with item indexes one index short: ``()``, where
-a call of ``shout`` has ``(0,)`` or ``(1,)``. ``mark`` is read as for any call, since its node is inside no
-loop. ``line`` is an item of a list, and no index says which: when the list exists it is read as
-``MAY_HAVE_VALUE``. So ``arguments_for(shout, ())`` returns ``Skipped`` when ``mark`` is ``SKIPPED``, and
-arguments when some call of ``shout`` may be made.
+To ask that question, the reader calls ``arguments_for`` again for ``shout``, with item indexes one index short:
+``()`` instead of ``(0,)`` or ``(1,)``. ``mark`` is read as usual, since its node is inside no loop. ``line`` is
+one item of a list, and no index says which one. So once the list exists, ``line`` reads as
+``MAY_HAVE_VALUE``. The result is ``Skipped`` when ``mark`` is ``SKIPPED``, and arguments when some call of
+``shout`` may be made. The rule is written out in ``python -m conductor.about one-or-many``.
 """
 
 from __future__ import annotations
@@ -48,21 +48,24 @@ from conductor._internal.types import NoSuchFieldError, field_of
 from .blueprint import BlueprintFunctionNode, function_node_in_run, loop_body_of
 from .outcome import NoneInput, NotReady, Outcome, Skipped
 
-#: What a read returns in place of a value when it is asked for any item of a loop and some item may have a
-#: value. When no item can have one, the read returns what every item would read: ``SKIPPED`` or ``None``.
+#: Returned in place of a value when the reader is asked about any item of a loop, and some item may have a
+#: value. When no item can have one, the reader returns what every item would get: ``SKIPPED`` or ``None``.
 MAY_HAVE_VALUE = sentinel("MAY_HAVE_VALUE")
 
 
 class ResultReader:
-    """Reads what a call needs from the outcomes of a run, and returns the call's arguments.
+    """Works out the arguments of a call from a run's outcomes.
+
+    The run makes one reader for its outcomes, and the scheduler asks it for each call's arguments with
+    ``arguments_for``.
 
     Attributes:
-        function_nodes: The run blueprint's function nodes, by node path (``RunBlueprint.function_nodes``).
+        function_nodes: The blueprint's function nodes, by node path.
         outcomes: The run's outcomes, by node path and then by item indexes.
         graph_inputs: The values the caller gave for the graph inputs, by name (``"text"``).
-        for_any_item: Empty in the reader a run calls its nodes with. A reader made to answer "can any item of
-            this loop have a value?" (``_for_any_item_of``) has here what ``arguments_for`` returned for each node
-            inside the loop, by node.
+        for_any_item: Empty in the reader a run uses for its calls. A reader made to ask "could any item of this
+            loop have a value?" (``_for_any_item_of``) has here what ``arguments_for`` returned for each node
+            inside the loop.
     """
 
     __slots__ = ("for_any_item", "function_nodes", "graph_inputs", "outcomes")
@@ -86,28 +89,26 @@ class ResultReader:
     def arguments_for(
         self, node: BlueprintFunctionNode, item_indexes: ItemIndexes
     ) -> dict[str, Any] | Skipped | NoneInput | Literal[NotReady.NOT_READY]:
-        """Returns the arguments of the call of ``node`` for ``item_indexes``, or why the node is not called.
+        """Returns the arguments of the call of ``node`` at ``item_indexes``, or why the node isn't called.
 
         In the example, ``arguments_for(shout, (1,))`` returns ``{"line": "b", "mark": "!"}``.
 
-        Every input is read before anything else is decided, so the order of a node's parameters never changes
-        the result: an input that reads ``SKIPPED`` skips the call, whatever the other inputs read; else a value
-        that does not exist yet makes the call ``NOT_READY``, to be tried again; else an edge that names a field
-        its record lacks fails the call, the first such input in the signature; else an input that reads ``None``
-        and does not accept it makes the call a ``NoneInput``, naming the first such input.
+        Every input is read before anything is decided, so the order of the parameters never changes the result. The
+        checks then go in the order the module docstring lists. When two inputs fail the same check, the first in the
+        signature is the one named.
 
-        ``_for_any_item_of`` calls this with item indexes one index shorter than the node's own. The result
-        then says what a call of the node would be for any item: ``Skipped`` or ``NoneInput`` when every item
-        would be, and arguments (some of them ``MAY_HAVE_VALUE``) when an item may be called.
+        ``_for_any_item_of`` calls this with item indexes one index shorter than the node's own. The result then says
+        what a call would be for any item. It is ``Skipped`` or ``NoneInput`` when every item would be, and arguments,
+        some of them ``MAY_HAVE_VALUE``, when an item may be called.
 
         Returns:
-            The arguments by parameter name. Or the node's ``Skipped`` outcome, when an input reads ``SKIPPED``.
-            Or ``NOT_READY``, when a value an input reads does not exist yet. Or a ``NoneInput`` outcome, when an
-            input reads ``None`` and its parameter does not accept ``None``.
+            The arguments by parameter name. Or ``Skipped`` when an input gets ``SKIPPED``. Or ``NOT_READY`` when a
+            value an input needs doesn't exist yet. Or ``NoneInput`` when an input gets ``None`` and its parameter
+            doesn't take it.
 
         Raises:
-            InvalidCallError: An edge reads one field of a record (``lines.result.name``) and the record has no
-                such field (``invalid_edge_value``).
+            InvalidCallError: ``invalid_edge_value`` if an edge reads a field of a record (``lines.result.name``) and
+                the record has no such field.
         """
         arguments = node.constants.copy()
         graph_inputs = self.graph_inputs
@@ -119,7 +120,7 @@ class ResultReader:
         for name, (graph_path, node_input) in node.edge_inputs.items():
             try:
                 value = self.read_input(graph_path, node_input, item_indexes)
-            # keep reading: a later input may read SKIPPED, which skips the node
+            # Keep going: a later input may get SKIPPED, which skips the call.
             except NoSuchFieldError as missing:
                 if fault is None:
                     reason = f"it has no field '{missing.field}'"
@@ -133,7 +134,7 @@ class ResultReader:
                 continue
             if value is SKIPPED:
                 return Skipped(node.compiled_node.outputs_when_skipped)
-            # keep reading: a later input may read SKIPPED, which skips the node
+            # Keep going: a later input may get SKIPPED, which skips the call.
             if value is NotReady.NOT_READY:
                 ready = False
             elif value is None and none_input is None and not node_input.field.whole.optional:
@@ -153,8 +154,11 @@ class ResultReader:
         node_input: EdgeInput | CollectingInput,
         item_indexes: ItemIndexes,
     ) -> Any:
-        """Returns what ``node_input``, compiled in the graph at ``graph_path``, reads for the call at
-        ``item_indexes``: ``"b"`` for ``shout.line`` at ``(1,)``, ``["A!", "B!"]`` for ``join.texts`` at ``()``."""
+        """Returns what one input of a node gets for the call at ``item_indexes``.
+
+        ``shout.line`` gets ``"b"`` at ``(1,)``, and ``join.texts`` gets ``["A!", "B!"]`` at ``()``. ``graph_path``
+        says which graph the input was compiled in.
+        """
         match node_input:
             case EdgeInput():
                 return (
@@ -170,8 +174,11 @@ class ResultReader:
     def read_as_list(
         self, graph_path: NodePath, node_input: EdgeInput, item_indexes: ItemIndexes
     ) -> Any:
-        """Returns what a ``Series`` input wired to a value made once per call gets: that value as a list of one.
-        ``SKIPPED``, ``NOT_READY`` and a ``None`` the input's items do not accept are returned as they are."""
+        """Returns the value a ``Series`` input gets when it is wired to an output made once per call.
+
+        That value is given as a list of one. ``SKIPPED``, ``NOT_READY``, and a ``None`` the input's items don't take,
+        are returned as they are.
+        """
         value = self.read_edges(graph_path, node_input.sources, item_indexes)
         return (
             [value]
@@ -182,15 +189,15 @@ class ResultReader:
     def read_edges(
         self, graph_path: NodePath, edges: tuple[Edge, ...], item_indexes: ItemIndexes
     ) -> Any:
-        """Returns what ``edges``, the edges into an input compiled in the graph at ``graph_path``, read for
-        ``item_indexes``: with one edge, what ``read_output`` reads of the output the edge comes from.
+        """Returns what the edges into one input give for the call at ``item_indexes``.
 
-        Several edges come from different branches of one decision, so for one call at most one of them has a
-        value. Asked for any item, several may have one.
+        With one edge, that is what ``read_output`` reads from the output the edge comes from. Several edges into one
+        input come from different branches of one choice, so for one call at most one of them has a value. When the
+        reader is asked about any item of a loop, several may have one.
 
         Returns:
-            The first value an edge reads; else ``NOT_READY`` if an edge read that; else ``None`` if an edge read
-            ``None``; else ``SKIPPED``, when every edge comes from a branch that was not chosen.
+            The first value an edge gives. Otherwise ``NOT_READY`` if any edge gave that. Otherwise ``None`` if any
+            edge gave that. ``SKIPPED`` when every edge comes from a branch that wasn't chosen.
         """
         best: Any = SKIPPED
         for edge in edges:
@@ -219,33 +226,33 @@ class ResultReader:
         *,
         one_item: bool,
     ) -> Any:
-        """Returns what an edge reads from the output ``output`` of ``node`` for the call at ``item_indexes``.
+        """Returns what an edge reads from the output ``output`` of ``node``, for the call at ``item_indexes``.
 
-        In the example, the edge into ``shout.line`` reads one item of ``lines.result``: for ``(1,)`` it reads
-        ``"b"``. The edge into ``join.texts`` reads ``shout.result``: for ``(1,)`` it reads ``"B!"``.
+        In the example, the edge into ``shout.line`` reads one item of ``lines.result``. At ``(1,)`` it reads ``"b"``.
+        The edge into ``join.texts`` reads ``shout.result``. At ``(1,)`` it reads ``"B!"``.
 
         Args:
-            node: The function node that returns the output.
+            node: The function node whose output it is.
             output: The output's name.
             item_indexes: The item indexes of the call that reads it.
-            record_field: The field of the record the output returns that the edge reads; ``None`` for all of it.
-            one_item: Whether the output is a ``Series`` of which the edge reads one item.
+            record_field: The field of the output's record that the edge reads. ``None`` for the whole value.
+            one_item: Whether the output is a ``Series`` and the edge reads one item of it.
 
         Returns:
-            The value. ``None`` or ``SKIPPED`` when the output is that. ``NOT_READY`` when the node that returns
-            the output has no outcome yet for these item indexes, or is waiting for a person. Asked for any
-            item (``item_indexes`` has no index for a loop the read needs one for): ``MAY_HAVE_VALUE`` when an
-            item may have a value, else the ``None`` or ``SKIPPED`` every item would read.
+            The value, which may be ``None`` or ``SKIPPED``. ``NOT_READY`` when ``node`` has no outcome yet for these
+            item indexes, or is waiting for a person. When asked about any item, because ``item_indexes`` lacks an
+            index for a loop it needs, it returns ``MAY_HAVE_VALUE`` if an item may have a value. If none can, it
+            returns the ``None`` or ``SKIPPED`` that every item would get.
 
         Raises:
-            NoSuchFieldError: The edge reads one field of a record, and the record has no such field.
+            NoSuchFieldError: The edge reads a field of a record, and the record has no such field.
         """
         depth = len(node.loops)
         outcome = self.outcomes[node.node_path].get(item_indexes[:depth])
         if outcome is None or not outcome.has_outputs:
             if (
                 len(item_indexes) < depth
-            ):  # asked for any item of a loop the source's node is inside
+            ):  # asked about any item of a loop that the source node is inside
                 would_be = self.for_any_item[node]
                 if isinstance(would_be, dict):
                     return MAY_HAVE_VALUE
@@ -256,16 +263,16 @@ class ResultReader:
             return value
         if not one_item:
             return value if record_field is None else field_of(value, record_field)
-        try:  # ``value`` is a stored Series: one item of it, or one field of that item
+        try:  # ``value`` is a stored Series: the edge reads one item of it, or one field of that item
             index = item_indexes[depth]
-        except IndexError:  # asked for any item of this list, which exists
+        except IndexError:  # asked about any item of this list, which exists
             return MAY_HAVE_VALUE
         if record_field is None:
             return value[index]
         cell = value.columns[record_field][index]
         if (
             type(cell) is NoSuchFieldError
-        ):  # an item of a Series[dict] or Series[Any] may lack the field the edge names: the call for that item fails
+        ):  # an item of a Series[dict] or Series[Any] may lack the field the edge names, so that call fails
             raise NoSuchFieldError(record_field)
         return cell
 
@@ -274,15 +281,15 @@ class ResultReader:
     ) -> Any:
         """Returns the list a collecting input gets for the call at ``item_indexes``.
 
-        In the example, ``collect`` for ``join.texts`` at ``()`` returns ``["A!", "B!"]``: what the edge from
-        ``shout.result`` reads for ``(0,)`` and for ``(1,)``.
+        In the example, ``join.texts`` at ``()`` gets ``["A!", "B!"]``: what the edge from ``shout.result`` reads for
+        ``(0,)`` and for ``(1,)``.
 
         Returns:
-            The list, with one entry per item of the loop and ``None`` for an item with no value (its call was
-            skipped or not called). ``SKIPPED`` or ``None`` instead of a list when no item can have a value,
-            however many items there are (``_list_looped_over``). ``NOT_READY`` until every item has been
-            read. Asked for any item of a loop this input's loop is inside: ``MAY_HAVE_VALUE``, or the
-            ``SKIPPED``, ``NOT_READY`` or ``None`` that every item reads.
+            The list, with one entry per item of the loop, and ``None`` for an item with no value because its call was
+            skipped or not made. ``SKIPPED`` or ``None`` in place of the list when no item can have a value, however
+            many items there are (``_list_looped_over``). ``NOT_READY`` until every item can be read. When asked about
+            any item of an outer loop: ``MAY_HAVE_VALUE``, or the ``SKIPPED``, ``NOT_READY`` or ``None`` that every
+            item gets.
         """
         series_node = function_node_in_run(self.function_nodes, graph_path, node_input.series[0])
         depth, keeps_none_items = len(series_node.loops), node_input.field.keeps_none_items
@@ -305,7 +312,7 @@ class ResultReader:
         edges = node_input.sources
         if (
             len(edges) == 1 and edges[0].per_item
-        ):  # the input collects the list itself: its items, or one field of each
+        ):  # the input collects the list itself: its items, or one field of each item
             record_field = edges[0].wired_to.field
             if record_field is not None:
                 return series.field_as_list(record_field)
@@ -329,26 +336,25 @@ class ResultReader:
         keeps_none_items: bool,
         item_indexes: ItemIndexes,
     ) -> Any:
-        """Returns the list looped over, when an item of it may have a value. When no item can, returns what
-        every item reads instead, however many items the list has.
+        """Returns the list being looped over, if any item of it may have a value.
 
-        In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node
-        inside that loop. ``for_any_item`` is what ``shout.result`` reads for any line (``_for_any_item_of``). If
-        ``shout.mark`` reads ``SKIPPED``, every call of ``shout`` would be skipped, so ``for_any_item`` is
-        ``SKIPPED`` and so is ``join.texts``, with two lines as with none.
+        When no item can have one, it returns what every item gets instead, however many items the list has.
+
+        In the example, ``join.texts`` collects the loop over ``lines.result``, and ``shout`` is the one node inside
+        that loop. ``for_any_item`` is what ``shout.result`` gives for any line (``_for_any_item_of``). If
+        ``shout.mark`` gets ``SKIPPED``, every call of ``shout`` is skipped. Then ``for_any_item`` is ``SKIPPED``, and so
+        is ``join.texts``, with two lines just as with none.
 
         Args:
-            loop: The list looped over, as a run names it: the path of the function node that returns it, and
-                the output.
-            for_any_item: What a read returns for any item of the loop: ``MAY_HAVE_VALUE``, or the ``SKIPPED``,
-                ``NOT_READY`` or ``None`` that every item reads.
-            keeps_none_items: Whether a ``None`` item counts as a value (``Series[str | None]``).
-            item_indexes: The item indexes of the list.
+            loop: The list looped over: the path of the function node that returns it, and the output's name.
+            for_any_item: What any item of the loop gives: ``MAY_HAVE_VALUE``, or the ``SKIPPED``, ``NOT_READY`` or
+                ``None`` that every item gets.
+            keeps_none_items: Whether a ``None`` item counts as a value, as in ``Series[str | None]``.
+            item_indexes: The item indexes of the call that returned the list.
 
         Returns:
-            The stored list (it has ``len()``); or ``None`` or ``SKIPPED`` when the list itself is that, or when
-            no item can have a value because of a ``None`` or a branch not chosen outside the loop; or
-            ``NOT_READY``.
+            The stored list, which has ``len()``. Or ``None`` or ``SKIPPED``, when the list itself is that, or when a
+            ``None`` or a branch not chosen outside the loop means no item can have a value. Or ``NOT_READY``.
         """
         value = _may_have_value(for_any_item, keeps_none_items)
         if value is not MAY_HAVE_VALUE:
@@ -367,14 +373,15 @@ class ResultReader:
         sources: list[BlueprintFunctionNode],
         item_indexes: ItemIndexes,
     ) -> ResultReader:
-        """Returns a new reader that reads ``sources`` for any item of ``loop``: its ``for_any_item`` has what
-        ``arguments_for`` returns, with ``item_indexes``, for each node inside the loop that ``sources`` read,
-        worked out each after the nodes upstream of it (``loop_body_of``).
+        """Returns a new reader that answers for any item of ``loop``.
+
+        Its ``for_any_item`` has what ``arguments_for`` returns at ``item_indexes`` for each node inside the loop that
+        ``sources`` depend on. Each node is worked out after the nodes upstream of it (``loop_body_of``).
 
         Args:
-            loop: The list looped over, as a run names it.
+            loop: The list looped over: the path of the function node that returns it, and the output's name.
             sources: The function nodes a value is read from.
-            item_indexes: The item indexes of the list.
+            item_indexes: The item indexes of the call that returned the list.
         """
         any_item = type(self)(self.function_nodes, self.outcomes, self.graph_inputs)
         for node in loop_body_of(loop, sources):
@@ -382,16 +389,16 @@ class ResultReader:
         return any_item
 
     def align_lists(self, node: BlueprintFunctionNode, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Returns ``arguments`` with the lists collected from one loop cut to the same items.
+        """Returns ``arguments`` with the lists collected from one loop cut down to the same items.
 
-        Example: ``pair(names: Series[str], ages: Series[int])`` collects two outputs of one loop, and item 1
-        has no age. Item 1 is dropped from both lists, so ``names[i]`` and ``ages[i]`` are still the same item.
-        An input that accepts ``None`` items (``Series[int | None]``) drops nothing: it keeps the ``None``.
+        Say ``pair(names: Series[str], ages: Series[int])`` collects two outputs of one loop, and item 1 has no age.
+        Item 1 is dropped from both lists, so ``names[i]`` and ``ages[i]`` are still the same item. An input that takes
+        ``None`` items, like ``Series[int | None]``, drops nothing: it keeps the ``None``.
         """
         for inputs in node.lists_from_same_loop:
             dropped: set[int] = (
                 set()
-            )  # the indexes at which an input that accepts no None item has one
+            )  # the indexes where an input that takes no None item has a None
             for name, keeps_none_items in inputs:
                 if not keeps_none_items and arguments[name] is not None:
                     dropped.update(indexes_of_none(arguments[name]))
@@ -403,10 +410,13 @@ class ResultReader:
 
 
 def _may_have_value(value: Any, keeps_none_items: bool) -> Any:
-    """Returns ``MAY_HAVE_VALUE`` when ``value``, what an input's edges read, can be an item of the input's list;
-    else ``value``: the ``SKIPPED``, ``NOT_READY`` or ``None`` the input gets in place of a list. A ``None`` counts
-    as an item where the items accept ``None`` (``Series[str | None]``). Read for any item of a loop, the answer
-    says whether some item of the loop may have a value."""
+    """Returns ``MAY_HAVE_VALUE`` when ``value`` can be an item of an input's list, and ``value`` itself otherwise.
+
+    ``value`` is what the input's edges gave. ``SKIPPED``, ``NOT_READY`` and ``None`` are returned as they are,
+    since the input gets them in place of a list. A ``None`` counts as an item when the items take ``None``, as in
+    ``Series[str | None]``. When asked about any item of a loop, the result says whether some item may have a
+    value.
+    """
     if value is SKIPPED or value is NotReady.NOT_READY or (value is None and not keeps_none_items):
         return value
     return MAY_HAVE_VALUE

@@ -1,8 +1,10 @@
-"""What a host is shown of a run's outputs: ``run.results`` and ``run.outputs``, read whatever the run's status.
+"""What a host is shown of a run's outputs: ``run.results`` and ``run.outputs``.
 
-For the README graph after ``graph.run(text="a\\nb")``, ``run.results["shout"]["result"]`` is ``["A!", "B!"]`` and
-``run.outputs`` is ``{"result": "A!+B!"}``. A host reads an output the way a node wired to it would, by a
-``DisplayReader``, which reads a value that is not there yet as ``None``.
+Take the README's graph after ``graph.run(text="a\\nb")``. ``run.results["shout"]["result"]`` is
+``["A!", "B!"]``, and ``run.outputs`` is ``{"result": "A!+B!"}``.
+
+A host is shown an output the way a node wired to it would get it. The difference is that a value that isn't
+there yet is shown as ``None``, so ``run.results`` works whatever the run's status. ``DisplayReader`` does this.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ if TYPE_CHECKING:
 
 
 def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
-    """``run.results``: every node's outputs so far, by node id and output name."""
+    """Returns ``run.results``: every node's outputs so far, by node id and output name."""
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
     return {
         n: {o: reader.display_value(*compiled_node.returned_by(o)) for o in compiled_node.outputs}
@@ -32,8 +34,7 @@ def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
 
 
 def outputs_of(run: Run[Any]) -> dict[str, Any]:
-    """``run.outputs`` of a complete run: the graph outputs, by name, each read as ``run.results`` reads the output
-    it is."""
+    """Returns ``run.outputs`` of a complete run: the graph outputs by name, each shown as ``run.results`` shows it."""
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
     return {
         name: reader.display_value(*node.returned_by(output))
@@ -43,15 +44,16 @@ def outputs_of(run: Run[Any]) -> dict[str, Any]:
 
 
 class DisplayReader(ResultReader):
-    """Reads the outputs of a run for a host (``run.results``, ``run.outputs``), whatever the run's status.
+    """Reads a run's outputs for a host, for ``run.results`` and ``run.outputs``, whatever the run's status.
 
-    In the example, while ``shout`` has returned for the first line only, ``results["shout"]["result"]`` is
-    ``["A!", None]``. Where a ``ResultReader`` returns ``NOT_READY`` (a call that has not returned, or that
-    waits for a person), this reader returns ``None``, so a host is shown the values so far.
+    It is a ``ResultReader`` that never says "not ready". Where a ``ResultReader`` returns ``NOT_READY``, because a
+    call hasn't returned or waits for a person, this reader returns ``None``. So a host is shown the values so far.
+    In the example, while ``shout`` has only returned for the first line, ``results["shout"]["result"]`` is
+    ``["A!", None]``.
 
-    An edge can name one field of a record (``give.result.name``). When the record has no such field, the
-    node the edge leads to fails and the run ends ``failed`` with that as its cause. Reading the run
-    afterwards must not raise again, so here the missing field is read as ``None``.
+    An edge can name one field of a record (``give.result.name``). If the record has no such field, the node the
+    edge leads to fails, and the run ends ``failed`` with that as its cause. Showing the run afterwards mustn't
+    raise the same error again, so here the missing field is shown as ``None``.
     """
 
     __slots__ = ()
@@ -65,9 +67,11 @@ class DisplayReader(ResultReader):
         *,
         one_item: bool,
     ) -> Any:
-        """Returns what ``ResultReader.read_output`` returns, as a host is shown it: ``None`` when the node has
-        not returned yet, or when the edge names a field the record does not have, and the value of a
-        ``Series`` output as a plain list of its items."""
+        """Returns what ``ResultReader.read_output`` returns, as a host is shown it.
+
+        A value that isn't there yet is ``None``, and so is a field the record doesn't have. A ``Series`` output is a
+        plain list of its items.
+        """
         try:
             value = ResultReader.read_output(
                 self, node, output, item_indexes, record_field, one_item=one_item
@@ -85,7 +89,7 @@ class DisplayReader(ResultReader):
         keeps_none_items: bool,
         item_indexes: ItemIndexes,
     ) -> Any:
-        """Returns what ``ResultReader._list_looped_over`` returns, with ``None`` when the list is not made yet."""
+        """Returns what ``ResultReader._list_looped_over`` returns, but ``None`` while the list hasn't been made."""
         looped_over = ResultReader._list_looped_over(
             self, loop, for_any_item, keeps_none_items, item_indexes
         )
@@ -94,8 +98,10 @@ class DisplayReader(ResultReader):
     def collect(
         self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes
     ) -> Any:
-        """The list a ``Series`` input with ``node_input`` would be called with for the item at ``item_indexes``;
-        ``None`` when the edge names a field that a record in the list doesn't have."""
+        """Returns the list a collecting input would get for the call at ``item_indexes``.
+
+        It is ``None`` when the edge names a field that a record in the list doesn't have.
+        """
         try:
             return ResultReader.collect(self, graph_path, node_input, item_indexes)
         except NoSuchFieldError:
@@ -104,25 +110,25 @@ class DisplayReader(ResultReader):
     def display_value(
         self, node_path: NodePath, output: str, item_indexes: ItemIndexes = ()
     ) -> Any:
-        """One output of a function node as ``run.results`` shows it.
+        """Returns one output of a function node, as ``run.results`` shows it.
 
-        Example: ``documents -> lines -> shout`` with three documents, the second empty, so ``lines`` was
-        never called for it. ``shout`` is called once per line of each document, and its output is shown as
+        Say ``documents -> lines -> shout`` has three documents, and the second is empty, so ``lines`` gave it no
+        lines. ``shout`` is called once per line of each document, and its output is shown as
         ``[["A", "B"], None, ["C"]]``.
 
         Args:
-            node_path: The path of the function node that returns the output, from the graph a run is of.
+            node_path: The path of the function node that returns the output, from the outer graph.
             output: The output's name.
-            item_indexes: The index of the item in each loop of the node already entered; empty for the whole output.
+            item_indexes: The item index in each loop of the node already chosen. Empty for the whole output.
 
         Returns:
-            The return value, for a node called once. For a node called per item, a list with one entry per
-            item, ``None`` for an item that has no value; for a node called in a loop inside another loop, a
-            list of such lists. ``None`` instead of a list when the list being looped over was never made,
-            or when no item of it could have a value because of a skipped branch outside the loop.
+            For a node called once, what it returned. For a node called per item, a list with one entry per item, and
+            ``None`` for an item with no value. For a node in a loop inside another loop, a list of such lists.
+            ``None`` in place of a list when the list being looped over was never made, or when a skipped branch
+            outside the loop means no item could have a value.
         """
         node, depth = function_node_in_run(self.function_nodes, (), node_path), len(item_indexes)
-        if depth == len(node.loops):  # one call: its return value
+        if depth == len(node.loops):  # one call, so show what it returned
             value = self.read_output(node, output, item_indexes, None, one_item=False)
             return None if value is SKIPPED else value
         loop = node.loops[depth]

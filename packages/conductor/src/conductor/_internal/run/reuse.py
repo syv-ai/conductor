@@ -1,20 +1,24 @@
-"""Reuse: taking an outcome from a previous run in place of a call that would get the same arguments.
+"""Reusing outcomes from a previous run, so a call that gets the same arguments as before isn't made again.
 
-The example graph is the README's, ``lines -> shout -> join``::
+Take the README's graph, ``lines -> shout -> join``::
 
     run = graph.run(text="a\\nb\\nc")    # shout is called for "a", "b" and "c"
     run = run.again(text="a\\nb\\nd")    # shout is called for "d" only
 
-In the second run the calls of ``shout`` for ``"a"`` and ``"b"`` get the same arguments as before, so their
-``Done`` outcomes are reused and the function is not called. Arguments are compared by their **arguments
-fingerprint**: a short hash of the arguments and of the node's code fingerprint (a hash of its version, its code,
-the types of its inputs and outputs, and its loops), so a changed function is called again.
+In the second run, the calls of ``shout`` for ``"a"`` and ``"b"`` get the same arguments as before. So their
+``Done`` outcomes are reused, and the function isn't called for them.
 
-A node that may ask a person (``@node(asks=True)``) is reused another way: two of its calls with the same arguments
-may have been answered differently, so each of its outcomes is reused once, by the calls with those arguments in
-item order. A call takes the answer the person gave then, a question still waiting goes on waiting, and what the
-function returned without asking is taken once too: a call with those arguments beyond the outcomes there were is
-called again.
+Two calls are matched by their arguments fingerprint: a short hash of the arguments and of the node's code
+fingerprint. The code fingerprint covers the node's version, its code, the types of its inputs and outputs, and
+its loops. So when a function changes, it is called again.
+
+A node that may ask a person (``@node(asks=True)``) is reused another way. Two of its calls with the same
+arguments may have been answered differently. So each of its old outcomes is reused once, by the calls with
+those arguments, in item order. A call takes the answer the person gave then, and a question still waiting goes
+on waiting. The same holds for what the function returned without asking. A call beyond the outcomes there were
+is made again.
+
+``python -m conductor.about running-again`` has the full rules.
 """
 
 from __future__ import annotations
@@ -37,31 +41,31 @@ if TYPE_CHECKING:
 
 @dataclass(slots=True)
 class ReusableOutcomes:
-    """The outcomes of a previous run that a run may reuse in place of calling a node, by node path.
+    """The outcomes of a previous run that a run may reuse instead of calling a node, by node path.
 
-    A run going on from another takes them with ``from_run``; its scheduler takes each outcome it reuses with
-    ``take`` and drops a node's with ``drop`` once the node is complete. For ``shout`` after the first run above,
-    ``reused_freely_by_call[("shout",)]`` is ``{(0,): (fp_a, Done({"result": "A!"})), (1,): (fp_b, ...),
-    (2,): (fp_c, ...)}``, where ``fp_a`` is the arguments fingerprint of the call for ``"a"``.
+    A run made from another gets them with ``from_run``. As it runs, the scheduler takes each outcome it reuses with
+    ``take``. Once a node is complete, its outcomes are dropped with ``drop``.
 
-    A node that may not ask has its outcomes in ``reused_freely`` and ``reused_freely_by_call``, a node that may ask
-    in ``reused_in_item_order``. The two never mix: whether a node may ask is part of its code fingerprint, so an
-    outcome is only reused by a node that asks as the one that made it did.
+    After the first run in the module docstring, ``reused_freely_by_call[("shout",)]`` is
+    ``{(0,): (fp_a, Done({"result": "A!"})), (1,): (fp_b, ...), (2,): (fp_c, ...)}``. Here ``fp_a`` is the
+    arguments fingerprint of the call for ``"a"``.
+
+    A node that never asks has its outcomes in ``reused_freely`` and ``reused_freely_by_call``. A node that may ask
+    has them in ``reused_in_item_order``. The two never mix, because whether a node may ask is part of its code
+    fingerprint. So an outcome is only reused by a node that asks the way the one that made it did.
 
     Attributes:
-        reused_freely_by_call: For a node that may not ask, by node path, each outcome by the item indexes of its
-            call, with the call's arguments fingerprint. Reused by the call with the same item indexes when its
-            arguments are the same.
-        reused_freely: For a node that may not ask, by node path, each outcome by its call's arguments fingerprint.
-            Reused by any call with the same arguments. When several calls had the same arguments, the first in
-            item order is kept.
-        reused_in_item_order: For a node that may ask, by node path, each outcome, ``Done`` or ``Unanswered``, by its
-            call's arguments fingerprint and the fingerprint of its outer items (see ``_outer_items_fingerprint``),
-            in the order of the calls. Each is reused once, by the calls with those arguments in item order, and
-            taken out.
-        code_changed: For a node whose outcomes in the run a saved run made with other code or another signature,
-            the code fingerprint they were made with. The run never passes them on to be reused, and saves them
-            under that fingerprint.
+        reused_freely_by_call: For a node that never asks: each outcome, by the item indexes of its call, with that
+            call's arguments fingerprint. The call with the same item indexes reuses it if it gets the same
+            arguments.
+        reused_freely: For a node that never asks: each outcome, by its call's arguments fingerprint. Any call with
+            the same arguments reuses it. If several calls had the same arguments, the first in item order is kept.
+        reused_in_item_order: For a node that may ask: each outcome, ``Done`` or ``Unanswered``, by its call's
+            arguments fingerprint and the fingerprint of its outer items (``_outer_items_fingerprint``), in call
+            order. Each is reused once, by the calls with those arguments in item order, and then taken out.
+        code_changed: The nodes whose outcomes in this run were made by other code or another signature, as a
+            saved run showed, with the code fingerprint they were made with. Their outcomes are never offered for
+            reuse, and a save writes them under that old fingerprint.
     """
 
     reused_freely_by_call: dict[NodePath, dict[ItemIndexes, tuple[str, Done]]] = field(
@@ -77,12 +81,15 @@ class ReusableOutcomes:
 
     @classmethod
     def from_run(cls, run: Run[Any], into: RunBlueprint) -> ReusableOutcomes:
-        """What a run going on from ``run`` may reuse: each node's finished and waiting calls, in item order, then
-        the outcomes ``run`` itself could reuse and did not.
+        """Returns what a run made from ``run`` may reuse.
 
-        ``into`` is the blueprint of the new run's graph, ``run``'s or another's. Only the nodes it has as they are
-        in ``run`` (by ``code_fingerprint``), and whose ``Policy`` there says ``reuse_when_inputs_match``, are kept:
-        the others' outcomes could never be taken there, and kept they would only make its save larger.
+        That is each node's finished and waiting calls in item order, then the outcomes ``run`` itself could have
+        reused and didn't.
+
+        ``into`` is the blueprint of the new run's graph, which may be ``run``'s graph or an edited one. A node is only
+        kept if ``into`` has it unchanged (the same ``code_fingerprint``) and its ``Policy`` says
+        ``reuse_when_inputs_match``. The other nodes' outcomes could never be reused there, and keeping them would only
+        make the save bigger.
         """
         reusable, previous, reader = cls(), run._reusable, run._reader
         for path, old_node in run._blueprint.function_nodes.items():
@@ -99,11 +106,11 @@ class ReusableOutcomes:
                     match outcome:
                         case (
                             Skipped() | NoneInput()
-                        ):  # the node was not called for the item, so there is nothing to reuse
+                        ):  # the function wasn't called for the item, so there is nothing to reuse
                             continue
                         case (
                             Done() | Unanswered()
-                        ):  # the node was called, so its arguments are settled
+                        ):  # the function was called, so the call's arguments all exist
                             arguments = cast(
                                 "dict[str, Any]", reader.arguments_for(old_node, item_indexes)
                             )
@@ -143,16 +150,17 @@ class ReusableOutcomes:
         item_indexes: ItemIndexes | None = None,
         outer_items: str = "",
     ) -> None:
-        """Add one outcome ``node`` may reuse, after those already added: to ``reused_in_item_order`` when the node
-        may ask a person, else to ``reused_freely``.
+        """Adds one outcome ``node`` may reuse, after those already added.
+
+        It goes into ``reused_in_item_order`` when the node may ask a person, and into ``reused_freely`` otherwise.
 
         Args:
             node: The node.
-            fingerprint: The arguments fingerprint of the call the outcome is of.
+            fingerprint: The arguments fingerprint of the call the outcome came from.
             outcome: The outcome.
-            item_indexes: For a node that may not ask, the item indexes of the call, when they are known: the call
-                with the same item indexes takes the outcome first.
-            outer_items: For a node that may ask, the fingerprint of the outer items of the call.
+            item_indexes: For a node that never asks, the item indexes of the call, when they are known. The call with
+                the same item indexes gets the outcome first.
+            outer_items: For a node that may ask, the fingerprint of the call's outer items.
         """
         path = node.node_path
         match outcome:
@@ -176,17 +184,17 @@ class ReusableOutcomes:
         outcomes: dict[NodePath, dict[ItemIndexes, Outcome]],
         in_turn: Callable[[], bool],
     ) -> Done | Unanswered | Literal[NotReady.NOT_ITS_TURN] | None:
-        """The outcome a call reuses in place of calling the function, or ``None`` when there is none.
+        """Returns the outcome a call reuses instead of calling the function, or ``None`` if there is none.
 
-        In the second run above, the call ``(1,)`` of ``shout`` gets ``{"line": "b", "mark": "!"}`` and reuses
-        ``Done({"result": "B!"})``; the call ``(2,)`` gets ``"d"``, which no call got before, so the result is ``None``
-        and ``shout`` is called.
+        In the second run in the module docstring, the call ``(1,)`` of ``shout`` gets ``{"line": "b", "mark": "!"}``
+        and reuses ``Done({"result": "B!"})``. The call ``(2,)`` gets ``"d"``, which no call got before, so the result
+        is ``None`` and ``shout`` is called.
 
-        For a node that may not ask, the outcome of the call with the same item indexes is looked for first, then one
-        of any call. A node that may ask has its outcomes reused once each, in the order of the calls: an outcome
-        reused is taken out, and while one with outputs is left and an earlier call of the node has not been tried
-        yet, the result is ``NOT_ITS_TURN`` and the call is tried again later. Questions still waiting are alike, so
-        a call that would reuse one takes it at once.
+        For a node that never asks, it first looks for the outcome of the call with the same item indexes, then for
+        any call's. A node that may ask has each outcome reused once, in call order, and taken out once reused. If an
+        outcome with outputs is left and an earlier call of the node hasn't been tried yet, the result is
+        ``NOT_ITS_TURN``, and the call is tried again later. Waiting questions are all alike, so when only those are
+        left, a call takes one at once without waiting for its turn.
 
         Args:
             node: The node.
@@ -208,7 +216,7 @@ class ReusableOutcomes:
             if left:
                 for waiting_or_done in left:
                     match waiting_or_done:
-                        case Done():  # an answer or the node's own return, taken by the first call in item order
+                        case Done():  # an answer or a return, which goes to the first call in item order
                             if not in_turn():
                                 return NotReady.NOT_ITS_TURN
                             break
@@ -217,7 +225,7 @@ class ReusableOutcomes:
                         case _:
                             assert_never(waiting_or_done)
                 outcome = left.pop(0)
-                if not left:  # a node with no outcome left has no entry, so a saved run writes none
+                if not left:  # drop empty entries, so a saved run writes nothing for them
                     del in_item_order[same_arguments]
                     if not in_item_order:
                         del self.reused_in_item_order[path]
@@ -228,14 +236,16 @@ class ReusableOutcomes:
         return freely.get(fingerprint) if freely else None
 
     def drop(self, paths: Collection[NodePath]) -> None:
-        """Drop every outcome the nodes at ``paths`` may reuse: a complete node has no call left to take them, and a
-        forgotten node must be called again."""
+        """Drops every outcome the nodes at ``paths`` may reuse.
+
+        A node that is complete has no call left to reuse them, and a forgotten node must be called again.
+        """
         for by_node in (self.reused_freely_by_call, self.reused_freely, self.reused_in_item_order):
             for path in paths:
                 by_node.pop(path, None)
 
     def copy(self) -> ReusableOutcomes:
-        """A copy to take outcomes from and drop nodes from without changing this one. The outcomes are shared."""
+        """Returns a copy to take outcomes from and drop nodes from, leaving this one as it is. The outcomes are shared."""
         return ReusableOutcomes(
             dict(self.reused_freely_by_call),
             dict(self.reused_freely),
@@ -252,15 +262,17 @@ def _outer_items_fingerprint(
     node: BlueprintFunctionNode,
     item_indexes: ItemIndexes,
 ) -> str:
-    """A fingerprint of the items of the outer loops of a call: every loop the node is inside but the innermost.
+    """Returns a fingerprint of a call's outer items: its item in every loop the node is inside but the innermost.
 
-    It keeps the outcomes of a node that may ask, a person's answers among them, with the item they were given
-    for. In ``pages -> lines -> approve``, two pages may have the same line; the outer-items fingerprint of each
-    call of ``approve`` is a hash of its page, so a page keeps its own answers when the pages are reordered. The innermost item, the line, is one of the call's
-    arguments, so it is not hashed again. A node inside fewer than two loops gets ``""``, and so does a call whose
-    outer items have no JSON form.
+    It keeps the outcomes of a node that may ask, such as a person's answers, with the item they were given for.
+    Take ``pages -> lines -> approve``, where two pages may have the same line. Each call of ``approve`` gets a hash
+    of its page as its outer-items fingerprint. So each page keeps its own answers when the pages are reordered.
+    The innermost item, the line, is already one of the call's arguments, so it isn't hashed again.
+
+    A node inside fewer than two loops gets ``""``. So does a call whose outer items can't be written as JSON.
     """
-    # The outcome of the node that returned the series has outputs: a call inside a loop is made only after the series exists.
+    # The node that returned each series has outputs here, since a call inside a loop is only made once its series
+    # exists.
     above = [
         outcomes[series][item_indexes[:depth]].outputs[output][item_indexes[depth]]  # type: ignore[union-attr]
         for depth, (series, output) in enumerate(node.loops[:-1])
@@ -269,10 +281,11 @@ def _outer_items_fingerprint(
 
 
 def _arguments_fingerprint(code_fingerprint: str, arguments: dict[str, Any]) -> str | None:
-    """A call's arguments and its node's code fingerprint as a short hash, or ``None`` when an argument has no JSON form.
+    """Returns a short hash of a call's arguments and its node's code fingerprint.
 
-    A call whose arguments have no fingerprint is never reused. A dict read back from a database may have its keys
-    in another order; ``json_hash`` sorts them, so the dict hashes as it did before it was saved.
+    It returns ``None`` when an argument can't be written as JSON, and a call with no fingerprint is never reused.
+    The hash sorts the keys of every dict, so a dict read back from a database with its keys in another order
+    hashes the same as before it was saved.
 
     Args:
         code_fingerprint: The node's code fingerprint.

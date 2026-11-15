@@ -1,13 +1,18 @@
-"""How a run stands: one rule reads its status from its outcomes and from how the last ``resume()`` left it.
+"""The status of a run: whether it is ready, waiting, complete, or ended early.
 
-A run's outcomes are its own. On the README graph, before any call the run is ``ready``; after
-``graph.run(text="a\\nb\\nc")`` every node has an outcome for every call, so it is ``complete``; a run with a call that
-waits for a person is ``waiting``, and once that call is answered it is ``ready`` again, or ``complete`` when nothing
-is left to call. How the last ``resume()`` left the run is kept beside the outcomes: ``"running"`` in a copy made
-while it went on (in memory only: a save never says it), or how it ended early. A call that failed (``failed``) or a series over the item limit
-(``stopped``) is the run's: it stands until a ``resume()`` tries again, whatever is answered meanwhile. That the
-resume was cancelled or timed out is that resume's: an answer is a step after it, so the answered run is read from
-its outcomes, as is a run whose every call returned however the resume ended.
+Most of a run's status comes from its outcomes. Take the README's graph. Before any call, the run is ``ready``.
+After ``graph.run(text="a\\nb\\nc")`` every call has an outcome, so it is ``complete``. If a call is waiting for a
+person, the run is ``waiting``. Once that call is answered, the run is ``ready`` again, or ``complete`` if nothing
+is left to call.
+
+The rest comes from how the last ``resume()`` ended, which the run stores beside its outcomes. A resume can end
+early in four ways: a call failed (``failed``), a series had more items than the limit (``stopped``), the stream
+was cancelled (``cancelled``), or the timeout passed (``timed_out``). A copy of the run made while a resume is
+still going is ``running``. That copy only exists in memory, and a saved run never says ``running``.
+
+An answer changes some of this. A failed call or a series over the limit is still there after an answer, so the
+run stays ``failed`` or ``stopped`` until a ``resume()`` tries again. A cancel or a timeout belonged to that one
+resume, so once a call is answered, the status comes from the outcomes again.
 """
 
 from __future__ import annotations
@@ -27,9 +32,9 @@ from .progress import is_complete
 if TYPE_CHECKING:
     from .type import Run
 
-#: The status of a run: ``run.status``. ``ready``, ``waiting`` and ``complete`` are read from its outcomes;
-#: ``running`` is a copy made while a ``resume()`` went on; ``failed``, ``stopped``, ``cancelled`` and ``timed_out``
-#: say how the last ``resume()`` ended it early.
+#: The status of a run, as ``run.status`` gives it. ``ready``, ``waiting`` and ``complete`` come from its outcomes.
+#: ``running`` is a copy made while a ``resume()`` is still going. The other four say how the last ``resume()``
+#: ended the run early.
 RunStatus = Literal[
     "ready", "running", "waiting", "complete", "failed", "stopped", "cancelled", "timed_out"
 ]
@@ -37,12 +42,14 @@ RunStatus = Literal[
 
 @dataclass(frozen=True, slots=True)
 class EndedEarly:
-    """How ``resume()`` ended a run before it was complete, and why. ``resume()`` goes on from where it stopped.
+    """How ``resume()`` ended a run before it was complete, and why.
+
+    The next ``resume()`` goes on from where this one stopped.
 
     Attributes:
-        status: ``failed`` (a node raised), ``stopped`` (a series is longer than the item limit, ``max_items``),
-            ``cancelled`` (the stream's ``cancel`` was set) or ``timed_out`` (the ``timeout`` passed).
-        cause: The problem that ended it, with its ``loc`` and its code.
+        status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
+            ``cancelled`` when the stream's ``cancel`` was set, and ``timed_out`` when the ``timeout`` passed.
+        cause: The problem that ended the run, with its ``loc`` and code.
     """
 
     __pydantic_config__: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -50,17 +57,19 @@ class EndedEarly:
     cause: Problem
 
 
-#: How the last ``resume()`` left a run: ``"running"`` in a copy made while it went on (a checkpoint, or the run a
-#: stream hands back), how it ended early, or ``None`` when it made every call that was ready.
+#: How the last ``resume()`` left a run. ``"running"`` for a copy made while it was still going, such as a
+#: checkpoint or the run a stream hands back. An ``EndedEarly`` when it ended early. ``None`` when it made every
+#: call that was ready.
 LastResume = EndedEarly | Literal["running"] | None
 
 
 def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
-    """The status of ``run``, and the problem that ended it early when that is its status.
+    """Returns the status of ``run``, and the problem that ended it early if it did.
 
-    ``running`` in a copy made while a ``resume()`` went on; else ``complete`` once every function node of the graph
-    and of its subgraphs is complete (``is_complete``); else how the last ``resume()`` ended early, with its cause;
-    else ``waiting`` while a call waits for a person, and ``ready`` before that.
+    The checks go in this order. A copy made while a resume is still going is ``running``. A run whose every
+    function node is complete is ``complete``, however the last resume ended. Then a run the last resume ended
+    early has that status and its cause. Otherwise the run is ``waiting`` when a call waits for a person, and
+    ``ready`` when none does.
     """
     last_resume, outcomes = run._last_resume, run._outcomes
     if last_resume == "running":
@@ -82,9 +91,12 @@ def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
 
 
 def kept_by_an_answer(last_resume: LastResume) -> LastResume:
-    """What a run keeps of how the last ``resume()`` left it once a call is answered: a call that failed, or a series
-    over the item limit, which stand until a ``resume()`` tries again. That the resume was going on, was cancelled or
-    timed out is that resume's, and the answered run comes after it."""
+    """Returns what a run still says about its last ``resume()`` once a call is answered.
+
+    A failed call and a series over the item limit stay until a ``resume()`` tries again, so they are kept. A
+    cancel, a timeout or a resume still going belonged to that resume, and the answer comes after it, so they are
+    dropped.
+    """
     return (
         last_resume
         if isinstance(last_resume, EndedEarly) and last_resume.status in ("failed", "stopped")
@@ -93,8 +105,11 @@ def kept_by_an_answer(last_resume: LastResume) -> LastResume:
 
 
 def deadline(timeout: float | None) -> Callable[[], EndedEarly | None] | None:
-    """A check a run makes before each call: ``EndedEarly("timed_out", ...)`` once ``timeout`` seconds have passed
-    since this was called, else ``None``. ``None`` in place of the check when there is no timeout."""
+    """Returns a check that says when ``timeout`` seconds have passed, or ``None`` when there is no timeout.
+
+    The clock starts when this is called. The scheduler calls the check before each call. It returns
+    ``EndedEarly("timed_out", ...)`` once the time is up, and ``None`` before that.
+    """
     if timeout is None:
         return None
     end = time.monotonic() + timeout
