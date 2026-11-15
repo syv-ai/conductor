@@ -1,15 +1,17 @@
 """Nodes that choose where a value goes: ``control-decide``, ``control-switch`` and ``control-default``.
 
-``control-decide`` and ``control-switch`` return the value on one output and ``SKIPPED`` on the others. Their
-outputs are a branch: the nodes after an output not chosen are skipped for that call. Wire several branches into one
-input and that node takes whichever branch was chosen, so no node is needed to join them again.
+``control-decide`` and ``control-switch`` send their value down one of several outputs. Each output is a branch.
+The chosen branch gets the value and the others get ``SKIPPED``, so the nodes after them are skipped for that call.
+You can wire several branches into one input. That node then takes the value from whichever branch was chosen, so
+you don't need a node to join the branches again.
 
-``control-decide`` sends ``value`` on ``if_true`` or ``if_false`` by ``when``. ``when`` is a yes or no, not an
-expression to parse. Other nodes give one (``logic-equals``, ``logic-is-empty``, ``text-contains``, ``regex-match``,
-``logic-not``), so the condition is wired in rather than written in a language this node would have to own.
+``control-decide`` picks its branch by ``when``, a yes or no. It doesn't parse a condition. Another node works out
+the yes or no, and you wire it in: ``logic-equals``, ``logic-is-empty``, ``text-contains``, ``regex-match`` or
+``logic-not``.
 
-``value`` takes any value on all three nodes, since they pass it on without reading it. Its type is a type variable,
-so the outputs have the type of what is wired to it: an ``int`` from ``text-length`` gives ``int`` outputs.
+All three nodes pass ``value`` on without looking at it, so it can be anything. Its type is a type variable, and the
+outputs take the type of whatever is wired to it. Wire in an ``int`` from ``text-length`` and the outputs are
+``int`` too.
 """
 
 from dataclasses import dataclass
@@ -24,7 +26,7 @@ _OTHER = "other"
 
 @dataclass(frozen=True)
 class Decided[T]:
-    """The outputs of ``control-decide``: ``value`` on one of them, ``SKIPPED`` on the other."""
+    """The two outputs of ``control-decide``. One gets the value, and the other gets ``SKIPPED``."""
 
     if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
     if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
@@ -36,19 +38,20 @@ class Decided[T]:
     description="Sends the value one way when the switch is on and the other way when it is off.",
 )
 def decision[T](value: T, when: bool = True) -> Decided[T]:
-    """Returns ``value`` on ``if_true`` when ``when`` is true, and on ``if_false`` when it is false."""
+    """Sends ``value`` to ``if_true`` when ``when`` is true, and to ``if_false`` when it is false."""
     return Decided(if_true=value) if when else Decided(if_false=value)
 
 
 def _branches(cases: list[str], value: type) -> dict[str, Any]:
-    """Returns the outputs of ``control-switch``: one per name in ``cases``, then ``other``.
+    """Works out the outputs of ``control-switch``: one for each name in ``cases``, and one more called ``other``.
 
-    Each has the type wired to ``value`` and all are one exclusive group. With ``cases`` ``["invoice", "receipt"]``
-    the outputs are ``invoice``, ``receipt`` and ``other``.
+    Conductor calls this when the graph is compiled. With ``cases`` set to ``["invoice", "receipt"]``, the outputs
+    are ``invoice``, ``receipt`` and ``other``. Each has the type of what is wired to ``value``. They share one
+    exclusive group, since only one of them gets the value on a call.
 
     Raises:
-        NodeError: A case is named ``other`` (``case_named_other``), or one name is in ``cases`` twice
-            (``case_given_twice``).
+        NodeError: ``case_named_other`` if a case is called ``other``. ``case_given_twice`` if a name is in
+            ``cases`` twice.
     """
     if _OTHER in cases:
         raise NodeError(
@@ -72,10 +75,10 @@ def _branches(cases: list[str], value: type) -> dict[str, Any]:
     compute_outputs=_branches,
 )
 def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
-    """Returns ``value`` on the output named ``case``, or on ``other`` when ``case`` is not in ``cases``.
+    """Sends ``value`` to the output named ``case``, or to ``other`` when ``case`` isn't one of ``cases``.
 
-    ``cases`` names the branches and is set when the graph is built, so it takes only a constant. ``case`` is
-    compared as it is: put ``text-lowercase`` in front to ignore case.
+    ``cases`` decides which outputs the node has, so it must be a constant written in the graph. ``case`` has to
+    match a name exactly. To ignore upper and lower case, put ``text-lowercase`` in front.
     """
     chosen = case if case in cases else _OTHER
     return {name: value if name == chosen else SKIPPED for name in [*cases, _OTHER]}
@@ -89,7 +92,7 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
 def default[T](value: T | None, fallback: T) -> T:
     """Returns ``value``, or ``fallback`` when ``value`` is ``None``.
 
-    The nodes after it always get a value. Wire ``fallback`` from another node, rather than giving it a constant,
-    to take the first of two values that is there.
+    The nodes after it always get a value. ``fallback`` can be a constant. Wire it from another node instead, and
+    you get the first of two values that is there.
     """
     return fallback if value is None else value

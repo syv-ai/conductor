@@ -1,4 +1,7 @@
-"""JSON nodes: ``json-parse``, ``json-stringify`` and ``json-get``. A JSON value is pydantic's ``JsonValue``."""
+"""Nodes for JSON: ``json-parse``, ``json-stringify`` and ``json-get``.
+
+A JSON value here is pydantic's ``JsonValue``: a text, number, yes or no, ``None``, or a list or dict of those.
+"""
 
 import json
 import re
@@ -20,14 +23,18 @@ registry = NodeRegistry(category="json")
 def parse(
     text: Annotated[str, Param(title="JSON text", widget=Textarea())],
 ) -> Annotated[JsonValue, Param(title="Parsed")]:
-    """Reads a JSON text into a value; fails on text that isn't JSON."""
+    """Turns JSON text into a value.
+
+    Raises:
+        NodeError: ``not_json`` if the text isn't JSON.
+    """
     try:
         parsed: JsonValue = json.loads(text)
     except JSONDecodeError as error:
         raise NodeError(
             f"The text is not JSON: {error.msg}, at character {error.pos}.", code="not_json"
         ) from None
-    # json.loads refuses a number of more than 4,300 digits with a plain ValueError
+    # json.loads raises a plain ValueError, not a JSONDecodeError, for a number of more than 4,300 digits
     except ValueError as error:
         raise NodeError(f"The text is not JSON: {error}.", code="not_json") from None
     return parsed
@@ -37,7 +44,7 @@ def parse(
 def stringify(
     value: JsonValue, indent: Annotated[int, Param(ge=0, le=8)] = 0, sort_keys: bool = False
 ) -> Annotated[str, Param(title="JSON")]:
-    """Writes a value as JSON text."""
+    """Writes a value out as JSON text, all on one line unless ``indent`` is set."""
     return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
 
 
@@ -47,7 +54,11 @@ def stringify(
     description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.",
 )
 def get_path(value: JsonValue, path: str) -> Annotated[JsonValue, Param(title="Extracted")]:
-    """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; JSON null where there is nothing."""
+    """Picks one value out of a JSON value by a dotted path, such as ``user.name`` or ``items.0.id``.
+
+    A number picks an item from a list, and ``-1`` is the last one. An empty path gives the whole value. If
+    nothing is at the path, the node returns ``None``, which is JSON's null.
+    """
     current = value
     for segment in path.split(".") if path else ():
         if isinstance(current, dict):

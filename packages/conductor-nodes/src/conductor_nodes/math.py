@@ -1,4 +1,7 @@
-"""Arithmetic nodes: ``math-add``, ``math-divide``, ``math-min`` and the rest."""
+"""Nodes for arithmetic: ``math-add``, ``math-divide``, ``math-min`` and the rest.
+
+They take and return ``float`` numbers. Dividing by 0 fails the node with ``division_by_zero``.
+"""
 
 import math
 from decimal import ROUND_HALF_UP, Decimal
@@ -11,7 +14,7 @@ registry = NodeRegistry(category="math")
 
 @registry.node("math-add", title="Add", description="Adds two numbers together.")
 def add(a: float, b: float) -> Annotated[float, Param(title="Sum")]:
-    """a + b"""
+    """Returns ``a + b``."""
     return a + b
 
 
@@ -19,13 +22,13 @@ def add(a: float, b: float) -> Annotated[float, Param(title="Sum")]:
     "math-subtract", title="Subtract", description="Takes the second number away from the first."
 )
 def subtract(a: float, b: float) -> Annotated[float, Param(title="Difference")]:
-    """a - b"""
+    """Returns ``a - b``."""
     return a - b
 
 
 @registry.node("math-multiply", title="Multiply", description="Multiplies two numbers.")
 def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
-    """a * b"""
+    """Returns ``a * b``."""
     return a * b
 
 
@@ -35,7 +38,11 @@ def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
     description="Divides the first number by the second. Dividing by zero is an error.",
 )
 def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
-    """a / b; fails when b is 0."""
+    """Returns ``a / b``.
+
+    Raises:
+        NodeError: ``division_by_zero`` if ``b`` is 0.
+    """
     if b == 0:
         raise NodeError(
             "Cannot divide by 0. Give a second number other than 0.", code="division_by_zero"
@@ -49,7 +56,11 @@ def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
     description="Gives what is left over when the first number is divided by the second. Dividing by zero is an error.",
 )
 def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
-    """a % b; fails when b is 0."""
+    """Returns ``a % b``, what is left over when ``a`` is divided by ``b``.
+
+    Raises:
+        NodeError: ``division_by_zero`` if ``b`` is 0.
+    """
     if b == 0:
         raise NodeError(
             "Cannot divide by 0. Give a second number other than 0.", code="division_by_zero"
@@ -65,13 +76,16 @@ def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
 def round_to(
     value: float, decimals: Annotated[int, Param(ge=0, le=10)] = 0
 ) -> Annotated[float, Param(title="Rounded")]:
-    """Rounds to the given number of decimals, a half away from zero: 2.5 to 3, -2.5 to -3, 0.125 to 0.13 at 2.
+    """Rounds ``value`` to ``decimals`` decimals, with a half rounded away from zero.
 
-    The number is rounded as it is written, so 0.125 is a half though the float nearest it is a little less.
+    So 2.5 becomes 3, and -2.5 becomes -3. At two decimals, 0.125 becomes 0.13.
+
+    The number is rounded as it is written. The float closest to 0.125 is a tiny bit less than 0.125, so Python's
+    own ``round`` gives 0.12. This node gives 0.13, as a person would expect.
     """
     if (
         not math.isfinite(value) or abs(value) >= 2**52
-    ):  # a float this large has no fraction to round
+    ):  # a float this large has no fraction to round, and inf and nan can't be rounded
         return value
     return float(Decimal(str(value)).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP))
 
@@ -82,7 +96,11 @@ def round_to(
     description="Finds the smallest of the numbers. With no numbers it is an error.",
 )
 def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
-    """The smallest of the numbers; fails when there are none."""
+    """Returns the smallest of the numbers.
+
+    Raises:
+        NodeError: ``no_numbers`` if there are none.
+    """
     if not values:
         raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
     return min(values)
@@ -94,7 +112,11 @@ def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
     description="Finds the largest of the numbers. With no numbers it is an error.",
 )
 def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
-    """The largest of the numbers; fails when there are none."""
+    """Returns the largest of the numbers.
+
+    Raises:
+        NodeError: ``no_numbers`` if there are none.
+    """
     if not values:
         raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
     return max(values)
@@ -104,5 +126,5 @@ def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
     "math-abs", title="Absolute value", description="Gives the number without its minus sign."
 )
 def absolute(value: float) -> Annotated[float, Param(title="Absolute")]:
-    """|value|"""
+    """Returns ``value`` without its minus sign."""
     return abs(value)

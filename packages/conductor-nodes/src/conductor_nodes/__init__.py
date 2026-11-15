@@ -1,19 +1,20 @@
-"""``conductor_nodes``: nodes for text, numbers, yes or no, JSON, patterns, lists of items, tables and a decision.
+"""Ready-made nodes for conductor: text, numbers, yes or no, JSON, patterns, loops, tables and choosing a way.
 
-``registry`` has every node, and each module has a ``registry`` of its own nodes, so a
-host adds all of them or only some::
+None of them call out to anything. They only work on the values they are given.
+
+``registry`` has every node. Each module also has a ``registry`` of its own, so you can add all the nodes or
+just some::
 
     import conductor_nodes
     from conductor import NodeRegistry
 
     mine = NodeRegistry()
     mine.add_subregistry(conductor_nodes.registry)               # everything
-    mine.add_subregistry(conductor_nodes.text.registry)          # the text nodes
+    mine.add_subregistry(conductor_nodes.text.registry)          # only the text nodes
 
-Each module is one ``category`` of node (``control``, ``json``, ``logic``,
-``math``, ``regex``, ``series``, ``table``, ``text``), so a module's ``registry`` and
-``conductor_nodes.registry.filter(lambda d: d.category == "math")`` pick the
-same nodes.
+Each module is one ``category``: ``control``, ``json``, ``logic``, ``math``, ``regex``, ``series``, ``table`` and
+``text``. So ``conductor_nodes.registry.filter(lambda d: d.category == "math")`` gives the same nodes as
+``conductor_nodes.math.registry``.
 """
 
 from conductor import NodeRegistry

@@ -1,4 +1,4 @@
-"""Text nodes: ``text-uppercase``, ``text-split``, ``text-join``, ``text-list`` and the rest."""
+"""Nodes for text: ``text-uppercase``, ``text-split``, ``text-join``, ``text-list`` and the rest."""
 
 from typing import Annotated, Any
 
@@ -38,7 +38,7 @@ def lowercase(
     description="Removes spaces and blank lines from the start and end of the text.",
 )
 def trim(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[str, Param(title="Trimmed")]:
-    """Strips whitespace from both ends of the text."""
+    """Removes spaces, tabs and blank lines from both ends of the text."""
     return text.strip()
 
 
@@ -56,7 +56,7 @@ def length(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[int, Par
     description="Puts two texts together, with a separator between them if you want one.",
 )
 def concat(a: str, b: str, separator: str = "") -> str:
-    """Joins two texts, with a separator between them."""
+    """Puts ``a`` and ``b`` together, with ``separator`` between them."""
     return f"{a}{separator}{b}"
 
 
@@ -70,7 +70,7 @@ def replace(
     needle: Annotated[str, Param(title="Find")],
     replacement: Annotated[str, Param(title="Replace with")] = "",
 ) -> str:
-    """Replaces every occurrence of a text with another."""
+    """Replaces every place ``needle`` appears in the text with ``replacement``."""
     return text.replace(needle, replacement)
 
 
@@ -82,7 +82,7 @@ def replace(
 def contains(
     text: Annotated[str, Param(widget=Textarea())], needle: str, case_sensitive: bool = True
 ) -> Annotated[bool, Param(title="Contains")]:
-    """Whether `needle` appears in the text."""
+    """Whether ``needle`` appears in the text. Set ``case_sensitive`` to false to ignore upper and lower case."""
     if case_sensitive:
         return needle in text
     return needle.lower() in text.lower()
@@ -97,8 +97,11 @@ def split(
     text: Annotated[str, Param(widget=Textarea())],
     separator: Annotated[str, Param(min_length=1)] = "\n",
 ) -> Annotated[Series[str], Param(title="Parts")]:
-    """Splits the text on a separator, a newline unless another is given: ``"a\\nb"`` gives ``["a", "b"]``, and an
-    empty text gives ``[]``."""
+    """Splits the text wherever ``separator`` appears, into a ``Series`` of parts.
+
+    The separator is a new line unless you give another. ``"a\\nb"`` gives ``["a", "b"]``, and an empty text gives
+    ``[]``.
+    """
     return text.split(separator) if text else []
 
 
@@ -110,11 +113,11 @@ def split(
 def text_list(
     items: list[str], for_each: Any = None
 ) -> Annotated[Series[str], Param(title="Texts")]:
-    """Returns ``items`` as a ``Series``.
+    """Returns ``items``, the texts written in the graph, as a ``Series``.
 
-    ``for_each`` is not read. A ``Series`` wired to it puts this node inside that loop, so it returns the whole list
-    once per item: with ``items`` ``["q1", "q2"]`` and two documents wired to ``for_each``, each document gets
-    ``["q1", "q2"]``.
+    The node never looks at ``for_each``. It is there so you can put the node inside a loop. Wire a ``Series`` into
+    it, and the node runs once for each item, returning the whole list each time. Say ``items`` is ``["q1", "q2"]``
+    and two documents are wired to ``for_each``. Then each document gets both questions, ``["q1", "q2"]``.
     """
     return items
 
@@ -125,7 +128,7 @@ def text_list(
     description="Joins all the parts into one text, with a separator between them.",
 )
 def join(parts: Series[str], separator: str = ", ") -> Annotated[str, Param(title="Joined")]:
-    """Joins every part into one text, with a separator between them."""
+    """Joins every part into one text, with ``separator`` between them."""
     return separator.join(parts)
 
 
