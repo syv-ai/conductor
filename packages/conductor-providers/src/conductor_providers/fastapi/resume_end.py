@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from conductor import InvalidCallError, Problem, Run
 from conductor.events import RunEnd
 
-from conductor_providers.fastapi import router_problems
+from conductor_providers.fastapi.problems import raised_outside_a_node
 from conductor_providers.fastapi.stored_run import Outcome, RunChanges, StoredState
 
 log = logging.getLogger("conductor_providers.fastapi")
@@ -74,37 +74,35 @@ class Ended(ResumeEnd):
     def row_after(self, state: StoredState) -> RowAfterResume:
         """What to write to the row, after the run has been given the answers queued while it was running.
 
-        Each queued answer is given to the run on its own, with ``run.answer``, which takes one whatever the run's
-        status. An answer the run refuses goes to ``refused`` with its problems. If the run takes any, the row's
-        state is ``running`` again and its ``run`` is the answered run, so the worker resumes it at once. An
-        answer whose check raises something other than a refusal (a fault in a host's type) is logged and refused
-        as ``answer_check_failed``, so one such answer doesn't keep the end from being written. A cancel that was
-        asked but did not end this resume call stays asked when the run is resumed for the answers, and that
-        resume call ends before it calls any node. Otherwise the cancel is cleared.
+        The queued answers are given to the run in the order they were sent, one waiting id at a time, with
+        ``run.answer``, which takes one whatever the run's status. So a wrong answer is refused alone. An answer the
+        run refuses goes to ``refused`` with its problems, and one it takes clears what ``refused`` had for its
+        question: ``refused`` ends up saying what became of the last answer to each question. A second answer to a
+        question the first one answered is refused by conductor as ``not_waiting``. An answer whose check raises
+        something other than a refusal (a fault in a host's type) is logged and refused as
+        ``raised_outside_a_node``, so one such answer doesn't keep the end from being written.
+
+        If the run takes any answer, the row's state is ``running`` again and its ``run`` is the answered run, so the
+        worker resumes it at once. A cancel that was asked but did not end this resume call stays asked then, and
+        the next resume call ends before it calls any node. Otherwise the cancel is cleared.
         """
-        run, taken, refused = self.run, [], {}
-        for waiting_id, value in state.queued_answers.items():
-            try:
-                run = run.answer(waiting_id, value)
-                taken.append(waiting_id)
-            except InvalidCallError as error:
-                refused[waiting_id] = error.problems
-            except Exception as error:
-                log.exception("the answer queued for %s could not be checked", waiting_id)
-                refused[waiting_id] = [
-                    router_problems.answer_check_failed(
-                        waiting_id=waiting_id, error=type(error).__name__
-                    )
-                ]
-        settled = state.answered(taken)
-        unheard = state.cancel_asked and bool(taken) and self.run.status != "cancelled"
-        stopped = settled.running() if taken else settled.stopped(self.run)
+        run, taken, refused = self.run, False, dict(state.refused)
+        for answers in state.queued_answers:
+            for waiting_id, value in answers.items():
+                try:
+                    run = run.answer(waiting_id, value)
+                except InvalidCallError as error:
+                    refused[waiting_id] = error.problems
+                except Exception as error:
+                    log.exception("the answer queued for %s could not be checked", waiting_id)
+                    refused[waiting_id] = [raised_outside_a_node(error=type(error).__name__)]
+                else:
+                    taken = True
+                    refused.pop(waiting_id, None)
+        unheard = state.cancel_asked and taken and self.run.status != "cancelled"
+        stopped = state.running() if taken else state.stopped(self.run)
         after = stopped.model_copy(
-            update={
-                "queued_answers": {},
-                "refused": {**settled.refused, **refused},
-                "cancel_asked": unheard,
-            }
+            update={"queued_answers": [], "refused": refused, "cancel_asked": unheard}
         )
         return RowAfterResume(
             after, {"run": run.to_json() if taken else self.saved, "outcome": self.outcome}

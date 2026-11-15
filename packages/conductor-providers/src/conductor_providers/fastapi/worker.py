@@ -35,7 +35,12 @@ from conductor.events import RunCheckpoint, RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
 
-from conductor_providers.fastapi import router_problems
+from conductor_providers.fastapi.problems import (
+    no_such_run,
+    previous_run_unloadable,
+    raised_outside_a_node,
+    run_not_resumable,
+)
 from conductor_providers.fastapi.resume_end import HandedBack, Raised, ResumeEnd, end_of
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import (
@@ -259,7 +264,7 @@ class Worker(Generic[C]):
         """
         row = await self._store.get(run_id)
         if row is None:
-            raise InvalidCallError([router_problems.no_such_run()])
+            raise InvalidCallError([no_such_run()])
         return RunAsRead._of(row)
 
     async def begin(
@@ -303,7 +308,7 @@ class Worker(Generic[C]):
             except InvalidCallError as refusal:
                 raise InvalidCallError(
                     [
-                        router_problems.previous_run_unloadable(
+                        previous_run_unloadable(
                             run_id=previous.id,
                             reason="; ".join(problem.msg for problem in refusal.problems),
                         )
@@ -373,9 +378,13 @@ class Worker(Generic[C]):
     ) -> Literal["started", "queued"]:
         """Answer what waits in a run, by waiting id.
 
-        While the run is running, the answers are queued until the resume call ends. Otherwise the run takes them
-        as ``run.answer`` does, whatever its status, and it is resumed; an earlier answer to the same question that
-        was refused, or that stayed queued through a resume call that raised, is removed from the row's state.
+        While the run is running, the answers are queued, as one call sent them, and given to the run when its
+        resume call ends. Otherwise the run takes them as ``run.answer`` does, whatever its status, and it is
+        resumed. An answer to a question that nothing waits on any more, such as one in a complete run, is refused
+        by conductor as ``not_waiting``.
+
+        When another call takes the run between this call's read and its write, the run is read again, and the
+        answers are given to it as it is then: queued, if the other call started a resume.
 
         Args:
             run: The run as read.
@@ -385,36 +394,27 @@ class Worker(Generic[C]):
             ``queued`` when the run was running, else ``started``.
 
         Raises:
-            InvalidCallError: An answer is queued for one of the ids already (``already_answered``, one problem for
-                each), the run is complete (``run_complete``), another call claimed it first (``run_changed``), or
-                the run refuses an answer (every answer it refuses is listed).
+            InvalidCallError: The run refuses an answer; every answer it refuses is listed.
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
         """
-
-        def queued_with_these(state: StoredState) -> StoredState:
-            if twice := state.queued_answers.keys() & answers.keys():
-                raise InvalidCallError(
-                    [
-                        router_problems.already_answered(waiting_id=waiting_id)
-                        for waiting_id in sorted(twice)
-                    ]
-                )
-            return state.model_copy(update={"queued_answers": {**state.queued_answers, **answers}})
-
-        run = await self._ask_of_a_running_run(run, queued_with_these)
-        if run._state.is_running:
-            return "queued"
-        if run._state.status == "complete":
-            raise InvalidCallError([router_problems.run_complete()])
-        row, nodes = run._row, self.nodes_for(self.caller_of(run))
-        answered = await asyncio.to_thread(lambda: _loaded(row, nodes).answer(answers).to_json())
-        state = run._state.answered(answers.keys()).running()
-        if not await self._claim(run, state, changed=answered):
-            raise InvalidCallError([router_problems.run_changed()])
-        return "started"
+        while True:
+            run = await self._ask_of_a_running_run(run, lambda state: state.queued(answers))
+            if run._state.is_running:
+                return "queued"
+            row, nodes = run._row, self.nodes_for(self.caller_of(run))
+            answered = await asyncio.to_thread(
+                lambda: _loaded(row, nodes).answer(answers).to_json()
+            )
+            state = run._state.answered(answers.keys()).running()
+            if await self._claim(run, state, changed=answered):
+                return "started"
+            run = await self.read(run.id)
 
     async def resume(self, run: RunAsRead, max_items: int | None = None) -> None:
         """Resume a run that ended early; no node call that finished is made again.
+
+        When another call takes the run between this call's read and its write, the run is read again: it is
+        resumed if it still ended early, and refused if it is running now.
 
         Args:
             run: The run as read.
@@ -422,21 +422,22 @@ class Worker(Generic[C]):
                 run is stored with it as the run is claimed, so every later resume call has it.
 
         Raises:
-            InvalidCallError: The run did not end early (``run_not_resumable``), another call claimed the run first
-                (``run_changed``), or, with ``max_items``, the stored run can't be loaded to raise its ceiling.
+            InvalidCallError: The run did not end early (``run_not_resumable``), or, with ``max_items``, the stored
+                run can't be loaded to raise its ceiling.
             RuntimeError: The worker has never served.
         """
-        if run._state.cause is None:
-            raise InvalidCallError([router_problems.run_not_resumable(status=run._state.status)])
-        state = run._state.running()
-        raised = None
-        if max_items is not None:
-            row, nodes = run._row, self.nodes_for(self.caller_of(run))
-            raised = await asyncio.to_thread(
-                lambda: _loaded(row, nodes).with_max_items(max_items).to_json()
-            )
-        if not await self._claim(run, state, changed=raised):
-            raise InvalidCallError([router_problems.run_changed()])
+        while True:
+            if run._state.cause is None:
+                raise InvalidCallError([run_not_resumable(status=run._state.status)])
+            raised = None
+            if max_items is not None:
+                row, nodes = run._row, self.nodes_for(self.caller_of(run))
+                raised = await asyncio.to_thread(
+                    lambda: _loaded(row, nodes).with_max_items(max_items).to_json()
+                )
+            if await self._claim(run, run._state.running(), changed=raised):
+                return
+            run = await self.read(run.id)
 
     async def cancel(self, run: RunAsRead) -> bool:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
@@ -765,7 +766,8 @@ class Worker(Generic[C]):
             logged and ends the call as ``Raised``, with the outcome of the run as the row has it: the run as
             loaded, or the last checkpoint yielded; ``Outcome.empty()``, for a run that could not be loaded. Its cause is
             conductor's own problem where conductor refused the call (a context missing or of another class, a
-            run that can't be read or written), the first of them where there are several; else ``resume_failed``.
+            run that can't be read or written), the first of them where there are several; else
+            ``raised_outside_a_node``.
         """
         # as the run last stopped: a checkpoint changes its progress only
         stopped = Outcome.model_validate_json(row.outcome)
@@ -805,9 +807,9 @@ class Worker(Generic[C]):
                 "resuming run %s was refused: %s", row.id, every, exc_info=True
             )  # the cause is the first problem only
             yield Raised.refused(refusal, held)
-        except Exception:
+        except Exception as error:
             log.exception("resuming run %s failed", row.id)
-            yield Raised.because(router_problems.resume_failed(), held)
+            yield Raised.because(raised_outside_a_node(error=type(error).__name__), held)
 
     async def _finish(self, hold: _Hold, row: StoredRun, end: ResumeEnd) -> StoredRun:
         """Write how a resume call ended. What is written is worked out from the row's state as read for each try

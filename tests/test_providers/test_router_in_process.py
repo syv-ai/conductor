@@ -26,7 +26,7 @@ from conductor import (  # noqa: E402
     Series,
     make_graph,
 )
-from conductor_providers.fastapi import ROUTER_PROBLEMS, RunChanges, Worker, run_router  # noqa: E402
+from conductor_providers.fastapi import Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 
 from tests.test_providers.in_memory import MemoryStore, asking, stoppable, stopping  # noqa: E402
@@ -379,23 +379,14 @@ async def test_a_cancel_sent_to_the_route_sets_the_stop_event_a_node_of_the_run_
     assert graph.seen == [True]
 
 
-async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_its_own() -> None:
+async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code() -> None:
     registry, graph, gate, inputs, waiting_id = asking()
-
-    class ClaimLost(MemoryStore):
-        """Loses every claim of a run that waits, as when another worker took it first."""
-
-        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
-            return not (
-                "owner" in changes and self.rows[run_id].status == "waiting"
-            ) and await super().update(run_id, rev, changes)
-
-    store = ClaimLost()
+    store = MemoryStore()
     app = _app(store=store, registry=lambda _: registry)
 
     def refusal(response: Any) -> tuple[int, list[tuple[str, dict[str, Any]]]]:
         problems = [Problem.model_validate(problem) for problem in response.json()["detail"]]
-        assert all(problem.type in ROUTER_PROBLEMS.codes and problem.msg for problem in problems)
+        assert all(problem.msg for problem in problems)
         return response.status_code, [(problem.type, dict(problem.ctx)) for problem in problems]
 
     async with _serving(app) as client:
@@ -409,22 +400,19 @@ async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_
             404,
             [("no_such_run", {})],
         )
-        assert (await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})).json() == {
-            "answers": "queued"
-        }
-        assert refusal(await client.post(f"/runs/{run_id}/answers", json={waiting_id: False})) == (
-            409,
-            [("already_answered", {"waiting_id": waiting_id})],
-        )
+        for answer in (True, False):  # the second is queued too, and refused once the run stops
+            queued = await client.post(f"/runs/{run_id}/answers", json={waiting_id: answer})
+            assert (queued.status_code, queued.json()) == (202, {"answers": "queued"})
         assert refusal(await client.post(f"/runs/{run_id}/resume")) == (
             409,
             [("run_not_resumable", {"status": "running"})],
         )
         gate.set()
         assert (await store.ended(run_id)).status == "complete"
-        assert refusal(await client.post(f"/runs/{run_id}/answers", json={})) == (
-            409,
-            [("run_complete", {})],
+        late = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
+        assert refusal(late) == (
+            422,
+            [("not_waiting", {"waiting_id": waiting_id, "status": "complete"})],
         )
         assert refusal(await client.post(f"/runs/{run_id}/resume")) == (
             409,
@@ -436,10 +424,6 @@ async def test_every_refusal_of_the_router_is_a_list_of_problems_with_a_code_of_
             )
         ).json()["id"]
         assert (await store.ended(waits)).status == "waiting"
-        assert refusal(await client.post(f"/runs/{waits}/answers", json={waiting_id: True})) == (
-            409,
-            [("run_changed", {})],
-        )
         wrong = await client.post(
             f"/runs/{waits}/answers", json={waiting_id: "not a bool", "nonesuch": True}
         )

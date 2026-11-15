@@ -752,6 +752,8 @@ async def test_an_attempt_that_timed_out_keeps_seeing_the_stop_event_of_its_resu
 
 
 async def test_two_workers_answering_one_run_at_once_start_one_resume_call() -> None:
+    """The worker that loses the claim reads the run again, finds it running, and queues its answer, which the run
+    then refuses: the question was answered by the other."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     store = MemoryStore()
@@ -762,26 +764,21 @@ async def test_two_workers_answering_one_run_at_once_start_one_resume_call() -> 
         row = await one.read(run_id)
 
         outcomes = await asyncio.gather(
-            one.answer(row, {waiting_id: True}),
-            other.answer(row, {waiting_id: True}),
-            return_exceptions=True,
+            one.answer(row, {waiting_id: True}), other.answer(row, {waiting_id: True})
         )
 
-        lost = [outcome for outcome in outcomes if isinstance(outcome, InvalidCallError)]
-        assert [outcome for outcome in outcomes if not isinstance(outcome, InvalidCallError)] == [
-            "started"
-        ]
-        assert [[problem.type for problem in refused.problems] for refused in lost] == [
-            ["run_changed"]
-        ]
-        assert (await store.ended(run_id)).status == "complete" and await _resume_calls(
-            store, run_id
-        ) == 2
+        assert sorted(outcomes) == ["queued", "started"]
+        ended = await store.ended(run_id)
+        assert (ended.status, list(ended.refused)) == ("complete", [waiting_id])
+        assert [problem.type for problem in ended.refused[waiting_id]] == ["not_waiting"]
+        assert await _resume_calls(store, run_id) == 2
 
 
-async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_run_takes_none() -> (
+async def test_a_second_answer_queued_for_a_question_is_refused_as_not_waiting_when_the_run_stops() -> (
     None
 ):
+    """The first answer is taken. The second finds nothing waiting on the question, in a run with calls still to
+    make, so its ``ctx.status`` is ``ready``."""
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -789,17 +786,51 @@ async def test_a_second_answer_queued_for_a_question_is_refused_and_a_complete_r
         run_id = await _started(worker, graph, inputs)
 
         assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
-        with pytest.raises(InvalidCallError) as twice:
-            await worker.answer(await worker.read(run_id), {waiting_id: False})
-        assert [(problem.type, problem.ctx) for problem in twice.value.problems] == [
-            ("already_answered", {"waiting_id": waiting_id})
+        assert await worker.answer(await worker.read(run_id), {waiting_id: False}) == "queued"
+        gate.set()
+        ended = await store.ended(run_id)
+
+        assert ended.outputs == {"busy": "x", "after": True}
+        assert [(problem.type, problem.ctx["status"]) for problem in ended.refused[waiting_id]] == [
+            ("not_waiting", "ready")
         ]
 
+
+async def test_a_wrong_first_answer_and_a_right_second_leave_nothing_refused() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await worker.answer(await worker.read(run_id), {waiting_id: "not a bool"})
+        await worker.answer(await worker.read(run_id), {waiting_id: True})
         gate.set()
-        assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
-        with pytest.raises(InvalidCallError) as complete:
-            await worker.answer(await worker.read(run_id), {})
-        assert [problem.type for problem in complete.value.problems] == ["run_complete"]
+        ended = await store.ended(run_id)
+
+    assert (ended.status, ended.refused, ended.outputs) == (
+        "complete",
+        {},
+        {"busy": "x", "after": True},
+    )
+
+
+async def test_an_answer_to_a_complete_run_is_refused_by_conductor_as_not_waiting() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        await worker.answer(await worker.read(run_id), {waiting_id: True})
+        assert (await store.ended(run_id)).status == "complete"
+
+        with pytest.raises(InvalidCallError) as refused:
+            await worker.answer(await worker.read(run_id), {waiting_id: False})
+
+    assert [(problem.type, problem.ctx["status"]) for problem in refused.value.problems] == [
+        ("not_waiting", "complete")
+    ]
 
 
 async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_long_the_first_takes_to_write_its_end() -> (
@@ -1043,7 +1074,7 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
         assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
         store.rows[run_id] = dataclasses.replace(
             store.rows[run_id],
-            state=json.dumps({**store.state(run_id), "queued_answers": {waiting_id: False}}),
+            state=json.dumps({**store.state(run_id), "queued_answers": [{waiting_id: False}]}),
         )  # as a resume call that raised leaves an answer queued; the test above reaches that through a raise
 
         assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
@@ -1107,12 +1138,12 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
         [(problem.type, problem.ctx) for problem in ended.refused[waiting.id]],
     ) == (
         "waiting",
-        [("answer_check_failed", {"waiting_id": waiting.id, "error": "KeyError"})],
+        [("raised_outside_a_node", {"error": "KeyError"})],
     )
     assert await _resume_calls(store, run_id) == 1
     # no host reads the queue, and an answer left in it would show only at the run's next stop, which this run, waiting
     # on a question only a fixed type can answer, never has; so the stored state is read here
-    assert store.state(run_id)["queued_answers"] == {}
+    assert store.state(run_id)["queued_answers"] == []
 
 
 async def test_a_cancel_given_a_waiting_run_an_answer_resumed_first_stops_the_answered_resume_call() -> (
@@ -1402,10 +1433,12 @@ async def test_a_resume_call_that_raised_outside_a_node_fails_the_run_with_a_cau
             failed.status,
             failed.cause.type,
             failed.cause.loc,
+            failed.cause.ctx,
         ) == (
             "failed",
-            "resume_failed",
+            "raised_outside_a_node",
             (),
+            {"error": "ConnectionError"},
         )
         assert await store.stored_events(run_id) == [
             {"type": "run_end", "status": "failed", "cause": failed.cause.model_dump(mode="json")}
@@ -1526,7 +1559,7 @@ async def test_a_run_whose_resume_call_raised_lists_the_calls_waiting_as_stored_
             failed.status,
             failed.cause.type,
             [waiting_call.id for waiting_call in failed.waiting],
-        ) == ("failed", "resume_failed", [second, third])
+        ) == ("failed", "raised_outside_a_node", [second, third])
 
         assert await worker.answer(await worker.read(run_id), {second: True}) == "started"
         assert [waiting_call.id for waiting_call in (await store.ended(run_id)).waiting] == [third]

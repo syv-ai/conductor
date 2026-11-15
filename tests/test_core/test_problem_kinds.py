@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pytest
 from conductor import PROBLEMS, Problem, ProblemCatalogue
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
-from conductor_providers.fastapi import ROUTER_PROBLEMS
+from conductor_providers.fastapi import SERVING_PROBLEMS
 
 catalogue = ProblemCatalogue()
 
@@ -205,7 +205,7 @@ def test_a_second_kind_under_a_code_without_a_variant_of_its_own_is_refused_wher
 
 
 def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> None:
-    for declared in (PROBLEMS, REGISTRY_CHECK_PROBLEMS, ROUTER_PROBLEMS):
+    for declared in (PROBLEMS, REGISTRY_CHECK_PROBLEMS, SERVING_PROBLEMS):
         for kind in declared:
             filled = kind.sentence.format(**{key: "x" for key in kind.ctx_type.__annotations__})
 

@@ -275,25 +275,16 @@ def test_two_workers_answering_one_run_at_once_start_one_resume_call(served: Ser
                 a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True}),
                 b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: False}),
             )
-            said = sorted(
-                [
-                    first.json() if first.status_code == 202 else 409,
-                    second.json() if second.status_code == 202 else 409,
-                ],
-                key=str,
-            )
-            # the later answer is refused at once, or, if it read the run once the resume call had started, queued and then refused
-            assert said in (
-                [409, {"answers": "started"}],
-                [{"answers": "queued"}, {"answers": "started"}],
-            )
+            # the answer that lost reads the run again: still running, it is queued, and the run refuses it when it
+            # stops; already complete, it is refused at once
+            lost = second if first.json() == {"answers": "started"} else first
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
-            if said[0] != 409:
-                refused = (await a.until_refused(run_id))["refused"]
-                assert [problem["type"] for problem in refused[waiting_call["id"]]] == [
-                    "not_waiting"
-                ]
+            if lost.status_code == 202:
+                refused = (await a.until_refused(run_id))["refused"][waiting_call["id"]]
+            else:
+                refused = lost.json()["detail"]
+            assert [problem["type"] for problem in refused] == ["not_waiting"]
 
     _run(scenario)
 
@@ -442,7 +433,7 @@ def test_an_answer_sent_while_a_resume_call_runs_to_an_id_nothing_waits_on_is_re
     _run(scenario)
 
 
-def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_a_409(
+def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_refused_when_it_ends(
     served: Served,
 ) -> None:
     async def scenario() -> None:
@@ -453,18 +444,16 @@ def test_a_second_answer_to_a_call_answered_while_a_resume_call_runs_is_a_409(
                 await a.client.post(f"/runs/{run_id}/answers", json={first["id"]: True})
             ).json() == {"answers": "started"}
             await served.until_calls(1)
-            assert (
-                await a.client.post(f"/runs/{run_id}/answers", json={second["id"]: False})
-            ).json() == {"answers": "queued"}
-            twice = await b.client.post(f"/runs/{run_id}/answers", json={second["id"]: True})
-            assert twice.status_code == 409
-            assert [(problem["type"], problem["ctx"]) for problem in twice.json()["detail"]] == [
-                ("already_answered", {"waiting_id": second["id"]})
-            ]
+            for worker, answer in ((a, False), (b, True)):
+                assert (
+                    await worker.client.post(f"/runs/{run_id}/answers", json={second["id"]: answer})
+                ).json() == {"answers": "queued"}
             served.open_the_gate()
             assert (await b.until_status(run_id, "complete"))["outputs"] == {
                 "result": [True, False]
             }
+            refused = (await b.until_refused(run_id))["refused"]
+            assert [problem["type"] for problem in refused[second["id"]]] == ["not_waiting"]
 
     _run(scenario)
 
@@ -542,7 +531,7 @@ def test_a_run_is_seen_only_by_the_caller_who_started_it(served: Served) -> None
     _run(scenario)
 
 
-def test_a_wrong_answer_is_a_422_listing_every_problem_and_a_complete_run_is_a_409(
+def test_a_wrong_answer_is_a_422_listing_every_problem_and_so_is_one_to_a_complete_run(
     served: Served,
 ) -> None:
     async def scenario() -> None:
@@ -563,7 +552,11 @@ def test_a_wrong_answer_is_a_422_listing_every_problem_and_a_complete_run_is_a_4
             )
             assert answered.status_code == 202
             await a.until_status(run_id, "complete")
-            assert (await a.client.post(f"/runs/{run_id}/answers", json={})).status_code == 409
+            late = await a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True})
+            assert (late.status_code, [p["type"] for p in late.json()["detail"]]) == (
+                422,
+                ["not_waiting"],
+            )
             assert (await a.client.post("/runs/nonesuch/answers", json={})).status_code == 404
 
     _run(scenario)
@@ -679,8 +672,10 @@ def test_a_host_s_own_routes_start_read_and_answer_runs_through_a_worker_on_eith
             )
             assert answered.json() == {"answers": "started"}
             assert (await _admitted_until(a, run_id, "complete"))["outputs"] == {"result": [True]}
-            twice = await a.client.post(f"/admitted/runs/{run_id}/answers", json={})
-            assert [problem["type"] for problem in twice.json()["detail"]] == ["run_complete"]
+            twice = await a.client.post(
+                f"/admitted/runs/{run_id}/answers", json={waiting_call["id"]: True}
+            )
+            assert [problem["type"] for problem in twice.json()["detail"]] == ["not_waiting"]
             assert served.calls == ["after"]
 
     _run(scenario)

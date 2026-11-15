@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -121,7 +121,7 @@ class Outcome(BaseModel):
 class StoredState(BaseModel):
     """A run's status and what was asked of it while it was running: a row's ``state``, as JSON.
 
-    Example: ``{"status": "running", "cause": null, "queued_answers": {"approve@1~3fa2c0d1": true}, "refused": {},
+    Example: ``{"status": "running", "cause": null, "queued_answers": [{"approve@1~3fa2c0d1": true}], "refused": {},
     "cancel_asked": false}`` for a running run that one answer was sent to.
 
     It is small however large the run is, so a route that queues an answer or asks a cancel reads and writes it
@@ -139,9 +139,9 @@ class StoredState(BaseModel):
             ``failed`` for a resume call that raised.
         cause: ``run.cause`` as the run was stored, or why a resume call raised; ``None`` for a running run and for
             one that did not end early, which can't be resumed.
-        queued_answers: Answers that came while the run was running, by waiting id; the run is given them when it
-            stops.
-        refused: Queued answers the run refused when it stopped, by waiting id, each with its problems.
+        queued_answers: The answers that came while the run was running, each mapping as one call sent it, in the
+            order they came; the run is given them when it stops.
+        refused: By waiting id, the problems of the last answer to that question, when the run refused it.
         cancel_asked: Whether someone asked the running run to stop; a waiting run that is cancelled is made
             running with it set, so its resume call ends before any node call. It is cleared when the run stops
             for it. A cancel that came after the last node call is kept when a queued answer makes the run running
@@ -150,14 +150,14 @@ class StoredState(BaseModel):
 
     status: RunStatus
     cause: Problem | None
-    queued_answers: dict[str, Any]
+    queued_answers: list[dict[str, Any]]
     refused: dict[str, list[Problem]]
     cancel_asked: bool
 
     @classmethod
     def started(cls) -> StoredState:
         """The state of a run that has just started: it is running, and nothing is queued, refused or asked."""
-        return cls(status="running", cause=None, queued_answers={}, refused={}, cancel_asked=False)
+        return cls(status="running", cause=None, queued_answers=[], refused={}, cancel_asked=False)
 
     @property
     def is_running(self) -> bool:
@@ -190,6 +190,17 @@ class StoredState(BaseModel):
         """
         return self.model_copy(update={"status": "failed", "cause": cause})
 
+    def queued(self, answers: Mapping[str, Any]) -> StoredState:
+        """This state with one more call's answers queued, after those queued before.
+
+        Args:
+            answers: The answers one call sent, by waiting id.
+
+        Returns:
+            The state with ``answers`` last in ``queued_answers``.
+        """
+        return self.model_copy(update={"queued_answers": [*self.queued_answers, dict(answers)]})
+
     def answered(self, waiting_ids: Collection[str]) -> StoredState:
         """This state once answers to some questions are taken: nothing is refused or queued for them any more.
 
@@ -199,15 +210,13 @@ class StoredState(BaseModel):
         Returns:
             The state without them in ``refused`` and ``queued_answers``.
         """
-        left = {
-            name: {
-                waiting_id: held
-                for waiting_id, held in column.items()
-                if waiting_id not in waiting_ids
-            }
-            for name, column in (("queued_answers", self.queued_answers), ("refused", self.refused))
-        }
-        return self.model_copy(update=left)
+        queued = [
+            left
+            for answers in self.queued_answers
+            if (left := {key: value for key, value in answers.items() if key not in waiting_ids})
+        ]
+        refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
+        return self.model_copy(update={"queued_answers": queued, "refused": refused})
 
     def columns(self) -> RunChanges:
         """The row's ``status`` and ``state`` for this state.
@@ -239,8 +248,8 @@ class RunView(Outcome):
         status: Where the run is: ``running`` while a worker resumes it, ``waiting`` for answers, ``complete``, or
             how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which ``Worker.resume``
             goes on from.
-        refused: Answers sent while the run was running that were refused when it stopped, by waiting id, each
-            with its problems.
+        refused: By waiting id, the problems of the last answer sent to that question while the run was running,
+            when the run refused it once it stopped.
         cause: Why the run ended early; ``None`` while it runs, waits or once complete.
     """
 
@@ -255,7 +264,7 @@ class RunAsRead:
     """A run as read from the store: ``Worker.read`` gives it, and every ``Worker`` method that acts on a run takes it.
 
     A method that changes the run writes only while the row is still as it was read, so a run read before another
-    call changed it is refused with ``run_changed``, or read again where the method says so. ``view()`` is the run as
+    call changed it is read again, and the method acts on it as it is then. ``view()`` is the run as
     a reader is shown it, and ``Worker.caller_of(run)`` the caller it was admitted for.
     """
 

@@ -26,7 +26,7 @@ from conductor_providers.fastapi import RunChanges, RunView, StoredRun, Worker
 #: A just-begun run's ``state`` column in its stored form, as hosts' databases hold it: the rows a test writes as an
 #: earlier worker left them read it, so a change to the form that would break those databases breaks them too.
 BEGUN_RUN_STATE = json.dumps(
-    {"status": "running", "cause": None, "queued_answers": {}, "refused": {}, "cancel_asked": False}
+    {"status": "running", "cause": None, "queued_answers": [], "refused": {}, "cancel_asked": False}
 )
 
 

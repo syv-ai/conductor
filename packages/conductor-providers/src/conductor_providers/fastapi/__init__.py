@@ -11,8 +11,8 @@ runs against one store: each takes over the runs of a worker that died, and a
 worker that shuts down hands its runs back.
 """
 
+from conductor_providers.fastapi.problems import SERVING_PROBLEMS
 from conductor_providers.fastapi.router import run_router
-from conductor_providers.fastapi.router_problems import ROUTER_PROBLEMS
 from conductor_providers.fastapi.store import RunStore
 from conductor_providers.fastapi.stored_run import RunAsRead, RunChanges, RunView, StoredRun
 from conductor_providers.fastapi.worker import Worker
@@ -25,5 +25,5 @@ __all__ = [
     "RunChanges",
     "RunAsRead",
     "RunView",
-    "ROUTER_PROBLEMS",
+    "SERVING_PROBLEMS",
 ]
