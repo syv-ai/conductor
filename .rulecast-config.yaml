@@ -21,7 +21,7 @@ repos:
 
       - id: touch/validation
         name: Where outside values are validated
-        files: '^packages/conductor/src/conductor/_internal/validation/'
+        files: '^packages/conductor/src/conductor/_internal/([^/]+/validator\.py$|validation/)'
         stages: [touch]
         context:
           - "@conventions/validation.md#validation-is-the-wall"
@@ -394,7 +394,7 @@ repos:
       - id: validation/validator-outside-validation
         name: Validators are built only in validation/
         files: '^packages/conductor/src/conductor/.*\.py$'
-        exclude: '^packages/conductor/src/conductor/_internal/(validation/|types/|run/json/|problem/errors\.py$|base/json\.py$)'
+        exclude: '^packages/conductor/src/conductor/_internal/([^/]+/validator\.py$|validation/|types/|run/json/|problem/errors\.py$|base/json\.py$)'
         detect:
           ast-grep:
             language: python

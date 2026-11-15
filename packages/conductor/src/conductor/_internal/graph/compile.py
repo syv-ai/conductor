@@ -50,6 +50,7 @@ from conductor._internal.node import (
     HookName,
     NodeDefinition,
     SubgraphDefinition,
+    read_hook_fields,
 )
 from conductor._internal.problem import InvalidCallError, NodeError, Problem, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
@@ -59,7 +60,6 @@ from conductor._internal.validation import (
     declared_input,
     declared_output,
     read_constant,
-    read_hook_fields,
     read_record,
 )
 

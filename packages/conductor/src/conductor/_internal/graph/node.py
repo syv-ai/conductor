@@ -27,12 +27,11 @@ from pydantic import JsonValue
 from conductor._internal.ask import Ask
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.node import FunctionDefinition, SubgraphDefinition
+from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
 from conductor._internal.types import Choice
 from conductor._internal.validation import (
     AnswerValidator,
     AskValidator,
-    ReturnValidator,
     undeclared_ask,
 )
 

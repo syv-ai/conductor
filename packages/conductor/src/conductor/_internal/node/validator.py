@@ -1,7 +1,9 @@
-"""The return validator: what a node's function returns, read into the node's outputs by one pydantic validator.
+"""The validators of what a node's code returns: what its function returns, read into its outputs, and what its
+``compute_added_inputs`` or ``compute_outputs`` hook returns, read into fields when the graph is compiled.
 
-Example: ``shout(line: str) -> str`` returns ``"B!"``, and its validator gives ``{"result": "B!"}``. Returned ``3``, the
-validator raises ``InvalidCallError`` with the problem ``invalid_output`` for the output ``result``.
+The return validator. Example: ``shout(line: str) -> str`` returns ``"B!"``, and its validator gives
+``{"result": "B!"}``. Returned ``3``, the validator raises ``InvalidCallError`` with the problem ``invalid_output``
+for the output ``result``.
 
 A value is read strictly: a value already of its class is kept as it is, a dict is read into a model, and ``"12"``
 is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every output.
@@ -12,8 +14,15 @@ no output missing or unknown, and of each exclusive group exactly one output wit
 Then each output's value, by its type, in the order the outputs are declared. Only the first fault is reported, as
 one problem.
 
-Every rule inside the validator raises ``PydanticCustomError``: any other exception would escape pydantic with the
-value in its message.
+Every rule inside the return validator raises ``PydanticCustomError``: any other exception would escape pydantic
+with the value in its message.
+
+The hook validator. Example: a node ``fields(names: str)`` whose ``compute_outputs`` hook, given ``names="a,b"``,
+returns ``{"a": str, "b": (int, 0)}`` gets two outputs, ``a: str`` and ``b: int`` with the default 0. A hook returns
+each field's type, or ``(type, default)`` as pydantic's ``create_model`` takes one. Given ``names="a.b"`` it returns
+``{"a.b": str}``, which is the hook's failure, ``compute_hook_failed`` with ``error`` ``not_a_name``: a name holds
+none of the characters places in a graph are written with (``Name``, the rule every name in a graph record is held
+to).
 """
 
 from __future__ import annotations
@@ -21,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from pydantic_core import (
     CoreSchema,
     PydanticCustomError,
@@ -29,13 +38,22 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import SKIPPED
+from conductor._internal.base import REQUIRED, SKIPPED, Name
 from conductor._internal.field import Field
-from conductor._internal.problem import InvalidCallError, run_problems
+from conductor._internal.problem import (
+    InvalidCallError,
+    NodeDeclarationError,
+    compile_problems,
+    run_problems,
+)
 from conductor._internal.utils import comma_separated
-
-from .exclusive_group import exclusive_groups, groups_without_one_value
-from .rules import exact_classes, output_schema_of, schema_output_validator_of
+from conductor._internal.validation import (
+    exact_classes,
+    exclusive_groups,
+    groups_without_one_value,
+    output_schema_of,
+    schema_output_validator_of,
+)
 
 
 class ReturnValidator:
@@ -261,3 +279,61 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
         return {name: value for name, value in returned.items() if value is not SKIPPED}
 
     return by_name
+
+
+#: What a hook returns: a type, or ``(type, default)``, for each name.
+_HOOK_FIELDS = TypeAdapter(dict[Name, Any])
+
+
+def read_hook_fields(
+    node_id: str, kind: str, returned: Any, read_field: Callable[[str, Any, Any], Field]
+) -> dict[str, Field]:
+    """Returns what the hook ``kind`` of the node ``node_id`` returned, as fields by name, each read by
+    ``read_field`` as ``@node`` reads one: ``declared_input`` for ``compute_added_inputs``, ``declared_output`` for
+    ``compute_outputs``.
+
+    Raises:
+        InvalidCallError: ``compute_hook_failed``, one at each name that cannot be one (``error`` ``not_a_name``), or
+            one at the node when the hook returned no mapping (``error`` ``not_a_mapping``), or a field ``@node``
+            would refuse (``error`` the declaration code: ``type_not_carried`` for a type conductor does not support,
+            ``exclusive_group_on_input`` or ``default_invalid`` for an added input that is a branch, ``default_invalid``
+            for an output of an exclusive group with a default other than ``SKIPPED``, ``constant_only_on_output``).
+    """
+    try:
+        hints = _HOOK_FIELDS.validate_python(returned)
+    except ValidationError as invalid:
+        if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
+            reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
+            raise InvalidCallError(
+                [
+                    compile_problems.compute_hook_failed(
+                        node_id, reason=reason, error="not_a_mapping"
+                    )
+                ]
+            ) from None
+        raise InvalidCallError(
+            compile_problems.compute_hook_failed(
+                node_id,
+                str(fault["loc"][0]),
+                reason=f"what its {kind} hook returned has a field name it cannot have ({fault['msg']})",
+                error="not_a_name",
+            )
+            for fault in invalid.errors()
+        ) from None
+    try:
+        return {name: read_field(name, *_hint_and_default(hint)) for name, hint in hints.items()}
+    except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
+        raise InvalidCallError(
+            [
+                compile_problems.compute_hook_failed(
+                    node_id, reason=str(error), error=error.problems[0].type
+                )
+            ]
+        ) from None
+
+
+def _hint_and_default(given: Any) -> tuple[Any, Any]:
+    """Reads what a hook returns for one field: ``(type, default)``, or a type alone, which then has no default."""
+    if isinstance(given, tuple) and len(given) == 2:
+        return given[0], given[1]
+    return given, REQUIRED
