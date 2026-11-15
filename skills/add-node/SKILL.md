@@ -13,15 +13,14 @@ To wire nodes into a graph and run it, use the **create-graph** skill. The insta
 from typing import Annotated
 
 from conductor import NodeRegistry, Param
-from conductor.widgets import NumberInput, TextInput
 
 registry = NodeRegistry(category="text")   # its nodes' category, unless one sets its own
 
 
 @registry.node("greet", title="Greet", description="Greets a person by name.")               # the id; a graph pins it with a version
 def greet(
-    name: Annotated[str, Param(title="Name", widget=TextInput())],
-    times: Annotated[int, Param(title="Times", widget=NumberInput())] = 1,
+    name: Annotated[str, Param(title="Name")],
+    times: Annotated[int, Param(title="Times")] = 1,
 ) -> str:
     """Produces a greeting."""
     return " ".join(f"hello {name}" for _ in range(times))
@@ -42,7 +41,7 @@ assert registry["greet"] is greet
 - A field's title is its `Param(title=)`. Without one it's `None`: nothing is guessed from the parameter's name.
 
 **Inputs.**
-- An input without a widget gets no control in an editor. An edge fills it, or a value set in code.
+- Give an input a widget only where it says more than its type, such as `Param(widget=Textarea())` for a long text. A host's editor picks the control for a `str`, a number, a `bool` or a list from the type, so `TextInput()`, `NumberInput()`, `Switch()` and `ListInput()` there add nothing.
 - A default makes an input optional, and the palette shows it as `default` (`null` means the value `None`). An input without a default is `required` and has no `default` key.
 - `Param(constant_only=True)` makes an input a setting that's fixed when the graph is drawn. An edge never wires it, and a caller never gives it.
 - `Param(ge=0, max_length=31, ...)` sets pydantic's limits on a value. `@node` refuses a limit that can't apply to the type.
