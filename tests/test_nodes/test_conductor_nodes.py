@@ -3,9 +3,10 @@
 from typing import Any
 
 import conductor_nodes
+import polars as pl
 import pytest
-from conductor import Graph, InvalidCallError, make_graph
-from conductor_nodes import control, json_ops, regex_ops, text
+from conductor import Graph, InvalidCallError, NodeRegistry, Table, make_graph
+from conductor_nodes import control, json_ops, logic, regex_ops, text
 from pytest import MonkeyPatch
 
 
@@ -36,6 +37,16 @@ def _run(node_id: str, **values: Any) -> dict[str, Any]:
         ("math-round", {"value": 0.125, "decimals": 2}, 0.13),
         ("math-min", {"values": [3, 1, 2]}, 1),
         ("logic-not", {"value": True}, False),
+        ("logic-equals", {"value": "a", "other": "a"}, True),
+        ("logic-equals", {"value": "a", "other": "A"}, False),
+        ("logic-is-empty", {"value": None}, True),
+        ("logic-is-empty", {"value": ""}, True),
+        ("logic-is-empty", {"value": []}, True),
+        ("logic-is-empty", {"value": {}}, True),
+        ("logic-is-empty", {"value": " "}, False),
+        ("logic-is-empty", {"value": 0}, False),
+        ("logic-is-empty", {"value": False}, False),
+        ("logic-is-empty", {"value": ["x"]}, False),
         ("json-parse", {"text": '{"a": 1, "b": [2, 3]}'}, {"a": 1, "b": [2, 3]}),
         ("json-stringify", {"value": {"b": 2, "a": 1}, "sort_keys": True}, '{"a": 1, "b": 2}'),
         ("json-get", {"value": {"user": {"name": "Ada"}}, "path": "user.name"}, "Ada"),
@@ -95,6 +106,60 @@ def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is
         "if_false": None,
     }
     assert graph.run(value="hi", when=False).outputs == {"result": None}
+
+
+def test_a_test_wired_into_a_decision_sends_the_value_the_way_the_test_says() -> None:
+    graph = Graph.compile(
+        make_graph(
+            text.length,
+            logic.equals,
+            control.decision,
+            text.uppercase,
+            edges=[
+                ("text-length.result", "logic-equals.value"),
+                ("logic-equals.result", "control-decide.when"),
+                ("control-decide.if_true", "text-uppercase.text"),
+            ],
+            constants={"logic-equals.other": 2},
+        ),
+        conductor_nodes.registry,
+    )
+
+    assert graph.run(text="hi", value="pass").outputs == {"result": "PASS"}
+    assert graph.run(text="hey", value="pass").outputs == {"result": None}
+
+
+def test_equals_reads_the_other_value_by_the_type_wired_to_its_value() -> None:
+    graph = Graph.compile(
+        make_graph(text.length, logic.equals, edges=[("text-length.result", "logic-equals.value")]),
+        conductor_nodes.registry,
+    )
+
+    assert [
+        (each.field.name, each.field.type) for each in graph.describe().nodes["logic-equals"].inputs
+    ] == [
+        ("value", "int"),
+        ("other", "int"),
+    ]
+
+
+def test_is_empty_is_true_for_nothing_found_and_for_a_table_of_no_rows() -> None:
+    registry = NodeRegistry()
+    registry.add_subregistry(conductor_nodes.registry)
+
+    @registry.node("no-rows", title="No rows", description="Gives a table of no rows.")
+    def no_rows() -> Table:
+        return pl.DataFrame({"name": []}, schema={"name": pl.String})
+
+    found = Graph.compile(
+        make_graph(json_ops.get_path, logic.is_empty, constants={"json-get.path": "user.name"}),
+        registry,
+    )
+    table = Graph.compile(make_graph(no_rows, logic.is_empty), registry)
+
+    assert found.run(value={"user": {}}).outputs == {"result": True}
+    assert found.run(value={"user": {"name": "Ida"}}).outputs == {"result": False}
+    assert table.run().outputs == {"result": True}
 
 
 def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:

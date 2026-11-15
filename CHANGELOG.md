@@ -262,8 +262,9 @@ What changes in how you work, before the name-by-name tables:
   There is no canvas package.
 - **`syv-conductor-nodes` has a `series` category.** It holds `series-collect` ("Collect"), which runs once
   and gives the value of every item as one list. `split` and `stack` are `series-split` and
-  `series-stack` and live in `conductor_nodes.series`. `decision`, `logic-if-empty` and `logic-if-equals`
-  are `control-decide`, `control-if-empty` and `control-if-equals`. A graph record that names an old id
+  `series-stack` and live in `conductor_nodes.series`. `decision` is `control-decide`. `logic-if-empty` and
+  `logic-if-equals`, which sent a text one way or the other, are gone: `logic-is-empty` and `logic-equals` give a
+  yes or no on a value of any type, to wire into `control-decide.when`. A graph record that names an old id
   needs the new one, and a run saved from a graph that used an old id is refused by `Run.from_json`
   (`saved_run_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
 - **`syv-conductor-nodes` gives a widget only where it says more than the type.** A text to work on
@@ -497,10 +498,10 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.about.get_content` | `get_content`, unchanged |
 | `conductor.about.get_section` | `get_section`, unchanged |
 | `conductor.about.list_sections` | `list_sections`, unchanged |
-| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`text-contains`, `regex-match`), wired into `control-decide.when` |
+| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`logic-equals`, `logic-is-empty`, `text-contains`, `regex-match`), wired into `control-decide.when` |
 | `conductor_nodes`: `get_default_registry`, `register_all` | `conductor_nodes.registry`, added with `registry.add_subregistry(...)` |
 | `conductor_nodes`: `CATEGORIES` | gone: each node has its `category`; `conductor_nodes.registry.filter(lambda d: d.category == "math")` |
-| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`control-decide`, `control-if-empty`, `control-if-equals`), `json_ops`, `logic` (`logic-not`), `math`, `regex_ops`, `text`; the ids of `decision`, `logic-if-empty` and `logic-if-equals` are the new ones, and the other node ids are unchanged |
+| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`control-decide`), `json_ops`, `logic` (`logic-not`, `logic-equals`, `logic-is-empty`), `math`, `regex_ops`, `text`; `decision` is `control-decide`, `logic-if-empty` and `logic-if-equals` are gone (`logic-is-empty` and `logic-equals` wired into `control-decide.when`), and the other node ids are unchanged |
 | `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per item of a `Series` wired to it, and a pause is `raise Ask(...)` |
 | `conductor_providers.fastapi.conductor_router` | `conductor_providers.fastapi.run_router(worker, caller=, may_see=)` over a `Worker(store=, caller_type=, nodes_for=)`, `nodes_for=` a function of the caller: runs by id, kept in a `RunStore`, on several workers; `/nodes` is the caller's registry's `describe()`, `/compile` is `POST /compile` (`graph.describe()`), `/execute-stream` is `POST /runs` and `GET /runs/{id}/events` |
 | `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |

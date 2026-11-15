@@ -23,12 +23,12 @@ print(graph.run(text="a\nb").outputs)  # {'result': ['A', 'B']}
 |---|---|---|
 | `text` | `text` | `text-uppercase`, `text-lowercase`, `text-trim`, `text-length`, `text-concat`, `text-replace`, `text-contains`, `text-split`, `text-list`, `text-join`, `text-reverse` |
 | `math` | `math` | `math-add`, `math-subtract`, `math-multiply`, `math-divide`, `math-modulo`, `math-round`, `math-min`, `math-max`, `math-abs` |
-| `logic` | `logic` | `logic-not` |
+| `logic` | `logic` | `logic-not`, `logic-equals`, `logic-is-empty` |
 | `json_ops` | `json` | `json-parse`, `json-stringify`, `json-get` |
 | `regex_ops` | `regex` | `regex-match`, `regex-replace`, `regex-extract` |
 | `series` | `series` | `series-split`, `series-collect`, `series-stack` |
 | `tables` | `table` | `table-collect` |
-| `control` | `control` | `control-decide`, `control-if-empty`, `control-if-equals` |
+| `control` | `control` | `control-decide` |
 
 Each module is one category, so a module's `registry` and a filter by category pick the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
 
