@@ -78,6 +78,13 @@ class Field:
             raise error.within(self.name) from None
 
     @property
+    def is_branch(self) -> bool:
+        """Whether it is an output on a branch: one the node may give no value on a call, ``SKIPPED`` instead. An
+        output of an exclusive group is one, and so is one whose default is ``SKIPPED``. Left out of an answer, or on a
+        call the node did not make, a branch is not chosen."""
+        return self.param.exclusive_group is not None or self.default is SKIPPED
+
+    @property
     def is_series(self) -> bool:
         """Whether it is declared ``Series[T]``: an output that returns a list a graph can loop over, or an input that
         takes every item of a loop as one list."""
@@ -122,7 +129,7 @@ class Field:
 
         An input whose type takes ``None`` and that has no default is ``required``: an edge or a constant gives it.
         """
-        branch = self.param.exclusive_group is not None or self.default is SKIPPED
+        branch = self.is_branch
         default: JsonValue | MISSING
         if self.default is not REQUIRED:
             default = self.default_json  # MISSING for SKIPPED

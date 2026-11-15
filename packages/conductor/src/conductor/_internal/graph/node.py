@@ -175,12 +175,11 @@ class CompiledFunctionNode(_CompiledNodeBase):
         does not accept ``None``.
 
         For ``shout``: ``{"result": None}``. For ``route``, whose two outputs are branches, and a node with one more
-        output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. An output is a branch
-        when its ``Param`` gives it an ``exclusive_group``.
+        output ``note`` that is not: ``{"short": SKIPPED, "long": SKIPPED, "note": None}``. A branch
+        (``Field.is_branch``) is not chosen.
         """
         return {
-            name: SKIPPED if output.param.exclusive_group is not None else None
-            for name, output in self.outputs.items()
+            name: SKIPPED if output.is_branch else None for name, output in self.outputs.items()
         }
 
     @functools.cached_property

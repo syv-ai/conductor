@@ -662,6 +662,38 @@ def test_a_branching_node_outside_loops_not_called_skips_the_nodes_on_its_branch
     ]
 
 
+@dataclass(frozen=True)
+class Noted:
+    note: str
+    extra: str = SKIPPED  # type: ignore[assignment]
+
+
+def test_an_output_whose_default_is_skipped_is_a_branch_not_chosen_where_its_node_is_not_called():
+    """``extra`` is a branch, as an output whose default is ``SKIPPED`` is: where ``d`` is not called, it is not
+    chosen and ``y`` is skipped, while ``note`` is ``None`` there and ``z``, whose input takes ``None``, is called."""
+
+    @node("nothing", title="Nothing", description="For a test.")
+    def nothing() -> str | None:
+        return None
+
+    @node("noted", title="Noted", description="For a test.")
+    def noted(text: str) -> Noted:
+        return Noted(note=text, extra=text)
+
+    run = graph(
+        {"id": "n", "node": "nothing"},
+        {"id": "d", "node": "noted"},
+        {"id": "y", "node": "send-or-say"},
+        {"id": "z", "node": "send-or-say"},
+        edges=(("n.result", "d.text"), ("d.extra", "y.email"), ("d.note", "z.email")),
+        registry=registry_of(nothing, noted, send_or_say),
+        outputs={"y": "y.result", "z": "z.result"},
+    ).run()
+
+    assert run.results["d"] == {"note": None, "extra": None}
+    assert (run.results["y"]["result"], run.results["z"]["result"]) == (None, "no address")
+
+
 def test_a_node_collecting_calls_that_read_a_table_from_outside_the_loop_is_called():
     """Whether collecting is skipped is decided by the outcome of the node that returned the outer value, never by
     comparing values: a table has no plain ``==``."""

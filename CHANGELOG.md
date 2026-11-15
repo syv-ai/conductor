@@ -81,6 +81,10 @@ What changes in how you work, before the name-by-name tables:
   outputs beside a group, or two groups, and may choose none in a group while giving the rest values, makes "none"
   a branch of that group (an output such as `neither`), or is split in two. An answer was already held to exactly
   one.
+- **An output whose default is `SKIPPED` is a branch wherever conductor asks.** Where its node is not called (an
+  argument `None` its input does not take), it is `SKIPPED`, a branch not chosen, as an output of an
+  `exclusive_group` is, and the nodes wired to it are skipped; it was `None`, and they were called with `None`. Its
+  description already said leaving it out gives a branch not chosen.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
