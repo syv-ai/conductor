@@ -30,6 +30,7 @@ from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, Problem, call_problems, compile_problems
 from conductor._internal.types import Type
+from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, schema_of, schema_validator_of
 
 
@@ -163,8 +164,10 @@ def _input_schema(field: Field) -> TypedDictField:
     return core_schema.typed_dict_field(schema, required=required)
 
 
-class Limits(TypedDict):
-    """A run's limits as ``LimitsValidator`` returns them: ``None`` for a limit the caller did not give."""
+class Limits(TypedDict, total=False):
+    """A run's limits by name, as a caller gives them to ``LimitsValidator`` and as it returns them: a limit given as
+    ``None``, or left out, is one the caller did not give. What the validator returns has all three, ``None`` for a
+    limit not given."""
 
     max_items: int | None
     timeout: float | None
@@ -193,7 +196,7 @@ _LIMITS = SchemaValidator(
 )
 
 
-class LimitsValidator(Validator[Mapping[str, Any], Limits]):
+class LimitsValidator(Validator[Limits, Limits]):
     """Reads the limits a caller gives a run, and returns them as the run keeps them: ``timeout`` and
     ``checkpoint_every`` as a ``float``, so ``timeout=Decimal("1.5")`` is ``1.5``.
 
@@ -205,12 +208,19 @@ class LimitsValidator(Validator[Mapping[str, Any], Limits]):
             given; its variant ``seconds`` for ``timeout`` and ``checkpoint_every``.
     """
 
-    def __call__(self, limits: Mapping[str, Any]) -> Limits:
+    def __call__(self, limits: Limits) -> Limits:
         """Returns the limits the caller gave, by name; a limit left out, or ``None``, is one it did not give.
 
         Raises:
             InvalidCallError: See the class.
+            TypeError: ``limits`` names a limit there is none of, such as ``max_item``: a fault in conductor's own
+                call, which mypy refuses too.
         """
+        if unknown := sorted(limits.keys() - Limits.__annotations__.keys()):
+            raise TypeError(
+                f"a run has no limit {unknown[0]!r}; its limits are "
+                f"{comma_separated(Limits.__annotations__)}"
+            )
         given = {
             "max_items": limits.get("max_items"),
             "timeout": limits.get("timeout"),
