@@ -6,7 +6,9 @@ and where the value belongs (a node id), and is called with the value alone::
     outputs = compiled_node.return_validator("B!")   # {"result": "B!"} for shout
 
 It returns the value as the engine keeps it, or raises ``InvalidCallError`` with a problem for each fault it reports;
-its caller decides what becomes of the problems. Each package whose values come from outside keeps its validators in
+its caller decides what becomes of the problems. Two read a node's declaration rather than a value from outside:
+``DeclaredInputValidator`` and ``DeclaredOutputValidator`` are built for each field a node declares, called once with
+its default, return the ``Field``, and raise ``NodeDeclarationError``, a fault in the node's code met at import. Each package whose values come from outside keeps its validators in
 its ``validator.py``, and a subclass declared in any other module is refused when the module is imported.
 """
 
@@ -23,8 +25,9 @@ class Validator[V, T](ABC):
     called the same way. It is declared in a module named ``validator.py``.
 
     Raises (when called):
-        InvalidCallError: The value is refused, with a problem for each fault the validator reports. A default a node
-            declares raises ``NodeDeclarationError`` instead: it is a fault in the node's code, met at import.
+        InvalidCallError: The value is refused, with a problem for each fault the validator reports.
+        NodeDeclarationError: Instead, for the two validators of a node's declaration (``DeclaredInputValidator``,
+            ``DeclaredOutputValidator``): the default a node declares is a fault in the node's code, met at import.
     """
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
