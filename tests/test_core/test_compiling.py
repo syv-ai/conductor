@@ -1077,6 +1077,63 @@ def test_two_inputs_naming_one_graph_input_with_different_types_or_defaults_is_g
     assert not graph.is_runnable
 
 
+def _taking(node_id, hint):
+    """A node whose one input ``n`` is declared ``hint``."""
+
+    def count(n):
+        return n
+
+    count.__annotations__ = {"n": hint, "return": int}
+    return node(node_id, title=node_id, description="For a test.")(count)
+
+
+def _one_graph_input_feeding(a_hint, b_hint):
+    """The graph whose graph input ``x`` feeds ``a.n``, declared ``a_hint``, and ``b.n``, declared ``b_hint``."""
+    a, b = _taking("a", a_hint), _taking("b", b_hint)
+    record = make_graph(
+        a, b, edges=[], inputs={"x": ["a.n", "b.n"]}, outputs={"a": "a.result", "b": "b.result"}
+    )
+    return Graph.compile(record, registry_of(a, b))
+
+
+@pytest.mark.parametrize(
+    "written_again",
+    [Annotated[int, Param()], Annotated[int, Param(title=None)]],
+    ids=["empty param", "param of defaults"],
+)
+def test_two_inputs_of_one_graph_input_written_differently_but_meaning_the_same_agree(
+    written_again,
+):
+    graph = _one_graph_input_feeding(int, written_again)
+    assert graph.problems == []
+    assert graph.inputs == _one_graph_input_feeding(int, int).inputs
+    assert graph.run(x=3).outputs == {"a": 3, "b": 3}
+
+
+@pytest.mark.parametrize(
+    ("a_hint", "b_hint"),
+    [
+        (int, str),
+        (int, Annotated[int, Param(ge=0)]),
+        (int, Annotated[int, Param(choices=[1, 2])]),
+        (int, Annotated[int, Param(title="Count")]),
+        (Annotated[int, Param(title="Count")], Annotated[int, Param(title="Total")]),
+        (int, Annotated[int, Param(description="How many.")]),
+        (int, Annotated[int, Param(widget=Textarea())]),
+    ],
+    ids=["type", "limit", "choices", "title", "two titles", "description", "widget"],
+)
+def test_two_inputs_of_one_graph_input_that_take_other_values_or_are_shown_otherwise_are_used_two_ways(
+    a_hint, b_hint
+):
+    [problem] = _one_graph_input_feeding(a_hint, b_hint).problems
+    assert (problem.type, problem.loc, problem.ctx["graph_input"]) == (
+        "graph_input_used_two_ways",
+        ("b", "n"),
+        "x",
+    )
+
+
 def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
     graph = Graph.compile(
         GraphRecord.model_validate(

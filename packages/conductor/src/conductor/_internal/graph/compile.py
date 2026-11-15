@@ -560,9 +560,11 @@ class Compiler:
         input ``name``, and adds the graph input to ``graph_inputs``.
 
         Example: ``strip.line`` and ``shout.line`` both name the graph input ``line``, so a caller's ``line="a"`` is
-        the value of both. The two must take one type, and the record's defaults for it must agree; else the graph
-        has the problem ``graph_input_used_two_ways`` and the second gets no value. The input's own default plays no
-        part: a graph input the record gives no default is required.
+        the value of both. The two must take the same values (one ``Type``) and be shown to a host the same way (one
+        ``description``, the default aside), and the record's defaults for it must agree; else the graph has the
+        problem ``graph_input_used_two_ways`` and the second gets no value. So ``int`` and ``Annotated[int, Param()]``
+        agree, and ``int`` and ``Annotated[int, Param(title="Count")]`` do not. The input's own default plays no part:
+        a graph input the record gives no default is required.
 
         Args:
             node_id: The node.
@@ -573,22 +575,15 @@ class Compiler:
         """
         if default is _INVALID:
             return MissingInput(field)
+        used = Field(name, field.hint, default, is_output=False)
         found = self.graph_inputs.get(name)
-        if found is None or (found.default is REQUIRED and found.hint == field.hint):
-            self.graph_inputs[name] = Field(
-                name,
-                field.hint,
-                default if found is None or default is not REQUIRED else found.default,
-                is_output=False,
-            )
-        elif found.hint != field.hint or (
-            default is not REQUIRED
-            and Field(name, field.hint, default, is_output=False).default_json != found.default_json
-        ):
+        if found is not None and not _same_graph_input(found, used):
             self.problems.append(
                 compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name)
             )
             return MissingInput(field)
+        if found is None or found.default is REQUIRED:
+            self.graph_inputs[name] = used
         return GraphInput(field, name)
 
     def _constants_of(
@@ -902,6 +897,29 @@ def _edges_into(record: NodeRecord) -> dict[str, tuple[Source, ...]]:
     return {
         name: entry.sources for name, entry in record.inputs.items() if entry.sources is not MISSING
     }
+
+
+def _same_graph_input(found: Field, used: Field) -> bool:
+    """Whether two inputs that name one graph input can take the caller's one value: they take the same values (one
+    type, with the same limits and choices), a host is shown them the same way (title, description, widget), and
+    where the record gives both a default, it is one. ``int`` and ``Annotated[int, Param()]`` are one graph input.
+
+    Args:
+        found: The graph input as the inputs before named it, with the record's default if one gave it.
+        used: The graph input as one more input names it, with the record's default for it, if any.
+    """
+    shown, shown_again = (
+        field.description.model_dump(exclude={"default", "required"}) for field in (found, used)
+    )
+    return (
+        found.whole.hint == used.whole.hint
+        and shown == shown_again
+        and (
+            found.default is REQUIRED
+            or used.default is REQUIRED
+            or found.default_json == used.default_json
+        )
+    )
 
 
 def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool, Type]:

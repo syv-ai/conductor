@@ -18,7 +18,8 @@ What changes in how you work, before the name-by-name tables:
   {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node": "join", "output": "result"}}}`. Each input a
   node lists gets exactly one of a `constant`, a `graph_input` (with an optional `default`) or the `sources` of the
   edges into it, each `{"node", "output", "field"?}`. A graph input sits on any node's input, and several inputs
-  may name one; a graph output is named in `outputs`. A subgraph's inputs and outputs are those names, so an edge
+  may name one when they take the same values (type, limits, choices) and are shown alike (title, description,
+  widget), so `int` and `Annotated[int, Param()]` agree, else `graph_input_used_two_ways`; a graph output is named in `outputs`. A subgraph's inputs and outputs are those names, so an edge
   reads `loud.result`, never a node inside. The record keeps no order of its nodes: where order matters, nodes go
   by id. A key written twice in the JSON (two nodes with one id), a name with `.`, `/`, `@` or `~`, a source listed
   twice, an empty list of sources, an input given no kind or two, a `default` without a `graph_input` and a field on
