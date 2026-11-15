@@ -316,16 +316,38 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
     assert (await store.ended("taken")).status == "complete" and calls == ["a", "b"]
 
 
-async def test_a_cancel_of_a_run_that_isnt_running_cancels_nothing() -> None:
-    registry, graph, gate, inputs, _ = asking()
+async def test_a_cancel_of_a_waiting_run_ends_it_cancelled_with_its_question_waiting_and_an_answer_carries_it_on() -> (
+    None
+):
+    registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     store = MemoryStore()
     worker = _worker(store, registry)
     run_id = await _started(worker, graph, inputs)
-    await store.ended(run_id)
-
-    assert not await worker.cancel(await worker.read(run_id))
     assert (await store.ended(run_id)).status == "waiting"
+    events_while_waiting = len(await store.stored_events(run_id))
+
+    assert await worker.cancel(await worker.read(run_id))
+    cancelled = await store.ended(run_id)
+    assert cancelled.cause is not None
+    assert (
+        cancelled.status,
+        cancelled.cause.type,
+        [waiting.id for waiting in cancelled.waiting],
+    ) == (
+        "cancelled",
+        "run_cancelled",
+        [waiting_id],
+    )
+    assert [
+        (event["type"], event.get("status"))
+        for event in (await store.stored_events(run_id))[events_while_waiting:]
+    ] == [("run_start", None), ("run_end", "cancelled")]
+    assert not await worker.cancel(await worker.read(run_id))  # it ended early: nothing to cancel
+
+    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+    assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}
+    assert not await worker.cancel(await worker.read(run_id))
 
 
 async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column() -> None:
@@ -346,13 +368,13 @@ async def test_the_worker_goes_by_a_runs_state_and_never_reads_the_status_column
     waiting = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
     assert (waiting.row.status, RunView.of(waiting).status) == ("running", "waiting")
 
-    assert not await worker.cancel(waiting)
     with pytest.raises(RefusedError) as refused:
         await worker.resume(waiting)
     assert [problem.ctx for problem in refused.value.problems] == [{"status": "waiting"}]
     assert await worker.answer(waiting, {waiting_id: True}) == "started"
     completed = RunAsRead.of(await store.until(run_id, lambda row: row.owner is None))
     assert RunView.of(completed).outputs == {"busy": "x", "after": True}
+    assert not await worker.cancel(completed)
 
 
 # -- answers --------------------------------------------------------------------------------------
@@ -714,7 +736,9 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
     )
 
 
-async def test_a_cancel_given_a_run_read_before_its_resume_call_started_cancels_nothing() -> None:
+async def test_a_cancel_given_a_waiting_run_an_answer_resumed_first_stops_the_answered_resume_call() -> (
+    None
+):
     registry, graph, gates, calls = gated()
     store = MemoryStore()
     worker = _worker(store, registry)
@@ -728,9 +752,33 @@ async def test_a_cancel_given_a_run_read_before_its_resume_call_started_cancels_
     )
     await asyncio.to_thread(gates["per_item_called"].wait, 5)
 
-    assert not await worker.cancel(read_while_it_waited)
+    assert await worker.cancel(read_while_it_waited)
     gates["second"].set()
-    assert (await store.ended(run_id)).status == "complete" and calls == ["a", "b"]
+    cancelled = await store.ended(run_id)
+    assert (cancelled.status, cancelled.waiting, calls) == ("cancelled", [], ["a"])
+
+    await worker.resume(await worker.read(run_id))  # the answer is kept: nothing is asked again
+    completed = await store.ended(run_id)
+    assert (completed.status, completed.outputs, calls) == (
+        "complete",
+        {"busy": "x", "per_item": ["a", "b"]},
+        ["a", "b"],
+    )
+
+
+async def test_a_cancel_given_a_waiting_run_that_an_answer_completed_first_answers_false() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    run_id = await _started(worker, graph, inputs)
+    assert (await store.ended(run_id)).status == "waiting"
+    read_while_it_waited = await worker.read(run_id)
+    assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "started"
+    assert (await store.ended(run_id)).status == "complete"
+
+    assert not await worker.cancel(read_while_it_waited)
+    assert (await worker.read(run_id)).state.status == "complete"
 
 
 def _asked_beside_a_chain() -> tuple[

@@ -112,7 +112,15 @@ class Resume(BaseModel):
 
 
 class Cancelled(BaseModel):
-    """Whether a running run was asked to stop; a run that isn't running has nothing to cancel."""
+    """The body of a ``POST /runs/{id}/cancel``.
+
+    Attributes:
+        cancelled: Whether the cancel was asked: the run was running or waiting, as read or after another call
+            changed it first. It is not that the run has ended ``cancelled``: a waiting run is resumed, with no
+            node call, and like any resume call that can end it ``failed`` (its context or a node can't be had);
+            ``GET /runs/{id}`` says how it ended. ``false`` only for a run that is complete or already ended
+            early, which has nothing to cancel.
+    """
 
     cancelled: bool
 
@@ -448,7 +456,9 @@ def run_router(
 
     @router.post("/runs/{run_id}/cancel", responses=_NOT_FOUND)
     async def cancel_run(run: Annotated[RunAsRead, Depends(stored)]) -> Cancelled:
-        """Stop a running run before its next node call; the calls already made are kept, and ``resume`` goes on."""
+        """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``; the calls
+        already made are kept, its questions still wait, and an answer or ``resume`` goes on. A waiting run is
+        resumed for it, with no node call, so like any resume it can end ``failed``."""
         return Cancelled(cancelled=await worker.cancel(run))
 
     return router

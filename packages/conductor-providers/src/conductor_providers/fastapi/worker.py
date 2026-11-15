@@ -85,9 +85,9 @@ class Worker(Generic[C]):
     """Resumes stored runs for one process, holding a lease on each run while it does.
 
     Each method that takes a run takes it as the caller read it (``read``). A method that makes a run running
-    (``answer`` on a run that is not running, ``resume``) writes only if the run is still at that ``rev``. What is
-    asked of a running run (an answer to queue, a cancel) is written however the ``rev`` moved, for as long as the
-    run is running.
+    (``answer`` on a run that is not running, ``resume``, ``cancel`` on a waiting run) writes only if the run is
+    still at that ``rev``. What is asked of a running run (an answer to queue, a cancel) is written however the
+    ``rev`` moved, for as long as the run is running.
     """
 
     def __init__(
@@ -296,26 +296,43 @@ class Worker(Generic[C]):
             raise RefusedError(router_problems.run_changed())
 
     async def cancel(self, run: RunAsRead) -> bool:
-        """Ask a running run to stop before its next node call: at once when this worker resumes it, at the next
-        renewal of its lease when another does.
+        """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
 
-        The cancel is written to the row's state, and a resume call is stopped only by what its row says: this
-        worker reads the row again here, and another worker reads it at its next renewal.
+        A running run is asked to stop: at once when this worker resumes it, at the next renewal of its lease when
+        another does. The cancel is written to the row's state, and a resume call is stopped only by what its row
+        says: this worker reads the row again here, and another worker reads it at its next renewal.
+
+        A waiting run is claimed with the cancel already asked, as ``resume`` claims a run, and resumed: its resume
+        call ends ``cancelled`` before it calls any node, as ``run.stream(cancel=...)`` ends a waiting run, and its
+        questions still wait. Like any resume call it loads the run with the caller's registry and context, so a run
+        that can't be resumed ends ``failed`` instead, as it would on its next answer.
+
+        What is done is decided by the run's state as last read. When another call changed the run first (an answer
+        claimed it, or the run stopped), the run is read again and the cancel goes by what it is now. Each read again
+        follows a write of another call that landed, so this goes round only while other calls act on the run.
 
         Args:
             run: The run as read.
 
         Returns:
-            Whether the run was running as read, or since, so that the cancel was written.
+            Whether the cancel was asked: ``False`` only for a run that is complete or already ended early.
         """
-        run = await self._ask_of_a_running_run(
-            run, lambda state: state.model_copy(update={"cancel_asked": True})
-        )
-        if run.state.is_running:
-            for hold in [hold for hold in self._holds if hold.run_id == run.row.id]:
-                async with hold.lock:
-                    await self._read_again(hold)
-        return run.state.is_running
+
+        def asked_to_stop(state: StoredState) -> StoredState:
+            return state.model_copy(update={"cancel_asked": True})
+
+        while True:
+            run = await self._ask_of_a_running_run(run, asked_to_stop)
+            if run.state.is_running:
+                for hold in [hold for hold in self._holds if hold.run_id == run.row.id]:
+                    async with hold.lock:
+                        await self._read_again(hold)
+                return True
+            if run.state.status != "waiting":
+                return False
+            if await self._claim(run, asked_to_stop(run.state.running())):
+                return True
+            run = await self.read(run.row.id)
 
     async def events(self, run: RunAsRead, after: int = -1) -> AsyncGenerator[tuple[int, str]]:
         """The events of a run as they are stored, from whichever worker resumes it, until the run is not running.

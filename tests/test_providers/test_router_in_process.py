@@ -292,6 +292,15 @@ async def test_a_route_answers_with_what_the_worker_did_and_the_run_reads_as_its
 
         waiting = await store.ended(run_id)
         assert (await client.get(f"/runs/{run_id}")).json() == waiting.model_dump(mode="json")
+        cancelled = await client.post(f"/runs/{run_id}/cancel")
+        assert (cancelled.status_code, cancelled.json()) == (200, {"cancelled": True})
+        await store.ended(run_id)
+        view = (await client.get(f"/runs/{run_id}")).json()
+        assert (view["status"], view["cause"]["type"], view["waiting"]) == (
+            "cancelled",
+            "run_cancelled",
+            waiting.model_dump(mode="json")["waiting"],
+        )
         answered = await client.post(f"/runs/{run_id}/answers", json={waiting_id: True})
         assert (answered.status_code, answered.json()) == (202, {"answers": "started"})
         assert (await store.ended(run_id)).outputs == {"busy": "x", "after": True}

@@ -140,9 +140,10 @@ class StoredState(BaseModel):
         queued_answers: Answers that came while the run was running, by waiting id; the run is given them when it
             stops.
         refused: Queued answers the run refused when it stopped, by waiting id, each with its problems.
-        cancel_asked: Whether someone asked the running run to stop. It is cleared when the run stops for it. A
-            cancel that came after the last node call is kept when a queued answer makes the run running again, and
-            stops it then.
+        cancel_asked: Whether someone asked the running run to stop; a waiting run that is cancelled is made
+            running with it set, so its resume call ends before any node call. It is cleared when the run stops
+            for it. A cancel that came after the last node call is kept when a queued answer makes the run running
+            again, and stops it then.
     """
 
     status: RunStatus
