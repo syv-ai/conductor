@@ -8,11 +8,11 @@ for the output ``result``.
 A value is read strictly: a value already of its class is kept as it is, a dict is read into a model, and ``"12"``
 is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every output.
 
-A node with several outputs returns a frozen dataclass, or a mapping when its ``compute_outputs`` hook gave the
-outputs. Its validator reads every output in one call of one validator. First the shape: the dataclass or a mapping,
-no output missing or unknown, and of each exclusive group exactly one output with a value (``field/exclusive_group.py``).
-Then each output's value, by its type, in the order the outputs are declared. Only the first fault is reported, as
-one problem.
+A node with several outputs returns a frozen dataclass, or a mapping when its ``compute_outputs`` hook gave the outputs.
+Its validator reads every output in one call of one validator. First the shape: the dataclass or a mapping, no output
+missing or unknown, and of each exclusive group exactly one output with a value (``field/exclusive_group.py``). Then
+each output's value, by its type, in the order the outputs are declared. Only the first fault is reported, as one
+problem.
 
 Every rule inside the return validator raises ``PydanticCustomError``: any other exception would escape pydantic
 with the value in its message.
@@ -318,24 +318,26 @@ class HookValidator(Validator[Any, dict[str, Field]]):
         Raises:
             InvalidCallError: See the class.
         """
-        node_id, kind = self._node_id, self._hook
         try:
             hints = _HOOK_FIELDS.validate_python(returned)
         except ValidationError as invalid:
             if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
-                reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
+                reason = (
+                    f"its {self._hook} hook returned a {type(returned).__name__}; a hook returns its fields by name,"
+                    " as a mapping of each name to its type"
+                )
                 raise InvalidCallError(
                     [
                         compile_problems.compute_hook_failed(
-                            node_id, reason=reason, error="not_a_mapping"
+                            self._node_id, reason=reason, error="not_a_mapping"
                         )
                     ]
                 ) from None
             raise InvalidCallError(
                 compile_problems.compute_hook_failed(
-                    node_id,
+                    self._node_id,
                     str(fault["loc"][0]),
-                    reason=f"what its {kind} hook returned has a field name it cannot have ({fault['msg']})",
+                    reason=f"what its {self._hook} hook returned has a field name it cannot have ({fault['msg']})",
                     error="not_a_name",
                 )
                 for fault in invalid.errors()
@@ -350,7 +352,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
             raise InvalidCallError(
                 [
                     compile_problems.compute_hook_failed(
-                        node_id, reason=str(error), error=error.problems[0].type
+                        self._node_id, reason=str(error), error=error.problems[0].type
                     )
                 ]
             ) from None

@@ -207,7 +207,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         Raises:
             InvalidCallError: See the class.
         """
-        read, faults = self._read(answer, self._choices, self._defaults)
+        read, faults = self._read(answer)
         if faults:
             raise InvalidCallError(
                 call_problems.invalid_answer(
@@ -220,12 +220,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             )
         return read
 
-    def _read(
-        self,
-        answer: Any,
-        choices: Mapping[str, tuple[Choice, ...]],
-        defaults: Mapping[str, JsonValue],
-    ) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
+    def _read(self, answer: Any) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
         """The outputs read from ``answer``, and every fault as ``(question, reason)``, the question ``None`` for a
         fault of the whole answer. A question left out gives what it says: its default, else a branch not chosen
         when it is not ``required``, else nothing, which is a fault."""
@@ -233,7 +228,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         if len(outputs) == 1:
             ((name, field),) = outputs.items()
             try:
-                return {name: _answer_value(field, answer, choices.get(name))}, []
+                return {name: _answer_value(field, answer, self._choices.get(name))}, []
             except PydanticCustomError as refused:
                 return {}, [(None, refused.message())]
         if answer is None and not outputs:
@@ -255,9 +250,9 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
         for name, field in outputs.items():
             try:
                 if name in answer:
-                    read[name] = _answer_value(field, answer[name], choices.get(name))
+                    read[name] = _answer_value(field, answer[name], self._choices.get(name))
                     continue
-                question = as_asked(field, choices, defaults)
+                question = as_asked(field, self._choices, self._defaults)
                 if question.default is not MISSING:
                     read[name] = _read_as_answer(field.whole, question.default)
                 elif not question.required:

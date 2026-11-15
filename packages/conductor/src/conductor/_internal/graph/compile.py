@@ -994,10 +994,10 @@ def _bind(
     node_id: str, fields: Mapping[str, Field], bound: Mapping[TypeVar, Any]
 ) -> tuple[dict[str, Field], dict[str, list[Problem]]]:
     """Returns the inputs or outputs ``fields`` of the node ``node_id`` with their type variables bound as ``bound``
-    says (``BoundDefaultValidator``), and the problem of each whose declared default the bound type refuses, by name. Such a
-    field keeps no default."""
-    bound_fields: dict[str, Field] = {}
+    says (``BoundDefaultValidator``), and the problem of each whose declared default the bound type refuses, by name.
+    Such a field keeps no default."""
     bind = BoundDefaultValidator(node_id, bound)
+    bound_fields: dict[str, Field] = {}
     refused: dict[str, list[Problem]] = {}
     for name, field in fields.items():
         try:

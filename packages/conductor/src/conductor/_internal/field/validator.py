@@ -2,13 +2,14 @@
 declared, and read again by the type an edge binds its type variable to when a graph is compiled.
 
 Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and
-``DeclaredInputValidator("mark", str)("!")`` gives the input ``mark`` with that default. ``times: Annotated[int, Param(ge=0)] = -1`` is refused when the module
-that declares the node is imported: ``NodeDeclarationError`` with the code ``default_invalid``, naming the input.
-``first(one: T, other: T = 0)`` wired from an output of ``str`` binds ``T`` to ``str``, and ``BoundDefaultValidator`` refuses
-``0`` for it: ``invalid_value`` (variant ``bound_default``), a problem of the graph.
+``DeclaredInputValidator("mark", str)("!")`` gives the input ``mark`` with that default.
+``times: Annotated[int, Param(ge=0)] = -1`` is refused when the module that declares the node is imported:
+``NodeDeclarationError`` with the code ``default_invalid``, naming the input.
+``first(one: T, other: T = 0)`` wired from an output of ``str`` binds ``T`` to ``str``, and ``BoundDefaultValidator``
+refuses ``0`` for it: ``invalid_value`` (variant ``bound_default``), a problem of the graph.
 
 A default is read as a Python value is read (``1`` for a ``float`` is ``1.0``). The defaults a graph record gives
-are read by the constant validator instead.
+are read by ``RecordValueValidator`` instead.
 """
 
 from __future__ import annotations

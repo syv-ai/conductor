@@ -7,8 +7,9 @@ The inputs. Example: the graph of one node, ``make_graph(shout)``, has the graph
 ``{"line": 3, "colour": "red"}`` it raises ``InvalidCallError`` with every fault at once: ``not_offered`` for
 ``colour``, then ``invalid_input`` for ``line``.
 
-The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are read by
-one validator, ``LimitsValidator``, built with nothing. A yes or no is not a number: ``max_items=True`` is refused, as is ``max_items=2.5``.
+The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are read by one
+validator, ``LimitsValidator``, built with nothing. A yes or no is not a number: ``max_items=True`` is refused, as is
+``max_items=2.5``.
 
 The constants, read by their input's type when the graph is compiled. Example: ``shout(line: str, mark: str = "!")``
 with ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}`` gets ``"?"`` on every call.
@@ -261,16 +262,15 @@ class RecordValueValidator(Validator[JsonValue, Any]):
         Raises:
             InvalidCallError: See the class.
         """
-        field = self._field
         try:
-            return schema_validator_of(field.whole).validate_python(value)
+            return schema_validator_of(self._field.whole).validate_python(value)
         except ValidationError as error:
-            refused = field.whole.refusal(error)
+            refused = self._field.whole.refusal(error)
             raise InvalidCallError(
                 [
                     compile_problems.invalid_value(
                         self._node_id,
-                        field.name,
+                        self._field.name,
                         reason=refused.reason,
                         errors=refused.errors,
                         column=refused.column,

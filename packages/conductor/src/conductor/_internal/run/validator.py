@@ -52,9 +52,9 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
     """Reads the arguments of a node's call whose inputs demand more than the outputs their edges read declare, each
     by the input's type.
 
-    Built once per node with the run blueprint, on a graph's first run, by ``EdgeValidator.of``. Called with a call's arguments, it returns them with those
-    inputs read; a value already exactly of one of the type's plain classes is kept as it is, and so is
-    ``SKIPPED``.
+    Built once per node with the run blueprint, on a graph's first run, by ``EdgeValidator.of``. Called with a call's
+    arguments, it returns them with those inputs read; a value already exactly of one of the type's plain classes is
+    kept as it is, and so is ``SKIPPED``.
 
     Raises (when called):
         InvalidCallError: An input's type refuses its value (``invalid_edge_value``, which names the input and quotes

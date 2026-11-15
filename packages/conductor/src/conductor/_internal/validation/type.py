@@ -8,8 +8,9 @@ and where the value belongs (a node id), and is called with the value alone::
 It returns the value as the engine keeps it, or raises ``InvalidCallError`` with a problem for each fault it reports;
 its caller decides what becomes of the problems. Two read a node's declaration rather than a value from outside:
 ``DeclaredInputValidator`` and ``DeclaredOutputValidator`` are built for each field a node declares, called once with
-its default, return the ``Field``, and raise ``NodeDeclarationError``, a fault in the node's code met at import. Each package whose values come from outside keeps its validators in
-its ``validator.py``, and a subclass declared in any other module is refused when the module is imported.
+its default, return the ``Field``, and raise ``NodeDeclarationError``, a fault in the node's code met at import. Each
+package whose values come from outside keeps its validators in its ``validator.py``, and a subclass declared in any
+other module is refused when the module is imported.
 """
 
 from __future__ import annotations

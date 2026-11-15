@@ -1,12 +1,12 @@
 """Validation: the rules every validator reads values by.
 
-A value from outside is checked once, where it comes in, and nothing inside checks it again. Each package whose
-values come from outside reads them in its ``validator.py``, each with a ``Validator`` (``type.py``), built with what
-it reads a value by and called with the value alone. A saved run is read in ``run/json/``, whose reader and writer
-are one schema, and a ``NodeError``'s ``ctx`` by ``NodeError``, where a node makes one. A validator returns the
-value as the engine keeps it, or raises ``InvalidCallError``, whose problems carry the validator's code (a default a node declares raises
-``NodeDeclarationError``: it is a fault in the node's code, met at import). Its caller decides what becomes of the
-problems: a public method lets them reach its caller; compiling keeps them in ``graph.problems``, and a run keeps
+A value from outside is checked once, where it comes in, and nothing inside checks it again. Each package whose values
+come from outside reads them in its ``validator.py``, each with a ``Validator`` (``type.py``), built with what it reads
+a value by and called with the value alone. A saved run is read in ``run/json/``, whose reader and writer are one
+schema, and a ``NodeError``'s ``ctx`` by ``NodeError``, where a node makes one. A validator returns the value as the
+engine keeps it, or raises ``InvalidCallError``, whose problems carry the validator's code (a default a node declares
+raises ``NodeDeclarationError``: it is a fault in the node's code, met at import). Its caller decides what becomes of
+the problems: a public method lets them reach its caller; compiling keeps them in ``graph.problems``, and a run keeps
 the problem as the outcome of the call it belongs to.
 
 Every validator reads values with the pydantic validators of ``rules.py``, built there from a type's schema with the
