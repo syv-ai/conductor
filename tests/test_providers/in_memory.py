@@ -30,6 +30,10 @@ BEGUN_RUN_STATE = json.dumps(
 )
 
 
+#: The run filter that lets every run through, for calls of the worker that check no access.
+EVERY_RUN = lambda metadata: True  # noqa: E731
+
+
 class MemoryStore:
     """A ``RunStore`` in a dict. ``until`` waits for a run's row to change, so a test awaits what a worker writes
     where it would sleep and read again; ``swept`` is set once a worker has asked for the runs whose lease ran out."""
@@ -91,7 +95,7 @@ class MemoryStore:
         copy = MemoryStore()
         copy.rows[run_id] = self.rows[run_id]
         reader: Worker = Worker(copy, nodes_for=lambda metadata: NodeRegistry())
-        return await reader.read(run_id)
+        return await reader.read(run_id, allows=EVERY_RUN)
 
     def state(self, run_id: str) -> dict[str, Any]:
         """The run's ``state`` column, as the JSON the worker wrote."""

@@ -119,7 +119,7 @@ class Worker(Generic[M, X]):
 
     # -- what a host calls ------------------------------------------------------------------------
 
-    async def read(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView:
+    async def read(self, run_id: str, *, allows: Callable[[M], bool]) -> RunView:
         """The run as a reader sees it: its status, what waits in it, its outputs once complete.
 
         The row is read once: its metadata goes to ``allows``, and the view is built from the same row.
@@ -127,7 +127,7 @@ class Worker(Generic[M, X]):
         Args:
             run_id: The run's id.
             allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
             The run's view, as it was when the run last stopped running.
@@ -174,7 +174,7 @@ class Worker(Generic[M, X]):
                 received there is not made again. It is loaded on ``metadata``'s nodes. The new run starts at this
                 worker's ``max_items``, not at a ceiling ``previous`` was resumed with; ``again`` keeps that one.
             allows: The run filter of the request, which ``previous`` must pass: a run it turns away is refused as
-                ``no_such_run``. ``None`` lets every run through.
+                ``no_such_run``. It must be given with ``previous``; ``lambda metadata: True`` lets every run through.
 
         Returns:
             The new run, as written.
@@ -234,7 +234,7 @@ class Worker(Generic[M, X]):
         inputs: Mapping[str, Any],
         metadata: M,
         *,
-        allows: Callable[[M], bool] | None = None,
+        allows: Callable[[M], bool],
     ) -> RunView:
         """Start a run of a run's graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
         receives what it received before isn't made again.
@@ -248,7 +248,7 @@ class Worker(Generic[M, X]):
             inputs: The inputs to change, by name; the rest stay as the run had them.
             metadata: The new run's metadata, stored with it; the run is loaded on its nodes.
             allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
             The new run, as written.
@@ -268,7 +268,7 @@ class Worker(Generic[M, X]):
         run_id: str,
         answers: Mapping[str, Any],
         *,
-        allows: Callable[[M], bool] | None = None,
+        allows: Callable[[M], bool],
     ) -> RunView:
         """Answer what waits in a run, by waiting id.
 
@@ -286,7 +286,7 @@ class Worker(Generic[M, X]):
             run_id: The run's id.
             answers: An answer for each waiting call, by its waiting id.
             allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
             The run as written: ``running`` whether the answers were queued or resumed the run.
@@ -320,7 +320,7 @@ class Worker(Generic[M, X]):
         run_id: str,
         max_items: int | None = None,
         *,
-        allows: Callable[[M], bool] | None = None,
+        allows: Callable[[M], bool],
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again.
 
@@ -332,7 +332,7 @@ class Worker(Generic[M, X]):
             max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling. The
                 run is stored with it as the run is claimed, so every later resume call has it.
             allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
             The run as written, ``running``.
@@ -359,7 +359,7 @@ class Worker(Generic[M, X]):
                 return self._view(claimed)
             row = await self._row(run_id)
 
-    async def cancel(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView:
+    async def cancel(self, run_id: str, *, allows: Callable[[M], bool]) -> RunView:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
 
         A running run is asked to stop: at once when this worker resumes it, at the next renewal of its lease when
@@ -378,7 +378,7 @@ class Worker(Generic[M, X]):
         Args:
             run_id: The run's id.
             allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
             The run as written: ``running`` when the cancel was asked, else the run as it is.
@@ -405,7 +405,7 @@ class Worker(Generic[M, X]):
             row = await self._row(run_id)
 
     async def events(
-        self, run_id: str, after: int = -1, *, allows: Callable[[M], bool] | None = None
+        self, run_id: str, after: int = -1, *, allows: Callable[[M], bool]
     ) -> AsyncIterator[tuple[int, str]]:
         """A run's events as they are stored, from whichever worker resumes it, until the run isn't running.
 
@@ -416,7 +416,7 @@ class Worker(Generic[M, X]):
             run_id: The run's id.
             after: The number of the last event the follower has; ``-1`` for none.
             allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
-                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
             Each event numbered above ``after``, in order, as ``(number, body)``.
@@ -534,7 +534,13 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: The graph or the inputs are refused, no run has the id ``previous``
                 (``no_such_run``), or it can't be loaded on these nodes (``previous_run_unloadable``).
+            TypeError: ``previous`` is given without ``allows``.
         """
+        if previous is not None and allows is None:
+            raise TypeError(
+                "a run started from a previous one needs allows=, the request's run filter; pass "
+                "`lambda metadata: True` to let every run through"
+            )
         nodes = self.nodes_for(metadata)
         lends = None if previous is None else await self._row(previous, allows)
 
