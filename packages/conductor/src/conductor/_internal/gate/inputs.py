@@ -22,8 +22,9 @@ from pydantic_core.core_schema import TypedDictField
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
+from conductor._internal.types import Type
 
-from .rules import schema_of
+from .rules import schema_of, validator_of
 
 
 class InputsDoor:
@@ -37,7 +38,7 @@ class InputsDoor:
         InvalidCallError: With every fault, in this order: each name the caller gave that the graph does not offer
             (``not_offered``), in the order given; then each graph input in turn that is missing (``missing_input``)
             or whose value its type refuses (``invalid_input``, and its variant ``make_a_series`` for a list given to
-            an input of one value).
+            an input whose type takes no list).
     """
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
@@ -48,6 +49,13 @@ class InputsDoor:
                 (``REQUIRED`` for none).
         """
         self._inputs = dict(inputs)
+        # each option of each input that is not a Series, without limits or choices, held so that its validator is
+        # built once, the first time a list given there is refused
+        self._bare_options = {
+            name: tuple(Type(option) for option in field.whole.options)
+            for name, field in inputs.items()
+            if not field.is_series
+        }
         self._validator = SchemaValidator(
             core_schema.typed_dict_schema(
                 {name: _input_schema(field) for name, field in inputs.items()},
@@ -102,16 +110,16 @@ class InputsDoor:
         # the input itself, not a field inside its value
         if first["type"] == "missing" and not inside:
             return call_problems.missing_input("inputs", name, name=name)
-        refused = field.whole.refusal(error, under=(key,))
         value = given[name]
         if (
-            not field.is_series
-            and type(value) is list
-            and all(not error["loc"] for error in refused.errors)
+            type(value) is list
+            and name in self._bare_options
+            and all(_refused_as_a_list(option, value) for option in self._bare_options[name])
         ):
             return call_problems.invalid_input_make_a_series(
                 "inputs", name, name=name, expected=field.whole.id, length=len(value)
             )  # the one mistake whose fix is in the graph
+        refused = field.whole.refusal(error, under=(key,))
         return call_problems.invalid_input(
             "inputs",
             name,
@@ -120,6 +128,21 @@ class InputsDoor:
             errors=refused.errors,
             column=refused.column,
         )
+
+
+def _refused_as_a_list(option: Type, value: list[Any]) -> bool:
+    """Whether ``option``, one option of an input's type without its limits and choices, refuses the list ``value``
+    as a whole rather than for an item in it.
+
+    Example: ``str`` refuses ``["a", "b"]`` so. ``list[str]`` takes ``[]``, which
+    ``Annotated[list[str], Param(min_length=1)]`` refuses only by its limit, and ``list[int]`` refuses ``["x"]`` for
+    its item, so ``int | list[int]`` given ``["x"]`` is no question of looping.
+    """
+    try:
+        validator_of(option).validate_python(value)
+    except ValidationError as error:
+        return all(not fault["loc"] for fault in option.refusal(error).errors)
+    return False
 
 
 def _input_schema(field: Field) -> TypedDictField:

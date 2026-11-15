@@ -170,7 +170,7 @@ def invalid_input(
 
 @CALL_PROBLEMS.problem("invalid_input", variant="make_a_series")
 def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, length: int) -> str:
-    """A call gives a list to a graph input that takes one value.
+    """A call gives a list to a graph input whose type takes no list.
 
     A graph loops over a list only when a node returns it as a series, so a list given to an input of one value is
     refused. Give the list to a node that returns it as a series, or give one value. A ``Series`` graph input takes a

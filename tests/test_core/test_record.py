@@ -1328,6 +1328,34 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
     assert run.with_inputs({"text": "b"}).inputs == {"yes": "y", "no": "n", "text": "b"}
 
 
+@pytest.mark.parametrize(
+    ("hint", "given", "reason"),
+    [
+        (Annotated[list[str], Param(min_length=1)], [], "at least 1 item"),
+        (int | list[int], ["x"], "valid integer"),
+    ],
+    ids=["a list type's limit", "a union that holds a list"],
+)
+def test_a_list_a_graph_input_whose_type_takes_a_list_refuses_gives_its_reason_not_to_make_a_series(
+    hint: Any, given: list[Any], reason: str
+) -> None:
+    """Only a list an input whose type takes no list is given is a question of looping; a list refused by a list
+    type's own limit, or for an item, gives that reason, as a constant and an answer do."""
+
+    def take(words: hint) -> str:  # type: ignore[valid-type]
+        return "taken"
+
+    taking = node("take", title="Take", description="For a test.")(take)
+    graph = Graph.compile(make_graph(taking), registry_of(taking))
+
+    with pytest.raises(InvalidCallError) as raised:
+        graph.run(words=given)
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx.get("variant")) == ("invalid_input", None)
+    assert reason in problem.ctx["reason"]
+
+
 def test_a_graph_input_is_given_by_its_name_never_by_a_source_and_an_item_limit_below_one_is_refused():
     graph = Graph.compile(
         GraphRecord.model_validate(
