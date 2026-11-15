@@ -8,7 +8,7 @@ uv add syv-conductor-nodes
 
 ## Add them to your registry
 
-`conductor_nodes.registry` has all 36 nodes. Each module has a `registry` of its own too, so you can add only the ones you want:
+`conductor_nodes.registry` has every node. Each module has a `registry` of its own too, so you can add only the ones you want:
 
 ```python
 import conductor_nodes
@@ -25,81 +25,23 @@ Each module is one category, so filtering by category gives the same nodes: `con
 
 ## The nodes
 
-**`text`**
+Each module holds one kind of node. The category is what `describe()` shows for its nodes:
 
-| Node | What it does |
-|---|---|
-| `text-uppercase` | Makes every letter a capital letter. |
-| `text-lowercase` | Makes every letter a small letter. |
-| `text-trim` | Removes spaces and blank lines from the start and end. |
-| `text-length` | Counts the characters. |
-| `text-concat` | Puts two texts together, with a separator if you want one. |
-| `text-replace` | Replaces every place a piece of text appears. |
-| `text-contains` | Tells whether the text contains another piece of text. |
-| `text-split` | Splits the text at a separator, a new line by default. What follows runs once for each part. |
-| `text-list` | A list of texts you write in. Wire a list to `for_each` to get the whole list once for each item. |
-| `text-join` | Joins all the parts into one text. |
-| `text-reverse` | Writes the text backwards. |
+- `text` (category `text`): change, split, join and search text.
+- `math` (category `math`): add, divide, round and other arithmetic.
+- `logic` (category `logic`): answer yes or no about a value.
+- `control` (category `control`): choose where a value goes.
+- `json_ops` (category `json`): read and write JSON.
+- `regex_ops` (category `regex`): match, replace and find with regular expressions.
+- `series` (category `series`): start and end a loop.
+- `tables` (category `table`): put the records of a loop back into a table.
 
-**`math`**
+To see every node with its title, loop over the registry:
 
-| Node | What it does |
-|---|---|
-| `math-add` | Adds two numbers. |
-| `math-subtract` | Takes the second number away from the first. |
-| `math-multiply` | Multiplies two numbers. |
-| `math-divide` | Divides the first number by the second. |
-| `math-modulo` | What's left over when the first number is divided by the second. |
-| `math-round` | Rounds to a number of decimals, with a half rounded away from zero: 2.5 to 3. |
-| `math-min` | The smallest of the numbers. |
-| `math-max` | The largest of the numbers. |
-| `math-abs` | The number without its minus sign. |
-
-**`logic`**
-
-| Node | What it does |
-|---|---|
-| `logic-not` | Turns yes into no and no into yes. |
-| `logic-equals` | Tells whether two values are the same. |
-| `logic-is-empty` | Tells whether a value is missing, or is a text, list or table with nothing in it. |
-
-**`json_ops`** (category `json`)
-
-| Node | What it does |
-|---|---|
-| `json-parse` | Turns JSON text into a value. |
-| `json-stringify` | Writes a value out as JSON text. |
-| `json-get` | Picks one value out by its path, such as `user.name`. |
-
-**`regex_ops`** (category `regex`)
-
-| Node | What it does |
-|---|---|
-| `regex-match` | Tells whether a pattern is found in the text. |
-| `regex-replace` | Replaces everything that matches a pattern. |
-| `regex-extract` | Finds every match. What follows runs once for each. |
-
-**`series`**
-
-| Node | What it does |
-|---|---|
-| `series-split` | Takes a table or a list apart. What follows runs once for each record or item. |
-| `series-collect` | Puts the result of every item back into one list. |
-| `series-stack` | Puts the table of every item into one table, one under the other. |
-
-**`tables`** (category `table`)
-
-| Node | What it does |
-|---|---|
-| `table-collect` | Puts the records back into one table, with new columns for what was worked out per record. |
-
-**`control`**
-
-| Node | What it does |
-|---|---|
-| `control-decide` | Sends a value one of two ways, by a yes or no. |
-| `control-switch` | Sends a value down the branch named by a case, or down `other`. |
-| `control-default` | Gives the value, or a fallback when the value is missing. |
+```python
+for definition in conductor_nodes.registry:
+    print(definition.id, definition.title, sep=": ")
+```
 
 ## Loops: one record at a time
 
