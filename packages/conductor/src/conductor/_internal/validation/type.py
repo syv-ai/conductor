@@ -1,7 +1,4 @@
-"""``Validator``, the base class of every check on a value that comes into the engine from outside.
-
-The class below shows how a validator is built and called.
-"""
+"""``Validator``, the base class of every validator."""
 
 from __future__ import annotations
 

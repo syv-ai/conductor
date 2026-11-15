@@ -4,10 +4,10 @@ Values reach the engine from many places: a caller's graph inputs, a constant in
 returns, a person's answer. Each is checked once, where it comes in. After that, nothing inside the engine checks
 it again.
 
-Every check is a ``Validator`` (``type.py``). A package whose values come from outside keeps its validators in its
-own ``validator.py``. A validator returns the value ready for the engine, or raises ``InvalidCallError`` with a
-problem for each fault. Whoever called it decides what happens to the problems. A public method lets them reach
-its own caller, compiling keeps them in ``graph.problems``, and a run keeps the problem as the outcome of the call.
+Every check is a ``Validator`` (``type.py``), and each package whose values come from outside has its own. When
+a validator refuses a value, whoever called it decides what happens to the problems. A public method lets them
+reach its own caller, compiling keeps them in ``graph.problems``, and a run keeps the problem as the outcome of the
+call.
 
 Validators check values with the pydantic validators built in ``rules.py``. Those add a few rules that hold for
 every type, such as "a yes or no is not a number". Outside a ``validator.py``, nothing in the engine builds one.
