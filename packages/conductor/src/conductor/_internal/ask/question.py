@@ -1,7 +1,11 @@
-"""The question about each output as a call asks it, and as a palette shows the output.
+"""The questions a person is shown when a node asks.
 
-``assign(ticket: str) -> str`` raising ``Ask("Who?", default="bo")`` asks about ``result`` with ``default="bo"``,
-so an answer may leave it out.
+A node that raises ``Ask`` is answered by filling in its outputs, and each output is one question. A node that
+returns ``-> str`` has one output, ``result``, so it asks one question. A node that returns a dataclass with the
+fields ``name`` and ``age`` asks two.
+
+A question looks just like its output does in ``describe()``: a title, a type, a widget and so on. The ``Ask`` can
+add two things on top. It can offer choices to pick from, and it can propose a default answer.
 """
 
 from __future__ import annotations
@@ -17,20 +21,25 @@ from conductor._internal.types import Choice
 def as_asked(
     field: Field, choices: Mapping[str, tuple[Choice, ...]], defaults: Mapping[str, JsonValue]
 ) -> FieldDescription:
-    """The question about the output ``field`` as one call asks it: the field's description (``Field.description``,
-    which says what an answer that leaves it out gives), with the choices and the default the call's ``Ask`` set laid
-    over it. The questions a host is shown and the answer validator both read it.
+    """Returns the question about one output, as this call asks it.
 
-    ``assign(ticket: str) -> str`` asks ``result`` with ``required=True`` and no default; with ``Ask("Who?",
-    default="bo")`` it asks with ``default="bo"``, ``required=False``. Choices the ``Ask`` sets limit the question
-    as a type's choices do, so ``-> str | None`` asked with ``choices=["a"]`` must be answered. The ``Ask`` validator
-    refuses a default for an output of an exclusive group: an answer that left it out would give it the default, and no
-    other output of the group could be answered.
+    It starts from the output's own description, the one ``describe()`` shows. Then it adds what the call's ``Ask``
+    set for this output. The ``Ask``'s choices replace the output's own. The ``Ask``'s default is filled in, and the
+    question is then not required, since an answer may leave it out and get the default.
+
+    For example, ``assign(ticket: str) -> str`` asks one question, ``result``. On its own it is required and has no
+    default. If the node raises ``Ask("Who?", default="bo")``, the question has ``default="bo"`` and
+    ``required=False``.
+
+    What a host is shown and what the answer is checked against both come from here.
 
     Args:
-        field: The output the answer fills.
+        field: The output the question is about.
         choices: The choices the ``Ask`` offered, by output name, each id in its JSON form.
-        defaults: The answer the ``Ask`` proposed, by output name, in its JSON form.
+        defaults: The defaults the ``Ask`` proposed, by output name, in their JSON form.
+
+    Returns:
+        The output's description, with the ``Ask``'s choices and default added.
     """
     name = field.name
     asked = field.description_with(choices[name]) if name in choices else field.description

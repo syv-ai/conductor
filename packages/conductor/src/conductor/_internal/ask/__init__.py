@@ -1,17 +1,22 @@
-"""Asking a person: ``raise Ask(...)`` in a node, and the questions a host shows.
+"""Asking a person for a value while a graph runs.
 
-A node that raises ``Ask`` is answered with a value of its return type, and that return type says how to ask:
-``-> str`` is a line of free text, ``-> bool`` a yes or no, and a frozen dataclass a form of one question per field.
-How each question looks (its title, its widget, choices known when the node is written) is the type's, through
-``Param``. ``Ask`` adds only what the run knows: the prompt, choices known only when the node runs, and a proposed
-answer. Every return type's question is in the reference, ``python -m conductor.about asking-a-person``.
+Some nodes can't finish on their own. They need a person to approve something, pick an option or type a reason.
+Such a node raises ``Ask`` with a prompt, and its call stops there to wait. When the person answers, the answer
+becomes the node's output, just as if the function had returned it.
 
-A node that may ask says so where it is declared, and the answer is its outputs: ``@node("reason", ..., asks=True)``
-on ``def reason(ticket: str) -> str``. A node that needs a person's answer to go on reads it from such a node's
-output, as it reads any other value.
+The node's return type decides what kind of answer it takes. ``-> bool`` asks for a yes or no, ``-> str`` for a
+line of text, and a frozen dataclass for a small form with one question per field. Here is a node that asks for a
+yes or no::
 
-A host is shown a waiting call as a ``Waiting`` (``run/waiting.py``). The ``Ask`` is checked when it is raised, by the
-``Ask`` validator, and an answer before anything runs, by the answer validator, both in ``validator.py``.
+    @node("approve", title="Approve", description="Asks a person to approve an invoice.", asks=True)
+    def approve(invoice: str) -> bool:
+        raise Ask(f"Approve {invoice}?")
+
+``asks=True`` tells conductor up front that the node may stop for a person. A host sees each call that waits as a
+``Waiting``, and gives the answer with ``run.answer``.
+
+Conductor checks both ends. It checks the ``Ask`` when the node raises it, and the answer when the person gives it.
+The full rules are in the reference: ``python -m conductor.about asking-a-person``.
 """
 
 from .question import as_asked
