@@ -58,7 +58,8 @@ from conductor._internal.graph import (
     MissingInput,
 )
 from conductor._internal.node import Policy
-from conductor._internal.validation import EdgeValidator, demands_more
+
+from .validator import EdgeValidator, demands_more
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -109,7 +110,7 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
         edge_validator: Reads before each call the inputs whose type demands more than the outputs their edges read
-            declare (``validation/edge.py``); ``None`` when no input does.
+            declare (``validator.py``); ``None`` when no input does.
         looped_outputs: The ``Series`` outputs of the node that some edge reads one item at a time, by output
             name. A run holds each to ``max_items``. The value is the node and output that the reading node's
             graph names the list by: this node, or, when the reading node is outside a subgraph this node is

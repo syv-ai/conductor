@@ -28,7 +28,7 @@ Where a value enters, with the module that validates it (the problems page has t
         checkpoint_every
     a person's answer to a node's outputs                       answer
     what a node's function returns                              node/validator.py
-    a value an edge gives an input that demands more than       edge
+    a value an edge gives an input that demands more than       run/validator.py
         the edge's source declares
     what a node raises: an Ask's choices and default            raised
     what a node raises: a NodeError's ctx                       problem/errors.py, which stays there: NodeError
@@ -44,7 +44,6 @@ A type's own declarations are read where the type is declared: ``Param`` reads i
 from .answer import AnswerValidator
 from .context import ContextValidator
 from .declared import bound_field, declared_input, declared_output
-from .edge import EdgeValidator, demands_more
 from .exclusive_group import exclusive_groups, groups_without_one_value
 from .raised import AskValidator, undeclared_ask
 from .record import read_json, read_record, record_values
@@ -61,11 +60,9 @@ __all__ = [
     "AnswerValidator",
     "AskValidator",
     "ContextValidator",
-    "EdgeValidator",
     "bound_field",
     "declared_input",
     "declared_output",
-    "demands_more",
     "exact_classes",
     "exclusive_groups",
     "groups_without_one_value",

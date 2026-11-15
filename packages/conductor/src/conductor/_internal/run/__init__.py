@@ -7,7 +7,8 @@ that is ready when ``run.resume()`` or ``run.stream()`` is called; ``call.py`` i
 yields; ``stream.py`` runs the scheduler on a thread for ``run.stream()``; ``results.py`` reads ``run.results`` and
 ``run.outputs``; ``progress.py`` says how far a run is and counts the calls a node will have; ``reuse.py`` reuses outcomes from a previous run; ``state.py``
 says how a run stands: its status, and how ``resume()`` ended it early; ``waiting.py`` is ``Waiting``, a call waiting for a person as
-a host is shown it; ``json/`` writes a run as JSON and reads it back.
+a host is shown it; ``validator.py`` is ``EdgeValidator``, which reads a value an edge gives an input that demands
+more than the edge's source declares; ``json/`` writes a run as JSON and reads it back.
 """
 
 from .blueprint import RunBlueprint

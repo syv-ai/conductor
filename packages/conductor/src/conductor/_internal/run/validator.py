@@ -5,8 +5,8 @@ an ``int`` reaches ``small.n``, but not whether it is at most 3, so each call of
 its type. ``letters`` returning 12 fails that call with ``invalid_edge_value``. An edge from ``shout.result: str``
 into ``join.texts: Series[str]`` needs no such read, and a node none of whose inputs needs one has no edge validator.
 
-Which inputs are read is decided once, when the graph is compiled (``demands_more``); the validator is built then and
-called before each call of the node.
+Which inputs are read is decided once, when the run blueprint is built (``demands_more``); the validator is built then
+and called before each call of the node.
 """
 
 from __future__ import annotations
@@ -20,8 +20,7 @@ from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import Type
-
-from .rules import exact_classes, schema_validator_of
+from conductor._internal.validation import exact_classes, schema_validator_of
 
 
 def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bool) -> bool:
