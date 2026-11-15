@@ -6,14 +6,10 @@ from json import JSONDecodeError
 from typing import Annotated
 
 from conductor import NodeError, NodeRegistry, Param
-from conductor.widgets import NumberInput, Textarea
+from conductor.widgets import NumberInput, Switch, Textarea, TextInput
 from pydantic import JsonValue
 
-from conductor_nodes._inputs import Flag, Line
-
 registry = NodeRegistry(category="json")
-
-JsonText = Annotated[str, Param(title="JSON text", widget=Textarea())]
 
 
 @registry.node(
@@ -21,7 +17,9 @@ JsonText = Annotated[str, Param(title="JSON text", widget=Textarea())]
     title="Read JSON",
     description="Reads JSON text into a value. Text that isn't JSON is an error.",
 )
-def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
+def parse(
+    text: Annotated[str, Param(title="JSON text", widget=Textarea())],
+) -> Annotated[JsonValue, Param(title="Parsed")]:
     """Reads a JSON text into a value; fails on text that isn't JSON."""
     try:
         parsed: JsonValue = json.loads(text)
@@ -39,7 +37,7 @@ def parse(text: JsonText) -> Annotated[JsonValue, Param(title="Parsed")]:
 def stringify(
     value: JsonValue,
     indent: Annotated[int, Param(ge=0, le=8, widget=NumberInput())] = 0,
-    sort_keys: Flag = False,
+    sort_keys: Annotated[bool, Param(widget=Switch())] = False,
 ) -> Annotated[str, Param(title="JSON")]:
     """Writes a value as JSON text."""
     return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
@@ -50,7 +48,9 @@ def stringify(
     title="Get from JSON",
     description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.",
 )
-def get_path(value: JsonValue, path: Line) -> Annotated[JsonValue, Param(title="Extracted")]:
+def get_path(
+    value: JsonValue, path: Annotated[str, Param(widget=TextInput())]
+) -> Annotated[JsonValue, Param(title="Extracted")]:
     """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; JSON null where there is nothing."""
     current = value
     for segment in path.split(".") if path else ():

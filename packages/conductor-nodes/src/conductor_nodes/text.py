@@ -3,9 +3,7 @@
 from typing import Annotated, Any
 
 from conductor import NodeRegistry, Param, Series
-from conductor.widgets import ListInput
-
-from conductor_nodes._inputs import Flag, Line, LongText
+from conductor.widgets import ListInput, Switch, Textarea, TextInput
 
 registry = NodeRegistry(category="text")
 
@@ -15,7 +13,9 @@ registry = NodeRegistry(category="text")
     title="Uppercase",
     description="Makes every letter in the text a capital letter.",
 )
-def uppercase(text: LongText) -> Annotated[str, Param(title="Uppercased")]:
+def uppercase(
+    text: Annotated[str, Param(widget=Textarea())],
+) -> Annotated[str, Param(title="Uppercased")]:
     """Returns the text in uppercase."""
     return text.upper()
 
@@ -25,7 +25,9 @@ def uppercase(text: LongText) -> Annotated[str, Param(title="Uppercased")]:
     title="Lowercase",
     description="Makes every letter in the text a small letter.",
 )
-def lowercase(text: LongText) -> Annotated[str, Param(title="Lowercased")]:
+def lowercase(
+    text: Annotated[str, Param(widget=Textarea())],
+) -> Annotated[str, Param(title="Lowercased")]:
     """Returns the text in lowercase."""
     return text.lower()
 
@@ -35,7 +37,7 @@ def lowercase(text: LongText) -> Annotated[str, Param(title="Lowercased")]:
     title="Trim",
     description="Removes spaces and blank lines from the start and end of the text.",
 )
-def trim(text: LongText) -> Annotated[str, Param(title="Trimmed")]:
+def trim(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[str, Param(title="Trimmed")]:
     """Strips whitespace from both ends of the text."""
     return text.strip()
 
@@ -43,7 +45,7 @@ def trim(text: LongText) -> Annotated[str, Param(title="Trimmed")]:
 @registry.node(
     "text-length", title="Length", description="Counts how many characters the text has."
 )
-def length(text: LongText) -> Annotated[int, Param(title="Length")]:
+def length(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[int, Param(title="Length")]:
     """Counts the characters of the text."""
     return len(text)
 
@@ -53,7 +55,11 @@ def length(text: LongText) -> Annotated[int, Param(title="Length")]:
     title="Join two texts",
     description="Puts two texts together, with a separator between them if you want one.",
 )
-def concat(a: Line, b: Line, separator: Line = "") -> str:
+def concat(
+    a: Annotated[str, Param(widget=TextInput())],
+    b: Annotated[str, Param(widget=TextInput())],
+    separator: Annotated[str, Param(widget=TextInput())] = "",
+) -> str:
     """Joins two texts, with a separator between them."""
     return f"{a}{separator}{b}"
 
@@ -64,9 +70,9 @@ def concat(a: Line, b: Line, separator: Line = "") -> str:
     description="Replaces every place a piece of text appears with another text.",
 )
 def replace(
-    text: LongText,
-    needle: Annotated[Line, Param(title="Find")],
-    replacement: Annotated[Line, Param(title="Replace with")] = "",
+    text: Annotated[str, Param(widget=Textarea())],
+    needle: Annotated[str, Param(title="Find", widget=TextInput())],
+    replacement: Annotated[str, Param(title="Replace with", widget=TextInput())] = "",
 ) -> str:
     """Replaces every occurrence of a text with another."""
     return text.replace(needle, replacement)
@@ -78,7 +84,9 @@ def replace(
     description="Tells whether the text contains another piece of text.",
 )
 def contains(
-    text: LongText, needle: Line, case_sensitive: Flag = True
+    text: Annotated[str, Param(widget=Textarea())],
+    needle: Annotated[str, Param(widget=TextInput())],
+    case_sensitive: Annotated[bool, Param(widget=Switch())] = True,
 ) -> Annotated[bool, Param(title="Contains")]:
     """Whether `needle` appears in the text."""
     if case_sensitive:
@@ -92,7 +100,8 @@ def contains(
     description="Splits the text wherever the separator appears, so what follows runs once for each part.",
 )
 def split(
-    text: LongText, separator: Annotated[Line, Param(min_length=1)] = "\n"
+    text: Annotated[str, Param(widget=Textarea())],
+    separator: Annotated[str, Param(min_length=1, widget=TextInput())] = "\n",
 ) -> Annotated[Series[str], Param(title="Parts")]:
     """Splits the text on a separator, a newline unless another is given: ``"a\\nb"`` gives ``["a", "b"]``, and an
     empty text gives ``[]``."""
@@ -122,13 +131,16 @@ def text_list(
     description="Joins all the parts into one text, with a separator between them.",
 )
 def join(
-    parts: Annotated[Series[str], Param(widget=ListInput())], separator: Line = ", "
+    parts: Annotated[Series[str], Param(widget=ListInput())],
+    separator: Annotated[str, Param(widget=TextInput())] = ", ",
 ) -> Annotated[str, Param(title="Joined")]:
     """Joins every part into one text, with a separator between them."""
     return separator.join(parts)
 
 
 @registry.node("text-reverse", title="Reverse", description="Writes the text backwards.")
-def reverse(text: LongText) -> Annotated[str, Param(title="Reversed")]:
+def reverse(
+    text: Annotated[str, Param(widget=Textarea())],
+) -> Annotated[str, Param(title="Reversed")]:
     """Returns the text backwards."""
     return text[::-1]
