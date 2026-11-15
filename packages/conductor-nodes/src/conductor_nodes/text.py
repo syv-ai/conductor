@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 
 from conductor import NodeRegistry, Param, Series
-from conductor.widgets import ListInput, Switch, Textarea, TextInput
+from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="text")
 
@@ -55,11 +55,7 @@ def length(text: Annotated[str, Param(widget=Textarea())]) -> Annotated[int, Par
     title="Join two texts",
     description="Puts two texts together, with a separator between them if you want one.",
 )
-def concat(
-    a: Annotated[str, Param(widget=TextInput())],
-    b: Annotated[str, Param(widget=TextInput())],
-    separator: Annotated[str, Param(widget=TextInput())] = "",
-) -> str:
+def concat(a: str, b: str, separator: str = "") -> str:
     """Joins two texts, with a separator between them."""
     return f"{a}{separator}{b}"
 
@@ -71,8 +67,8 @@ def concat(
 )
 def replace(
     text: Annotated[str, Param(widget=Textarea())],
-    needle: Annotated[str, Param(title="Find", widget=TextInput())],
-    replacement: Annotated[str, Param(title="Replace with", widget=TextInput())] = "",
+    needle: Annotated[str, Param(title="Find")],
+    replacement: Annotated[str, Param(title="Replace with")] = "",
 ) -> str:
     """Replaces every occurrence of a text with another."""
     return text.replace(needle, replacement)
@@ -84,9 +80,7 @@ def replace(
     description="Tells whether the text contains another piece of text.",
 )
 def contains(
-    text: Annotated[str, Param(widget=Textarea())],
-    needle: Annotated[str, Param(widget=TextInput())],
-    case_sensitive: Annotated[bool, Param(widget=Switch())] = True,
+    text: Annotated[str, Param(widget=Textarea())], needle: str, case_sensitive: bool = True
 ) -> Annotated[bool, Param(title="Contains")]:
     """Whether `needle` appears in the text."""
     if case_sensitive:
@@ -101,7 +95,7 @@ def contains(
 )
 def split(
     text: Annotated[str, Param(widget=Textarea())],
-    separator: Annotated[str, Param(min_length=1, widget=TextInput())] = "\n",
+    separator: Annotated[str, Param(min_length=1)] = "\n",
 ) -> Annotated[Series[str], Param(title="Parts")]:
     """Splits the text on a separator, a newline unless another is given: ``"a\\nb"`` gives ``["a", "b"]``, and an
     empty text gives ``[]``."""
@@ -114,7 +108,7 @@ def split(
     description="A list of texts that you enter. Wire a list of items to 'for each' to get the whole list once for each item.",
 )
 def text_list(
-    items: Annotated[list[str], Param(widget=ListInput())], for_each: Any = None
+    items: list[str], for_each: Any = None
 ) -> Annotated[Series[str], Param(title="Texts")]:
     """Returns ``items`` as a ``Series``.
 
@@ -130,10 +124,7 @@ def text_list(
     title="Join",
     description="Joins all the parts into one text, with a separator between them.",
 )
-def join(
-    parts: Annotated[Series[str], Param(widget=ListInput())],
-    separator: Annotated[str, Param(widget=TextInput())] = ", ",
-) -> Annotated[str, Param(title="Joined")]:
+def join(parts: Series[str], separator: str = ", ") -> Annotated[str, Param(title="Joined")]:
     """Joins every part into one text, with a separator between them."""
     return separator.join(parts)
 

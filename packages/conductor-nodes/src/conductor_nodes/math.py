@@ -5,16 +5,12 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated
 
 from conductor import NodeError, NodeRegistry, Param, Series
-from conductor.widgets import ListInput, NumberInput
 
 registry = NodeRegistry(category="math")
 
 
 @registry.node("math-add", title="Add", description="Adds two numbers together.")
-def add(
-    a: Annotated[float, Param(widget=NumberInput())],
-    b: Annotated[float, Param(widget=NumberInput())],
-) -> Annotated[float, Param(title="Sum")]:
+def add(a: float, b: float) -> Annotated[float, Param(title="Sum")]:
     """a + b"""
     return a + b
 
@@ -22,19 +18,13 @@ def add(
 @registry.node(
     "math-subtract", title="Subtract", description="Takes the second number away from the first."
 )
-def subtract(
-    a: Annotated[float, Param(widget=NumberInput())],
-    b: Annotated[float, Param(widget=NumberInput())],
-) -> Annotated[float, Param(title="Difference")]:
+def subtract(a: float, b: float) -> Annotated[float, Param(title="Difference")]:
     """a - b"""
     return a - b
 
 
 @registry.node("math-multiply", title="Multiply", description="Multiplies two numbers.")
-def multiply(
-    a: Annotated[float, Param(widget=NumberInput())],
-    b: Annotated[float, Param(widget=NumberInput())],
-) -> Annotated[float, Param(title="Product")]:
+def multiply(a: float, b: float) -> Annotated[float, Param(title="Product")]:
     """a * b"""
     return a * b
 
@@ -44,10 +34,7 @@ def multiply(
     title="Divide",
     description="Divides the first number by the second. Dividing by zero is an error.",
 )
-def divide(
-    a: Annotated[float, Param(widget=NumberInput())],
-    b: Annotated[float, Param(widget=NumberInput())],
-) -> Annotated[float, Param(title="Quotient")]:
+def divide(a: float, b: float) -> Annotated[float, Param(title="Quotient")]:
     """a / b; fails when b is 0."""
     if b == 0:
         raise NodeError(
@@ -61,10 +48,7 @@ def divide(
     title="Remainder",
     description="Gives what is left over when the first number is divided by the second. Dividing by zero is an error.",
 )
-def modulo(
-    a: Annotated[float, Param(widget=NumberInput())],
-    b: Annotated[float, Param(widget=NumberInput())],
-) -> Annotated[float, Param(title="Remainder")]:
+def modulo(a: float, b: float) -> Annotated[float, Param(title="Remainder")]:
     """a % b; fails when b is 0."""
     if b == 0:
         raise NodeError(
@@ -79,8 +63,7 @@ def modulo(
     description="Rounds a number to the number of decimals you choose, with halves rounded away from zero.",
 )
 def round_to(
-    value: Annotated[float, Param(widget=NumberInput())],
-    decimals: Annotated[int, Param(ge=0, le=10, widget=NumberInput())] = 0,
+    value: float, decimals: Annotated[int, Param(ge=0, le=10)] = 0
 ) -> Annotated[float, Param(title="Rounded")]:
     """Rounds to the given number of decimals, a half away from zero: 2.5 to 3, -2.5 to -3, 0.125 to 0.13 at 2.
 
@@ -98,9 +81,7 @@ def round_to(
     title="Smallest",
     description="Finds the smallest of the numbers. With no numbers it is an error.",
 )
-def smallest(
-    values: Annotated[Series[float], Param(widget=ListInput())],
-) -> Annotated[float, Param(title="Min")]:
+def smallest(values: Series[float]) -> Annotated[float, Param(title="Min")]:
     """The smallest of the numbers; fails when there are none."""
     if not values:
         raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
@@ -112,9 +93,7 @@ def smallest(
     title="Largest",
     description="Finds the largest of the numbers. With no numbers it is an error.",
 )
-def largest(
-    values: Annotated[Series[float], Param(widget=ListInput())],
-) -> Annotated[float, Param(title="Max")]:
+def largest(values: Series[float]) -> Annotated[float, Param(title="Max")]:
     """The largest of the numbers; fails when there are none."""
     if not values:
         raise NodeError("There are no numbers. Give at least one number.", code="no_numbers")
@@ -124,8 +103,6 @@ def largest(
 @registry.node(
     "math-abs", title="Absolute value", description="Gives the number without its minus sign."
 )
-def absolute(
-    value: Annotated[float, Param(widget=NumberInput())],
-) -> Annotated[float, Param(title="Absolute")]:
+def absolute(value: float) -> Annotated[float, Param(title="Absolute")]:
     """|value|"""
     return abs(value)

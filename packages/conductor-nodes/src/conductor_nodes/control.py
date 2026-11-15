@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from conductor import SKIPPED, NodeRegistry, Param
-from conductor.widgets import Switch, Textarea, TextInput
+from conductor.widgets import Textarea
 
 registry = NodeRegistry(category="control")
 
@@ -37,7 +37,7 @@ class Decided[T]:
     title="Decision",
     description="Sends the value one way when the switch is on and the other way when it is off.",
 )
-def decision[T](value: T, when: Annotated[bool, Param(widget=Switch())] = True) -> Decided[T]:
+def decision[T](value: T, when: bool = True) -> Decided[T]:
     """Returns ``value`` on ``if_true`` when ``when`` is true, and on ``if_false`` when it is false."""
     return Decided(if_true=value) if when else Decided(if_false=value)
 
@@ -75,11 +75,7 @@ def if_empty(text: Annotated[str, Param(widget=Textarea())]) -> Emptiness:
     title="If equals",
     description="Sends the first text one way when it matches the second and the other way when it doesn't.",
 )
-def if_equals(
-    a: Annotated[str, Param(widget=TextInput())],
-    b: Annotated[str, Param(widget=TextInput())],
-    case_sensitive: Annotated[bool, Param(widget=Switch())] = True,
-) -> Equality:
+def if_equals(a: str, b: str, case_sensitive: bool = True) -> Equality:
     """Returns ``a`` on ``equal`` when it equals ``b`` (ignoring case unless ``case_sensitive``), and on ``not_equal`` otherwise."""
     same = a == b if case_sensitive else a.lower() == b.lower()
     if same:

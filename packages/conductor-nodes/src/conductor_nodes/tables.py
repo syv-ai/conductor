@@ -19,15 +19,12 @@ Taking a table apart (``series-split``) and stacking tables (``series-stack``) a
 """
 
 import typing
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 import polars as pl
-from conductor import NodeError, NodeRegistry, Param, Series, Table
-from conductor.widgets import ListInput
+from conductor import NodeError, NodeRegistry, Series, Table
 
 registry = NodeRegistry(category="table")
-
-Names = Annotated[list[str], Param(widget=ListInput())]
 
 #: ``Table`` typed as ``Any``, so that ``_table`` can write ``Table[...]`` of a row type it builds when the graph is
 #: compiled, which a type checker can't follow.
@@ -98,7 +95,7 @@ def _table(records: type, columns: list[str], **added: type) -> dict[str, Any]:
     compute_outputs=_table,
 )
 def collect(
-    records: Table, columns: Names = [], constant_columns: Names = [], **values: Any
+    records: Table, columns: list[str] = [], constant_columns: list[str] = [], **values: Any
 ) -> dict[str, Any]:
     """Returns the records' table with the new columns after its own: those of ``columns``, then of ``constant_columns``.
 

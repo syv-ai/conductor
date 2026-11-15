@@ -6,7 +6,7 @@ from json import JSONDecodeError
 from typing import Annotated
 
 from conductor import NodeError, NodeRegistry, Param
-from conductor.widgets import NumberInput, Switch, Textarea, TextInput
+from conductor.widgets import Textarea
 from pydantic import JsonValue
 
 registry = NodeRegistry(category="json")
@@ -35,9 +35,7 @@ def parse(
 
 @registry.node("json-stringify", title="Write JSON", description="Writes a value out as JSON text.")
 def stringify(
-    value: JsonValue,
-    indent: Annotated[int, Param(ge=0, le=8, widget=NumberInput())] = 0,
-    sort_keys: Annotated[bool, Param(widget=Switch())] = False,
+    value: JsonValue, indent: Annotated[int, Param(ge=0, le=8)] = 0, sort_keys: bool = False
 ) -> Annotated[str, Param(title="JSON")]:
     """Writes a value as JSON text."""
     return json.dumps(value, indent=indent or None, sort_keys=sort_keys)
@@ -48,9 +46,7 @@ def stringify(
     title="Get from JSON",
     description="Picks one value out of JSON by its path, such as user.name. It gives null when nothing is there.",
 )
-def get_path(
-    value: JsonValue, path: Annotated[str, Param(widget=TextInput())]
-) -> Annotated[JsonValue, Param(title="Extracted")]:
+def get_path(value: JsonValue, path: str) -> Annotated[JsonValue, Param(title="Extracted")]:
     """Reads a dotted path from a JSON value, such as `user.name` or `items.0.id`; JSON null where there is nothing."""
     current = value
     for segment in path.split(".") if path else ():

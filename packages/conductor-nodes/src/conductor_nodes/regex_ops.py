@@ -15,7 +15,7 @@ from typing import Annotated
 
 import regex
 from conductor import NodeError, NodeRegistry, Param, Series
-from conductor.widgets import Switch, Textarea, TextInput
+from conductor.widgets import Textarea
 from regex import Pattern
 from regex import error as RegexError
 
@@ -55,9 +55,7 @@ def _compiled(pattern: str, ignore_case: bool) -> Pattern[str]:
     description="Tells whether a pattern is found anywhere in the text.",
 )
 def match(
-    text: Annotated[str, Param(widget=Textarea())],
-    pattern: Annotated[str, Param(widget=TextInput())],
-    ignore_case: Annotated[bool, Param(widget=Switch())] = False,
+    text: Annotated[str, Param(widget=Textarea())], pattern: str, ignore_case: bool = False
 ) -> Annotated[bool, Param(title="Matched")]:
     """Whether the pattern matches anywhere in the text."""
     compiled = _compiled(pattern, ignore_case)
@@ -72,9 +70,9 @@ def match(
 )
 def replace_all(
     text: Annotated[str, Param(widget=Textarea())],
-    pattern: Annotated[str, Param(widget=TextInput())],
-    replacement: Annotated[str, Param(title="Replace with", widget=TextInput())] = "",
-    ignore_case: Annotated[bool, Param(widget=Switch())] = False,
+    pattern: str,
+    replacement: Annotated[str, Param(title="Replace with")] = "",
+    ignore_case: bool = False,
 ) -> str:
     """Replaces every match of the pattern."""
     compiled = _compiled(pattern, ignore_case)
@@ -88,9 +86,7 @@ def replace_all(
     description="Finds every piece of the text that matches a pattern, so what follows runs once for each match.",
 )
 def extract(
-    text: Annotated[str, Param(widget=Textarea())],
-    pattern: Annotated[str, Param(widget=TextInput())],
-    ignore_case: Annotated[bool, Param(widget=Switch())] = False,
+    text: Annotated[str, Param(widget=Textarea())], pattern: str, ignore_case: bool = False
 ) -> Annotated[Series[str], Param(title="Matches")]:
     """Returns every match as a ``Series``, or the first group of each match when the pattern has groups.
 
