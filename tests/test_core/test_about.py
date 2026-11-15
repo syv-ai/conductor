@@ -132,25 +132,50 @@ def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_ex
     assert listed == importlib.import_module(module_name).__all__
 
 
-def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_docstring():
-    events = about.get_section("conductor-events")
-    assert events is not None
-    assert "- `NodeComplete`: Every call of a node has an outcome.\n" in events
-    assert (
-        (  # a paragraph over several lines is one line, and its code is in Markdown's single backticks
-            "- `NodeProgress`: How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a "
-            "second: the node's `CallCount`, as `run.progress` has it.\n"
-        )
-        in events
+def _names_written(module: ModuleType, monkeypatch: MonkeyPatch) -> str:
+    """A page's ``names`` placeholder for ``module`` with its names written in, as the reference writes its own."""
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    return about.fill_placeholders(f"<!-- names: {module.__name__} -->")
+
+
+def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_docstring(
+    monkeypatch: MonkeyPatch,
+):
+    class Room:
+        """A room in a house,
+        with ``doors`` and windows.
+
+        Rooms are built by hand.
+        """
+
+    def open_door() -> None:
+        """Opens a door."""
+
+    module = ModuleType("rooms")
+    module.Room = Room  # type: ignore[attr-defined]
+    module.open_door = open_door  # type: ignore[attr-defined]
+    module.__all__ = ["Room", "open_door"]  # type: ignore[attr-defined]
+
+    # a paragraph over several lines is one line, and its code is in Markdown's single backticks
+    assert _names_written(module, monkeypatch) == (
+        "- `Room`: A room in a house, with `doors` and windows.\n- `open_door`: Opens a door."
     )
 
 
-def test_a_summary_that_ends_by_introducing_an_example_ends_with_a_full_stop():
-    section = about.get_section("conductor")
-    assert section is not None
-    assert (
-        "- `make_graph`: A graph record written from Python, each node at its version.\n" in section
-    )
+def test_a_summary_that_ends_by_introducing_an_example_ends_with_a_full_stop(
+    monkeypatch: MonkeyPatch,
+):
+    def build_room() -> None:
+        """Builds a room, like this::
+
+        build_room()
+        """
+
+    module = ModuleType("rooms")
+    module.build_room = build_room  # type: ignore[attr-defined]
+    module.__all__ = ["build_room"]  # type: ignore[attr-defined]
+
+    assert _names_written(module, monkeypatch) == "- `build_room`: Builds a room, like this."
 
 
 def test_a_constant_or_a_type_alias_is_listed_by_its_name_alone():
