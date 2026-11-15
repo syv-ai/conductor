@@ -8,17 +8,19 @@
   Run graphs of typed Python functions.
 </p>
 
-You write the functions. Someone else draws the graph in an editor, and it reaches you as JSON. Conductor compiles it, tells you what's wrong with it, and runs it: once per item wherever a node returns a list, pausing where a node asks a person. A run is JSON too, so it can wait days for an answer.
+You write Python functions. Someone else wires them together in an editor, and the graph they draw reaches you as JSON. Conductor checks that graph, tells you what's wrong with it, and runs it.
 
-The core depends on pydantic, polars and typing-extensions. It has no web framework, database or login in it: those are yours.
+A few things come for free. When a node returns a list, the nodes after it run once per item. A node can stop and ask a person for an answer. And a run is plain JSON, so it can wait for days and pick up again in another process.
+
+Conductor needs only pydantic, polars and typing-extensions. It has no web framework, database or login in it: those are yours.
 
 ```bash
 uv add syv-conductor
 ```
 
-## The shortest graph
+## A first graph
 
-Three functions, a graph of them, a run:
+Here are three functions, a graph made of them, and a run:
 
 ```python
 from conductor import Graph, NodeRegistry, Run, Series, make_graph
@@ -31,7 +33,7 @@ def lines(text: str) -> Series[str]:
     return text.splitlines()
 
 
-@registry.node("shout", title="Shout", description="Capitals, and a mark.")
+@registry.node("shout", title="Shout", description="Puts a line in capitals and adds a mark.")
 def shout(line: str, mark: str = "!") -> str:
     return line.upper() + mark
 
@@ -47,28 +49,30 @@ print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
 print(run.outputs)                     # {'result': 'A!+B!+C!'}
 ```
 
-`lines` returns three texts. `shout` takes one, so it was called three times. `join` takes all of them, so it was called once. `make_graph` writes the graph record from Python, and declares what the graph takes and returns: `text`, the one required input nothing in the graph gives a value, and `result`, the output of the node no edge leaves. An editor writes the same thing as JSON, as the rest of this page shows.
+A node is a function, and its type hints are its interface. The registry is the set of nodes your graphs may use.
+
+`make_graph` wires the nodes into a chain, each one feeding the next. The graph takes `text`, because nothing else gives `lines` a value. It returns `result`, the output of the last node.
 
 ## One or many
 
-A node's types say how many values it deals with: `line: str` is one, `Series[str]` is many. To your function a `Series[str]` is a plain list.
+The types decide how often a node runs. `line: str` takes one value. `Series[str]` is many, and inside your function it's a plain list.
 
-- Wire a `Series[T]` output to an input that takes one `T`, and that node runs once per item: a loop. So does every node downstream of it.
-- Wire per-item outputs to a `Series[T]` input, and that node runs once and gets all of them, in order: it collects the loop. A `Table` input collects records the same way.
-- A value from outside the loop is the same on every call, as `mark` is for each line.
+- `lines` returns three texts as a `Series`. `shout` takes one text, so conductor calls it three times, once per line. That's a loop.
+- `join` takes a `Series[str]`, so it's called once with all three results, in order. That ends the loop.
+- A value from outside the loop is the same on every call. Here that's `mark`, which keeps its default `"!"`.
 
-That is all iteration is. A list or a table is one value until a node returns it as a `Series`: `graph.run(text=["a", "b"])` is refused, because `text` takes one text. The [Split node](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes) takes a table or a list apart for you.
+That's all there is to looping. A plain `list` or a table is one value until a node returns it as a `Series`. The [Split node](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes) does that for you.
 
-## Write nodes
+## Nodes that ask a person
 
-A node is a function, and its type hints are its interface:
+Now a longer example: approving invoices. These nodes go in a registry of their own:
 
 ```python
 from typing import TypedDict
 
 from conductor import Ask
 
-registry = NodeRegistry()  # the invoice nodes get a registry of their own
+registry = NodeRegistry()
 
 
 class Invoice(TypedDict):
@@ -97,13 +101,13 @@ def summary(approved: Series[bool]) -> str:
 print(approve("Ida", 100))  # True
 ```
 
-A node can still be called like the function, so that is its unit test. The registry is the set of nodes your graphs may use.
+`read` returns a `Series` of invoices, so `approve` runs once per invoice. A small invoice is approved straight away. For a large one, `raise Ask(...)` stops and asks a person. `asks=True` says up front that the node may do that, and the return type, `bool`, says the answer is a yes or no.
 
-`read` returns a `Series` of invoices, each a record with a `name` and an `amount`. `raise Ask(...)` stops and asks a person, and `asks=True` says the node may. The return type, `bool`, says what they answer: yes or no.
+You can still call a node like a plain function. That's its unit test.
 
-## Compile a graph
+## The graph as JSON
 
-This is the graph record an editor saves. Its nodes are keyed by an id of their own in this graph, and each has a `node`, which says which of your definitions it uses. The two are often the same, but a graph that uses `approve` twice has two ids. Each input gets one of three things: a `constant`, a `graph_input` the caller gives, or the `sources` of the edges into it. A source is an output of a node, and `{"node": "read", "output": "result", "field": "name"}` is the `name` of each invoice `read` returns. `outputs` names what the graph returns:
+This is what an editor saves for the invoice graph:
 
 ```python
 record = """{
@@ -124,11 +128,19 @@ print(graph.outputs)       # ['summary']
 print(graph.describe().nodes["approve"].per_item_of)  # read.result
 ```
 
-A graph declares what it takes and returns, as a function declares its parameters and its return value: `csv` is a graph input, and `summary` a graph output. Used as a node of another graph, those are its inputs and outputs. `approve` takes one name and one amount, so it runs once per invoice. `summary` takes every answer, so it runs once.
+Each node has an id of its own in the graph, and `node` says which of your functions it uses. They're often the same, but a graph that uses `approve` twice needs two ids.
 
-## Show problems
+Each input gets one of three things:
 
-A half-finished graph still compiles. Everything wrong is a problem with a place, so an editor can mark it on the node. Only JSON that isn't a graph record at all, such as a misspelled key, raises `InvalidCallError`:
+- a `constant`, the same on every call;
+- a `graph_input`, a value the caller gives when they start a run;
+- `sources`, the edges into it. `{"node": "read", "output": "result", "field": "name"}` is the `name` of each invoice `read` returns.
+
+`outputs` names what the graph returns. A graph's inputs and outputs work like a function's parameters and return value: here it takes `csv` and returns `summary`.
+
+## When something is wrong
+
+A half-finished graph still compiles. Each mistake becomes a problem tied to a place, so an editor can mark it on the node:
 
 ```python
 unfinished = Graph.compile("""{
@@ -146,7 +158,9 @@ for problem in unfinished.problems:
 # ('mail',) unknown_node
 ```
 
-Each problem also has a `msg` for a person and a `ctx` with the details. A host that shows another language translates by `type`.
+Each problem also has a `msg` for a person and a `ctx` with the details. To show it in another language, translate by `type`.
+
+Compiling only raises `InvalidCallError` when the JSON isn't a graph record at all, such as a misspelled key.
 
 ## Run it
 
@@ -160,9 +174,9 @@ for waiting in run.waiting:
 # Approve Bo, 5000 kr.?
 ```
 
-Ida's invoice was approved by the node itself. Bo's waits for a person, and so does `summary`, which takes every answer. Each entry of `run.waiting` has `questions`, one per output, with a JSON schema to draw a form from.
+The node approved Ida's invoice by itself. Bo's waits for a person, and so does `summary`, since it needs every answer. Each entry in `run.waiting` has `questions`, one per output, each with a JSON schema you can draw a form from.
 
-## Store it
+## Save it, and answer later
 
 A run is one JSON text. Keep it next to the graph record, wherever you keep your data:
 
@@ -170,9 +184,7 @@ A run is one JSON text. Keep it next to the graph record, wherever you keep your
 saved = run.to_json()
 ```
 
-## Answer, later
-
-Days later, in another process, compile the same graph record, read the run back and answer:
+Days later, in another process, compile the same record, load the run and answer:
 
 ```python
 run = Run.from_json(saved, Graph.compile(record, registry))
@@ -182,9 +194,9 @@ print(run.status)   # complete
 print(run.outputs)  # {'summary': '2 of 2 approved'}
 ```
 
-The answer is checked against its question before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` goes on from where the run stopped, and no node is called twice for an invoice.
+The answer is checked before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` carries on from where the run stopped, and no node is called twice for the same invoice.
 
-## Change one invoice
+## Run it again with a change
 
 Bo's invoice was for 5500, not 5000. Run again with the corrected CSV:
 
@@ -197,7 +209,7 @@ for waiting in run.waiting:
 # Approve Bo, 5500 kr.?
 ```
 
-A node isn't called again for an item that gets the same arguments as in the previous run. Ida's invoice is the same, so her output is reused, and only Bo's is asked again. Adding an invoice works the same way: only the added one is asked.
+A call that gets the same arguments as last time isn't made again. Ida's invoice didn't change, so her result is reused, and only Bo is asked again. Adding an invoice works the same way: only the new one is asked.
 
 ```python
 run = run.answer(run.waiting[0], True).again(csv=edited + "Eva,7000\n")
@@ -207,18 +219,15 @@ for waiting in run.waiting:
 # Approve Eva, 7000 kr.?
 ```
 
-`run.with_inputs(...)` is `again` before it starts: the changed inputs and what it reuses from the previous run, for when you want to `stream()` its events.
-
-## Next
+## Where to go next
 
 - [Writing nodes for others](https://github.com/syv-ai/conductor/blob/main/docs/writing-nodes.md): types, controls, branches, questions, errors, versions, and one test for a whole registry.
-- [How it works](https://github.com/syv-ai/conductor/blob/main/docs/OVERVIEW.md): loops, branches and pauses on one page.
-- [A graph inside a graph](https://github.com/syv-ai/conductor/blob/main/docs/subgraphs.md): a graph record used as one node of another, a subgraph.
-- `python -m conductor.about problems`: every problem code, with an example and the fix, printed from the code that declares it.
+- [How it works](https://github.com/syv-ai/conductor/blob/main/docs/OVERVIEW.md): how loops, branches and pauses run, on one page.
+- [A graph inside a graph](https://github.com/syv-ai/conductor/blob/main/docs/subgraphs.md): using a whole graph as one node of another.
 - [Serving runs over HTTP](https://github.com/syv-ai/conductor/blob/main/docs/serving-runs.md): a FastAPI router from `syv-conductor-providers`, on as many workers as you run.
-- [`syv-conductor-nodes`](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes): ready nodes for text, numbers, JSON, patterns, tables and a decision.
+- [`syv-conductor-nodes`](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes): ready-made nodes for text, numbers, JSON, patterns, tables and decisions.
 - [`examples/`](https://github.com/syv-ai/conductor/tree/main/examples): notebooks.
-- `python -m conductor.about`: the full reference, shipped in the package.
+- `python -m conductor.about`: the full reference, shipped in the package. `python -m conductor.about problems` lists every kind of problem, with an example and the fix.
 - [`CHANGELOG.md`](https://github.com/syv-ai/conductor/blob/main/CHANGELOG.md): what changed between releases.
 
-The public API is what `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing` list in `__all__`, and it follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Licensed under Apache-2.0.
+The public API is what `conductor`, `conductor.widgets`, `conductor.events` and `conductor.testing` list in `__all__`. It follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Licensed under Apache-2.0.
