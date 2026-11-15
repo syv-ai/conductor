@@ -21,7 +21,7 @@ from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Resume, StartRun, declared
-from conductor_providers.fastapi.problems import STATUS, no_such_run
+from conductor_providers.fastapi.problems import STATUS
 from conductor_providers.fastapi.state import M, view_type
 from conductor_providers.fastapi.worker import Worker, X
 
@@ -119,24 +119,13 @@ def run_router(
     view = view_type(worker.metadata_type)
     start_body = _body(declared(StartRun))
 
-    async def check_visible(run_id: str, allows: Callable[[M], bool]) -> None:
-        """Refuse a run the run filter doesn't let this request see, as if it weren't there.
-
-        Only the run's metadata is read, so the check stays cheap however much waits in the run.
-
-        Raises:
-            InvalidCallError: No run has the id, or the filter turns the request away (``no_such_run``). The two
-                read the same (a 404), so a request learns nothing about a run it may not see.
-        """
-        if not allows(await worker.metadata_of(run_id)):
-            raise InvalidCallError([no_such_run()])
-
-    async def visible(
-        run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
-    ) -> str:
-        """The run id of a route under ``/runs/{run_id}``, once the run filter lets this request see the run."""
-        await check_visible(run_id, allows)
-        return run_id
+    async def followed(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        last_event_id: Annotated[int, Header()] = -1,
+    ) -> AsyncIterator[tuple[int, str]]:
+        """The run's events, checked before the stream starts, so a run the request may not see is a 404."""
+        return await worker.events(run_id, last_event_id, allows=allows)
 
     @router.get("/nodes")
     def list_nodes(requester: Annotated[M, Depends(metadata)]) -> RegistryDescription:
@@ -159,9 +148,9 @@ def run_router(
     ) -> Any:
         """Start a run of any graph. This is an author's route, so guard it with a dependency of your own."""
         sent = StartRun.read(await request.body())
-        if sent.previous is not None:
-            await check_visible(sent.previous, allows)
-        return await worker.begin(sent.graph, sent.inputs, requester, previous=sent.previous)
+        return await worker.begin(
+            sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
+        )
 
     @router.post("/estimate", openapi_extra=start_body)
     async def estimate_run(
@@ -173,23 +162,25 @@ def run_router(
         ``costs_nothing`` are called, and nothing is stored. A node's ``total`` is ``null`` where it depends on a
         call that costs something."""
         sent = StartRun.read(await request.body())
-        if sent.previous is not None:
-            await check_visible(sent.previous, allows)
-        return await worker.estimate(sent.graph, sent.inputs, requester, previous=sent.previous)
+        return await worker.estimate(
+            sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
+        )
 
     @router.get("/runs/{run_id}", response_model=view)
-    async def read_run(run_id: Annotated[str, Depends(visible)]) -> Any:
+    async def read_run(
+        run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
+    ) -> Any:
         """The run as it was when it last stopped running: its status, what waits for a person, its outputs once
         complete, the answers that were refused, and why it ended early if it did."""
-        return await worker.read(run_id)
+        return await worker.read(run_id, allows=allows)
 
     @router.get("/runs/{run_id}/events", response_class=EventSourceResponse)
     async def follow_run(
-        run_id: Annotated[str, Depends(visible)], last_event_id: Annotated[int, Header()] = -1
+        events: Annotated[AsyncIterator[tuple[int, str]], Depends(followed)],
     ) -> AsyncIterable[ServerSentEvent]:
         """The run's events, from whichever worker runs it, until it stops running. ``Last-Event-ID`` goes on after
         a reconnect."""
-        async for number, body in worker.events(run_id, last_event_id):
+        async for number, body in events:
             yield ServerSentEvent(raw_data=body, id=str(number))
 
     @router.post(
@@ -198,7 +189,8 @@ def run_router(
         response_model=view,
     )
     async def answer_run(
-        run_id: Annotated[str, Depends(visible)],
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         answers: Annotated[
             dict[str, Any],
             Body(
@@ -212,21 +204,26 @@ def run_router(
         questions waiting is answered and goes on. Every answer it refuses is in the 422. While the run is running,
         the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
         """
-        return await worker.answer(run_id, answers)
+        return await worker.answer(run_id, answers, allows=allows)
 
     @router.post(
         "/runs/{run_id}/resume",
         status_code=202,
         response_model=view,
     )
-    async def resume_run(run_id: Annotated[str, Depends(visible)], body: Resume = Resume()) -> Any:
+    async def resume_run(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        body: Resume = Resume(),
+    ) -> Any:
         """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
         the item limit of a run that stopped at it, and a resume needs no body."""
-        return await worker.resume(run_id, body.max_items)
+        return await worker.resume(run_id, body.max_items, allows=allows)
 
     @router.post("/runs/{run_id}/again", status_code=202, response_model=view)
     async def run_again(
-        run_id: Annotated[str, Depends(visible)],
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         inputs: Annotated[
             dict[str, Any],
             Body(
@@ -237,15 +234,17 @@ def run_router(
     ) -> Any:
         """A new run with these inputs changed, of this request's own and on its own nodes. A call that gets what it
         got before isn't made again."""
-        return await worker.again(run_id, inputs, requester)
+        return await worker.again(run_id, inputs, requester, allows=allows)
 
     @router.post("/runs/{run_id}/cancel", response_model=view)
-    async def cancel_run(run_id: Annotated[str, Depends(visible)]) -> Any:
+    async def cancel_run(
+        run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
+    ) -> Any:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``. The calls
         already made are kept, its questions still wait, and an answer or a resume goes on. A waiting run is resumed
         for it, with no node call, so like any resume it can end ``failed``. A run that is complete or ended early is
         answered as it is."""
-        return await worker.cancel(run_id)
+        return await worker.cancel(run_id, allows=allows)
 
     for route in router.routes:
         if isinstance(route, APIRoute):

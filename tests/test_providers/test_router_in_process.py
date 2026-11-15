@@ -27,7 +27,7 @@ from conductor import (  # noqa: E402
     Series,
     make_graph,
 )
-from conductor_providers.fastapi import Worker, run_router  # noqa: E402
+from conductor_providers.fastapi import StoredRun, Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
@@ -938,3 +938,35 @@ async def test_a_key_a_body_doesnt_know_is_refused_never_dropped() -> None:
         assert [(problem["type"], problem["loc"]) for problem in refused.json()["detail"]] == [
             ("extra_forbidden", loc)
         ]
+
+
+async def test_a_route_reads_the_run_once_to_check_the_filter_and_answer() -> None:
+    registry, graph, gate, inputs, _ = asking()
+    gate.set()
+
+    class CountsReads(MemoryStore):
+        reads = 0
+
+        async def get(self, run_id: str) -> StoredRun | None:
+            self.reads += 1
+            return await super().get(run_id)
+
+    store = CountsReads()
+    async with _serving(_app(store=store, registry=lambda _: registry, poll=0.01)) as client:
+        run_id = (
+            await client.post(
+                "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
+            )
+        ).json()["id"]
+        await store.ended(run_id)
+        reads = {}
+        for name, call in (
+            ("read", lambda: client.get(f"/runs/{run_id}")),
+            ("events", lambda: client.get(f"/runs/{run_id}/events")),
+            ("hidden", lambda: client.get(f"/runs/{run_id}", headers={"x-user": "bo"})),
+        ):
+            store.reads = 0
+            assert (await call()).status_code in (200, 404)
+            reads[name] = store.reads
+
+    assert reads == {"read": 1, "events": 1, "hidden": 1}

@@ -157,7 +157,7 @@ curl -X POST localhost:8000/runs/8f1c.../answers -d '{"approve~3fa2c0d1": true}'
 
 Every run keeps some metadata: whatever you want to know about it later, such as who started it. The router asks your `metadata` dependency for it when a run starts, and writes it to the run once. Above, it is `{"user": "anna"}`.
 
-Your `run_filter` dependency decides which runs a request may open. It gives back a test of a run's metadata, and the router asks it on every route under `/runs/{id}`. A run it turns away answers 404, just like an id that doesn't exist. So nobody learns about runs they may not see.
+Your `run_filter` dependency decides which runs a request may open. It gives back a test of a run's metadata, and the router asks it on every route under `/runs/{id}`, on the row it reads to answer anyway. A run it turns away answers 404, just like an id that doesn't exist. So nobody learns about runs they may not see.
 
 The metadata can be a pydantic model of yours instead of a dict. Here a run is seen by everyone in the team it was started in:
 
@@ -324,4 +324,4 @@ app.include_router(own_routes)
 
 The worker refuses a call with conductor's `InvalidCallError`. The router turns that into a 404, 409 or 422 for you, so in a route of your own you do it yourself, as above. The run this route starts is read, answered and followed through the router's routes.
 
-Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to start a run, since nothing of its own would ever pick the run up.
+Every worker method that acts on a run takes the run's id, and returns the run as it is after the call. Pass it your run filter as `allows=` to turn away a run the request may not see, as the router does. Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to start a run, since nothing of its own would ever pick the run up.

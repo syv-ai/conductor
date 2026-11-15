@@ -15,7 +15,7 @@ import time
 import uuid
 from asyncio import Event as AsyncioEvent
 from asyncio import Task
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from threading import Event
@@ -122,11 +122,15 @@ class Worker(Generic[M, X]):
 
     # -- what a host calls ------------------------------------------------------------------------
 
-    async def read(self, run_id: str) -> RunView[M]:
+    async def read(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView[M]:
         """The run as a reader sees it: its status, what waits in it, its outputs once complete.
+
+        The row is read once: its metadata goes to ``allows``, and the view is built from the same row.
 
         Args:
             run_id: The run's id.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
 
         Returns:
             The run's view, as it was when the run last stopped running.
@@ -134,13 +138,13 @@ class Worker(Generic[M, X]):
         Raises:
             InvalidCallError: No run has the id (``no_such_run``).
         """
-        return self._view(await self._row(run_id))
+        return self._view(await self._row(run_id, allows))
 
     async def metadata_of(self, run_id: str) -> M:
         """A run's metadata, as it was written when the run started.
 
-        Only the row's ``metadata`` column is read, so this stays cheap however much waits in the run. The router's
-        access check calls it on every route under ``/runs/{run_id}``.
+        The store gives the whole row, and only its ``metadata`` is parsed. For a check of who may see a run, pass
+        the filter to the method that acts on it instead (``allows=``), which reads the row once for both.
 
         Args:
             run_id: The run's id.
@@ -160,6 +164,7 @@ class Worker(Generic[M, X]):
         metadata: M,
         *,
         previous: str | None = None,
+        allows: Callable[[M], bool] | None = None,
     ) -> RunView[M]:
         """Start a run: store it and make its first resume call in the background.
 
@@ -171,6 +176,8 @@ class Worker(Generic[M, X]):
                 ``graph.with_inputs(previous=...)`` takes it: a call that receives what a call of the same node
                 received there is not made again. It is loaded on ``metadata``'s nodes. The new run starts at this
                 worker's ``max_items``, not at a ceiling ``previous`` was resumed with; ``again`` keeps that one.
+            allows: The run filter of the request, which ``previous`` must pass: a run it turns away is refused as
+                ``no_such_run``. ``None`` lets every run through.
 
         Returns:
             The new run, as written.
@@ -182,7 +189,7 @@ class Worker(Generic[M, X]):
             RuntimeError: The worker has never served.
         """
         metadata = self._checked(metadata)
-        run = await self._ready(graph, inputs, metadata, previous)
+        run = await self._ready(graph, inputs, metadata, previous, allows)
         return await self._create(run.graph.record.model_dump_json(), metadata, run)
 
     async def estimate(
@@ -192,6 +199,7 @@ class Worker(Generic[M, X]):
         metadata: M,
         *,
         previous: str | None = None,
+        allows: Callable[[M], bool] | None = None,
     ) -> RunProgress:
         """How many calls the run ``begin`` would start will make, from ``run.resume(only_costs_nothing=True)``,
         which calls only the nodes that cost nothing; nothing is stored.
@@ -204,6 +212,7 @@ class Worker(Generic[M, X]):
             inputs: Values for the graph's inputs, by name.
             metadata: The metadata the run would have, on whose nodes the graph is compiled.
             previous: The id of a run whose work the run would reuse, as ``begin`` takes it.
+            allows: The run filter ``previous`` must pass, as ``begin`` takes it.
 
         Returns:
             The run's progress after that call.
@@ -212,7 +221,7 @@ class Worker(Generic[M, X]):
             InvalidCallError: As ``begin`` refuses the same call.
         """
         metadata = self._checked(metadata)
-        run = await self._ready(graph, inputs, metadata, previous)
+        run = await self._ready(graph, inputs, metadata, previous, allows)
 
         def estimated() -> RunProgress:
             context = self._settings.context_for(metadata, Event())
@@ -222,7 +231,14 @@ class Worker(Generic[M, X]):
 
         return await asyncio.to_thread(estimated)
 
-    async def again(self, run_id: str, inputs: Mapping[str, Any], metadata: M) -> RunView[M]:
+    async def again(
+        self,
+        run_id: str,
+        inputs: Mapping[str, Any],
+        metadata: M,
+        *,
+        allows: Callable[[M], bool] | None = None,
+    ) -> RunView[M]:
         """Start a run of a run's graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
         receives what it received before isn't made again.
 
@@ -234,6 +250,8 @@ class Worker(Generic[M, X]):
             run_id: The id of the run to start from.
             inputs: The inputs to change, by name; the rest stay as the run had them.
             metadata: The new run's metadata, stored with it; the run is loaded on its nodes.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
 
         Returns:
             The new run, as written.
@@ -244,11 +262,17 @@ class Worker(Generic[M, X]):
             RuntimeError: The worker has never served.
         """
         metadata = self._checked(metadata)
-        row, nodes = await self._row(run_id), self.nodes_for(metadata)
+        row, nodes = await self._row(run_id, allows), self.nodes_for(metadata)
         again = await asyncio.to_thread(lambda: loaded(row, nodes).with_inputs(inputs))
         return await self._create(row.graph, metadata, again)
 
-    async def answer(self, run_id: str, answers: Mapping[str, Any]) -> RunView[M]:
+    async def answer(
+        self,
+        run_id: str,
+        answers: Mapping[str, Any],
+        *,
+        allows: Callable[[M], bool] | None = None,
+    ) -> RunView[M]:
         """Answer what waits in a run, by waiting id.
 
         While the run is running, the answers are queued, as one call sent them, and given to the run when its
@@ -264,6 +288,8 @@ class Worker(Generic[M, X]):
         Args:
             run_id: The run's id.
             answers: An answer for each waiting call, by its waiting id.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
 
         Returns:
             The run as written: ``running`` whether the answers were queued or resumed the run.
@@ -273,7 +299,7 @@ class Worker(Generic[M, X]):
                 refuses is listed.
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
         """
-        row = await self._row(run_id)
+        row = await self._row(run_id, allows)
         if not answers:
             return self._view(row)
         while True:
@@ -292,7 +318,13 @@ class Worker(Generic[M, X]):
                 return self._view(claimed)
             row = await self._row(run_id)
 
-    async def resume(self, run_id: str, max_items: int | None = None) -> RunView[M]:
+    async def resume(
+        self,
+        run_id: str,
+        max_items: int | None = None,
+        *,
+        allows: Callable[[M], bool] | None = None,
+    ) -> RunView[M]:
         """Resume a run that ended early; no node call that finished is made again.
 
         When another call takes the run between this call's read and its write, the run is read again: it is
@@ -302,6 +334,8 @@ class Worker(Generic[M, X]):
             run_id: The run's id.
             max_items: A higher ceiling on the items of any one Series, for a run that stopped at its ceiling. The
                 run is stored with it as the run is claimed, so every later resume call has it.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
 
         Returns:
             The run as written, ``running``.
@@ -312,8 +346,8 @@ class Worker(Generic[M, X]):
                 ceiling.
             RuntimeError: The worker has never served.
         """
+        row = await self._row(run_id, allows)
         while True:
-            row = await self._row(run_id)
             state = RunState.model_validate_json(row.state)
             if state.cause is None:
                 raise InvalidCallError([run_not_resumable(status=state.status)])
@@ -326,8 +360,9 @@ class Worker(Generic[M, X]):
             claimed = await self._claim(row, state.running(), changed=raised)
             if claimed is not None:
                 return self._view(claimed)
+            row = await self._row(run_id)
 
-    async def cancel(self, run_id: str) -> RunView[M]:
+    async def cancel(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView[M]:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
 
         A running run is asked to stop: at once when this worker resumes it, at the next renewal of its lease when
@@ -345,6 +380,8 @@ class Worker(Generic[M, X]):
 
         Args:
             run_id: The run's id.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
 
         Returns:
             The run as written: ``running`` when the cancel was asked, else the run as it is.
@@ -354,7 +391,7 @@ class Worker(Generic[M, X]):
             RuntimeError: The run is waiting, so the cancel would resume it, and the worker has never served.
         """
 
-        row = await self._row(run_id)
+        row = await self._row(run_id, allows)
         while True:
             row = await self._ask_of_a_running_run(row, RunState.asked_to_stop)
             state = RunState.model_validate_json(row.state)
@@ -370,38 +407,51 @@ class Worker(Generic[M, X]):
                 return self._view(claimed)
             row = await self._row(run_id)
 
-    async def events(self, run_id: str, after: int = -1) -> AsyncGenerator[tuple[int, str]]:
-        """The events of a run as they are stored, from whichever worker resumes it, until the run is not running.
+    async def events(
+        self, run_id: str, after: int = -1, *, allows: Callable[[M], bool] | None = None
+    ) -> AsyncIterator[tuple[int, str]]:
+        """A run's events as they are stored, from whichever worker resumes it, until the run isn't running.
 
-        A row stops saying ``running`` only after the ``run_end`` of its resume call is stored. So the row is read
-        only once a ``run_end`` was the last event, or when there was no event at all, and otherwise events alone
-        are read.
+        The run is read, and checked with ``allows``, when this is awaited, so a run that isn't there is refused
+        before any event is given. ``async for number, body in await worker.events(run_id)`` follows it.
 
         Args:
             run_id: The run's id.
             after: The number of the last event the follower has; ``-1`` for none.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. ``None`` lets every run through.
 
-        Yields:
+        Returns:
             Each event numbered above ``after``, in order, as ``(number, body)``.
+
+        Raises:
+            InvalidCallError: No run has the id, or ``allows`` turns it away (``no_such_run``).
         """
+        row = await self._row(run_id, allows)
+        return self._events_from(row, after)
+
+    async def _events_from(self, row: StoredRun, after: int) -> AsyncGenerator[tuple[int, str]]:
+        """The events of the run in ``row`` above ``after``, until the run isn't running.
+
+        A row stops saying ``running`` only after the ``run_end`` of its resume call is stored. So once a read of
+        the row says the run stopped, the events stored then are all there will be. The row is read again only when
+        a ``run_end`` was the last event, or there was no event yet; otherwise events alone are read.
+        """
+        run_id, ended = row.id, not RunState.model_validate_json(row.state).is_running
         may_have_ended = True
         while True:
             new = await self._store.events(run_id, after)
             for number, body in new:
                 after = number
                 yield number, body
+            if ended:
+                return
             if new:
                 may_have_ended = from_json(new[-1][1])["type"] == "run_end"
-            elif (
-                may_have_ended
-                and not RunState.model_validate_json((await self._row(run_id)).state).is_running
-            ):
-                for event in await self._store.events(
-                    run_id, after
-                ):  # stored before the row said so
-                    yield event
-                return
-            else:  # the row is written after its run_end, so it may still say running for a poll or two
+                continue
+            if may_have_ended:
+                ended = not RunState.model_validate_json((await self._row(run_id)).state).is_running
+            if not ended:  # the row is written after its run_end, so it may still say running for a poll or two
                 await asyncio.sleep(self._poll)
 
     async def _sweep(self) -> None:
@@ -472,7 +522,12 @@ class Worker(Generic[M, X]):
             )
 
     async def _ready(
-        self, graph: Any, inputs: Mapping[str, Any], metadata: M, previous: str | None
+        self,
+        graph: Any,
+        inputs: Mapping[str, Any],
+        metadata: M,
+        previous: str | None,
+        allows: Callable[[M], bool] | None,
     ) -> Run[Any]:
         """The run ``begin`` starts and ``estimate`` counts: the graph compiled on the metadata's nodes, with its
         inputs, and the work of ``previous`` lent to it.
@@ -484,7 +539,7 @@ class Worker(Generic[M, X]):
                 (``no_such_run``), or it can't be loaded on these nodes (``previous_run_unloadable``).
         """
         nodes = self.nodes_for(metadata)
-        lends = None if previous is None else await self._row(previous)
+        lends = None if previous is None else await self._row(previous, allows)
 
         def ready() -> Run[Any]:
             compiled = Graph.compile(graph, nodes)
@@ -502,14 +557,15 @@ class Worker(Generic[M, X]):
 
         return await asyncio.to_thread(ready)
 
-    async def _row(self, run_id: str) -> StoredRun:
-        """A run's row, as the store has it.
+    async def _row(self, run_id: str, allows: Callable[[M], bool] | None = None) -> StoredRun:
+        """A run's row, as the store has it, if ``allows`` lets it through.
 
         Raises:
-            InvalidCallError: No run has the id (``no_such_run``).
+            InvalidCallError: No run has the id, or ``allows`` turns its metadata away (``no_such_run``). The two
+                read the same, so a request learns nothing about a run it may not see.
         """
         row = await self._store.get(run_id)
-        if row is None:
+        if row is None or (allows is not None and not allows(self._metadata_in(row))):
             raise InvalidCallError([no_such_run()])
         return row
 

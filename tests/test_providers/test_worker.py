@@ -1679,7 +1679,7 @@ async def test_a_follower_reads_the_row_only_to_learn_whether_a_run_end_was_the_
         run = await worker.read(await _started(worker, graph, inputs))
 
         async def followed(after: int = -1) -> list[tuple[int, str]]:
-            return [event async for event in worker.events(run.id, after)]
+            return [event async for event in await worker.events(run.id, after)]
 
         following = asyncio.create_task(followed())
         await asyncio.sleep(0.1)  # the follower has the resume call's first events by now
@@ -1721,7 +1721,7 @@ async def test_a_follower_that_got_a_run_end_while_the_row_still_reads_running_k
         await store.ended(run_id)
 
         async with asyncio.timeout(5):
-            events = [json.loads(body) async for _, body in worker.events(run_id)]
+            events = [json.loads(body) async for _, body in await worker.events(run_id)]
 
         assert [event["type"] for event in events].count("run_end") == 1 and events[-1][
             "type"
