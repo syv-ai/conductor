@@ -5,8 +5,8 @@ an ``int`` reaches ``small.n``, but not whether it is at most 3, so each call of
 its type. ``letters`` returning 12 fails that call with ``invalid_edge_value``. An edge from ``shout.result: str``
 into ``join.texts: Series[str]`` needs no such read, and a node none of whose inputs needs one has no edge validator.
 
-Which inputs are read is decided once, when the run blueprint is built (``demands_more``); the validator is built then
-and called before each call of the node.
+Which inputs are read is decided once, when the run blueprint is built (``EdgeValidator.of``); the validator is built
+then and called before each call of the node.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.validation import Validator, exact_classes, schema_validator_of
 
 
-def demands_more(node_input: EdgeInput | CollectingInput) -> bool:
+def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
     """Whether the input ``node_input`` demands more of a value than the types of the outputs its edges read declare,
     so that its node's edge validator reads the value by the input's type before each call.
 
@@ -49,9 +49,10 @@ def demands_more(node_input: EdgeInput | CollectingInput) -> bool:
 
 
 class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
-    """Reads the arguments of a node's call whose inputs ``demands_more`` chose, each by the input's type.
+    """Reads the arguments of a node's call whose inputs demand more than the outputs their edges read declare, each
+    by the input's type.
 
-    Built once per node when the graph is compiled. Called with a call's arguments, it returns them with those
+    Built once per node with the run blueprint, on a graph's first run, by ``EdgeValidator.of``. Called with a call's arguments, it returns them with those
     inputs read; a value already exactly of one of the type's plain classes is kept as it is, and so is
     ``SKIPPED``.
 
@@ -59,6 +60,19 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
         InvalidCallError: An input's type refuses its value (``invalid_edge_value``, which names the input and quotes
             nothing of the value). The first input refused is reported.
     """
+
+    @classmethod
+    def of(cls, inputs: Mapping[str, EdgeInput | CollectingInput]) -> EdgeValidator | None:
+        """Returns the edge validator of a node whose inputs read through edges are ``inputs``, by name: one that
+        reads each input whose type demands more than the outputs its edges read declare. ``None`` when the source of
+        every edge already satisfies its input, so the node's calls read nothing first.
+        """
+        read = {
+            name: node_input.field
+            for name, node_input in inputs.items()
+            if _demands_more(node_input)
+        }
+        return cls(read) if read else None
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
         """Builds the validator for ``inputs``, the inputs to read, by name."""

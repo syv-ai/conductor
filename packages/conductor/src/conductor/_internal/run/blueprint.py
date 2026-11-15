@@ -59,7 +59,7 @@ from conductor._internal.graph import (
 )
 from conductor._internal.node import Policy
 
-from .validator import EdgeValidator, demands_more
+from .validator import EdgeValidator
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -383,11 +383,6 @@ def _function_node(
     if loops and min(upstream.values(), default=0) < len(loops):
         # it reads something made outside its innermost loop, which may exist before the list looped over does
         upstream.setdefault(functions[loops[-1][0]], len(loops) - 1)
-    read_by_validator = {
-        name: node_input.field
-        for name, (_, node_input) in edge_inputs.items()
-        if demands_more(node_input)
-    }
     return BlueprintFunctionNode(
         compiled_node=compiled_node,
         parent=parent,
@@ -397,7 +392,9 @@ def _function_node(
         graph_inputs=tuple(graph_inputs),
         edge_inputs=edge_inputs,
         lists_from_same_loop=tuple(map(tuple, collecting.values())),
-        edge_validator=EdgeValidator(read_by_validator) if read_by_validator else None,
+        edge_validator=EdgeValidator.of(
+            {name: node_input for name, (_, node_input) in edge_inputs.items()}
+        ),
         upstream=upstream,
         position=len(functions),
     )
