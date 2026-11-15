@@ -565,8 +565,9 @@ class Compiler:
         record's defaults for it must agree; else the graph has the problem ``graph_input_used_two_ways`` and the
         second gets no value. So ``int`` and ``Annotated[int, Param()]`` agree, and ``int`` and
         ``Annotated[int, Param(title="Count")]`` do not; nor do ``Annotated[int, Ge(0)]`` and
-        ``Annotated[int, Param(ge=0)]``, one rule written two ways, though both take the same values. The input's own
-        default plays no part: a graph input the record gives no default is required.
+        ``Annotated[int, Param(ge=0)]``, one rule written two ways, though both take the same values. The graph input is
+        the first input's field, unless a later one brings the record's default and the first did not. The input's
+        own default plays no part: a graph input the record gives no default is required.
 
         Args:
             node_id: The node.
@@ -584,7 +585,7 @@ class Compiler:
                 compile_problems.graph_input_used_two_ways(node_id, field.name, graph_input=name)
             )
             return MissingInput(field)
-        if found is None or found.default is REQUIRED:
+        if found is None or (found.default is REQUIRED and used.default is not REQUIRED):
             self.graph_inputs[name] = used
         return GraphInput(field, name)
 
