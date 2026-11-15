@@ -30,7 +30,7 @@ from conductor_providers.fastapi.worker import Worker
 C = TypeVar("C")
 
 
-#: A graph record as a caller sent it: read by conductor's record door when the graph is compiled, so every fault in
+#: A graph record as a caller sent it: read by conductor's record validator when the graph is compiled, so every fault in
 #: it is refused in conductor's words; the schema says it is a ``GraphRecord``.
 GraphAsSent = Annotated[Any, PlainValidator(lambda sent: sent, json_schema_input_type=GraphRecord)]
 
@@ -221,7 +221,7 @@ def run_router(
         and every problem. Nothing is run or stored."""
         return Graph.compile(
             await request.body(), worker.nodes_for(who)
-        ).describe()  # the record door reads the body's text
+        ).describe()  # the record validator reads the body's text
 
     @router.post("/runs", status_code=202)
     async def start_run(

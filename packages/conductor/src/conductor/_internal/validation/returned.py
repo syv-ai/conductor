@@ -1,13 +1,13 @@
-"""The return door: what a node's function returns, read into the node's outputs by one pydantic validator.
+"""The return validator: what a node's function returns, read into the node's outputs by one pydantic validator.
 
-Example: ``shout(line: str) -> str`` returns ``"B!"``, and its door gives ``{"result": "B!"}``. Returned ``3``, the
-door raises ``InvalidCallError`` with the problem ``invalid_output`` for the output ``result``.
+Example: ``shout(line: str) -> str`` returns ``"B!"``, and its validator gives ``{"result": "B!"}``. Returned ``3``, the
+validator raises ``InvalidCallError`` with the problem ``invalid_output`` for the output ``result``.
 
 A value is read strictly: a value already of its class is kept as it is, a dict is read into a model, and ``"12"``
 is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every output.
 
 A node with several outputs returns a frozen dataclass, or a mapping when its ``compute_outputs`` hook gave the
-outputs. Its door reads every output in one call of one validator. First the shape: the dataclass or a mapping,
+outputs. Its validator reads every output in one call of one validator. First the shape: the dataclass or a mapping,
 no output missing or unknown, and of an exclusive group at most one output with a value. Then each output's value,
 by its type, in the order the outputs are declared. Only the first fault is reported, as one problem.
 
@@ -33,10 +33,10 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.utils import comma_separated
 
-from .rules import exact_classes, output_schema_of, output_validator_of
+from .rules import exact_classes, output_schema_of, schema_output_validator_of
 
 
-class ReturnDoor:
+class ReturnValidator:
     """Reads what one node's function returned into the node's outputs by name, as a run keeps them.
 
     Built once per compiled node, on the node's first call. Calling it with the returned value gives the outputs.
@@ -49,7 +49,7 @@ class ReturnDoor:
     def __init__(
         self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]
     ) -> None:
-        """Builds the door for a node whose function returns ``outputs``.
+        """Builds the validator for a node whose function returns ``outputs``.
 
         The function returns them as a frozen dataclass when it declares one, as a mapping when its
         ``compute_outputs`` hook gave them, as ``None`` when there are none, and otherwise as one value, ``result``.
@@ -97,10 +97,10 @@ def _no_outputs(returned: Any) -> dict[str, Any]:
 
 
 def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
-    """The door of a node with the one output ``result``. A value exactly of one of the type's plain classes (a
+    """The validator of a node with the one output ``result``. A value exactly of one of the type's plain classes (a
     ``str`` for ``-> str``) is taken as it is, with no call to pydantic."""
     exact = exact_classes(field.whole)
-    validate = output_validator_of(field.whole).validate_python
+    validate = schema_output_validator_of(field.whole).validate_python
 
     def read(returned: Any) -> dict[str, Any]:
         if type(returned) in exact:
@@ -116,7 +116,7 @@ def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
 def _several_outputs(
     outputs: Mapping[str, Field], by_name: Callable[[Any], dict[str, Any]]
 ) -> Callable[[Any], dict[str, Any]]:
-    """The door of a node with several outputs: one validator for all of them.
+    """The validator of a node with several outputs: one pydantic validator for all of them.
 
     First the shape of what was returned is checked, then each output's value: the before-function takes the
     value apart by output name and holds each exclusive group to one output with a value; the fields read the

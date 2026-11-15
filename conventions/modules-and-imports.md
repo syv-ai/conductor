@@ -29,8 +29,8 @@ Keep reading and writing JSON apart from the class it is about (a run's JSON for
 Why: JSON read or written in several places is several rules that can disagree.
 
 ```python
-def from_json(text: str) -> dict[str, Any]: ...         # bad: in gate/answer.py
-def read_as_answer(value: Any) -> dict[str, Any]: ...   # good: the door reads a value
+def from_json(text: str) -> dict[str, Any]: ...         # bad: in validation/answer.py
+def read_as_answer(value: Any) -> dict[str, Any]: ...   # good: the validator reads a value
 ```
 
 ## Classes are imported by name

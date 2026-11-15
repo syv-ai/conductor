@@ -47,7 +47,6 @@ from conductor._internal.base import (
     NodePath,
     place_text,
 )
-from conductor._internal.gate import EdgeDoor, demands_more
 from conductor._internal.graph import (
     CollectingInput,
     CompiledFunctionNode,
@@ -59,6 +58,7 @@ from conductor._internal.graph import (
     MissingInput,
 )
 from conductor._internal.node import Policy
+from conductor._internal.validation import EdgeValidator, demands_more
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
@@ -108,8 +108,8 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
         lists_from_same_loop: The collecting inputs, grouped by the loop they collect: each input's name and
             whether it accepts ``None`` items. An item that is ``None`` for an input that does not accept it is
             left out of every list of its group, so the lists of one group have the same items.
-        edge_door: Reads before each call the inputs whose type demands more than the outputs their edges read
-            declare (``gate/edge.py``); ``None`` when no input does.
+        edge_validator: Reads before each call the inputs whose type demands more than the outputs their edges read
+            declare (``validation/edge.py``); ``None`` when no input does.
         looped_outputs: The ``Series`` outputs of the node that some edge reads one item at a time, by output
             name. A run holds each to ``max_items``. The value is the node and output that the reading node's
             graph names the list by: this node, or, when the reading node is outside a subgraph this node is
@@ -130,7 +130,7 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
     graph_inputs: tuple[tuple[str, str], ...]
     edge_inputs: dict[str, tuple[NodePath, EdgeInput | CollectingInput]]
     lists_from_same_loop: tuple[tuple[tuple[str, bool], ...], ...]
-    edge_door: EdgeDoor | None
+    edge_validator: EdgeValidator | None
     upstream: dict[BlueprintFunctionNode, int]
     position: int
     looped_outputs: dict[str, tuple[BlueprintNode, str]] = dataclasses.field(
@@ -382,7 +382,7 @@ def _function_node(
     if loops and min(upstream.values(), default=0) < len(loops):
         # it reads something made outside its innermost loop, which may exist before the list looped over does
         upstream.setdefault(functions[loops[-1][0]], len(loops) - 1)
-    read_by_door = {
+    read_by_validator = {
         name: node_input.field
         for name, (_, node_input) in edge_inputs.items()
         if _demands_more(node_input)
@@ -396,7 +396,7 @@ def _function_node(
         graph_inputs=tuple(graph_inputs),
         edge_inputs=edge_inputs,
         lists_from_same_loop=tuple(map(tuple, collecting.values())),
-        edge_door=EdgeDoor(read_by_door) if read_by_door else None,
+        edge_validator=EdgeValidator(read_by_validator) if read_by_validator else None,
         upstream=upstream,
         position=len(functions),
     )
@@ -478,7 +478,7 @@ def loop_body_of(
 
 
 def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
-    """Whether ``node_input`` is read by its node's edge door before each call: its input's type demands more than the
+    """Whether ``node_input`` is read by its node's edge validator before each call: its input's type demands more than the
     outputs its edges read declare (``demands_more``)."""
     match node_input:
         case EdgeInput(field=field, sources=edges, as_list=as_list):

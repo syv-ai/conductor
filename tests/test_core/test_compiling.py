@@ -965,7 +965,7 @@ def test_an_edge_from_a_node_that_did_not_compile_is_not_reported_again():
     assert _problems(missing) == [("edge_names_missing_node", ("u", "text"))]
 
 
-def test_a_node_id_or_a_source_that_is_no_name_is_refused_at_the_record_door():
+def test_a_node_id_or_a_source_that_is_no_name_is_refused_by_the_record_validator():
     """``a@b`` and ``a/b`` can be no node's id, so a node under either and an edge from either are refused."""
     for bad in ("a@b", "a/b"):
         with pytest.raises(InvalidCallError) as refused:
@@ -2021,7 +2021,7 @@ def test_a_subgraph_whose_two_inner_inputs_name_one_graph_input_takes_one_value_
     )
 
 
-def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_at_the_record_door():
+def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_by_the_record_validator():
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(
             json.dumps({"nodes": {"e": {"node": "enrich"}, "e/upper": {"node": "upper"}}}), OUTSIDE

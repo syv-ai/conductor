@@ -14,10 +14,10 @@ from typing import Any
 from pydantic import MISSING
 
 from conductor._internal.base import Source
-from conductor._internal.gate import read_record, record_values
 from conductor._internal.node import NodeDefinition, gone_inputs
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
+from conductor._internal.validation import read_record, record_values
 
 
 def upgraded(
@@ -30,9 +30,9 @@ def upgraded(
     """``record`` with the node ``node_id`` moved to version ``to`` of its definition in ``nodes``, the newest when
     ``to`` is ``None``: what ``registry.upgrade`` returns, and its docstring says how.
 
-    Each step's record is read again by the record door, so what a step writes is held to the record's rules: a
+    Each step's record is read again by the record validator, so what a step writes is held to the record's rules: a
     rewrite that gives a value to an input that edges lead into gives that input a constant beside its sources, and
-    the door refuses it, naming the step.
+    the record validator refuses it, naming the step.
     """
     graph = read_record(record)
     node_record = graph.nodes.get(node_id)
@@ -96,7 +96,7 @@ def upgraded(
             name: _renamed_source(source, node_id, upgrade.renamed_outputs)
             for name, source in graph.outputs.items()
         }
-        # unchecked until here: the door checks what the step wrote
+        # unchecked until here: the record validator checks what the step wrote
         graph = read_record(
             GraphRecord.model_construct(nodes=records, outputs=outputs).model_dump(mode="json"),
             written_by=f"the Upgrade of '{node_record.node}' to version {step.version}",
@@ -133,7 +133,7 @@ def _rewritten(
         entry = kept.get(name)
         if entry is not None and entry.graph_input is not MISSING:
             kept[name] = InputEntry.model_construct(graph_input=entry.graph_input, default=value)
-        else:  # beside sources, an entry of two kinds the door refuses
+        else:  # beside sources, an entry of two kinds the record validator refuses
             kept[name] = InputEntry.model_construct(
                 constant=value, sources=MISSING if entry is None else entry.sources
             )

@@ -23,7 +23,7 @@ which build what every run of the graph shares; and under ``TYPE_CHECKING`` for 
 ``SavedRun``, which its annotations name. ``Graph.compile`` imports ``compile.py`` inside its body too, since that
 module and this one import each other.
 
-The names with an underscore (``_nodes``, ``_inputs``, ``_inputs_door``, ...) are what the engine reads: the
+The names with an underscore (``_nodes``, ``_inputs``, ``_inputs_validator``, ...) are what the engine reads: the
 compiler, a subgraph node and a run. A host must not see them.
 """
 
@@ -37,12 +37,12 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 from conductor._internal.base import Loc, NodePath, json_hash, place_text
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import ContextDoor, InputsDoor, read_limits
 from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param
 from conductor._internal.utils import plural
+from conductor._internal.validation import ContextValidator, InputsValidator, read_limits
 
 from .describe import (
     GraphDescription,
@@ -252,7 +252,7 @@ class Graph[C]:
         return json_hash([own, subgraph_fingerprints], 8)
 
     @functools.cached_property
-    def _context_door(self) -> ContextDoor:
+    def _context_validator(self) -> ContextValidator:
         """Checks the ``context=`` of each call that starts or resumes a run: built once, from the registry's
         ``context_type`` and every function node of the run blueprint that takes the context, those inside subgraphs
         too."""
@@ -260,7 +260,7 @@ class Graph[C]:
             path: node.compiled_node.definition.context
             for path, node in self._blueprint.function_nodes.items()
         }
-        return ContextDoor(
+        return ContextValidator(
             self._context_type,
             [(path, context) for path, context in contexts.items() if context is not None],
         )
@@ -274,9 +274,9 @@ class Graph[C]:
         )
 
     @functools.cached_property
-    def _inputs_door(self) -> InputsDoor:
+    def _inputs_validator(self) -> InputsValidator:
         """Reads the graph inputs of each call that makes a run: built when the first run is made."""
-        return InputsDoor(self._inputs)
+        return InputsValidator(self._inputs)
 
     @functools.cached_property
     def _blueprint(self) -> RunBlueprint:
@@ -322,7 +322,7 @@ class Graph[C]:
         Raises:
             InvalidCallError: The graph has problems; ``max_items`` is not a whole number of at least 1
                 (``invalid_limit``); or an input is missing, unknown, given twice or not of its type (the inputs
-                door's problems, every one).
+                validator's problems, every one).
         """
         from conductor._internal.run import make_run
 
@@ -330,7 +330,7 @@ class Graph[C]:
             raise InvalidCallError(self.problems)
         limits = read_limits(max_items=max_items)
         return make_run(
-            self, self._inputs_door({**inputs, **by_name}), limits["max_items"], previous
+            self, self._inputs_validator({**inputs, **by_name}), limits["max_items"], previous
         )
 
     def run(

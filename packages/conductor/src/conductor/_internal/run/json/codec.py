@@ -21,9 +21,9 @@ from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import place_text
 from conductor._internal.field import Field
-from conductor._internal.gate import numbers_refuse_bools
 from conductor._internal.graph import Graph
 from conductor._internal.types import Type, union_of
+from conductor._internal.validation import numbers_refuse_bools
 
 from .type import SavedOutcomes, SavedReusable, SavedRun
 

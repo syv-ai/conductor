@@ -46,7 +46,7 @@ schema = _with_shared_tables(schema)                       # good
 
 ## The wire is never an argument
 
-Judge a design only by what it simplifies in conductor, never by the JSON or names a host sees, and turn a shorter typed form into the one model at its door.
+Judge a design only by what it simplifies in conductor, never by the JSON or names a host sees, and turn a shorter typed form into the one model where it enters.
 
 Why: conductor owns its JSON and its one host can change with it, so a shape is kept only if it makes conductor simpler.
 

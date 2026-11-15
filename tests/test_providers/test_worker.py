@@ -721,6 +721,8 @@ async def test_an_answer_queued_for_a_question_a_timed_out_resume_call_never_ask
     worker = _worker(store, registry, resume_timeout=0.2)
     async with worker.serving():
         run_id = await _started(worker, graph, inputs)
+        while await _resume_calls(store, run_id) == 0:  # its timeout counts from when it starts
+            await asyncio.sleep(0.01)
         assert await worker.answer(await worker.read(run_id), {waiting_id: True}) == "queued"
         # past the resume call's timeout; the node call it waits for then finishes
         await asyncio.sleep(0.3)

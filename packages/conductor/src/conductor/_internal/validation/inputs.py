@@ -1,7 +1,7 @@
-"""The inputs door: the graph inputs a caller gives to start a run, and the run's limits.
+"""The inputs validator: the graph inputs a caller gives to start a run, and the run's limits.
 
 Example: the graph of one node, ``make_graph(shout)``, has the graph inputs ``line`` (required) and ``mark``
-(default ``"!"``). ``graph.run(line="b")`` gives the door ``{"line": "b"}``, which returns ``{"line": "b", "mark":
+(default ``"!"``). ``graph.run(line="b")`` gives the validator ``{"line": "b"}``, which returns ``{"line": "b", "mark":
 "!"}``: every graph input by name, its default where the caller gave none. Given ``{"line": 3, "colour": "red"}``
 it raises ``InvalidCallError`` with every fault at once: ``not_offered`` for ``colour``, then ``invalid_input`` for
 ``line``.
@@ -24,10 +24,10 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.types import Type
 
-from .rules import schema_of, validator_of
+from .rules import schema_of, schema_validator_of
 
 
-class InputsDoor:
+class InputsValidator:
     """Reads the graph inputs a caller gives, by name, into the value of every graph input.
 
     Built once per graph. One pydantic validator reads them all: an input with no default must be given, nothing
@@ -42,7 +42,7 @@ class InputsDoor:
     """
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
-        """Builds the door for a graph's inputs.
+        """Builds the validator for a graph's inputs.
 
         Args:
             inputs: Each graph input by name, as its field, whose default is used when the caller gives none
@@ -139,14 +139,14 @@ def _refused_as_a_list(option: Type, value: list[Any]) -> bool:
     its item, so ``int | list[int]`` given ``["x"]`` is no question of looping.
     """
     try:
-        validator_of(option).validate_python(value)
+        schema_validator_of(option).validate_python(value)
     except ValidationError as error:
         return all(not fault["loc"] for fault in option.refusal(error).errors)
     return False
 
 
 def _input_schema(field: Field) -> TypedDictField:
-    """The schema of one graph input inside the door's: required unless it has a default, and read by its type."""
+    """The schema of one graph input inside the validator's: required unless it has a default, and read by its type."""
     schema = schema_of(field.whole)
     required = field.default is REQUIRED
     if not required:

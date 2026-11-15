@@ -1,4 +1,4 @@
-"""The declaration door: a default a node author declares, read by its input's or output's type when the node is
+"""The declaration validator: a default a node author declares, read by its input's or output's type when the node is
 declared, and read again by the type an edge binds its type variable to when a graph is compiled.
 
 Example: ``shout(line: str, mark: str = "!")`` declares the default ``"!"``, and ``declared_input("mark", str, "!")``
@@ -8,7 +8,7 @@ that declares the node is imported: ``NodeDeclarationError`` with the code ``def
 ``0`` for it: ``invalid_value`` (variant ``bound_default``), a problem of the graph.
 
 A default is read as a Python value is read (``1`` for a ``float`` is ``1.0``). The defaults a graph record gives
-are read by the constants door instead.
+are read by the constants validator instead.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from conductor._internal.problem import (
 )
 from conductor._internal.types import Type
 
-from .rules import validator_of
+from .rules import schema_validator_of
 
 
 def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> Field:
@@ -64,7 +64,7 @@ def declared_input(name: str, hint: Any, default: Any) -> Field:
     """Returns the input ``name`` that a node declares with the type hint ``hint`` and ``default``, as
     ``_declared_field`` does, refusing what only an output can have: an input is never a branch.
 
-    ``@node`` reads each parameter of the function with it, and the hook door each input a ``compute_added_inputs``
+    ``@node`` reads each parameter of the function with it, and the hook validator each input a ``compute_added_inputs``
     hook returns, so ``text: Annotated[str, Param(exclusive_group="x")]`` is refused in both places.
 
     Raises:
@@ -85,7 +85,7 @@ def declared_output(name: str, hint: Any, default: Any) -> Field:
     ``_declared_field`` does, refusing a default an output of an exclusive group cannot have: left out of an answer,
     or not returned, it is a branch not chosen, so its default is ``SKIPPED`` or none.
 
-    ``@node`` reads each field of a returned dataclass with it, and the hook door each output a ``compute_outputs``
+    ``@node`` reads each field of a returned dataclass with it, and the hook validator each output a ``compute_outputs``
     hook returns, so ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in both places.
 
     Raises:
@@ -146,7 +146,7 @@ def _read_default(whole: Type, default: Any) -> Any:
     """
     if default is REQUIRED or default is SKIPPED:
         return default
-    read = validator_of(whole).validate_python(default)
+    read = schema_validator_of(whole).validate_python(default)
     try:
         whole.to_json(read)
     except (PydanticSerializationError, UnicodeDecodeError):

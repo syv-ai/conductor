@@ -1,4 +1,4 @@
-"""The constants door: a constant or a graph input's default written in a graph record, read by its input's type
+"""The constants validator: a constant or a graph input's default written in a graph record, read by its input's type
 when the graph is compiled.
 
 Example: ``shout(line: str, mark: str = "!")`` with ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}`` gets
@@ -16,7 +16,7 @@ from pydantic import JsonValue, ValidationError
 from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, compile_problems
 
-from .rules import validator_of
+from .rules import schema_validator_of
 
 
 def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
@@ -27,7 +27,7 @@ def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
         InvalidCallError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
     """
     try:
-        return validator_of(field.whole).validate_python(value)
+        return schema_validator_of(field.whole).validate_python(value)
     except ValidationError as error:
         refused = field.whole.refusal(error)
         raise InvalidCallError(

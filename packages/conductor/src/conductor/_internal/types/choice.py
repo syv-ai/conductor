@@ -59,8 +59,8 @@ def read_choices(
     ``(Choice(1.0, "1"), Choice(2.0, "Two"))``: a bare value is titled by its text, and a ``Choice`` keeps its class
     and every field it has. Two ids are the same choice when their texts are (``choice_texts``), so
     ``{"a": 1, "b": 2}`` and ``{"b": 2, "a": 1}`` are one choice given twice. Who reads decides the rules:
-    ``Param`` reads by its limited type, the ``Ask`` door by the gate's validator of the output, which holds every
-    value to the gate's rules (a yes or no is not a number).
+    ``Param`` reads by its limited type, the ``Ask`` validator by the pydantic validator of the output, which holds
+    every value to the rules of ``validation.rules`` (a yes or no is not a number).
 
     Args:
         given: The choices as a developer or a node gave them, each a value or a ``Choice``.

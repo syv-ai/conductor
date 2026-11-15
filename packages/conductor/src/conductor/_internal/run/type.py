@@ -30,9 +30,9 @@ from conductor._internal.base import (
     Loc,
     NodePath,
 )
-from conductor._internal.gate import read_limits
 from conductor._internal.graph import Graph
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
+from conductor._internal.validation import read_limits
 
 from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, RunBlueprint, outcome_loc
@@ -195,7 +195,7 @@ class Run[C]:
         """
         limits = read_limits(timeout=timeout)
         return self._run_scheduler(
-            self.graph._context_door(context),
+            self.graph._context_validator(context),
             None,
             deadline(limits["timeout"]),
             only_costs_nothing=only_costs_nothing,
@@ -236,7 +236,7 @@ class Run[C]:
         )
         return stream(
             run_scheduler,
-            self.graph._context_door(context),
+            self.graph._context_validator(context),
             limits["timeout"],
             cancel,
             hand_back,
@@ -425,7 +425,7 @@ class Run[C]:
                 )
                 continue
             try:
-                read = compiled_node.answer_door(
+                read = compiled_node.answer_validator(
                     one, found.choices, found.defaults, loc=loc, waiting_id=waiting_id
                 )
             except InvalidCallError as refused:
@@ -696,7 +696,7 @@ def _only_costs_nothing(
 def make_run[C](
     graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None
 ) -> Run[C]:
-    """Returns a run of ``graph`` that has not started, with the inputs the inputs door let in: what
+    """Returns a run of ``graph`` that has not started, with the inputs the inputs validator let in: what
     ``graph.with_inputs(text="a\\nb")`` returns. No node has an outcome yet; with ``previous``, the run may reuse
     that run's outcomes (``Run.with_inputs``)."""
     blueprint = graph._blueprint

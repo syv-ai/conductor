@@ -28,7 +28,7 @@ never reads it. An empty field of a node is left out when the record is saved, s
 "join"}``. ``outputs`` names the graph's outputs, each a node's output; used as a subgraph, the graph's inputs and
 outputs are the node's.
 
-A host hands a record in as a ``GraphRecord`` or its JSON text; ``gate/record.py`` reads it, and refuses a record
+A host hands a record in as a ``GraphRecord`` or its JSON text; ``validation/record.py`` reads it, and refuses a record
 that is not this shape: a key written twice in one object (two nodes with one id), a node id or input that is not a
 name, a source listed twice, or an input given more than one of the three. ``Graph.compile`` compiles a record it
 read, and what the record says that cannot be meant as a graph (an edge from a node the graph does not have, an

@@ -19,7 +19,6 @@ from conductor._internal.ask import Ask
 from conductor._internal.base import SKIPPED, Source
 from conductor._internal.context import Context
 from conductor._internal.field import FieldDescription
-from conductor._internal.gate import read_json
 from conductor._internal.graph import (
     Graph,
     GraphDescription,
@@ -61,6 +60,7 @@ from conductor._internal.run import (
 from conductor._internal.series import Series
 from conductor._internal.table import Table
 from conductor._internal.types import Choice, Param, host_type
+from conductor._internal.validation import read_json
 
 # The reference lists these names in this order, so they are kept by subject.
 __all__ = [

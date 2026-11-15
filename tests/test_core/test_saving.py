@@ -844,9 +844,9 @@ def test_a_returned_table_reads_back_with_the_same_column_types_and_cells():
 
 @pytest.mark.slow
 def test_reading_a_table_costs_less_than_writing_it():
-    """Whether a table reads back from its JSON is decided by its column types, so the door writes nothing out and
+    """Whether a table reads back from its JSON is decided by its column types, so reading it writes nothing out and
     only casts the columns it converts: reading a 2,000-row table of ten columns, half of them ``Int32``, costs less
-    than writing it as JSON. A door that wrote each table out and read it back would cost more than the write."""
+    than writing it as JSON. A reader that wrote each table out and read it back would cost more than the write."""
     table = pl.DataFrame(
         {
             f"c{i}": pl.Series(range(2_000), dtype=pl.Int32)

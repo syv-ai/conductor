@@ -206,7 +206,7 @@ def _json(value: Any) -> str:
 
 #: Each place a value enters, as a function that feeds it a type, a value of it and a value it refuses, with the
 #: code of the problem it refuses with.
-DOORS = {
+WHERE_VALUES_ENTER = {
     "a-graph-input": (_graph_input, "invalid_input"),
     "a-constant": (_constant, "invalid_value"),
     "an-edge": (_edge, "invalid_edge_value"),
@@ -219,9 +219,9 @@ DOORS = {
 
 
 @pytest.mark.parametrize("way", sorted(TYPES))
-@pytest.mark.parametrize("door", sorted(DOORS))
-def test_a_refused_value_is_in_no_problem(door: str, way: str) -> None:
-    feed, code = DOORS[door]
+@pytest.mark.parametrize("where", sorted(WHERE_VALUES_ENTER))
+def test_a_refused_value_is_in_no_problem(where: str, way: str) -> None:
+    feed, code = WHERE_VALUES_ENTER[where]
     problems = feed(*TYPES[way])
 
     assert [problem.type for problem in problems] == [code]
@@ -230,7 +230,7 @@ def test_a_refused_value_is_in_no_problem(door: str, way: str) -> None:
             SECRET not in problem.msg
             and SECRET not in problem.model_dump_json()
             and SECRET not in str(problem)
-        ), (door, way, problem)
+        ), (where, way, problem)
 
 
 def test_a_value_in_a_graph_record_is_in_no_problem() -> None:

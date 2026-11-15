@@ -1,7 +1,7 @@
-"""The answer door: a person's answer to a call that waits, read into the node's outputs.
+"""The answer validator: a person's answer to a call that waits, read into the node's outputs.
 
 Example: ``approve(line: str) -> bool`` raises ``Ask("Approve b?")``. ``run.answer(waiting_id, True)`` gives the
-door ``True``, and it returns ``{"result": True}``, the outputs the call then has. ``"yes"`` is refused with
+validator ``True``, and it returns ``{"result": True}``, the outputs the call then has. ``"yes"`` is refused with
 ``invalid_answer``, "Input should be a valid boolean": an answer is read strictly, as its JSON text would be, so a
 yes or no is ``true`` or ``false``, never a text that spells one.
 
@@ -11,7 +11,7 @@ it is a fault; of an exclusive group exactly one is answered. Choices, the type'
 limit what an answer may be.
 
 An answer is read as its JSON text would be (``validate_as_json``), by the validator that reads what a node returns
-(``rules.output_validator_of``): the answer is the value of the function that asked, as a return would be.
+(``rules.schema_output_validator_of``): the answer is the value of the function that asked, as a return would be.
 """
 
 from __future__ import annotations
@@ -36,10 +36,10 @@ from conductor._internal.types import (
 )
 from conductor._internal.utils import comma_separated
 
-from .rules import output_validator_of
+from .rules import schema_output_validator_of
 
 
-class AnswerDoor:
+class AnswerValidator:
     """Reads a person's answer to a waiting call of one node into the node's outputs. Built once per node.
 
     Raises (when called):
@@ -50,7 +50,7 @@ class AnswerDoor:
     """
 
     def __init__(self, outputs: Mapping[str, Field]) -> None:
-        """Builds the door for a node.
+        """Builds the validator for a node.
 
         Args:
             outputs: The node's outputs, which the answer fills, by name.
@@ -210,7 +210,9 @@ def read_as_answer(value_type: Type, value: Any) -> Any:
             (``not_its_type``); the message is the type's reason, quoting nothing of the value.
     """
     try:
-        return validate_as_json(output_validator_of(value_type), value, fallback=untyped_as_json)
+        return validate_as_json(
+            schema_output_validator_of(value_type), value, fallback=untyped_as_json
+        )
     except PydanticSerializationError:
         raise PydanticCustomError("no_json_form", "the value has no JSON form") from None
     except PydanticCustomError as refused:  # a frame whose column would read back changed

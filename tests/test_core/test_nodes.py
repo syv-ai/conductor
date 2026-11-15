@@ -154,7 +154,7 @@ def test_an_empty_title_or_description_is_refused_where_a_node_or_a_subgraph_is_
         assert f"('x') has an empty {empty}" in str(raised.value)
 
 
-def test_a_node_id_in_a_record_with_a_tilde_is_refused_at_the_record_door():
+def test_a_node_id_in_a_record_with_a_tilde_is_refused_by_the_record_validator():
     registry = NodeRegistry()
 
     @registry.node("upper", title="Upper", description="For a test.")

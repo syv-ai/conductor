@@ -53,7 +53,6 @@ from typing_extensions import sentinel
 
 from conductor._internal.base import REQUIRED
 from conductor._internal.field import Field
-from conductor._internal.gate import record_values, validator_of
 from conductor._internal.graph import Graph
 from conductor._internal.node import (
     FunctionDefinition,
@@ -64,6 +63,7 @@ from conductor._internal.problem import InvalidCallError, Problem, compile_probl
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
 from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
+from conductor._internal.validation import record_values, schema_validator_of
 from conductor.testing import problems
 
 #: What ``_made_up`` gives for a field no value can be made for.
@@ -329,7 +329,7 @@ def _watched(
 
 def _made_up(field: Field) -> Any:
     """A value of the field within its limits, read by the field's type; ``_CANNOT`` when there is no way to make one."""
-    read = validator_of(field.whole).validate_python
+    read = schema_validator_of(field.whole).validate_python
     for item in _candidates(
         field.type.options[0] if len(field.type.options) == 1 else None, field.param
     ):

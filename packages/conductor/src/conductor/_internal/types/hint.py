@@ -48,7 +48,7 @@ def is_record(cls: Any) -> bool:
 def a_number(cls: type) -> bool:
     """Says whether ``cls`` is a class of number that a yes or no must not be taken as: ``int``, ``float`` or a
     subclass of theirs, never ``bool``, though Python counts ``True`` as 1. ``fit`` reads it for types when a graph
-    is compiled, and the gate for values (``gate.rules``)."""
+    is compiled, and ``validation.rules`` for values."""
     return issubclass(cls, (int, float)) and not issubclass(cls, bool)
 
 

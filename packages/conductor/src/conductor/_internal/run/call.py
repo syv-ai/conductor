@@ -1,5 +1,5 @@
-"""One call of a node's function: the arguments read by the node's edge door where the graph's types leave a
-doubt, the function called, and what it returns read into the node's outputs by its return door.
+"""One call of a node's function: the arguments read by the node's edge validator where the graph's types leave a
+doubt, the function called, and what it returns read into the node's outputs by its return validator.
 
 Example: ``call(shout, {"line": "b", "mark": "!"}, None)`` returns ``({"result": "B!"}, None)``. When ``shout``
 raises, it returns ``(None, the exception)``; when it returns something that is not a ``str``, ``(None, the problem
@@ -24,28 +24,28 @@ def call(
 ) -> tuple[Any, BaseException | Problem | None]:
     """Call the function of ``node`` with ``arguments``, by name, and ``context`` first when the node takes it.
 
-    Before the call, the node's edge door reads the inputs whose type demands more than their edges' sources
-    declare (a source of ``Any``, say), each by its type. After the call, the node's return door reads what the
+    Before the call, the node's edge validator reads the inputs whose type demands more than their edges' sources
+    declare (a source of ``Any``, say), each by its type. After the call, the node's return validator reads what the
     function returned into its outputs.
 
     Args:
         node: The node to call.
         arguments: The call's arguments by input name, as ``arguments_for`` returns them.
-        context: The run's context, as the context door let it in; passed only to a node that takes it.
+        context: The run's context, as the context validator let it in; passed only to a node that takes it.
 
     Returns:
-        ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, problem)``: a door refused
+        ``(outputs, None)``: the node's outputs by name, as a run keeps them. Or ``(None, problem)``: a validator refused
         an argument (``invalid_edge_value``) or what the function returned (``invalid_output``), the problem
         without the call's loc. Or ``(None, error)``: what the function raised, an ``Ask`` included (the node's
-        ``Ask`` door, in the scheduler, refuses one the node did not declare: ``ask_not_declared``), and an
+        ``Ask`` validator, in the scheduler, refuses one the node did not declare: ``ask_not_declared``), and an
         ``InvalidCallError`` too, which is the node's own failure. ``KeyboardInterrupt`` and ``SystemExit`` are
         raised, not returned.
     """
     compiled_node = node.compiled_node
     definition = compiled_node.definition
     try:
-        if (edge_door := node.edge_door) is not None:
-            arguments = edge_door(arguments)
+        if (edge_validator := node.edge_validator) is not None:
+            arguments = edge_validator(arguments)
         try:
             returned = (
                 definition.function(**arguments)
@@ -56,8 +56,8 @@ def call(
             if isinstance(error, (KeyboardInterrupt, SystemExit)):
                 raise
             return None, error
-        return compiled_node.return_door(returned), None
-    # the edge door or the return door, each of which reports its first fault
+        return compiled_node.return_validator(returned), None
+    # the edge validator or the return validator, each of which reports its first fault
     except InvalidCallError as refused:
         (problem,) = refused.problems
         return None, problem

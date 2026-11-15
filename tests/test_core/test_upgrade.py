@@ -214,7 +214,7 @@ def test_upgrade_with_to_stops_at_that_version():
     assert _inputs(upgraded, "e") == {"text": {"sources": [{"node": "r", "output": "result"}]}}
 
 
-def test_upgrade_reads_the_record_through_the_record_door_and_refuses_two_nodes_of_one_id_or_an_id_that_is_no_name():
+def test_upgrade_reads_the_record_through_the_record_validator_and_refuses_two_nodes_of_one_id_or_an_id_that_is_no_name():
     two_of_one_id = '{"nodes": {"r": {"node": "rename"}, "r": {"node": "rename", "version": 2}}}'
     id_no_name = '{"nodes": {"a.b": {"node": "rename"}}}'
 
@@ -775,7 +775,7 @@ def test_a_rename_carries_a_constant_a_graph_input_and_edges_as_they_are():
 
 def test_a_rewrite_giving_a_value_to_an_input_with_edges_is_refused():
     """An input gets one of a constant, a graph input or edges: a rewrite that gives a value to an input edges lead
-    into would give it two, so the record door refuses what the step wrote."""
+    into would give it two, so the record validator refuses what the step wrote."""
 
     def fed_v1(text: str) -> str:
         return text

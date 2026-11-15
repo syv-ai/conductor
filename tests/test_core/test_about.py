@@ -14,7 +14,7 @@ import pytest
 from conductor import ProblemCatalogue, about
 from pytest import MonkeyPatch
 
-from tests.test_core.test_doors import PUBLIC_MODULES
+from tests.test_core.test_public_modules import PUBLIC_MODULES
 
 
 def test_get_content_returns_non_empty_text():

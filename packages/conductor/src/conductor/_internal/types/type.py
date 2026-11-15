@@ -1,7 +1,7 @@
 """``Type``: one type hint as conductor reads it. ``Type(int)`` returns the same object every time.
 
 It gives the hint's id and title, its pydantic schema, writes a value as JSON, and says which other types fit it.
-It reads no value: the gate builds a validator from the type's schema (``gate.rules.validator_of``), and when that
+It reads no value: ``validation.rules.schema_validator_of`` builds a validator from the type's schema, and when that
 refuses a value, ``refusal`` says why in words that quote nothing of the value. ``Series`` and ``Table`` each have a
 subclass of ``Type``, declared in their own packages.
 """
@@ -99,7 +99,7 @@ def _written_metadata(metadata: Any) -> str:
 class TypeRefusal:
     """Why a type refused a value, in words that quote nothing of the value, as ``Type.refusal`` gives it.
 
-    A door makes its problem from it: ``invalid_input``, ``invalid_output`` and the others take these three as
+    A validator makes its problem from it: ``invalid_input``, ``invalid_output`` and the others take these three as
     ``reason``, ``errors`` and ``column``.
 
     Attributes:

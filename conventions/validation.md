@@ -2,16 +2,16 @@
 
 ## Validation is the wall
 
-Validate untyped outside data once, with pydantic, at its door in `_internal/gate/` (JSON loaded, values a caller gives a run, what a node returns, a person's answer), never build a validator or check a value again anywhere else, and wrap only the door call in a caller's `try`, catching its `InvalidCallError`.
+Validate untyped outside data once, with pydantic, where it enters, in its validator in `_internal/validation/` (JSON loaded, values a caller gives a run, what a node returns, a person's answer), never build a validator or check a value again anywhere else, and wrap only the validator's call in a caller's `try`, catching its `InvalidCallError`.
 
-Why: a value checked once at its door can be trusted everywhere inside, so checks inside are noise that hides the real ones.
+Why: a value checked once where it enters can be trusted everywhere inside, so checks inside are noise that hides the real ones.
 
 ```python
 if not is_name(node_id): problems.append(...)   # bad: in graph/compile.py
-# good: the record door in gate/record.py finds it; compile trusts the record
+# good: the record validator in validation/record.py finds it; compile trusts the record
 ```
 
-## Text is read once, at its door
+## Text is read once, where it enters
 
 Read text once where it enters and keep what it gives (JSON through `read_json`, a dotted place only in `make_graph`), never split, join or read it again, and write a place as text only with `place_text`.
 

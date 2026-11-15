@@ -1,4 +1,4 @@
-"""The record door: a graph record a host hands in, and the values ``make_graph`` writes into one.
+"""The record validator: a graph record a host hands in, and the values ``make_graph`` writes into one.
 
 Example: ``Graph.compile('{"nodes": {"shout": {"node": "shout"}}}', registry)`` reads the text with ``read_record``
 into a ``GraphRecord``. The text ``'{"nodes": {"shout": {}}}'`` is refused with one ``invalid_record`` problem at

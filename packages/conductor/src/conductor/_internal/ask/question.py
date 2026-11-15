@@ -19,11 +19,11 @@ def as_asked(
 ) -> FieldDescription:
     """The question about the output ``field`` as one call asks it: the field's description (``Field.description``,
     which says what an answer that leaves it out gives), with the choices and the default the call's ``Ask`` set laid
-    over it. The questions a host is shown and the answer door both read it.
+    over it. The questions a host is shown and the answer validator both read it.
 
     ``assign(ticket: str) -> str`` asks ``result`` with ``required=True`` and no default; with ``Ask("Who?",
     default="bo")`` it asks with ``default="bo"``, ``required=False``. Choices the ``Ask`` sets limit the question
-    as a type's choices do, so ``-> str | None`` asked with ``choices=["a"]`` must be answered. The ``Ask`` door
+    as a type's choices do, so ``-> str | None`` asked with ``choices=["a"]`` must be answered. The ``Ask`` validator
     refuses a default for an output of an exclusive group, which left out is always a branch not chosen.
 
     Args:

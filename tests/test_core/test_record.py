@@ -1,7 +1,7 @@
-"""The graph record: its shape, what the record door refuses, the problems compiling it reports, and ``make_graph``.
+"""The graph record: its shape, what the record validator refuses, the problems compiling it reports, and ``make_graph``.
 
 A graph record is ``{"nodes": {id: {"node": ..., "inputs": {...}}}, "outputs": {name: {"node": ..., "output":
-...}}}``. ``Graph.compile`` reads it into a ``Graph``. A record that is not this shape is refused at the door with
+...}}}``. ``Graph.compile`` reads it into a ``Graph``. A record that is not this shape is refused as it is read, with
 ``invalid_record``; what a record of this shape says that cannot be meant is a problem of that graph, never an
 exception.
 """
@@ -85,7 +85,7 @@ def _problems(record: GraphRecord) -> list[tuple[str, tuple]]:
 
 
 def _refused(record: Any) -> list[tuple[str, tuple, str]]:
-    """The problems the record door raises for ``record``, JSON text or plain data, as ``(type, loc, ctx.error)``."""
+    """The problems the record validator raises for ``record``, JSON text or plain data, as ``(type, loc, ctx.error)``."""
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(record if isinstance(record, str) else json.dumps(record), REGISTRY)
     return [(p.type, p.loc, p.ctx["error"]) for p in refused.value.problems]
@@ -306,7 +306,7 @@ def test_the_order_of_an_inputs_sources_never_tells_two_records_apart():
     )
 
 
-# -- the record door: what is not a record's shape is refused ----------------------
+# -- the record validator: what is not a record's shape is refused ----------------------
 
 
 def test_two_nodes_under_one_id_are_refused_as_a_key_written_twice():
@@ -513,7 +513,7 @@ _SOURCE = {"node": "a", "output": "result"}
         "default_without_graph_input",
     ],
 )
-def test_each_refusal_of_the_record_door_is_one_problem_at_its_place_saying_why(
+def test_each_refusal_of_the_record_validator_is_one_problem_at_its_place_saying_why(
     text: str, loc: tuple, error: str
 ):
     """A fault of an input's entry is at the input; a name or a field that is not one is where it is written; a key
@@ -1670,7 +1670,7 @@ def test_a_subgraph_nodes_inputs_are_given_by_the_names_it_offers():
 
 
 def test_an_outer_record_never_names_an_inner_node_of_a_subgraph():
-    """No name has a dot, so ``x.text`` is no input of ``pair``: the record door refuses it."""
+    """No name has a dot, so ``x.text`` is no input of ``pair``: the record validator refuses it."""
     record = {
         "nodes": {
             "c": {
@@ -2253,7 +2253,7 @@ def test_make_graph_refuses_a_text_that_is_not_node_and_name_at_the_argument_and
     )
 
 
-def test_a_record_door_refusal_of_what_make_graph_wrote_says_to_fix_make_graphs_arguments():
+def test_a_record_validator_refusal_of_what_make_graph_wrote_says_to_fix_make_graphs_arguments():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(
             _hello,

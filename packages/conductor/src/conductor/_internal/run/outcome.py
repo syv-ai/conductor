@@ -147,7 +147,7 @@ class NoneInput:
 class Unanswered:
     """The function asked a person a question, by raising ``Ask``, and no answer has come yet.
 
-    It keeps what the ``Ask`` said, as the ``Ask`` door read it, and is saved with the run. ``Ask("Who?",
+    It keeps what the ``Ask`` said, as the ``Ask`` validator read it, and is saved with the run. ``Ask("Who?",
     choices=["ida", "bo"])`` raised by ``assign(ticket: str) -> str`` is ``Unanswered("Who?", {"result":
     (Choice("ida"), Choice("bo"))})``. What the call received is not kept: a host is shown it read again from the
     outcomes the call reads (``run.waiting``). There are no outputs yet, so a call that needs one of them is not

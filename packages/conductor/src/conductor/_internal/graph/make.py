@@ -16,10 +16,10 @@ from typing import Any
 from pydantic import MISSING
 
 from conductor._internal.base import REQUIRED, Source
-from conductor._internal.gate import read_record, record_values
 from conductor._internal.node import FunctionDefinition, NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord
+from conductor._internal.validation import read_record, record_values
 
 
 def make_graph(
@@ -95,7 +95,7 @@ def make_graph(
     ):
         place = (node_id, name)
         entries[node_id][name] = (
-            InputEntry.model_construct(  # built unchecked: the record door checks it below, an entry of two kinds too
+            InputEntry.model_construct(  # built unchecked: the record validator checks it below, an entry of two kinds too
                 constant=constant_of.get(place, MISSING),
                 graph_input=graph_input_of.get(place, MISSING),
                 default=default_of.get(place, MISSING),

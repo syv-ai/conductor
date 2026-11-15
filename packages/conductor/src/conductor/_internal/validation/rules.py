@@ -1,11 +1,11 @@
-"""The rules every type's values are held to, and the validators the doors read values with.
+"""The rules every type's values are held to, and the pydantic validators built from a type's schema with them.
 
 Example: pydantic reads ``True`` as 1 for an ``int``, so ``Type(list[int]).schema``, pydantic's own schema, takes
-``[1, True]`` as ``[1, 1]``. ``validator_of(Type(list[int]))`` is the validator the gate builds from that schema,
+``[1, True]`` as ``[1, 1]``. ``schema_validator_of(Type(list[int]))`` is the pydantic validator built from that schema,
 with the rules below put in, and it refuses ``[1, True]``: ``bool_is_not_a_number`` at ``loc`` ``(1,)``.
 
 A type's own rules (what a ``Series`` is, a table's columns, ``Param``'s limits and choices) are part of its schema,
-declared in the type's own package. The rules here hold for a value of any type, so the gate puts them into a
+declared in the type's own package. The rules here hold for a value of any type, so this package puts them into a
 type's schema when it builds a validator from it, once per type:
 
 - A yes or no is not a number (``numbers_refuse_bools``).
@@ -15,15 +15,15 @@ type's schema when it builds a validator from it, once per type:
 Two more rules hold for every value and are declared where the order of imports needs them: a node id and the
 name of an input or output hold none of the characters sources are written with (``place.is_name``), and a
 set has no order, so it is never read as a list (``series.set_has_no_order``). A run's limits are read by the
-inputs door (``read_limits``).
+inputs validator (``read_limits``).
 
-What a door reads a value as:
+What a validator reads a value as:
 
-- ``validator_of`` reads it as an argument a node is called with: a constant, a default, a graph input, a value
+- ``schema_validator_of`` reads it as an argument a node is called with: a constant, a default, a graph input, a value
   an edge gives. Called lax (``"3"`` for an ``int`` is 3) or strict.
-- ``output_validator_of`` reads it as an output a run keeps: what a node returns and a person's answer, read
+- ``schema_output_validator_of`` reads it as an output a run keeps: what a node returns and a person's answer, read
   strictly. A ``Series`` is kept in the form a run stores it in (``SeriesItems``, ``Records``).
-- ``exact_classes`` says which values need no reading at all, so a door can skip the validator for them.
+- ``exact_classes`` says which values need no reading at all, so a validator can skip pydantic for them.
 """
 
 from __future__ import annotations
@@ -56,16 +56,16 @@ def _once_per_type[R](build: Callable[[Type], R]) -> Callable[[Type], R]:
 
 @_once_per_type
 def schema_of(value_type: Type) -> CoreSchema:
-    """The schema an argument of ``value_type`` is read by: the type's schema with every rule above put in. A door
-    that reads several values in one validator (the inputs door) puts these schemas together."""
+    """The schema an argument of ``value_type`` is read by: the type's schema with every rule above put in. A validator
+    that reads several values in one pydantic validator (the inputs validator) puts these schemas together."""
     return numbers_refuse_bools(value_type.schema)
 
 
 @_once_per_type
-def validator_of(value_type: Type) -> SchemaValidator:
+def schema_validator_of(value_type: Type) -> SchemaValidator:
     """The validator an argument of ``value_type`` is read by, built from ``schema_of``.
 
-    Example: ``validator_of(Type(Annotated[int, Param(le=3)])).validate_python(12)`` raises pydantic's
+    Example: ``schema_validator_of(Type(Annotated[int, Param(le=3)])).validate_python(12)`` raises pydantic's
     ``ValidationError`` (``less_than_equal``), and ``value_type.refusal`` says why in words a host is shown.
     """
     return SchemaValidator(schema_of(value_type))
@@ -99,15 +99,15 @@ def output_schema_of(value_type: Type) -> CoreSchema:
 
 
 @_once_per_type
-def output_validator_of(value_type: Type) -> SchemaValidator:
-    """The validator an output of ``value_type`` is read by, built from ``output_schema_of``. A door calls it
+def schema_output_validator_of(value_type: Type) -> SchemaValidator:
+    """The validator an output of ``value_type`` is read by, built from ``output_schema_of``. A validator calls it
     with ``strict=True``: ``"12"`` is never an ``int`` and ``"no"`` never a ``bool``."""
     return SchemaValidator(output_schema_of(value_type))
 
 
 @_once_per_type
 def exact_classes(value_type: Type) -> tuple[type, ...]:
-    """The classes whose values, of exactly that class, a door keeps as they are, with no call to pydantic.
+    """The classes whose values, of exactly that class, a validator keeps as they are, with no call to pydantic.
 
     ``(str,)`` for ``Type(str)``, ``(int, type(None))`` for ``Type(int | None)``. Empty when every value must be
     read: an option is no plain class (``list[int]``, a ``Literal``, a ``TypedDict``, ``Any``, a ``Series`` or a

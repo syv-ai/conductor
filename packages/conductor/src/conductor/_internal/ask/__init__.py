@@ -10,8 +10,8 @@ A node that may ask says so where it is declared, and the answer is its outputs:
 on ``def reason(ticket: str) -> str``. A node that needs a person's answer to go on reads it from such a node's
 output, as it reads any other value.
 
-A host is shown a waiting call as a ``Waiting`` (``run/waiting.py``). The ``Ask`` is checked when it is raised, by the ``Ask`` door (``gate/raised.py``), and an answer before anything runs, by the answer
-door (``gate/answer.py``).
+A host is shown a waiting call as a ``Waiting`` (``run/waiting.py``). The ``Ask`` is checked when it is raised, by the ``Ask`` validator (``validation/raised.py``), and an answer before anything runs, by the answer
+validator (``validation/answer.py``).
 """
 
 from .question import as_asked

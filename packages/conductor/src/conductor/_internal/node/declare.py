@@ -65,10 +65,10 @@ from pydantic import JsonValue
 from conductor._internal.base import REQUIRED, is_name
 from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import Field
-from conductor._internal.gate import declared_input, declared_output, read_record
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord
 from conductor._internal.types import Param, Type
+from conductor._internal.validation import declared_input, declared_output, read_record
 
 from .policy import Deprecation, Policy
 from .type import (

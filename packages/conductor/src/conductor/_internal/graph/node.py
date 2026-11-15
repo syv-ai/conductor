@@ -27,9 +27,14 @@ from pydantic import JsonValue
 from conductor._internal.ask import Ask
 from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
-from conductor._internal.gate import AnswerDoor, AskDoor, ReturnDoor, undeclared_ask
 from conductor._internal.node import FunctionDefinition, SubgraphDefinition
 from conductor._internal.types import Choice
+from conductor._internal.validation import (
+    AnswerValidator,
+    AskValidator,
+    ReturnValidator,
+    undeclared_ask,
+)
 
 from .input import Input
 
@@ -149,10 +154,10 @@ class CompiledFunctionNode(_CompiledNodeBase):
         return short_hash(written.encode(), 8)
 
     @functools.cached_property
-    def return_door(self) -> ReturnDoor:
+    def return_validator(self) -> ReturnValidator:
         """Reads what the node's function returns into its outputs by name: ``{"result": "B!"}`` for ``shout``
         returning ``"B!"``. Built on the node's first call."""
-        return ReturnDoor(
+        return ReturnValidator(
             self.definition.outputs_dataclass,
             self.definition.compute_outputs is not None,
             self.outputs,
@@ -179,7 +184,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         }
 
     @functools.cached_property
-    def ask_door(
+    def ask_validator(
         self,
     ) -> Callable[[Ask], tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]]:
         """Checks an ``Ask`` raised for the node against its outputs, which its answer fills, and reads its choices
@@ -189,13 +194,13 @@ class CompiledFunctionNode(_CompiledNodeBase):
         Built here, not at ``@node``: a generic node's outputs get their types when the graph is compiled. For
         ``pick[T](value: T) -> T``, ``choices=[1, 2]`` fits when ``value`` comes from an ``int`` output and is refused
         when it comes from a ``str`` one."""
-        return AskDoor(self.outputs) if self.definition.asks else undeclared_ask
+        return AskValidator(self.outputs) if self.definition.asks else undeclared_ask
 
     @functools.cached_property
-    def answer_door(self) -> AnswerDoor:
+    def answer_validator(self) -> AnswerValidator:
         """Reads a person's answer to a waiting call of the node into its outputs: ``{"result": True}`` for
         ``approve`` answered ``True``. Built when the node is first answered."""
-        return AnswerDoor(self.outputs)
+        return AnswerValidator(self.outputs)
 
 
 @typing.final

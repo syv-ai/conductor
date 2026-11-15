@@ -274,7 +274,7 @@ class Scheduler:
             deque
         )
         #: What the pool threads hand back: an attempt with what ``call`` returned for it (the node's outputs, and what
-        #: the function raised or the problem a door of the call refused it with), or an exception ``call`` itself
+        #: the function raised or the problem a validator of the call refused it with), or an exception ``call`` itself
         #: raised. ``None`` from any thread when a call of a node whose attempts wait here has ended.
         self.returned: SimpleQueue[
             tuple[_Attempt, Any, BaseException | Problem | None] | BaseException | None
@@ -785,7 +785,7 @@ class Scheduler:
         """Set a timer to make the call again, if ``attempt`` failed and its node's ``Policy`` retries the error.
 
         An ``ExternalError`` is retried, and so is an exception of a class in ``retry_on``. A ``NodeError`` that is
-        not an ``ExternalError``, a value a door of the call refused and an ``Ask`` are never retried. The delay is
+        not an ``ExternalError``, a value a validator of the call refused and an ``Ask`` are never retried. The delay is
         ``retry_delay`` seconds, doubled for each attempt before this one.
 
         Returns:
@@ -861,8 +861,8 @@ class Scheduler:
             try:
                 # a person is shown what the call received with the question (run.waiting)
                 jsonable(arguments)
-                choices, defaults = node.compiled_node.ask_door(error)
-            except InvalidCallError as refused:  # arguments with no JSON form, or the Ask door
+                choices, defaults = node.compiled_node.ask_validator(error)
+            except InvalidCallError as refused:  # arguments with no JSON form, or the Ask validator
                 (problem,) = refused.problems
                 return self._failure(node, item_indexes, problem)
             return Unanswered(error.prompt, choices, defaults)
@@ -871,9 +871,9 @@ class Scheduler:
     def _failure(
         self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem
     ) -> Problem:
-        """The problem a call failed with, with the call's loc: a door's problem, or one for what the function raised.
+        """The problem a call failed with, with the call's loc: a validator's problem, or one for what the function raised.
 
-        A door's problem is kept, and so is the one a ``NodeError`` made when it was raised. Any other exception, an
+        A validator's problem is kept, and so is the one a ``NodeError`` made when it was raised. Any other exception, an
         ``InvalidCallError`` the function let escape included, is written to the log with its traceback; the problem
         has only its class name, as its text may quote values: ``external_failed`` for a class in the node's
         ``retry_on``, else ``execution_failed``.

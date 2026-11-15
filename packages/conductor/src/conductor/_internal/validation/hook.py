@@ -1,4 +1,4 @@
-"""The hook door: what a node's ``compute_added_inputs`` or ``compute_outputs`` hook returns, read into fields when
+"""The hook validator: what a node's ``compute_added_inputs`` or ``compute_outputs`` hook returns, read into fields when
 the graph is compiled.
 
 Example: a node ``fields(names: str)`` whose ``compute_outputs`` hook, given ``names="a,b"``, returns

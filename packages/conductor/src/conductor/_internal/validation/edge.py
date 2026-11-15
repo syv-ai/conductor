@@ -1,11 +1,11 @@
-"""The edge door: a value an edge gives an input whose type demands more than the edge's source declares.
+"""The edge validator: a value an edge gives an input whose type demands more than the edge's source declares.
 
 Example: ``letters(text: str) -> int`` is wired to ``small(n: Annotated[int, Param(le=3)])``. Compiling knows that
 an ``int`` reaches ``small.n``, but not whether it is at most 3, so each call of ``small`` first reads ``n`` by
 its type. ``letters`` returning 12 fails that call with ``invalid_edge_value``. An edge from ``shout.result: str``
-into ``join.texts: Series[str]`` needs no such read, and a node none of whose inputs needs one has no edge door.
+into ``join.texts: Series[str]`` needs no such read, and a node none of whose inputs needs one has no edge validator.
 
-Which inputs are read is decided once, when the graph is compiled (``demands_more``); the door is built then and
+Which inputs are read is decided once, when the graph is compiled (``demands_more``); the validator is built then and
 called before each call of the node.
 """
 
@@ -21,7 +21,7 @@ from conductor._internal.field import Field
 from conductor._internal.problem import InvalidCallError, run_problems
 from conductor._internal.types import Type
 
-from .rules import exact_classes, validator_of
+from .rules import exact_classes, schema_validator_of
 
 
 def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bool) -> bool:
@@ -46,7 +46,7 @@ def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bo
     return not all(field.whole.holds(source) for source in sources)
 
 
-class EdgeDoor:
+class EdgeValidator:
     """Reads the arguments of a node's call whose inputs ``demands_more`` chose, each by the input's type.
 
     Built once per node when the graph is compiled. Called with a call's arguments, it returns them with those
@@ -59,19 +59,19 @@ class EdgeDoor:
     """
 
     def __init__(self, inputs: Mapping[str, Field]) -> None:
-        """Builds the door for ``inputs``, the inputs to read, by name."""
+        """Builds the validator for ``inputs``, the inputs to read, by name."""
         self._inputs = tuple(
             (
                 name,
                 field.whole,
                 exact_classes(field.whole),
-                validator_of(field.whole).validate_python,
+                schema_validator_of(field.whole).validate_python,
             )
             for name, field in inputs.items()
         )
 
     def __call__(self, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Returns a copy of ``arguments`` with each of the door's inputs read by its type.
+        """Returns a copy of ``arguments`` with each of the validator's inputs read by its type.
 
         Raises:
             InvalidCallError: An input's type refuses its value (``invalid_edge_value``).

@@ -127,7 +127,7 @@ class InvalidCallError(ConductorError, ValueError):
     ``registry.upgrade`` and ``make_graph``. The run the caller has is unchanged. It is a ``ValueError`` too, as
     pydantic's error is.
 
-    Every door of the gate raises it for a value it does not let in. Where the value came from a graph or a run
+    Every validator raises it for a value from outside that it refuses. Where the value came from a graph or a run
     rather than a caller, the engine keeps the problems instead: compiling puts them in ``graph.problems``, and a
     run records the problem as the outcome of the call it belongs to.
 

@@ -1,8 +1,8 @@
-"""The door for what a node raises: an ``Ask``'s choices and default, checked when it is raised.
+"""The validator of what a node raises: an ``Ask``'s choices and default, checked when it is raised.
 
 Example: ``assign(ticket: str) -> str`` raises ``Ask("Who takes it?", choices=[Choice("ida", "Ida B."), "bo"])``.
-The door returns the choices and defaults the call keeps by output name, the choices for ``result`` the two as the
-output's type reads them (``read_choices`` with the gate's validator of the output), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``InvalidCallError``
+The validator returns the choices and defaults the call keeps by output name, the choices for ``result`` the two as the
+output's type reads them (``read_choices`` with the pydantic validator of the output), each id in its JSON form. Given ``choices=[1, 2]`` it raises ``InvalidCallError``
 with ``invalid_ask``: a choice is what an answer picks, so each is read strictly from its JSON form, and ``1`` is
 not a ``str``.
 A default is held to every rule an answer is, the ``Ask``'s own choices included.
@@ -27,10 +27,10 @@ from conductor._internal.types import Choice, read_choices
 from conductor._internal.utils import comma_separated
 
 from .answer import check_picks, read_as_answer
-from .rules import output_validator_of
+from .rules import schema_output_validator_of
 
 
-class AskDoor:
+class AskValidator:
     """Checks an ``Ask`` raised for a node against the node's outputs, which its answer fills, and reads its choices
     and default by output name. Built once per node.
 
@@ -40,7 +40,7 @@ class AskDoor:
     """
 
     def __init__(self, outputs: Mapping[str, Field]) -> None:
-        """Builds the door for a node with ``outputs``, by name."""
+        """Builds the validator for a node with ``outputs``, by name."""
         self._outputs = outputs
 
     def __call__(self, ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
@@ -66,7 +66,7 @@ class AskDoor:
                 ].type  # a Series' choices are its items', so each id is read as one item
                 try:
                     choices[name] = read_choices(
-                        given, output_validator_of(value_type), value_type.to_json
+                        given, schema_output_validator_of(value_type), value_type.to_json
                     )
                 except PydanticCustomError as refused:
                     raise InvalidCallError(
@@ -114,7 +114,7 @@ class AskDoor:
 
 
 def undeclared_ask(ask: Ask) -> tuple[dict[str, tuple[Choice, ...]], dict[str, JsonValue]]:
-    """The ``Ask`` door of a node that does not say it asks (no ``asks=True``): it refuses
+    """The ``Ask`` validator of a node that does not say it asks (no ``asks=True``): it refuses
     every ``Ask``.
 
     Raises:

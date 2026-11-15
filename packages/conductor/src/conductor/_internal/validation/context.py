@@ -1,7 +1,7 @@
-"""The context door: the ``context=`` a host passes when it starts or resumes a run.
+"""The context validator: the ``context=`` a host passes when it starts or resumes a run.
 
 Example: on a registry that names ``HostContext``, ``graph.run(text="Done", context=HostContext(...))`` passes. Given a
-``Caller`` instead, the door raises ``InvalidCallError`` with ``invalid_context``, which names the two classes and
+``Caller`` instead, the validator raises ``InvalidCallError`` with ``invalid_context``, which names the two classes and
 quotes nothing of the object. Given no context when the graph has a node ``sign(ctx: Context[HostContext], ...)``, it
 raises ``context_missing`` for ``sign``. A graph none of whose nodes takes the context runs with one or without.
 
@@ -19,7 +19,7 @@ from conductor._internal.context import ContextParameter
 from conductor._internal.problem import InvalidCallError, call_problems
 
 
-class ContextDoor:
+class ContextValidator:
     """Checks the ``context=`` of a call that starts or resumes a run of one graph. Built once per graph.
 
     Raises (when called):
@@ -30,7 +30,7 @@ class ContextDoor:
     def __init__(
         self, context_type: type | None, takers: Iterable[tuple[NodePath, ContextParameter]]
     ) -> None:
-        """Builds the door for a graph compiled against a registry that names ``context_type``.
+        """Builds the validator for a graph compiled against a registry that names ``context_type``.
 
         Args:
             context_type: The registry's class; ``None`` when it names none.
