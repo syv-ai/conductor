@@ -1063,7 +1063,7 @@ class Counted(TypedDict):
         ("a cell of an int column", "outcomes.table.outputs.result.0"),
     ],
 )
-def test_a_yes_or_no_saved_for_a_number_is_refused_as_every_door_refuses_it(
+def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets(
     damage: str, at: str
 ) -> None:
     """A store may hand back JSON something else wrote; ``true`` is no more a number there than given by a caller."""
