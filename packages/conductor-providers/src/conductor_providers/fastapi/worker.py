@@ -33,7 +33,7 @@ from conductor_providers.fastapi.problems import (
     previous_run_unloadable,
     run_not_resumable,
 )
-from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView, view_type
+from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView
 from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunStore, StoredRun
 
 #: The class of the run's context, the registry's ``context_type``.
@@ -60,7 +60,6 @@ class Worker(Generic[M, X]):
     lease runs out.
 
     Attributes:
-        metadata_type: The type of a run's metadata, as given; the router declares its answers with it.
         nodes_for: The function that gives the registry for a run's metadata, as given; ``/nodes`` describes it and
             ``/compile`` compiles on it.
     """
@@ -100,7 +99,6 @@ class Worker(Generic[M, X]):
                 limit.
             poll: The seconds between a follower's reads of new events.
         """
-        self.metadata_type = metadata_type
         self.nodes_for = nodes_for
         self._store = GuardedStore(store)
         self._settings = ResumeSettings(
@@ -113,7 +111,6 @@ class Worker(Generic[M, X]):
             resume_timeout=resume_timeout,
             handing_back=AsyncioEvent(),
         )
-        self._views = view_type(metadata_type)
         self._max_items = max_items
         self._poll = poll
         self._served = False
@@ -122,7 +119,7 @@ class Worker(Generic[M, X]):
 
     # -- what a host calls ------------------------------------------------------------------------
 
-    async def read(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView[M]:
+    async def read(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView:
         """The run as a reader sees it: its status, what waits in it, its outputs once complete.
 
         The row is read once: its metadata goes to ``allows``, and the view is built from the same row.
@@ -165,7 +162,7 @@ class Worker(Generic[M, X]):
         *,
         previous: str | None = None,
         allows: Callable[[M], bool] | None = None,
-    ) -> RunView[M]:
+    ) -> RunView:
         """Start a run: store it and make its first resume call in the background.
 
         Args:
@@ -238,7 +235,7 @@ class Worker(Generic[M, X]):
         metadata: M,
         *,
         allows: Callable[[M], bool] | None = None,
-    ) -> RunView[M]:
+    ) -> RunView:
         """Start a run of a run's graph with some inputs changed, as ``run.with_inputs`` makes one; a call that
         receives what it received before isn't made again.
 
@@ -272,7 +269,7 @@ class Worker(Generic[M, X]):
         answers: Mapping[str, Any],
         *,
         allows: Callable[[M], bool] | None = None,
-    ) -> RunView[M]:
+    ) -> RunView:
         """Answer what waits in a run, by waiting id.
 
         While the run is running, the answers are queued, as one call sent them, and given to the run when its
@@ -324,7 +321,7 @@ class Worker(Generic[M, X]):
         max_items: int | None = None,
         *,
         allows: Callable[[M], bool] | None = None,
-    ) -> RunView[M]:
+    ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again.
 
         When another call takes the run between this call's read and its write, the run is read again: it is
@@ -362,7 +359,7 @@ class Worker(Generic[M, X]):
                 return self._view(claimed)
             row = await self._row(run_id)
 
-    async def cancel(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView[M]:
+    async def cancel(self, run_id: str, *, allows: Callable[[M], bool] | None = None) -> RunView:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
 
         A running run is asked to stop: at once when this worker resumes it, at the next renewal of its lease when
@@ -569,13 +566,13 @@ class Worker(Generic[M, X]):
             raise InvalidCallError([no_such_run()])
         return row
 
-    def _view(self, row: StoredRun) -> RunView[M]:
+    def _view(self, row: StoredRun) -> RunView:
         """The run in ``row`` as a reader sees it, from its state, its outcome and its metadata."""
         state = RunState.model_validate_json(row.state)
         outcome = RunOutcome.model_validate_json(row.outcome)
-        return self._views(
+        return RunView(
             id=row.id,
-            metadata=self._metadata_in(row),
+            metadata=from_json(row.metadata),
             status=state.status,
             cause=state.cause,
             waiting=outcome.waiting,
@@ -603,7 +600,7 @@ class Worker(Generic[M, X]):
         """The metadata a row keeps, read from its JSON."""
         return self._settings.metadata.validate_json(row.metadata)
 
-    async def _create(self, graph: str, metadata: M, run: Run[Any]) -> RunView[M]:
+    async def _create(self, graph: str, metadata: M, run: Run[Any]) -> RunView:
         """Store a run, held by this worker, and make its first resume call in the background.
 
         Args:

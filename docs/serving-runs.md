@@ -197,7 +197,7 @@ The routes that take any graph (`POST /runs`, `/estimate`, `/compile` and `/node
 
 ## The routes
 
-Every route under `/runs` answers with the run as it is after the call: its `id`, `metadata`, `status`, `cause`, `waiting`, `outputs`, `progress` and `refused`.
+Every route under `/runs` answers with the run as it is after the call: its `id`, `metadata`, `status`, `cause`, `waiting`, `outputs`, `progress` and `refused`. Its `metadata` is the JSON the run keeps, whatever type you gave the worker.
 
 | Route | What it does |
 |---|---|

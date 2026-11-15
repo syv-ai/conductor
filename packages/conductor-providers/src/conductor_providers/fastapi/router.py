@@ -22,7 +22,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Resume, StartRun, declared
 from conductor_providers.fastapi.problems import STATUS
-from conductor_providers.fastapi.state import M, view_type
+from conductor_providers.fastapi.state import M, RunView
 from conductor_providers.fastapi.worker import Worker, X
 
 #: A refusal's body: FastAPI's own ``HTTPValidationError``, the shape of a 422, which a conductor ``Problem`` fits, so
@@ -115,8 +115,6 @@ def run_router(
         dependencies=[Depends(_refused_as_responses)],
         generate_unique_id_function=attrgetter("name"),
     )
-    # what every route that acts on a run answers with: its view, with metadata of the worker's type
-    view = view_type(worker.metadata_type)
     start_body = _body(declared(StartRun))
 
     async def followed(
@@ -140,12 +138,12 @@ def run_router(
         and every problem. Nothing is run or stored."""
         return Graph.compile(await request.body(), worker.nodes_for(requester)).describe()
 
-    @router.post("/runs", status_code=202, response_model=view, openapi_extra=start_body)
+    @router.post("/runs", status_code=202, openapi_extra=start_body)
     async def start_run(
         request: Request,
         requester: Annotated[M, Depends(metadata)],
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
-    ) -> Any:
+    ) -> RunView:
         """Start a run of any graph. This is an author's route, so guard it with a dependency of your own."""
         sent = StartRun.read(await request.body())
         return await worker.begin(
@@ -166,10 +164,10 @@ def run_router(
             sent.graph, sent.inputs, requester, previous=sent.previous, allows=allows
         )
 
-    @router.get("/runs/{run_id}", response_model=view)
+    @router.get("/runs/{run_id}")
     async def read_run(
         run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
-    ) -> Any:
+    ) -> RunView:
         """The run as it was when it last stopped running: its status, what waits for a person, its outputs once
         complete, the answers that were refused, and why it ended early if it did."""
         return await worker.read(run_id, allows=allows)
@@ -186,7 +184,6 @@ def run_router(
     @router.post(
         "/runs/{run_id}/answers",
         status_code=202,
-        response_model=view,
     )
     async def answer_run(
         run_id: str,
@@ -197,7 +194,7 @@ def run_router(
                 description="An answer for each waiting call, by its `id` in the run's `waiting`."
             ),
         ],
-    ) -> Any:
+    ) -> RunView:
         """Answer what waits by its ids, and resume the run with the answers.
 
         The run takes them whatever its status, so a run that failed, stopped, timed out or was cancelled with
@@ -209,18 +206,17 @@ def run_router(
     @router.post(
         "/runs/{run_id}/resume",
         status_code=202,
-        response_model=view,
     )
     async def resume_run(
         run_id: str,
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         body: Resume = Resume(),
-    ) -> Any:
+    ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
         the item limit of a run that stopped at it, and a resume needs no body."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
-    @router.post("/runs/{run_id}/again", status_code=202, response_model=view)
+    @router.post("/runs/{run_id}/again", status_code=202)
     async def run_again(
         run_id: str,
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
@@ -231,15 +227,15 @@ def run_router(
             ),
         ],
         requester: Annotated[M, Depends(metadata)],
-    ) -> Any:
+    ) -> RunView:
         """A new run with these inputs changed, of this request's own and on its own nodes. A call that gets what it
         got before isn't made again."""
         return await worker.again(run_id, inputs, requester, allows=allows)
 
-    @router.post("/runs/{run_id}/cancel", response_model=view)
+    @router.post("/runs/{run_id}/cancel")
     async def cancel_run(
         run_id: str, allows: Annotated[Callable[[M], bool], Depends(run_filter)]
-    ) -> Any:
+    ) -> RunView:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``. The calls
         already made are kept, its questions still wait, and an answer or a resume goes on. A waiting run is resumed
         for it, with no node call, so like any resume it can end ``failed``. A run that is complete or ended early is

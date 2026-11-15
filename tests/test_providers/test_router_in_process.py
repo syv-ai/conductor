@@ -27,7 +27,7 @@ from conductor import (  # noqa: E402
     Series,
     make_graph,
 )
-from conductor_providers.fastapi import StoredRun, Worker, run_router  # noqa: E402
+from conductor_providers.fastapi import RunView, StoredRun, Worker, run_router  # noqa: E402
 from fastapi import FastAPI, Header  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
@@ -865,16 +865,24 @@ async def test_a_run_started_from_a_previous_one_reuses_its_work_and_one_the_fil
     assert calls.count("review") == 3  # two for the first run, one for the file the second added
 
 
-def test_the_runs_answer_is_the_component_runview_whatever_its_metadata_type() -> None:
-    for metadata_type in (dict[str, str], _Member):
-        schema = _app(
-            store=MemoryStore(), registry=lambda _: NodeRegistry(), metadata_type=metadata_type
-        ).openapi()
-        answer = schema["paths"]["/runs/{run_id}"]["get"]["responses"]["200"]["content"]
-        assert answer["application/json"]["schema"] == {"$ref": "#/components/schemas/RunView"}
-        assert [name for name in schema["components"]["schemas"] if name.startswith("RunView")] == [
-            "RunView"
-        ]
+def test_an_app_with_a_typed_router_and_a_route_of_its_own_has_one_runview_component() -> None:
+    app = _app(
+        store=MemoryStore(),
+        registry=lambda _: NodeRegistry(),
+        metadata=_member,
+        run_filter=_team_runs,
+        metadata_type=_Member,
+    )
+
+    @app.get("/mine/{run_id}")
+    def mine(run_id: str) -> RunView:
+        raise NotImplementedError
+
+    schema = app.openapi()
+    assert [name for name in schema["components"]["schemas"] if "RunView" in name] == ["RunView"]
+    for path in ("/runs/{run_id}", "/mine/{run_id}"):
+        answer = schema["paths"][path]["get"]["responses"]["200"]["content"]["application/json"]
+        assert answer["schema"] == {"$ref": "#/components/schemas/RunView"}, path
 
 
 class _Camel(BaseModel):

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Mapping
-from typing import Any, Generic
+from typing import Any
 
 from conductor import InvalidCallError, Problem, Run, RunProgress, RunStatus, Waiting
 from pydantic import BaseModel
@@ -206,7 +206,7 @@ class RunState(BaseModel):
         return {"status": self.status, "state": self.model_dump_json()}
 
 
-class RunView(RunOutcome, Generic[M]):
+class RunView(RunOutcome):
     """A run as a reader sees it, as it was when it last stopped running, read without loading the run.
 
     ``Worker.read`` gives it, and every route under ``/runs`` answers with it, so an action answers with the run as
@@ -215,7 +215,8 @@ class RunView(RunOutcome, Generic[M]):
 
     Attributes:
         id: The run's id.
-        metadata: The run's metadata, as it was written when the run started.
+        metadata: The run's metadata, as the JSON object the row keeps: what the host gave when the run started,
+            written by alias. The worker reads it back by its ``metadata_type`` for the host's own code.
         status: Where the run is: ``running`` while a worker resumes it or is about to, ``waiting`` for answers,
             ``complete``, or how it ended early (``failed``, ``stopped``, ``cancelled``, ``timed_out``), which
             ``Worker.resume`` goes on from.
@@ -232,27 +233,7 @@ class RunView(RunOutcome, Generic[M]):
     """
 
     id: str
-    metadata: M
+    metadata: dict[str, Any]
     status: RunStatus
     cause: Problem | None
     refused: dict[str, list[Problem]]
-
-
-def view_type(metadata_type: type[M]) -> type[RunView[M]]:
-    """The class of a run's view whose metadata is of ``metadata_type``, named ``RunView`` in every schema.
-
-    A parametrized class such as ``RunView[Member]`` would be named ``RunView_Member_`` in an OpenAPI document. So the
-    default dict metadata gets ``RunView`` itself, which a host's own route names too, and a model gets a subclass of
-    its parametrized class that is named ``RunView``.
-
-    Args:
-        metadata_type: The type of a run's metadata.
-
-    Returns:
-        The view class the worker builds views with and the router declares its answers with.
-    """
-    if metadata_type == dict[str, str]:
-        return RunView
-    # mypy reads a subscript as a type, and this one is known only at run time
-    parametrized: type[RunView[M]] = RunView[metadata_type]  # type: ignore[valid-type]
-    return type("RunView", (parametrized,), {"__module__": __name__})
