@@ -21,7 +21,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 
 from conductor_providers.fastapi.bodies import Resume, StartRun, declared
 from conductor_providers.fastapi.problems import STATUS, no_such_run
-from conductor_providers.fastapi.stored_run import M, RunView
+from conductor_providers.fastapi.state import M, RunView
 from conductor_providers.fastapi.worker import Worker, X
 
 #: How a route declares a refusal beside its own answer: the 404 of a run that isn't there for the request, and the

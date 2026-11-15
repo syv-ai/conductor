@@ -1,6 +1,6 @@
-"""``RunStore``: where the runs router keeps runs and their events, written by the host.
+"""``RunStore``: where the worker keeps runs and their events, written by the host, and the row it keeps.
 
-A stored run is one row of text and numbers, so any database holds it. Every
+A stored run is one row of text and numbers, ``StoredRun``, so any database holds it. Every
 change is a compare-and-set on ``rev``: ``update`` writes only while the row is
 still at the ``rev`` the writer read, and moves it one on. That one rule is
 what lets several workers act on one run.
@@ -13,9 +13,64 @@ one exception, ``StoreFailedError``, which names the method. The worker and
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Protocol, TypedDict
 
-from conductor_providers.fastapi.stored_run import RunChanges, StoredRun
+from conductor import RunStatus
+
+
+@dataclass(frozen=True)
+class StoredRun:
+    """One run as the store keeps it.
+
+    A store acts on ``id``, ``rev``, ``owner`` and ``lease_until``. ``status`` and ``metadata`` are columns for the
+    host's own queries. The other four are text the router writes and reads, which a store only keeps. ``id``,
+    ``graph`` and ``metadata`` are written once, by ``create``, and no ``update`` changes them.
+
+    ``graph``, ``metadata``, ``run``, ``state`` and ``outcome`` are JSON, and so is an event's body. A store may keep
+    them in any form that reads back as the same JSON value, such as a Postgres ``jsonb`` column, which orders keys and
+    spaces its own way: the router and conductor parse them, and never compare or hash the text itself.
+
+    Attributes:
+        id: The run's id.
+        graph: The ``GraphRecord`` the run is of, as JSON.
+        metadata: The run's metadata, as JSON: what the host keeps on the run, such as who started it. Any worker
+            builds the run's registry and ``context`` again from it.
+        run: ``run.to_json()``: the last checkpoint while the run is running, the whole run once it stops.
+        status: ``running`` while a worker resumes the run or is to, else how the run was left. It is for the host's own
+            queries: the router writes it in the same ``update`` as ``state``, from it, and reads only ``state``.
+        state: The run's status and what was asked of it while it was running, as JSON: its status and why it
+            ended early, the answers queued and refused, a cancel that was asked. Small however large the run is.
+        outcome: What a reader gets without loading the run, as JSON: what waits for a person, how far the run is
+            and, once the run is complete, its outputs. Written each time the run stops running, and its progress
+            with each checkpoint.
+        rev: Moved one on by every ``update``.
+        owner: The worker resuming it.
+        lease_until: Until when the owner's lease holds, as seconds since the epoch; a time already past for a run
+            handed back for any worker to go on with; ``None`` when the run is not running.
+    """
+
+    id: str
+    graph: str
+    metadata: str
+    run: str
+    status: RunStatus
+    state: str
+    outcome: str
+    rev: int
+    owner: str | None
+    lease_until: float | None
+
+
+class RunChanges(TypedDict, total=False):
+    """The columns one ``update`` changes: any of those of a ``StoredRun`` that change after it is created."""
+
+    run: str
+    status: RunStatus
+    state: str
+    outcome: str
+    owner: str | None
+    lease_until: float | None
 
 
 class RunStore(Protocol):

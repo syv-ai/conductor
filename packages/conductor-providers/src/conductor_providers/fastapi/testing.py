@@ -21,8 +21,14 @@ import json
 import time
 import uuid
 
-from conductor_providers.fastapi.store import GuardedStore, RunStore, StoreFailedError
-from conductor_providers.fastapi.stored_run import Outcome, RunChanges, StoredRun, StoredState
+from conductor_providers.fastapi.state import RunOutcome, RunState
+from conductor_providers.fastapi.store import (
+    GuardedStore,
+    RunChanges,
+    RunStore,
+    StoredRun,
+    StoreFailedError,
+)
 
 __all__ = ["check_run_store"]
 
@@ -40,8 +46,8 @@ def _new_run(*, owner: str | None, lease_until: float | None) -> StoredRun:
     """A run like one the worker creates, under an id that starts ``check-run-store-``."""
     written: RunChanges = {
         "run": '{"outcomes": {}}',
-        **StoredState.started().columns(),
-        "outcome": Outcome.empty().model_dump_json(),
+        **RunState.started().columns(),
+        "outcome": RunOutcome(waiting=[], outputs=None, progress=None).model_dump_json(),
         "owner": owner,
         "lease_until": lease_until,
     }
