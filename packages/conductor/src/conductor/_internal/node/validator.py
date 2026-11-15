@@ -60,6 +60,8 @@ from conductor._internal.validation import (
     schema_output_validator_of,
 )
 
+from .type import HookName
+
 
 class ReturnValidator(Validator[Any, dict[str, Any]]):
     """Reads what one node's function returned into the node's outputs by name, as a run keeps them.
@@ -290,58 +292,68 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
 _HOOK_FIELDS = TypeAdapter(dict[Name, Any])
 
 
-def read_hook_fields(
-    node_id: str,
-    kind: str,
-    returned: Any,
-    read_field: type[DeclaredInputValidator | DeclaredOutputValidator],
-) -> dict[str, Field]:
-    """Returns what the hook ``kind`` of the node ``node_id`` returned, as fields by name, each read by
-    ``read_field`` as ``@node`` reads one: ``DeclaredInputValidator`` for ``compute_added_inputs``, ``DeclaredOutputValidator`` for
-    ``compute_outputs``.
+class HookValidator(Validator[Any, dict[str, Field]]):
+    """Reads what one hook of a node returned into fields by name, each read as ``@node`` reads one: by
+    ``DeclaredInputValidator`` for ``compute_added_inputs``, by ``DeclaredOutputValidator`` for ``compute_outputs``.
 
-    Raises:
+    Raises (when called):
         InvalidCallError: ``compute_hook_failed``, one at each name that cannot be one (``error`` ``not_a_name``), or
             one at the node when the hook returned no mapping (``error`` ``not_a_mapping``), or a field ``@node``
             would refuse (``error`` the declaration code: ``type_not_carried`` for a type conductor does not support,
             ``exclusive_group_on_input`` or ``default_invalid`` for an added input that is a branch, ``default_invalid``
             for an output of an exclusive group with a default other than ``SKIPPED``, ``constant_only_on_output``).
     """
-    try:
-        hints = _HOOK_FIELDS.validate_python(returned)
-    except ValidationError as invalid:
-        if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
-            reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
+
+    def __init__(self, node_id: str, hook: HookName) -> None:
+        """Builds the validator for the hook ``hook`` of the node ``node_id``."""
+        self._node_id = node_id
+        self._hook = hook
+        self._read_field: type[DeclaredInputValidator | DeclaredOutputValidator] = (
+            DeclaredInputValidator if hook == "compute_added_inputs" else DeclaredOutputValidator
+        )
+
+    def __call__(self, returned: Any) -> dict[str, Field]:
+        """Returns the fields the hook returned, by name.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        node_id, kind = self._node_id, self._hook
+        try:
+            hints = _HOOK_FIELDS.validate_python(returned)
+        except ValidationError as invalid:
+            if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
+                reason = f"its {kind} hook returned a {type(returned).__name__}; a hook returns its fields by name, as a mapping of each name to its type"
+                raise InvalidCallError(
+                    [
+                        compile_problems.compute_hook_failed(
+                            node_id, reason=reason, error="not_a_mapping"
+                        )
+                    ]
+                ) from None
+            raise InvalidCallError(
+                compile_problems.compute_hook_failed(
+                    node_id,
+                    str(fault["loc"][0]),
+                    reason=f"what its {kind} hook returned has a field name it cannot have ({fault['msg']})",
+                    error="not_a_name",
+                )
+                for fault in invalid.errors()
+            ) from None
+        try:
+            fields: dict[str, Field] = {}
+            for name, given in hints.items():
+                hint, default = _hint_and_default(given)
+                fields[name] = self._read_field(name, hint)(default)
+            return fields
+        except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
             raise InvalidCallError(
                 [
                     compile_problems.compute_hook_failed(
-                        node_id, reason=reason, error="not_a_mapping"
+                        node_id, reason=str(error), error=error.problems[0].type
                     )
                 ]
             ) from None
-        raise InvalidCallError(
-            compile_problems.compute_hook_failed(
-                node_id,
-                str(fault["loc"][0]),
-                reason=f"what its {kind} hook returned has a field name it cannot have ({fault['msg']})",
-                error="not_a_name",
-            )
-            for fault in invalid.errors()
-        ) from None
-    try:
-        fields: dict[str, Field] = {}
-        for name, given in hints.items():
-            hint, default = _hint_and_default(given)
-            fields[name] = read_field(name, hint)(default)
-        return fields
-    except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
-        raise InvalidCallError(
-            [
-                compile_problems.compute_hook_failed(
-                    node_id, reason=str(error), error=error.problems[0].type
-                )
-            ]
-        ) from None
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:
