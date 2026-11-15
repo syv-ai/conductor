@@ -1,6 +1,7 @@
-"""``Context[X]``: the run's context, one object the host passes for a run, which a node takes as its first parameter.
+"""``Context[X]``, the type of a node's first parameter when the node takes the run's context.
 
-Example::
+Here a host passes the person running the graph and an HTTP client, and a node signs a text with the person's
+name::
 
     @dataclass(frozen=True)
     class HostContext:
@@ -15,22 +16,25 @@ Example::
 
     graph.run(text="Done", context=HostContext(caller=Caller("Ida"), http_client=client))
 
-``ctx`` is not an input of the node: no edge reaches it, the graph record never mentions it, a run never saves it,
-and it plays no part in whether a call's earlier outcome is reused. A unit test calls ``sign(host_context, "Done")``.
+``ctx`` is not an input of the node. No edge reaches it, the graph record never mentions it, and a run never saves
+it. It plays no part in whether a call's earlier outcome is reused, either. A unit test just calls
+``sign(host_context, "Done")``.
 
-A node may name the registry's class, a base of it, or a ``Protocol`` the class satisfies. A node that does not know
-the host's class, such as a pre-built one, names a ``Protocol`` with the members it reads::
+A node may name the registry's class, a base of it, or a ``Protocol`` the class satisfies. A node that doesn't
+know the host's class, such as a pre-built node, names a ``Protocol`` with the members it uses::
 
     class HasHttpClient(Protocol):
         @property
         def http_client(self) -> HttpClient: ...
 
-Write a member as a read-only property: a frozen dataclass's fields can't be set, so a type checker says it does
-not satisfy a Protocol whose member is a plain attribute. Compiling a graph checks each node's ``Context[X]``
-against the registry's class: for a class, that the registry's class is it or a subclass of it (``issubclass``); for a
-Protocol, that the class has every member the Protocol declares, by name (``ContextParameter.fit``). It does not
-check the members' types: an ``http_client: str`` has the name ``HasHttpClient`` asks for. Whether the types fit is
-the host's type checker's job.
+Write each member as a read-only property. A frozen dataclass's fields can't be set, so a type checker says it
+doesn't satisfy a Protocol whose member is a plain attribute.
+
+When a graph is compiled, each node's ``Context[X]`` is checked against the registry's class
+(``ContextParameter.fit``). For a class, the registry's class must be it or a subclass of it. For a Protocol, the
+registry's class must have every member the Protocol declares, by name. The members' types aren't checked: an
+``http_client: str`` still has the name ``HasHttpClient`` asks for. Whether the types fit is a job for the host's
+type checker.
 """
 
 from __future__ import annotations
@@ -54,23 +58,28 @@ _T = TypeVar("_T")
 
 
 class _Context:
-    """The metadata ``Context[X]`` puts beside ``X``: ``Context[X]`` is ``Annotated[X, _Context()]``. ``@node`` takes
-    it off a node's first parameter; anywhere else in a hint it refuses to be read."""
+    """The metadata that ``Context[X]`` adds to ``X``: ``Context[X]`` is ``Annotated[X, _Context()]``.
+
+    ``@node`` takes it off a node's first parameter. Anywhere else in a type hint, pydantic meets it while building
+    a schema, and it refuses.
+    """
 
     def __get_pydantic_core_schema__(
         self, source: Any, handler: GetCoreSchemaHandler
     ) -> CoreSchema:
-        """Refuses a ``Context`` read as an input's or output's type: on a later or keyword-only parameter, inside
-        ``| None`` or a list, or as the return type.
+        """Refuses a ``Context`` used as an input's or output's type.
+
+        That is a ``Context`` on a later or keyword-only parameter, inside ``| None`` or a list, or as the return
+        type.
 
         Raises:
-            NodeDeclarationError: Always (``context_misplaced``).
+            NodeDeclarationError: Always, with ``context_misplaced``.
         """
         raise NodeDeclarationError(declaration_problems.context_misplaced())
 
 
-#: ``Context[X]``: the type of a node's first parameter that is the run's context, the object the host passes as
-#: ``context=``. To a type checker the parameter is an ``X``.
+#: ``Context[X]``: the type of a node's first parameter when it takes the run's context, the object the host passes
+#: as ``context=``. To a type checker, the parameter is just an ``X``.
 Context = Annotated[_T, _Context()]
 
 
@@ -83,11 +92,12 @@ def is_context(hint: Any) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class ContextParameter:
-    """A node's first parameter when it takes the run's context. For ``sign(ctx: Context[HostContext], text: str)``,
-    ``ContextParameter("ctx", HostContext)``.
+    """A node's first parameter, when the node takes the run's context.
+
+    For ``sign(ctx: Context[HostContext], text: str)``, it is ``ContextParameter("ctx", HostContext)``.
 
     Attributes:
-        name: The parameter's name. No input the node gets may have it.
+        name: The parameter's name. No input of the node may have the same name.
         cls: The class inside ``Context[...]``: the registry's class, a base of it, or a ``Protocol``.
     """
 
@@ -95,20 +105,20 @@ class ContextParameter:
     cls: type
 
     def fit(self, node_id: str, context_type: type | None) -> Problem | None:
-        """Says whether the class a registry names as its context, ``context_type``, is what this parameter asks for.
+        """Checks whether the registry's context class, ``context_type``, is what this parameter asks for.
 
-        Example, with ``HostContext`` above: ``sign(ctx: Context[HostContext], text: str)`` fits ``HostContext`` and
-        any subclass of it. ``fetch(ctx: Context[HasHttpClient], url: str)`` fits a class with an ``http_client``,
-        of any type. On a registry that names no class, neither fits.
+        With ``HostContext`` from above, ``sign(ctx: Context[HostContext], text: str)`` fits ``HostContext`` and any
+        subclass of it. ``fetch(ctx: Context[HasHttpClient], url: str)`` fits any class with an ``http_client``,
+        whatever its type. On a registry that names no class, neither fits.
 
         Args:
-            node_id: The node whose first parameter this is, for the problem's ``loc``.
-            context_type: The registry's ``context_type``; ``None`` when it names none.
+            node_id: The node this parameter belongs to, for the problem's ``loc``.
+            context_type: The registry's ``context_type``, or ``None`` when it names none.
 
         Returns:
-            ``None`` when it fits; else ``context_does_not_fit`` at ``(node_id, name)``: the class is not ``cls`` or a
-            subclass of it, it lacks members of the Protocol ``cls`` (variant ``lacks``), or the registry names no
-            class (variant ``no_context_type``).
+            ``None`` when it fits. Otherwise a ``context_does_not_fit`` problem at ``(node_id, name)``, which says
+            why: the class isn't ``cls`` or a subclass of it, it lacks members of the Protocol ``cls`` (variant
+            ``lacks``), or the registry names no class (variant ``no_context_type``).
         """
         needs = self.cls.__name__
         if context_type is None:
@@ -134,13 +144,12 @@ class ContextParameter:
 
 
 def _lacks(context_type: type, protocol: type) -> list[str]:
-    """The names of the members of ``protocol`` that the class ``context_type`` does not have; ``[]`` when it has them all.
+    """Returns the members of ``protocol`` that the class ``context_type`` doesn't have, or ``[]`` if it has them all.
 
-    Example, with ``HostContext`` above: ``HasHttpClient`` gives ``[]``, and a Protocol with a member ``database``
-    gives ``["database"]``. The class has a member when it has an attribute, method or property of that name, or
-    annotates a field of that name (a dataclass field with no default). The member's type is not compared: a class
-    with ``http_client: str`` has every member ``HasHttpClient`` declares. Whether the types fit is the host's type
-    checker's job.
+    With ``HostContext`` from above, ``HasHttpClient`` gives ``[]``, and a Protocol with a member ``database``
+    gives ``["database"]``. The class has a member if it has an attribute, method or property of that name, or
+    annotates a field of that name, such as a dataclass field with no default. The members' types aren't compared,
+    as the module docstring says.
     """
     annotated = typing.get_type_hints(context_type)
     return [
