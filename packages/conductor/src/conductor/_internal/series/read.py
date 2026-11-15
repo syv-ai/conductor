@@ -1,5 +1,7 @@
-"""The pydantic schema of ``Series[T]``: a list of items, each validated as ``T``. A Series can also be read from a
-tuple, a range and a ``polars.Series`` (a table's column). A set is refused.
+"""How a ``Series[T]`` value is checked, as a pydantic schema.
+
+A Series is a list whose items are each checked as ``T``. From Python, a node may also return a tuple, a range or
+a ``polars.Series``, such as a column of a table. A set is refused, since it has no order.
 """
 
 from __future__ import annotations
@@ -15,8 +17,11 @@ from conductor._internal.base import SKIPPED
 
 
 def set_has_no_order() -> PydanticCustomError:
-    """The error for a set where a list is read, a ``Series`` or a value written into a graph record: a set's order
-    differs between processes, so its items would come in another order in another process."""
+    """Returns the error for a set given where a list is expected.
+
+    That is a ``Series``, or a value written into a graph record. A set's order changes from one process to the
+    next, so its items would come in a different order each time.
+    """
     return PydanticCustomError(
         "set_has_no_order",
         "a set has no order, so its items would come in another order in another process; give a list",
@@ -24,11 +29,14 @@ def set_has_no_order() -> PydanticCustomError:
 
 
 def series_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-    """Returns the pydantic schema of ``Series[T]``, where ``source`` is that hint: a list whose items are each
-    validated as ``T``. For ``Series[int]`` it validates ``[1, 2]`` and ``(1, 2)`` and returns ``[1, 2]``.
+    """Returns the pydantic schema of ``Series[T]``.
 
-    From Python it also takes a tuple, a range and a ``polars.Series``, so a node may return a table's column, and
-    refuses a set. An item that is ``SKIPPED`` stays ``SKIPPED`` at its index.
+    For ``Series[int]``, the schema accepts ``[1, 2]`` and ``(1, 2)`` and returns ``[1, 2]``. An item that is
+    ``SKIPPED`` isn't checked, and stays ``SKIPPED`` at its index.
+
+    Args:
+        source: The hint, such as ``Series[int]``.
+        handler: Pydantic's handler, which builds the schema of the item type.
     """
     items = core_schema.list_schema(handler.generate_schema((get_args(source) or (Any,))[0]))
 
