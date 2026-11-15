@@ -1,14 +1,16 @@
-"""``ConductorModel``: the base class of every record a host saves or sends as JSON.
+"""``ConductorModel``, the base class of every record a host saves or sends as JSON.
 
-A graph record, a problem, an event, a question waiting for a person and a widget are each a frozen pydantic model
-on this base. Each is written with pydantic's ``model_dump_json`` and read back with ``model_validate_json``. What
-only the engine uses, such as a compiled graph or an outcome, is a dataclass instead: those are made far more often
-than they are read from JSON, and a dataclass is faster to make.
+A graph record, a problem, an event, a call waiting for a person and a widget are all ``ConductorModel``s. Each is
+a frozen pydantic model, written with pydantic's ``model_dump_json`` and read back with ``model_validate_json``.
 
-Each subclass is checked once, when pydantic has finished it, for a JSON form of every field it writes: its JSON
-schema in serialization mode is built, which pydantic refuses for a field of a class it can only check with
-``isinstance``, such as a client or a ``polars.DataFrame``, or of a ``type[X]``. A field typed ``Any`` passes, since
-pydantic cannot know what it will be given. A field with ``Field(exclude=True)`` is not written, so it is not checked.
+Things only the engine uses, such as a compiled graph or the outcome of a call, are plain dataclasses instead. The
+engine makes far more of them than it ever reads from JSON, and a dataclass is quicker to make.
+
+Since a ``ConductorModel`` is meant to be written as JSON, each subclass is checked once, as soon as pydantic has
+built it: every field it writes must have a JSON form. A field whose class pydantic can only check with
+``isinstance``, such as an HTTP client or a ``polars.DataFrame``, is refused, and so is a ``type[X]``. A field
+typed ``Any`` passes, since pydantic can't know what it will be given. A field with ``Field(exclude=True)`` is never
+written, so it isn't checked.
 """
 
 from __future__ import annotations
@@ -28,13 +30,15 @@ from .json import NON_FINITE_FLOATS
 
 
 class _JsonFormSchema(GenerateJsonSchema):
-    """pydantic's JSON schema, which also refuses a ``type[X]`` and says which fields it refused.
+    """Pydantic's JSON schema generator, changed to refuse a ``type[X]`` and to note which fields it refuses.
 
-    pydantic writes ``{}`` for a ``type[X]``, but a class has no JSON form.
+    Pydantic writes ``{}`` as the schema of a ``type[X]``, but a class can't be written as JSON, so this refuses it.
+    When a model's fields can't all be written, it tries each field on its own, so the error can name the ones at
+    fault.
 
     Attributes:
-        refused: Each field the schema has no JSON form for, as ``"module.Model.field"``, the fields of a model inside
-            the one asked for among them.
+        refused: Each field with no JSON form, as ``"module.Model.field"``. The fields of a model nested inside the
+            one being checked are listed too.
     """
 
     def __init__(self) -> None:
@@ -57,7 +61,8 @@ class _JsonFormSchema(GenerateJsonSchema):
             self._models.pop()
 
     def model_fields_schema(self, schema: ModelFieldsSchema) -> JsonSchemaValue:
-        """The schema of a model's fields; when one has no JSON form, each such field is put in ``refused``."""
+        """Returns the schema of a model's fields. If any field has no JSON form, notes each such field in
+        ``refused`` and raises again."""
         try:
             return super().model_fields_schema(schema)
         except PydanticInvalidForJsonSchema:
@@ -74,22 +79,27 @@ class _JsonFormSchema(GenerateJsonSchema):
 
 
 class ConductorModel(BaseModel):
-    """A frozen pydantic model that a host writes as JSON and reads back. A field it does not declare is refused."""
+    """A frozen pydantic model that a host writes as JSON and reads back.
 
-    #: A float that is not finite is written as its text (``NON_FINITE_FLOATS``). A subclass that sets its own
-    #: ``model_config`` keeps these three: pydantic merges a subclass's config into its base's.
+    It refuses any field it doesn't declare. Each subclass is checked when pydantic builds it, so that every field it
+    writes has a JSON form.
+    """
+
+    #: ``inf`` and ``nan`` are written as text (``NON_FINITE_FLOATS``). A subclass that sets its own ``model_config``
+    #: keeps these three settings, since pydantic merges a subclass's config into its base's.
     model_config = ConfigDict(frozen=True, extra="forbid", ser_json_inf_nan=NON_FINITE_FLOATS)
 
     @classmethod
     def __pydantic_on_complete__(cls) -> None:
-        """Checks that every field the subclass writes has a JSON form, once pydantic has finished the class.
+        """Checks that every field this subclass writes has a JSON form.
 
-        pydantic finishes a class where its statement ends, or, for a field whose type is named before it is defined,
-        when the class is rebuilt.
+        Pydantic calls this once it has built the class. That is usually where the class statement ends. When a
+        field's type is named before it is defined, it is when the class is rebuilt instead. The check builds the
+        class's JSON schema for writing, which pydantic refuses for a field it can't write as JSON.
 
         Raises:
             pydantic.errors.PydanticInvalidForJsonSchema: A field's type has no JSON form. The message names the class
-                and the field, and a field of a model inside it by that model.
+                and the field. A field of a model nested inside it is named by that model.
         """
         schema = _JsonFormSchema()
         try:
@@ -102,16 +112,17 @@ class ConductorModel(BaseModel):
             ) from error
 
     def __repr_args__(self) -> Iterator[tuple[str | None, Any]]:
-        """The fields pydantic's repr shows, without those that have their default, as scikit-learn prints an estimator.
+        """Returns the fields the repr shows, leaving out those that still have their default.
 
-        A repr reads ``Textarea(rows=8)``, and ``Textarea()`` when ``rows`` has its default, 4.
+        This is how scikit-learn prints an estimator. A ``Textarea`` with 8 rows prints as ``Textarea(rows=8)``, and
+        one with the default of 4 rows prints as ``Textarea()``.
         """
         fields = type(self).model_fields
         for name, value in super().__repr_args__():
             field = fields.get(name) if name is not None else None
             if field is not None and not field.is_required():
                 default = field.get_default(call_default_factory=True)
-                # a frame's == compares cell by cell, so ``is`` is tried first
+                # Try ``is`` first: a frame's == compares cell by cell instead of giving True or False.
                 if value is default or default is not None and value == default:
                     continue
             yield name, value
