@@ -560,8 +560,8 @@ class Compiler:
         input ``name``, and adds the graph input to ``graph_inputs``.
 
         Example: ``strip.line`` and ``shout.line`` both name the graph input ``line``, so a caller's ``line="a"`` is
-        the value of both. The two must read the same type from their hints (one ``Type``, its limits, choices and
-        validators as written) and be shown to a host the same way (one ``description``, the default aside), and the
+        the value of both. The two must read the same type from their hints (one ``Type``, with its limits, choices
+        and validators) and be shown to a host the same way (one ``description``, the default aside), and the
         record's defaults for it must agree; else the graph has the problem ``graph_input_used_two_ways`` and the
         second gets no value. So ``int`` and ``Annotated[int, Param()]`` agree, and ``int`` and
         ``Annotated[int, Param(title="Count")]`` do not; nor do ``Annotated[int, Ge(0)]`` and
@@ -904,7 +904,7 @@ def _edges_into(record: NodeRecord) -> dict[str, tuple[Source, ...]]:
 
 def _same_graph_input(found: Field, used: Field) -> bool:
     """Whether two inputs that name one graph input can take the caller's one value: they read the same type from
-    their hints (its limits, choices and validators as written, so a ``Ge(0)`` and a ``Param(ge=0)`` differ), a host
+    their hints (with its limits, choices and validators, though a ``Ge(0)`` and a ``Param(ge=0)`` differ), a host
     is shown them the same way (title, description, widget), and where the record gives both a default, it is one.
     ``int`` and ``Annotated[int, Param()]`` are one graph input.
 

@@ -608,8 +608,8 @@ def graph_input_used_two_ways(node_id: str, field: str, /, *, graph_input: str) 
     record gives them different defaults.
 
     A caller gives a graph input one value, read by one type, so every input it feeds must read the same type from its
-    hint, with its limits, choices and validators as they are written, and a host shows it once, so they must have the
-    same title, description and widget; ``int`` and ``Annotated[int, Param()]`` agree. One rule written two ways, an
+    hint, with its limits, choices and validators, and a host shows it once, so they must have the same title,
+    description and widget; ``int`` and ``Annotated[int, Param()]`` agree. One rule written two ways, an
     ``annotated_types.Ge(0)`` and a ``Param(ge=0)``, is read as two types and clashes, though both take the same
     values. Its default is the record's, written on any of them (and the same wherever it is written twice); an
     input's own default plays no part. Give the inputs graph inputs of their own, or make them agree.
