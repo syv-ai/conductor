@@ -242,9 +242,9 @@ class LimitsValidator(Validator[Limits, Limits]):
             ) from None
 
 
-class ConstantValidator(Validator[JsonValue, Any]):
-    """Reads a constant, or a graph input's default, that the graph record gives one input of a node, by the input's
-    type.
+class RecordValueValidator(Validator[JsonValue, Any]):
+    """Reads a value a graph record holds for one input of a node, a constant or a graph input's default, out of its
+    JSON by the input's type.
 
     Raises (when called):
         InvalidCallError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.

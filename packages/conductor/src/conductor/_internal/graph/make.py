@@ -23,7 +23,7 @@ from conductor._internal.record import (
     InputEntry,
     NodeRecord,
     RecordValidator,
-    RecordValuesValidator,
+    WrittenValuesValidator,
 )
 
 
@@ -167,7 +167,7 @@ def _values_by_place(
     problems: list[Problem],
 ) -> dict[tuple[str, str], Any]:
     """``given``, the ``constants`` or ``defaults`` (``kind``) of ``make_graph``, by place, each value as the record keeps
-    it (``RecordValuesValidator``). A fault goes to ``problems``."""
+    it (``WrittenValuesValidator``). A fault goes to ``problems``."""
     by_node: dict[str, dict[str, Any]] = {}
     for key, value in given.items():
         place = _place(key, (kind, key), definitions, problems)
@@ -178,7 +178,7 @@ def _values_by_place(
         try:
             written |= {
                 (node_id, name): value
-                for name, value in RecordValuesValidator(node_id)(named).items()
+                for name, value in WrittenValuesValidator(node_id)(named).items()
             }
         except InvalidCallError as refused:
             problems += refused.problems

@@ -21,7 +21,7 @@ from conductor._internal.record import (
     InputEntry,
     NodeRecord,
     RecordValidator,
-    RecordValuesValidator,
+    WrittenValuesValidator,
 )
 
 
@@ -127,7 +127,7 @@ def _rewritten(
         for name, entry in renamed.items()
         if entry.constant is not MISSING or entry.default is not MISSING
     }
-    written = RecordValuesValidator(node_id)(rewrite(values))
+    written = WrittenValuesValidator(node_id)(rewrite(values))
     kept = {
         name: InputEntry.model_construct(graph_input=entry.graph_input, sources=entry.sources)
         for name, entry in inputs.items()

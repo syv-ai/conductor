@@ -3,7 +3,7 @@
 Example: ``Graph.compile('{"nodes": {"shout": {"node": "shout"}}}', registry)`` reads the text with ``RecordValidator``
 into a ``GraphRecord``. The text ``'{"nodes": {"shout": {}}}'`` is refused with one ``invalid_record`` problem at
 ``("record", "nodes", "shout", "node")``: the node names no definition. And ``make_graph(shout, constants={"shout.mark":
-{"!"}})`` is refused by ``RecordValuesValidator`` with ``invalid_value`` at ``("shout", "mark")``: a set has no order, so the
+{"!"}})`` is refused by ``WrittenValuesValidator`` with ``invalid_value`` at ``("shout", "mark")``: a set has no order, so the
 record would list it in another order in another process.
 
 What the record says that is wrong as a graph (an edge into an input the node does not have, an edge from a node the
@@ -126,9 +126,9 @@ class RecordValidator(Validator[GraphRecord | str | bytes | Mapping[str, Any], G
             ) from None
 
 
-class RecordValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]]):
-    """Reads the constants or defaults given to one node from Python into the values a graph record keeps: each as
-    its JSON reads back. ``{"day": date(2026, 1, 2)}`` gives ``{"day": "2026-01-02"}``, and a float that is not finite
+class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]]):
+    """Reads the constants or defaults Python writes into a graph record for one node, into the JSON the record
+    keeps: each value as its JSON reads back. ``{"day": date(2026, 1, 2)}`` gives ``{"day": "2026-01-02"}``, and a float that is not finite
     is its text (``"NaN"``, ``"Infinity"``).
 
     Raises (when called):

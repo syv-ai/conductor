@@ -37,13 +37,13 @@ input the node does not have, a graph input given two types) is a problem of tha
 
 from .graph import GraphRecord
 from .node import InputEntry, NodeRecord
-from .validator import RecordValidator, RecordValuesValidator, read_json
+from .validator import RecordValidator, WrittenValuesValidator, read_json
 
 __all__ = [
     "GraphRecord",
     "InputEntry",
     "NodeRecord",
     "RecordValidator",
-    "RecordValuesValidator",
+    "WrittenValuesValidator",
     "read_json",
 ]
