@@ -11,33 +11,36 @@ and called before each call of the node.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, assert_never
 
 from pydantic import ValidationError
 
 from conductor._internal.base import SKIPPED
 from conductor._internal.field import Field
+from conductor._internal.graph import CollectingInput, EdgeInput
 from conductor._internal.problem import InvalidCallError, run_problems
-from conductor._internal.types import Type
 from conductor._internal.validation import Validator, exact_classes, schema_validator_of
 
 
-def demands_more(field: Field, sources: Iterable[Type], *, sources_are_items: bool) -> bool:
-    """Whether the input ``field`` demands more of a value than the types of the outputs its edges read declare,
-    so that each call reads the value by the input's type first.
+def demands_more(node_input: EdgeInput | CollectingInput) -> bool:
+    """Whether the input ``node_input`` demands more of a value than the types of the outputs its edges read declare,
+    so that its node's edge validator reads the value by the input's type before each call.
 
     Every value of ``str`` is a value of ``str | None`` as it is, so an edge from ``-> str`` into ``line: str | None``
     demands nothing more; an edge from ``-> int`` into ``Annotated[int, Param(le=3)]`` does, and so does one from
-    ``-> Any``.
-
-    Args:
-        field: The input.
-        sources: The types of the outputs its edges read.
-        sources_are_items: Whether each source gives the input one item of its value: an input that collects a loop, or
-            that takes a list wired to an output of one value. A table input then always reads its rows, since
-            each row is checked against the table's columns.
+    ``-> Any``. When each source gives the input one item of its value (an input that collects a loop, or that takes
+    a list wired to an output of one value), each item is held to the input's item type, and a table input always
+    reads its rows, since each row is checked against the table's columns.
     """
+    match node_input:
+        case EdgeInput(field=field, sources=edges, as_list=as_list):
+            sources_are_items = as_list
+        case CollectingInput(field=field, sources=edges):
+            sources_are_items = True
+        case _:
+            assert_never(node_input)
+    sources = [edge.type for edge in edges]
     if sources_are_items:
         return field.whole.record is not None or not all(
             field.type.holds(source) for source in sources

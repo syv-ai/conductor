@@ -386,7 +386,7 @@ def _function_node(
     read_by_validator = {
         name: node_input.field
         for name, (_, node_input) in edge_inputs.items()
-        if _demands_more(node_input)
+        if demands_more(node_input)
     }
     return BlueprintFunctionNode(
         compiled_node=compiled_node,
@@ -476,15 +476,3 @@ def loop_body_of(
             loop_body.add(inner)
             stack.extend(inner.upstream)
     return tuple(sorted(loop_body, key=lambda inner: inner.position))
-
-
-def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
-    """Whether ``node_input`` is read by its node's edge validator before each call: its input's type demands more than the
-    outputs its edges read declare (``demands_more``)."""
-    match node_input:
-        case EdgeInput(field=field, sources=edges, as_list=as_list):
-            return demands_more(field, [edge.type for edge in edges], sources_are_items=as_list)
-        case CollectingInput(field=field, sources=edges):
-            return demands_more(field, [edge.type for edge in edges], sources_are_items=True)
-        case _:
-            assert_never(node_input)
