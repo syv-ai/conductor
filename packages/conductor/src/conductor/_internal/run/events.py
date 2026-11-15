@@ -119,8 +119,10 @@ class NodeStart(_NodeEvent):
 
 
 class NodeProgress(_NodeEvent):
-    """How many calls of a node inside a loop have an outcome, and how many it will have, at most four times a
-    second: the node's ``CallCount``, as ``run.progress`` has it.
+    """Sent while a node inside a loop runs, to say how far it has got.
+
+    Its ``count`` says how many of the node's calls have an outcome, and how many calls there will be. It is the
+    same ``CallCount`` that ``run.progress`` shows. The event is sent at most four times a second.
 
     It comes after a call's outcome is written. One more comes with the final count, before the node's
     ``NodeComplete`` or at the end of the stream, unless the count hasn't changed. A node that isn't inside a loop
@@ -138,7 +140,7 @@ class NodeProgress(_NodeEvent):
 
 
 class NodeComplete(_NodeEvent):
-    """Every call of a node has an outcome.
+    """Sent when a node is finished: every call of it has an outcome.
 
     None of those outcomes is waiting for a person, and no call of the node, or of a node upstream of it, is still
     running. Each outcome may be done, answered, not called or skipped. A node gets at most one ``NodeComplete`` in

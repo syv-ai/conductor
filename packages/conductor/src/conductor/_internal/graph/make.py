@@ -39,7 +39,9 @@ def make_graph(
     inputs: Mapping[str, str | Sequence[str]] = MappingProxyType({}),
     outputs: Mapping[str, str] = MappingProxyType({}),
 ) -> GraphRecord:
-    """A graph record written from Python, each node at its version::
+    """Writes a graph record from Python, so you don't have to write its JSON by hand.
+
+    You pass the nodes, and it uses each one at its own version. Here are a few ways to call it::
 
         make_graph(lines, shout, join)                                # a chain
         make_graph(lines, shout, edges=[("lines.result", "shout.line")])
