@@ -1,12 +1,13 @@
 """``series-split``, ``series-stack``, ``series-collect``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
 what it refuses."""
 
+import json
 from typing import Any, TypedDict
 
 import conductor_nodes
 import polars as pl
 import pytest
-from conductor import Graph, NodeRegistry, Series, Table, make_graph, node
+from conductor import Graph, InvalidCallError, NodeRegistry, Run, Series, Table, make_graph, node
 from conductor_nodes import series, tables, text
 
 
@@ -78,6 +79,16 @@ def header(table: Table) -> list[str]:
     return table.columns
 
 
+@_node("members")
+def members() -> Table[Contact]:
+    return pl.DataFrame({"name": ["ida", "bo"], "email": ["ida@x.dk", None], "age": [41, 52]})
+
+
+@_node("greet")
+def greet(name: str) -> str:
+    return f"hi {name}"
+
+
 REGISTRY = NodeRegistry()
 REGISTRY.add_subregistry(conductor_nodes.registry)
 for _definition in (
@@ -92,6 +103,8 @@ for _definition in (
     shout,
     one_row,
     header,
+    members,
+    greet,
 ):
     REGISTRY.add(_definition)
 
@@ -205,6 +218,69 @@ def test_what_is_neither_a_table_nor_a_list_is_a_type_mismatch_on_the_edge_into_
         "str",
         "Table | list",
     )
+
+
+# -- split keeps a table it is given as that table --------------------------------------------------------
+
+
+def _split_members():
+    return compile_graph(
+        members,
+        series.split,
+        greet,
+        edges=[
+            ("members.result", "series-split.value"),
+            ("series-split.result.name", "greet.name"),
+        ],
+    )
+
+
+def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table():
+    run = _split_members().run()
+
+    assert run.outputs == {"result": ["hi ida", "hi bo"]}
+    saved = json.loads(run.to_json())["outcomes"]["series-split"]["outputs"]["result"]
+    assert saved == [
+        {
+            "columns": [
+                {"name": "name", "type": "str", "values": ["ida", "bo"]},
+                {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
+            ]
+        }
+    ]  # kept as the table it was given, with only its declared columns
+    assert run.results["series-split"]["result"] == [
+        {"name": "ida", "email": "ida@x.dk"},
+        {"name": "bo", "email": None},
+    ]
+
+
+def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back_equal():
+    graph = _split_members()
+    run = graph.run()
+    saved = json.loads(run.to_json())
+
+    assert (
+        saved["outcomes"]["series-split"]["outputs"]["result"]
+        == saved["outcomes"]["members"]["outputs"]["result"]
+    )
+    read_back = Run.from_json(run.to_json(), graph)
+    table, again = run.results["members"]["result"], read_back.results["members"]["result"]
+    assert again.equals(table) and again.schema == table.schema
+    assert read_back.results["series-split"]["result"] == run.results["series-split"]["result"]
+    assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
+    assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
+
+
+def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused():
+    graph = _split_members()
+    saved = json.loads(graph.run().to_json())
+    saved["outcomes"]["series-split"]["outputs"]["result"] = [None]  # not listed under "skipped"
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+    (found,) = refused.value.problems
+    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.series-split")
+    assert "call 0 is done and has null for 'result'" in found.msg
 
 
 def test_stack_puts_the_tables_returned_per_item_into_one_table_of_their_row_type():

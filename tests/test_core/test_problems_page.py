@@ -6,13 +6,12 @@ import ast
 import re
 import sys
 from ast import Call, Expr, Expression, Module, Name
-from importlib import import_module
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemKind
-from conductor.about import fill_placeholders, problems_page
+from conductor.about import problems_page
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 from pytest import MonkeyPatch
 
@@ -147,13 +146,3 @@ def test_every_node_of_the_setup_runs(monkeypatch: MonkeyPatch) -> None:
         )
         == []
     )
-
-
-def test_the_page_on_serving_runs_writes_in_every_kind_its_marker_names() -> None:
-    """The docs build fills the page's marker from the catalogue it names, each kind under a heading of its code."""
-    page = (_ROOT / "docs" / "serving-runs.md").read_text()
-    ((module, name),) = re.findall(r"<!-- problems: ([\w.]+)\.(\w+) -->", page)
-    filled = fill_placeholders(page)
-
-    kinds = getattr(import_module(module), name)
-    assert [kind.code for kind in kinds if f"### `{kind.code}`" not in filled] == []

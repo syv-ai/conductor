@@ -10,7 +10,6 @@ from conductor import (
     Graph,
     GraphRecord,
     InputEntry,
-    InvalidCallError,
     NodeDeclarationError,
     NodeRecord,
     Run,
@@ -272,43 +271,6 @@ def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_serie
     assert Run.from_json(run.to_json(), graph).outputs == run.outputs
 
 
-def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table() -> None:
-    from conductor_nodes.series import split
-
-    @node("people", title="People", description="For a test.")
-    def people(text: str) -> Table[Contact]:
-        return FRAME
-
-    graph = Graph.compile(
-        make_graph(
-            people,
-            split,
-            greet,
-            edges=[
-                ("people.result", "series-split.value"),
-                ("series-split.result.name", "greet.name"),
-            ],
-        ),
-        registry_of(people, split, greet),
-    )
-    run = graph.run(text="x")
-
-    assert run.outputs == {"result": ["hi ida", "hi bo"]}
-    saved = json.loads(run.to_json())["outcomes"]["series-split"]["outputs"]["result"]
-    assert saved == [
-        {
-            "columns": [
-                {"name": "name", "type": "str", "values": ["ida", "bo"]},
-                {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
-            ]
-        }
-    ]  # kept as the table it was given
-    assert run.results["series-split"]["result"] == [
-        {"name": "ida", "email": "ida@x.dk"},
-        {"name": "bo", "email": None},
-    ]
-
-
 # -- how a run stores a Series, and what reads it ---------------------------------------------------------
 
 
@@ -414,58 +376,12 @@ def test_a_call_that_takes_a_table_is_reused_when_the_table_has_the_same_cells()
     assert len(calls) == 3
 
 
-# -- a table two outputs share is written under each in a saved run--------------------------------------------
+# -- the JSON a host gets for a table ------------------------------------------------------------------------
 
 
 @node("people", title="People", description="For a test.")
 def people(text: str) -> Table[Contact]:
     return FRAME.select("name", "email")
-
-
-def _read_then_split() -> Any:
-    from conductor_nodes.series import split
-
-    return Graph.compile(
-        make_graph(
-            people,
-            split,
-            greet,
-            edges=[
-                ("people.result", "series-split.value"),
-                ("series-split.result.name", "greet.name"),
-            ],
-        ),
-        registry_of(people, split, greet),
-    )
-
-
-def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back_equal() -> None:
-    graph = _read_then_split()
-    run = graph.run(text="x")
-    saved = json.loads(run.to_json())
-
-    assert (
-        saved["outcomes"]["series-split"]["outputs"]["result"]
-        == saved["outcomes"]["people"]["outputs"]["result"]
-    )
-    read_back = Run.from_json(run.to_json(), graph)
-    table, again = run.results["people"]["result"], read_back.results["people"]["result"]
-    assert again.equals(table) and again.schema == table.schema
-    assert read_back.results["series-split"]["result"] == run.results["series-split"]["result"]
-    assert read_back.to_json() == run.to_json() and read_back.outputs == run.outputs
-    assert read_back.forget("greet").resume().outputs == {"result": ["hi ida", "hi bo"]}
-
-
-def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused() -> None:
-    graph = _read_then_split()
-    saved = json.loads(graph.run(text="x").to_json())
-    saved["outcomes"]["series-split"]["outputs"]["result"] = [None]  # not listed under "skipped"
-
-    with pytest.raises(InvalidCallError) as refused:
-        Run.from_json(json.dumps(saved), graph)
-    (found,) = refused.value.problems
-    assert (found.type, found.ctx["where"]) == ("saved_run_unreadable", "outcomes.series-split")
-    assert "call 0 is done and has null for 'result'" in found.msg
 
 
 def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_one_line_each() -> (
