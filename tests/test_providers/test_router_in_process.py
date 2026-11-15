@@ -911,3 +911,22 @@ async def test_metadata_not_of_the_workers_type_is_a_422_and_nothing_is_stored()
             assert [problem["type"] for problem in refused.json()["detail"]] == ["invalid_metadata"]
 
     assert store.rows == {}
+
+
+async def test_a_key_a_body_doesnt_know_is_refused_never_dropped() -> None:
+    registry, graph, _ = _uploads()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
+        typo = await client.post("/runs", json={"graph": graph, "previus": "x"})
+        run_id = (
+            await client.post("/runs", json={"graph": graph, "inputs": {"files": ["a"]}})
+        ).json()["id"]
+        await store.ended(run_id)
+        resumed = await client.post(f"/runs/{run_id}/resume", json={"max_item": 5})
+
+    for refused, loc in ((typo, ["body", "previus"]), (resumed, ["body", "max_item"])):
+        assert refused.status_code == 422
+        assert [(problem["type"], problem["loc"]) for problem in refused.json()["detail"]] == [
+            ("extra_forbidden", loc)
+        ]

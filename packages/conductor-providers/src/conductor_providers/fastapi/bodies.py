@@ -12,7 +12,7 @@ from typing import Annotated, Any
 
 from conductor import GraphRecord, read_json
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, Field, StrictInt, ValidationError, WithJsonSchema
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, WithJsonSchema
 
 
 def declared(model: type[BaseModel]) -> dict[str, Any]:
@@ -57,6 +57,9 @@ def declared(model: type[BaseModel]) -> dict[str, Any]:
 class StartRun(BaseModel):
     """The body of ``POST /runs`` and ``POST /estimate``: a graph, the values it starts on, and maybe a run to reuse."""
 
+    # a key it doesn't know, such as "previus", is refused, never dropped
+    model_config = ConfigDict(extra="forbid")
+
     graph: Annotated[dict[str, Any], WithJsonSchema(declared(GraphRecord))] = Field(
         description="The graph to run, as its record. Graph.compile checks it on the request's nodes."
     )
@@ -95,6 +98,8 @@ class StartRun(BaseModel):
 
 class Resume(BaseModel):
     """The body of ``POST /runs/{run_id}/resume``, which may be left out."""
+
+    model_config = ConfigDict(extra="forbid")
 
     max_items: StrictInt | None = Field(
         default=None,
