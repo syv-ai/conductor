@@ -1,0 +1,11 @@
+# The core's tests ship with the core alone, so they import neither companion. Ruff reads this file for
+# tests/test_core in place of pyproject.toml, with pyproject.toml's settings as its own. Two of them are written
+# again: the repo root is where first-party modules such as tests.test_core.nodes are found, and a banned-api table
+# here replaces the one there rather than adding to it, so it names conductor._internal again.
+extend = "../../pyproject.toml"
+src = ["../.."]
+
+[lint.flake8-tidy-imports.banned-api]
+"conductor._internal".msg = "a test reaches conductor only through its public modules; test through public names (graph.run, run.results, run.to_json(), describe(), PROBLEMS, ...)"
+"conductor_nodes".msg = "a core test ships without the companions; test conductor-nodes in tests/test_nodes"
+"conductor_providers".msg = "a core test ships without the companions; test conductor-providers in tests/test_providers"
