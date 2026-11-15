@@ -20,7 +20,7 @@ from typing import Any
 from pydantic import MISSING
 
 from conductor._internal.base import REQUIRED, Source
-from conductor._internal.node import FunctionDefinition, NodeDefinition
+from conductor._internal.node import FunctionDefinition, NodeDefinition, SubgraphDefinition
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 from conductor._internal.record import (
     GraphRecord,
@@ -89,7 +89,10 @@ def make_graph(
             ``invalid_record``: the record itself is refused. For example, an input is given both a value and an
             edge, an edge is written twice, one id is given to two nodes, or a name isn't a valid name.
             ``not_a_chain``: there are no ``edges``, and the nodes can't be chained.
+        TypeError: An argument isn't of the type its annotation says, such as ``outputs=None``. The message names
+            the argument.
     """
+    _check_argument_types(nodes, edges, constants, defaults, inputs, outputs)
     problems: list[Problem] = []
     definitions = _by_id(nodes, problems)
     constant_of = _values_by_place("constants", constants, definitions, problems)
@@ -145,6 +148,77 @@ def make_graph(
     if problems:
         raise InvalidCallError(problems)
     return record
+
+
+def _check_argument_types(
+    nodes: Sequence[Any],
+    edges: Any,
+    constants: Any,
+    defaults: Any,
+    inputs: Any,
+    outputs: Any,
+) -> None:
+    """Checks that each argument of ``make_graph`` has the type its annotation says.
+
+    A wrong type is a mistake in the calling code, which a type checker also finds. So it raises a ``TypeError``
+    that names the argument, rather than a problem about the graph. A value of the right type that says something
+    wrong, such as the place ``"upper"`` with no name after the dot, is a problem, collected with the others.
+
+    Raises:
+        TypeError: For the first argument of the wrong type, such as ``outputs=None``.
+    """
+    definition = (FunctionDefinition, SubgraphDefinition)
+    for node in nodes:
+        named = isinstance(node, tuple) and len(node) == 2 and isinstance(node[0], str)
+        if not (isinstance(node, definition) or (named and isinstance(node[1], definition))):
+            raise TypeError(
+                "make_graph takes node definitions, or (id, definition) pairs such as ('a', upper), "
+                f"and was given {node!r}"
+            )
+    if edges is not None and not (
+        isinstance(edges, Sequence)
+        and not isinstance(edges, str)
+        and all(
+            isinstance(edge, Sequence)
+            and not isinstance(edge, str)
+            and len(edge) == 2
+            and all(isinstance(end, str) for end in edge)
+            for edge in edges
+        )
+    ):
+        raise TypeError(
+            "make_graph's edges= is a list of (output, input) pairs of text, such as "
+            f"[('upper.result', 'join.texts')], and was given {edges!r}"
+        )
+    for argument, given in (("constants", constants), ("defaults", defaults)):
+        if not (isinstance(given, Mapping) and all(isinstance(key, str) for key in given)):
+            raise TypeError(
+                f"make_graph's {argument}= is a mapping from places to values, such as "
+                f"{{'upper.text': 'x'}}, and was given {given!r}"
+            )
+    if not (
+        isinstance(inputs, Mapping)
+        and all(
+            isinstance(name, str)
+            and (
+                isinstance(places, str)
+                or (isinstance(places, Sequence) and all(isinstance(p, str) for p in places))
+            )
+            for name, places in inputs.items()
+        )
+    ):
+        raise TypeError(
+            "make_graph's inputs= is a mapping from graph input names to a place or a list of places, such as "
+            f"{{'who': 'greet.name'}}, and was given {inputs!r}"
+        )
+    if not (
+        isinstance(outputs, Mapping)
+        and all(isinstance(name, str) and isinstance(place, str) for name, place in outputs.items())
+    ):
+        raise TypeError(
+            "make_graph's outputs= is a mapping from graph output names to places, such as "
+            f"{{'long': 'join.result'}}, and was given {outputs!r}"
+        )
 
 
 def _place(

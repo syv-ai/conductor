@@ -442,7 +442,7 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 - The graph inputs are every required input that gets nothing (no edge, no constant), on any node, named by the input. Every key of `defaults` is one too.
 - An optional input that gets nothing takes its own default, and is no graph input.
 - The graph outputs are every output of the nodes no edge leaves, named by the output.
-- `inputs=` and `outputs=` give some of them other names: `inputs={"who": "greet.name"}`, `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both), `outputs={"long": "join.result"}`. A field named there is declared under that name, and the other automatic ones stay. So `outputs={}` still declares every automatic output. Pass a mapping, never `None`.
+- `inputs=` and `outputs=` give some of them other names: `inputs={"who": "greet.name"}`, `inputs={"text": ["a.text", "b.text"]}` (one graph input feeding both), `outputs={"long": "join.result"}`. A field named there is declared under that name, and the other automatic ones stay. So `outputs={}` still declares every automatic output.
 - Two graph inputs that would share a name, automatic or named in `inputs=`, raise `graph_inputs_share_a_name` (`ctx.inputs`). Two graph outputs raise `graph_outputs_share_a_name` (`ctx.outputs`).
 - A field a hook adds or returns is known only when the graph is compiled. So a graph input or output on one is named in `inputs=` or `outputs=`.
 
@@ -454,6 +454,8 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 - two graph inputs or two graph outputs of one name;
 - what the record refuses (`invalid_record`, with `ctx.written_by` `make_graph's arguments`): an input given a constant and an edge, an edge written twice, one id given to two nodes, a field on a graph output;
 - a chain it can't draw (`not_a_chain`).
+
+An argument of the wrong type, such as `outputs=None` or an edge that isn't a pair of texts, is a mistake in the calling code, not in the graph. It raises a `TypeError` that names the argument, before anything else is checked.
 
 Everything else is in `Graph.compile(record, registry).problems`: an input or output a node doesn't have, a value its field refuses, an input that gets nothing, an edge between types that don't meet, a graph half drawn.
 

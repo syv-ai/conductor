@@ -2203,6 +2203,37 @@ def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_wr
     assert "Write it as 'node.name'" in problem.msg and "column" not in problem.msg
 
 
+@pytest.mark.parametrize(
+    ("arguments", "says"),
+    [
+        ({"outputs": None}, "outputs="),
+        ({"inputs": None}, "inputs="),
+        ({"constants": None}, "constants="),
+        ({"defaults": [("hello.name", "Ida")]}, "defaults="),
+        ({"inputs": "name"}, "inputs="),
+        ({"outputs": {"greeting": 1}}, "outputs="),
+        ({"inputs": {"who": [1]}}, "inputs="),
+        ({"constants": {1: "Ida"}}, "constants="),
+        ({"edges": "hello.result"}, "edges="),
+        ({"edges": [("hello.result",)]}, "edges="),
+        ({"edges": [(1, "hello.name")]}, "edges="),
+    ],
+)
+def test_make_graph_refuses_an_argument_of_the_wrong_type_with_a_type_error_that_names_it(
+    arguments: dict[str, Any], says: str
+):
+    with pytest.raises(TypeError, match=f"make_graph's {says}"):
+        make_graph(_hello, **arguments)
+
+
+@pytest.mark.parametrize("nodes", [(None,), ("hello",), (("first",),), ((1, _hello),)])
+def test_make_graph_refuses_a_node_that_is_neither_a_definition_nor_an_id_and_a_definition(
+    nodes: tuple[Any, ...],
+):
+    with pytest.raises(TypeError, match="make_graph takes node definitions"):
+        make_graph(*nodes)
+
+
 def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_as_it_refuses_such_an_edge():
     with pytest.raises(InvalidCallError) as refused:
         make_graph(
