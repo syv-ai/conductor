@@ -25,6 +25,7 @@ repos:
         stages: [touch]
         context:
           - "@conventions/validation.md#validation-is-the-wall"
+          - "@conventions/validation.md#a-validator-is-a-class-in-its-concepts-validatorpy"
 
       - id: touch/places
         name: Where JSON and place text are read
