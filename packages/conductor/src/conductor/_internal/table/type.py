@@ -1,4 +1,9 @@
-"""``Table[R]``, the hint a node author writes, and ``TableType``, the ``Type`` of such a hint."""
+"""``Table[R]``, the hint a node author writes, and ``TableType``, how conductor reads that hint.
+
+``Table`` itself does very little. It exists so pydantic can find the table's schema, which ``read.py`` builds.
+``TableType`` is the ``Type`` subclass for a table: it gives the table's id, the type of one row, and the small
+rules where a table differs from other values.
+"""
 
 from __future__ import annotations
 
@@ -21,54 +26,64 @@ from .write import (
 
 
 class _Table[T]:
-    """``Table[R]``: a whole table whose columns the ``TypedDict`` ``R`` names; a ``polars.DataFrame`` to the node
-    and to a type checker.
+    """A whole table passed as one value, with its columns named by a ``TypedDict``.
 
-    A bare ``Table`` has any columns. A table is read from a frame, from a list of records (how gathered records
-    and a person's answer arrive) or from the JSON conductor writes one as. A ``Table[R]`` read holds exactly
-    ``R``'s columns, as a ``TypedDict`` read drops other keys: each present, each cell a value of its column's
-    type, and blank only where that type takes a blank.
+    Write ``Table[Invoice]`` for a table whose columns are the fields of ``Invoice``, or a bare ``Table`` for a
+    table with any columns. The node gets a plain ``polars.DataFrame``, and a type checker sees one too.
+
+    A table can be given as a frame, as a list of records (``[{"customer": "Ann", "amount": 12.5}]``) or as the
+    JSON conductor writes for one. Records are how gathered rows and a person's answer arrive. Either way, a
+    ``Table[Invoice]`` comes out with exactly ``Invoice``'s columns. Every column must be there, each cell must be a
+    value of its column's type, and a cell may be blank only if that type allows ``None``. Extra columns are dropped,
+    the same way a ``TypedDict`` drops extra keys.
     """
 
-    # The class is named as a host imports it, so the text a reuse digest is made of names no internal file.
+    # Named as a host imports it. The hash that decides whether a call can be reused includes this name, so it
+    # must not change when an internal file moves.
     __module__, __qualname__ = "conductor", "Table"
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
-        """Returns the schema of ``Table[R]``, built in ``read.py``."""
+        """Returns the pydantic schema of ``Table[R]``, which ``read.py`` builds."""
         return table_schema(source, handler)
 
 
-if TYPE_CHECKING:  # to a type checker a Table is the frame a node gets, which keeps its row type
+if TYPE_CHECKING:  # a type checker sees a Table as the frame a node gets, with its row type kept
     from .table_as_a_type_checker_reads_it import Table
 else:
     Table = _Table
 
 
-#: Words pydantic puts in an error's ``loc`` to say which form the table was given in. They are dropped, as they
-#: name no row or column.
+#: The words pydantic puts in an error's ``loc`` for the form a table was given in. They name no row or column,
+#: so they are left out of the ``loc`` a host is shown.
 _TABLE_FORMS = ("frame", "records", "written", "columns")
 
 
 class TableType(Type, of=_Table, value_class=pl.DataFrame):
-    """The type of a ``Table[R]``, with or without ``| None``. A ``polars.DataFrame`` written as a hint is the
-    table of any columns it is."""
+    """The ``Type`` of a ``Table[R]`` hint, with or without ``| None``.
+
+    A plain ``polars.DataFrame`` written as a hint is read as a bare ``Table``: a table with any columns.
+    """
 
     typed_in_advice: ClassVar[str] = "; give a table as a list of records"
 
     @functools.cached_property
     def _row(self) -> Any:
-        """The row type ``R``; ``Any`` for a table of any columns."""
+        """The row type ``R``, or ``Any`` for a bare ``Table``."""
         return (get_args(self.options[0]) or (Any,))[0]
 
     @functools.cached_property
     def fields(self) -> Mapping[str, Any]:
-        """The hint of each column the row type declares, by name; none for a table of any columns."""
+        """The type hint of each column, by name. A bare ``Table`` has none."""
         return Type(self._row).fields
 
     @functools.cached_property
     def _named(self) -> tuple[str, str, tuple[type, ...]]:
-        """The table's id, which names its columns, its title, and no class."""
+        """The table's id, its title and the classes it names.
+
+        The id lists the columns, like ``Table[customer: str, amount: float]``, or is just ``Table`` for a bare
+        table. The title is always ``Table``, and a table names no class.
+        """
         columns = typing.get_type_hints(self._row) if typing.is_typeddict(self._row) else {}
         return (
             f"Table[{', '.join(f'{column}: {Type(hint).text}' for column, hint in columns.items())}]"
@@ -80,13 +95,16 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     @functools.cached_property
     def record(self) -> Type:
-        """The type of one row as a record: the ``TypedDict`` ``R``, or ``dict`` for a table of any columns."""
+        """The type of one row: the ``TypedDict`` ``R``, or ``dict`` for a bare ``Table``."""
         return Type(dict if self._row is Any else self._row)
 
     def _walked(self, step: int | str) -> tuple[Type, bool, str | None] | None:
-        """Takes one step of a pydantic error's ``loc`` inside a table. A word for the form the table was given in
-        (``"records"``) is dropped, a row index leads to the same table, and a column name leads to the column's
-        type and is returned as the column."""
+        """Follows one step of a pydantic error's ``loc`` inside a table.
+
+        A word for the form the table was given in, like ``"records"``, is dropped. A row index is kept and stays on
+        the table. A column name leads to that column's type and is returned as the column. Any other step is not
+        part of the table.
+        """
         if step in _TABLE_FORMS:
             return self, False, None
         if isinstance(step, int):
@@ -94,7 +112,10 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
         return (Type(self.fields[step]), True, step) if step in self.fields else None
 
     def _fault_in(self, part: str, kind: str, msg: str) -> str:
-        """Returns the error message ``msg`` with the column ``part`` named in it."""
+        """Returns the error message ``msg`` with the column ``part`` named in it.
+
+        A missing column gets a message of its own, since pydantic's "Field required" doesn't say it is a column.
+        """
         return (
             f"the column '{part}' its row type declares is missing"
             if kind == "missing"
@@ -103,21 +124,29 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     @staticmethod
     def untyped_as_json(value: Any) -> Any:
-        """Returns the JSON form of a frame found where no type is declared, such as inside an ``Any`` or a person's
-        answer given from Python, with its columns as a run keeps them.
+        """Converts a frame to JSON when no type says it is a table.
+
+        That happens for a frame inside an ``Any``, or in a person's answer given from Python. The columns are first
+        converted the way a run stores them (``as_saved``).
 
         Raises:
-            PydanticCustomError: A column would read back from its JSON changed (``column_not_saved``).
+            PydanticCustomError: ``column_not_saved`` if a column would come back changed from a saved run.
         """
         return written_table(as_saved(value))
 
     @staticmethod
     def untyped_to_hash(value: Any) -> Any:
-        """Returns ``{"table": digest}`` for a frame in what a call received, where the digest is computed once
-        per frame."""
+        """Returns ``{"table": digest}`` to hash in place of a frame a call received.
+
+        This keeps a large table from being written as JSON for every call that gets it. ``table_digest`` works out
+        each frame's digest once.
+        """
         return {"table": table_digest(value)}
 
     @staticmethod
     def untyped_equal(one: Any, other: Any) -> bool:
-        """Returns whether two frames have equal cells. ``==`` on frames returns a frame, not a bool."""
+        """Returns whether two frames have equal cells.
+
+        ``==`` can't be used here: on two frames it returns a frame of results, not a ``bool``.
+        """
         return isinstance(other, pl.DataFrame) and one.equals(other)

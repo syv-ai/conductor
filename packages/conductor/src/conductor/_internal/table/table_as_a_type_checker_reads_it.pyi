@@ -1,6 +1,7 @@
-# ``Table[R]`` to a type checker: a Polars frame that keeps ``R``, the row type naming its columns.
-# A node calls frame methods on a ``Table[R]`` input with no narrowing, and returns a plain ``polars.DataFrame``
-# where ``Table[R]`` is declared. ``_RowsOf[R]`` exists only so the checker shows ``R`` and tells two row types apart.
+# What a type checker sees for ``Table[R]``: a Polars frame that remembers its row type ``R``.
+# So a node can call frame methods on a ``Table[R]`` input without narrowing it first, and can return a plain
+# ``polars.DataFrame`` where it declares ``Table[R]``. ``_RowsOf[R]`` is there only so the checker shows ``R``
+# and can tell ``Table[Invoice]`` from ``Table[Customer]``.
 from typing import Any
 
 import polars

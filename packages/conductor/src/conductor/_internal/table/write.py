@@ -1,4 +1,14 @@
-"""A table as JSON: ``{"columns": [{"name", "type", "values"}]}``, one entry per column, in order."""
+"""How conductor writes a table as JSON.
+
+A table is written as a list of its columns, in order. Each column has a name, a word for the type of its cells,
+and the cells themselves::
+
+    {"columns": [{"name": "customer", "type": "str", "values": ["Ann", "Bo"]},
+                 {"name": "amount", "type": "float", "values": [12.5, 3.0]}]}
+
+The columns are a list and not an object keyed by name, because a store may give an object's keys back in
+another order.
+"""
 
 from __future__ import annotations
 
@@ -13,9 +23,9 @@ from pydantic_core import CoreSchema, core_schema
 
 from conductor._internal.base import json_hash
 
-#: The classes a table's column may be declared or written as, each with the polars dtype that holds it and how
-#: its cells are read back from JSON. A column of any other kind (a list, a struct) is written under the word
-#: ``json`` and read back as the JSON it was written as.
+#: The cell types a column is written with by name, each with its polars dtype and the schema that converts its
+#: cells back from JSON. A column of any other kind, such as a list or a struct, is written with the word ``json``
+#: and comes back as the JSON it was written as.
 CELLS: Mapping[type, tuple[Any, CoreSchema]] = {
     bool: (pl.Boolean, core_schema.bool_schema()),
     int: (pl.Int64, core_schema.int_schema()),
@@ -28,11 +38,11 @@ CELLS: Mapping[type, tuple[Any, CoreSchema]] = {
     Decimal: (pl.Decimal, core_schema.decimal_schema()),
 }
 
-#: The polars dtype of a written column, by the word it says its type with.
+#: The polars dtype for each word a written column gives as its type, such as ``"int"`` for ``pl.Int64``.
 DTYPES = {kind.__name__: dtype for kind, (dtype, _) in CELLS.items()}
 
-#: A table as JSON: ``{"columns": [{"name", "type", "values"}]}``, its columns in order in an array, since a store
-#: may give an object's keys back in another order.
+#: The pydantic schema of a table's JSON, as the module docstring shows it. Each column's ``type`` word picks the
+#: schema its cells are checked by.
 WRITTEN_TABLE = core_schema.typed_dict_schema(
     {
         "columns": core_schema.typed_dict_field(
@@ -66,12 +76,16 @@ WRITTEN_TABLE = core_schema.typed_dict_schema(
 
 
 def written_table(frame: pl.DataFrame) -> dict[str, Any]:
-    """Gives a table as conductor writes one: each column's name, the word for the type of its cells, and the cells."""
+    """Converts a frame to the JSON conductor writes for a table."""
     return written_columns(frame, frame.to_dict(as_series=False))
 
 
 def written_columns(frame: pl.DataFrame, cells: Mapping[str, list[Any]]) -> dict[str, Any]:
-    """Gives ``frame`` as conductor writes a table, from the ``cells`` of each of its columns by name."""
+    """Writes a table as JSON from cells that are already converted.
+
+    The column types come from ``frame``, and the values from ``cells``, a list of cells per column name. A caller
+    that has already turned the cells into JSON values passes them here, so they are not converted twice.
+    """
     columns = []
     for (name, values), dtype in zip(cells.items(), frame.dtypes, strict=True):
         kind = dtype.to_python()
@@ -81,19 +95,20 @@ def written_columns(frame: pl.DataFrame, cells: Mapping[str, list[Any]]) -> dict
     return {"columns": columns}
 
 
-#: The digest of each frame ``table_digest`` was asked for, by ``id(frame)``, with a weak reference that removes the
-#: entry when the frame is freed. A frame can't be a dict key, as it has no hash.
+#: The digests ``table_digest`` has worked out, by ``id(frame)``. A frame has no hash, so it can't be a dict key
+#: itself. Each entry keeps a weak reference to its frame, which removes the entry when the frame is freed.
 _DIGESTS: dict[int, tuple[weakref.ref[pl.DataFrame], str]] = {}
 
 
 def table_digest(frame: pl.DataFrame) -> str:
-    """Returns a hash of the table's JSON (column names, cell types and cells), computed the first time it is
-    asked for a frame and reused for that same frame object after that.
+    """Returns a short hash of a table's JSON: its column names, cell types and cells.
 
-    Example: a 2,000-row table that 2,000 calls each received is written as JSON once, not 2,000 times, when
-    ``run.again`` works out which calls it can reuse. Two frames with equal cells have equal digests. A frame
-    changed in place after its digest was computed keeps the old digest, so a node must not change a table it
-    was given.
+    The hash is worked out the first time a frame is asked about, and the same frame object gets the same answer
+    after that. Say 2,000 calls each receive one 2,000-row table. When a new run checks which calls it can reuse,
+    the table is written as JSON once, not 2,000 times.
+
+    Two frames with equal cells get equal hashes. A frame changed in place after its hash was worked out keeps the
+    old hash, so a node must not change a table it was given.
     """
     kept = _DIGESTS.get(id(frame))
     if kept is not None and kept[0]() is frame:
