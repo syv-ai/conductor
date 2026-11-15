@@ -6,8 +6,8 @@ There are three:
 - ``LimitsValidator`` checks a run's limits.
 - ``ConstantValidator`` checks a constant, or a graph input's default, written in the graph record.
 
-Inputs. Take ``make_graph(shout)``, a graph of one node. It has the graph inputs ``line``, which is required, and
-``mark``, which defaults to ``"!"``. ``graph.run(line="b")`` gives the validator ``{"line": "b"}``, and it returns
+Inputs. Take ``make_graph(shout, defaults={"shout.mark": "!"})``, a graph of one node. It has the graph inputs
+``line``, which is required, and ``mark``, which defaults to ``"!"``. ``graph.run(line="b")`` gives the validator ``{"line": "b"}``, and it returns
 ``{"line": "b", "mark": "!"}``. That's every graph input, with its default where the caller gave none. Given
 ``{"line": 3, "colour": "red"}``, it raises ``InvalidCallError`` with both faults at once: ``not_offered`` for
 ``colour``, then ``invalid_input`` for ``line``.
