@@ -128,8 +128,8 @@ async def _created_runs_are_kept(store: GuardedStore) -> list[str]:
 
 
 async def _updates_are_compared_and_set(store: GuardedStore) -> list[str]:
-    """``update`` writes at the run's ``rev`` and moves it on by one. It leaves the other columns and the other runs
-    alone, refuses an older ``rev``, and of several updates sent at once at one ``rev``, lets exactly one through."""
+    """``update`` writes every column it is given, at the run's ``rev``, and moves the ``rev`` on by one. It leaves the
+    other columns and the other runs alone, refuses an older ``rev``, and of several updates sent at once at one ``rev``, lets exactly one through."""
     run, beside = (
         _new_run(owner="worker-a", lease_until=12.5),
         _new_run(owner="worker-a", lease_until=12.5),
@@ -138,7 +138,9 @@ async def _updates_are_compared_and_set(store: GuardedStore) -> list[str]:
         await store.create(each)
     writes: tuple[RunChanges, ...] = (
         {
+            "run": json.dumps({"outcomes": {"y": "ü" * 200_000}}),
             "status": "waiting",
+            "state": RunState.started().model_copy(update={"status": "waiting"}).model_dump_json(),
             "outcome": '{"waiting": [], "outputs": null}',
             "owner": None,
             "lease_until": None,

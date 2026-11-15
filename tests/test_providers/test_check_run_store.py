@@ -105,6 +105,14 @@ class _SkipsNone(MemoryStore):
         return await super().update(run_id, rev, written)  # type: ignore[arg-type]
 
 
+class _ForgetsRunAndState(MemoryStore):
+    """An ``UPDATE`` written by hand that leaves out two of the columns it is given."""
+
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        kept = {name: value for name, value in changes.items() if name not in ("run", "state")}
+        return await super().update(run_id, rev, kept)  # type: ignore[arg-type]
+
+
 class _GivesAnEmptyRun(MemoryStore):
     async def get(self, run_id: str) -> StoredRun | None:
         found = await super().get(run_id)
@@ -178,6 +186,7 @@ class _CreateRaises(MemoryStore):
     [
         (_ReadsAReplicaThatLags, "create: get gave None for the run just written"),
         (_SkipsNone, "update: get gave a run whose owner, lease_until are not what was written"),
+        (_ForgetsRunAndState, "update: get gave a run whose run, state are not what was written"),
         (_GivesAnEmptyRun, "get: gave a run for an id no run has"),
         (_SaysFalseThoughItWrote, "update: gave False for a run at the rev it was given"),
         (_ForgetsTheRev, "update: wrote at rev 1 while the run was at rev 2"),
