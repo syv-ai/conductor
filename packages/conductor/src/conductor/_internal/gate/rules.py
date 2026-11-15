@@ -126,8 +126,9 @@ def exact_classes(value_type: Type) -> tuple[type, ...]:
 
 
 def _not_a_bool(value: Any) -> Any:
-    """Raises for a ``bool``; returns any other value unchanged, for pydantic to read as a number."""
-    if isinstance(value, bool):
+    """Raises for a ``bool``; returns any other value unchanged, for pydantic to read as a number. ``bool`` can't be
+    subclassed, so ``True`` and ``False`` are its only values."""
+    if value is True or value is False:
         raise PydanticCustomError(
             "bool_is_not_a_number", "a yes or no is not a number; give a number"
         )
