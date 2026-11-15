@@ -99,7 +99,7 @@ from dataclasses import dataclass
 from threading import Event
 from typing import Annotated
 
-from conductor import GraphRecord, NodeRegistry
+from conductor import NodeRegistry
 from conductor_providers.fastapi import Worker, run_router
 from fastapi import Depends, FastAPI, HTTPException
 
@@ -139,22 +139,13 @@ def context_of(metadata: dict[str, str], stop: Event) -> AppContext:
 
 registry = NodeRegistry(context_type=AppContext)  # yours: @registry.node(...) or registry.add(...)
 database = Database("runs.db")  # yours
-offered: dict[str, GraphRecord] = {}  # yours: the graphs an end user may run
-
-
-def published(name: str) -> GraphRecord:
-    if name not in offered:
-        raise HTTPException(404, "no such graph")
-    return offered[name]
-
-
 worker = Worker(
     SqliteRunStore(database.path),
     nodes_for=lambda metadata: registry,
     context=context_of,
 )
 app = FastAPI()
-app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs, published=published))
+app.include_router(run_router(worker, metadata=run_metadata, run_filter=own_runs))
 ```
 
 That gives these routes:
@@ -163,9 +154,8 @@ That gives these routes:
 |---|---|
 | `GET /nodes` | The request's palette: `describe()` of the registry for its metadata, each node with its fields. |
 | `POST /compile` | A graph as an editor draws it: `graph.describe()`. Each node has its problems, how often it runs, and its inputs, each a `field` beside its `source`, which says where the input gets its value on each call. The graph's own inputs are each a `field`, by name, and its outputs a list of names. |
-| `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with the run, 422 listing every problem. |
-| `POST /graphs/{name}/runs` | Start a graph you offer, on its inputs alone. Only with `published=`. |
-| `POST /estimate` | How many calls a run of `{"graph": ..., "inputs": {...}}` will make, before any call that costs something: `run.progress` after `run.resume(only_costs_nothing=True)`, with the request's context and `resume_timeout`. Nothing is stored. `POST /graphs/{name}/estimate` does the same for a graph you offer. |
+| `POST /runs` | Start a run of `{"graph": ..., "inputs": {...}}`; 202 with the run, 422 listing every problem. With `"previous": run_id`, a run the request may see, the new run reuses that run's work. |
+| `POST /estimate` | How many calls a run of `{"graph": ..., "inputs": {...}}` will make, before any call that costs something: `run.progress` after `run.resume(only_costs_nothing=True)`, with the request's context and `resume_timeout`. Nothing is stored. With `"previous"`, the previous run is checked as `POST /runs` checks it. |
 | `GET /runs/{id}` | The run: its `id`, its `metadata`, its `status`, what is `waiting` for a person (as of when the run last stopped running, so while it is running it still lists what was just answered; a client hides the ones it answered), `outputs` once complete, by name (each as its type writes it: a table as `{"columns": [{"name", "type", "values"}]}`, a float that isn't finite as its text, a host's type by its own schema), `refused` answers, its `progress` (as `run.progress` says it, as of the last checkpoint while it runs), and the `cause` of a run that failed, stopped, was cancelled or timed out (an `item_limit` cause says the `items` and `max_items`, for choosing a higher item limit to resume with). |
 | `GET /runs/{id}/events` | Its events as server-sent events, from any worker. |
 | `POST /runs/{id}/answers` | `{waiting_id: value}`; 202 with the run, `running` whether the answers resumed it or were queued for when it stops, 422 listing every answer the run refuses (`not_waiting` for one to a complete run). A run that `failed`, `stopped`, `timed_out` or was `cancelled` takes answers to what waits in it. |
@@ -173,7 +163,7 @@ That gives these routes:
 | `POST /runs/{id}/again` | A new run with some inputs changed; what didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Ask a running or waiting run to stop before its next node call, so that it ends `cancelled`. It answers with the run: `running` when the cancel was asked, not how the run ended (`GET /runs/{id}` says that later); a run that is complete or already ended early is left as it is. |
 
-Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems, never in FastAPI's own validation shape. A 404 is `no_such_run`, and a 409 is `run_not_resumable`. A 404 your own `published` dependency raises is yours, as you wrote it. [The worker's own problems](#the-workers-own-problems) has each of the worker's codes, and `SERVING_PROBLEMS` is their catalogue: `SERVING_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as FastAPI's own `HTTPValidationError`, the shape of a 422, which a problem fits.
+Every refusal the router makes has one body, `{"detail": [problem, ...]}`, each problem a `{type, loc, msg, ctx}` to translate by its `type`. A 422 lists what the graph or the run refused, with conductor's codes. `/compile` hands the request's own text to `Graph.compile`, and `/runs` and `/estimate` read theirs once with `read_json`, so a key written twice anywhere in the body, such as two `"graph"` keys or two nodes with one id, is a 422 of `invalid_record` (`ctx.error` `repeated_key`), and nothing is stored. Every fault of a graph record is refused as conductor refuses it, `invalid_record` problems; a fault in the rest of the body, such as inputs that aren't an object, is refused as FastAPI refuses any body (`dict_type` at `["body", "inputs"]`). Both are `{"detail": [{type, loc, msg, ...}]}`. A 404 is `no_such_run`, and a 409 is `run_not_resumable`. [The worker's own problems](#the-workers-own-problems) has each of the worker's codes, and `SERVING_PROBLEMS` is their catalogue: `SERVING_PROBLEMS.codes` for a test that pins your translations, and each kind's `sentence` and `ctx_type` to write them from. The OpenAPI schema declares the 404 and the 409 as FastAPI's own `HTTPValidationError`, the shape of a 422, which a problem fits.
 
 A host's text for a code cannot be derived from conductor, so a test like this one is how its catalogue stays complete when a code is added; the router's codes join conductor's when the host serves runs, and `own_codes` lists the host's own `NodeError` codes:
 
@@ -190,7 +180,7 @@ def test_translations_match_the_codes(translations: dict[str, str], own_codes: s
 
 ## What each part is for
 
-**Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with `published=`: the body fills a graph's inputs and nothing else.
+**Who can reach `POST /runs`.** That route takes any graph, so whoever reaches it runs any node on any value. It is an author's route: guard it, and `/nodes` and `/compile`, with your own check, `app.include_router(router, dependencies=[Depends(...)])`. For an end user, offer saved graphs with a route of your own that calls the worker ([without the router](#without-the-router)): the body fills a graph's inputs and nothing else.
 
 **Who may see a run.** You say: `run_filter` gives, for each request, a test of a run's metadata, asked on every route under `/runs/{id}`. A run it turns away is a 404, `no_such_run`, as for an id that names no run. Above, only the user who started a run may read it or act on it; `lambda metadata: metadata["team"] == user.team` lets a team in. Only the run's metadata is read to decide, never what waits in it. Both dependencies are required, since no default rule is safe for every host. A host with no logins gives `metadata` a function that returns `{}` and `run_filter` one that returns `lambda metadata: True`.
 
@@ -288,6 +278,7 @@ The worker's `M`, its `metadata_type`, is what a run keeps about itself: who sta
 from typing import Any
 
 from conductor import InvalidCallError
+from conductor import GraphRecord
 from conductor_providers.fastapi import RunView
 from fastapi import APIRouter, Body
 
@@ -307,6 +298,7 @@ admitted = Worker(
     context=lambda metadata, stop: context_of({"user": metadata.person}, stop),
 )
 own_routes = APIRouter(prefix="/admitted", lifespan=lambda _: admitted.serving())
+offered: dict[str, GraphRecord] = {}  # yours: the graphs an end user may run
 
 
 def refused(error: InvalidCallError) -> HTTPException:
@@ -329,11 +321,12 @@ async def start_admitted(
     name: str, inputs: Annotated[dict[str, Any], Body()], person: Annotated[str, Depends(current_user)], previous: str | None = None
 ) -> RunView[Admitted]:
     """Start a graph you offer; with `?previous=`, from the work of one of this person's runs."""
-    graph = published(name)  # yours: whether this person may run it
+    if name not in offered:  # yours: whether this person may run it
+        raise HTTPException(404, "no such graph")
     if previous is not None:
         await check_admitted(previous, person)
     try:
-        return await admitted.begin(graph, inputs, Admitted(person, name), previous=previous)
+        return await admitted.begin(offered[name], inputs, Admitted(person, name), previous=previous)
     except InvalidCallError as error:
         raise refused(error) from None
 

@@ -57,7 +57,6 @@ def _app(
     registry: Any,
     metadata: Any = _metadata,
     run_filter: Any = _own_runs,
-    published: Any = None,
     **settings: Any,
 ) -> FastAPI:
     """An app with the runs routes over a worker on ``settings`` (its ``store`` among them), whose runs keep the
@@ -65,9 +64,7 @@ def _app(
     otherwise."""
     worker: Worker[Any, Any] = Worker(settings.pop("store"), nodes_for=registry, **settings)
     app = FastAPI()
-    app.include_router(
-        run_router(worker, metadata=metadata, run_filter=run_filter, published=published)
-    )
+    app.include_router(run_router(worker, metadata=metadata, run_filter=run_filter))
     return app
 
 
@@ -609,17 +606,10 @@ async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothin
     registry, graph, calls = _uploads()
     store = MemoryStore()
 
-    async with _serving(
-        _app(
-            store=store,
-            registry=lambda _: registry,
-            published=lambda name: GraphRecord.model_validate(graph),
-        )
-    ) as client:
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
         estimated = await client.post(
             "/estimate", json={"graph": graph, "inputs": {"files": ["a", "b", "c"]}}
         )
-        published = await client.post("/graphs/uploads/estimate", json={"files": ["a"]})
 
     assert estimated.status_code == 200
     assert estimated.json()["nodes"]["review"] == {
@@ -628,8 +618,7 @@ async def test_estimate_calls_only_the_nodes_that_cost_nothing_and_stores_nothin
         "known": 3,
         "total": 3,
     }
-    assert published.json()["nodes"]["review"]["total"] == 1
-    assert calls == ["upload", "upload"] and store.rows == {}
+    assert calls == ["upload"] and store.rows == {}
 
 
 async def test_estimate_refuses_inputs_the_graph_refuses() -> None:
@@ -745,18 +734,14 @@ async def test_a_run_read_once_it_stopped_has_its_progress() -> None:
 
 
 def test_an_operations_id_is_its_route_functions_name_without_fastapis_path_and_verb() -> None:
-    schema = _app(
-        store=MemoryStore(), registry=lambda _: NodeRegistry(), published=lambda name: GraphRecord()
-    ).openapi()
+    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry()).openapi()
 
     assert schema["paths"]["/nodes"]["get"]["operationId"] == "list_nodes"
     assert schema["paths"]["/runs/{run_id}/answers"]["post"]["operationId"] == "answer_run"
 
 
 def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_them() -> None:
-    schema = _app(
-        store=MemoryStore(), registry=lambda _: NodeRegistry(), published=lambda name: GraphRecord()
-    ).openapi()
+    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry()).openapi()
     operations = {
         (verb, path): operation
         for path, verbs in schema["paths"].items()
@@ -768,8 +753,6 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
         ("post", "/compile"): "Compile Graph",
         ("post", "/runs"): "Start Run",
         ("post", "/estimate"): "Estimate Run",
-        ("post", "/graphs/{name}/runs"): "Start Published",
-        ("post", "/graphs/{name}/estimate"): "Estimate Published",
         ("get", "/runs/{run_id}"): "Read Run",
         ("get", "/runs/{run_id}/events"): "Follow Run",
         ("post", "/runs/{run_id}/answers"): "Answer Run",
@@ -785,10 +768,95 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
         "application/json"
     ]["schema"] == {"$ref": "#/components/schemas/Resume", "default": {}}
     for key in [
-        ("post", "/graphs/{name}/runs"),
         ("post", "/runs/{run_id}/answers"),
         ("post", "/runs/{run_id}/again"),
     ]:
         assert operations[key]["requestBody"]["content"]["application/json"]["schema"][
             "description"
         ], key
+
+
+def _refs(value: Any) -> list[str]:
+    """Every ``$ref`` in a JSON schema."""
+    if isinstance(value, dict):
+        own = [value["$ref"]] if "$ref" in value else []
+        return own + [ref for item in value.values() for ref in _refs(item)]
+    if isinstance(value, list):
+        return [ref for item in value for ref in _refs(item)]
+    return []
+
+
+def test_every_ref_in_the_schema_resolves_and_the_start_body_declares_a_graph_records_shape() -> (
+    None
+):
+    schema = _app(store=MemoryStore(), registry=lambda _: NodeRegistry()).openapi()
+
+    def resolves(ref: str) -> bool:
+        found: Any = schema
+        for step in ref.removeprefix("#/").split("/"):
+            if step not in found:
+                return False
+            found = found[step]
+        return True
+
+    assert [ref for ref in _refs(schema) if not resolves(ref)] == []
+    for path in ("/runs", "/estimate"):
+        body = schema["paths"][path]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        node = body["properties"]["graph"]["properties"]["nodes"]["additionalProperties"]
+        assert set(node["properties"]) == {"node", "version", "inputs", "display"}, path
+    compiled = schema["paths"]["/compile"]["post"]["requestBody"]["content"]["application/json"]
+    assert "nodes" in compiled["schema"]["properties"]
+
+
+async def test_a_body_whose_inputs_are_not_an_object_is_refused_as_fastapi_refuses_a_body() -> None:
+    registry, graph, _ = _uploads()
+
+    async with _serving(_app(store=MemoryStore(), registry=lambda _: registry)) as client:
+        for path in ("/runs", "/estimate"):
+            refused = await client.post(path, json={"graph": graph, "inputs": 3})
+
+            assert refused.status_code == 422, path
+            assert [(problem["type"], problem["loc"]) for problem in refused.json()["detail"]] == [
+                ("dict_type", ["body", "inputs"])
+            ]
+
+
+async def test_text_that_isnt_json_is_refused_as_conductor_refuses_a_record() -> None:
+    registry, _, _ = _uploads()
+    as_json = {"content-type": "application/json"}
+
+    async with _serving(_app(store=MemoryStore(), registry=lambda _: registry)) as client:
+        for path in ("/compile", "/runs", "/estimate"):
+            refused = await client.post(path, content='{"graph": ', headers=as_json)
+
+            assert refused.status_code == 422, path
+            assert [
+                (problem["type"], problem["ctx"]["error"]) for problem in refused.json()["detail"]
+            ] == [("invalid_record", "json_invalid")]
+
+
+async def test_a_run_started_from_a_previous_one_reuses_its_work_and_one_the_filter_hides_is_a_404() -> (
+    None
+):
+    registry, graph, calls = _uploads()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=lambda _: registry)) as client:
+        first = (
+            await client.post("/runs", json={"graph": graph, "inputs": {"files": ["a", "b"]}})
+        ).json()["id"]
+        await store.ended(first)
+        body = {"graph": graph, "inputs": {"files": ["a", "b", "c"]}, "previous": first}
+        estimated = await client.post("/estimate", json=body)
+        hidden = await client.post("/runs", json=body, headers={"x-user": "bo"})
+        second = (await client.post("/runs", json=body)).json()["id"]
+        ended = await store.ended(second)
+
+    # an estimate checks the previous run as a start does; a reused call is still a call it counts
+    assert estimated.json()["nodes"]["review"]["total"] == 3
+    assert (hidden.status_code, [problem["type"] for problem in hidden.json()["detail"]]) == (
+        404,
+        ["no_such_run"],
+    )
+    assert ended.outputs == {"result": ["a", "b", "c"]}
+    assert calls.count("review") == 3  # two for the first run, one for the file the second added

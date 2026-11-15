@@ -593,26 +593,6 @@ def test_an_edited_input_runs_again_calling_only_the_items_that_changed(served: 
     _run(scenario)
 
 
-def test_an_end_user_fills_the_inputs_of_a_published_graph_and_names_no_node(
-    served: Served,
-) -> None:
-    (served.directory / "served_app.py").write_text(
-        _app_source()
-        + '\noffered["hello"] = GraphRecord.model_validate({"nodes": {"greet": {"node": "greet", "inputs": {"name": {"graph_input": "name"}}}}, "outputs": {"greeting": {"node": "greet", "output": "result"}}})\n'
-    )
-
-    async def scenario() -> None:
-        async with _workers(served, count=1) as (a,):
-            created = await a.client.post("/graphs/hello/runs", json={"name": "ida"})
-            assert created.status_code == 202, created.text
-            assert (await a.until_status(created.json()["id"], "complete"))["outputs"] == {
-                "greeting": "hi ida"
-            }
-            assert (await a.client.post("/graphs/nope/runs", json={})).status_code == 404
-
-    _run(scenario)
-
-
 def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(
     served: Served,
 ) -> None:

@@ -239,33 +239,18 @@ class Worker(Generic[M, X]):
                 on those nodes (``previous_run_unloadable``, which says why). Start without ``previous`` then.
             RuntimeError: The worker has never served.
         """
-        nodes = self.nodes_for(metadata)
-        lends = None if previous is None else await self._row(previous)
-
-        def ready() -> Run[Any]:
-            compiled = Graph.compile(graph, nodes)
-            # the graph's own problems and the inputs' are refused before the previous run is loaded
-            run = compiled.with_inputs(inputs, max_items=self._max_items)
-            if lends is None:
-                return run
-            try:
-                lent = _loaded(lends, nodes)
-            except InvalidCallError as refusal:
-                raise InvalidCallError(
-                    [
-                        previous_run_unloadable(
-                            run_id=lends.id,
-                            reason="; ".join(problem.msg for problem in refusal.problems),
-                        )
-                    ]
-                ) from refusal
-            return compiled.with_inputs(inputs, max_items=self._max_items, previous=lent)
-
-        run = await asyncio.to_thread(ready)
+        run = await self._ready(graph, inputs, metadata, previous)
         return await self._create(run.graph.record.model_dump_json(), metadata, run)
 
-    async def estimate(self, graph: Any, inputs: Mapping[str, Any], metadata: M) -> RunProgress:
-        """How many calls a run of ``graph`` on ``inputs`` will make, from ``run.resume(only_costs_nothing=True)``,
+    async def estimate(
+        self,
+        graph: Any,
+        inputs: Mapping[str, Any],
+        metadata: M,
+        *,
+        previous: str | None = None,
+    ) -> RunProgress:
+        """How many calls the run ``begin`` would start will make, from ``run.resume(only_costs_nothing=True)``,
         which calls only the nodes that cost nothing; nothing is stored.
 
         The call is made as a stored run's is: with the metadata's context and this worker's ``resume_timeout`` and
@@ -275,21 +260,20 @@ class Worker(Generic[M, X]):
             graph: The graph record, as a ``GraphRecord``, as its JSON text or as the plain data a caller sent.
             inputs: Values for the graph's inputs, by name.
             metadata: The metadata the run would have, on whose nodes the graph is compiled.
+            previous: The id of a run whose work the run would reuse, as ``begin`` takes it.
 
         Returns:
             The run's progress after that call.
 
         Raises:
-            InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs.
+            InvalidCallError: As ``begin`` refuses the same call.
         """
-        nodes = self.nodes_for(metadata)
+        run = await self._ready(graph, inputs, metadata, previous)
 
         def estimated() -> RunProgress:
-            ready = Graph.compile(graph, nodes).with_inputs(inputs, max_items=self._max_items)
-            return ready.resume(
-                context=self._context_for(metadata, Event()),
-                timeout=self._resume_timeout,
-                only_costs_nothing=True,
+            context = self._context_for(metadata, Event())
+            return run.resume(
+                context=context, timeout=self._resume_timeout, only_costs_nothing=True
             ).progress
 
         return await asyncio.to_thread(estimated)
@@ -540,6 +524,37 @@ class Worker(Generic[M, X]):
                 "`async with worker.serving():` (a server's lifespan does) before it begins, answers, resumes or "
                 "cancels a run"
             )
+
+    async def _ready(
+        self, graph: Any, inputs: Mapping[str, Any], metadata: M, previous: str | None
+    ) -> Run[Any]:
+        """The run ``begin`` starts and ``estimate`` counts: the graph compiled on the metadata's nodes, with its
+        inputs, and the work of ``previous`` lent to it.
+
+        The graph's own problems and the inputs' are refused before the previous run is loaded.
+
+        Raises:
+            InvalidCallError: The graph or the inputs are refused, no run has the id ``previous``
+                (``no_such_run``), or it can't be loaded on these nodes (``previous_run_unloadable``).
+        """
+        nodes = self.nodes_for(metadata)
+        lends = None if previous is None else await self._row(previous)
+
+        def ready() -> Run[Any]:
+            compiled = Graph.compile(graph, nodes)
+            run = compiled.with_inputs(inputs, max_items=self._max_items)
+            if lends is None:
+                return run
+            try:
+                lent = _loaded(lends, nodes)
+            except InvalidCallError as refusal:
+                reason = "; ".join(problem.msg for problem in refusal.problems)
+                raise InvalidCallError(
+                    [previous_run_unloadable(run_id=lends.id, reason=reason)]
+                ) from refusal
+            return compiled.with_inputs(inputs, max_items=self._max_items, previous=lent)
+
+        return await asyncio.to_thread(ready)
 
     def _mine(self) -> RunChanges:
         """The owner and lease of a row this worker holds."""
