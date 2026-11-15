@@ -9,7 +9,7 @@ There are three:
 Inputs. Take ``make_graph(shout, defaults={"shout.mark": "!"})``, a graph of one node. It has the graph inputs
 ``line``, which is required, and ``mark``, which defaults to ``"!"``. ``graph.run(line="b")`` gives the validator ``{"line": "b"}``, and it returns
 ``{"line": "b", "mark": "!"}``. That's every graph input, with its default where the caller gave none. Given
-``{"line": 3, "colour": "red"}``, it raises ``InvalidCallError`` with both faults at once: ``not_offered`` for
+``{"line": 3, "colour": "red"}``, it raises ``InvalidCallError`` with both faults at once: ``unknown_graph_input`` for
 ``colour``, then ``invalid_input`` for ``line``.
 
 Limits. These are ``max_items``, ``timeout`` and ``checkpoint_every``. They're the same for every graph, so
@@ -49,7 +49,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
 
     Raises (when called):
         InvalidCallError: Lists every fault, in this order. First, each name the caller gave that the graph doesn't
-            offer (``not_offered``), in the order given. Then each graph input, in the graph's order, that's
+            offer (``unknown_graph_input``), in the order given. Then each graph input, in the graph's order, that's
             missing (``missing_input``) or whose value its type refuses (``invalid_input``). Its variant
             ``make_a_series`` is for a list given to an input whose type takes no list.
     """
@@ -105,7 +105,7 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
             key = fault["loc"][0]
             if fault["type"] in ("extra_forbidden", "invalid_key"):
                 names.append(
-                    call_problems.not_offered(
+                    call_problems.unknown_graph_input(
                         "inputs", key, name=str(key), inputs=list(self._inputs)
                     )
                 )

@@ -1026,7 +1026,7 @@ def test_with_inputs_takes_a_mapping_by_name_beside_keywords_and_refuses_a_name_
         "s_result": "b",
     }
     assert _refused(graph, {"a_text": "x", "b_text": "y", "c_text": "z"}, mode="b") == [
-        ("not_offered", ("inputs", "c_text"))
+        ("unknown_graph_input", ("inputs", "c_text"))
     ]
 
 
@@ -1179,10 +1179,10 @@ def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
     found = sorted((p.type, p.loc) for p in refused.value.problems)
     assert found == [
         ("invalid_input", ("inputs", "mode")),
-        ("not_offered", ("inputs", "text")),
-        ("not_offered", ("inputs", "typo")),
+        ("unknown_graph_input", ("inputs", "text")),
+        ("unknown_graph_input", ("inputs", "typo")),
     ]
-    assert [p.ctx["inputs"] for p in refused.value.problems if p.type == "not_offered"] == [
+    assert [p.ctx["inputs"] for p in refused.value.problems if p.type == "unknown_graph_input"] == [
         ["mode"],
         ["mode"],
     ]
@@ -1879,7 +1879,7 @@ def test_an_input_a_hook_adds_under_a_name_the_node_declares_is_the_hooks_failur
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
         "compute_hook_failed",
         ("d",),
-        "added_input_taken",
+        "added_input_exists",
     )
 
 

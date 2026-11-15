@@ -40,7 +40,7 @@ from typing import Any
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
 
-from .run_problems import external_failed, failed
+from .run_problems import external_failed, node_error
 from .type import Problem
 
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
@@ -180,7 +180,7 @@ class NodeError(ConductorError):
 
     The error carries one problem, made when it is raised: ``Problem(type="unreadable", loc=(), msg="The document
     could not be read.", ctx={"pages": 0})``. The call fails with that problem, and conductor fills in its ``loc``
-    with the node and the item indexes. Without a ``code``, the code is ``failed``.
+    with the node and the item indexes. Without a ``code``, the code is ``node_error``.
 
     A ``NodeError`` is never retried. For a failure of the outside world, raise ``ExternalError``.
 
@@ -197,7 +197,7 @@ class NodeError(ConductorError):
         self,
         message: str,
         *,
-        code: str = failed.code,
+        code: str = node_error.code,
         ctx: Mapping[str, JsonValue] = MappingProxyType({}),
     ) -> None:
         super().__init__(

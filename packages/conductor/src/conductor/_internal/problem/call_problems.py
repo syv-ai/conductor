@@ -393,7 +393,7 @@ def graph_outputs_share_a_name(*loc: str | int, name: str, outputs: list[str]) -
 
 
 @CALL_PROBLEMS.problem()
-def not_a_place(*loc: str | int, text: str) -> str:
+def invalid_place(*loc: str | int, text: str) -> str:
     """``make_graph`` is given a place in the graph that isn't written ``"node.name"``.
 
     Each end of an edge, each key of ``constants`` or ``defaults``, and each place in ``inputs`` or ``outputs`` is a
@@ -412,7 +412,7 @@ def not_a_place(*loc: str | int, text: str) -> str:
 
 
 @CALL_PROBLEMS.problem()
-def not_offered(*loc: str | int, name: str, inputs: list[str]) -> str:
+def unknown_graph_input(*loc: str | int, name: str, inputs: list[str]) -> str:
     """A call gives a value under a name that isn't a graph input.
 
     To fix it, use one of the names in ``ctx.inputs``.

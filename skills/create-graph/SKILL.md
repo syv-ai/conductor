@@ -114,7 +114,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 
 **What it raises.**
 - Two graph inputs that would share a name raise `graph_inputs_share_a_name`. Two outputs raise `graph_outputs_share_a_name`.
-- A text that isn't `"node.name"` raises `not_a_place`.
+- A text that isn't `"node.name"` raises `invalid_place`.
 
 ## Quick reference
 

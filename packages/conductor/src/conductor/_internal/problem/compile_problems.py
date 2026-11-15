@@ -82,7 +82,7 @@ def compute_hook_failed(
         reason: The hook's message, or why compiling can't use what the hook returned.
         error: The ``code`` of the hook's ``NodeError``, or the class name of the exception it raised. If the hook
             returned something compiling can't use, it says why: ``not_a_mapping``, ``not_a_name``,
-            ``added_input_taken``, or the code of a type conductor doesn't support.
+            ``added_input_exists``, or the code of a type conductor doesn't support.
         error_ctx: The ``ctx`` of the hook's ``NodeError``, if it has one.
 
     Example:
@@ -500,7 +500,7 @@ def type_mismatch_make_a_series(
     source: str,
     got: str,
     expected: str,
-    whole: Literal["table", "list"],
+    kind: Literal["table", "list"],
     fields: list[str],
 ) -> str:
     """A whole table or list is wired into an input that takes one value.
@@ -515,7 +515,7 @@ def type_mismatch_make_a_series(
         source: The edge's source, as text, like ``"a.result"``.
         got: The type the source gives.
         expected: The type the input takes.
-        whole: Whether the source is a table or a list.
+        kind: Whether the source is a table or a list.
         fields: The fields each row or item has, so an editor can offer them. Empty if they aren't known.
 
     Example:
@@ -525,7 +525,7 @@ def type_mismatch_make_a_series(
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
-        f"'{source}' is a whole {whole}, but '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
+        f"'{source}' is a whole {kind}, but '{node_id}.{field}' takes one {expected}. To call '{node_id}' once per row or item, "
         "put a node in between that returns them as a Series. Then wire its result, or one field of it."
     )
 
@@ -746,7 +746,7 @@ def unknown_output_make_a_series(
     source: str,
     outputs: list[str],
     record_field: str,
-    whole: Literal["table", "list"],
+    kind: Literal["table", "list"],
     fields: list[str],
 ) -> str:
     """An edge's source names a field of a whole table or list.
@@ -760,7 +760,7 @@ def unknown_output_make_a_series(
         source: The edge's source, as text, like ``"a.result"``.
         outputs: The outputs the source's node has, as text.
         record_field: The field the edge names.
-        whole: Whether the source is a table or a list.
+        kind: Whether the source is a table or a list.
         fields: The fields each row or item has, so an editor can offer them. Empty if they aren't known.
 
     Example:
@@ -770,7 +770,7 @@ def unknown_output_make_a_series(
         }, "outputs": {"result": {"node": "u", "output": "result"}}})
     """
     return (
-        f"'{source}' names a field of a whole {whole}, and a whole {whole} has no fields to wire. Put a node after it that returns its rows "
+        f"'{source}' names a field of a whole {kind}, and a whole {kind} has no fields to wire. Put a node after it that returns its rows "
         "or items as a Series. Then wire the field from that node's result."
     )
 

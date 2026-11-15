@@ -23,9 +23,9 @@ _TEMPLATE = (_PACKAGE / "about" / "problems.md").read_text()
 _SERVING_RUNS = (_ROOT / "docs" / "serving-runs.md").read_text()
 #: Messages that carry no fix of their own: a node's failure keeps the node's words, an outside failure has none a
 #: person can act on, and an answer's ``reason`` is pydantic's account of what the answer lacks.
-_NO_FIX = {"failed", "external_failed", "invalid_answer"}
+_NO_FIX = {"node_error", "external_failed", "invalid_answer"}
 #: The kinds whose message is the one the node gave its ``NodeError``, so an example's message is not the kind's own.
-_MESSAGE_IS_THE_NODES = {"failed"}
+_MESSAGE_IS_THE_NODES = {"node_error"}
 
 
 def test_every_message_says_what_to_do() -> None:

@@ -95,7 +95,7 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
 
 
 @RUN_PROBLEMS.problem()
-def failed(*loc: str | int) -> str:
+def node_error(*loc: str | int) -> str:
     """A node raised a ``NodeError`` without a code of its own.
 
     The problem's message and ``ctx`` are the ones the node gave its ``NodeError``. The message below is only a fallback,

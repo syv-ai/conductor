@@ -191,7 +191,7 @@ def test_a_plain_class_pydantic_cant_validate_fails_at_the_class_statement() -> 
                 self.path = path
 
     refused = _refused(build)
-    assert refused.problems[0].type == "type_not_carried" and "Handle" in str(refused)
+    assert refused.problems[0].type == "type_not_supported" and "Handle" in str(refused)
 
 
 def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says_to_put_it_on_top() -> (
@@ -204,9 +204,9 @@ def test_host_type_written_under_dataclass_fails_at_the_class_statement_and_says
             x: float
 
     refused = _refused(build)
-    assert refused.problems[0].type == "type_not_carried" and "@host_type above @dataclass" in str(
-        refused
-    )
+    assert refused.problems[
+        0
+    ].type == "type_not_supported" and "@host_type above @dataclass" in str(refused)
 
 
 def test_a_class_python_lets_nobody_write_on_is_refused_with_the_way_out() -> None:

@@ -336,7 +336,7 @@ class Type:
         Raises:
             NodeDeclarationError: A ``Param`` that doesn't fit, a misplaced ``Context``, pydantic's ``Field(...)``
                 written where ``Param`` goes (``pydantic_field_in_hint``), or a type pydantic has no schema for
-                (``type_not_carried``).
+                (``type_not_supported``).
         """
         bare, param, others = self._parts
         pydantic_fields = [
@@ -366,13 +366,13 @@ class Type:
         # a limit of the wrong kind for the type, like ge="a" on an int
         except SchemaError as error:
             raise NodeDeclarationError(
-                declaration_problems.bound_invalid_value(
+                declaration_problems.limit_not_supported_value(
                     limits=repr(param.limits), type=self.id, error=str(error)
                 )
             ) from None
         except PydanticSchemaGenerationError:
             raise NodeDeclarationError(
-                declaration_problems.type_not_carried(type=self.id)
+                declaration_problems.type_not_supported(type=self.id)
             ) from None
         return read, adapter
 
@@ -386,7 +386,7 @@ class Type:
     def schema(self) -> CoreSchema:
         """Pydantic's core schema of the type, which pydantic checks and writes a value of it by.
 
-        Raises ``NodeDeclarationError`` (``type_not_carried``) for a type pydantic can't handle.
+        Raises ``NodeDeclarationError`` (``type_not_supported``) for a type pydantic can't handle.
         """
         return self._built[1].core_schema
 

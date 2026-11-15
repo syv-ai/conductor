@@ -1024,7 +1024,7 @@ def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
         "nested_series": lambda: node("b", title="B", description="For a test.")(
             _fn("x: Series[Series[int]]")
         ),
-        "bound_invalid": lambda: node("d", title="D", description="For a test.")(
+        "limit_not_supported": lambda: node("d", title="D", description="For a test.")(
             _fn('x: Annotated[int, Param(ge="a")]')
         ),
     }

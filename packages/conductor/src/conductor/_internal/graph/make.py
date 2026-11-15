@@ -82,7 +82,7 @@ def make_graph(
     Raises:
         InvalidCallError: Lists every fault in writing the record:
             ``node_not_in_graph``: a place names a node that wasn't given.
-            ``not_a_place``: a place isn't written ``"node.name"``.
+            ``invalid_place``: a place isn't written ``"node.name"``.
             ``invalid_value``: a value has no JSON form, or has a set in it.
             ``graph_inputs_share_a_name`` or ``graph_outputs_share_a_name``: two graph inputs or outputs have one
             name.
@@ -162,12 +162,12 @@ def _place(
 
     Returns:
         The parts, or ``None`` when the text isn't a valid place. Then a problem is added to ``problems``. It's
-        ``not_a_place`` at ``where`` when the text isn't ``"node.name"`` (with ``field``, it may also be
+        ``invalid_place`` at ``where`` when the text isn't ``"node.name"`` (with ``field``, it may also be
         ``"node.name.field"``). It's ``node_not_in_graph`` when the text names a node that wasn't given.
     """
     parts = tuple(text.split(".", 2 if field else 1))
     if len(parts) < 2 or not all(parts):
-        problems.append(call_problems.not_a_place(*where, text=text))
+        problems.append(call_problems.invalid_place(*where, text=text))
         return None
     if parts[0] not in definitions:
         problems.append(call_problems.node_not_in_graph(parts[0], nodes=list(definitions)))

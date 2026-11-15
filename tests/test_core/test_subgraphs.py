@@ -1110,7 +1110,9 @@ def test_a_failure_inside_a_subgraph_keeps_the_other_inner_outcomes_for_resume()
     graph = inside_a_loop("boom-inner")
     events = stream(graph.with_inputs(text="ok bad"))
     run = events[-1].run
-    assert run.status == "failed" and run.cause.loc == ("e", 1, "b") and run.cause.type == "failed"
+    assert (
+        run.status == "failed" and run.cause.loc == ("e", 1, "b") and run.cause.type == "node_error"
+    )
     assert [(e.loc, e.cause.loc) for e in events if isinstance(e, NodeFailed)] == [
         (("e", "b"), ("e", 1, "b"))
     ]  # the event names the node, and its cause the call

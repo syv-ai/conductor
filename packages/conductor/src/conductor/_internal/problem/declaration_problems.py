@@ -82,7 +82,7 @@ def async_run() -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
-def bound_invalid(*, unheld: list[str], type: str) -> str:
+def limit_not_supported(*, unknown_limits: list[str], type: str) -> str:
     """A ``Param`` sets a limit that pydantic has no rule for on the input's type.
 
     pydantic knows these limits:
@@ -96,7 +96,7 @@ def bound_invalid(*, unheld: list[str], type: str) -> str:
     To fix it, use only limits pydantic knows for the type.
 
     Args:
-        unheld: The limits pydantic has no rule for.
+        unknown_limits: The limits pydantic has no rule for.
         type: The type, as its developer wrote it.
 
     Example:
@@ -106,11 +106,11 @@ def bound_invalid(*, unheld: list[str], type: str) -> str:
 
         declaration_refused(lambda: node("short", title="Short", description="Passes the text on as it is.")(short))
     """
-    return f"pydantic has no rule for {comma_separated(unheld)} on {type}. Remove it from the Param, or check the value in the node instead."
+    return f"pydantic has no rule for {comma_separated(unknown_limits)} on {type}. Remove it from the Param, or check the value in the node instead."
 
 
-@DECLARATION_PROBLEMS.problem("bound_invalid", variant="limit_value")
-def bound_invalid_value(*, limits: str, type: str, error: str) -> str:
+@DECLARATION_PROBLEMS.problem("limit_not_supported", variant="limit_value")
+def limit_not_supported_value(*, limits: str, type: str, error: str) -> str:
     """A ``Param`` sets a limit to the wrong kind of value for the type, such as ``ge="a"`` on an ``int``.
 
     To fix it, give each limit a value of the input's type, such as a number for ``ge`` on an ``int``.
@@ -941,7 +941,7 @@ def row_field_optional(*, row: str, field: str) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
-def type_not_carried(*, type: str) -> str:
+def type_not_supported(*, type: str) -> str:
     """An input's or output's type is one pydantic can't validate or write as JSON, such as a record with a field of a plain
     class.
 
@@ -973,8 +973,8 @@ def type_not_carried(*, type: str) -> str:
     )
 
 
-@DECLARATION_PROBLEMS.problem("type_not_carried", variant="declared")
-def type_not_carried_declared(*, id: str, cls: str) -> str:
+@DECLARATION_PROBLEMS.problem("type_not_supported", variant="host_type_not_supported")
+def type_not_supported_declared(*, id: str, cls: str) -> str:
     """``@host_type`` is put above a class that pydantic can't validate or write as JSON.
 
     To fix it, make the class a pydantic model or a dataclass, with ``@host_type`` above ``@dataclass``. Or give the

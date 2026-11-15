@@ -107,7 +107,7 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
         "got": "Table[name: str, email: str]",
         "expected": "str",
         "variant": "make_a_series",
-        "whole": "table",
+        "kind": "table",
         "fields": ["name", "email"],
     }
     assert found.msg == (
@@ -118,7 +118,7 @@ def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_list
 
 def test_a_table_of_any_columns_says_to_make_a_series_and_knows_no_fields():
     found = problem({"read": "csv", "send": "send"}, [("read.result", "send.to")])
-    assert (found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == (
+    assert (found.ctx["variant"], found.ctx["kind"], found.ctx["fields"]) == (
         "make_a_series",
         "table",
         [],
@@ -131,7 +131,7 @@ def test_a_whole_list_into_an_input_of_one_value_says_to_make_a_series():
         found.type,
         found.loc,
         found.ctx["variant"],
-        found.ctx["whole"],
+        found.ctx["kind"],
         found.ctx["fields"],
     ) == ("type_mismatch", ("send", "to"), "make_a_series", "list", [])
     assert found.msg.startswith("'tags.result' is a whole list, but 'send.to' takes one str.")
@@ -153,7 +153,7 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series()
         "outputs": ["read.result"],
         "record_field": "email",
         "variant": "make_a_series",
-        "whole": "table",
+        "kind": "table",
         "fields": ["name", "email"],
     }
     assert found.msg == (
@@ -164,7 +164,7 @@ def test_a_field_named_on_a_whole_table_is_no_output_and_says_to_make_a_series()
 
 def test_a_field_named_on_a_whole_list_says_to_make_a_series_too():
     found = problem({"people": "people", "send": "send"}, [("people.result.email", "send.to")])
-    assert (found.type, found.ctx["variant"], found.ctx["whole"], found.ctx["fields"]) == (
+    assert (found.type, found.ctx["variant"], found.ctx["kind"], found.ctx["fields"]) == (
         "unknown_output",
         "make_a_series",
         "list",

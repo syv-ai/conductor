@@ -160,7 +160,7 @@ def test_an_added_input_named_as_the_context_parameter_is_the_hooks_failure():
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
         "compute_hook_failed",
         ("adds",),
-        "added_input_taken",
+        "added_input_exists",
     )
 
 

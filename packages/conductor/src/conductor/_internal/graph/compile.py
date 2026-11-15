@@ -320,7 +320,7 @@ class Compiler:
                     compile_problems.compute_hook_failed(
                         node_id,
                         reason=f"it adds {taken[0]!r}, which the node already declares",
-                        error="added_input_taken",
+                        error="added_input_exists",
                     )
                 )
                 return
@@ -825,7 +825,7 @@ class Compiler:
                     source=written,
                     outputs=[place_text(path, output) for output in node.outputs],
                     record_field=source.field,
-                    whole=parts[0],
+                    kind=parts[0],
                     fields=parts[1],
                 )
             )
@@ -1144,7 +1144,7 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
             source=written,
             got=got,
             expected=expected,
-            whole=parts[0],
+            kind=parts[0],
             fields=parts[1],
         )
     return compile_problems.type_mismatch(

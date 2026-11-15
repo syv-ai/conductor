@@ -113,7 +113,7 @@ def host_type[C: type](
     Raises:
         NodeDeclarationError: Right away, when the class is defined. ``type_declaration_invalid`` if the id isn't
             one word or is one of conductor's own, the title is empty, ``accepts`` has something that isn't a
-            class, or the class can't take a new attribute. ``type_not_carried`` if pydantic can't check values of
+            class, or the class can't take a new attribute. ``type_not_supported`` if pydantic can't check values of
             the class.
     """
     try:
@@ -137,7 +137,7 @@ def host_type[C: type](
             parent = next((base for base in cls.__mro__[1:-1] if base in NAMES), None)
             if parent is None:
                 raise NodeDeclarationError(
-                    declaration_problems.type_not_carried_declared(id=id, cls=cls.__qualname__)
+                    declaration_problems.type_not_supported_declared(id=id, cls=cls.__qualname__)
                 ) from None
             validated_as_parent = classmethod(
                 lambda made, source, handler: core_schema.no_info_after_validator_function(

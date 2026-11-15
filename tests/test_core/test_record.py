@@ -1304,8 +1304,8 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
         return [(p.type, p.loc, p.ctx) for p in raised.value.problems]
 
     assert refused({"nope": 1, "text": "a", "zz": 2}) == [
-        ("not_offered", ("inputs", "nope"), {"name": "nope", "inputs": offered}),
-        ("not_offered", ("inputs", "zz"), {"name": "zz", "inputs": offered}),
+        ("unknown_graph_input", ("inputs", "nope"), {"name": "nope", "inputs": offered}),
+        ("unknown_graph_input", ("inputs", "zz"), {"name": "zz", "inputs": offered}),
         ("missing_input", ("inputs", "yes"), {"name": "yes"}),
         ("missing_input", ("inputs", "no"), {"name": "no"}),
     ]
@@ -1315,7 +1315,7 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
         "errors": [{"type": "string_type", "loc": [], "msg": "Input should be a valid string"}],
     }
     assert refused({"no": 1, "text": ["a", "b"], 1: "x"}) == [
-        ("not_offered", ("inputs", 1), {"name": "1", "inputs": offered}),
+        ("unknown_graph_input", ("inputs", 1), {"name": "1", "inputs": offered}),
         ("missing_input", ("inputs", "yes"), {"name": "yes"}),
         ("invalid_input", ("inputs", "no"), not_a_text),
         (
@@ -1374,7 +1374,7 @@ def test_a_graph_input_is_given_by_its_name_never_by_a_source_and_an_item_limit_
         graph.run(text="a", max_items=0)
 
     assert [(p.type, p.loc) for p in by_source.value.problems] == [
-        ("not_offered", ("inputs", "u.text"))
+        ("unknown_graph_input", ("inputs", "u.text"))
     ]
     assert [p.type for p in item_limit.value.problems] == ["invalid_limit"]
     with pytest.raises(InvalidCallError):
@@ -2151,7 +2151,7 @@ def test_make_graph_raises_every_problem_of_its_own_and_none_that_compile_finds(
             edges=[("count.result", "hello.name"), ("count", "hello.name")],
             constants={"nobody.x": 1},
         )
-    assert sorted(p.type for p in refused.value.problems) == ["node_not_in_graph", "not_a_place"]
+    assert sorted(p.type for p in refused.value.problems) == ["invalid_place", "node_not_in_graph"]
 
 
 def test_make_graph_writes_each_node_at_the_id_and_version_of_the_definition_it_was_given():
@@ -2196,7 +2196,7 @@ def test_make_graph_refuses_an_edge_that_is_not_node_and_name_and_says_how_to_wr
 
     [problem] = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx) == (
-        "not_a_place",
+        "invalid_place",
         ("edges", 1, 0),
         {"text": "count"},
     )
@@ -2210,8 +2210,8 @@ def test_make_graph_refuses_a_constant_or_default_key_that_is_not_node_and_name_
         )
 
     assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("not_a_place", ("constants", "hello")),
-        ("not_a_place", ("defaults", ".name")),
+        ("invalid_place", ("constants", "hello")),
+        ("invalid_place", ("defaults", ".name")),
         (
             "invalid_record",
             ("record", "nodes", "hello", "inputs", "name..x", "[key]"),
@@ -2243,9 +2243,9 @@ def test_make_graph_refuses_a_text_that_is_not_node_and_name_at_the_argument_and
     output = refused(outputs={"r": "shout"})
 
     assert [(p.type, p.loc, p.ctx) for p in [*edge, *constant, *output]] == [
-        ("not_a_place", ("edges", 0, 1), {"text": "shout"}),
-        ("not_a_place", ("constants", "name"), {"text": "name"}),
-        ("not_a_place", ("outputs", "r"), {"text": "shout"}),
+        ("invalid_place", ("edges", 0, 1), {"text": "shout"}),
+        ("invalid_place", ("constants", "name"), {"text": "name"}),
+        ("invalid_place", ("outputs", "r"), {"text": "shout"}),
     ]
     assert all(
         p.msg.endswith("Write it as 'node.name'.") and "JSON" not in p.msg

@@ -141,7 +141,7 @@ class Param:
             The schema pydantic checks a value with, on a node's field or in a host's own model.
 
         Raises:
-            NodeDeclarationError: ``bound_invalid`` if pydantic has no rule for a limit on ``source``, like
+            NodeDeclarationError: ``limit_not_supported`` if pydantic has no rule for a limit on ``source``, like
                 ``ge`` on a ``str``. ``choices_invalid`` if the choices aren't each a value of ``source``, given
                 once.
         """
@@ -161,12 +161,14 @@ class Param:
             if "schema" not in layer:
                 break
             layer = layer["schema"]  # type: ignore[typeddict-item]  # a wrapping schema keeps the inner one here
-        unheld = sorted(self.limits.keys() - held)
-        if unheld and functions <= len(unheld):
+        unknown_limits = sorted(self.limits.keys() - held)
+        if unknown_limits and functions <= len(unknown_limits):
             # the type as its developer wrote it
             written = source.__name__ if isinstance(source, type) else str(source)
             raise NodeDeclarationError(
-                declaration_problems.bound_invalid(unheld=unheld, type=written)
+                declaration_problems.limit_not_supported(
+                    unknown_limits=unknown_limits, type=written
+                )
             )
         if self.choices is None:
             return limited
