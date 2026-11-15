@@ -1,7 +1,8 @@
-"""``RunningCalls``: how many calls of one node are running now, in every run of the process.
+"""``RunningCalls``, a counter of how many calls of one node are running, across every run in the process.
 
-``@node("fetch", policy=Policy(concurrency=2))`` makes one, and the definition keeps it. Two runs at once, of graphs
-that each use ``fetch`` in two places, still make at most two calls of ``fetch`` at once.
+A node with ``Policy(concurrency=2)`` may have at most two calls running at once, however many runs use it.
+``@node`` makes one ``RunningCalls`` for such a node, and the definition keeps it. Say two runs go at once, each of a
+graph that uses ``fetch`` in two places. They still make at most two calls of ``fetch`` at once.
 """
 
 from __future__ import annotations
@@ -11,52 +12,55 @@ from typing import Protocol
 
 
 class Waiter(Protocol):
-    """A run that waits to start a call of a node: its scheduler.
+    """A run waiting to start a call of a node. In practice, the run's scheduler.
 
     Attributes:
-        parked: Whether the run's thread is waiting for news right now, so a run that is woken asks at once. False
-            while it is busy elsewhere, calling another node, say.
+        parked: Whether the run's thread is idle, waiting for news. A parked run that is woken asks again at once.
+            It is false while the run is busy, for example calling another node.
     """
 
     parked: bool
 
     def wake(self) -> None:
-        """A call of the node ended: ask again. Called from the thread that ends the call, so it only hands the
-        news to the run."""
+        """Tells the run that a call of the node has ended, so it can ask again.
+
+        It is called from the thread that ended the call, so it should only pass the news on to the run.
+        """
         ...
 
 
 class RunningCalls:
-    """How many calls of one node are running now, in every run of the process, and which runs wait to start one.
+    """Counts the running calls of one node across the process, and keeps the runs waiting to start one.
 
-    Example: ``fetch`` has ``Policy(concurrency=2)``, and two calls of it are running. Run B asks ``try_start(2, b)``,
-    which returns False and keeps B; run C is refused the same way. When one of the two calls returns, ``finish()``
-    wakes B and C, and both ask again: the first to ask starts its call, and the other waits for the next. A free call
-    is never kept for a run, so a run whose thread is busy elsewhere when it is woken holds up no other.
+    Say ``fetch`` has ``Policy(concurrency=2)``, and two calls of it are running. Run B asks ``try_start(2, b)``. It
+    gets ``False``, and B is kept as waiting. Run C is turned down the same way. When one of the two calls ends,
+    ``finish()`` wakes B and C, and both ask again. The first to ask starts its call, and the other waits for the next
+    one. A free place is never held for a particular run. So a run that is busy elsewhere when it is woken doesn't
+    hold up the others.
 
-    A run that makes its calls on its own thread could take the call back before the runs it woke had a chance to
-    ask, and keep them waiting until it has no calls left. So ``finish(give_parked_runs_a_turn=True)`` waits until
-    each run it woke that was parked (waiting for news, so it asks at once) has asked, left, or turned to something
-    else. With no parked run it does not wait at all.
+    There is one catch. A run that makes its calls on its own thread could start its next call before the runs it
+    woke got a chance to ask. It could keep them waiting until it has no calls left. So
+    ``finish(give_parked_runs_a_turn=True)`` waits until each parked run it woke has asked, left, or turned to
+    something else. If no run was parked, it doesn't wait at all.
 
     The run that starts a call calls ``finish`` once when the call is over. A run that ends calls ``stop_waiting``.
     """
 
     def __init__(self) -> None:
         self._lock = Lock()
-        self._turns_taken = Condition(self._lock)  # notified when a run leaves ``_turns``
+        self._turns_taken = Condition(self._lock)  # notified when a run is taken out of ``_turns``
         self._running = 0
-        self._waiting: dict[Waiter, None] = {}  # a dict, not a set: woken in the order they asked
+        self._waiting: dict[Waiter, None] = {}  # a dict keeps the order they asked in
         self._turns: set[Waiter] = (
             set()
-        )  # parked runs woken by a finish that have not asked, left or turned away
+        )  # parked runs that a finish woke, and that haven't yet asked, left or turned away
 
     def try_start(self, concurrency: int, waiter: Waiter) -> bool:
-        """Count one more running call, if fewer than ``concurrency`` are running.
+        """Counts one more running call, if fewer than ``concurrency`` are running.
 
         Args:
-            concurrency: The most calls of the node that may run at once: its ``Policy``'s ``concurrency``.
-            waiter: The run asking. It is kept, to be woken when a call of the node ends, if the call can't start now.
+            concurrency: The most calls of the node that may run at once, from its ``Policy``.
+            waiter: The run asking. If the call can't start now, the run is kept and woken when a call ends.
 
         Returns:
             Whether the call may start.
@@ -71,11 +75,11 @@ class RunningCalls:
             return False
 
     def finish(self, give_parked_runs_a_turn: bool = False) -> None:
-        """Count one call less, and wake every run that waits to start one.
+        """Counts one call less, and wakes every run waiting to start one.
 
         Args:
-            give_parked_runs_a_turn: Return only once each woken run that was parked has asked, left or turned to
-                something else. The run that made the call on its own thread passes it.
+            give_parked_runs_a_turn: Whether to wait until each parked run it woke has asked, left or turned to
+                something else. A run that made the call on its own thread passes ``True``.
         """
         with self._lock:
             self._running -= 1
@@ -90,7 +94,7 @@ class RunningCalls:
         try:
             for waiter in rest:
                 waiter.wake()
-        finally:  # an exception raised in this thread while it wakes them (a KeyboardInterrupt) still wakes the rest
+        finally:  # if waking one raises here, say a KeyboardInterrupt, the rest are still woken
             for waiter in rest:
                 waiter.wake()
         if parked:
@@ -98,18 +102,21 @@ class RunningCalls:
                 self._turns_taken.wait_for(lambda: not parked & self._turns)
 
     def turned_away(self, waiter: Waiter) -> None:
-        """``waiter`` was woken by news other than a call ending: it is busy for now and is not waited for."""
+        """Notes that ``waiter`` was woken by other news, not a call ending, so it is busy and isn't waited for."""
         with self._lock:
             self._take_turn(waiter)
 
     def stop_waiting(self, waiter: Waiter) -> None:
-        """Forget ``waiter``, if it is kept: its run has ended."""
+        """Forgets ``waiter``, whose run has ended."""
         with self._lock:
             self._waiting.pop(waiter, None)
             self._take_turn(waiter)
 
     def _take_turn(self, waiter: Waiter) -> None:
-        """``waiter`` has had its turn: a ``finish`` waiting for it goes on. Called with the lock held."""
+        """Notes that ``waiter`` has had its turn, so a ``finish`` waiting for it can go on.
+
+        The caller must hold the lock.
+        """
         if waiter in self._turns:
             self._turns.discard(waiter)
             self._turns_taken.notify_all()

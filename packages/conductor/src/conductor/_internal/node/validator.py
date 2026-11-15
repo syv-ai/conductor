@@ -1,28 +1,18 @@
-"""The validators of what a node's code returns: what its function returns, read into its outputs, and what its
-``compute_added_inputs`` or ``compute_outputs`` hook returns, read into fields when the graph is compiled.
+"""Checking what a node's own code returns: its function on each call, and its hooks when a graph is compiled.
 
-The return validator. Example: ``shout(line: str) -> str`` returns ``"B!"``, and its validator gives
-``{"result": "B!"}``. Returned ``3``, the validator raises ``InvalidCallError`` with the problem ``invalid_output``
-for the output ``result``.
+``ReturnValidator`` checks what a node's function returns, and turns it into the node's outputs by name. Say
+``shout(line: str) -> str`` returns ``"B!"``. The validator gives ``{"result": "B!"}``. If it returns ``3``
+instead, the call fails with an ``invalid_output`` problem on the output ``result``.
 
-A value is read strictly: a value already of its class is kept as it is, a dict is read into a model, and ``"12"``
-is never an ``int``. A node that returns ``SKIPPED`` gets ``SKIPPED`` for every output.
+Values are checked strictly. A value that already has the right class is kept as it is, a dict becomes a model,
+but ``"12"`` is never an ``int``. A node with several outputs returns a frozen dataclass, or a mapping when a
+``compute_outputs`` hook gave its outputs. Its whole return is checked in one go: first the shape, then each value.
+Only the first fault is reported.
 
-A node with several outputs returns a frozen dataclass, or a mapping when its ``compute_outputs`` hook gave the outputs.
-Its validator reads every output in one call of one validator. First the shape: the dataclass or a mapping, no output
-missing or unknown, and of each exclusive group exactly one output with a value (``field/exclusive_group.py``). Then
-each output's value, by its type, in the order the outputs are declared. Only the first fault is reported, as one
-problem.
-
-Every rule inside the return validator raises ``PydanticCustomError``: any other exception would escape pydantic
-with the value in its message.
-
-The hook validator. Example: a node ``fields(names: str)`` whose ``compute_outputs`` hook, given ``names="a,b"``,
-returns ``{"a": str, "b": (int, 0)}`` gets two outputs, ``a: str`` and ``b: int`` with the default 0. A hook returns
-each field's type, or ``(type, default)`` as pydantic's ``create_model`` takes one. Given ``names="a.b"`` it returns
-``{"a.b": str}``, which is the hook's failure, ``compute_hook_failed`` with ``error`` ``not_a_name``: a name holds
-none of the characters places in a graph are written with (``Name``, the rule every name in a graph record is held
-to).
+``HookValidator`` checks what a ``compute_added_inputs`` or ``compute_outputs`` hook returns, and turns it into
+fields. Say a node's ``compute_outputs`` hook, given ``names="a,b"``, returns ``{"a": str, "b": (int, 0)}``. The
+node gets two outputs, ``a: str``, and ``b: int`` with the default 0. Each field is held to the same rules as one
+``@node`` declares. A hook that returns ``{"a.b": str}`` fails, since ``a.b`` isn't a valid name.
 """
 
 from __future__ import annotations
@@ -64,25 +54,29 @@ from .type import HookName
 
 
 class ReturnValidator(Validator[Any, dict[str, Any]]):
-    """Reads what one node's function returned into the node's outputs by name, as a run keeps them.
+    """A validator for what a node's function returns.
 
-    Built once per compiled node, on the node's first call. Calling it with the returned value gives the outputs.
+    It checks the returned value against the node's outputs, and returns the outputs by name. A node that returns
+    ``SKIPPED`` gets ``SKIPPED`` on every output.
+
+    One is built for each node of a compiled graph, on the node's first call.
 
     Raises (when called):
-        InvalidCallError: With one ``invalid_output`` problem, which names the output when there is one to name and quotes
-            nothing of the value.
+        InvalidCallError: One ``invalid_output`` problem. It names the output when there is one to name, and never
+            quotes the value.
     """
 
     def __init__(
         self, outputs_dataclass: type | None, computes_outputs: bool, outputs: Mapping[str, Field]
     ) -> None:
-        """Builds the validator for a node whose function returns ``outputs``.
+        """Builds the validator for one node.
 
-        The function returns them as a frozen dataclass when it declares one, as a mapping when its
-        ``compute_outputs`` hook gave them, as ``None`` when there are none, and otherwise as one value, ``result``.
+        A function returns its outputs in one of four shapes. It returns a frozen dataclass if it declares one, a
+        mapping if its ``compute_outputs`` hook gave the outputs, and ``None`` if it has none. Otherwise it returns
+        one value, the output ``result``.
 
         Args:
-            outputs_dataclass: The frozen dataclass the function returns its outputs as, or ``None``.
+            outputs_dataclass: The frozen dataclass the function returns its outputs in, or ``None``.
             computes_outputs: Whether the node's ``compute_outputs`` hook gave its outputs.
             outputs: The node's outputs, by name.
         """
@@ -100,10 +94,10 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
             self._read = _one_output(outputs["result"])
 
     def __call__(self, returned: Any) -> dict[str, Any]:
-        """Returns the outputs of the node that returned ``returned``.
+        """Checks what the function returned, and returns the node's outputs by name.
 
         Raises:
-            InvalidCallError: The value is not what the node declares (``invalid_output``).
+            InvalidCallError: See the class.
         """
         if returned is SKIPPED:
             return dict.fromkeys(self._names, SKIPPED)
@@ -111,7 +105,7 @@ class ReturnValidator(Validator[Any, dict[str, Any]]):
 
 
 def _no_outputs(returned: Any) -> dict[str, Any]:
-    """The outputs of a node declared ``-> None``: none, when it returned ``None``."""
+    """Checks the return of a node declared ``-> None``, which must be ``None``, and returns no outputs."""
     if returned is not None:
         raise InvalidCallError(
             [
@@ -124,8 +118,11 @@ def _no_outputs(returned: Any) -> dict[str, Any]:
 
 
 def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
-    """The validator of a node with the one output ``result``. A value exactly of one of the type's plain classes (a
-    ``str`` for ``-> str``) is taken as it is, with no call to pydantic."""
+    """Builds the check for a node with one output, ``result``.
+
+    A value whose class is exactly one of the type's plain classes, like a ``str`` for ``-> str``, is kept as it is
+    without calling pydantic.
+    """
     exact = exact_classes(field.whole)
     validate = schema_output_validator_of(field.whole).validate_python
 
@@ -143,16 +140,19 @@ def _one_output(field: Field) -> Callable[[Any], dict[str, Any]]:
 def _several_outputs(
     outputs: Mapping[str, Field], by_name: Callable[[Any], dict[str, Any]]
 ) -> Callable[[Any], dict[str, Any]]:
-    """The validator of a node with several outputs: one pydantic validator for all of them.
+    """Builds the check for a node with several outputs, as one pydantic validator for all of them.
 
-    First the shape of what was returned is checked, then each output's value: the before-function takes the
-    value apart by output name and holds each exclusive group to one output with a value; the fields read the
-    values; the after-function gives each output that was ``SKIPPED`` its ``SKIPPED`` back.
+    It works in three steps. First, ``taken_apart`` splits the returned value by output name, and checks that each
+    exclusive group has exactly one output with a value. Then pydantic checks each output's value against its type.
+    Last, ``with_skipped`` puts ``SKIPPED`` back on each output that was skipped.
+
+    Every check raises ``PydanticCustomError``. Any other exception would escape pydantic with the value in its
+    message.
 
     Args:
         outputs: The node's outputs, by name.
-        by_name: Takes the returned value apart into its outputs by name, leaving out each output that is
-            ``SKIPPED``; it raises ``PydanticCustomError`` for a value of the wrong shape.
+        by_name: Splits the returned value into its outputs by name, leaving out each output that is ``SKIPPED``.
+            It raises ``PydanticCustomError`` for a value of the wrong shape.
     """
     names = list(outputs)
     groups = exclusive_groups(outputs)
@@ -205,12 +205,12 @@ def _several_outputs(
 
 
 def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> InvalidCallError:
-    """The ``invalid_output`` of the first fault pydantic's ``error`` names, raised by the validator of a node with
-    several outputs.
+    """Turns the first fault in a node's several outputs into an ``invalid_output`` error.
 
-    A fault of the whole value (not the dataclass, not a mapping, an output missing or unknown) and two outputs of
-    one group both given name the output their message is about; a value an output's type refuses is said as that
-    type says it, with every error pydantic found in that output.
+    Some faults are about the shape of the whole value: not the dataclass, not a mapping, or an output missing or
+    unknown. Others are about two outputs of one group both having a value. These name the output their message is
+    about. A value that an output's type refuses is described as the type describes it, with every error pydantic
+    found in that output.
     """
     first = error.errors()[0]
     ctx = first.get("ctx", {})
@@ -231,8 +231,13 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
 def _refused_output(
     field: Field, error: ValidationError, under: tuple[str, ...] = ()
 ) -> InvalidCallError:
-    """The ``invalid_output`` of a value the type of the output ``field`` refused; ``error`` and ``under`` are as
-    ``Type.refusal`` takes them."""
+    """Turns a value that an output's type refused into an ``invalid_output`` error.
+
+    Args:
+        field: The output.
+        error: The error pydantic raised, as ``Type.refusal`` takes it.
+        under: Where the output's value sits in ``error``, as ``Type.refusal`` takes it.
+    """
     refused = field.whole.refusal(error, under)
     return InvalidCallError(
         [
@@ -244,7 +249,7 @@ def _refused_output(
 
 
 def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
-    """Takes a returned frozen dataclass of outputs apart into its fields, by name."""
+    """Builds the function that splits a returned frozen dataclass into its outputs, by name."""
 
     def by_name(returned: Any) -> dict[str, Any]:
         if not isinstance(returned, cls):
@@ -259,8 +264,12 @@ def _dataclass_fields(cls: type, names: tuple[str, ...]) -> Callable[[Any], dict
 
 
 def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
-    """Takes a returned mapping of outputs as a dict, as a node whose ``compute_outputs`` hook gave its outputs
-    returns them: the first output it lacks is a fault, then the first key it has that is no output, by name."""
+    """Builds the function that checks a returned mapping of outputs, from a node whose ``compute_outputs`` hook gave
+    its outputs.
+
+    The first output missing from the mapping is the fault. If none is missing, the first key that isn't an output
+    is.
+    """
     declared, listed = frozenset(names), comma_separated(names, empty="nothing")
 
     def by_name(returned: Any) -> dict[str, Any]:
@@ -288,24 +297,31 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
     return by_name
 
 
-#: What a hook returns: a type, or ``(type, default)``, for each name.
+#: Checks what a hook returns: a mapping of valid names, each to a type or to ``(type, default)``.
 _HOOK_FIELDS = TypeAdapter(dict[Name, Any])
 
 
 class HookValidator(Validator[Any, dict[str, Field]]):
-    """Reads what one hook of a node returned into fields by name, each read as ``@node`` reads one: by
-    ``DeclaredInputValidator`` for ``compute_added_inputs``, by ``DeclaredOutputValidator`` for ``compute_outputs``.
+    """A validator for what one hook of a node returns.
+
+    A hook returns its fields as a mapping of name to type, or to ``(type, default)``. The validator turns each into
+    a ``Field``, held to the same rules ``@node`` holds a declared field to. Fields from ``compute_added_inputs`` are
+    checked like inputs, with ``DeclaredInputValidator``. Fields from ``compute_outputs`` are checked like outputs,
+    with ``DeclaredOutputValidator``.
 
     Raises (when called):
-        InvalidCallError: ``compute_hook_failed``, one at each name that cannot be one (``error`` ``not_a_name``), or
-            one at the node when the hook returned no mapping (``error`` ``not_a_mapping``), or a field ``@node``
-            would refuse (``error`` the declaration code: ``type_not_carried`` for a type conductor does not support,
-            ``exclusive_group_on_input`` or ``default_invalid`` for an added input that is a branch, ``default_invalid``
-            for an output of an exclusive group with a default other than ``SKIPPED``, ``constant_only_on_output``).
+        InvalidCallError: ``compute_hook_failed`` problems. There is one at each name that isn't a valid name
+            (``error`` ``not_a_name``). If the hook returned no mapping, there is one at the node (``not_a_mapping``).
+            If ``@node`` would refuse a field, its ``error`` is the declaration's code, like ``default_invalid``.
     """
 
     def __init__(self, node_id: str, hook: HookName) -> None:
-        """Builds the validator for the hook ``hook`` of the node ``node_id``."""
+        """Builds the validator for one hook of one node.
+
+        Args:
+            node_id: The node's id. The problems name it.
+            hook: Which hook it is.
+        """
         self._node_id = node_id
         self._hook = hook
         self._read_field: type[DeclaredInputValidator | DeclaredOutputValidator] = (
@@ -313,7 +329,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
         )
 
     def __call__(self, returned: Any) -> dict[str, Field]:
-        """Returns the fields the hook returned, by name.
+        """Checks what the hook returned, and returns its fields by name.
 
         Raises:
             InvalidCallError: See the class.
@@ -321,7 +337,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
         try:
             hints = _HOOK_FIELDS.validate_python(returned)
         except ValidationError as invalid:
-            if not invalid.errors()[0]["loc"]:  # the value returned is not a mapping
+            if not invalid.errors()[0]["loc"]:  # no location: not a mapping
                 reason = (
                     f"its {self._hook} hook returned a {type(returned).__name__}; a hook returns its fields by name,"
                     " as a mapping of each name to its type"
@@ -348,7 +364,7 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 hint, default = _hint_and_default(given)
                 fields[name] = self._read_field(name, hint)(default)
             return fields
-        except NodeDeclarationError as error:  # a field @node would refuse is the hook's failure
+        except NodeDeclarationError as error:  # @node would refuse it: the hook failed
             raise InvalidCallError(
                 [
                     compile_problems.compute_hook_failed(
@@ -359,7 +375,10 @@ class HookValidator(Validator[Any, dict[str, Field]]):
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:
-    """Reads what a hook returns for one field: ``(type, default)``, or a type alone, which then has no default."""
+    """Splits what a hook returns for one field into its type and its default.
+
+    A hook gives ``(type, default)``, or a type alone. A type alone has no default, so it gets ``REQUIRED``.
+    """
     if isinstance(given, tuple) and len(given) == 2:
         return given[0], given[1]
     return given, REQUIRED

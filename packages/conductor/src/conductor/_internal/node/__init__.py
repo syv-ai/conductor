@@ -1,10 +1,25 @@
-"""Node definitions: a function, or a graph record, made a node.
+"""Nodes: the building blocks a graph is made of.
 
-``declare.py`` is ``@node`` and ``subgraph()``, which read a function's signature or take a graph record; ``type.py``
-is what they make, ``FunctionDefinition`` and ``SubgraphDefinition``; ``policy.py`` is ``Policy`` and
-``Deprecation``; ``running_calls.py`` is ``RunningCalls``, how many calls of a node are running in the process;
-``describe.py`` is a node as an editor's palette shows it; ``validator.py`` reads what a node's code returns: what its
-function returns (``ReturnValidator``) and what its hooks return (``HookValidator``).
+A node is a step in a graph. Most nodes are a plain Python function under ``@node``. Its typed parameters are the
+node's inputs, and its return type gives its outputs::
+
+    @node("shout", title="Shout", description="Shouts a line.")
+    def shout(line: str, mark: str = "!") -> str:
+        return line.upper() + mark
+
+A node can also be a whole graph record, used as one step in another graph. That is a subgraph, made with
+``subgraph()``.
+
+The package has these parts:
+
+- ``declare.py`` has ``@node`` and ``subgraph()``, which make a node definition.
+- ``type.py`` has what they make, ``FunctionDefinition`` and ``SubgraphDefinition``, and ``Upgrade``, which moves a
+  graph from one version of a node to the next.
+- ``policy.py`` has ``Policy``, how the engine calls a node, and ``Deprecation``, a notice that it is going away.
+- ``running_calls.py`` has ``RunningCalls``, which counts how many calls of a node are running at once.
+- ``describe.py`` has ``NodeDescription``, a node as an editor's palette shows it.
+- ``validator.py`` checks what a node's code returns: ``ReturnValidator`` for the function, and ``HookValidator``
+  for its hooks.
 """
 
 from .declare import node, subgraph
