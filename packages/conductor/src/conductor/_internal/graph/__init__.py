@@ -27,7 +27,7 @@ from .node import (
     CompiledSubgraphNode,
 )
 from .type import Graph
-from .validator import read_limits
+from .validator import LimitsValidator
 
 __all__ = [
     "CollectingInput",
@@ -41,7 +41,7 @@ __all__ = [
     "GraphInput",
     "Input",
     "InputSource",
+    "LimitsValidator",
     "MissingInput",
     "make_graph",
-    "read_limits",
 ]

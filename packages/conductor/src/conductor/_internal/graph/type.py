@@ -55,7 +55,7 @@ from .node import (
     CompiledNode,
     CompiledSubgraphNode,
 )
-from .validator import InputsValidator, read_limits
+from .validator import InputsValidator, LimitsValidator
 
 if TYPE_CHECKING:
     from conductor._internal.run import Run, RunBlueprint, SavedRun
@@ -329,7 +329,7 @@ class Graph[C]:
 
         if self.problems:
             raise InvalidCallError(self.problems)
-        limits = read_limits(max_items=max_items)
+        limits = LimitsValidator()({"max_items": max_items})
         return make_run(
             self, self._inputs_validator({**inputs, **by_name}), limits["max_items"], previous
         )

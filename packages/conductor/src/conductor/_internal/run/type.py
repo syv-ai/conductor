@@ -32,7 +32,7 @@ from conductor._internal.base import (
     Loc,
     NodePath,
 )
-from conductor._internal.graph import Graph, read_limits
+from conductor._internal.graph import Graph, LimitsValidator
 from conductor._internal.problem import InvalidCallError, Problem, call_problems
 
 from .arguments import ResultReader
@@ -155,7 +155,9 @@ class Run[C]:
         Raises:
             InvalidCallError: ``max_items`` is not a whole number of at least 1 (``invalid_limit``).
         """
-        return dataclasses.replace(self, max_items=read_limits(max_items=max_items)["max_items"])
+        return dataclasses.replace(
+            self, max_items=LimitsValidator()({"max_items": max_items})["max_items"]
+        )
 
     def resume(
         self,
@@ -194,7 +196,7 @@ class Run[C]:
                 the registry's ``context_type`` (``invalid_context``), or is ``None`` while a node takes it
                 (``context_missing``).
         """
-        limits = read_limits(timeout=timeout)
+        limits = LimitsValidator()({"timeout": timeout})
         return self._run_scheduler(
             self.graph._context_validator(context),
             None,
@@ -233,7 +235,7 @@ class Run[C]:
             InvalidCallError: As ``resume`` does, and for a ``checkpoint_every`` that is not a number of seconds
                 above 0 (``invalid_limit``), at this call, before any event.
         """
-        limits = read_limits(timeout=timeout, checkpoint_every=checkpoint_every)
+        limits = LimitsValidator()({"timeout": timeout, "checkpoint_every": checkpoint_every})
         run_scheduler = functools.partial(
             self._run_scheduler, only_costs_nothing=only_costs_nothing
         )

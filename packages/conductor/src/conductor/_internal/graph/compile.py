@@ -77,7 +77,7 @@ from .node import (
     RequiredBranch,
 )
 from .type import Definitions, Graph
-from .validator import read_constant
+from .validator import ConstantValidator
 
 _logger = logging.getLogger("conductor")
 
@@ -633,7 +633,7 @@ class Compiler:
                 value = entry.default
             if value is not MISSING:
                 try:
-                    constants[name] = read_constant(node_id, field, value)
+                    constants[name] = ConstantValidator(node_id, field)(value)
                 except InvalidCallError as refused:
                     self.problems += refused.problems
                     constants[name] = _INVALID

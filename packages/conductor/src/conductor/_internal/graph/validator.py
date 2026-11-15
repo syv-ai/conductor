@@ -8,7 +8,7 @@ The inputs. Example: the graph of one node, ``make_graph(shout)``, has the graph
 ``colour``, then ``invalid_input`` for ``line``.
 
 The limits (``max_items``, ``timeout``, ``checkpoint_every``) are the same for every graph, so they are read by
-one function, ``read_limits``. A yes or no is not a number: ``max_items=True`` is refused, as is ``max_items=2.5``.
+one validator, ``LimitsValidator``, built with nothing. A yes or no is not a number: ``max_items=True`` is refused, as is ``max_items=2.5``.
 
 The constants, read by their input's type when the graph is compiled. Example: ``shout(line: str, mark: str = "!")``
 with ``{"node": "shout", "inputs": {"mark": {"constant": "?"}}}`` gets ``"?"`` on every call.
@@ -164,7 +164,7 @@ def _input_schema(field: Field) -> TypedDictField:
 
 
 class Limits(TypedDict):
-    """A run's limits as ``read_limits`` returns them: ``None`` for a limit the caller did not give."""
+    """A run's limits as ``LimitsValidator`` returns them: ``None`` for a limit the caller did not give."""
 
     max_items: int | None
     timeout: float | None
@@ -193,56 +193,77 @@ _LIMITS = SchemaValidator(
 )
 
 
-def read_limits(
-    *, max_items: Any = None, timeout: Any = None, checkpoint_every: Any = None
-) -> Limits:
+class LimitsValidator(Validator[Mapping[str, Any], Limits]):
     """Reads the limits a caller gives a run, and returns them as the run keeps them: ``timeout`` and
     ``checkpoint_every`` as a ``float``, so ``timeout=Decimal("1.5")`` is ``1.5``.
 
     ``max_items`` is a whole number of at least 1. ``timeout`` and ``checkpoint_every`` are seconds, finite and
-    above 0. A yes or no is none of these. ``None`` is a limit the caller did not give. ``read_limits(max_items=0)``
-    raises.
+    above 0. A yes or no is none of these. ``LimitsValidator()({"max_items": 0})`` raises.
 
-    Raises:
+    Raises (when called):
         InvalidCallError: With an ``invalid_limit`` for each limit refused, in the order above, which quotes the value
             given; its variant ``seconds`` for ``timeout`` and ``checkpoint_every``.
     """
-    given = {"max_items": max_items, "timeout": timeout, "checkpoint_every": checkpoint_every}
-    try:
-        return cast(Limits, _LIMITS.validate_python(given))
-    except ValidationError as error:
-        refused = dict.fromkeys(str(e["loc"][0]) for e in error.errors())
-        raise InvalidCallError(
-            [
-                (
-                    call_problems.invalid_limit
-                    if name == "max_items"
-                    else call_problems.invalid_limit_seconds
-                )(name, value=given[name])
-                for name in refused
-            ]
-        ) from None
+
+    def __call__(self, limits: Mapping[str, Any]) -> Limits:
+        """Returns the limits the caller gave, by name; a limit left out, or ``None``, is one it did not give.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        given = {
+            "max_items": limits.get("max_items"),
+            "timeout": limits.get("timeout"),
+            "checkpoint_every": limits.get("checkpoint_every"),
+        }
+        try:
+            return cast(Limits, _LIMITS.validate_python(given))
+        except ValidationError as error:
+            refused = dict.fromkeys(str(e["loc"][0]) for e in error.errors())
+            raise InvalidCallError(
+                [
+                    (
+                        call_problems.invalid_limit
+                        if name == "max_items"
+                        else call_problems.invalid_limit_seconds
+                    )(name, value=given[name])
+                    for name in refused
+                ]
+            ) from None
 
 
-def read_constant(node_id: str, field: Field, value: JsonValue) -> Any:
-    """Returns ``value``, the constant or graph input's default the graph record gives the input ``field`` of the node ``node_id``,
-    read by the input's type.
+class ConstantValidator(Validator[JsonValue, Any]):
+    """Reads a constant, or a graph input's default, that the graph record gives one input of a node, by the input's
+    type.
 
-    Raises:
+    Raises (when called):
         InvalidCallError: The type refuses the value: one ``invalid_value`` problem at ``(node_id, input)``.
     """
-    try:
-        return schema_validator_of(field.whole).validate_python(value)
-    except ValidationError as error:
-        refused = field.whole.refusal(error)
-        raise InvalidCallError(
-            [
-                compile_problems.invalid_value(
-                    node_id,
-                    field.name,
-                    reason=refused.reason,
-                    errors=refused.errors,
-                    column=refused.column,
-                )
-            ]
-        ) from None
+
+    def __init__(self, node_id: str, field: Field) -> None:
+        """Builds the validator for the input ``field`` of the node ``node_id``."""
+        self._node_id = node_id
+        self._field = field
+
+    def __call__(self, value: JsonValue) -> Any:
+        """Returns ``value`` read by the input's type.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        field = self._field
+        try:
+            return schema_validator_of(field.whole).validate_python(value)
+        except ValidationError as error:
+            refused = field.whole.refusal(error)
+            raise InvalidCallError(
+                [
+                    compile_problems.invalid_value(
+                        self._node_id,
+                        field.name,
+                        reason=refused.reason,
+                        errors=refused.errors,
+                        column=refused.column,
+                    )
+                ]
+            ) from None
