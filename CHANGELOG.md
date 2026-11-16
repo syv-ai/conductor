@@ -470,6 +470,7 @@ What changes in how you work, before the name-by-name tables:
   A saved run's `reusable` entry for a node that never asks writes its two maps as they are: an outcome per
   fingerprint, then an outcome per call with its `item_indexes`, so an outcome may be written twice. A run read
   back reuses what the same run in memory does.
+- **`Policy` refuses a keyword it doesn't have.** `Policy(retries=3, timeout=0.2)` raises pydantic's `ValidationError` (`unexpected_keyword_argument`), as a value of the wrong type does; it made a policy with no timeout, and a node that ran without one.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

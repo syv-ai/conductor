@@ -407,6 +407,13 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
     )  # a whole number of seconds is a number
 
 
+def test_a_keyword_a_policy_does_not_have_is_refused():
+    """A misspelt setting raises, as Param, Ask and @node do, instead of leaving a node without it."""
+    for wrong in ({"timeout": 0.2}, {"retry": 3}, {"max_retries": 5}):
+        with pytest.raises(ValidationError, match="Unexpected keyword argument"):
+            Policy(**wrong)
+
+
 @pytest.mark.parametrize("listened", [False, True])
 def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened: bool, caplog):
     """One scheduler, with or without a listener: the failure a retry follows goes to the log either way."""

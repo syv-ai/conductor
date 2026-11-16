@@ -21,7 +21,7 @@ from conductor._internal.base import ConductorModel
 LONGEST_WAIT: Final = threading.TIMEOUT_MAX
 
 
-@dataclass(frozen=True, config=ConfigDict(strict=True))
+@dataclass(frozen=True, config=ConfigDict(strict=True, extra="forbid"))
 class Policy:
     """How the engine calls a node, as its author sets it.
 
@@ -44,7 +44,8 @@ class Policy:
     see how many calls the costly nodes will make before any of them runs.
 
     Only a function node has a policy. A subgraph is never called itself, and each node inside it has its own. The
-    values are checked strictly when the policy is made, so ``1`` isn't a yes or no. The full rules are in the
+    values are checked strictly when the policy is made, so ``1`` isn't a yes or no, and a keyword it
+    doesn't have, like ``timeout``, is refused. The full rules are in the
     reference: ``python -m conductor.about versions-and-policies`` and ``retries-and-timeouts``.
 
     Attributes:
