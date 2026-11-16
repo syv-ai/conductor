@@ -9,6 +9,9 @@ one could ever pick ``1`` or ``2``. The ``Ask`` is refused with ``invalid_ask``.
 ``approve(line: str) -> bool`` is waiting. The answer ``True`` gives the outputs ``{"result": True}``. The answer
 ``"yes"`` is refused with ``invalid_answer``, since a yes or no is ``True`` or ``False``, not a word that means one.
 
+``KeptAnswerValidator`` runs when a host keeps an answer to give a run later, before the question is known. It only
+checks that the answer can be written as JSON, and converts it to JSON data.
+
 ``DeclineValidator`` runs when a person declines with ``run.decline``. Its reason is text, or ``None`` for none, so
 ``reason=123`` is refused with ``invalid_answer``, variant ``reason``.
 
@@ -30,7 +33,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import REQUIRED, SKIPPED, Loc, validate_as_json
+from conductor._internal.base import REQUIRED, SKIPPED, Loc, plain_json, validate_as_json
 from conductor._internal.field import Field, branches_given
 from conductor._internal.problem import (
     InvalidCallError,
@@ -393,11 +396,59 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
             schema_output_validator_of(value_type), value, fallback=untyped_as_json
         )
     except PydanticSerializationError:
-        raise conductor_error("no_json_form", "the value can't be written as JSON") from None
+        raise _no_json_form() from None
     except PydanticCustomError as refused:  # a table with a column a saved run can't keep as it is
         raise conductor_error("not_its_type", refused.message()) from None
     except ValidationError as error:
         raise conductor_error("not_its_type", value_type.refusal(error).reason) from None
+
+
+def _no_json_form() -> PydanticCustomError:
+    """The refusal of an answer that can't be written as JSON, such as a ``str`` with a lone surrogate."""
+    return conductor_error("no_json_form", "the value can't be written as JSON")
+
+
+class KeptAnswerValidator(Validator[Any, JsonValue]):
+    """A validator for an answer a host keeps, to give a run later.
+
+    A server can't give a run an answer while the run is running, so it keeps the answer until the run stops. It
+    doesn't know the question yet, so it can't check the answer by the question's type. But it must write the
+    answer as JSON to keep it, so this checks that much now, and converts the answer to JSON data. ``run.answer``
+    checks the rest when the run is given it.
+
+    A ``date`` is kept as ``"2026-11-15"``, and a ``polars.DataFrame`` as its columns. A ``str`` with a lone surrogate
+    is refused, as ``run.answer`` refuses it.
+
+    Raises (when called):
+        InvalidCallError: One ``invalid_answer`` problem, the one ``run.answer`` gives an answer JSON can't write.
+    """
+
+    def __init__(self, *, loc: Loc, waiting_id: str) -> None:
+        """Builds the validator for an answer to one waiting call.
+
+        Args:
+            loc: The call the waiting id names. The problem names it.
+            waiting_id: The id the answer was given for. The problem names it too.
+        """
+        self._loc = loc
+        self._waiting_id = waiting_id
+
+    def __call__(self, answer: Any) -> JsonValue:
+        """Checks ``answer`` and returns it as JSON data.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        try:
+            return plain_json(answer, fallback=untyped_as_json)
+        except PydanticSerializationError:
+            raise InvalidCallError(
+                [
+                    call_problems.invalid_answer(
+                        *self._loc, waiting_id=self._waiting_id, reason=_no_json_form().message()
+                    )
+                ]
+            ) from None
 
 
 #: Checks a decline's reason: a ``str``, or ``None``.

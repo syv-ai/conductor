@@ -140,8 +140,19 @@ class RunState(BaseModel):
         return declined
 
     def with_queued(self, entry: Mapping[str, Any] | Decline) -> RunState:
-        """This state with one more call's answers, or a decline, queued after what was queued before."""
-        added = entry if isinstance(entry, Decline) else QueuedAnswers(answers=dict(entry))
+        """This state with one more call's answers, or a decline, queued after what was queued before.
+
+        The answers are queued as JSON data, so the state can be written. ``Run.answers_to_keep`` converts them and
+        refuses what JSON can't write, as the run would.
+
+        Raises:
+            InvalidCallError: An answer or the decline's reason can't be written as JSON (``invalid_answer``).
+        """
+        if isinstance(entry, Decline):
+            Run.answers_to_keep(declines={entry.waiting_id: entry.reason})
+            added: QueuedAnswers | Decline = entry
+        else:
+            added = QueuedAnswers(answers=Run.answers_to_keep(entry))
         return self.model_copy(update={"queued": [*self.queued, added]})
 
     def asked_to_stop(self) -> RunState:

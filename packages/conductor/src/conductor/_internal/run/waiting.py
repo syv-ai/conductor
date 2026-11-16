@@ -161,27 +161,32 @@ def read_waiting_id(
         The call's loc, its node path, its item indexes, and the fingerprint.
 
     Raises:
-        InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. When the
-            text after an ``@`` isn't a whole number, the problem's loc ends at the node that index belongs to.
+        InvalidCallError: ``not_waiting`` if the id isn't one ``write_waiting_id`` could have written. Its loc is
+            ``named_loc``'s.
     """
-    place, _, fingerprint = waiting_id.partition("~")
-    loc: list[str | int] = []
-    node_path: list[str] = []
-    item_indexes: list[int] = []
-    for part in place.split("/"):
-        node_id, *indexes = part.split("@")
-        node_path.append(node_id)
-        try:
-            read = [int(index) for index in indexes]
-        except ValueError:
-            raise InvalidCallError(
-                [call_problems.not_waiting(*loc, node_id, waiting_id=waiting_id, status=status())]
-            ) from None
-        loc += [node_id, *read]
-        item_indexes += read
-    read_fingerprint = fingerprint or None
-    if write_waiting_id(tuple(loc), read_fingerprint) != waiting_id:
+    loc, fingerprint = named_loc(waiting_id), waiting_id.partition("~")[2] or None
+    if write_waiting_id(loc, fingerprint) != waiting_id:
         raise InvalidCallError(
             [call_problems.not_waiting(*loc, waiting_id=waiting_id, status=status())]
         )
-    return tuple(loc), tuple(node_path), tuple(item_indexes), read_fingerprint
+    node_path = tuple(part for part in loc if isinstance(part, str))
+    item_indexes = tuple(part for part in loc if isinstance(part, int))
+    return loc, node_path, item_indexes, fingerprint
+
+
+def named_loc(waiting_id: str) -> Loc:
+    """Returns the call a waiting id names, as a ``Problem``'s ``loc``, whether or not the id is a right one.
+
+    ``"review@0/approve@1~3fa2c0d1"`` names ``("review", 0, "approve", 1)``. When the text after an ``@`` isn't a
+    whole number, the loc ends at the node that index belongs to: ``"approve@x"`` names ``("approve",)``.
+    """
+    place, _, _ = waiting_id.partition("~")
+    loc: list[str | int] = []
+    for part in place.split("/"):
+        node_id, *indexes = part.split("@")
+        loc.append(node_id)
+        try:
+            loc += [int(index) for index in indexes]
+        except ValueError:
+            break
+    return tuple(loc)

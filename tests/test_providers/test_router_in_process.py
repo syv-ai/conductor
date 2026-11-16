@@ -421,6 +421,47 @@ async def test_a_view_shows_no_queued_answer_nor_a_cancel_asked() -> None:
     assert set(app.openapi()["components"]["schemas"]["RunView"]["properties"]) == fields
 
 
+async def test_an_answer_or_a_reason_json_cant_write_is_the_same_422_whether_or_not_the_run_runs() -> (
+    None
+):
+    registry, graph, gate, inputs, waiting_id = asking()
+    store = MemoryStore()
+    app = _app(store=store, registry=lambda _: registry)
+    # Valid JSON for a str with a lone surrogate, which no JSON writer can write back.
+    answer, decline = (
+        '{"%s": "\\ud800"}' % waiting_id,
+        '{"waiting_id": "%s", "reason": "\\ud800"}' % waiting_id,
+    )
+
+    async def refusals(run_id: str) -> list[tuple[int, Any]]:
+        sent = [
+            await client.post(
+                f"/runs/{run_id}/{route}",
+                content=body,
+                headers={"content-type": "application/json"},
+            )
+            for route, body in (("answers", answer), ("declines", decline))
+        ]
+        return [(response.status_code, response.json()) for response in sent]
+
+    async with _serving(app) as client:
+        run_id = (
+            await client.post(
+                "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
+            )
+        ).json()["id"]
+        while_running = await refusals(run_id)
+        gate.set()
+        await store.ended(run_id)
+        stopped = await refusals(run_id)
+
+    assert while_running == stopped
+    assert [(status, body["detail"][0]["type"]) for status, body in stopped] == [
+        (422, "invalid_answer"),
+        (422, "invalid_answer"),
+    ]
+
+
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_next_resume_call() -> (
     None
 ):

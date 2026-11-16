@@ -294,7 +294,8 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or the run refuses an answer; every answer it
-                refuses is listed.
+                refuses is listed. While the run is running, only an answer JSON can't write is refused now
+                (``invalid_answer``), as the run would refuse it; the rest are checked when the run is given them.
             RuntimeError: The run is not running, so the answers would resume it, and the worker has never served.
         """
         row = await self._row(run_id, allows)
@@ -351,11 +352,9 @@ class Worker(Generic[M, X]):
         Raises:
             ValidationError: ``reason`` isn't a ``str`` or ``None``, such as ``b"no"``. It is raised before the run
                 is read.
-            InvalidCallError: No run has the id (``no_such_run``). Or the run isn't running, and refuses the
-                decline: ``not_waiting``, ``answer_stale``, or ``invalid_answer``, variant ``reason``, for a ``str``
-                JSON can't write, such as one with a lone surrogate.
-            PydanticSerializationError: The run is running, and ``reason`` is a ``str`` JSON can't write, so the
-                decline can't be queued in the row's state.
+            InvalidCallError: No run has the id (``no_such_run``). Or ``reason`` is a ``str`` JSON can't write, such
+                as one with a lone surrogate (``invalid_answer``, variant ``reason``), whether the run is running or
+                not. Or the run isn't running, and refuses the decline: ``not_waiting`` or ``answer_stale``.
             RuntimeError: The run is not running, so the decline would be claimed, and the worker has never served.
 
             Nothing is written when any of these is raised.

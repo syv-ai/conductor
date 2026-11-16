@@ -26,6 +26,7 @@ from conductor import (
     NodeError,
     NodeRegistry,
     Policy,
+    Problem,
     Run,
     Series,
     Table,
@@ -34,7 +35,7 @@ from conductor import (
 )
 from conductor_providers.fastapi import RunChanges, StoredRun, Worker
 from pydantic import GetCoreSchemaHandler, ValidationError
-from pydantic_core import PydanticSerializationError, core_schema
+from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
 
 from tests.test_providers.in_memory import (
@@ -1000,36 +1001,86 @@ async def test_a_decline_sent_while_another_call_runs_ends_the_runs_events_with_
     )
 
 
-async def test_a_reason_a_decline_cant_keep_raises_and_writes_nothing_whether_or_not_the_run_runs() -> (
+async def test_an_answer_or_a_reason_json_cant_write_is_refused_alike_whether_or_not_the_run_runs() -> (
     None
 ):
     """A reason that isn't a ``str`` is refused before the run is read, as the declines body refuses it.
 
-    A ``str`` JSON can't write is refused by the run when it isn't running (``invalid_answer``). On a running run it
-    can't be queued, since the row's state can't be written, so it raises ``PydanticSerializationError``. Either way
-    the row is as it was.
+    An answer or a reason JSON can't write is refused with the problem the run gives it, whether the run is running
+    (and the answer would be queued) or not. Either way the row is as it was.
     """
     registry, graph, gate, inputs, waiting_id = asking()
     store = MemoryStore()
     worker = _worker(store, registry)
+
+    async def refusals(run_id: str) -> list[list[Problem]]:
+        refused = []
+        before = store.rows[run_id]
+        for sent in (
+            worker.answer(run_id, {waiting_id: "\ud800"}, allows=EVERY_RUN),
+            worker.decline(run_id, waiting_id, reason="\ud800", allows=EVERY_RUN),
+        ):
+            with pytest.raises(InvalidCallError) as refusal:
+                await sent
+            refused.append(refusal.value.problems)
+        assert store.rows[run_id] == before
+        return refused
+
     async with worker.serving():
         running = await _started(worker, graph, inputs)
-        before = store.rows[running]
         with pytest.raises(ValidationError):
             await worker.decline(running, waiting_id, reason=b"no", allows=EVERY_RUN)  # type: ignore[arg-type]
-        with pytest.raises(PydanticSerializationError):
-            await worker.decline(running, waiting_id, reason="\ud800", allows=EVERY_RUN)
-        assert store.rows[running] == before
+        while_running = await refusals(running)
         gate.set()
         await store.ended(running)
-        waiting = store.rows[running]
-        with pytest.raises(InvalidCallError) as refused:
-            await worker.decline(running, waiting_id, reason="\ud800", allows=EVERY_RUN)
-        assert store.rows[running] == waiting
+        stopped = await refusals(running)
 
-    assert [(problem.type, problem.ctx["variant"]) for problem in refused.value.problems] == [
-        ("invalid_answer", "reason")
+    assert while_running == stopped
+    assert [
+        [(problem.type, problem.ctx.get("variant")) for problem in each] for each in stopped
+    ] == [
+        [("invalid_answer", None)],
+        [("invalid_answer", "reason")],
     ]
+
+
+async def test_an_answer_pydantic_cant_write_itself_is_queued_as_its_json_and_taken_when_the_run_stops() -> (
+    None
+):
+    registry, gate = NodeRegistry(), ThreadEvent()
+
+    @registry.node("busy", title="Busy", description="For a test.")
+    def busy(text: str) -> str:
+        gate.wait(5)
+        return text
+
+    @registry.node("parts", title="Parts", description="For a test.", asks=True)
+    def parts(question: str) -> Table[Part]:
+        raise Ask("Which parts?")
+
+    graph = make_graph(
+        busy, parts, edges=[], outputs={"busy": "busy.result", "parts": "parts.result"}
+    )
+    inputs = {"text": "x", "question": "y"}
+    gate.set()
+    (waiting,) = Graph.compile(graph, registry).run(inputs).waiting
+    gate.clear()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        answer = pl.DataFrame({"text": ["bolt", "nut"]})
+        await worker.answer(run_id, {waiting.id: answer}, allows=EVERY_RUN)
+        gate.set()
+        ended = await store.ended(run_id)
+
+    assert (ended.status, ended.outputs) == (
+        "complete",
+        {
+            "busy": "x",
+            "parts": {"columns": [{"name": "text", "type": "str", "values": ["bolt", "nut"]}]},
+        },
+    )
 
 
 async def test_a_decline_to_a_complete_run_is_not_waiting_and_to_a_stale_id_answer_stale() -> None:

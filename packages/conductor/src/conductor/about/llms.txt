@@ -728,6 +728,8 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - A saved run holds it as it holds a failed call. The next `resume()` calls the node again, so it asks again, under the same id while its inputs and code are the same.
 - An id is read by the rules `run.answer` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
 
+**Keeping answers for later.** A host that keeps answers or declines to give a run later, such as a server whose run is still running, keeps them as JSON. `Run.answers_to_keep(answers, declines={waiting_id: reason})` returns the answers as JSON data (a `date` as its ISO text, a `polars.DataFrame` as its columns), which `run.answer` reads as it reads the answers themselves. It refuses at once, with the problems `run.answer` and `run.decline` give, what they refuse whatever the question: an answer JSON can't write (`invalid_answer`) and a reason that isn't text JSON can write (`invalid_answer`, variant `reason`). Each problem's `loc` is the call its waiting id names. The rest is checked when the run is given them. It is provisional.
+
 ### Context
 
 The run's context is one object the host passes for a run. It carries what many nodes need but no edge brings, such as the person running the graph or an HTTP client.
@@ -1226,7 +1228,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 **Answers.**
 
 - An answer to a run that isn't running is given to it as `run.answer` does, whatever its status, and the run is resumed.
-- Answers sent while a run is running are queued, each mapping as one call sent it. They are given to the run one waiting id at a time, when its resume call ends.
+- Answers sent while a run is running are queued, each mapping as one call sent it, as JSON data. They are given to the run one waiting id at a time, when its resume call ends. An answer JSON can't write is refused at once, with the `invalid_answer` `run.answer` gives it, running or not (a 422), and so is a decline's reason JSON can't write.
 - An answer the run refuses goes to `refused`, by waiting id. One it takes clears what `refused` had. So `refused` says what became of the last answer to each question.
 - A second answer to a question the first answered is conductor's `not_waiting`, and so is an answer to a complete run (a 422).
 

@@ -26,7 +26,9 @@ from threading import Event as ThreadEvent
 from types import MappingProxyType
 from typing import Any, Literal, assert_never, overload
 
-from conductor._internal.ask import AnswerValidator, DeclineValidator
+from pydantic import JsonValue
+
+from conductor._internal.ask import AnswerValidator, DeclineValidator, KeptAnswerValidator
 from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
@@ -64,6 +66,7 @@ from .state import EndedEarly, LastResume, RunStatus, deadline, kept_by_an_answe
 from .stream import stream
 from .waiting import (
     Waiting,
+    named_loc,
     question_fingerprint,
     read_waiting_id,
     waiting_record,
@@ -486,6 +489,54 @@ class Run[C]:
             if indexes != item_indexes
         }
         return run
+
+    @staticmethod
+    def answers_to_keep(
+        answers: Mapping[str, Any] = MappingProxyType({}),
+        /,
+        *,
+        declines: Mapping[str, Any] = MappingProxyType({}),
+    ) -> dict[str, JsonValue]:
+        """Checks answers and declines a host keeps to give a run later, and returns the answers as JSON data.
+
+        A server can't give a running run an answer or a decline, so it keeps them, as JSON, until the run stops.
+        This checks now what ``run.answer`` and ``run.decline`` refuse whatever question the id names: an answer
+        JSON can't write, and a reason that isn't text JSON can write. They are refused with the problems those
+        two give, so the host refuses a request the same way whether the run is running or not. The rest, such as
+        an answer of the wrong type, is checked when the run is given them.
+
+        It is provisional: the name and shape may change before 2.0.
+
+        Args:
+            answers: Answers by waiting id, as ``run.answer`` takes them.
+            declines: Reasons by waiting id, as ``run.decline`` takes them.
+
+        Returns:
+            The answers by waiting id, each as JSON data: a ``date`` as its ISO text, a ``polars.DataFrame`` as its
+            columns. ``run.answer`` reads it as it reads the answer itself.
+
+        Raises:
+            InvalidCallError: Every refusal at once, each at the call its waiting id names. ``invalid_answer`` for
+                an answer JSON can't write, such as a ``str`` with a lone surrogate. ``invalid_answer``, variant
+                ``reason``, for a reason that isn't a ``str`` JSON can write, or ``None``.
+        """
+        problems: list[Problem] = []
+        kept: dict[str, JsonValue] = {}
+        for waiting_id, answer in answers.items():
+            try:
+                kept[waiting_id] = KeptAnswerValidator(
+                    loc=named_loc(waiting_id), waiting_id=waiting_id
+                )(answer)
+            except InvalidCallError as refused:
+                problems.extend(refused.problems)
+        for waiting_id, reason in declines.items():
+            try:
+                DeclineValidator(loc=named_loc(waiting_id), waiting_id=waiting_id)(reason)
+            except InvalidCallError as refused:
+                problems.extend(refused.problems)
+        if problems:
+            raise InvalidCallError(problems)
+        return kept
 
     def _waiting_call(
         self, waiting_id: str, status: Callable[[], RunStatus]

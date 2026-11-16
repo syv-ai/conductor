@@ -2422,6 +2422,30 @@ def test_a_decline_whose_reason_isnt_text_is_refused_and_the_run_is_left_as_it_w
     assert (run.status, [w.id for w in run.waiting]) == ("waiting", [waiting.id])
 
 
+# -- answers kept to give a run later ------------------------------------------------------------------
+
+
+def test_answers_kept_for_later_are_refused_as_the_run_refuses_them_and_the_rest_are_read_back_alike():
+    run = _approve_then_pay().run(text="A:900")
+    (waiting,) = run.waiting
+    kept = Run.answers_to_keep({waiting.id: True, "approval@0": datetime.date(2026, 11, 15)})
+    assert json.loads(json.dumps(kept)) == {waiting.id: True, "approval@0": "2026-11-15"}
+    assert run.answer({waiting.id: kept[waiting.id]}).resume().outputs == {"result": "paid A"}
+
+    refused = _refused(
+        lambda: Run.answers_to_keep(
+            {waiting.id: "\ud800", "approval@x/pay": object()}, declines={waiting.id: "\ud800"}
+        )
+    )
+    by_the_run = [
+        *_refused(lambda: run.answer({waiting.id: "\ud800"})),
+        *_refused(lambda: run.decline(waiting, reason="\ud800")),
+    ]
+    assert refused[0] == by_the_run[0] and refused[2] == by_the_run[1]
+    # An id that names no call is refused at the call it names, as not_waiting would name it.
+    assert (refused[1].type, refused[1].loc) == ("invalid_answer", ("approval",))
+
+
 # -- with_inputs reuses the answer ---------------------------------------------------------------------
 
 
