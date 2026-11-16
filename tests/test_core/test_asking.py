@@ -2441,3 +2441,53 @@ def test_approval_and_pay_as_a_subgraph_is_one_node_that_waits_where_approval_as
     (waiting,) = run.waiting
     assert waiting.loc == ("approve_and_pay", 1, "approval") and waiting.prompt == "Pay B?"
     assert run.answer(waiting, True).resume().outputs == {"result": "paid A; paid B"}
+
+
+def test_results_show_one_none_per_item_of_a_branch_inside_a_loop_while_a_question_outside_waits():
+    @node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node("gate", title="Gate", description="For a test.", asks=True)
+    def gate(text: str) -> str:
+        raise Ask("Which mark?")
+
+    @dataclass(frozen=True)
+    class Picked:
+        yes: Annotated[str, Param(exclusive_group="pick")] = SKIPPED
+        no: Annotated[str, Param(exclusive_group="pick")] = SKIPPED
+
+    @node("pick", title="Pick", description="For a test.")
+    def pick(line: str, mark: str) -> Picked:
+        return Picked(yes=line + mark) if line == "a" else Picked(no=line)
+
+    @node("loud", title="Loud", description="For a test.")
+    def loud(line: str) -> str:
+        return line.upper()
+
+    def edge(node_id: str, output: str) -> dict[str, Any]:
+        return {"sources": [{"node": node_id, "output": output}]}
+
+    record = {
+        "nodes": {
+            "lines": {"node": "lines", "inputs": {"text": {"graph_input": "text"}}},
+            "gate": {"node": "gate", "inputs": {"text": {"graph_input": "text"}}},
+            "pick": {
+                "node": "pick",
+                "inputs": {"line": edge("lines", "result"), "mark": edge("gate", "result")},
+            },
+            "loud": {"node": "loud", "inputs": {"line": edge("pick", "yes")}},
+        },
+        "outputs": {"result": {"node": "loud", "output": "result"}},
+    }
+    graph = Graph.compile(json.dumps(record), registry_of(lines, gate, pick, loud))
+
+    waiting = graph.run(text="a,b")
+
+    assert waiting.status == "waiting"
+    assert {name: waiting.results[name] for name in ("pick", "loud")} == {
+        "pick": {"yes": [None, None], "no": [None, None]},
+        "loud": {"result": [None, None]},
+    }
+    answered = waiting.answer(waiting.waiting[0], "!").resume()
+    assert answered.results["loud"] == {"result": ["A!", None]}

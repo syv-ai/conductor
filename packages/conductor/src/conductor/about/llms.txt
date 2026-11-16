@@ -1029,6 +1029,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 - A node that runs once has one value.
 - A node that runs per item has what a `Series` input wired to it would be given: a list in item order, with `None` where an item has no value or no outcome yet, and `[]` for a series returned with no items.
 - Where no item could have a value, because the series was never returned, the list is `None`. That is when there was a `None` outside the loop, or a branch not chosen. Until the series is returned there is nothing so far, which is `None` too.
+- A value outside the loop that isn't there yet, such as a question still waiting, is no `None`. Once the series is returned, each item shows `None` until its call has an outcome, a branch's outputs too.
 - So a host tells "nothing was tried" (`None`) from "tried, and none" (`[]`).
 - A node called per item of a list that is itself made per item shows a list of lists. An outer item whose inner list was never made is `None`. Say three documents are split into lines, and the second document is `None`, so it is never split. Then the lines show `[["A", "B"], None, ["C"]]`. An empty second document shows `[["A", "B"], [], ["C"]]`. `outputs_to_json` writes the same shape.
 

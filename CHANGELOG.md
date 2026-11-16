@@ -405,6 +405,10 @@ What changes in how you work, before the name-by-name tables:
 - **A saved run is held to each output's type as a node's return is.** `Run.from_json` refuses a `null` item in a
   `Series[str]` that `skipped_items` doesn't list (`saved_run_unreadable` at `outcomes.<node>`). It read it back as a
   `None` item, though a node that returns such a list fails with `invalid_output`.
+- **`run.results` shows a loop's items while a question outside it waits.** A node called per item of a returned
+  series, with an input from a call outside the loop that waits for a person or hasn't returned, shows one `None`
+  per item, as the reference says. An output of an `exclusive_group` there, and every node reading one, showed
+  `None` in place of the list, as if the branch were not chosen.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

@@ -16,7 +16,7 @@ from conductor._internal.graph import CollectingInput
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
-from .arguments import ResultReader
+from .arguments import MAY_HAVE_VALUE, ResultReader
 from .blueprint import BlueprintFunctionNode
 from .outcome import NotReady
 
@@ -50,10 +50,9 @@ def outputs_of(run: Run[Any]) -> dict[str, Any]:
 class DisplayReader(ResultReader):
     """Reads a run's outputs for a host, for ``run.results`` and ``run.outputs``, whatever the run's status.
 
-    It is a ``ResultReader`` that never says "not ready". Where a ``ResultReader`` returns ``NOT_READY``, because a
-    call hasn't returned or waits for a person, this reader returns ``None``. So a host is shown the values so far.
-    In the example, while ``shout`` has only returned for the first line, ``results["shout"]["result"]`` is
-    ``["A!", None]``.
+    It is a ``ResultReader`` whose ``display_value`` never says "not ready". Where a call hasn't returned or waits
+    for a person, it shows ``None``. So a host is shown the values so far. In the example, while ``shout`` has
+    only returned for the first line, ``results["shout"]["result"]`` is ``["A!", None]``.
 
     An edge can name one field of a record (``give.result.name``). If the record has no such field, the node the
     edge leads to fails, and the run ends ``failed`` with that as its cause. Showing the run afterwards mustn't
@@ -73,8 +72,10 @@ class DisplayReader(ResultReader):
     ) -> Any:
         """Returns what ``ResultReader.read_output`` returns, as a host is shown it.
 
-        A value that isn't there yet is ``None``, and so is a field the record doesn't have. A ``Series`` output is a
-        plain list of its items.
+        A field the record doesn't have is ``None``. A ``Series`` output is a plain list of its items. A value that
+        isn't there yet stays ``NOT_READY``, so that working out whether any item of a loop may have a value goes as
+        it does for a call: a question still waiting upstream is not a ``None``. ``display_value`` shows it as
+        ``None``.
         """
         try:
             value = ResultReader.read_output(
@@ -82,22 +83,7 @@ class DisplayReader(ResultReader):
             )
         except NoSuchFieldError:
             return None
-        if value is NotReady.NOT_READY:
-            return None
         return value.as_list() if isinstance(value, StoredSeries) else value
-
-    def _list_looped_over(
-        self,
-        loop: tuple[NodePath, str],
-        for_any_item: Any,
-        keeps_none_items: bool,
-        item_indexes: ItemIndexes,
-    ) -> Any:
-        """Returns what ``ResultReader._list_looped_over`` returns, but ``None`` while the list hasn't been made."""
-        looped_over = ResultReader._list_looped_over(
-            self, loop, for_any_item, keeps_none_items, item_indexes
-        )
-        return None if looped_over is NotReady.NOT_READY else looped_over
 
     def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input would get for the call at ``item_indexes``.
@@ -133,15 +119,17 @@ class DisplayReader(ResultReader):
         node, depth = self.function_nodes[node_path], len(item_indexes)
         if depth == len(node.loops):  # one call, so show what it returned
             value = self.read_output(node, output, item_indexes, None, one_item=False)
-            return None if value is SKIPPED else value
+            return None if value is SKIPPED or value is NotReady.NOT_READY else value
         loop = node.loops[depth]
         for_any_item = self._for_any_item_of(loop, [node], item_indexes).read_output(
             node, output, item_indexes, None, one_item=False
         )
-        looped_over = self._list_looped_over(
-            loop, for_any_item, True, item_indexes
-        )  # a host is shown None for an item with no value
-        if looped_over is None or looped_over is SKIPPED:
+        # Not known yet, as while a question upstream waits: the list made so far is shown, one None per item.
+        if for_any_item is NotReady.NOT_READY:
+            for_any_item = MAY_HAVE_VALUE
+        # a host is shown None for an item with no value
+        looped_over = self._list_looped_over(loop, for_any_item, True, item_indexes)
+        if looped_over is None or looped_over is SKIPPED or looped_over is NotReady.NOT_READY:
             return None
         return [
             self.display_value(node_path, output, (*item_indexes, index))
