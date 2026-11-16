@@ -8,6 +8,7 @@ node's lists are as long as its number of calls.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any, assert_never
 
@@ -62,10 +63,19 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
         first = error.errors()[0]
         # the fingerprint under "graph" is not this graph's
         if first["type"] == "literal_error" and first["loc"] == ("graph",):
+            saved_graph = first["input"]
+            # quoted only when it has a fingerprint's form, since a hand-edited save may hold any value there
+            is_fingerprint = (
+                isinstance(saved_graph, str)
+                and len(saved_graph) == len(graph.fingerprint)
+                and re.fullmatch("[0-9a-f]+", saved_graph) is not None
+            )
             raise InvalidCallError(
                 [
                     call_problems.saved_run_of_another_graph(
-                        "saved_run", saved=first["input"], graph=graph.fingerprint
+                        "saved_run",
+                        graph=graph.fingerprint,
+                        saved=saved_graph if is_fingerprint else None,
                     )
                 ]
             ) from None

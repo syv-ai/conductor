@@ -1331,6 +1331,34 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
     )
 
 
+def test_a_hooks_own_exception_text_goes_to_the_log_and_never_into_its_problem(caplog):
+    """A hook's exception other than a ``NodeError`` is ``compute_hook_failed`` with the variant ``raised``.
+
+    The problem has only the exception's class, since its text might quote a value. The text goes to the log.
+    """
+
+    def leaks() -> dict[str, Any]:
+        raise ValueError("the secret is 42")
+
+    with caplog.at_level(logging.ERROR, logger="conductor"):
+        [problem] = _computing(leaks).problems
+    assert (problem.type, problem.ctx) == (
+        "compute_hook_failed",
+        {"error": "ValueError", "variant": "raised"},
+    )
+    assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
+
+
+def test_a_field_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its_default():
+    """A default ``@node`` would refuse makes ``compute_hook_failed`` with the declaration's code.
+
+    The declaration's own message quotes the default, a value, so the problem names only the field.
+    """
+    [problem] = _computing(lambda: {"count": (int, "secret-default")}).problems
+    assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "default_invalid")
+    assert "secret-default" not in problem.model_dump_json() and "'count'" in problem.msg
+
+
 # -- signatures conductor refuses, and signatures it takes as written ------------------------
 
 

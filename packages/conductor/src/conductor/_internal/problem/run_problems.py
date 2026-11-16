@@ -245,16 +245,18 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
 
 
 @RUN_PROBLEMS.problem()
-def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noqa: A002  the ctx key a host reads
+def question_unwritable(*loc: str | int, error: str, input: str) -> str:  # noqa: A002  the ctx key a host reads
     """A node asked a person, and one of its arguments can't be written as JSON to show them.
 
     A question carries the arguments of the call that asked, so the person answering can see them. Those must be JSON.
+    Why the argument can't be written might quote it, so the exception's text and its traceback go to the
+    ``conductor`` logger, and ``ctx.error`` only has the exception's class name.
 
     To fix it, give the input a type that pydantic can write as JSON. Or ask in a node that takes such a type.
 
     Args:
         loc: The call that asked.
-        reason: Why the argument can't be written.
+        error: The class name of the exception that writing the argument raised.
         input: The input.
 
     Example:
@@ -266,7 +268,7 @@ def question_unwritable(*loc: str | int, reason: str, input: str) -> str:  # noq
         why_it_stopped(Graph.compile(make_graph(approve_file), registry).run(data=b"\\xff"))
     """
     return (
-        f"The node asked a person, but its input '{input}' can't be written as JSON to show them: {reason.rstrip('.')}. "
+        f"The node asked a person, but its input '{input}' can't be written as JSON to show them: writing it raised {error}. "
         "Give that input a type pydantic can write as JSON."
     )
 

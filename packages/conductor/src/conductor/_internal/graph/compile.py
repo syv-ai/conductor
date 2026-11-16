@@ -735,9 +735,7 @@ class Compiler:
         except Exception as error:  # noqa: BLE001  any other exception from the hook becomes a problem of this node
             _logger.error("the %s hook of node %r failed", kind, node_id, exc_info=error)
             self.problems.append(
-                compile_problems.compute_hook_failed(
-                    node_id, reason=str(error), error=type(error).__name__
-                )
+                compile_problems.compute_hook_raised(node_id, error=type(error).__name__)
             )
             return None
         try:

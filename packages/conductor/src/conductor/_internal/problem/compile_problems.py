@@ -64,36 +64,71 @@ def alternatives_from_different_loops(
 def compute_hook_failed(
     *loc: str | int, reason: str, error: str, error_ctx: dict[str, Any] | None = None
 ) -> str:
-    """A node's ``compute_...`` hook raised an exception, or returned something compiling can't use.
+    """A node's ``compute_...`` hook raised a ``NodeError``, or returned something compiling can't use.
 
-    The exception and its traceback go to the ``conductor`` logger. What the problem says depends on what the hook
-    raised. For a ``NodeError``, ``ctx.error`` is its ``code`` and ``ctx.error_ctx`` its ``ctx``. For any other
-    exception, ``ctx.error`` is the exception's class name.
+    A ``NodeError`` keeps its message, since the hook's developer wrote it for people. ``ctx.error`` is its
+    ``code`` and ``ctx.error_ctx`` its ``ctx``. A hook that raises any other exception is the variant ``raised``.
 
     A hook can also return a name a field can't have. Then the problem is at that name, and ``ctx.error`` is
     ``not_a_name``. A name must not be empty, and must not contain ``.``, ``/``, ``@`` or ``~``, since those are used to
     write sources, node paths and waiting ids.
 
+    To fix it, change the constant the hook reads, or fix the hook. In the example, the hook of ``pick_some`` raises
+    a ``NodeError`` for an empty text.
+
+    Args:
+        loc: The node. If the hook gave a field a name it can't have, that name comes next.
+        reason: The ``NodeError``'s message, or why compiling can't use what the hook returned.
+        error: The ``code`` of the hook's ``NodeError``. If the hook returned something compiling can't use, it says
+            why: ``not_a_mapping``, ``not_a_name``, ``added_input_exists``, or the code of a type conductor doesn't
+            support.
+        error_ctx: The ``ctx`` of the hook's ``NodeError``, if it has one.
+
+    Example:
+        def some_names(names: str) -> dict[str, type]:
+            if not names:
+                raise NodeError("No output is named", code="no_names")
+            return {name: str for name in names.split(",")}
+
+
+        @registry.node("pick_some", title="Pick some", description="Returns one output per name.", compute_outputs=some_names)
+        def pick_some(names: str) -> dict[str, str]:
+            return {name: name for name in names.split(",")}
+
+
+        problems({"nodes": {
+            "pick": {"node": "pick_some", "inputs": {"names": {"constant": ""}}}
+        }})
+    """
+    # A reason that ends in a period is a NodeError's whole message, with its own fix.
+    if reason.endswith("."):
+        return f"The node couldn't work out its inputs and outputs: {reason}"
+    return f"The node couldn't work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired into it."
+
+
+@COMPILE_PROBLEMS.problem("compute_hook_failed", variant="raised")
+def compute_hook_raised(*loc: str | int, error: str) -> str:
+    """A node's ``compute_...`` hook raised an exception that isn't a ``NodeError``.
+
+    A problem may be shown to anyone, and the exception's text might quote a value. So the text and the traceback go
+    to the ``conductor`` logger, and ``ctx.error`` only has the exception's class name.
+
     To fix it, change the constant the hook reads, or fix the hook. In the example, ``pick``'s hook raises
     ``ValueError`` for an empty text.
 
     Args:
-        loc: The node. If the hook gave a field a name it can't have, that name comes next.
-        reason: The hook's message, or why compiling can't use what the hook returned.
-        error: The ``code`` of the hook's ``NodeError``, or the class name of the exception it raised. If the hook
-            returned something compiling can't use, it says why: ``not_a_mapping``, ``not_a_name``,
-            ``added_input_exists``, or the code of a type conductor doesn't support.
-        error_ctx: The ``ctx`` of the hook's ``NodeError``, if it has one.
+        loc: The node.
+        error: The exception's class name.
 
     Example:
         problems({"nodes": {
             "pick": {"node": "pick", "inputs": {"names": {"constant": ""}}}
         }})
     """
-    # A reason that ends in a period is a whole message, a NodeError's or a declaration problem's, with its own fix.
-    if reason.endswith("."):
-        return f"The node couldn't work out its inputs and outputs: {reason}"
-    return f"The node couldn't work out its inputs and outputs: {reason.rstrip('.')}. Check the node's constants and what is wired into it."
+    return (
+        f"The node couldn't work out its inputs and outputs: its hook raised {error}. Check the node's constants and "
+        "what is wired into it; its developer can find the details in the conductor log."
+    )
 
 
 @COMPILE_PROBLEMS.problem()

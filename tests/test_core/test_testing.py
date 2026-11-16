@@ -4,6 +4,7 @@ A host calls it from one test of its own. Each of its checks should pass for nod
 node that breaks one.
 """
 
+import logging
 from typing import Annotated, Any
 
 from conductor import (
@@ -214,6 +215,35 @@ def test_an_upgrade_that_leaves_the_node_broken_or_raises_is_upgrade_broken():
     ]
     [problem] = check_registry(registry_of(size))
     assert behind(problem) == ["invalid_value"]
+
+
+def test_an_upgrade_that_raises_names_only_the_exceptions_class_and_logs_its_text(caplog):
+    """``upgrade_broken`` with the variant ``raised`` has the exception's class, and its text goes to the log."""
+
+    @node("leak", title="Leak v1", description="For a test.")
+    def leak_v1(n: int) -> int:
+        return n
+
+    def leaking(values: dict[str, Any]) -> dict[str, Any]:
+        raise KeyError("the secret is 42")
+
+    @node(
+        "leak",
+        title="Leak",
+        description="For a test.",
+        replaces=leak_v1,
+        upgrade=Upgrade(rewrite=leaking),
+    )
+    def leak(n: int) -> int:
+        return n
+
+    with caplog.at_level(logging.ERROR, logger="conductor"):
+        [problem] = check_registry(registry_of(leak))
+    assert (problem.type, problem.ctx) == (
+        "upgrade_broken",
+        {"newest": 2, "error": "KeyError", "variant": "raised"},
+    )
+    assert "secret" not in problem.model_dump_json() and "the secret is 42" in caplog.text
 
 
 def test_the_reason_of_every_kind_is_the_messages_of_the_problems_behind_it():

@@ -1182,11 +1182,11 @@ def test_a_question_on_inputs_with_no_json_form_fails_its_node_naming_the_input(
     import asyncio
 
     run = asyncio.run(streamed()) if stream else graph.run(text="x")
-    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["input"]) == (
+    assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx) == (
         "failed",
         "question_unwritable",
         ("a",),
-        "value",
+        {"input": "value", "error": "PydanticSerializationError"},
     )
 
 

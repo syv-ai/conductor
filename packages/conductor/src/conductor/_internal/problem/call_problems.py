@@ -469,21 +469,25 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
 
 
 @CALL_PROBLEMS.problem()
-def saved_run_of_another_graph(*loc: str | int, saved: str, graph: str) -> str:
+def saved_run_of_another_graph(*loc: str | int, graph: str, saved: str | None = None) -> str:
     """A saved run is loaded into a different graph from the one it was saved from.
+
+    The saved run's ``graph`` is quoted only when it has a fingerprint's form, as in every run conductor saves. A
+    hand-edited save may hold any value there, and a problem never quotes a value.
 
     To fix it, load it into the graph it was saved from. A graph that has changed starts a new run.
 
     Args:
         loc: ``"saved_run"``.
-        saved: The fingerprint of the graph the run was saved from.
         graph: The fingerprint of the graph it is loaded into.
+        saved: The fingerprint of the graph the run was saved from. Left out when the saved run's ``graph`` isn't
+            one.
 
     Example:
         saved = Graph.compile(make_graph(upper), registry).run(text="a").to_json()
         refused(lambda: Run.from_json(saved, Graph.compile(make_graph(count), registry)))
     """
-    return f"This saved run is of another graph ({saved}), not this one ({graph}). Load it into the graph it was saved from."
+    return f"This saved run is of another graph, not this one ({graph}). Load it into the graph it was saved from."
 
 
 @CALL_PROBLEMS.problem()

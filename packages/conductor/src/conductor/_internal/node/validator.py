@@ -311,7 +311,8 @@ class HookValidator(Validator[Any, dict[str, Field]]):
     Raises (when called):
         InvalidCallError: ``compute_hook_failed`` problems. There is one at each name that isn't a valid name
             (``error`` ``not_a_name``). If the hook returned no mapping, there is one at the node (``not_a_mapping``).
-            If ``@node`` would refuse a field, its ``error`` is the declaration's code, like ``default_invalid``.
+            If ``@node`` would refuse a field, its ``error`` is the declaration's code, like ``default_invalid``, and
+            its message names the field but quotes none of the declaration's text, which can quote the default.
     """
 
     def __init__(self, node_id: str, hook: HookName) -> None:
@@ -357,20 +358,25 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                 )
                 for fault in invalid.errors()
             ) from None
-        try:
-            fields: dict[str, Field] = {}
-            for name, given in hints.items():
-                hint, default = _hint_and_default(given)
+        fields: dict[str, Field] = {}
+        for name, given in hints.items():
+            hint, default = _hint_and_default(given)
+            try:
                 fields[name] = self._read_field(name, hint)(default)
-            return fields
-        except NodeDeclarationError as error:  # @node would refuse it: the hook failed
-            raise InvalidCallError(
-                [
-                    compile_problems.compute_hook_failed(
-                        self._node_id, reason=str(error), error=error.problems[0].type
-                    )
-                ]
-            ) from None
+            # @node would refuse the field, so the hook failed. The declaration's message can quote the default the
+            # hook gave, so the problem keeps only its code.
+            except NodeDeclarationError as error:
+                reason = (
+                    f"its {self._hook} hook gave '{name}' a type or a default that @node refuses"
+                )
+                raise InvalidCallError(
+                    [
+                        compile_problems.compute_hook_failed(
+                            self._node_id, reason=reason, error=error.problems[0].type
+                        )
+                    ]
+                ) from None
+        return fields
 
 
 def _hint_and_default(given: Any) -> tuple[Any, Any]:

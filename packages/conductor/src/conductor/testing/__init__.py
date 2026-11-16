@@ -34,6 +34,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import datetime
+import logging
 import typing
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
@@ -56,6 +57,8 @@ from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
 from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
+
+_logger = logging.getLogger("conductor")
 
 #: What ``_made_up`` returns for a field it can't make up a value for.
 _CANNOT = sentinel("_CANNOT")
@@ -220,13 +223,16 @@ def _upgrade_problems(
     try:
         upgraded = registry.upgrade(record, older.id)
     except Exception as raised:  # noqa: BLE001  an upgrade's rewrite is the node author's code, and may raise anything
+        _logger.error(
+            "upgrading %r from version %d to %d raised",
+            older.id,
+            older.version,
+            newest,
+            exc_info=raised,
+        )
         return [
             problems.upgrade_raised(
-                older.id,
-                older.version,
-                newest=newest,
-                error=type(raised).__name__,
-                reason=str(raised),
+                older.id, older.version, newest=newest, error=type(raised).__name__
             )
         ]
     graph_problems = Graph.compile(upgraded, registry).problems

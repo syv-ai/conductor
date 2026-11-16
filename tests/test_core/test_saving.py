@@ -1264,6 +1264,41 @@ def test_a_saved_run_is_refused_by_an_edited_graph_but_not_by_a_change_of_displa
     }
 
 
+@pytest.mark.parametrize(
+    ("saved_graph", "quoted"),
+    [
+        ("0123456789abcdef", True),
+        ("my secret value", False),
+        ("0123456789ABCDEF", False),
+        (42, False),
+    ],
+    ids=["a-fingerprint", "text", "upper-case-hex", "a-number"],
+)
+def test_another_graphs_saved_run_quotes_its_graph_only_when_it_is_a_fingerprint(
+    saved_graph: Any, quoted: bool
+):
+    """``saved_run_of_another_graph`` keeps ``ctx.saved`` only for a value of a fingerprint's form.
+
+    Every run conductor saves has one there, which tells a host which graph the run is of. A hand-edited save may
+    hold any value, and a problem never quotes a value.
+    """
+
+    @node("shout", title="Shout", description="For a test.")
+    def shout(text: str) -> str:
+        return text.upper()
+
+    graph = Graph.compile(make_graph(shout), registry_of(shout))
+    saved = json.loads(graph.run(text="a").to_json())
+    saved["graph"] = saved_graph
+
+    with pytest.raises(InvalidCallError) as refused:
+        Run.from_json(json.dumps(saved), graph)
+    (problem,) = refused.value.problems
+    expected = {"graph": graph.fingerprint, **({"saved": saved_graph} if quoted else {})}
+    assert (problem.type, problem.ctx) == ("saved_run_of_another_graph", expected)
+    assert quoted or str(saved_graph) not in problem.model_dump_json()
+
+
 def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
     @node("shout", title="Shout", description="For a test.")
     def shout(text: str) -> str:

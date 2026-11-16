@@ -29,10 +29,8 @@ failure is of this sort by raising ``ExternalError``, or by naming the client's 
 conductor keeps a node's values out of a failed call's problem. A ``NodeError`` keeps its message, since the node
 wrote it for people. Any other exception's text might quote a value, so it goes to the ``conductor`` logger with
 its traceback, and the problem names only the exception's class. ``value_free_errors`` does the same for pydantic's
-errors. A few kinds do quote an exception's text. ``compute_hook_failed`` quotes the hook's, and
-``question_unwritable`` quotes why an input can't be written as JSON. Of ``check_registry``'s kinds, ``hook_failed``
-and ``run_failed`` quote a ``compute_hook_failed`` message, and ``upgrade_broken`` (its variant ``raised``) quotes
-the upgrade's exception.
+errors. The rule has no exceptions: a hook that raises, an argument a question can't write as JSON and an upgrade
+that raises in ``check_registry`` are written to the log the same way.
 
 Asking a person isn't an error. A node raises ``Ask``, its call waits, and the run's status is ``waiting``.
 """

@@ -172,8 +172,11 @@ def upgrade_broken(
 
 
 @REGISTRY_CHECK_PROBLEMS.problem("upgrade_broken", variant="raised")
-def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str:
+def upgrade_raised(*loc: str | int, newest: int, error: str) -> str:
     """Upgrading a node from an older version to the newest raised an exception.
+
+    The exception's text might quote a value, so the text and the traceback go to the ``conductor`` logger, and
+    ``ctx.error`` only has the exception's class name.
 
     To fix it, fix the newest version's ``Upgrade``, so a graph saved with the older version is upgraded without an
     error.
@@ -182,7 +185,6 @@ def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str
         loc: The node and the older version.
         newest: The version it was being upgraded to.
         error: The exception's class name.
-        reason: The exception's message.
 
     Example:
         @node("hi", title="Hi", description="Says hi to a person.")
@@ -203,7 +205,7 @@ def upgrade_raised(*loc: str | int, newest: int, error: str, reason: str) -> str
         checked.add(hi_v2)
         check_registry(checked)
     """
-    return f"Upgrading to version {newest} raised {error}: {reason}"
+    return f"Upgrading to version {newest} raised {error}. Its developer can find the details in the conductor log."
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()

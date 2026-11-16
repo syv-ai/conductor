@@ -253,6 +253,14 @@ What changes in how you work, before the name-by-name tables:
   `NodeError` each have `problems`, a list of `Problem`. A `NodeError` makes its one problem where it is raised, from its
   message, `code` and `ctx`, with an empty `loc` that the run fills with the call's; it has no `code`, `ctx` or `message`
   attribute, and `NodeDeclarationError` no `code` or `problem`.
+- **A problem never quotes an exception's text.** A `compute_...` hook that raises anything but a `NodeError` is
+  `compute_hook_failed` with `ctx.variant` `raised` and `ctx.error` the exception's class, and no `ctx.reason`; the
+  text and traceback go to the `conductor` logger. A hook's `NodeError` keeps its code and message. A field a hook returns that `@node` would refuse keeps the
+  declaration's code in `ctx.error`, and the message names the field but not the declaration's text. `question_unwritable`
+  has `ctx.error`, the class of the exception writing the input raised, in place of `ctx.reason`, and
+  `check_registry`'s `upgrade_broken` (variant `raised`) has no `ctx.reason`; both log the text.
+  `saved_run_of_another_graph` has `ctx.saved` only when the save's `graph` has a fingerprint's form, and its message
+  quotes only this graph's fingerprint.
 - **A problem's `ctx` is JSON.** `Problem.ctx` is typed `Mapping[str, JsonValue]`, and
   `NodeError(ctx=)` and `ExternalError(ctx=)` read theirs where the error is made: a value with no
   JSON form (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at the node's

@@ -228,7 +228,7 @@ def branch_outputs(names: str, value: type) -> dict:   # all the outputs; value:
 - If an input the hook reads gets no value, the hook is not called, and the node's own problem says why.
 - A hook returns `{name: type hint}`, read like a signature. For a field with a default it returns `{name: (type hint, default)}`, as pydantic's `create_model` takes one.
 - Each field it returns is held to the same rules `@node` holds a parameter to (an input) or a returned field to (an output). So these are the hook's failure: an added input with an `exclusive_group` or the default `SKIPPED`, and an output of an `exclusive_group` with a default other than `SKIPPED`.
-- A hook that raises is never an exception. It is the problem `compute_hook_failed` on the node. So is a field it gives a name a graph can't have: the problem is at that name, with `ctx.error` `not_a_name`.
+- A hook that raises is never an exception. It is the problem `compute_hook_failed` on the node: a `NodeError` keeps its code in `ctx.error` and its message, and any other exception is the variant `raised`, with its class name in `ctx.error` and its text in the `conductor` log. So is a field it gives a name a graph can't have: the problem is at that name, with `ctx.error` `not_a_name`.
 - A hook that raises `NodeError` gives the problem its message, its `code` as `ctx.error`, and its own `ctx` whole as `ctx.error_ctx`.
 - `graph.describe()` shows each node's fields as its hooks made them.
 
@@ -851,7 +851,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 
 - A failed call ends the run `failed`, with its problem as the run's `cause`. Nothing more starts. The calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them.
 - A call that can't be acted on raises `InvalidCallError`, and nothing changes. A call's arguments are checked in stages, and the first stage that finds a fault raises, with a `Problem` for every fault of that stage: `graph.run(n="x", max_items=0)` gives only `invalid_limit`. Running a graph with problems raises it too, listing them.
-- A failed call never quotes a value the run handled. A node's exception other than a `NodeError` goes to `logging.getLogger("conductor")`, and only its class name reaches `ctx`. A few kinds do quote an exception's text: `compute_hook_failed` quotes the hook's, `question_unwritable` why an input can't be written as JSON, `check_registry`'s `hook_failed` and `run_failed` a `compute_hook_failed` message, and its `upgrade_broken` (variant `raised`) the upgrade's exception.
+- A problem never quotes a value, and never an exception's text. A node's or a hook's exception other than a `NodeError` goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx.error`. That holds for a failed call (`execution_failed`), a hook that raises (`compute_hook_failed`, variant `raised`), an argument a question can't write as JSON (`question_unwritable`) and an upgrade that raises in `check_registry` (`upgrade_broken`, variant `raised`). A `NodeError` keeps its message, since its developer wrote it for people.
 
 ### Events
 
@@ -910,7 +910,7 @@ assert GraphRecord.model_validate_json(text) == record
 
 **Reading it back.** `Run.from_json(saved, graph)` reads a saved run for its graph.
 
-- A saved run of another graph is refused as `saved_run_of_another_graph`. An edited graph starts a new run, and `edited.with_inputs(..., previous=old_run)` reuses the old run's outcomes for the nodes the edit left as they were.
+- A saved run of another graph is refused as `saved_run_of_another_graph`, with this graph's fingerprint in `ctx.graph` and the saved one in `ctx.saved` when it has a fingerprint's form (a hand-edited save's other value is left out). An edited graph starts a new run, and `edited.with_inputs(..., previous=old_run)` reuses the old run's outcomes for the nodes the edit left as they were.
 - Then it reads the saved run back and checks it against the graph. A saved run that doesn't fit, or isn't a saved run at all, is `saved_run_unreadable`. `ctx.where` says where (`outcomes.upper.outputs.result.1`), and `ctx.reason` says why.
 - That can happen when the text was changed, when another version of conductor, or of a node or a type in it, wrote it, or when a value doesn't read back from its JSON. The remedy is a new run.
 - Every value is read back by its declared type. A float that isn't finite is written as its text (`"NaN"`, `"Infinity"`, `"-Infinity"`). A `float` reads the float back. `Any`, a `dict` or `float | str` reads the text, the way a date under `Any` comes back as its ISO text.
