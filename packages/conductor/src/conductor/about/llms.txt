@@ -670,7 +670,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 **Declaring it.**
 
 - A node that raises `Ask` says `asks=True`. It is answered with a value of its return type. The answer is its outputs, and the node is not called again for that call.
-- A node that raises `Ask` without `asks=True` fails the call as `ask_not_declared`. So `describe().asks` is certain for every node, and `graph.asks` for a graph. A host needs to know before it runs a graph unattended whether a call may wait for a person.
+- A node that raises `Ask` without `asks=True` fails the call as `ask_not_declared`. So `describe().asks` is certain for every node, and `graph.asks` for a graph with no problems, since it reads only the nodes that compiled. A host needs to know before it runs a graph unattended whether a call may wait for a person.
 - A node that needs a person's answer reads it from an edge, as it reads any value. "Approve, then pay" is two nodes. `approval(invoice: str) -> bool`, declared `asks=True`, returns `True` for a small invoice and raises `Ask` for a large one. `pay(invoice: str, ok: bool) -> str` reads `approval.result`. `pay` is called once, with a real `bool`.
 - A host that offers the two as one palette entry makes them a `subgraph`. Its waiting call is then `approve_and_pay/approval~...`.
 
@@ -971,7 +971,7 @@ A record whose parts contradict each other is refused: `loops` without `is_serie
 - `registry.describe()` is a `RegistryDescription`, with `nodes`, and `types` (each with `id`, `title` and `accepted_as`).
 - A subgraph's palette entry lists the fields it offers only in `registry.describe()`, which has the nodes its graph uses. A subgraph's definition has no `describe()`.
 - Its inputs, outputs and `asks` are those of its own graph, compiled on the registry's nodes: `graph.inputs`, `graph.outputs` and `graph.asks`.
-- A subgraph whose graph has problems on the registry's nodes, such as a node the registry doesn't have yet, has no fields to offer, and `registry.describe()` leaves it out. `check_registry` reports it as `subgraph_broken`, with its graph's problems, and a graph that uses it gets them too.
+- A subgraph whose graph has problems on the registry's nodes, such as a node the registry doesn't have yet, has no fields to offer, and `registry.describe()` leaves it out, with one warning on the `conductor` logger naming the subgraph and its problems' codes. `check_registry` reports it as `subgraph_broken`, with its graph's problems, and a graph that uses it gets them too.
 - `graph.describe()` is a `GraphDescription`. Each input of a node is its `FieldDescription`, as `field`, beside its `source`. Each graph input is its `FieldDescription`.
 - Each of these is a host's response model as it is, and `model_dump(mode="json")` writes it.
 
@@ -1156,7 +1156,7 @@ A widget tells an editor how to draw a field. Widgets are frozen models with a `
 - It returns every problem at once, as `Problem`s with `loc` `(node_id, version)`. For `example_for_no_node` given without a version, `loc` is `(node_id,)`.
 - A node's function is called only for a node given an example, once per example, through the engine, as a graph of that one node.
 - `(id, version)` keys an older version's examples. `context=` gives every example the run's context, as `graph.run` takes it.
-- A subgraph with no example has its own graph compiled on the registry's nodes, and one that has problems is `subgraph_broken`.
+- Every subgraph version has its own graph compiled on the registry's nodes, and one that has problems is `subgraph_broken`, and its examples aren't run, so one fault gives one code.
 - The checks are `hook_failed`, `needs_example`, `subgraph_broken`, `upgrade_broken`, `changed_its_inputs`, `run_failed` and `example_for_no_node`. `python -m conductor.about problems` says what each means and how to fix it. These codes are `check_registry`'s, in `REGISTRY_CHECK_PROBLEMS.codes` and not in `PROBLEMS.codes`.
 - A node known to fail goes in a test of its own, marked `pytest.mark.xfail(strict=True)`, that checks `registry.filter(...)` down to that node. `python -m conductor.about run-failed` shows one.
 

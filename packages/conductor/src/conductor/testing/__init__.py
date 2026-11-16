@@ -135,10 +135,23 @@ def _version_problems(
 ) -> list[Problem]:
     """Checks one version of a node.
 
-    With no examples, only its hooks are checked. With examples, each one is run.
+    A subgraph's own graph is compiled first, as it is. One with problems is ``subgraph_broken``, and its examples
+    aren't run, since each would fail on the same problems. Then, with no examples, only a function's hooks are
+    checked. With examples, each one is run.
     """
+    if isinstance(version, SubgraphDefinition):
+        graph_problems = Graph.compile(version.graph, registry).problems
+        if graph_problems:
+            return [
+                problems.subgraph_broken(
+                    version.id,
+                    version.version,
+                    reason=_reason(graph_problems),
+                    problems=[p.model_dump(mode="json") for p in graph_problems],
+                )
+            ]
     if not given:
-        return _problems_without_example(version, registry)
+        return _hook_problems(version, registry)
     return [
         problem
         for example in given
@@ -165,32 +178,19 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
     )
 
 
-def _problems_without_example(
-    version: NodeDefinition, registry: NodeRegistry[Any]
-) -> list[Problem]:
-    """Checks a node without an example: a function's hooks, or a subgraph's own graph.
+def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:
+    """Checks a node's hooks without an example.
 
-    A subgraph's graph is compiled as it is. A function with hooks is compiled in a graph of its own, which calls
-    its hooks. Its inputs keep their defaults. Each required input that takes only a constant gets a made-up value,
-    so the hooks have a value to read.
+    The node is compiled in a graph of its own, which calls its hooks. Its inputs keep their defaults. Each
+    required input that takes only a constant gets a made-up value, so the hooks have a value to read.
     """
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
             pass
-        case FunctionDefinition():  # a function with no hooks
+        case (
+            FunctionDefinition() | SubgraphDefinition()
+        ):  # a function with no hooks, or a subgraph, which never has hooks of its own
             return []
-        case SubgraphDefinition(graph=record):
-            graph_problems = Graph.compile(record, registry).problems
-            if not graph_problems:
-                return []
-            return [
-                problems.subgraph_broken(
-                    version.id,
-                    version.version,
-                    reason=_reason(graph_problems),
-                    problems=[p.model_dump(mode="json") for p in graph_problems],
-                )
-            ]
     values = {
         name: _made_up(field)
         for name, field in sorted(version.inputs.items())

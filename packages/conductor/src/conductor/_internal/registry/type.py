@@ -27,6 +27,7 @@ nodes it used, so a later change to the registry doesn't reach it.
 from __future__ import annotations
 
 import copy
+import logging
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import MappingProxyType
 from typing import Any, Concatenate, overload
@@ -50,6 +51,8 @@ from conductor._internal.utils import comma_separated, plural, qualified_name
 
 from .describe import RegistryDescription, TypeDescription
 from .upgrade import upgraded
+
+_logger = logging.getLogger("conductor")
 
 
 def _takes_the_arguments_of[**P, R](
@@ -132,7 +135,7 @@ class NodeRegistry[C]:
         #: Every type, by id: first the ones the nodes use, then the ones the host named.
         self._types: dict[str, type] = _by_id(self._named_types)
         #: Each subgraph's own graph, by id, compiled against this registry. Cleared whenever the nodes change.
-        self._subgraphs: dict[str, Graph[C]] = {}
+        self._subgraph_graphs: dict[str, Graph[C]] = {}
 
     def __repr__(self) -> str:
         """Shows how many nodes there are, then each node's own repr, one per line."""
@@ -316,7 +319,7 @@ class NodeRegistry[C]:
         """
         self._types = _by_id((*_types_declared_by(nodes.values()), *named_types))
         self._nodes, self._named_types = nodes, named_types
-        self._subgraphs = {}
+        self._subgraph_graphs = {}
 
     def _not_here(self, node_id: str) -> KeyError:
         return KeyError(
@@ -369,16 +372,25 @@ class NodeRegistry[C]:
         """Describes one node for the palette, or returns ``None`` for a subgraph whose graph has problems.
 
         A subgraph offers its own graph's inputs and outputs, and asks when a node inside it asks. Those depend on
-        this registry's nodes, so its graph is compiled here once, and kept until the nodes change.
+        this registry's nodes, so its graph is compiled here once, and kept until the nodes change. When that graph
+        has problems, one warning on the ``conductor`` logger names the subgraph and the codes of its problems, so a
+        host that never runs ``check_registry`` still hears why the subgraph is missing.
         """
         match definition:
             case FunctionDefinition():
                 return definition.describe()
             case SubgraphDefinition():
                 pass
-        if definition.id not in self._subgraphs:
-            self._subgraphs[definition.id] = Graph.compile(definition.graph, self)
-        graph = self._subgraphs[definition.id]
+        if definition.id not in self._subgraph_graphs:
+            compiled = Graph.compile(definition.graph, self)
+            if compiled.problems:
+                _logger.warning(
+                    "the subgraph %r is left out of describe(): its graph has the problems %s",
+                    definition.id,
+                    comma_separated(sorted({problem.type for problem in compiled.problems})),
+                )
+            self._subgraph_graphs[definition.id] = compiled
+        graph = self._subgraph_graphs[definition.id]
         if graph.problems:
             return None
         return definition.described_as(

@@ -123,6 +123,17 @@ def test_a_subgraph_whose_graph_does_not_compile_is_reported_with_its_graphs_pro
     assert found(registry_of(upper, shout)) == []
 
 
+def test_a_broken_subgraph_with_an_example_is_reported_as_broken_and_its_example_is_not_run():
+    # one fault gives one code, whether or not the subgraph has an example
+    (problem,) = check_registry(registry_of(shout), examples={"shout": [{"text": "hi"}]})
+
+    assert (problem.type, problem.loc, behind(problem)) == (
+        "subgraph_broken",
+        ("shout", 1),
+        ["unknown_node"],
+    )
+
+
 def test_no_body_is_called_without_an_example_and_each_example_calls_it_once():
     calls: list[str] = []
 

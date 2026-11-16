@@ -7,6 +7,7 @@ offered. Looping over a registry gives its definitions.
 """
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -26,6 +27,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Textarea
+from pytest import LogCaptureFixture
 
 
 @host_type("registry-test-text", title="Text")
@@ -877,6 +879,29 @@ def test_a_subgraph_is_described_as_its_own_graph_compiles_and_left_out_when_tha
     assert [n.id for n in registry.describe().nodes] == ["approve"]
 
 
+def test_a_subgraph_left_out_of_describe_is_logged_once_with_its_problems(
+    caplog: LogCaptureFixture,
+) -> None:
+    """A host that never runs ``check_registry`` still hears why a subgraph is missing from its palette."""
+    from conductor import make_graph
+
+    @node("upper", title="Upper", description="For a test.")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    registry = NodeRegistry()  # without upper, which the subgraph uses
+    registry.add(
+        subgraph("capitals", title="Capitals", description="For a test.")(make_graph(upper))
+    )
+
+    with caplog.at_level(logging.WARNING, logger="conductor"):
+        registry.describe()
+        registry.describe()
+
+    (logged,) = caplog.records
+    assert "'capitals'" in logged.getMessage() and "unknown_node" in logged.getMessage()
+
+
 def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -> None:
     """``describe()`` compiles a subgraph once, and again only after the registry changes.
 
@@ -911,6 +936,9 @@ def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -
 
     first, second = registry.describe(), registry.describe()
     assert first == second and len(hook_calls) == 1
+    assert [n.id for n in first.nodes] == [
+        "shout"
+    ]  # its record wires words, which shout doesn't take
 
     @node(
         "shout", title="Shout in words", description="For a test.", compute_outputs=result_is_text
