@@ -11,6 +11,7 @@ its own a name. The full rules are in the reference: ``python -m conductor.about
 """
 
 from .choice import Choice, check_one_of, choice_texts, pick_texts, read_choices
+from .fit import fit
 from .hint import a_number, union_members, union_of
 from .host_type import NAMES, host_type
 from .param import Param, merged_param, split_hint
@@ -28,6 +29,7 @@ __all__ = [
     "check_one_of",
     "choice_texts",
     "field_of",
+    "fit",
     "host_type",
     "merged_param",
     "pick_texts",

@@ -44,7 +44,7 @@ from conductor import (
     subgraph,
 )
 from conductor.widgets import Dropdown, FileUpload, ListInput, Textarea, TextInput, Widget
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 from pydantic.errors import PydanticInvalidForJsonSchema
 
 
@@ -1278,9 +1278,12 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
     assert f"returned a {type(returned).__name__}, not a mapping" in problem.msg
 
 
-@pytest.mark.parametrize("returns", [str, int | None, None, list[str]])
+@pytest.mark.parametrize(
+    ("returns", "written"),
+    [(str, "str"), (int | None, "int | None"), (None, "None"), (list[str], "list[str]")],
+)
 def test_a_hooks_node_whose_return_type_cannot_be_a_mapping_is_refused_when_it_is_declared(
-    returns: Any,
+    returns: Any, written: str
 ):
     """The node returns the hook's outputs as a mapping, so ``-> str`` would fail on every call. It is refused at
     import, where its developer meets it, not on the first run."""
@@ -1291,11 +1294,25 @@ def test_a_hooks_node_whose_return_type_cannot_be_a_mapping_is_refused_when_it_i
     one.__annotations__["return"] = returns
     with pytest.raises(NodeDeclarationError) as refused:
         node("one", title="One", description="For a test.", compute_outputs=lambda: {"a": int})(one)
-    assert [p.type for p in refused.value.problems] == ["outputs_not_a_mapping"]
+    # the return type is written as conductor writes a type, never as NoneType or typing.Optional
+    assert [(p.type, p.ctx["returns"]) for p in refused.value.problems] == [
+        ("outputs_not_a_mapping", written)
+    ]
 
 
-@pytest.mark.parametrize("returns", [dict, dict[str, Any], Mapping[str, int], Any, dict | None])
+type _Outputs = dict[str, Any]
+type _MaybeOutputs = dict[str, Any] | None
+
+
+@pytest.mark.parametrize(
+    "returns",
+    [dict, dict[str, Any], Mapping[str, int], Any, dict | None]
+    + [object, _Outputs, _MaybeOutputs, JsonValue],
+)
 def test_a_hooks_node_may_declare_any_return_type_a_mapping_fits(returns: Any):
+    """Whether a mapping fits is asked by the rule an edge is checked by, so an alias, ``object`` and ``JsonValue``
+    are taken as an edge would take them."""
+
     def one(text: str) -> Any:
         return {"a": 1}
 

@@ -711,12 +711,14 @@ def outputs_not_a_mapping(*, returns: str) -> str:
     """A node whose ``compute_outputs`` hook gives its outputs declares a return type that can't be a mapping.
 
     The hook says what the outputs are, so the function returns them as a mapping from each output's name to its
-    value. A return type like ``str`` says it returns one value, and every call would fail.
+    value. A return type like ``str`` says it returns one value, and every call would fail. The return type is held
+    to the rule an edge is checked by: a ``dict[str, Any]`` must fit it, as it fits ``Mapping[str, Any]``,
+    ``object`` or ``Any``. A ``TypedDict`` is refused, since a mapping of any keys doesn't fit it.
 
     To fix it, write ``-> dict[str, Any]``.
 
     Args:
-        returns: The return type, as its developer wrote it.
+        returns: The return type, written as conductor writes a type, like ``int | None``.
 
     Example:
         def text_outputs() -> dict[str, type]:

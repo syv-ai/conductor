@@ -40,7 +40,7 @@ from conductor._internal.context import ContextParameter, is_context
 from conductor._internal.field import DeclaredInputValidator, DeclaredOutputValidator, Field
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor._internal.record import GraphRecord, RecordValidator
-from conductor._internal.types import Param, Type, union_members
+from conductor._internal.types import Param, Type, fit
 
 from .policy import Deprecation, Policy
 from .type import (
@@ -377,9 +377,12 @@ def _read_signature(
         typing.get_origin(returns) or returns
     )  # a generic dataclass of outputs is written with its type arguments, like Pair[str]
     if computed_outputs:
-        if not _can_be_a_mapping(returns):
-            written = returns.__name__ if isinstance(returns, type) else str(returns)
-            raise NodeDeclarationError(declaration_problems.outputs_not_a_mapping(returns=written))
+        # Asked by the rule an edge is checked by: may a mapping of outputs pass where the return type is declared?
+        # It calls fit itself, since Type(Mapping) is refused: Mapping has no @host_type.
+        if not fit(returns, dict[str, Any], {}, False):
+            raise NodeDeclarationError(
+                declaration_problems.outputs_not_a_mapping(returns=Type(returns).text)
+            )
         outputs = {}
     elif returns is None or returns is type(None):
         outputs = {}
@@ -415,20 +418,6 @@ def _read_signature(
                     field.name,
                 )
     return inputs, context, outputs, outputs_dataclass
-
-
-def _can_be_a_mapping(returns: Any) -> bool:
-    """Whether a function declared ``-> returns`` may return a mapping, as a node whose hook gives its outputs does.
-
-    That is ``Any``, or a mapping class such as ``dict[str, Any]``, ``Mapping`` or a ``TypedDict``, alone or as a
-    member of a union.
-    """
-    for member in union_members(returns):
-        written = typing.get_args(member)[0] if typing.get_origin(member) is Annotated else member
-        cls = typing.get_origin(written) or written
-        if written is Any or (isinstance(cls, type) and issubclass(cls, Mapping)):
-            return True
-    return False
 
 
 def _declared_default(declared: DataclassField[Any]) -> Any:
