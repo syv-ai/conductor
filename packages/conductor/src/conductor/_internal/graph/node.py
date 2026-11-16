@@ -147,7 +147,8 @@ class CompiledFunctionNode(_CompiledNodeBase):
         outcomes of one are never reused as the other's.
 
         The code is the function's own parsed source, not the functions it calls, so a new Python version keeps the
-        hash. A lambda, or a function with no source file, is hashed by its bytecode instead.
+        hash. A function whose source can't be read, such as a lambda or one made by ``exec``, is hashed by its
+        bytecode instead (see ``code_text_of``).
         """
         definition = self.definition
         fields = [

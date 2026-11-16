@@ -51,9 +51,9 @@ from .type import (
     NodeFunction,
     SubgraphDefinition,
     Upgrade,
+    code_text_of,
     gone_inputs,
     gone_outputs,
-    source_of,
 )
 
 
@@ -167,7 +167,7 @@ def node(
                 inputs=inputs,
                 outputs=outputs,
                 outputs_dataclass=outputs_dataclass,
-                source=source_of(target),
+                code_text=code_text_of(target),
                 context=context,
                 id=id,
                 version=number,
