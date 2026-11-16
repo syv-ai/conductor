@@ -2327,10 +2327,13 @@ def test_a_decline_names_its_call_by_the_rules_an_answer_does():
 
 
 def test_a_decline_whose_reason_isnt_text_is_refused_and_the_run_is_left_as_it_was():
-    """A reason that isn't a ``str`` would be saved as some other JSON, or not at all, so it is refused at once."""
+    """A reason that isn't a ``str`` JSON can write would be saved as some other JSON, or not at all, so it is refused.
+
+    A lone surrogate is a ``str``, but JSON can't write it, so the run would fail when it is saved.
+    """
     run = _approve_then_pay().run(text="A:900")
     (waiting,) = run.waiting
-    for reason in (123, object()):
+    for reason in (123, object(), "\ud800"):
         (problem,) = _refused(lambda reason=reason: run.decline(waiting, reason=reason))
         assert (problem.type, problem.loc, problem.ctx) == (
             "invalid_answer",

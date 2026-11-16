@@ -389,14 +389,15 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
 
 
 #: Checks a decline's reason: a ``str``, or ``None``.
-_REASON = SchemaValidator(core_schema.nullable_schema(core_schema.str_schema(strict=True)))
+_REASON = SchemaValidator(core_schema.nullable_schema(core_schema.str_schema()))
 
 
 class DeclineValidator(Validator[Any, str | None]):
     """A validator for the reason a person gives when they decline to answer a node that raised ``Ask``.
 
     The reason is text, or ``None`` for none. ``run.decline`` puts it in the ``ctx`` of the run's ``answer_declined``
-    problem, which a saved run writes as JSON. So ``"Over budget"`` is taken, and ``123`` is refused.
+    problem, which a saved run writes as JSON, so it is checked as its JSON text would be, as an answer is.
+    ``"Over budget"`` is taken. ``123`` is refused, and so is a ``str`` JSON can't write, such as a lone surrogate.
 
     Raises (when called):
         InvalidCallError: One ``invalid_answer`` problem, variant ``reason``, with the class of what was given. It
@@ -420,8 +421,8 @@ class DeclineValidator(Validator[Any, str | None]):
             InvalidCallError: See the class.
         """
         try:
-            return cast(str | None, _REASON.validate_python(reason))
-        except ValidationError:
+            return cast(str | None, validate_as_json(_REASON, reason))
+        except (ValidationError, PydanticSerializationError):
             raise InvalidCallError(
                 [
                     call_problems.invalid_answer_reason(
