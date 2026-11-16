@@ -84,16 +84,15 @@ class SavedReusable(BaseModel):
 
     ``outcomes`` has the shape of ``SavedOutcomes``, a list per output, with each outcome written once. But here a
     place in the lists isn't a call number of this run: these are calls of the previous run. So what tells the
-    outcomes apart is written beside them, by place: the fingerprint of the arguments each call got, and the item
-    indexes it had. An arguments fingerprint is a hash of the node's code fingerprint and the arguments as JSON.
+    outcomes apart is written beside them, by place: each call's fingerprint, and the item indexes it had. A call
+    fingerprint is a hash of the node's code fingerprint and the arguments as JSON, and for a node that may ask,
+    of the call's item in every loop it was inside too.
 
     Attributes:
         outcomes: The outcomes, as the node's subclass of ``SavedOutcomes`` in the graph's codec.
-        fingerprints: For each outcome, the fingerprint of the arguments its call got.
+        fingerprints: For each outcome, its call's fingerprint.
         item_indexes: By place in the lists, the item indexes the call had in the previous run. Only for an
             outcome a function returned.
-        outer_item_fingerprints: By place in the lists, a fingerprint of the items of the outer loops the call was
-            inside. Only for an answer or a waiting question.
     """
 
     model_config = _SAVED
@@ -102,7 +101,6 @@ class SavedReusable(BaseModel):
     item_indexes: dict[NonNegativeInt, tuple[NonNegativeInt, ...]] = PydanticField(
         default_factory=dict
     )
-    outer_item_fingerprints: dict[NonNegativeInt, str] = PydanticField(default_factory=dict)
 
 
 class SavedRun(BaseModel):

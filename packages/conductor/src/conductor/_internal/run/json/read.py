@@ -229,7 +229,7 @@ def add_reusable_from_saved(
     """Adds the outcomes one node may reuse from the previous run to ``reusable``, from how they were saved.
 
     Take the three saved outcomes of ``shout`` with ``"item_indexes": {"0": [0], "1": [1], "2": [2]}``. Each is added
-    twice: by the item indexes its call had, and by the fingerprint of its call's arguments.
+    twice: by the item indexes its call had, and by its call's fingerprint.
 
     Args:
         reusable: The run's reusable outcomes. Added to.
@@ -243,7 +243,7 @@ def add_reusable_from_saved(
     """
     if len(saved.fingerprints) != len(in_call_order):
         raise ValueError("'fingerprints' is not as long as the lists of 'outcomes'")
-    item_indexes, outer_item_fingerprints = saved.item_indexes, saved.outer_item_fingerprints
+    item_indexes = saved.item_indexes
     for place, (fingerprint, outcome) in enumerate(
         zip(saved.fingerprints, in_call_order, strict=True)
     ):
@@ -254,7 +254,6 @@ def add_reusable_from_saved(
                     fingerprint,
                     outcome,
                     item_indexes=item_indexes.get(place),
-                    outer_items=outer_item_fingerprints.get(place, ""),
                 )
             case Skipped() | NoneInput() | None:
                 raise ValueError(

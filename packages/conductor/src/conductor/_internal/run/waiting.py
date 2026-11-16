@@ -18,15 +18,15 @@ from collections.abc import Callable
 from typing import Any, assert_never
 
 from conductor._internal.ask import as_asked
-from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath, json_hash
+from conductor._internal.base import ConductorModel, ItemIndexes, Loc, NodePath
 from conductor._internal.field import FieldDescription
-from conductor._internal.graph import CompiledFunctionNode
 from conductor._internal.problem import InvalidCallError, call_problems
 
 from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, outcome_loc
 from .call import jsonable
 from .outcome import NoneInput, NotReady, Skipped, Unanswered
+from .reuse import call_fingerprint
 
 
 class Waiting(ConductorModel):
@@ -37,12 +37,14 @@ class Waiting(ConductorModel):
 
     Attributes:
         id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
-            index of each item the call is for, then ``~`` and a short fingerprint. The fingerprint is a hash of the
-            node's id in the graph, its code fingerprint (``CompiledFunctionNode.code_fingerprint`` says what that
-            covers) and the call's inputs, not of the ``Ask``'s prompt, choices or default. Inside a subgraph, the
-            subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If the call's inputs or the
-            node's code fingerprint change, it may ask something else, so the old id stops matching. An answer to it
-            is refused with ``answer_stale``.
+            index of each item the call is for, then ``~`` and the start of the call's fingerprint. That is the
+            fingerprint reuse matches calls by: a hash of the node's code fingerprint
+            (``CompiledFunctionNode.code_fingerprint`` says what that covers), the call's inputs and its item in
+            every loop it is inside, not of the ``Ask``'s prompt, choices or default. Inside a subgraph, the
+            subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If any of those change, the
+            call may ask something else, so the old id stops matching. An answer to it is refused with
+            ``answer_stale``. A call whose inputs or items JSON can't write has no fingerprint, and its id is the
+            call alone: ``"approve@1"``.
         loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
             that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
             subgraph node and its item come first: ``("review", 0, "approve", 1)``.
@@ -74,35 +76,43 @@ def waiting_record(
         waiting: The call's outcome, with what the ``Ask`` said.
         reader: Looks up the run's outcomes, to find what the call was given.
     """
-    compiled_node, inputs = node.compiled_node, received(node, item_indexes, reader)
     loc, outputs, choices, defaults = (
         outcome_loc(node, item_indexes),
-        compiled_node.outputs,
+        node.compiled_node.outputs,
         waiting.choices,
         waiting.defaults,
     )
     return Waiting(
-        id=write_waiting_id(loc, question_fingerprint(compiled_node, inputs)),
+        id=write_waiting_id(loc, question_fingerprint(node, item_indexes, reader)),
         loc=loc,
         prompt=waiting.prompt,
         questions=list(as_asked(outputs, choices, defaults).values()),
-        inputs=inputs,
+        inputs=jsonable(_arguments(node, item_indexes, reader)),
     )
 
 
-def received(
+def question_fingerprint(
+    node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader
+) -> str | None:
+    """Returns the fingerprint in a waiting call's id: the first eight hex digits of its call fingerprint.
+
+    ``call_fingerprint`` says what it covers. If any of that changes, the call may ask something else, so the old
+    id stops matching. It is ``None`` when the call has no fingerprint, because a value it covers can't be written
+    as JSON. Such a call's id names just the call, as ``write_waiting_id`` writes it.
+    """
+    fingerprint = call_fingerprint(
+        node, item_indexes, _arguments(node, item_indexes, reader), reader.outcomes
+    )
+    return None if fingerprint is None else fingerprint[:8]
+
+
+def _arguments(
     node: BlueprintFunctionNode, item_indexes: ItemIndexes, reader: ResultReader
 ) -> dict[str, Any]:
-    """Returns the arguments a waiting call was given, as JSON.
+    """Returns the arguments a waiting call was given.
 
     The arguments aren't stored with the call. They are worked out again from the upstream outcomes, which is safe
-    because those outcomes don't change while the call waits. For example, ``received(approve, (1,), reader)`` is
-    ``{"line": "b"}``.
-
-    Args:
-        node: The node that asks.
-        item_indexes: Which call of the node waits.
-        reader: Looks up the run's outcomes.
+    because those outcomes don't change while the call waits.
 
     Raises:
         RuntimeError: The call comes out as skipped, not called or not ready, so it has no arguments. That's a bug:
@@ -110,25 +120,13 @@ def received(
     """
     match reader.arguments_for(node, item_indexes):
         case dict() as arguments:
-            inputs: dict[str, Any] = jsonable(arguments)
-            return inputs
+            return arguments
         case Skipped() | NoneInput() | NotReady.NOT_READY as none:
             raise RuntimeError(
                 f"the waiting call {outcome_loc(node, item_indexes)} reads as {none!r}, which a call that asked cannot"
             )
         case unexpected:
             assert_never(unexpected)
-
-
-def question_fingerprint(compiled_node: CompiledFunctionNode, inputs: dict[str, Any]) -> str:
-    """Returns a short fingerprint of a question: eight hex digits.
-
-    It is a hash of the node that asks, its code fingerprint (``CompiledFunctionNode.code_fingerprint``), and the
-    inputs the call was given (as ``received`` returns them).
-    The fingerprint is part of the waiting id. If any of those change, the call may ask something else, so the old
-    id stops matching. Every input counts, so a change to any one of them asks again.
-    """
-    return json_hash([compiled_node.id, compiled_node.code_fingerprint, inputs], 4)
 
 
 def write_waiting_id(loc: Loc, fingerprint: str | None) -> str:

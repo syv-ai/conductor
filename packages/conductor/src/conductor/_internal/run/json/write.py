@@ -232,7 +232,7 @@ def saved_reusable(
     """Returns the outcomes one node may reuse from the previous run, the way a saved run writes them.
 
     ``SavedReusable`` shows the JSON. Each outcome is written once, in this order. First come the outcomes known by
-    the item indexes their call had. Then the outcomes known only by the fingerprint of their call's arguments.
+    the item indexes their call had. Then the outcomes known only by their call's fingerprint.
     Last come the outcomes of a node that may ask: its answers, its returns and its waiting questions.
 
     Args:
@@ -252,20 +252,14 @@ def saved_reusable(
         if fingerprint not in already_saved:
             outcomes.append(done)
             fingerprints.append(fingerprint)
-    outer_item_fingerprints: dict[int, str] = {}
-    for (fingerprint, outer_items_fingerprint), left in reusable.reused_in_item_order.get(
-        path, {}
-    ).items():
+    for fingerprint, left in reusable.reused_in_item_order.get(path, {}).items():
         for outcome in left:
-            if outer_items_fingerprint:
-                outer_item_fingerprints[len(outcomes)] = outer_items_fingerprint
             outcomes.append(outcome)
             fingerprints.append(fingerprint)
     return saved_class.model_construct(
         outcomes=saved_outcomes(outcomes_class, outputs, outcomes),
         fingerprints=fingerprints,
         item_indexes=item_indexes,
-        outer_item_fingerprints=outer_item_fingerprints,
     )
 
 

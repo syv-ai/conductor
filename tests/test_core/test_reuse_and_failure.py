@@ -1736,6 +1736,109 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
     ]  # an id without its question's fingerprint answers whatever waits at that call
 
 
+def test_an_answer_meant_for_one_page_is_never_taken_by_another_page_with_the_same_line():
+    """A waiting id tells two pages with the same line apart, as reuse does.
+
+    The person answers the line ``a`` of the page ``a,x``. The pages are then swapped, so the call at that place is
+    the line ``a`` of the other page. The answer is refused, and points to where its own page's line went.
+    """
+
+    @node("lines", title="Lines", description="For a test.")
+    def lines(page: str) -> Series[str]:
+        return page.split(",")
+
+    @node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(line: str) -> bool:
+        raise Ask(f"Approve {line}?")
+
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "l": lines, "a": approve},
+            [("each.result", "l.page"), ("l.result", "a.line")],
+        ),
+        registry_of(_each, lines, approve),
+    )
+    first = graph.run(items=["a,y", "a,x"])
+    meant = next(w for w in first.waiting if w.loc == ("a", 1, 0))
+    swapped = first.again(items=["a,x", "a,y"])
+
+    with pytest.raises(InvalidCallError) as refused:
+        swapped.answer(meant.id, True)
+    (problem,) = refused.value.problems
+    assert (problem.type, problem.ctx["moved_to"]) == (
+        "answer_stale",
+        next(w.id for w in swapped.waiting if w.loc == ("a", 0, 0)),
+    )
+
+
+def test_an_answer_stays_with_its_item_when_the_node_reads_the_item_only_through_another_node():
+    """An answer belongs to the call's item in every loop, even an item the node that asks doesn't take.
+
+    ``approve`` gets a page's length, not the page, so the pages ``ab`` and ``cd`` give it the same argument. The
+    person answers for ``ab``. Once the pages are swapped, ``ab``'s answer goes with ``ab``, and ``cd`` still waits.
+    """
+
+    @node("size", title="Size", description="For a test.")
+    def size(page: str) -> int:
+        return len(page)
+
+    @node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(n: int) -> bool:
+        raise Ask(f"Approve a page of {n}?")
+
+    graph = Graph.compile(
+        _record(
+            {"each": _each, "s": size, "a": approve},
+            [("each.result", "s.page"), ("s.result", "a.n")],
+        ),
+        registry_of(_each, size, approve),
+    )
+    first = graph.run(items=["ab", "cd"])
+    answered = first.answer(next(w.id for w in first.waiting if w.loc == ("a", 0)), True)
+
+    swapped = answered.again(items=["cd", "ab"])
+
+    assert [w.loc for w in swapped.waiting] == [("a", 0)]
+    assert swapped.results["a"]["result"] == [None, True]
+
+
+class _Opaque:
+    """A value JSON can't write, as a ``Series[Any]`` may carry."""
+
+
+def test_a_call_that_asks_inside_a_loop_over_items_json_cant_write_waits_with_an_id_that_names_just_the_call():
+    """An item that can't be hashed leaves the call with no fingerprint, as an argument that can't be does.
+
+    The call is never reused, and its waiting id has no ``~`` part. The run still waits, and the id answers it.
+    """
+
+    @node("opaque", title="Opaque", description="For a test.")
+    def opaque(n: int) -> Series[Any]:
+        return [_Opaque() for _ in range(n)]
+
+    @node("one-line", title="One line", description="For a test.")
+    def one_line(page: Any) -> Series[str]:
+        return ["a"]
+
+    @node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(line: str) -> bool:
+        raise Ask(f"Approve {line}?")
+
+    graph = Graph.compile(
+        _record(
+            {"p": opaque, "l": one_line, "a": approve},
+            [("p.result", "l.page"), ("l.result", "a.line")],
+            constants={"p.n": 2},
+        ),
+        registry_of(opaque, one_line, approve),
+    )
+    run = graph.run()
+
+    assert run.status == "waiting"
+    assert [w.id for w in run.waiting] == ["a@0@0", "a@1@0"]
+    assert run.answer("a@0@0", True).waiting[0].id == "a@1@0"
+
+
 def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_id():
     @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
@@ -2483,16 +2586,15 @@ def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person
 ) -> None:
     """An identical item waits to take an answer while an earlier item's upstream node is asking a person.
 
-    Items "a" and "b" both reach ``approve`` as "bo", and are answered yes, then no. The run goes again with "x" in
-    place of "a". ``pre`` asks which name "x" is, and "b" takes no answer until then. Told "bo", "x" is the first "bo"
-    and takes yes. Told "zz", "b" is the first "bo" and takes yes, and "zz" is asked.
+    Two items "x" both reach ``approve`` as "bo", and are answered yes, then no. ``pre`` is then forgotten, so it
+    asks again for both. Told "bo" for the second "x" first, ``approve`` there takes no answer until the first "x"
+    is told too. Told "bo", the first "x" takes yes and the second no. Told "zz", the first is asked, and the second
+    is the first "bo" and takes yes.
     """
 
     @node("pre", title="Pre", description="For a test.", asks=True)
     def pre(name: str) -> str:
-        if name == "x":
-            raise Ask("Which name?")
-        return "bo"
+        raise Ask("Which name?")
 
     @node("approve", title="Approve", description="For a test.", asks=True)
     def approve(name: str) -> bool:
@@ -2505,17 +2607,19 @@ def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person
         ),
         registry_of(_each, pre, approve),
     )
-    first = graph.run(items=["a", "b"])
-    answered = first.answer({w.id: place(w) == "a@0" for w in first.waiting}).resume()
+    first = graph.run(items=["x", "x"])
+    named = first.answer({w.id: "bo" for w in first.waiting}).resume()
+    answered = named.answer({w.id: place(w) == "a@0" for w in named.waiting}).resume()
 
-    again = answered.again(items=["x", "b"])
+    again = answered.forget("p").resume()
+    second_told = again.answer(again.waiting[1], "bo").resume()
     assert (
-        again.status == "waiting"
-        and [place(w) for w in again.waiting] == ["p@0"]
-        and again.results["a"]["result"] == [None, None]
+        second_told.status == "waiting"
+        and [place(w) for w in second_told.waiting] == ["p@0"]
+        and second_told.results["a"]["result"] == [None, None]
     )
 
-    told = again.answer(again.waiting[0], name).resume()
+    told = second_told.answer(second_told.waiting[0], name).resume()
     assert told.results["a"]["result"] == results and [place(w) for w in told.waiting] == asked
 
 

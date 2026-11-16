@@ -273,9 +273,9 @@ A question is the same record as a field: the `FieldDescription` a palette reads
 answer was rejected: it loses a host type's id and exclusive groups, and has no place for a widget.
 
 An answer is read strictly from its JSON form (`true`, never `"yes"`), and every fault is refused at once. A waiting
-id like `approve@1~3fa2c0d1` names the call and a fingerprint of the node and the call's inputs; the reference's `asking-a-person` section says what it covers. So an
-answer to a place that waits with another fingerprint is refused as `answer_stale`, and one to a place that waits on
-nothing as `not_waiting`. The rules are in `python -m conductor.about asking-a-person`.
+id like `approve@1~3fa2c0d1` names the call and a fingerprint of the node, the call's inputs and its items;
+the reference's `asking-a-person` section says what it covers. So an answer to a place that waits with another
+fingerprint is refused as `answer_stale`, and one to a place that waits on nothing as `not_waiting`. The rules are in `python -m conductor.about asking-a-person`.
 
 ```python
 from typing import Literal

@@ -66,7 +66,6 @@ from .waiting import (
     Waiting,
     question_fingerprint,
     read_waiting_id,
-    received,
     waiting_record,
     write_waiting_id,
 )
@@ -517,7 +516,7 @@ class Run[C]:
                 )
             case _:
                 assert_never(outcome)
-        asked = question_fingerprint(node.compiled_node, received(node, item_indexes, self._reader))
+        asked = question_fingerprint(node, item_indexes, self._reader)
         if fingerprint is not None and asked != fingerprint:
             raise InvalidCallError(
                 [
@@ -545,8 +544,7 @@ class Run[C]:
         for item_indexes, outcome in self._outcomes[nodes].items():
             match outcome:
                 case Unanswered() if (
-                    question_fingerprint(node.compiled_node, received(node, item_indexes, reader))
-                    == fingerprint
+                    question_fingerprint(node, item_indexes, reader) == fingerprint
                 ):
                     return write_waiting_id(outcome_loc(node, item_indexes), fingerprint)
                 case Unanswered() | Done() | Skipped() | NoneInput():
