@@ -6,7 +6,7 @@ A run calls each node once, or once per item when the node is inside a loop. Tak
     shout(line: str, mark: str = "!") -> str  # wired to lines.result: called once per line
     join(texts: Series[str]) -> str           # wired to shout.result: called once, with ["A!", "B!", "C!"]
 
-``graph.run(text="a\\nb\\nc")`` calls ``lines`` once, ``shout`` three times and ``join`` once. Each call is known
+``graph.run({"text": "a\\nb\\nc"})`` calls ``lines`` once, ``shout`` three times and ``join`` once. Each call is known
 by its item indexes, one index per loop the node is inside. The calls of ``shout`` are ``(0,)``, ``(1,)`` and
 ``(2,)``. ``lines`` and ``join`` are inside no loop, so their one call is ``()``.
 

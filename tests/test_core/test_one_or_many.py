@@ -279,9 +279,11 @@ def test_a_list_given_or_set_as_a_constant_at_an_input_of_one_value_is_refused_a
         record_of(("r", "review"), inputs={"text": "r.text"}, outputs={"result": "r.result"}),
         registry,
     )
-    assert _refused(lambda: graph.run(text=["a", "b"])) == [("invalid_input", ("inputs", "text"))]
-    assert _refused(lambda: graph.run(text=["a"])) == [("invalid_input", ("inputs", "text"))]
-    assert graph.run(text="a").outputs == {"result": "rev(a)"}
+    assert _refused(lambda: graph.run({"text": ["a", "b"]})) == [
+        ("invalid_input", ("inputs", "text"))
+    ]
+    assert _refused(lambda: graph.run({"text": ["a"]})) == [("invalid_input", ("inputs", "text"))]
+    assert graph.run({"text": "a"}).outputs == {"result": "rev(a)"}
 
     with_constant = Graph.compile(
         record_of(
@@ -308,8 +310,8 @@ def test_an_input_whose_type_takes_a_list_takes_it_as_one_value_and_a_series_inp
         record_of(("o", "overall"), inputs={"texts": "o.texts"}, outputs={"result": "o.result"}),
         registry,
     )
-    assert overall_alone.run(texts=["one"]).outputs == {"result": "overall(1)"}
-    assert _refused(lambda: overall_alone.run(texts="one")) == [
+    assert overall_alone.run({"texts": ["one"]}).outputs == {"result": "overall(1)"}
+    assert _refused(lambda: overall_alone.run({"texts": "one"})) == [
         ("invalid_input", ("inputs", "texts"))
     ]
 
@@ -325,7 +327,7 @@ def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
         ),
         registry,
     )
-    run = graph.run(text="a,b")
+    run = graph.run({"text": "a,b"})
     assert [w.loc[1:] for w in run.waiting] == [(0,), (1,)]
     saved = Run.from_json(run.to_json(), graph)
     assert saved.graph is graph and saved.graph.describe().nodes["q"].per_item_of == "s.result"
@@ -419,8 +421,10 @@ def test_a_yes_or_no_is_never_taken_as_a_number_of_a_literal():
     checked = _checked_registry()
     graph = Graph.compile(_one("level", "n", checked), checked)
 
-    assert _refused_as(lambda: graph.run(n=True)) == [("invalid_input", "bool_is_not_a_number")]
-    assert graph.run(n=2).outputs == {"result": 2}
+    assert _refused_as(lambda: graph.run({"n": True})) == [
+        ("invalid_input", "bool_is_not_a_number")
+    ]
+    assert graph.run({"n": 2}).outputs == {"result": 2}
 
 
 def test_a_yes_or_no_is_never_taken_as_a_number_of_a_union_without_a_yes_or_no():
@@ -444,13 +448,15 @@ def test_a_yes_or_no_is_never_taken_as_a_number_of_a_union_without_a_yes_or_no()
 
     for node_id in ("either", "or-text"):
         graph = Graph.compile(_one(node_id, "n", local_registry), local_registry)
-        assert _refused_as(lambda: graph.run(n=True)) == [("invalid_input", "bool_is_not_a_number")]
-        assert graph.run(n=2).outputs == {"result": "2"}
+        assert _refused_as(lambda: graph.run({"n": True})) == [
+            ("invalid_input", "bool_is_not_a_number")
+        ]
+        assert graph.run({"n": 2}).outputs == {"result": "2"}
     assert Graph.compile(_one("or-flag", "n", local_registry), local_registry).run(
-        n=True
+        {"n": True}
     ).outputs == {"result": "True"}
     assert (
-        Graph.compile(_one("returns-yes", "n", local_registry), local_registry).run(n=1).status
+        Graph.compile(_one("returns-yes", "n", local_registry), local_registry).run({"n": 1}).status
         == "failed"
     )
 
@@ -482,7 +488,7 @@ def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
 
     graph = Graph.compile(_one("depth", "tree", local_registry), local_registry)
 
-    assert graph.run(tree=[1, [2]]).outputs == {"result": "[1, [2]]"}
+    assert graph.run({"tree": [1, [2]]}).outputs == {"result": "[1, [2]]"}
 
 
 def _taking(hint: Any) -> tuple[Graph[None], NodeRegistry]:
@@ -510,7 +516,7 @@ def _refused_reasons(hint: Any, value: Any) -> list[str]:
     """
     graph, _ = _taking(hint)
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(value=value)
+        graph.run({"value": value})
     (problem,) = refused.value.problems
     assert problem.type == "invalid_input"
     return [error["type"] for error in problem.ctx["errors"]]
@@ -519,7 +525,7 @@ def _refused_reasons(hint: Any, value: Any) -> list[str]:
 def _taken(hint: Any, value: Any) -> Any:
     """Gives ``value`` to a graph input of type ``hint``, and returns the value the node got."""
     graph, _ = _taking(hint)
-    return graph.run(value=value).outputs["result"]
+    return graph.run({"value": value}).outputs["result"]
 
 
 def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_table():

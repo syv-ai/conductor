@@ -99,7 +99,7 @@ def test_a_float_reads_back_bit_for_bit():
     def make_floats(text: str) -> Series[float]:
         return floats
 
-    run = Graph.compile(make_graph(make_floats), registry_of(make_floats)).run(text="x")
+    run = Graph.compile(make_graph(make_floats), registry_of(make_floats)).run({"text": "x"})
 
     read_back = _round_trip(run).results["floats"]["result"]
 
@@ -111,7 +111,7 @@ def test_a_text_that_spells_the_skipped_sentinel_reads_back_as_text():
     def spelled(text: str) -> Series[str]:
         return ["__skipped__", "SKIPPED", ""]
 
-    run = Graph.compile(make_graph(spelled), registry_of(spelled)).run(text="x")
+    run = Graph.compile(make_graph(spelled), registry_of(spelled)).run({"text": "x"})
 
     assert _round_trip(run).results["spelled"]["result"] == ["__skipped__", "SKIPPED", ""]
 
@@ -164,7 +164,7 @@ def test_a_float_that_is_not_finite_reads_back_as_a_float_and_the_downstream_nod
 
     for text in ("nan", "inf", "-inf"):
         graph, seen = _waiting_after(ratio)
-        paused = graph.run(text=text)
+        paused = graph.run({"text": text})
         saved = paused.to_json()
         _strict(saved)
 
@@ -187,7 +187,7 @@ def test_a_series_of_floats_keeps_the_ones_that_are_not_finite():
     def readings(text: str) -> Series[float]:
         return [math.nan, math.inf, -math.inf]
 
-    run = Graph.compile(make_graph(readings), registry_of(readings)).run(text="x")
+    run = Graph.compile(make_graph(readings), registry_of(readings)).run({"text": "x"})
 
     assert _is_nan_inf_minus_inf(_round_trip(run).results["readings"]["result"])
 
@@ -198,7 +198,7 @@ def test_floats_returned_per_item_keep_the_ones_that_are_not_finite():
         return float(text)
 
     graph, _ = _waiting_after(per_item, per_item=True)
-    paused = graph.run(text="nan,inf,-inf")
+    paused = graph.run({"text": "nan,inf,-inf"})
 
     assert _is_nan_inf_minus_inf(Run.from_json(paused.to_json(), graph).results["m"]["result"])
 
@@ -212,7 +212,7 @@ def test_a_float_column_keeps_nan_infinity_and_null():
     def table(text: str) -> Table[Reading]:
         return pl.DataFrame({"value": [math.nan, math.inf, -math.inf, None]})
 
-    run = Graph.compile(make_graph(table), registry_of(table)).run(text="x")
+    run = Graph.compile(make_graph(table), registry_of(table)).run({"text": "x"})
 
     column = _round_trip(run).results["table"]["result"]["value"].to_list()
 
@@ -224,7 +224,7 @@ def test_a_saved_run_is_strict_json_when_a_number_is_not_finite():
     def odd(text: str) -> Series[float]:
         return [math.nan, math.inf]
 
-    saved = Graph.compile(make_graph(odd), registry_of(odd)).run(text="x").to_json()
+    saved = Graph.compile(make_graph(odd), registry_of(odd)).run({"text": "x"}).to_json()
 
     assert _strict(saved)["ended_early"] is None
 
@@ -244,7 +244,7 @@ def test_none_returned_for_an_output_typed_series_or_none_reads_back_as_none():
             }
         ),
         registry_of(maybe_readings),
-    ).run(text="x")
+    ).run({"text": "x"})
 
     assert run.status == "complete"
     assert _round_trip(run).results["m"]["result"] is None
@@ -277,7 +277,7 @@ def test_a_float_that_is_not_finite_in_a_tuple_reads_back_by_the_type_declared_a
         outputs={"pair": "pair.result", "point": "point.result"},
     )
     graph = Graph.compile(record, registry_of(pair, point))
-    results = _round_trip(graph.run(text="x")).results
+    results = _round_trip(graph.run({"text": "x"})).results
 
     assert (
         math.isnan(results["pair"]["result"]["a"][0]) and results["pair"]["result"]["a"][1] == 1.5
@@ -323,7 +323,7 @@ def test_a_float_that_is_not_finite_where_its_type_does_not_say_float_reads_back
         outputs={n: f"{n}.result" for n in names},
     )
     graph = Graph.compile(record, registry_of(loose, mapping, anything, maybe_mapping))
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
     _strict(run.to_json())
     results = _round_trip(run).results
 
@@ -350,7 +350,7 @@ def test_a_float_or_text_field_reads_a_float_that_is_not_finite_back_as_the_text
     graph = Graph.compile(
         make_graph(up, down, edges=[("up.result", "down.x")]), registry_of(up, down)
     )
-    read_back = _round_trip(graph.run(k=1))
+    read_back = _round_trip(graph.run({"k": 1}))
 
     assert read_back.results["up"]["result"] == ["NaN", "NaN", 1.5]
     assert read_back.forget("down").resume().outputs["result"] == ["str", "str", "float"]
@@ -430,7 +430,7 @@ def test_every_column_type_reads_back_exactly_and_the_downstream_node_gets_the_s
         ),
         registry_of(everything, check_table, take),
     )
-    paused = graph.run(text="x")
+    paused = graph.run({"text": "x"})
     before = paused.results["e"]["result"]
 
     read_back = Run.from_json(paused.to_json(), graph)
@@ -454,7 +454,7 @@ def test_a_table_with_no_row_type_keeps_its_list_struct_time_and_decimal_columns
     def bare(text: str) -> pl.DataFrame:
         return pl.DataFrame(columns)
 
-    run = Graph.compile(make_graph(bare), registry_of(bare)).run(text="x")
+    run = Graph.compile(make_graph(bare), registry_of(bare)).run({"text": "x"})
 
     read_back = _round_trip(run).results["bare"]["result"]
 
@@ -521,7 +521,7 @@ def test_a_returned_table_column_is_kept_as_the_type_a_saved_run_reads_it_back_a
     graph = Graph.compile(
         make_graph(narrow, take, edges=[("narrow.result", "take.rows")]), registry_of(narrow, take)
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
     kept, read_back = run.results["narrow"]["result"], _round_trip(run).results["narrow"]["result"]
 
     assert kept.schema == read_back.schema == received[0].schema == {"a": kept_as}
@@ -551,7 +551,7 @@ def test_a_returned_table_column_a_saved_run_reads_back_changed_is_refused(
     def odd(text: str) -> Table:
         return pl.DataFrame({"a": column})
 
-    run = Graph.compile(make_graph(odd), registry_of(odd)).run(text="x")
+    run = Graph.compile(make_graph(odd), registry_of(odd)).run({"text": "x"})
 
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("odd",))
     assert (
@@ -625,7 +625,7 @@ def test_a_returned_table_cell_a_saved_run_reads_back_otherwise_is_refused(
         return pl.DataFrame({"count": column})
 
     for returns in (any_columns, declared_columns):
-        run = Graph.compile(make_graph(returns), registry_of(returns)).run(text="x")
+        run = Graph.compile(make_graph(returns), registry_of(returns)).run({"text": "x"})
 
         assert (run.cause.type, run.cause.loc) == ("invalid_output", (returns.id,))
         assert (
@@ -647,11 +647,11 @@ def test_a_struct_column_with_a_float_that_is_not_finite_is_refused_and_a_whole_
 
     assert (
         "column 'point' has a float that isn't finite (nan or inf) inside a list or struct"
-        in graph.run(text="nan").cause.msg
+        in graph.run({"text": "nan"}).cause.msg
     )
     assert (
         "column 'big' is List(UInt64), and has a whole number too big for an Int64"
-        in graph.run(text="big").cause.msg
+        in graph.run({"text": "big"}).cause.msg
     )
 
 
@@ -662,18 +662,20 @@ def test_a_frame_given_as_a_graph_input_is_kept_as_a_saved_run_reads_it_back():
 
     graph = Graph.compile(make_graph(rows), registry_of(rows))
 
-    run = graph.run(table=pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)}))
+    run = graph.run({"table": pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)})})
     assert run.results["rows"]["result"].schema == {"a": pl.Int64}
 
     with pytest.raises(InvalidCallError) as refused:
         graph.run(
-            table=pl.DataFrame(
-                {
-                    "a": pl.Series([dt.datetime(2026, 1, 1)]).dt.replace_time_zone(
-                        "Europe/Copenhagen"
-                    )
-                }
-            )
+            {
+                "table": pl.DataFrame(
+                    {
+                        "a": pl.Series([dt.datetime(2026, 1, 1)]).dt.replace_time_zone(
+                            "Europe/Copenhagen"
+                        )
+                    }
+                )
+            }
         )
     (problem,) = refused.value.problems
     assert (
@@ -698,7 +700,7 @@ def test_records_given_for_a_table_are_read_as_polars_reads_rows_one_type_per_co
     def rows(table: Table) -> Table:
         return table
 
-    run = Graph.compile(make_graph(rows), registry_of(rows)).run(table=records)
+    run = Graph.compile(make_graph(rows), registry_of(rows)).run({"table": records})
 
     assert (
         run.results["rows"]["result"].to_dict(as_series=False)
@@ -721,7 +723,7 @@ def test_a_nested_column_whose_first_cells_have_less_in_them_is_loaded_back_unch
     def nested(text: str) -> Table:
         return pl.DataFrame({"a": column})
 
-    run = Graph.compile(make_graph(nested), registry_of(nested)).run(text="x")
+    run = Graph.compile(make_graph(nested), registry_of(nested)).run({"text": "x"})
     read_back = _round_trip(run).results["nested"]["result"]
 
     assert read_back.schema == {"a": column.dtype} and read_back["a"].to_list() == column.to_list()
@@ -742,7 +744,7 @@ def test_a_json_column_of_a_table_given_as_json_takes_a_type_that_fits_every_cel
         return table
 
     run = Graph.compile(make_graph(rows), registry_of(rows)).run(
-        table={"columns": [{"name": "a", "type": "json", "values": values}]}
+        {"table": {"columns": [{"name": "a", "type": "json", "values": values}]}}
     )
 
     assert run.results["rows"]["result"]["a"].to_list() == read
@@ -760,7 +762,7 @@ def test_records_given_for_a_table_keep_every_key_of_a_mapping_column():
         )
 
     run = Graph.compile(make_graph(rows), registry_of(rows)).run(
-        table=[{"m": {"x": 1}}, {"m": {"y": 2}}]
+        {"table": [{"m": {"x": 1}}, {"m": {"y": 2}}]}
     )
 
     assert run.results["rows"]["result"] == 2
@@ -790,7 +792,7 @@ def test_a_table_answer_is_refused_where_a_returned_table_is(answer: pl.DataFram
     def ask_table(text: str) -> Table:
         raise Ask("Which rows?")
 
-    run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run(text="x")
+    run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run({"text": "x"})
     (waiting,) = run.waiting
 
     with pytest.raises(InvalidCallError) as refused:
@@ -805,7 +807,7 @@ def test_a_table_answer_is_kept_as_a_returned_table_is():
     def ask_table(text: str) -> Table:
         raise Ask("Which rows?")
 
-    run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run(text="x")
+    run = Graph.compile(make_graph(ask_table), registry_of(ask_table)).run({"text": "x"})
     (waiting,) = run.waiting
     answered = run.answer(waiting.id, pl.DataFrame({"a": pl.Series([1], dtype=pl.Int32)})).resume()
 
@@ -821,7 +823,7 @@ def test_a_series_of_records_returned_as_a_frame_is_kept_as_a_saved_run_reads_it
     def records(text: str) -> Series[_Count]:
         return pl.DataFrame({"count": pl.Series([1, 2], dtype=pl.Int32)})  # type: ignore[return-value]  # a frame is a Series of records
 
-    run = Graph.compile(make_graph(records), registry_of(records)).run(text="x")
+    run = Graph.compile(make_graph(records), registry_of(records)).run({"text": "x"})
 
     assert (
         run.results["records"]["result"]
@@ -845,7 +847,7 @@ def test_a_returned_table_reads_back_with_the_same_column_types_and_cells():
     def kept(text: str) -> Table:
         return pl.DataFrame(columns)
 
-    run = Graph.compile(make_graph(kept), registry_of(kept)).run(text="x")
+    run = Graph.compile(make_graph(kept), registry_of(kept)).run({"text": "x"})
     before, after = run.results["kept"]["result"], _round_trip(run).results["kept"]["result"]
 
     assert after.schema == before.schema == pl.DataFrame(columns).schema
@@ -917,7 +919,7 @@ def test_tables_of_two_nodes_read_back_each_as_itself():
             }
         ),
         registry_of(names, ages),
-    ).run(n_text="x", a_text="y")
+    ).run({"n_text": "x", "a_text": "y"})
 
     read_back = _round_trip(run)
 
@@ -932,7 +934,7 @@ def test_two_identical_runs_save_byte_identical_json():
 
     graph = Graph.compile(make_graph(mixed), registry_of(split, mixed))
 
-    assert graph.run(text="x").to_json() == graph.run(text="x").to_json()
+    assert graph.run({"text": "x"}).to_json() == graph.run({"text": "x"}).to_json()
 
 
 # -- what a run cannot be saved with ----------------------------------------------------------
@@ -962,7 +964,7 @@ def test_saving_a_run_with_an_output_that_has_no_json_form_raises_naming_the_out
             }
         ),
         registry_of(opaque),
-    ).run(text="x")
+    ).run({"text": "x"})
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -995,7 +997,7 @@ def test_saving_a_run_whose_node_has_outcomes_and_reusable_outcomes_names_the_ou
     graph = Graph.compile(
         make_graph(split, odd, edges=[("split.result", "odd.word")]), registry_of(split, odd)
     )
-    second = graph.run(text="a,c,q").with_inputs(text="b,q").resume()
+    second = graph.run({"text": "a,c,q"}).with_inputs({"text": "b,q"}).resume()
 
     with pytest.raises(InvalidCallError) as refused:
         second.to_json()
@@ -1017,7 +1019,7 @@ def test_saving_a_run_given_an_input_with_no_json_form_raises_naming_the_input()
             }
         ),
         registry_of(take),
-    ).run(value=_Opaque())
+    ).run({"value": _Opaque()})
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -1034,7 +1036,7 @@ def test_a_returned_table_column_json_cannot_write_is_refused_naming_the_column(
     def blob(text: str) -> Table[Blob]:
         return pl.DataFrame({"data": [b"\xff\xfe"]})
 
-    run = Graph.compile(make_graph(blob), registry_of(blob)).run(text="x")
+    run = Graph.compile(make_graph(blob), registry_of(blob)).run({"text": "x"})
 
     assert (run.cause.type, run.cause.loc) == ("invalid_output", ("blob",))
     assert "column 'data' is Binary" in run.cause.msg and "\\xff" not in json.dumps(
@@ -1056,7 +1058,7 @@ def _saved_echoes() -> tuple[Any, dict[str, Any]]:
         return text
 
     graph = Graph.compile(make_graph(split, echo), registry_of(split, echo))
-    return graph, json.loads(graph.run(text="secret-a,secret-b,secret-c").to_json())
+    return graph, json.loads(graph.run({"text": "secret-a,secret-b,secret-c"}).to_json())
 
 
 def test_a_saved_value_its_type_does_not_read_is_refused_naming_where_and_quoting_nothing():
@@ -1127,7 +1129,7 @@ def test_a_yes_or_no_saved_for_a_number_is_refused_with_the_reason_a_caller_gets
         ),
         registry_of(whole, many, one, table),
     )
-    saved = json.loads(graph.run(x=1, f=1.0).to_json())
+    saved = json.loads(graph.run({"x": 1, "f": 1.0}).to_json())
     outputs = {
         name: saved["outcomes"][name]["outputs"]["result"]
         for name in ("whole", "many", "one", "table")
@@ -1238,7 +1240,7 @@ def test_a_null_item_a_node_may_return_reads_back(item: Any) -> None:
         return ["a", None]
 
     graph = Graph.compile(make_graph(make), registry_of(make))
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.status == "complete"
     assert Run.from_json(run.to_json(), graph).results["make"]["result"] == ["a", None]
@@ -1251,7 +1253,7 @@ def test_a_null_output_a_node_may_return_reads_back(whole: Any) -> None:
         return None
 
     graph = Graph.compile(make_graph(one), registry_of(one))
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.status == "complete"
     assert Run.from_json(run.to_json(), graph).results["one"]["result"] is None
@@ -1263,7 +1265,7 @@ def test_a_null_item_a_node_may_not_return_is_refused_on_reading_as_its_own_chec
         return ["a", "b"]
 
     graph = Graph.compile(make_graph(make), registry_of(make))
-    saved = json.loads(graph.run(text="x").to_json())
+    saved = json.loads(graph.run({"text": "x"}).to_json())
     saved["outcomes"]["make"]["outputs"]["result"][0][1] = None
 
     assert _refused(graph, saved).ctx["where"] == "outcomes.make"
@@ -1296,7 +1298,7 @@ def _saved_table() -> tuple[Any, dict[str, Any]]:
         ),
         registry_of(names, count),
     )
-    return graph, json.loads(graph.run(text="ida,bo").to_json())
+    return graph, json.loads(graph.run({"text": "ida,bo"}).to_json())
 
 
 def test_a_malformed_table_is_refused():
@@ -1358,7 +1360,7 @@ def test_another_graphs_saved_run_quotes_its_graph_only_when_it_is_a_fingerprint
         return text.upper()
 
     graph = Graph.compile(make_graph(shout), registry_of(shout))
-    saved = json.loads(graph.run(text="a").to_json())
+    saved = json.loads(graph.run({"text": "a"}).to_json())
     saved["graph"] = saved_graph
 
     with pytest.raises(InvalidCallError) as refused:
@@ -1388,7 +1390,7 @@ def test_a_saved_run_is_refused_by_a_graph_whose_subgraph_was_edited():
     outer = GraphRecord.model_validate(
         {"nodes": {"e": {"node": "inner", "inputs": {"text": {"graph_input": "text"}}}}}
     )
-    saved = Graph.compile(outer, with_inner(shout)).run(text="a").to_json()
+    saved = Graph.compile(outer, with_inner(shout)).run({"text": "a"}).to_json()
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(outer, with_inner(quiet)))
@@ -1503,7 +1505,7 @@ def test_a_graph_record_and_saved_run_whose_keys_a_store_reordered_compile_read_
         "outputs": {"result": {"node": "o", "output": "result"}},
     }
     graph = Graph.compile(GraphRecord.model_validate(record), registry)
-    first = graph.run(text="ccc,a,bb")
+    first = graph.run({"text": "ccc,a,bb"})
     ids = [w.id for w in first.waiting]  # what a host stores when the run waits
     answers = {call_id: f"yes {i}" for i, call_id in enumerate(ids)}
     straight = first.answer(answers).resume()
@@ -1548,7 +1550,7 @@ def test_a_saved_run_read_into_a_graph_missing_a_node_definition_is_refused_with
 
     full = registry_of(first, middle, ask)
     record = make_graph(first, middle, ask)
-    saved = Graph.compile(record, full).run(x=1).to_json()
+    saved = Graph.compile(record, full).run({"x": 1}).to_json()
     narrow = Graph.compile(record, full.filter(lambda d: d.id != gone))
 
     with pytest.raises(InvalidCallError) as refused:
@@ -1586,7 +1588,7 @@ def test_a_float_that_is_not_finite_in_a_model_reads_back_by_the_type_of_its_fie
         outputs={"reading": "reading.result", "readings": "readings.result"},
     )
     graph = Graph.compile(record, registry_of(reading, readings))
-    run = graph.run(x=1)
+    run = graph.run({"x": 1})
     _strict(run.to_json())
     back = _round_trip(run)
 
@@ -1606,7 +1608,9 @@ def test_a_float_that_is_not_finite_given_by_a_caller_reads_back_by_the_type_of_
         return repr((options, level, ratio))
 
     graph = Graph.compile(make_graph(given), registry_of(given))
-    run = graph.run(options={"a": math.nan, "b": [math.inf]}, level=-math.inf, ratio=math.inf)
+    run = graph.run(
+        {"options": {"a": math.nan, "b": [math.inf]}, "level": -math.inf, "ratio": math.inf}
+    )
     _strict(run.to_json())
     back = _round_trip(run)
 
@@ -1626,7 +1630,7 @@ def test_a_saved_run_missing_a_key_is_refused_naming_the_key_not_with_a_python_e
     problem = _refused(graph, {})
     # the graph's fingerprint is read first, to check that the saved run is of this graph
     assert problem.ctx["where"] == "graph" and "KeyError" not in problem.msg
-    saved = json.loads(graph.run(text="x").to_json())
+    saved = json.loads(graph.run({"text": "x"}).to_json())
     del saved["inputs"]
     assert _refused(graph, saved).ctx["where"] == "inputs"
 
@@ -1665,7 +1669,7 @@ def test_a_saved_run_damaged_in_shape_is_refused_where_it_is_damaged(
     where: str, damaged: Any
 ) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
-    saved = json.loads(graph.run(text="a,b").to_json())
+    saved = json.loads(graph.run({"text": "a,b"}).to_json())
     damaged(saved)
     assert _refused(graph, saved).ctx["where"] == where
 
@@ -1781,7 +1785,7 @@ def test_a_saved_waiting_run_damaged_in_shape_is_refused_where_it_is_damaged(
         ),
         registry_of(split, upper_word, ok_word),
     )
-    run = graph.run(text="a,b")
+    run = graph.run({"text": "a,b"})
     assert run.status == "waiting"
     saved = json.loads(run.to_json())
     damaged(saved)
@@ -1823,7 +1827,7 @@ def test_a_not_called_and_a_skipped_call_read_back_and_the_resumed_run_lists_the
         ),
         registry_of(addresses, short_or_skipped, confirm),
     )
-    run = graph.run(text="ab,,long,cd")
+    run = graph.run({"text": "ab,,long,cd"})
     assert run.status == "waiting" and [w.loc for w in run.waiting] == [("c", 0), ("c", 3)]
     saved = json.loads(run.to_json())["outcomes"]
     # s is not called for the empty address and returns SKIPPED for the long one
@@ -1866,7 +1870,7 @@ def check(kind: str) -> str:
 
 registry = NodeRegistry()
 registry.add(check)
-print(Graph.compile(make_graph(check), registry).run(kind="invoice").waiting[0].id)
+print(Graph.compile(make_graph(check), registry).run({"kind": "invoice"}).waiting[0].id)
 """
 
 
@@ -1906,7 +1910,7 @@ def d(text: str) -> str:
 
 registry = NodeRegistry()
 registry.add(a, b, c, d)
-print(Graph.compile(make_graph(a, b, c, d), registry).run(text="x").to_json())
+print(Graph.compile(make_graph(a, b, c, d), registry).run({"text": "x"}).to_json())
 """
 
 
@@ -1939,8 +1943,8 @@ def test_a_saved_run_that_ended_early_without_a_cause_or_as_no_early_end_is_refu
 
     graph = Graph.compile(make_graph(boom), registry_of(boom))
     failed, complete = (
-        json.loads(graph.run(text="x").to_json()),
-        json.loads(graph.run(text="y").to_json()),
+        json.loads(graph.run({"text": "x"}).to_json()),
+        json.loads(graph.run({"text": "y"}).to_json()),
     )
     assert failed["ended_early"]["status"] == "failed" and complete["ended_early"] is None
     assert (

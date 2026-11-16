@@ -14,7 +14,7 @@ name::
     def sign(ctx: Context[HostContext], text: str) -> str:
         return f"{text}, {ctx.caller.name}"
 
-    graph.run(text="Done", context=HostContext(caller=Caller("Ida"), http_client=client))
+    graph.run({"text": "Done"}, context=HostContext(caller=Caller("Ida"), http_client=client))
 
 ``ctx`` is not an input of the node. No edge reaches it, the graph record never mentions it, and a run never saves
 it. It plays no part in whether a call's earlier outcome is reused, either. A unit test just calls

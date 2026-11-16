@@ -100,7 +100,7 @@ def results(nodes: list[Any], edges: list[tuple[str, str]], node_id: str, text: 
         make_graph(*nodes, edges=edges, outputs={"shown": f"{node_id}.result"}), REGISTRY
     )
     assert not graph.problems, graph.problems
-    run = graph.run(text=text)
+    run = graph.run({"text": text})
     assert run.status == "complete"
     return run.results[node_id]["result"]
 
@@ -131,7 +131,7 @@ def test_a_node_outside_and_a_host_see_the_same_list_per_document() -> None:
         ),
         REGISTRY,
     )
-    run = graph.run(text="a,b;;c")
+    run = graph.run({"text": "a,b;;c"})
     assert (
         run.results["shout-lines"]["result"]
         == run.results["as-given"]["result"]

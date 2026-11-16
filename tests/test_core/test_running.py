@@ -146,7 +146,7 @@ def send(email: str) -> str:
 def test_node_complete_counts_the_items_not_called_for_a_none_and_the_saved_run_lists_them():
     graph = Graph.compile(make_graph(addresses, send), registry_of(addresses, send))
 
-    events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
+    events = _events(graph.with_inputs({"text": "ida@a.dk,,al@a.dk"}))
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
     assert (mail.count.finished, mail.count.not_called, mail.reused) == (3, 1, 0)
@@ -205,7 +205,7 @@ def test_a_diamond_runs_each_branch_once_and_joins_them():
         registry_of(source, left, right, meet),
     )
 
-    events = _events(graph.with_inputs(text="abc"))
+    events = _events(graph.with_inputs({"text": "abc"}))
 
     assert events[-1].run.outputs == {"result": "ABC|cba"}
     assert sorted(calls) == ["left", "right", "source"]
@@ -256,11 +256,11 @@ def test_outputs_leave_out_a_skipped_output_and_a_failed_run_keeps_what_it_made(
         ),
         registry_of(only_short),
     )
-    assert skipping.run(text="long").outputs == {"result": None}
-    assert skipping.run(text="ab").outputs == {"result": "ab"}
+    assert skipping.run({"text": "long"}).outputs == {"result": None}
+    assert skipping.run({"text": "ab"}).outputs == {"result": "ab"}
 
     failing = Graph.compile(make_graph(split, fails_on_c), registry_of(split, fails_on_c))
-    failed = failing.run(text="a,b,c")
+    failed = failing.run({"text": "a,b,c"})
     assert failed.status == "failed" and failed.results["fails-on-c"]["result"] == ["a", "b", None]
 
 
@@ -391,9 +391,9 @@ def test_the_policy_of_the_version_the_graph_is_pinned_at_is_the_one_a_run_obeys
         registry,
     )
 
-    assert pinned.run(text="x").outputs == {"result": "one"} and calls == [1, 1, 1]
+    assert pinned.run({"text": "x"}).outputs == {"result": "one"} and calls == [1, 1, 1]
     calls.clear()
-    assert newest.run(text="x").status == "failed" and calls == [2]
+    assert newest.run({"text": "x"}).status == "failed" and calls == [2]
 
 
 def test_concurrency_one_calls_one_item_at_a_time():
@@ -719,7 +719,7 @@ def test_a_run_has_no_deadline_by_default_and_a_slow_node_runs_to_the_end():
         registry_of(slow_second),
     )
 
-    assert graph.run(text="x").outputs == {"result": "done"}
+    assert graph.run({"text": "x"}).outputs == {"result": "done"}
 
 
 class _AtOnce:
@@ -993,8 +993,8 @@ def test_a_run_that_raises_out_of_resume_leaves_no_call_of_a_capped_node_counted
     graph = _one_node_per_item(exits)
     for _ in range(10):
         with pytest.raises(SystemExit):
-            graph.with_inputs(text=_numbers(40)).resume(timeout=BOUND)
-    assert graph.with_inputs(text="a,b,c").resume(timeout=2).status == "complete"
+            graph.with_inputs({"text": _numbers(40)}).resume(timeout=BOUND)
+    assert graph.with_inputs({"text": "a,b,c"}).resume(timeout=2).status == "complete"
 
 
 def test_a_run_woken_by_another_runs_call_stops_at_its_timeout_while_it_works_through_its_waiting_calls():
@@ -1023,9 +1023,9 @@ def test_a_run_woken_by_another_runs_call_stops_at_its_timeout_while_it_works_th
 
     def second() -> Any:
         assert holding.wait(BOUND)
-        return graph.with_inputs(text=_numbers(100)).resume(timeout=0.6)
+        return graph.with_inputs({"text": _numbers(100)}).resume(timeout=0.6)
 
-    _, second_run = _in_threads(lambda: graph.with_inputs(text="hold").resume(), second)
+    _, second_run = _in_threads(lambda: graph.with_inputs({"text": "hold"}).resume(), second)
 
     assert second_run.status == "timed_out" and 0 < len(made) < 50, len(made)
 
@@ -1051,10 +1051,10 @@ def test_a_run_that_calls_a_capped_node_on_its_own_thread_lets_a_run_waiting_for
 
     def late() -> Any:
         assert busy_started.wait(BOUND)
-        return graph.with_inputs(text="late").resume(timeout=BOUND)
+        return graph.with_inputs({"text": "late"}).resume(timeout=BOUND)
 
     busy, late_run = _in_threads(
-        lambda: graph.with_inputs(text=_numbers(200)).resume(timeout=BOUND), late
+        lambda: graph.with_inputs({"text": _numbers(200)}).resume(timeout=BOUND), late
     )
 
     assert busy.status == late_run.status == "complete"
@@ -1086,7 +1086,7 @@ def test_a_run_cancelled_while_it_waits_for_another_runs_call_says_no_node_start
 
     holder = Graph.compile(
         make_graph(("svc", svc), outputs={"result": "svc.result"}), registry_of(svc)
-    ).with_inputs(text="hold")
+    ).with_inputs({"text": "hold"})
     waiter = Graph.compile(
         make_graph(
             ("svc", svc),
@@ -1171,7 +1171,7 @@ def test_a_run_woken_while_its_thread_is_busy_elsewhere_delays_no_run_that_asked
     def run_last() -> Any:
         assert first_in_y.wait(BOUND)
         try:
-            return only_x.with_inputs(text="last").resume(timeout=BOUND)
+            return only_x.with_inputs({"text": "last"}).resume(timeout=BOUND)
         finally:
             last_done.set()
 
@@ -1181,7 +1181,10 @@ def test_a_run_woken_while_its_thread_is_busy_elsewhere_delays_no_run_that_asked
         release.set()
 
     _, first, last, _ = _in_threads(
-        lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, run_last, let_go
+        lambda: only_x.with_inputs({"text": "hold"}).resume(timeout=BOUND),
+        run_first,
+        run_last,
+        let_go,
     )
 
     assert last.status == first.status == "complete" and first.outputs["y"] == "after last"
@@ -1200,7 +1203,7 @@ def test_a_node_whose_function_runs_a_graph_using_a_capped_node_is_not_kept_from
     @node("y", title="Y", description="For a test.")
     def y(text: str) -> str:
         inner_starts.set()
-        return only_x.with_inputs(text="inner").resume(timeout=3).status
+        return only_x.with_inputs({"text": "inner"}).resume(timeout=3).status
 
     def run_first() -> Any:
         assert holding.wait(BOUND)
@@ -1212,7 +1215,7 @@ def test_a_node_whose_function_runs_a_graph_using_a_capped_node_is_not_kept_from
         release.set()
 
     _, first, _ = _in_threads(
-        lambda: only_x.with_inputs(text="hold").resume(timeout=BOUND), run_first, let_go
+        lambda: only_x.with_inputs({"text": "hold"}).resume(timeout=BOUND), run_first, let_go
     )
 
     assert first.status == "complete" and first.outputs == {"x": "first", "y": "complete"}
@@ -1248,13 +1251,13 @@ def test_an_interrupt_inside_the_pools_submit_counts_the_call_out_once(monkeypat
     graph = _one_node_per_item(counted_once)
     monkeypatch.setattr(ThreadPoolExecutor, "submit", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        graph.with_inputs(text="a").resume()
+        graph.with_inputs({"text": "a"}).resume()
     monkeypatch.setattr(ThreadPoolExecutor, "submit", submit)
     ThreadEvent().wait(0.2)  # the interrupted call returns on its thread
     at_once.most = 0
 
     def run() -> str:
-        return graph.with_inputs(text="b").resume(timeout=BOUND).status
+        return graph.with_inputs({"text": "b"}).resume(timeout=BOUND).status
 
     assert (
         _in_threads(run, run) == ["complete", "complete"] and at_once.most == 1
@@ -1287,7 +1290,7 @@ def test_a_run_kept_waiting_for_a_capped_node_while_its_thread_is_busy_elsewhere
 
     def timed_hog() -> float:
         started = time.monotonic()
-        assert hog.with_inputs(text=_numbers(200)).resume(timeout=BOUND).status == "complete"
+        assert hog.with_inputs({"text": _numbers(200)}).resume(timeout=BOUND).status == "complete"
         return time.monotonic() - started
 
     alone = timed_hog()
@@ -1332,8 +1335,8 @@ def test_anything_a_node_raises_fails_its_call_and_ends_the_run(raised):
         registry_of(raises),
     )
 
-    run = graph.run(text="x")
-    streamed = _events(graph.with_inputs(text="x"))[-1].run
+    run = graph.run({"text": "x"})
+    streamed = _events(graph.with_inputs({"text": "x"}))[-1].run
 
     for ended in (run, streamed):
         assert (ended.status, ended.cause.type, ended.cause.loc) == (
@@ -1362,7 +1365,7 @@ def test_a_defect_outside_the_nodes_function_reaches_the_caller_rather_than_hang
     def echo(text: str) -> Annotated[str, AfterValidator(_broken_check)]:
         return text
 
-    prepared = Graph.compile(make_graph(echo), registry_of(echo)).with_inputs(text="x")
+    prepared = Graph.compile(make_graph(echo), registry_of(echo)).with_inputs({"text": "x"})
     with pytest.raises(RuntimeError, match="a defect in a type's own check"):
         _events(prepared)
 
@@ -1444,7 +1447,7 @@ def _beside_a_call_on_the_scheduler_thread(
     graph = make_graph(
         a_threaded, b_own, edges=[], outputs={"a": "a_threaded.result", "b": "b_own.result"}
     )
-    return Graph.compile(graph, registry_of(a_threaded, b_own)).run(n=1, m=2)
+    return Graph.compile(graph, registry_of(a_threaded, b_own)).run({"n": 1, "m": 2})
 
 
 def test_a_call_that_runs_past_its_attempt_timeout_times_out_while_the_scheduler_runs_another_call():
@@ -1518,7 +1521,7 @@ def test_a_retry_that_falls_due_while_the_scheduler_makes_its_own_calls_is_made_
         edges=[("b_items.result", "c_own.i")],
         outputs={"seen": "c_own.result"},
     )
-    run = Graph.compile(graph, registry_of(a_flaky, b_items, c_own)).run(n=1, count=20)
+    run = Graph.compile(graph, registry_of(a_flaky, b_items, c_own)).run({"n": 1, "count": 20})
 
     assert run.status == "complete" and any(run.outputs["seen"])
 
@@ -1564,7 +1567,7 @@ def test_the_arguments_of_a_call_that_returned_arent_kept_until_its_attempt_time
         make_graph(lines, shout, count, after), registry_of(lines, shout, count, after)
     )
 
-    assert graph.run(text=",".join(given)).outputs == {"result": 0}
+    assert graph.run({"text": ",".join(given)}).outputs == {"result": 0}
 
 
 def test_a_call_that_times_out_after_a_cancel_ends_the_run_failed_with_timeout():
@@ -1579,7 +1582,7 @@ def test_a_call_that_times_out_after_a_cancel_ends_the_run_failed_with_timeout()
         release.wait(BOUND)
         return x
 
-    prepared = Graph.compile(make_graph(charge), registry_of(charge)).with_inputs(x=1)
+    prepared = Graph.compile(make_graph(charge), registry_of(charge)).with_inputs({"x": 1})
 
     async def cancelled_at_once() -> Any:
         cancel = AsyncioEvent()
@@ -1644,10 +1647,10 @@ def test_a_threaded_slot_is_filled_between_waiting_calls_on_the_scheduler_thread
         ),
         registry,
     )
-    blocking = Thread(target=lambda: blocker.run(x=-1))
+    blocking = Thread(target=lambda: blocker.run({"x": -1}))
     blocking.start()
     time.sleep(0.02)
-    run = graph.run(n=8)
+    run = graph.run({"n": 8})
     blocking.join()
 
     assert run.status == "complete"
@@ -1847,7 +1850,7 @@ def test_a_cancel_set_while_outcomes_of_the_previous_run_are_reused_ends_the_run
     graph = Graph.compile(
         make_graph(source, echo, defaults={"source.tag": 0}), registry_of(source, echo)
     )
-    prepared = graph.run(tag=0).with_inputs(tag=1)
+    prepared = graph.run({"tag": 0}).with_inputs({"tag": 1})
 
     async def go() -> Any:
         loop, cancel, cancel_is_set = asyncio.get_running_loop(), AsyncioEvent(), ThreadEvent()
@@ -1927,7 +1930,7 @@ def test_a_cancel_during_a_retry_delay_ends_the_run_before_every_attempt_has_run
             }
         ),
         registry_of(flaky),
-    ).with_inputs(text="x")
+    ).with_inputs({"text": "x"})
 
     async def go() -> Any:
         cancel, last = AsyncioEvent(), None
@@ -1962,7 +1965,7 @@ def _stopped_in_the_call(stop: str, then: Callable[[], Any]) -> Any:
         return line
 
     prepared = Graph.compile(make_graph(lines, echo), registry_of(lines, echo)).with_inputs(
-        text="x", max_items=2
+        {"text": "x"}, max_items=2
     )
 
     async def stream_with_a_cancel() -> Any:
@@ -2008,7 +2011,7 @@ def test_a_node_looped_over_an_empty_series_completes_with_no_node_start():
         return line.upper()
 
     prepared = Graph.compile(make_graph(lines, shout), registry_of(lines, shout)).with_inputs(
-        text=""
+        {"text": ""}
     )
 
     async def events() -> list[Any]:
@@ -2031,7 +2034,7 @@ def test_a_series_reused_over_the_item_limit_starts_its_node_before_it_completes
         return line.upper()
 
     graph = Graph.compile(make_graph(lines, shout), registry_of(lines, shout))
-    again = graph.run(text="a\nb\nc").with_inputs(max_items=2)
+    again = graph.run({"text": "a\nb\nc"}).with_inputs(max_items=2)
 
     async def events() -> list[Any]:
         return [event async for event in again.stream()]
@@ -2091,7 +2094,7 @@ def test_a_call_longer_than_the_timeout_that_fails_ends_the_run_failed_on_every_
         time.sleep(0.05)
         raise NodeError("refused", code="refused")
 
-    ended = Graph.compile(make_graph(slow), registry_of(slow)).run(text="x", timeout=0.01)
+    ended = Graph.compile(make_graph(slow), registry_of(slow)).run({"text": "x"}, timeout=0.01)
     again = ended.resume(timeout=0.01)
 
     assert [(run.status, run.cause.type) for run in (ended, again)] == [("failed", "refused")] * 2
@@ -2106,9 +2109,9 @@ def test_running_a_graph_under_a_running_event_loop_ends_as_it_does_outside_one(
     graph = Graph.compile(make_graph(split, echo, join), registry_of(split, echo, join))
 
     async def inside() -> Any:
-        return graph.run(text="a,b")
+        return graph.run({"text": "a,b"})
 
-    assert _bounded(inside()).outputs == graph.run(text="a,b").outputs == {"result": "a+b"}
+    assert _bounded(inside()).outputs == graph.run({"text": "a,b"}).outputs == {"result": "a+b"}
 
 
 # -- what a saved run keeps --------------------------------------------------------------------
@@ -2155,7 +2158,7 @@ def test_a_float_that_is_not_finite_inside_a_model_reads_back_from_a_saved_run_t
         ),
         registry_of(measure, check, width),
     )
-    paused = graph.run(text="x")
+    paused = graph.run({"text": "x"})
 
     read_back = Run.from_json(paused.to_json(), graph)
 
@@ -2207,7 +2210,7 @@ def test_a_table_missing_a_declared_column_at_run_time_fails_the_node_that_made_
         registry_of(bare, contact_records, greet),
     )
 
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.status == "failed" and (run.cause.type, run.cause.loc) == ("invalid_output", ("b",))
     assert (run.cause.ctx["name"], run.cause.ctx["column"]) == ("result", "email")
@@ -2249,7 +2252,7 @@ def test_a_table_with_a_null_cell_reads_back_from_a_saved_run():
         ),
         registry_of(contacts, records, send),
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     read_back = Run.from_json(run.to_json(), graph)
 
@@ -2277,10 +2280,10 @@ def test_node_start_comes_first_for_a_node_whose_items_are_reused_from_the_previ
         raise Ask(f"Approve {name}?")
 
     graph = Graph.compile(make_graph(read, approve), registry_of(read, approve))
-    paused = graph.run(text="ida,bo")
+    paused = graph.run({"text": "ida,bo"})
     answered = paused.answer(paused.waiting[0], True).resume()
 
-    events = _events(answered.with_inputs(text="ida,bo,eva"))
+    events = _events(answered.with_inputs({"text": "ida,bo,eva"}))
     about_approve = [e.type for e in events if getattr(e, "loc", None) == ("approve",)]
     assert about_approve[0] == "node_start", about_approve
     assert about_approve.count("node_start") == 1
@@ -2311,7 +2314,7 @@ def test_a_series_over_the_item_limit_returned_after_a_failure_leaves_the_failur
         ),
         registry_of(boom, many),
     )
-    run = graph.run(b_text="x", m_text="y", max_items=2)
+    run = graph.run({"b_text": "x", "m_text": "y"}, max_items=2)
 
     assert (run.status, run.cause.type) == ("failed", "execution_failed")
 
@@ -2350,7 +2353,7 @@ def test_a_call_past_its_timeout_that_returns_before_the_run_ends_is_kept_and_ne
         ),
         registry_of(late, long),
     )
-    run = graph.run(l_text="mail", o_text="x")
+    run = graph.run({"l_text": "mail", "o_text": "x"})
     assert (run.status, run.cause, run.outputs) == (
         "complete",
         None,
@@ -2385,7 +2388,7 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
 
     async def until_killed() -> tuple[str, int]:
         saved, start = None, time.monotonic()
-        async for event in graph.with_inputs(n=list(range(400))).stream(checkpoint_every=0.05):
+        async for event in graph.with_inputs({"n": list(range(400))}).stream(checkpoint_every=0.05):
             if event.type == "run_checkpoint":
                 assert event.run.status == "running" and event.model_dump(mode="json") == {
                     "type": "run_checkpoint"
@@ -2431,7 +2434,7 @@ def test_a_run_read_back_from_a_checkpoint_announces_complete_only_the_nodes_not
                 seen.append((list(announced), event.run))
         return [*seen, (announced, None)]
 
-    *checkpoints, (in_all, _) = _bounded(completed(graph.with_inputs(text="a,b,c")))
+    *checkpoints, (in_all, _) = _bounded(completed(graph.with_inputs({"text": "a,b,c"})))
 
     assert any(before for before, _ in checkpoints)  # a node is announced before some checkpoint
     for before, checkpoint in checkpoints:
@@ -2453,7 +2456,7 @@ def test_a_checkpoint_is_running_while_calls_go_on_and_read_back_is_what_its_out
     async def copies() -> list[Run[Any]]:
         return [
             event.run
-            async for event in graph.with_inputs(n=[0, 1, 2, 3]).stream(checkpoint_every=0.005)
+            async for event in graph.with_inputs({"n": [0, 1, 2, 3]}).stream(checkpoint_every=0.005)
             if event.type in ("run_checkpoint", "run_end")
         ]
 
@@ -2473,7 +2476,7 @@ def test_a_run_whose_every_call_returned_is_complete_though_the_timeout_passed_w
     calls: list[int] = []
     llm = _counting_llm(calls, 0.1)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
-    run = graph.with_inputs(n=[1]).resume(timeout=0.02)
+    run = graph.with_inputs({"n": [1]}).resume(timeout=0.02)
     assert (run.status, run.cause, run.outputs) == (
         "complete",
         None,
@@ -2488,7 +2491,7 @@ def test_a_cancelled_stream_with_calls_on_threads_yields_a_checkpoint_before_wai
 
     async def cancelled() -> list[Any]:
         cancel, seen = AsyncioEvent(), []
-        async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(
+        async for event in graph.with_inputs({"n": [1, 2, 3, 4, 5, 6]}).stream(
             cancel=cancel, checkpoint_every=60
         ):
             seen.append(event)
@@ -2514,7 +2517,7 @@ def test_a_stream_handed_back_keeps_the_calls_in_flight_and_ends_with_a_checkpoi
 
     async def handed_back() -> list[Any]:
         hand_back, seen = AsyncioEvent(), []
-        async for event in graph.with_inputs(n=[1, 2, 3, 4, 5, 6]).stream(hand_back=hand_back):
+        async for event in graph.with_inputs({"n": [1, 2, 3, 4, 5, 6]}).stream(hand_back=hand_back):
             seen.append(event)
             if event.type == "node_start" and event.loc[0] == "llm":
                 hand_back.set()
@@ -2545,7 +2548,9 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
         hand_back.set()
         return [
             event
-            async for event in graph.with_inputs(n=[1]).stream(cancel=cancel, hand_back=hand_back)
+            async for event in graph.with_inputs({"n": [1]}).stream(
+                cancel=cancel, hand_back=hand_back
+            )
         ][-1]
 
     last = _bounded(both())
@@ -2556,7 +2561,7 @@ def test_a_cancel_set_with_a_hand_back_ends_the_run_cancelled():
 def test_checkpoint_every_is_a_number_of_seconds_above_zero(every: Any) -> None:
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
-        graph.with_inputs(text="a").stream(checkpoint_every=every)
+        graph.with_inputs({"text": "a"}).stream(checkpoint_every=every)
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         (
             "invalid_limit",
@@ -2573,7 +2578,7 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
     graph = Graph.compile(make_graph(split), registry_of(split))
     for call in (lambda run: run.resume(timeout=timeout), lambda run: run.stream(timeout=timeout)):
         with pytest.raises(InvalidCallError) as refused:
-            call(graph.with_inputs(text="a"))
+            call(graph.with_inputs({"text": "a"}))
         assert [
             (p.type, p.loc, p.ctx["limit"], p.ctx["variant"]) for p in refused.value.problems
         ] == [("invalid_limit", ("timeout",), "timeout", "seconds")]
@@ -2584,7 +2589,7 @@ def test_a_timeout_of_resume_or_stream_that_is_not_a_number_of_seconds_above_zer
 def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_order_of_the_limits():
     graph = Graph.compile(make_graph(split), registry_of(split))
     with pytest.raises(InvalidCallError) as refused:
-        graph.with_inputs(text="a").stream(checkpoint_every=True, timeout=0)
+        graph.with_inputs({"text": "a"}).stream(checkpoint_every=True, timeout=0)
     assert [(p.type, p.ctx) for p in refused.value.problems] == [
         ("invalid_limit", {"limit": "timeout", "value": 0, "variant": "seconds"}),
         ("invalid_limit", {"limit": "checkpoint_every", "value": True, "variant": "seconds"}),
@@ -2593,11 +2598,11 @@ def test_every_limit_refused_at_one_call_is_an_invalid_limit_of_its_own_in_the_o
 
 def test_seconds_given_as_a_decimal_are_read_as_a_float_and_the_run_keeps_that_float():
     graph = Graph.compile(make_graph(split), registry_of(split))
-    assert graph.with_inputs(text="a").resume(timeout=Decimal("1.5")).status == "complete"
+    assert graph.with_inputs({"text": "a"}).resume(timeout=Decimal("1.5")).status == "complete"
 
     async def streamed() -> list[Any]:
         async with contextlib.aclosing(
-            graph.with_inputs(text="a").stream(
+            graph.with_inputs({"text": "a"}).stream(
                 timeout=Decimal("2"), checkpoint_every=Decimal("0.01")
             )
         ) as events:
@@ -2614,7 +2619,7 @@ def test_each_checkpoint_of_a_run_reusing_the_previous_runs_outcomes_resumes_wit
     calls: list[int] = []
     llm = _counting_llm(calls, 0.0005)
     graph = Graph.compile(make_graph(numbers, llm), registry_of(numbers, llm))
-    first = graph.run(n=list(range(300)))
+    first = graph.run({"n": list(range(300))})
     calls.clear()
 
     async def checkpoints() -> list[Any]:
@@ -2643,7 +2648,8 @@ def test_a_failed_stream_with_calls_on_threads_yields_a_checkpoint_saying_it_fai
 
     async def streamed() -> list[Any]:
         return [
-            e async for e in graph.with_inputs(n=[1, 2, 0, 3, 4, 5]).stream(checkpoint_every=60)
+            e
+            async for e in graph.with_inputs({"n": [1, 2, 0, 3, 4, 5]}).stream(checkpoint_every=60)
         ]
 
     seen = _bounded(streamed())
@@ -2690,7 +2696,7 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one
         ),
         registry_of(words, upper, inner),
     )
-    events = _events(graph.with_inputs(text="a _ b _"))
+    events = _events(graph.with_inputs({"text": "a _ b _"}))
 
     complete = {
         e.loc: (e.count.finished, e.count.not_called) for e in events if e.type == "node_complete"

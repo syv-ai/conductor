@@ -1,6 +1,6 @@
 """What a host is shown of a run's outputs: ``run.results`` and ``run.outputs``.
 
-Take the README's graph after ``graph.run(text="a\\nb")``. ``run.results["shout"]["result"]`` is
+Take the README's graph after ``graph.run({"text": "a\\nb"})``. ``run.results["shout"]["result"]`` is
 ``["A!", "B!"]``, and ``run.outputs`` is ``{"result": "A!+B!"}``.
 
 A host is shown an output the way a node wired to it would get it. The difference is that a value that isn't

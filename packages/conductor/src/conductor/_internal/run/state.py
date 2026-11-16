@@ -1,7 +1,7 @@
 """The status of a run: whether it is ready, waiting, complete, or ended early.
 
 Most of a run's status comes from its outcomes. Take the README's graph. Before any call, the run is ``ready``.
-After ``graph.run(text="a\\nb\\nc")`` every call has an outcome, so it is ``complete``. If a call is waiting for a
+After ``graph.run({"text": "a\\nb\\nc"})`` every call has an outcome, so it is ``complete``. If a call is waiting for a
 person, the run is ``waiting``. Once that call is answered, the run is ``ready`` again, or ``complete`` if nothing
 is left to call.
 

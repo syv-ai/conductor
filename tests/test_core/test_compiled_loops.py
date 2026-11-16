@@ -602,7 +602,7 @@ def test_a_graph_input_of_a_series_is_given_whole_and_starts_no_loop():
 def test_a_list_given_to_a_graph_input_of_one_value_is_refused_saying_how_a_loop_is_made():
     graph = compile_graph({"u": "upper"}, [])
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(text=["a", "b", "c"])
+        graph.run({"text": ["a", "b", "c"]})
     (problem,) = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx) == (
         "invalid_input",

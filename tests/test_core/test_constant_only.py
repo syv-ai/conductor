@@ -137,7 +137,7 @@ def test_make_graph_never_makes_it_a_graph_input():
 
     record = make_graph(cut, constants={"cut.at": 2})
     graph = Graph.compile(record, _registry(cut))
-    assert list(graph.inputs) == ["text"] and graph.run(text="abc").outputs == {"result": "ab"}
+    assert list(graph.inputs) == ["text"] and graph.run({"text": "abc"}).outputs == {"result": "ab"}
     left_open = make_graph(cut)
     assert list(left_open.nodes["cut"].inputs) == ["text"]
     assert [(p.type, p.loc) for p in Graph.compile(left_open, _registry(cut)).problems] == [

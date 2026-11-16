@@ -614,7 +614,7 @@ def test_a_value_with_no_json_form_is_refused_when_the_run_is_saved_naming_its_o
             }
         ),
         registry,
-    ).run(text="x")
+    ).run({"text": "x"})
 
     with pytest.raises(InvalidCallError) as refused:
         run.to_json()
@@ -692,7 +692,7 @@ def test_outputs_as_json_are_of_a_complete_run_and_a_value_with_no_json_form_nam
                 }
             ),
             registry,
-        ).run(text="x").outputs_to_json()
+        ).run({"text": "x"}).outputs_to_json()
     (problem,) = refused.value.problems
     assert (problem.type, problem.loc, problem.ctx["where"]) == (
         "run_unwritable",
@@ -792,7 +792,7 @@ def test_only_a_series_output_can_be_saved_with_items_on_a_skipped_branch() -> N
         ),
         registry,
     )
-    run = graph.run(listed_text="ax", letters_text="ax")
+    run = graph.run({"listed_text": "ax", "letters_text": "ax"})
     saved = json.loads(run.to_json())
     assert (
         saved["outcomes"]["letters"]["skipped_items"] == {"result": {"0": [1]}}

@@ -265,7 +265,7 @@ def test_scenario_1_per_invoice_approval():
         and graph.describe().nodes["approved-total"].per_item_of is None
     )
 
-    run = graph.run(file=INVOICES)
+    run = graph.run({"file": INVOICES})
     assert run.status == "waiting" and [(w.loc[0], w.loc[1:], w.prompt) for w in run.waiting] == [
         ("approve", (1,), "Approve A2 for 900.0?")
     ]
@@ -298,7 +298,7 @@ def _csv_llm_summary():
 
 def test_scenario_2_csv_then_a_model_call_per_record_then_a_summary():
     ASKED.clear()
-    run = _csv_llm_summary().run(file=File(name="complaints.csv", text=COMPLAINTS))
+    run = _csv_llm_summary().run({"file": File(name="complaints.csv", text=COMPLAINTS)})
     assert run.results["llm"]["result"] == [
         "Classify: late delivery",
         "Classify: broken lid",
@@ -314,10 +314,10 @@ def test_scenario_2_csv_then_a_model_call_per_record_then_a_summary():
 
 
 def test_scenario_5_editing_one_record_calls_the_model_for_that_record_only():
-    first = _csv_llm_summary().run(file=File(name="complaints.csv", text=COMPLAINTS))
+    first = _csv_llm_summary().run({"file": File(name="complaints.csv", text=COMPLAINTS)})
     ASKED.clear()
     second = first.again(
-        file=File(name="complaints.csv", text=COMPLAINTS.replace("broken lid", "cracked lid"))
+        {"file": File(name="complaints.csv", text=COMPLAINTS.replace("broken lid", "cracked lid"))}
     )
     assert ASKED == [
         "cracked lid",
@@ -327,10 +327,12 @@ def test_scenario_5_editing_one_record_calls_the_model_for_that_record_only():
 
     ASKED.clear()
     third = second.again(
-        file=File(
-            name="complaints.csv",
-            text=COMPLAINTS.replace("broken lid", "cracked lid").replace(",20", ",25"),
-        )
+        {
+            "file": File(
+                name="complaints.csv",
+                text=COMPLAINTS.replace("broken lid", "cracked lid").replace(",20", ",25"),
+            )
+        }
     )
     # only `text` goes to the model, so a changed amount doesn't call it again
     assert ASKED == [] and third.outputs == second.outputs
@@ -368,7 +370,7 @@ def test_scenario_3_an_excel_per_document_with_the_documents_name_as_a_column():
         .json_schema["properties"]["columns"]["prefixItems"]
     ] == ["number", "vendor", "amount", "document"]
 
-    sheets = graph.run(files=[A_PDF, C_PDF]).results["excel"]["result"]
+    sheets = graph.run({"files": [A_PDF, C_PDF]}).results["excel"]["result"]
     assert [sheet.text for sheet in sheets] == [
         "number,vendor,amount,document\nA1,Acme,100.0,a.pdf\nA2,Bolt,900.0,a.pdf\n",
         "number,vendor,amount,document\nC1,Core,300.0,c.pdf\nC2,Dune,700.0,c.pdf\nC3,Echo,50.0,c.pdf\n",
@@ -392,7 +394,7 @@ def test_scenario_3_a_document_with_no_invoices_gets_an_excel_with_the_columns_a
         ),
         REGISTRY,
     )
-    run = graph.run(files=[A_PDF, B_PDF])
+    run = graph.run({"files": [A_PDF, B_PDF]})
     assert (
         run.status == "complete"
         and run.results["excel"]["result"][1].text == "number,vendor,amount,document\n"
@@ -413,7 +415,7 @@ def test_scenario_3_without_the_name_a_table_input_takes_the_invoices_of_each_do
         ),
         REGISTRY,
     )
-    sheets = graph.run(files=[A_PDF, C_PDF]).results["excel"]["result"]
+    sheets = graph.run({"files": [A_PDF, C_PDF]}).results["excel"]["result"]
     assert [(sheet.name, sheet.text.count("\n") - 1) for sheet in sheets] == [
         ("a.pdf.xlsx", 2),
         ("c.pdf.xlsx", 3),
@@ -436,7 +438,7 @@ def test_scenario_4_each_contract_alone():
         ),
         REGISTRY,
     )
-    assert len(graph.run(files=CONTRACTS).outputs["result"]) == 11 and len(ASKED) == 11
+    assert len(graph.run({"files": CONTRACTS}).outputs["result"]) == 11 and len(ASKED) == 11
 
 
 def test_scenario_4_all_contracts_together():
@@ -450,7 +452,10 @@ def test_scenario_4_all_contracts_together():
         ),
         REGISTRY,
     )
-    assert graph.run(files=CONTRACTS).outputs == {"result": "Compare 11 texts"} and len(ASKED) == 1
+    assert (
+        graph.run({"files": CONTRACTS}).outputs == {"result": "Compare 11 texts"}
+        and len(ASKED) == 1
+    )
 
 
 def test_scenario_4_each_contract_and_then_all_of_them():
@@ -469,7 +474,7 @@ def test_scenario_4_each_contract_and_then_all_of_them():
         REGISTRY,
     )
     assert (
-        graph.run(files=CONTRACTS).outputs == {"result": "Give an overview of 11 texts"}
+        graph.run({"files": CONTRACTS}).outputs == {"result": "Give an overview of 11 texts"}
         and len(ASKED) == 12
     )
 
@@ -490,7 +495,7 @@ def test_scenario_6_a_document_with_no_lines_counts_zero():
         ),
         REGISTRY,
     )
-    run = graph.run(files=[A_PDF, B_PDF, C_PDF])
+    run = graph.run({"files": [A_PDF, B_PDF, C_PDF]})
     assert run.results["count"]["result"] == [2, 0, 3] and run.not_called == []
 
 
@@ -521,7 +526,7 @@ def test_scenario_7_a_contact_without_an_email_gets_no_mail_and_stays_in_the_exc
         ),
         REGISTRY,
     )
-    run = graph.run(file=CONTACTS)
+    run = graph.run({"file": CONTACTS})
     assert run.status == "complete" and [
         (n.loc[0], n.loc[1:], n.input) for n in run.not_called
     ] == [("send-mail", (1,), "to")]
@@ -561,7 +566,7 @@ def test_scenario_8_an_excel_per_document_of_the_approved_invoices():
     )
 
     only_large = File(name="d.pdf", text="D1,Dune,800")
-    run = graph.run(files=[A_PDF, C_PDF, only_large])
+    run = graph.run({"files": [A_PDF, C_PDF, only_large]})
     assert [(w.loc[1:], w.inputs["number"]) for w in run.waiting] == [
         ((0, 1), "A2"),
         ((1, 1), "C2"),
@@ -599,7 +604,7 @@ def test_scenario_9_a_branch_per_item_and_back_together_in_the_items_order():
         ),
         REGISTRY,
     )
-    run = graph.run(file=INVOICES)
+    run = graph.run({"file": INVOICES})
     assert run.outputs == {"result": "booked A1; review A2; booked A3"}
     assert run.results["review"]["result"] == [None, "review A2", None] and run.results["book"][
         "result"
@@ -623,7 +628,7 @@ def test_scenario_10_a_nested_approval_saved_and_resumed_in_another_process():
         ),
         REGISTRY,
     )
-    run = graph.run(files=[A_PDF, B_PDF, C_PDF])
+    run = graph.run({"files": [A_PDF, B_PDF, C_PDF]})
     first, second = run.waiting
     assert (first.loc[0], first.loc[1:], second.loc[1:]) == (
         "approve",
@@ -660,7 +665,7 @@ def test_scenario_11_a_subgraph_per_item():
         registry_with(enrich),
     )
     assert graph.describe().nodes["enrich"].per_item_of == "series-split.result"
-    assert graph.run(file=CONTACTS).outputs == {
+    assert graph.run({"file": CONTACTS}).outputs == {
         "result": ["Write a greeting for Ann", "Write a greeting for Bo", "Write a greeting for Cy"]
     }
 
@@ -684,7 +689,7 @@ def test_scenario_12_a_subgraph_given_the_whole_table():
         registry_with(table_report),
     )
     assert graph.describe().nodes["table-report"].per_item_of is None
-    assert graph.run(file=File(name="complaints.csv", text=COMPLAINTS)).outputs == {
+    assert graph.run({"file": File(name="complaints.csv", text=COMPLAINTS)}).outputs == {
         "result": "Write a report on 3 lines of id, text, amount"
     }
 
@@ -710,7 +715,7 @@ def test_scenario_13_two_tables_joined_on_a_key_are_two_values():
     assert all(described.per_item_of is None for described in graph.describe().nodes.values())
     customers = File(name="customers.csv", text="customer_id,name\n1,Ann\n2,Bo\n")
     orders = File(name="orders.csv", text="customer_id,item\n2,lamp\n1,desk\n1,chair\n")
-    joined = graph.run(customers=customers, orders=orders).outputs["result"]
+    joined = graph.run({"customers": customers, "orders": orders}).outputs["result"]
     assert joined.sort("item").to_dicts() == [
         {"customer_id": 1, "name": "Ann", "item": "chair"},
         {"customer_id": 1, "name": "Ann", "item": "desk"},
@@ -751,7 +756,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
     }
 
     ASKED.clear()
-    first = graph.run(files=CONTRACTS)
+    first = graph.run({"files": CONTRACTS})
     assert len(ASKED) == 33 and first.outputs["result"][4] == [
         f"{question} contract 4" for question in QUESTIONS
     ]
@@ -759,7 +764,7 @@ def test_scenario_14_each_document_by_three_typed_questions():
     ASKED.clear()
     changed = [*CONTRACTS[:4], File(name="4.pdf", text="contract 4, amended"), *CONTRACTS[5:]]
     assert (
-        first.again(files=changed).outputs["result"][4][0]
+        first.again({"files": changed}).outputs["result"][4][0]
         == "Who are the parties? contract 4, amended"
         and len(ASKED) == 3
     )
@@ -809,6 +814,6 @@ def test_scenario_14b_the_summary_of_several_refuses_one_document_and_takes_an_u
         ),
         REGISTRY,
     )
-    assert an_upload.run(files=[A_PDF]).outputs == {"result": "Summarise 1 texts"} and ASKED == [
-        A_PDF.text
-    ]
+    assert an_upload.run({"files": [A_PDF]}).outputs == {
+        "result": "Summarise 1 texts"
+    } and ASKED == [A_PDF.text]

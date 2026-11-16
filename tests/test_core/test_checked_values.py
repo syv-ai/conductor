@@ -515,7 +515,7 @@ def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_giv
                 {"nodes": {"t": {"node": "total", "inputs": {"lines": {"graph_input": "lines"}}}}}
             ),
             registry_of(total),
-        ).run(lines=yes_no)
+        ).run({"lines": yes_no})
     assert [p.type for p in given.value.problems] == ["invalid_input"]
 
 
@@ -548,7 +548,7 @@ def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
                 }
             ),
             registry_of(count_rows),
-        ).run(rows=given)
+        ).run({"rows": given})
     assert [(p.type, p.ctx.get("column")) for p in refused.value.problems] == [
         ("invalid_input", column)
     ]
@@ -673,7 +673,7 @@ def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made
     graph = Graph.compile(make_graph(count_contacts), registry_of(count_contacts))
     with pytest.raises(InvalidCallError) as refused:
         graph.run(
-            contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}]
+            {"contacts": [{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}]}
         )  # Polars would turn the 5 into text.
     assert refused.value.problems[0].ctx["column"] == "name"
 
@@ -1051,7 +1051,7 @@ def test_a_skipped_input_skips_the_call_also_when_an_input_before_it_names_a_fie
     graph = Graph.compile(
         make_graph(_decide, items, both, edges=edges), registry_of(_decide, items, both)
     )
-    run = graph.run(text="ok")
+    run = graph.run({"text": "ok"})
     assert (run.status, json.loads(run.to_json())["outcomes"]["both"]["states"]) == (
         "complete",
         ["skipped"],
@@ -1120,7 +1120,7 @@ def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_c
         make_graph(_words, give, reader, _all_of, edges=edges),
         registry_of(_words, give, reader, _all_of),
     )
-    run = graph.run(text="a b")
+    run = graph.run({"text": "a b"})
     assert (run.status, run.cause.type, run.cause.ctx["record_field"]) == (
         "failed",
         "invalid_edge_value",

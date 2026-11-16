@@ -49,7 +49,7 @@ if not graph.is_runnable:
     raise ValueError([(p.type, p.loc, p.msg) for p in graph.problems])
 assert list(graph.inputs) == ["text"]                  # the graph inputs the record declares
 
-run = graph.run(text="red,green")
+run = graph.run({"text": "red,green"})
 assert run.outputs == {"result": "RED + GREEN"}       # the graph outputs, by name
 results = run.results                                  # {node_id: {output: value}}; a node run per item gives a list
 assert results["loud"]["result"] == ["RED", "GREEN"]   # ran once per word
@@ -137,7 +137,7 @@ A list or a table is one value. So a list given as a graph input or a constant, 
 | Mistake | Fix |
 |---|---|
 | `try` around `Graph.compile` | it never raises for a bad graph. Read `is_runnable` and `problems` |
-| Rebuilding the record to change a value per run | pass it with `graph.run(**inputs)`, or use a graph input with a `default` the caller may change |
+| Rebuilding the record to change a value per run | pass it with `graph.run(inputs)`, or use a graph input with a `default` the caller may change |
 | A loop node, or a `for` around `run` | wire a `Series` output to the node. The engine runs it once per item |
 | A table wired to an input of one value (`type_mismatch`, variant `make_a_series`) | put a node between them that returns the table's records as a `Series`, such as `series-split`, and wire its result or one field of it. To join two tables on a key, wire both whole into one node |
 | One value wired to a `Series` or `Table` input (`type_mismatch`, variant `one_value`) | if the node takes one value per call, declare the input as one `T`. If it should get every item of a loop, collect them first in a node outside the loop, such as `series-collect`, and wire its result in |

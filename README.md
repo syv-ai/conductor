@@ -44,7 +44,7 @@ def join(texts: Series[str]) -> str:
 
 
 graph = Graph.compile(make_graph(lines, shout, join), registry)
-run = graph.run(text="a\nb\nc")
+run = graph.run({"text": "a\nb\nc"})
 print(run.results["shout"]["result"])  # ['A!', 'B!', 'C!']
 print(run.outputs)                     # {'result': 'A!+B!+C!'}
 ```
@@ -168,7 +168,7 @@ Compiling only raises `InvalidCallError` when the JSON isn't a graph record at a
 
 ```python
 csv = "name,amount\nIda,100\nBo,5000\n"
-run = graph.run(csv=csv)
+run = graph.run({"csv": csv})
 
 print(run.status)  # waiting
 for waiting in run.waiting:
@@ -208,7 +208,7 @@ Bo's invoice was for 5500, not 5000. Run again with the corrected CSV:
 
 ```python
 edited = csv.replace("Bo,5000", "Bo,5500")
-run = run.again(csv=edited)
+run = run.again({"csv": edited})
 
 for waiting in run.waiting:
     print(waiting.prompt)
@@ -218,7 +218,7 @@ for waiting in run.waiting:
 A call that gets the same arguments as last time isn't made again. Ida's invoice didn't change, so her result is reused, and only Bo is asked again. Adding an invoice works the same way: only the new one is asked. The code that counts is the node's own function: a template or a helper it reads from outside isn't part of it, so after changing one, call the node again with `run.forget("approve")` (`python -m conductor.about running-again`).
 
 ```python
-run = run.answer(run.waiting[0], True).again(csv=edited + "Eva,7000\n")
+run = run.answer(run.waiting[0], True).again({"csv": edited + "Eva,7000\n"})
 
 for waiting in run.waiting:
     print(waiting.prompt)

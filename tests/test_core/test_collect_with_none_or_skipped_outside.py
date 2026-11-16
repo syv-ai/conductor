@@ -203,7 +203,7 @@ def ran(
     )
     graph = Graph.compile(record, REGISTRY)
     assert not graph.problems, graph.problems
-    run = graph.run(**values)
+    run = graph.run(values)
     assert run.status == "complete"
     return run
 
@@ -810,8 +810,8 @@ def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_fl
     }
     assert feed == {"a": ("item", "s.result"), "b": ("collected", "c.result")}
     assert (
-        flat.run(text="ab c").results["j"]["result"]
-        == in_subgraph.run(text="ab c").results["e"]["result"]
+        flat.run({"text": "ab c"}).results["j"]["result"]
+        == in_subgraph.run({"text": "ab c"}).results["e"]["result"]
         == ["AB:AB", "C:C"]
     )
 
@@ -895,7 +895,7 @@ def test_a_waiting_runs_results_have_none_for_each_call_still_waiting_also_when_
         ),
         REGISTRY,
     )
-    waiting = graph.run(text="a b")
+    waiting = graph.run({"text": "a b"})
     assert waiting.results["q"]["result"] == [None, None]
     one = waiting.answer(waiting.waiting[0].id, "yes").resume()
     assert one.status == "waiting"
@@ -983,7 +983,7 @@ def test_a_node_wired_to_a_subgraphs_per_word_and_per_letter_outputs_is_called_p
         REGISTRY,
     )
     assert not graph.problems
-    assert graph.run(text="ab cd").results["n"]["result"] == ["AB:AB", "CD:CD"]
+    assert graph.run({"text": "ab cd"}).results["n"]["result"] == ["AB:AB", "CD:CD"]
 
 
 def test_a_chain_of_a_thousand_nodes_in_a_loop_is_collected() -> None:
@@ -1042,7 +1042,7 @@ def test_the_order_of_a_nodes_parameters_does_not_change_a_collect_over_a_loop(t
             REGISTRY,
         )
         assert not graph.problems, graph.problems
-        statuses.append(graph.run(text=text, go="no").status)
+        statuses.append(graph.run({"text": text, "go": "no"}).status)
     assert statuses[0] == statuses[1]
 
 

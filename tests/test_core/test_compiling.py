@@ -23,6 +23,7 @@ from conductor import (
     InvalidCallError,
     NodeError,
     NodeRecord,
+    NodeRegistry,
     Param,
     Problem,
     Series,
@@ -240,9 +241,9 @@ def _problems(record: GraphRecord | dict[str, Any]) -> list[tuple[str, tuple[Any
     ]
 
 
-def _refused(graph: Any, *args: Any, **kwargs: Any) -> list[tuple[str, tuple[Any, ...]]]:
+def _refused(graph: Any, inputs: dict[str, Any]) -> list[tuple[str, tuple[Any, ...]]]:
     with pytest.raises(InvalidCallError) as refused:
-        graph.with_inputs(*args, **kwargs)
+        graph.with_inputs(inputs)
     return [(p.type, p.loc) for p in refused.value.problems]
 
 
@@ -616,7 +617,9 @@ def test_the_graph_outputs_are_the_outputs_the_record_declares_and_no_other():
         ),
         REGISTRY,
     )
-    assert list(graph.outputs) == ["result"] and graph.run(text="a").outputs == {"result": "ZED A"}
+    assert list(graph.outputs) == ["result"] and graph.run({"text": "a"}).outputs == {
+        "result": "ZED A"
+    }
 
 
 def test_an_output_a_hook_computed_is_a_graph_output_with_its_title():
@@ -642,7 +645,7 @@ def test_an_output_a_hook_computed_is_a_graph_output_with_its_title():
     )
     assert graph.problems == [] and list(graph.outputs) == ["net", "vat"]
     assert [o.title for o in graph.describe().nodes["c"].outputs] == ["Net", "Vat"]
-    assert graph.run(text="9").outputs == {"net": "9", "vat": "9"}
+    assert graph.run({"text": "9"}).outputs == {"net": "9", "vat": "9"}
 
 
 def test_a_graph_s_inputs_and_outputs_are_read_only_so_a_host_changes_neither_for_describe():
@@ -674,7 +677,7 @@ def test_a_graph_input_and_a_graph_output_are_each_named_by_the_record():
         ),
         REGISTRY,
     )
-    assert list(graph.inputs) == ["text"] and graph.run(text="hi").outputs == {"result": "hi"}
+    assert list(graph.inputs) == ["text"] and graph.run({"text": "hi"}).outputs == {"result": "hi"}
     record = {
         "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
@@ -688,7 +691,9 @@ def test_a_graph_input_and_a_graph_output_are_each_named_by_the_record():
             "alpha": {"node": "t", "output": "alpha"},
         },
     }
-    assert Graph.compile(GraphRecord.model_validate(record), REGISTRY).run(text="a").outputs == {
+    assert Graph.compile(GraphRecord.model_validate(record), REGISTRY).run(
+        {"text": "a"}
+    ).outputs == {
         "zed": "zed A",
         "alpha": "alpha A",
     }
@@ -1023,7 +1028,7 @@ def test_a_node_id_or_a_source_that_is_no_name_is_refused_by_the_record_validato
 # -- what a caller gives ---------------------------------------------------------------------------
 
 
-def test_with_inputs_takes_a_mapping_by_name_beside_keywords_and_refuses_a_name_it_does_not_offer():
+def test_with_inputs_takes_the_inputs_as_one_mapping_and_refuses_a_name_it_does_not_offer():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -1041,14 +1046,70 @@ def test_with_inputs_takes_a_mapping_by_name_beside_keywords_and_refuses_a_name_
         ),
         REGISTRY,
     )
-    assert graph.with_inputs({"a_text": "x", "b_text": "y"}, mode="b").resume().outputs == {
+    assert graph.with_inputs(
+        inputs={"a_text": "x", "b_text": "y", "mode": "b"}
+    ).resume().outputs == {
         "a_result": "X",
         "b_result": "y.",
         "s_result": "b",
     }
-    assert _refused(graph, {"a_text": "x", "b_text": "y", "c_text": "z"}, mode="b") == [
+    assert _refused(graph, {"a_text": "x", "b_text": "y", "mode": "b", "c_text": "z"}) == [
         ("unknown_graph_input", ("inputs", "c_text"))
     ]
+
+
+@pytest.mark.parametrize("given", ["hi", None, ["text"]])
+def test_inputs_that_are_not_a_mapping_are_the_same_type_error_on_every_call_that_takes_them(
+    given: Any,
+):
+    graph = Graph.compile(make_graph(upper), REGISTRY)
+    done = graph.run({"text": "a"})
+    calls = [graph.run, graph.with_inputs, done.with_inputs, done.again]
+    messages = set()
+    for call in calls:
+        with pytest.raises(TypeError) as refused:
+            call(given)
+        messages.add(str(refused.value))
+    assert messages == {f"'{type(given).__name__}' object is not a mapping"}
+
+
+def test_a_graph_input_named_max_items_is_given_to_its_node_while_the_keyword_max_items_limits_the_run():
+    registry = NodeRegistry()
+
+    @registry.node("words", title="Words", description="For a test.")
+    def words(text: str, max_items: str) -> Series[str]:
+        return [f"{word}/{max_items}" for word in text.split()]
+
+    @registry.node("shout", title="Shout", description="For a test.")
+    def shout(word: str) -> str:
+        return word.upper()
+
+    graph = Graph.compile(
+        make_graph(words, shout, inputs={"max_items": "words.max_items"}), registry
+    )
+    assert graph.run({"text": "a b", "max_items": "m"}, max_items=5).outputs == {
+        "result": ["A/M", "B/M"]
+    }
+    stopped = graph.run({"text": "a b c", "max_items": "m"}, max_items=2)
+    assert (stopped.status, stopped.cause and stopped.cause.type) == ("stopped", "item_limit")
+    assert stopped.inputs["max_items"] == "m"
+
+
+@pytest.mark.parametrize("name", ["context", "timeout", "previous", "max_items"])
+def test_a_graph_input_named_like_a_setting_of_the_call_is_given_to_its_node(name: str):
+    registry = NodeRegistry()
+
+    @registry.node("echo", title="Echo", description="For a test.")
+    def echo(text: str, value: str) -> str:
+        return f"{text}:{value}"
+
+    graph = Graph.compile(make_graph(echo, inputs={name: "echo.value"}), registry)
+    first = graph.run({"text": "t", name: "given"})
+    assert first.outputs == {"result": "t:given"}
+    assert first.again({name: "again"}).outputs == {"result": "t:again"}
+    assert graph.with_inputs({"text": "t", name: "given"}, previous=first).resume().outputs == {
+        "result": "t:given"
+    }
 
 
 def test_two_inputs_naming_one_graph_input_each_get_the_callers_one_value():
@@ -1068,7 +1129,7 @@ def test_two_inputs_naming_one_graph_input_each_get_the_callers_one_value():
         REGISTRY,
     )
     assert graph.problems == [] and list(graph.inputs) == ["text"]
-    assert graph.run(text="x").outputs == {"a_result": "X", "b_result": "x."}
+    assert graph.run({"text": "x"}).outputs == {"a_result": "X", "b_result": "x."}
 
 
 @pytest.mark.parametrize(
@@ -1141,7 +1202,7 @@ def test_two_inputs_of_one_graph_input_written_differently_but_meaning_the_same_
     graph = _one_graph_input_feeding(a_hint, b_hint)
     assert graph.problems == []
     assert graph.inputs == _one_graph_input_feeding(int, int).inputs
-    assert graph.run(x=3).outputs == {"a": 3, "b": 3}
+    assert graph.run({"x": 3}).outputs == {"a": 3, "b": 3}
 
 
 @pytest.mark.parametrize("given_on", ["a.n", "b.n"])
@@ -1199,7 +1260,7 @@ def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
     )
     assert list(graph.inputs) == ["mode"]
     with pytest.raises(InvalidCallError) as refused:
-        graph.with_inputs(mode=5, text="a fixed input is not offered", typo="x")
+        graph.with_inputs({"mode": 5, "text": "a fixed input is not offered", "typo": "x"})
     found = sorted((p.type, p.loc) for p in refused.value.problems)
     assert found == [
         ("invalid_input", ("inputs", "mode")),
@@ -1224,7 +1285,7 @@ def test_a_table_graph_input_given_one_record_or_a_wrong_key_inside_is_refused_a
 
     def refused(value: Any) -> list[tuple[str, tuple[str | int, ...], str]]:
         with pytest.raises(InvalidCallError) as error:
-            graph.run(names=value)
+            graph.run({"names": value})
         return [(p.type, p.loc, p.ctx["reason"]) for p in error.value.problems]
 
     assert refused({"name": "Ida"}) == [
@@ -1237,7 +1298,7 @@ def test_a_table_graph_input_given_one_record_or_a_wrong_key_inside_is_refused_a
     assert [problem[:2] for problem in refused({"columns": [], "rows": 1})] == [
         ("invalid_input", ("inputs", "names"))
     ]
-    assert graph.run(names=[{"name": "Ida"}]).outputs == {"result": 1}
+    assert graph.run({"names": [{"name": "Ida"}]}).outputs == {"result": 1}
 
 
 # -- subgraphs -------------------------------------------------------------------------------
@@ -1259,7 +1320,7 @@ def test_a_subgraph_node_offers_its_inner_graph_input_and_output_as_its_own():
         and list(graph.inputs) == ["text"]
         and graph.inputs["text"].title is None
     )
-    run = graph.run(text="hi")
+    run = graph.run({"text": "hi"})
     assert (
         list(graph.outputs) == ["result"]
         and run.outputs == {"result": "HI."}
@@ -1363,7 +1424,7 @@ def test_a_subgraph_inside_a_subgraph_is_one_node_from_outside():
             }
         ),
         REGISTRY,
-    ).run(text="hi")
+    ).run({"text": "hi"})
     assert run.outputs == {"result": "HI"} and run.results == {"t": {"result": "HI"}}
 
 
@@ -1396,7 +1457,7 @@ def test_renaming_an_inner_node_keeps_the_subgraphs_input_and_output_names():
         graph = Graph.compile(
             GraphRecord.model_validate(record), registry_of(greet, upper, tail, definition)
         )
-        assert graph.problems == [] and graph.run(text="hi").outputs == {"result": "HI."}
+        assert graph.problems == [] and graph.run({"text": "hi"}).outputs == {"result": "HI."}
 
 
 def test_a_constant_for_an_input_the_subgraph_does_not_offer_is_unknown_input():
@@ -1452,7 +1513,7 @@ def test_a_table_returned_inside_a_subgraph_is_offered_whole_as_one_value():
         REGISTRY,
     )
     assert graph.problems == []
-    assert graph.run(text="name,email\nIda,ida@a.dk\nBo,bo@b.dk\n").outputs == {
+    assert graph.run({"text": "name,email\nIda,ida@a.dk\nBo,bo@b.dk\n"}).outputs == {
         "result": ["IDA@A.DK", "BO@B.DK"]
     }
 
@@ -1467,7 +1528,7 @@ def test_a_subgraph_offers_its_inner_inputs_and_the_registry_shows_its_deprecati
         ),
         REGISTRY,
     )
-    assert list(graph.inputs) == ["text"] and graph.run(text="a").outputs == {"result": "A"}
+    assert list(graph.inputs) == ["text"] and graph.run({"text": "a"}).outputs == {"result": "A"}
     assert (
         REGISTRY.describe().nodes[[n.id for n in REGISTRY].index("wrapped")].deprecation.header
         == "Gone"
@@ -1571,7 +1632,7 @@ def test_an_input_a_hook_reads_is_a_constant_of_the_graph_never_a_graph_input():
     )
     assert graph.problems == [] and graph.inputs == {} and graph.run().outputs == {"a": 1}
     with pytest.raises(InvalidCallError):
-        graph.run(mode="b")
+        graph.run({"mode": "b"})
 
     [problem] = Graph.compile(
         GraphRecord.model_validate(
@@ -1998,7 +2059,7 @@ def test_an_inner_nodes_error_is_reported_at_its_node_path_with_the_ctx_its_auth
         raise NodeError("The document could not be read.", code="unreadable", ctx=ctx)
 
     sub = subgraph("e", title="E", description="For a test.")(make_graph(unreadable))
-    run = Graph.compile(make_graph(sub), registry_of(unreadable, sub)).run(text="hi")
+    run = Graph.compile(make_graph(sub), registry_of(unreadable, sub)).run({"text": "hi"})
 
     assert (run.status, run.cause.msg) == ("failed", "The document could not be read.")
     assert (run.cause.type, run.cause.loc, run.cause.ctx) == (
@@ -2134,7 +2195,7 @@ def test_a_subgraphs_inputs_are_the_graph_inputs_its_record_names():
     assert (
         graph.problems == []
         and list(graph.inputs) == ["text"]
-        and graph.run(text="a").outputs == {"result": "AB"}
+        and graph.run({"text": "a"}).outputs == {"result": "AB"}
     )
 
 
@@ -2170,7 +2231,7 @@ def test_a_subgraph_whose_two_inner_inputs_name_one_graph_input_takes_one_value_
     assert (
         graph.problems == []
         and list(graph.inputs) == ["text"]
-        and graph.run(text="a").outputs == {"result": "AA."}
+        and graph.run({"text": "a"}).outputs == {"result": "AA."}
     )
 
 
@@ -2195,9 +2256,9 @@ def test_a_set_given_for_a_series_input_is_refused_as_it_has_no_order():
     registry.add(send)
     graph = Graph.compile(make_graph(send), registry)
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(contacts={"b", "a"})
+        graph.run({"contacts": {"b", "a"}})
     assert "a set has no order" in refused.value.problems[0].msg
-    assert graph.run(contacts=["b", "a"]).outputs == {"result": "b,a"}
+    assert graph.run({"contacts": ["b", "a"]}).outputs == {"result": "b,a"}
 
 
 def _nested_forty_deep() -> tuple[Any, str]:
@@ -2260,7 +2321,7 @@ def test_subgraphs_nested_forty_deep_run_as_the_one_function_node_inside_them():
             "outputs": {"result": {"node": "top", "output": "result"}},
         }
     )
-    assert Graph.compile(record, registry).run(text="z").outputs == {"result": "Z"}
+    assert Graph.compile(record, registry).run({"text": "z"}).outputs == {"result": "Z"}
 
 
 def test_describe_lists_each_nodes_problems_on_it():
@@ -2441,7 +2502,7 @@ def test_a_bool_as_a_constant_or_a_graph_input_is_refused_for_a_float_input():
                 }
             ),
             registry,
-        ).run(x=True)
+        ).run({"x": True})
     assert refused.value.problems[0].type == "invalid_input"
     assert Graph.compile(
         GraphRecord.model_validate(
@@ -2451,7 +2512,7 @@ def test_a_bool_as_a_constant_or_a_graph_input_is_refused_for_a_float_input():
             }
         ),
         registry,
-    ).run(x=2).outputs == {"result": 4.0}
+    ).run({"x": 2}).outputs == {"result": 4.0}
 
 
 def test_a_table_wired_into_a_series_input_is_a_type_mismatch_naming_table():
@@ -2533,7 +2594,7 @@ def test_a_bool_is_refused_for_a_hosts_number_type_that_accepts_int():
     ).problems
     assert problem.type == "invalid_value"
     with pytest.raises(InvalidCallError):
-        Graph.compile(make_graph(half), registry).run(value=True)
+        Graph.compile(make_graph(half), registry).run({"value": True})
     waiting = Graph.compile(make_graph(ask_number), registry).run()
     with pytest.raises(InvalidCallError):
         waiting.answer(waiting.waiting[0], True)
@@ -2602,13 +2663,13 @@ def test_a_run_keeps_its_graph_and_both_are_freed_without_the_cycle_collector(ra
     try:
         if ran == "once":
             graph = Graph.compile(make_graph(upper), registry)
-            run = graph.run(text="a")
+            run = graph.run({"text": "a"})
         else:
             graph = Graph.compile(make_graph(words, upper, join), registry)
             run = (
-                graph.run(text="a b")
+                graph.run({"text": "a b"})
                 if ran == "per item"
-                else graph.run(text="a b").again(text="c")
+                else graph.run({"text": "a b"}).again({"text": "c"})
             )
         assert run.graph is graph
         refs = [weakref.ref(graph), weakref.ref(run)]
@@ -2686,7 +2747,7 @@ def test_a_subgraph_offers_the_inputs_and_outputs_its_inner_hooks_add():
     assert (
         graph.problems == []
         and list(graph.inputs) == ["who"]
-        and graph.run(who="x").outputs == {"result": "who=x"}
+        and graph.run({"who": "x"}).outputs == {"result": "who=x"}
     )
     graph = Graph.compile(
         GraphRecord.model_validate(
@@ -2697,7 +2758,7 @@ def test_a_subgraph_offers_the_inputs_and_outputs_its_inner_hooks_add():
         ),
         registry,
     )
-    assert list(graph.outputs) == ["x", "y"] and graph.run(text="hi").outputs == {
+    assert list(graph.outputs) == ["x", "y"] and graph.run({"text": "hi"}).outputs == {
         "x": "hi",
         "y": "hi",
     }

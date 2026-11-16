@@ -30,7 +30,7 @@ To run the node, put it in a graph:
 
 ```python
 graph = Graph.compile(make_graph(shout), registry)
-run = graph.run(text="hello")
+run = graph.run({"text": "hello"})
 print(run.outputs)  # {'result': 'HELLO!'}
 ```
 
@@ -48,7 +48,7 @@ def count_letters(text: str) -> int:
     return sum(char.isalpha() for char in text)
 
 
-run = Graph.compile(make_graph(shout, count_letters), registry).run(text="hi there")
+run = Graph.compile(make_graph(shout, count_letters), registry).run({"text": "hi there"})
 print(run.results["shout"])  # {'result': 'HI THERE!'}
 print(run.outputs)           # {'result': 7}
 ```
@@ -67,7 +67,7 @@ print(fixed.run().outputs)  # {'result': 'HEY!'}
 
 flexible = Graph.compile(make_graph(shout, defaults={"shout.text": "hey"}), registry)
 print(flexible.run().outputs)           # {'result': 'HEY!'}
-print(flexible.run(text="yo").outputs)  # {'result': 'YO!'}
+print(flexible.run({"text": "yo"}).outputs)  # {'result': 'YO!'}
 ```
 
 `make_graph` only writes the graph. It raises when it can't, for example for a place that isn't written `"node.name"`. Every other fault is reported when the graph is compiled, in `graph.problems`. [What a person sees](#what-a-person-sees) shows one. The full rules of `make_graph` are in `python -m conductor.about writing-a-graph-in-python`.
@@ -259,7 +259,7 @@ def reachable(contacts: Table[Contact]) -> Table[Contact]:
     return contacts.filter(pl.col("email").is_not_null())
 
 
-run = Graph.compile(make_graph(contacts, reachable), registry).run(csv="name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n")
+run = Graph.compile(make_graph(contacts, reachable), registry).run({"csv": "name,email,phone\nIda,ida@a.dk,1234\nBo,,5678\n"})
 print(run.outputs["result"].to_dicts())  # [{'name': 'Ida', 'email': 'ida@a.dk'}]
 ```
 
@@ -355,7 +355,7 @@ def count(texts: Series[str]) -> int:
 
 
 letter = make_graph(open_letter, tag, count, edges=[("open.lines", "tag.line"), ("open.sender", "tag.sender"), ("tag.result", "count.texts")])
-run = Graph.compile(letter, registry).run(text="Ida\nhello\nsee you")
+run = Graph.compile(letter, registry).run({"text": "Ida\nhello\nsee you"})
 print(run.results["tag"]["result"])  # ['Ida: hello', 'Ida: see you']
 print(run.outputs)                   # {'result': 2}
 ```
@@ -392,7 +392,7 @@ every = make_graph(
     open_letter, shout, collect, compare,
     edges=[("open.lines", "shout.text"), ("shout.result", "series-collect.values"), ("open.lines", "compare.line"), ("series-collect.result", "compare.others")],
 )
-print(Graph.compile(every, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 2', 'see you against 2']
+print(Graph.compile(every, registry).run({"text": "Ida\nhello\nsee you"}).results["compare"]["result"])  # ['hello against 2', 'see you against 2']
 ```
 
 `series-collect` takes nothing but a `Series`, so it is outside the loop. It runs once and returns every shouted line as one list, and each call of `compare` gets that same list.
@@ -430,8 +430,8 @@ def notify(amount: int) -> str:
 
 
 graph = Graph.compile(make_graph(route, notify, edges=[("route.large", "notify.amount")]), registry)
-print(graph.run(amount=5000).results["notify"])  # {'result': 'told the manager about 5000'}
-print(graph.run(amount=5).results["notify"])     # {'result': None}
+print(graph.run({"amount": 5000}).results["notify"])  # {'result': 'told the manager about 5000'}
+print(graph.run({"amount": 5}).results["notify"])     # {'result': None}
 ```
 
 For 5, `route` gave `small` the value, so `notify` was skipped. A skipped node's outputs show as `None` in `run.results` and `run.outputs`.
@@ -452,7 +452,7 @@ def keep[T](value: T) -> T:
 
 graph = Graph.compile(make_graph(route, keep, notify, edges=[("route.large", "keep.value"), ("keep.result", "notify.amount")]), registry)
 print(graph.describe().nodes["keep"].outputs[0].type)  # int
-print(graph.run(amount=5000).outputs)                  # {'result': 'told the manager about 5000'}
+print(graph.run({"amount": 5000}).outputs)                  # {'result': 'told the manager about 5000'}
 ```
 
 `route.large` is an `int`, so in this graph `keep` takes an `int` and returns one. That is why `notify.amount` may be wired to it. In a graph where a text arrives, `keep` returns a text. Conductor checks what the node returns against the type that arrived.
@@ -469,7 +469,7 @@ def each[T](value: Table[T] | list[T]) -> Series[T]:
 
 
 graph = Graph.compile(make_graph(contacts, each, shout, edges=[("contacts.result", "each.value"), ("each.result.name", "shout.text")]), registry)
-print(graph.run(csv="name,email\nIda,ida@a.dk\nBo,\n").outputs)  # {'result': ['IDA!', 'BO!']}
+print(graph.run({"csv": "name,email\nIda,ida@a.dk\nBo,\n"}).outputs)  # {'result': ['IDA!', 'BO!']}
 ```
 
 A `Table[Contact]` arrived, so `T` is `Contact`. That is why the edge may name one field of each row: `each.result.name` is the `name` of each contact. Wired to a `list[int]`, the same node returns a `Series[int]`.
@@ -488,7 +488,7 @@ def check[T](value: T, ok: bool) -> Checked[T]:
     return Checked(passed=value) if ok else Checked(failed=value)
 
 
-print(Graph.compile(make_graph(check), registry).run(value="late", ok=False).outputs)  # {'failed': 'late', 'passed': None}
+print(Graph.compile(make_graph(check), registry).run({"value": "late", "ok": False}).outputs)  # {'failed': 'late', 'passed': None}
 ```
 
 Only an edge decides what `T` is. Here no edge reaches `value`, so the caller's value is taken as it is. The rules are in `python -m conductor.about a-node-for-any-type`.
@@ -512,7 +512,7 @@ graph = Graph.compile(
     registry,
 )
 print(list(graph.outputs))                   # ['city', 'name']
-print(graph.run(line="Ida,Aarhus").outputs)  # {'city': 'Aarhus', 'name': 'Ida'}
+print(graph.run({"line": "Ida,Aarhus"}).outputs)  # {'city': 'Aarhus', 'name': 'Ida'}
 ```
 
 The hook is called when the graph is compiled, with the constant given to `names`. So `names` must be a constant: no edge or caller can give it. The node returns its outputs as a dict by name, and its return type says so: `@registry.node` refuses `-> str` on it (`outputs_not_a_mapping`).
@@ -536,7 +536,7 @@ def assign(ticket: str) -> Literal["ida", "bo"]:
     raise Ask(f"Who takes {ticket}?", default="ida")
 
 
-run = Graph.compile(make_graph(assign), registry).run(ticket="T-1")
+run = Graph.compile(make_graph(assign), registry).run({"ticket": "T-1"})
 print(run.status)                           # waiting
 print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='bo', title='bo'))
 ```
@@ -549,7 +549,7 @@ def pick(ticket: str, team: list[str]) -> str:
     raise Ask(f"Who takes {ticket}?", choices=team)
 
 
-run = Graph.compile(make_graph(pick), registry).run(ticket="T-1", team=["ida", "al"])
+run = Graph.compile(make_graph(pick), registry).run({"ticket": "T-1", "team": ["ida", "al"]})
 print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='al', title='al'))
 ```
 
@@ -572,7 +572,7 @@ def review(proposal: str) -> Review:
 
 
 graph = Graph.compile(make_graph(review), registry)
-run = graph.run(proposal="Move the server")
+run = graph.run({"proposal": "Move the server"})
 stored = run.to_json()  # store this, and the person may answer next week
 
 run = Run.from_json(stored, graph)  # later, with the same graph compiled again
@@ -611,9 +611,9 @@ def pay(bill: Bill, ok: bool) -> str:
 
 approve_and_pay = make_graph(approval, pay, edges=[("approval.result", "pay.ok")], inputs={"bill": ["approval.bill", "pay.bill"]})
 graph = Graph.compile(approve_and_pay, registry)
-print(graph.run(bill={"number": "B-1", "amount": 100}).outputs)  # {'result': 'paid B-1'}
+print(graph.run({"bill": {"number": "B-1", "amount": 100}}).outputs)  # {'result': 'paid B-1'}
 
-run = graph.run(bill={"number": "B-2", "amount": 900})
+run = graph.run({"bill": {"number": "B-2", "amount": 900}})
 print([(question.name, question.type) for question in run.waiting[0].questions])  # [('result', 'bool')]
 print(run.answer(run.waiting[0], False).resume().outputs)  # {'result': 'held B-2'}
 ```
@@ -637,7 +637,7 @@ def parse(text: str) -> int:
     return int(text)
 
 
-run = Graph.compile(make_graph(parse), registry).run(text="twelve")
+run = Graph.compile(make_graph(parse), registry).run({"text": "twelve"})
 if run.cause is not None:  # a run that failed, stopped or timed out says why
     print(run.status, run.cause.type, run.cause.msg)  # failed not_a_number The text is not a number.
 ```
@@ -664,7 +664,7 @@ def fetch(url: str) -> str:
     return "<html>"
 
 
-run = Graph.compile(make_graph(fetch), registry).run(url="https://example.com")
+run = Graph.compile(make_graph(fetch), registry).run({"url": "https://example.com"})
 print(run.status, len(attempts))  # complete 3
 ```
 
@@ -693,7 +693,7 @@ def summarize(name: str) -> str:
     return f"A summary of {name}"  # the call that costs something
 
 
-ready = Graph.compile(make_graph(files, summarize), registry).with_inputs(names=["a.pdf", "b.pdf", "c.pdf"])
+ready = Graph.compile(make_graph(files, summarize), registry).with_inputs({"names": ["a.pdf", "b.pdf", "c.pdf"]})
 estimated = ready.resume(only_costs_nothing=True)
 
 print(estimated.status)                       # ready
@@ -734,7 +734,7 @@ def sign(ctx: Context[AppContext], text: str) -> str:
 ida = AppContext(caller=Caller("Ida"))
 print(sign(ida, "Done"))  # Done, Ida
 
-signed = Graph.compile(make_graph(sign), signing).run(text="Done", context=ida)
+signed = Graph.compile(make_graph(sign), signing).run({"text": "Done"}, context=ida)
 print(signed.outputs)  # {'result': 'Done, Ida'}
 ```
 

@@ -28,7 +28,7 @@ So nothing is declared twice.
 
 Compiling never raises for a broken graph. Everything wrong goes in `graph.problems` ([problem codes](problems.md)), and a graph with problems doesn't run. `graph.describe()` says how often each node will run.
 
-`graph.run(**inputs)` starts a run. You pass the graph's inputs by the names its record gives them. Conductor then calls every node that is ready, until the run is complete, waits for a person, fails or is stopped. You get back a `Run`, and its `status` says how it stopped:
+`graph.run(inputs)` starts a run. You pass the graph's inputs as one mapping, by the names its record gives them. Conductor then calls every node that is ready, until the run is complete, waits for a person, fails or is stopped. You get back a `Run`, and its `status` says how it stopped:
 
 | `status` | What it means |
 |---|---|
@@ -72,7 +72,7 @@ A node raises `Ask` when a person has to answer. That call waits, and so does ev
 
 ## Running again
 
-`run.again(**changed)` starts a new run with some inputs changed, and reuses what it can from the previous run. When a call would get exactly the same arguments as a call of the same node last time, conductor reuses that result, or that person's answer, and doesn't call the node. So if you add one line to a CSV of 5,000, a node that runs per line is called only for the new one.
+`run.again(changed)` starts a new run with some inputs changed, and reuses what it can from the previous run. When a call would get exactly the same arguments as a call of the same node last time, conductor reuses that result, or that person's answer, and doesn't call the node. So if you add one line to a CSV of 5,000, a node that runs per line is called only for the new one.
 
 A node whose result depends on the outside world rather than its arguments opts out with `Policy(reuse_when_inputs_match=False)`.
 

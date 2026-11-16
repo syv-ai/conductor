@@ -154,7 +154,7 @@ section has the rule: `python -m conductor.about errors`.
 
 ```python
 graph = Graph.compile(record, registry)
-print(graph.run(text="a b").outputs)  # {'result': 'A+B'}
+print(graph.run({"text": "a b"}).outputs)  # {'result': 'A+B'}
 ```
 
 **Worth questioning:** the code in the reuse key is the node function's own source as Python parses it, so a change to
@@ -206,7 +206,7 @@ names_and_greetings = make_graph(
 print([problem.type for problem in Graph.compile(names_and_greetings, registry).problems])  # ['series_not_nested']
 
 try:
-    graph.run(text=["a", "b"])
+    graph.run({"text": ["a", "b"]})
 except InvalidCallError as e:
     print([p.type for p in e.problems])  # ['invalid_input']
 ```
@@ -253,7 +253,7 @@ def send(middle: str) -> str:
     return f"sent {middle}"
 
 
-sent = Graph.compile(make_graph(words, middle_name, send), registry).run(text="Ida Bo")
+sent = Graph.compile(make_graph(words, middle_name, send), registry).run({"text": "Ida Bo"})
 print(sent.status, sent.results["send"]["result"])  # complete ['sent Marie', None]
 print([(skipped.loc, skipped.input) for skipped in sent.not_called])  # [(('send', 1), 'middle')]
 ```
@@ -298,7 +298,7 @@ def tone(text: str) -> Literal["formal", "casual"]:
     raise Ask(f"Which tone for {text!r}?")
 
 
-asked = Graph.compile(make_graph(tone), registry).run(text="hello")
+asked = Graph.compile(make_graph(tone), registry).run({"text": "hello"})
 print(asked.answer(asked.waiting[0], "casual").resume().outputs)  # {'result': 'casual'}
 ```
 
@@ -376,7 +376,7 @@ import asyncio
 
 
 async def follow() -> None:
-    async for event in graph.with_inputs(text="a b c", max_items=2).stream(checkpoint_every=1.0):
+    async for event in graph.with_inputs({"text": "a b c"}, max_items=2).stream(checkpoint_every=1.0):
         if event.type == "run_checkpoint":
             pass  # store event.run.to_json()
         if event.type == "run_end":
@@ -469,9 +469,9 @@ def times(n: Annotated[int, Param(ge=1)]) -> str:
 
 
 counted = Graph.compile(make_graph(times), registry)
-print(counted.run(n="3").outputs)  # {'result': 'xxx'}
+print(counted.run({"n": "3"}).outputs)  # {'result': 'xxx'}
 try:
-    counted.run(n=True)
+    counted.run({"n": True})
 except InvalidCallError as refused:
     print([found.type for found in refused.problems])  # ['invalid_input']: a yes or no is not a number
 ```

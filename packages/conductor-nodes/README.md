@@ -18,7 +18,7 @@ registry = NodeRegistry()
 registry.add_subregistry(conductor_nodes.text.registry)
 
 graph = Graph.compile(make_graph(conductor_nodes.text.split, conductor_nodes.text.uppercase), registry)
-print(graph.run(text="a\nb").outputs)  # {'result': ['A', 'B']}
+print(graph.run({"text": "a\nb"}).outputs)  # {'result': ['A', 'B']}
 ```
 
 Each module is one category, so filtering by category gives the same nodes: `conductor_nodes.registry.filter(lambda d: d.category == "math")`.
@@ -88,7 +88,7 @@ contacts = Graph.compile(
     ),
     registry,
 )
-print(contacts.run(csv="name\nIda\nBo\n").outputs["contacts"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
+print(contacts.run({"csv": "name\nIda\nBo\n"}).outputs["contacts"].to_dicts())  # [{'name': 'Ida', 'greeting': 'Hello Ida'}, {'name': 'Bo', 'greeting': 'Hello Bo'}]
 ```
 
 A few things to notice:

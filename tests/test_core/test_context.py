@@ -107,7 +107,7 @@ def test_the_context_is_recognised_by_its_metadata_whatever_the_parameter_is_cal
         and list(signed.inputs) == ["text"]
     )
     assert Graph.compile(make_graph(signed), app_registry(signed)).run(
-        text="Done", context=IDA
+        {"text": "Done"}, context=IDA
     ).outputs == {"result": "Done, Ida"}
 
 
@@ -331,7 +331,7 @@ def test_every_node_that_takes_the_context_gets_the_one_object_inside_a_subgraph
         outputs={"inner": "signed.result", "outer": "sign.result"},
     )
     run = Graph.compile(record, app_registry(lines, sign, signed)).run(
-        inner="a\nb", outer="c", context=IDA
+        {"inner": "a\nb", "outer": "c"}, context=IDA
     )
     assert run.outputs == {"inner": ["a, Ida", "b, Ida"], "outer": "c, Ida"}
 
@@ -347,7 +347,7 @@ def test_a_run_whose_nodes_take_the_context_and_is_given_none_is_refused_before_
     )
     graph = Graph.compile(record, app_registry(sign, signed))
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(inner="a", outer="b")
+        graph.run({"inner": "a", "outer": "b"})
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("context_missing", ("sign", "ctx"), {"parameter": "ctx", "needs": "AppContext"}),
         ("context_missing", ("signed", "sign", "ctx"), {"parameter": "ctx", "needs": "AppContext"}),
@@ -357,7 +357,7 @@ def test_a_run_whose_nodes_take_the_context_and_is_given_none_is_refused_before_
 def test_a_context_of_another_class_is_refused_at_the_start_of_a_run():
     graph = Graph.compile(make_graph(sign), app_registry(sign))
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(text="a", context=Caller("Ida"))  # type: ignore[arg-type]
+        graph.run({"text": "a"}, context=Caller("Ida"))  # type: ignore[arg-type]
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         ("invalid_context", ("context",), {"expected": "AppContext", "got": "Caller"}),
     ]
@@ -368,7 +368,7 @@ def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
     registry = NodeRegistry()
     registry.add(upper)
     with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(make_graph(upper), registry).run(text="a", context=IDA)  # type: ignore[arg-type]
+        Graph.compile(make_graph(upper), registry).run({"text": "a"}, context=IDA)  # type: ignore[arg-type]
     assert [(p.type, p.ctx) for p in refused.value.problems] == [
         ("invalid_context", {"got": "AppContext", "variant": "no_context_type"})
     ]
@@ -377,12 +377,14 @@ def test_a_context_given_to_a_graph_whose_registry_names_no_class_is_refused():
 def test_a_graph_none_of_whose_nodes_takes_the_context_runs_with_it_or_without():
     graph = Graph.compile(make_graph(upper), app_registry(upper, sign))
     assert (
-        graph.run(text="a").outputs == graph.run(text="a", context=IDA).outputs == {"result": "A"}
+        graph.run({"text": "a"}).outputs
+        == graph.run({"text": "a"}, context=IDA).outputs
+        == {"result": "A"}
     )
 
 
 def test_resume_and_stream_are_checked_as_run_is():
-    ready = Graph.compile(make_graph(sign), app_registry(sign)).with_inputs(text="a")
+    ready = Graph.compile(make_graph(sign), app_registry(sign)).with_inputs({"text": "a"})
     with pytest.raises(InvalidCallError) as refused:
         ready.stream()
     assert [p.type for p in refused.value.problems] == ["context_missing"]
@@ -409,7 +411,7 @@ def test_the_context_is_never_saved_and_is_passed_again_on_each_resume():
         return text
 
     graph = Graph.compile(make_graph(ask_once), app_registry(ask_once))
-    saved = graph.with_inputs(text="a").to_json()
+    saved = graph.with_inputs({"text": "a"}).to_json()
     assert "Ida" not in saved
     assert Run.from_json(saved, graph).resume(context=IDA).outputs == {"result": "a"} and calls == [
         "Ida"
@@ -424,7 +426,7 @@ def test_a_run_again_with_another_context_reuses_what_the_node_returned():
         calls.append(ctx.caller.name)
         return f"{text} by {ctx.caller.name}"
 
-    first = Graph.compile(make_graph(signed), app_registry(signed)).run(text="hi", context=IDA)
+    first = Graph.compile(make_graph(signed), app_registry(signed)).run({"text": "hi"}, context=IDA)
     again = first.again(context=dataclasses.replace(IDA, caller=Caller("Bo")))
     assert calls == ["Ida"] and again.outputs == {"result": "hi by Ida"}
 

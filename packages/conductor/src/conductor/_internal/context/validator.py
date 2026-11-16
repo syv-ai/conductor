@@ -1,6 +1,6 @@
 """``ContextValidator``, the check on the ``context=`` a host passes when it starts or resumes a run.
 
-Say the registry names ``HostContext``. Then ``graph.run(text="Done", context=HostContext(...))`` passes. Given a
+Say the registry names ``HostContext``. Then ``graph.run({"text": "Done"}, context=HostContext(...))`` passes. Given a
 ``Caller`` instead, the validator raises ``InvalidCallError`` with ``invalid_context``, which names the two classes
 and quotes nothing of the object. Given no context at all, when the graph has a node
 ``sign(ctx: Context[HostContext], ...)``, it raises ``context_missing`` for ``sign``.

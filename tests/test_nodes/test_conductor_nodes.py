@@ -91,7 +91,7 @@ def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input
 
     assert graph.describe().nodes["regex-extract"].per_item_of == "text-split.result"
     assert graph.describe().nodes["text-join"].per_item_of == "text-split.result"
-    assert graph.run(text="a1,b2 3,c").outputs == {"result": ["1", "2, 3", ""]}
+    assert graph.run({"text": "a1,b2 3,c"}).outputs == {"result": ["1", "2, 3", ""]}
 
 
 def test_a_decision_sends_its_value_down_one_branch_and_the_other_branch_is_skipped() -> None:
@@ -107,12 +107,12 @@ def test_a_decision_sends_its_value_down_one_branch_and_the_other_branch_is_skip
     assert {
         output.name: output.required for output in graph.describe().nodes["control-decide"].outputs
     } == {"if_true": False, "if_false": False}
-    taken = graph.run(value="hi", when=True)
+    taken = graph.run({"value": "hi", "when": True})
     assert taken.outputs == {"result": "HI"} and taken.results["control-decide"] == {
         "if_true": "hi",
         "if_false": None,
     }
-    assert graph.run(value="hi", when=False).outputs == {"result": None}
+    assert graph.run({"value": "hi", "when": False}).outputs == {"result": None}
 
 
 def test_a_decision_with_nothing_wired_to_when_is_a_problem_when_compiled() -> None:
@@ -144,8 +144,8 @@ def test_a_test_wired_into_a_decision_sends_the_value_the_way_the_test_says() ->
         conductor_nodes.registry,
     )
 
-    assert graph.run(text="hi", value="pass").outputs == {"result": "PASS"}
-    assert graph.run(text="hey", value="pass").outputs == {"result": None}
+    assert graph.run({"text": "hi", "value": "pass"}).outputs == {"result": "PASS"}
+    assert graph.run({"text": "hey", "value": "pass"}).outputs == {"result": None}
 
 
 def test_equals_reads_the_other_value_by_the_type_wired_to_its_value() -> None:
@@ -176,8 +176,8 @@ def test_is_empty_is_true_for_nothing_found_and_for_a_table_of_no_rows() -> None
     )
     table = Graph.compile(make_graph(no_rows, logic.is_empty), registry)
 
-    assert found.run(value={"user": {}}).outputs == {"result": True}
-    assert found.run(value={"user": {"name": "Ida"}}).outputs == {"result": False}
+    assert found.run({"value": {"user": {}}}).outputs == {"result": True}
+    assert found.run({"value": {"user": {"name": "Ida"}}}).outputs == {"result": False}
     assert table.run().outputs == {"result": True}
 
 
@@ -208,7 +208,7 @@ def test_a_switch_sends_each_item_down_its_cases_branch_and_the_node_after_them_
         {"label": "letter", "text": "c"},
     ]
 
-    run = graph.run(value=documents)
+    run = graph.run({"value": documents})
 
     assert [output.name for output in graph.describe().nodes["control-switch"].outputs] == [
         "invoice",
@@ -254,8 +254,8 @@ def test_default_gives_the_fallback_for_nothing_found_and_the_value_otherwise() 
         conductor_nodes.registry,
     )
 
-    assert graph.run(value={"user": {}}).outputs == {"result": "nobody"}
-    assert graph.run(value={"user": {"name": "Ida"}}).outputs == {"result": "Ida"}
+    assert graph.run({"value": {"user": {}}}).outputs == {"result": "nobody"}
+    assert graph.run({"value": {"user": {"name": "Ida"}}}).outputs == {"result": "Ida"}
 
 
 def test_a_decisions_branches_take_the_type_that_arrives_on_its_value() -> None:
@@ -323,7 +323,7 @@ def test_an_empty_separator_is_refused_at_the_field_before_the_node_runs() -> No
     )
 
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(text="a,b", separator="")
+        graph.run({"text": "a,b", "separator": ""})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("invalid_input", ("inputs", "separator"))
     ]
@@ -336,7 +336,7 @@ def test_an_empty_needle_is_refused_at_the_field_before_the_node_runs(definition
     )
 
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(needle="")
+        graph.run({"needle": ""})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("invalid_input", ("inputs", "needle"))
     ]
@@ -371,7 +371,7 @@ def test_text_or_parsed_json_can_be_wired_into_a_json_value_and_a_json_null_is_w
             conductor_nodes.registry,
         )
         assert graph.problems == []
-        assert graph.run(text=value).outputs == {"result": '"X"' if value == "x" else "null"}
+        assert graph.run({"text": value}).outputs == {"result": '"X"' if value == "x" else "null"}
 
 
 def test_a_number_that_isnt_finite_is_refused_by_write_json_since_json_has_no_way_to_write_it() -> (
@@ -386,6 +386,6 @@ def test_a_number_that_isnt_finite_is_refused_by_write_json_since_json_has_no_wa
         conductor_nodes.registry,
     )
 
-    assert graph.run(a=2, b=3).outputs == {"result": "6.0"}
-    cause = graph.run(a=1e308, b=10).cause
+    assert graph.run({"a": 2, "b": 3}).outputs == {"result": "6.0"}
+    cause = graph.run({"a": 1e308, "b": 10}).cause
     assert cause is not None and (cause.type, cause.loc) == ("not_json", ("json-stringify",))

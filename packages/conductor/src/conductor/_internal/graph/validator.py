@@ -7,7 +7,7 @@ There are three:
 - ``ConstantValidator`` checks a constant, or a graph input's default, written in the graph record.
 
 Inputs. Take ``make_graph(shout, defaults={"shout.mark": "!"})``, a graph of one node. It has the graph inputs
-``line``, which is required, and ``mark``, which defaults to ``"!"``. ``graph.run(line="b")`` gives the validator ``{"line": "b"}``, and it returns
+``line``, which is required, and ``mark``, which defaults to ``"!"``. ``graph.run({"line": "b"})`` gives the validator ``{"line": "b"}``, and it returns
 ``{"line": "b", "mark": "!"}``. That's every graph input, with its default where the caller gave none. Given
 ``{"line": 3, "colour": "red"}``, it raises ``InvalidCallError`` with both faults at once: ``unknown_graph_input`` for
 ``colour``, then ``invalid_input`` for ``line``.

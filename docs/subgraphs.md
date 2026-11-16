@@ -61,7 +61,7 @@ the outer graph wires `shout.text` and `shout.result`.
 ```python
 graph = Graph.compile(make_graph(split, shout, join), registry)
 
-print(graph.run(text="hi there").outputs)  # {'result': 'HI! THERE!'}
+print(graph.run({"text": "hi there"}).outputs)  # {'result': 'HI! THERE!'}
 print(graph.describe().nodes["shout"].per_item_of)  # split.result
 ```
 
@@ -99,7 +99,7 @@ registry.add(side_by_side)
 both = Graph.compile(make_graph(side_by_side), registry)
 
 print(list(both.inputs))  # ['keen', 'loud']
-print(both.run(loud="a", keen="b").outputs)  # {'keen': 'b!', 'loud': 'A'}
+print(both.run({"loud": "a", "keen": "b"}).outputs)  # {'keen': 'b!', 'loud': 'A'}
 ```
 
 `upper` and `exclaim` both take `text` and both return `result`. Two graph inputs can't share a name, so `inputs=`
@@ -134,7 +134,7 @@ graph = Graph.compile(
     make_graph(both_per_word, beside, edges=[("per-word.loud", "beside.loud"), ("per-word.keen", "beside.keen")]),
     registry,
 )
-print(graph.run(text="hi there").results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
+print(graph.run({"text": "hi there"}).results["beside"]["result"])  # ['HI/hi!', 'THERE/there!']
 print(graph.describe().nodes["beside"].per_item_of)  # per-word/split.result
 ```
 
@@ -168,7 +168,7 @@ per_line = subgraph("per-line", title="Per line", description="Every line of eve
 registry.add(per_line)
 
 graph = Graph.compile(make_graph(per_line, join, edges=[("per-line.result", "join.texts")]), registry)
-run = graph.run(text="a,b;c")
+run = graph.run({"text": "a,b;c"})
 
 print(run.results["per-line"]["result"])  # [['A', 'B'], ['C']]
 print(run.results["join"]["result"])  # ['A B', 'C']
@@ -211,7 +211,7 @@ graph = Graph.compile(
     make_graph(split, maybe, shout, edges=[("split.result", "maybe.text"), ("maybe.result", "shout.text")]),
     registry,
 )
-run = graph.run(text="hi none")
+run = graph.run({"text": "hi none"})
 
 print(run.results["shout"])  # {'result': ['HI!', None]}
 for not_called in run.not_called:
@@ -236,7 +236,7 @@ graph = Graph.compile(make_graph(split, maybe, side_by_side, edges=[
     ("maybe.result", "both.loud"),
     ("split.result", "both.keen"),
 ]), registry)
-print(graph.run(text="hi none").results["both"])  # {'keen': ['hi!', 'none!'], 'loud': ['HI', None]}
+print(graph.run({"text": "hi none"}).results["both"])  # {'keen': ['hi!', 'none!'], 'loud': ['HI', None]}
 ```
 
 ## A subgraph is compiled alone

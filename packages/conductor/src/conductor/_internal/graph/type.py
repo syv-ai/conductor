@@ -81,7 +81,7 @@ class Graph[C]:
     """A graph record that has been checked against a registry's nodes and can start runs.
 
     Make one with ``Graph.compile(record, registry)``. Compiling never fails on a wrong graph. Whatever is wrong
-    ends up in ``problems``, and only a graph with no problems runs: ``graph.run(**inputs)``.
+    ends up in ``problems``, and only a graph with no problems runs: ``graph.run(inputs)``.
 
     ``C`` is the type of the run's context. A registry made with ``NodeRegistry(context_type=HostContext)``
     compiles a ``Graph[HostContext]``. With no ``context_type``, ``C`` is ``None``.
@@ -344,23 +344,19 @@ class Graph[C]:
     def with_inputs(
         self,
         inputs: Mapping[str, Any] = MappingProxyType({}),
-        /,
         *,
         max_items: int | None = None,
         previous: Run[Any] | None = None,
-        **by_name: Any,
     ) -> Run[C]:
         """Returns a run with the caller's inputs checked, but not started. ``run.resume()`` starts it.
 
         Args:
-            inputs: The inputs by name (see ``graph.inputs``). Use this for a name that can't be a Python keyword,
-                like ``{"class": ...}``.
+            inputs: The graph's inputs by name, as one mapping (see ``graph.inputs``).
             max_items: The most items any one ``Series`` that a node loops over may have. Past that, the run stops.
             previous: An earlier run of this graph, or of an older version of it, to reuse work from, as
                 ``run.again`` does. A node isn't called again where it gets the same arguments it got there, as
                 long as its id, version, code, fields and loops are the same. So after an edit, only the nodes the
                 edit changed, and what they feed, run again.
-            **by_name: The inputs, as keywords.
 
         Returns:
             The run, with the status ``ready``.
@@ -375,24 +371,22 @@ class Graph[C]:
         if self.problems:
             raise InvalidCallError(self.problems)
         limits = LimitsValidator()({"max_items": max_items})
-        return make_run(
-            self, self._inputs_validator({**inputs, **by_name}), limits["max_items"], previous
-        )
+        return make_run(self, self._inputs_validator({**inputs}), limits["max_items"], previous)
 
     def run(
         self,
         inputs: Mapping[str, Any] = MappingProxyType({}),
-        /,
         *,
         max_items: int | None = None,
+        previous: Run[Any] | None = None,
         context: C | None = None,
         timeout: float | None = None,
-        **by_name: Any,
     ) -> Run[C]:
         """Runs the graph with these inputs until it's done, waits for a person, fails or stops.
 
-        It's the same as ``graph.with_inputs(...).resume(context=context, timeout=timeout)``.
+        It's the same as ``graph.with_inputs(inputs, max_items=max_items, previous=previous).resume(context=context,
+        timeout=timeout)``.
         """
-        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(
+        return self.with_inputs(inputs, max_items=max_items, previous=previous).resume(
             context=context, timeout=timeout
         )

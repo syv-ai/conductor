@@ -144,7 +144,7 @@ def test_only_an_edge_binds_a_type_variable_so_a_constant_and_a_graph_input_read
     with_constant = _compiled(keep, edges=[], constants={"keep": {"value": 3}})
     assert _types(with_constant, "keep") == {"value": (False, "Any"), "result": (False, "Any")}
     assert with_constant.run().outputs == {"result": 3}
-    assert Graph.compile(make_graph(keep), registry_of(keep)).run(value="x").outputs == {
+    assert Graph.compile(make_graph(keep), registry_of(keep)).run({"value": "x"}).outputs == {
         "result": "x"
     }
 

@@ -146,7 +146,7 @@ def test_node_used_twice():
     record = make_graph(upper, tail, upper)  # a chain in which upper is used twice
     assert list(record.nodes) == ["upper-1", "tail", "upper-2"]
     graph = Graph.compile(record.model_dump_json(), registry)
-    assert graph.run(text="hi").outputs == {"result": "HI."}
+    assert graph.run({"text": "hi"}).outputs == {"result": "HI."}
 
 
 def test_per_item_reuse_on_again():
@@ -156,9 +156,9 @@ def test_per_item_reuse_on_again():
         ),
         invoicing,
     )
-    first, before = calls(lambda: graph.run(text=CSV))
+    first, before = calls(lambda: graph.run({"text": CSV}))
     second, after = calls(
-        lambda: first.again(text=CSV.replace("bo@b.dk", "bo@new.dk") + "Eva,eva@e.dk,1\n")
+        lambda: first.again({"text": CSV.replace("bo@b.dk", "bo@new.dk") + "Eva,eva@e.dk,1\n"})
     )
     assert len(before) == 3 and after == ["mail bo@new.dk", "mail eva@e.dk"], after
     assert second.results["mail"]["result"][1] == "sent to bo@new.dk"
@@ -179,14 +179,14 @@ def test_answer_stays_with_its_item_on_again():
         ),
         invoicing,
     )
-    run, _ = calls(lambda: graph.run(text=CSV))
+    run, _ = calls(lambda: graph.run({"text": CSV}))
     for waiting_call in run.waiting:
         run = run.answer(waiting_call, "yes")
     run, _ = calls(run.resume)
     edited = CSV.replace("Ida,ida@a.dk,100", "Ida,ida@a.dk,200").replace(
         "Al,al@c.dk,7000", "Al,al@c.dk,8000"
     )
-    again, called = calls(lambda: run.again(text=edited))
+    again, called = calls(lambda: run.again({"text": edited}))
     # Bo's row is unchanged, so his answer is reused and he isn't asked again
     assert called == ["approve Ida", "approve Al"], called
     assert again.status == "waiting" and [w.inputs["name"] for w in again.waiting] == ["Al"]
@@ -220,7 +220,7 @@ def test_a_half_finished_graph_record_compiles_with_every_problem_and_refuses_to
         ("unknown_output", ("rep", "text")),
     ], found
     try:
-        graph.run(text=CSV)
+        graph.run({"text": CSV})
         raise AssertionError
     except InvalidCallError as error:
         assert len(error.problems) == 4
@@ -321,7 +321,7 @@ def test_nested_loops_are_collected_one_level_at_a_time():
         "per_doc": "docs.result",
         "all": "docs.result",
     }
-    run = graph.run(text="a,b;c;")
+    run = graph.run({"text": "a,b;c;"})
     assert run.results["per_doc"]["result"] == ["A+B", "C", ""], run.results["per_doc"]
     assert run.results["all"]["result"] == [
         "a+b",
@@ -415,7 +415,7 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
         ),
         reg,
     )
-    run = graph.run(text="abcd,ab,xyzzy")
+    run = graph.run({"text": "abcd,ab,xyzzy"})
     assert run.results["L"]["result"] == ["ABCD", None, "XYZZY"]
     assert run.results["J"]["result"] == "ABCD+XYZZY"
     # the values from both branches of one node are joined in item order
@@ -426,7 +426,7 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
         ),
         registry_of(read_csv, each_invoice, mail),
     )
-    run = with_none.run(text="name,email,amount\nIda,ida@a.dk,1\nBo,,2\n")
+    run = with_none.run({"text": "name,email,amount\nIda,ida@a.dk,1\nBo,,2\n"})
     assert run.status == "complete" and run.results["mail"]["result"] == ["sent to ida@a.dk", None]
     assert run.not_called == [NotCalled(loc=("mail", 1), input="email")]
 
@@ -443,9 +443,9 @@ def test_a_list_given_for_one_value_is_refused():
         ),
         registry,
     )
-    assert graph.run(text="a").outputs == {"result": "A"}
+    assert graph.run({"text": "a"}).outputs == {"result": "A"}
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(text=["a", "b"])
+        graph.run({"text": ["a", "b"]})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("invalid_input", ("inputs", "text"))
     ]
@@ -474,7 +474,7 @@ def test_max_items():
         registry,
     )
     (run, called) = calls(
-        lambda: graph.run(text=",".join(f"x{i}" for i in range(50)), max_items=10)
+        lambda: graph.run({"text": ",".join(f"x{i}" for i in range(50))}, max_items=10)
     )
     assert run.status == "stopped" and run.cause.type == "item_limit" and called == []
     assert run.cause.ctx == {"series": "s.result", "items": 50, "max_items": 10}
@@ -514,11 +514,11 @@ def test_an_upgraded_subgraph_keeps_the_name_of_its_output():
             "outputs": {"result": {"node": "u", "output": "result"}},
         }
     )
-    assert Graph.compile(outer, reg).run(text="Hi").outputs == {"result": "HI."}
+    assert Graph.compile(outer, reg).run({"text": "Hi"}).outputs == {"result": "HI."}
     newer = reg.upgrade(outer, "e")
-    assert newer.nodes["e"].version == 2 and Graph.compile(newer, reg).run(text="Hi").outputs == {
-        "result": "HI.."
-    }
+    assert newer.nodes["e"].version == 2 and Graph.compile(newer, reg).run(
+        {"text": "Hi"}
+    ).outputs == {"result": "HI.."}
 
 
 def test_an_upgrade_moves_an_edge_reading_a_subgraphs_output_to_the_name_the_newer_version_gives_it():
@@ -545,7 +545,7 @@ def test_an_upgrade_moves_an_edge_reading_a_subgraphs_output_to_the_name_the_new
     )
     newer = reg.upgrade(outer, "e")
     assert newer.nodes["u"].inputs["text"].sources == (Source("e", "dotted"),)
-    assert Graph.compile(newer, reg).run(text="Hi").outputs == {"result": "HI.."}
+    assert Graph.compile(newer, reg).run({"text": "Hi"}).outputs == {"result": "HI.."}
 
 
 def test_upgrade_renames():
@@ -576,10 +576,10 @@ def test_upgrade_renames():
             "outputs": {"result": {"node": "g", "output": "result"}},
         }
     )
-    assert Graph.compile(stored, reg).run(text="ida").outputs == {"result": "hello IDA"}
+    assert Graph.compile(stored, reg).run({"text": "ida"}).outputs == {"result": "hello IDA"}
     moved = reg.upgrade(stored, "g")
     assert moved.nodes["g"].inputs == {"who": InputEntry(sources=(Source("u", "result"),))}
-    assert Graph.compile(moved, reg).run(text="ida").outputs == {"result": "hello IDA!"}
+    assert Graph.compile(moved, reg).run({"text": "ida"}).outputs == {"result": "hello IDA!"}
 
 
 def test_ask_forms_and_several():
@@ -639,7 +639,7 @@ def test_ask_forms_and_several():
         ),
         reg,
     )
-    run = graph.run(text="Ida,Bo")
+    run = graph.run({"text": "Ida,Bo"})
     by = {place(w): w for w in run.waiting}
     approved, note = by["r@0"].questions
     assert (approved.name, approved.json_schema, approved.default, note.default) == (
@@ -704,7 +704,7 @@ def test_pause_on_a_nested_item():
         ),
         reg,
     )
-    run = graph.run(text="a,b;c")
+    run = graph.run({"text": "a,b;c"})
     assert [place(w) for w in run.waiting] == ["c@0@1"] and run.results["j"]["result"] == [
         None,
         "c",
@@ -735,9 +735,9 @@ def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
         ),
         reg,
     )
-    run, _ = calls(lambda: graph.run(text=CSV))
+    run, _ = calls(lambda: graph.run({"text": CSV}))
     run, _ = calls(run.answer("g@1", "bo@b.dk").resume)
-    paused, called = calls(lambda: run.again(text=CSV.replace("Bo,", "Bob,")))
+    paused, called = calls(lambda: run.again({"text": CSV.replace("Bo,", "Bob,")}))
     assert [place(w) for w in paused.waiting] == ["g@1"] and called == []
     resumed, called = calls(
         lambda: Run.from_json(paused.to_json(), graph).answer("g@1", "bo@b.dk").resume()

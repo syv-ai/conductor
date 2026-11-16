@@ -214,10 +214,10 @@ class NodeDeclarationError(ConductorError, TypeError):
 class InvalidCallError(ConductorError, ValueError):
     """A value given to conductor was refused, and nothing was done with it.
 
-    Say a graph's input ``n`` is an ``int``. Then ``graph.run(n="many")`` raises it, with one ``invalid_input``
+    Say a graph's input ``n`` is an ``int``. Then ``graph.run({"n": "many"})`` raises it, with one ``invalid_input``
     problem. It is raised before anything runs, and the run the caller has stays as it was. A call's arguments are
     checked in stages, and the first stage that finds a fault raises with every problem of that stage. So
-    ``graph.run(n="many", max_items=0)`` raises only ``invalid_limit``. Like pydantic's error, it is also a
+    ``graph.run({"n": "many"}, max_items=0)`` raises only ``invalid_limit``. Like pydantic's error, it is also a
     ``ValueError``.
 
     Most calls a host makes can raise it: ``graph.run``, ``graph.with_inputs``, ``run.resume``, ``run.stream``,

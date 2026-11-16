@@ -82,7 +82,7 @@ class InputEntry(ConductorModel):
 
     - ``{"constant": "?"}`` is a fixed value. The input has it on every call of every run, and no caller can change
       it.
-    - ``{"graph_input": "text"}`` is a value the caller gives when a run starts, as in ``graph.run(text="a b")``.
+    - ``{"graph_input": "text"}`` is a value the caller gives when a run starts, as in ``graph.run({"text": "a b"})``.
       Add ``"default"`` for a value to use when the caller gives none. Without one, the caller must give it.
       Several inputs may name the same graph input, and then they all get the caller's one value.
     - ``{"sources": [{"node": "lines", "output": "result"}]}`` lists the outputs whose edges lead into the input.

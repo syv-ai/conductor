@@ -2,8 +2,8 @@
 
 Take the README's graph, ``lines -> shout -> join``::
 
-    run = graph.run(text="a\\nb\\nc")    # shout is called for "a", "b" and "c"
-    run = run.again(text="a\\nb\\nd")    # shout is called for "d" only
+    run = graph.run({"text": "a\\nb\\nc"})    # shout is called for "a", "b" and "c"
+    run = run.again({"text": "a\\nb\\nd"})    # shout is called for "d" only
 
 In the second run, the calls of ``shout`` for ``"a"`` and ``"b"`` get the same arguments as before. So their
 ``Done`` outcomes are reused, and the function isn't called for them.

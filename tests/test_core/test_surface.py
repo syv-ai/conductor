@@ -355,7 +355,7 @@ def test_the_outputs_of_a_failed_run_are_refused_and_its_results_say_what_it_did
             }
         ),
         registry,
-    ).run(upto=3)
+    ).run({"upto": 3})
 
     assert run.status == "failed" and run.cause is not None and run.cause.loc == ("e", 1)
     with pytest.raises(InvalidCallError) as raised:

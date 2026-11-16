@@ -9,7 +9,7 @@ Take the first graph in conductor's README. It has three nodes::
     shout(line: str, mark: str = "!") -> str # wired to lines.result: called once per line
     join(texts: Series[str]) -> str          # wired to shout.result: called once, with ["A!", "B!"]
 
-``async for event in graph.with_inputs(text="a\\nb").stream()`` gets these events, in this order::
+``async for event in graph.with_inputs({"text": "a\\nb"}).stream()`` gets these events, in this order::
 
     RunStart(waiting=())
     NodeStart(loc=("lines",))

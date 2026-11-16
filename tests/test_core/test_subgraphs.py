@@ -602,7 +602,9 @@ def test_a_series_from_a_subgraph_and_a_value_per_item_of_it_pair_up_item_by_ite
         one_graph.describe().nodes["g"].per_item_of,
     ) == ("e/c.result", "c.result")  # one loop, named by its series inside
     assert (
-        inside.run(text="ab").outputs == one_graph.run(text="ab").outputs == {"g": ["A a", "B b"]}
+        inside.run({"text": "ab"}).outputs
+        == one_graph.run({"text": "ab"}).outputs
+        == {"g": ["A a", "B b"]}
     )
 
 
@@ -641,7 +643,9 @@ def test_a_branch_inside_a_subgraph_is_not_a_branch_of_the_subgraph_node():
     )
     assert problems(joined) == [("several_edges_into_one_input", ("j", "text"))]
     one = compile_graph({"e": subgraph_of("decide"), "j": "exclaim"}, [("e.long", "j.text")])
-    assert one.run(text="ab").results["j"] == {"result": None}  # "ab" is short, so j is skipped
+    assert one.run({"text": "ab"}).results["j"] == {
+        "result": None
+    }  # "ab" is short, so j is skipped
 
 
 def test_two_outputs_on_different_branches_inside_a_subgraph_are_merged_inside_it():
@@ -666,7 +670,7 @@ def test_two_outputs_on_different_branches_inside_a_subgraph_are_merged_inside_i
     )
     assert problems(inside) == [("several_edges_into_one_input", ("j", "text"))]
     assert problems(one_graph) == []
-    ran_flat = one_graph.run(text="ab long cd")
+    ran_flat = one_graph.run({"text": "ab long cd"})
     assert ran_flat.results["j"] == {"result": ["ab!!", "LONG!", "cd!!"]}
     assert ran_flat.results["n"] == {"result": 3}
 
@@ -726,18 +730,18 @@ def subgraph_of(node_id: str) -> str:
 
 
 def test_a_subgraph_runs_once_or_per_item_as_its_nodes_do_in_one_graph():
-    run = compile_graph({"e": "shout-inner"}).run(text="ab")
+    run = compile_graph({"e": "shout-inner"}).run({"text": "ab"})
     assert run.status == "complete" and run.outputs == {"result": "AB!"}
     graph = inside_a_loop("shout-inner")
     assert graph.describe().nodes["e"].per_item_of == "w.result"
-    run = graph.run(text="ab cd")
+    run = graph.run({"text": "ab cd"})
     assert run.status == "complete" and run.results["e"] == {"result": ["AB!", "CD!"]}
     assert (
         run.results["e"]["result"]
-        == in_one_graph("shout-inner").run(text="ab cd").results["ex"]["result"]
+        == in_one_graph("shout-inner").run({"text": "ab cd"}).results["ex"]["result"]
     )
     two = compile_graph({"a": "shout-inner", "b": "shout-inner"}, [("a.result", "b.text")])
-    assert two.run(text="x").outputs == {"result": "X!!"}
+    assert two.run({"text": "x"}).outputs == {"result": "X!!"}
 
 
 def test_two_uses_of_one_subgraph_keep_their_own_outcomes_when_one_is_called_once_and_one_per_item():
@@ -751,7 +755,7 @@ def test_two_uses_of_one_subgraph_keep_their_own_outcomes_when_one_is_called_onc
         inputs={"once": "a.text", "text": "w.text"},
         outputs={"a": "a.result", "b": "b.result"},
     )
-    run = graph.run(once="xy", text="ab cd")
+    run = graph.run({"once": "xy", "text": "ab cd"})
     assert run.outputs == {"a": "XY!", "b": ["AB!", "CD!"]}
     assert Run.from_json(run.to_json(), graph).results == run.results
 
@@ -762,27 +766,27 @@ def test_a_constant_a_default_and_an_edge_on_a_subgraph_node_act_as_on_any_node(
         [("w.result", "e.text")],
         constants={"e.greeting": "hej"},
     )
-    assert graph.run(text="ab cd").results["e"]["result"] == ["hej ab", "hej cd"]
+    assert graph.run({"text": "ab cd"}).results["e"]["result"] == ["hej ab", "hej cd"]
     first = compile_graph({"e": "greet-inner"}, defaults={"e.greeting": "hi"})
     assert first.inputs["greeting"].default == "hi"
-    assert first.run(text="ab").outputs == {
+    assert first.run({"text": "ab"}).outputs == {
         "result": "hi ab"
     }  # the subgraph node's default, offered to the caller
-    assert first.run(text="ab", greeting="yo").outputs == {"result": "yo ab"}
-    assert inside_a_loop("greet-inner").run(text="ab").results["e"]["result"] == [
+    assert first.run({"text": "ab", "greeting": "yo"}).outputs == {"result": "yo ab"}
+    assert inside_a_loop("greet-inner").run({"text": "ab"}).results["e"]["result"] == [
         "hello ab"
     ]  # the default greet-inner's record gives greeting
     wired = compile_graph(
         {"w": "words", "g": "upper", "e": "greet-inner"},
         [("w.result", "e.text"), ("w.result", "g.text"), ("g.result", "e.greeting")],
     )
-    assert wired.run(text="ab cd").results["e"]["result"] == ["AB ab", "CD cd"]
+    assert wired.run({"text": "ab cd"}).results["e"]["result"] == ["AB ab", "CD cd"]
 
 
 def test_an_output_two_loops_deep_is_the_same_nested_list_alone_and_inside_a_subgraph():
     alone = (
         Graph.compile(GraphRecord.model_validate(INNER["deep-inner"]), REGISTRY)
-        .run(text="ab cd")
+        .run({"text": "ab cd"})
         .outputs["result"]
     )
     assert alone == [["A", "B"], ["C", "D"]]  # two loops deep: a list for each word, in item order
@@ -791,13 +795,13 @@ def test_an_output_two_loops_deep_is_the_same_nested_list_alone_and_inside_a_sub
         [("e.result", "n.items"), ("e.result", "x.text")],
         outputs={"n": "n.result", "x": "x.result"},
     )
-    run = graph.run(text="ab cd")
+    run = graph.run({"text": "ab cd"})
     assert run.results["e"]["result"] == alone and run.results["n"]["result"] == [
         2,
         2,
     ]  # count is called once per word
     assert run.results["x"]["result"] == [["A!", "B!"], ["C!", "D!"]]
-    assert compile_graph({"e": "series-per-item-inner"}).run(text="ab cd").outputs == {
+    assert compile_graph({"e": "series-per-item-inner"}).run({"text": "ab cd"}).outputs == {
         "result": [["a", "b"], ["c", "d"]]
     }
 
@@ -808,7 +812,7 @@ def test_a_skipped_branch_inside_a_subgraph_skips_the_nodes_downstream_as_in_one
         [("w.result", "e.text"), ("e.short", "s.text"), ("e.long", "l.text")],
         outputs={"s": "s.result", "l": "l.result"},
     )
-    run = graph.run(text="ab long")
+    run = graph.run({"text": "ab long"})
     assert (
         run.status == "complete"
         and run.results["s"]["result"] == ["ab!", None]
@@ -820,7 +824,7 @@ def test_a_skipped_branch_inside_a_subgraph_skips_the_nodes_downstream_as_in_one
         [("w.result", "e.text"), ("e.short", "n.items")],
     )
     assert (
-        inside.run(text="ab long cd").results["n"]["result"] == 2
+        inside.run({"text": "ab long cd"}).results["n"]["result"] == 2
     )  # the item whose branch was skipped is left out of what count collects
 
 
@@ -829,7 +833,7 @@ def test_an_item_whose_branch_was_skipped_outside_skips_the_inner_nodes_for_that
         {"w": "words", "d": "decide", "e": "shout-inner", "n": "count"},
         [("w.result", "d.text"), ("d.short", "e.text"), ("e.result", "n.items")],
     )
-    run = graph.run(text="ab long cd")
+    run = graph.run({"text": "ab long cd"})
     assert run.status == "complete" and run.results["e"] == {"result": ["AB!", None, "CD!"]}
     # skipped, not None: the item is left out of what count collects
     assert run.results["n"]["result"] == 2 and run.not_called == []
@@ -850,7 +854,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
     def complete(text: str) -> dict[tuple, tuple[int, int]]:
         return {
             e.loc: (e.count.finished, e.count.skipped)
-            for e in stream(graph.with_inputs(text=text))
+            for e in stream(graph.with_inputs({"text": text}))
             if isinstance(e, NodeComplete) and e.loc not in {("w",), ("d",)}
         }
 
@@ -860,7 +864,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
         ("e", "ex"): (3, 1),
         ("e",): (6, 2),
     }
-    every_one_skipped = stream(graph.with_inputs(text="long longer"))
+    every_one_skipped = stream(graph.with_inputs({"text": "long longer"}))
     assert [e.loc for e in every_one_skipped if isinstance(e, NodeStart)] == [
         ("w",),
         ("d",),
@@ -880,7 +884,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
     once = compile_graph({"e": "words-deciding-inner"}, inputs={"text": "e.text"})
     assert [
         (e.count.finished, e.count.skipped)
-        for e in stream(once.with_inputs(text="ab long"))
+        for e in stream(once.with_inputs({"text": "ab long"}))
         if isinstance(e, NodeComplete) and e.loc == ("e",)
     ] == [(7, 2)]  # words, two decisions, and four calls after them, one per skipped branch
     skipped_once = compile_graph(
@@ -888,7 +892,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
     )
     assert [
         (e.count.finished, e.count.skipped)
-        for e in stream(skipped_once.with_inputs(text="long"))
+        for e in stream(skipped_once.with_inputs({"text": "long"}))
         if isinstance(e, NodeComplete) and e.loc == ("e",)
     ] == [(2, 2)]
     nested = compile_graph(
@@ -897,7 +901,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
     )
     nested_complete = {
         e.loc: (e.count.finished, e.count.skipped)
-        for e in stream(nested.with_inputs(text="ab long"))
+        for e in stream(nested.with_inputs({"text": "ab long"}))
         if isinstance(e, NodeComplete)
     }
     assert (nested_complete[("e", "in")], nested_complete[("e",)]) == (
@@ -910,7 +914,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
     )
     greeted_complete = {
         e.loc: (e.count.finished, e.count.skipped)
-        for e in stream(greeted.with_inputs(text="hi;long one"))
+        for e in stream(greeted.with_inputs({"text": "hi;long one"}))
         if isinstance(e, NodeComplete)
     }
     assert (greeted_complete[("e", "g")], greeted_complete[("e",)]) == (
@@ -925,22 +929,22 @@ def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is
         [("w.result", "up.text"), ("up.result", "e.items")],
     )
     assert graph.describe().nodes["e"].per_item_of is None
-    assert graph.run(text="ab cd ef").outputs == {"result": 3}
+    assert graph.run({"text": "ab cd ef"}).outputs == {"result": 3}
     per_document = compile_graph(
         {"s": "sentences", "w": "words", "e": "count-inner"},
         [("s.result", "w.text"), ("w.result", "e.items")],
     )
-    assert per_document.run(text="a b;c").outputs == {"result": [2, 1]}
+    assert per_document.run({"text": "a b;c"}).outputs == {"result": [2, 1]}
 
 
 def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
-    run = inside_a_loop("maybe-inner").run(text="a none")
+    run = inside_a_loop("maybe-inner").run({"text": "a none"})
     assert run.status == "complete" and run.results["e"]["result"] == ["A", None]
     assert [(n.loc, n.input) for n in run.not_called] == [(("e", 1, "up"), "text")]
     none_in = compile_graph(
         {"w": "words", "m": "maybe", "e": "shout-inner"},
         [("w.result", "m.text"), ("m.result", "e.text")],
-    ).run(text="a none")
+    ).run({"text": "a none"})
     assert none_in.results["e"]["result"] == ["A!", None]
     assert [(n.loc, n.input) for n in none_in.not_called] == [
         (("e", 1, "up"), "text"),
@@ -949,7 +953,7 @@ def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
     one_graph = compile_graph(
         {"w": "words", "m": "maybe", "up": "upper", "ex": "exclaim"},
         [("w.result", "m.text"), ("m.result", "up.text"), ("up.result", "ex.text")],
-    ).run(text="a none")
+    ).run({"text": "a none"})
     assert [(n.loc, n.input) for n in one_graph.not_called] == [
         (("up", 1), "text"),
         (("ex", 1), "text"),
@@ -958,7 +962,7 @@ def test_an_inner_node_given_none_is_listed_as_not_called_by_its_node_path():
 
 def test_the_item_limit_applies_inside_a_subgraph_and_is_raised_on_resume():
     graph = inside_a_loop("deep-inner")
-    run = graph.run(text="ab cdef", max_items=3)
+    run = graph.run({"text": "ab cdef"}, max_items=3)
     assert (
         run.status == "stopped"
         and run.cause.type == "item_limit"
@@ -996,7 +1000,7 @@ def test_a_waiting_subgraph_inside_a_loop_is_half_answered_in_another_process_an
     tmp_path: Path,
 ):
     graph = inside_a_loop("asking-inner")
-    run = graph.run(text="ab cd")
+    run = graph.run({"text": "ab cd"})
     assert run.status == "waiting"
     ids = [w.id for w in run.waiting]
     assert ids[0].startswith("e@0/q~") and ids[1].startswith("e@1/q~")
@@ -1036,7 +1040,7 @@ def test_a_waiting_subgraph_inside_a_loop_is_half_answered_in_another_process_an
 
 def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
     graph = inside_a_loop("asking-inner")
-    run = graph.run(text="ab cd")
+    run = graph.run({"text": "ab cd"})
     first, second = (w.id for w in run.waiting)
     with pytest.raises(InvalidCallError) as refused:
         run.answer(
@@ -1062,7 +1066,7 @@ def test_a_wrong_answer_inside_a_subgraph_is_refused_by_its_node_path():
 @pytest.mark.parametrize("index", ["01", "+1", " 1", "1_0", "١"])
 def test_an_item_index_in_a_waiting_id_counts_only_as_the_run_writes_it(index: str):
     """A waiting id whose index Python's ``int`` reads, but that the run would write otherwise, names no item."""
-    run = inside_a_loop("asking-inner").run(text="ab cd")
+    run = inside_a_loop("asking-inner").run({"text": "ab cd"})
     with pytest.raises(InvalidCallError) as refused:
         run.answer(f"e@{index}/q", "x")
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", ("e",))]
@@ -1083,7 +1087,7 @@ def test_a_waiting_id_is_read_only_up_to_a_node_id_that_is_not_a_name(
     waiting_id: str, loc: tuple[str | int, ...]
 ):
     """A node id is a name, so a waiting id is read up to the first one that isn't, as up to a wrong index."""
-    run = inside_a_loop("asking-inner").run(text="ab cd")
+    run = inside_a_loop("asking-inner").run({"text": "ab cd"})
     with pytest.raises(InvalidCallError) as refused:
         run.answer(waiting_id, "x")
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_waiting", loc)]
@@ -1093,7 +1097,7 @@ def test_a_waiting_id_is_read_only_up_to_a_node_id_that_is_not_a_name(
 
 
 def test_an_inner_nodes_concurrency_limit_counts_its_calls_across_every_item_of_the_loop():
-    run = inside_a_loop("fetch-inner").run(text="a b c d e f")
+    run = inside_a_loop("fetch-inner").run({"text": "a b c d e f"})
     assert run.status == "complete" and run.results["e"]["result"] == [
         "A?",
         "B?",
@@ -1106,7 +1110,7 @@ def test_an_inner_nodes_concurrency_limit_counts_its_calls_across_every_item_of_
     assert CALLS["fetch"] == 6 and AT_ONCE["peak"] == 2
     AT_ONCE.update(now=0, peak=0)
     assert (
-        in_one_graph("fetch-inner").run(text="a b c d e f").status == "complete"
+        in_one_graph("fetch-inner").run({"text": "a b c d e f"}).status == "complete"
         and AT_ONCE["peak"] == 2
     )
 
@@ -1114,7 +1118,7 @@ def test_an_inner_nodes_concurrency_limit_counts_its_calls_across_every_item_of_
 def test_a_cancel_inside_a_subgraph_keeps_the_calls_on_threads_and_resume_repeats_none():
     graph = inside_a_loop("fetch-inner")
     events = stream(
-        graph.with_inputs(text="a b c d"),
+        graph.with_inputs({"text": "a b c d"}),
         cancel_when=lambda e: isinstance(e, NodeStart) and e.loc == ("e", "f"),
     )
     cancelled = events[-1].run
@@ -1135,14 +1139,14 @@ def test_a_cancel_inside_a_subgraph_keeps_the_calls_on_threads_and_resume_repeat
 
 def test_the_run_timeout_stops_the_calls_inside_a_subgraph():
     graph = inside_a_loop("fetch-inner")
-    run = graph.run(text="a b c d", timeout=0.05)
+    run = graph.run({"text": "a b c d"}, timeout=0.05)
     assert run.status == "timed_out" and run.cause.type == "run_timed_out"
     assert CALLS["fetch"] == 2
     assert Run.from_json(run.to_json(), graph).resume().status == "complete" and CALLS["fetch"] == 4
 
 
 def test_an_inner_node_is_retried_by_its_own_policy():
-    events = stream(inside_a_loop("flaky-inner").with_inputs(text="a b"))
+    events = stream(inside_a_loop("flaky-inner").with_inputs({"text": "a b"}))
     assert events[-1].run.status == "complete" and events[-1].run.results["e"]["result"] == [
         "a~",
         "b~",
@@ -1157,7 +1161,7 @@ def test_an_inner_node_is_retried_by_its_own_policy():
 
 def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_node_path_and_keeps_the_other_items_outcomes():
     graph = inside_a_loop("stuck-inner")
-    run = graph.run(text="ok slow")
+    run = graph.run({"text": "ok slow"})
     assert run.status == "failed" and run.cause.type == "timeout" and run.cause.loc == ("e", 1, "s")
     assert run.results["e"]["result"] == ["OK", None]
     CALLS.clear()
@@ -1168,7 +1172,7 @@ def test_an_inner_nodes_attempt_timeout_fails_the_run_at_its_node_path_and_keeps
 
 def test_a_failure_inside_a_subgraph_keeps_the_other_inner_outcomes_for_resume():
     graph = inside_a_loop("boom-inner")
-    events = stream(graph.with_inputs(text="ok bad"))
+    events = stream(graph.with_inputs({"text": "ok bad"}))
     run = events[-1].run
     assert (
         run.status == "failed" and run.cause.loc == ("e", 1, "b") and run.cause.type == "node_error"
@@ -1183,7 +1187,7 @@ def test_a_failure_inside_a_subgraph_keeps_the_other_inner_outcomes_for_resume()
 
 def test_a_checkpoint_taken_mid_run_resumes_with_no_inner_call_repeated():
     graph = inside_a_loop("fetch-inner")
-    events = stream(graph.with_inputs(text="a b c d"), checkpoint_every=0.01)
+    events = stream(graph.with_inputs({"text": "a b c d"}), checkpoint_every=0.01)
     assert events[-1].run.status == "complete" and CALLS["fetch"] == 4
     mid = next(
         e.run
@@ -1214,7 +1218,7 @@ def _outcome_count(run, subgraph_node: str, node_id: str) -> int:
 
 
 def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
-    events = stream(inside_a_loop("asking-inner").with_inputs(text="ab cd"))
+    events = stream(inside_a_loop("asking-inner").with_inputs({"text": "ab cd"}))
     starts = [e.loc for e in events if isinstance(e, NodeStart)]
     assert starts == [
         ("w",),
@@ -1226,7 +1230,7 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
         (("w",), 1),
         (("e", "up"), 2),
     ]
-    flat_events = stream(in_one_graph("asking-inner").with_inputs(text="ab cd"))
+    flat_events = stream(in_one_graph("asking-inner").with_inputs({"text": "ab cd"}))
     assert [e.loc for e in flat_events if isinstance(e, NodeStart)] == [("outer",), ("up",), ("q",)]
     waiting = [e.waiting for e in events if isinstance(e, NodeWaiting)]
     assert [w.id for w in waiting] == [w.id for w in events[-1].run.waiting] and waiting[1].loc == (
@@ -1258,7 +1262,7 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
 def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():
     graph = inside_a_loop("wrapping")
     assert list(graph.outputs) == ["result"]
-    run = graph.run(text="ab cd")
+    run = graph.run({"text": "ab cd"})
     ids = [w.id for w in run.waiting]
     assert (
         ids[0].startswith("e@0/in/q~")
@@ -1288,16 +1292,23 @@ def test_again_calls_inside_a_subgraph_only_what_it_calls_in_one_graph_after_a_c
         (inside_a_loop("shout-inner"), ("e", "result")),
         (in_one_graph("shout-inner"), ("ex", "result")),
     ):
-        run = graph.run(text="ab cd ef")
+        run = graph.run({"text": "ab cd ef"})
         CALLS.clear()
-        assert run.again(text="ab xx ef").results[at[0]][at[1]] == ["AB!", "XX!", "EF!"]
+        assert run.again({"text": "ab xx ef"}).results[at[0]][at[1]] == ["AB!", "XX!", "EF!"]
         assert CALLS == {"words": 1, "upper": 1, "exclaim": 1}
         CALLS.clear()
-        assert run.again(text="zz ab cd ef").results[at[0]][at[1]] == ["ZZ!", "AB!", "CD!", "EF!"]
+        assert run.again({"text": "zz ab cd ef"}).results[at[0]][at[1]] == [
+            "ZZ!",
+            "AB!",
+            "CD!",
+            "EF!",
+        ]
         assert CALLS == {"words": 1, "upper": 1, "exclaim": 1}
         CALLS.clear()
         assert (
-            Run.from_json(run.again(text="ab").to_json(), graph).again(text="ab cd").status
+            Run.from_json(run.again({"text": "ab"}).to_json(), graph)
+            .again({"text": "ab cd"})
+            .status
             == "complete"
         )
         assert CALLS == {
@@ -1308,7 +1319,7 @@ def test_again_calls_inside_a_subgraph_only_what_it_calls_in_one_graph_after_a_c
 
 
 def test_an_inner_node_whose_policy_forbids_reuse_is_called_again_by_again():
-    run = inside_a_loop("stamped-inner").run(text="ab cd")
+    run = inside_a_loop("stamped-inner").run({"text": "ab cd"})
     CALLS.clear()
     assert run.again().results["e"]["result"] == ["AB", "CD"]
     assert CALLS == {
@@ -1318,36 +1329,36 @@ def test_an_inner_node_whose_policy_forbids_reuse_is_called_again_by_again():
 
 def test_two_documents_with_the_same_line_each_keep_their_own_answer_inside_a_subgraph():
     graph = inside_a_loop("lines-inner", "sentences")  # a question per word of each document
-    run = graph.run(text="a b;a c")
+    run = graph.run({"text": "a b;a c"})
     run = run.answer({w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in run.waiting}).resume()
     assert run.status == "complete" and run.results["e"]["result"] == [
         ["doc0:a", "doc0:b"],
         ["doc1:a", "doc1:c"],
     ]
-    changed = run.again(text="a b d;a c")
+    changed = run.again({"text": "a b d;a c"})
     assert [w.loc[:2] for w in changed.waiting] == [
         ("e", 0)
     ] * 3  # document 0 changed, so its lines are asked again, as in one graph
     assert changed.answer({w.id: "new" for w in changed.waiting}).resume().results["e"][
         "result"
     ] == [["new", "new", "new"], ["doc1:a", "doc1:c"]]
-    inserted = run.again(text="x;a b;a c")
+    inserted = run.again({"text": "x;a b;a c"})
     assert [(w.loc, w.inputs["text"]) for w in inserted.waiting] == [(("e", 0, "q", 0), "x")]
     assert inserted.answer(inserted.waiting[0], "x").resume().results["e"]["result"] == [
         ["x"],
         ["doc0:a", "doc0:b"],
         ["doc1:a", "doc1:c"],
     ]
-    swapped = run.again(text="a c;a b")
+    swapped = run.again({"text": "a c;a b"})
     assert swapped.status == "complete" and swapped.results["e"]["result"] == [
         ["doc1:a", "doc1:c"],
         ["doc0:a", "doc0:b"],
     ]
-    flat_run = in_one_graph("lines-inner", "sentences").run(text="a b;a c")
+    flat_run = in_one_graph("lines-inner", "sentences").run({"text": "a b;a c"})
     flat_run = flat_run.answer(
         {w.id: f"doc{w.loc[1]}:{w.inputs['text']}" for w in flat_run.waiting}
     ).resume()
-    assert flat_run.again(text="a c;a b").results["q"]["result"] == [
+    assert flat_run.again({"text": "a c;a b"}).results["q"]["result"] == [
         ["doc1:a", "doc1:c"],
         ["doc0:a", "doc0:b"],
     ]  # the same, in one graph
@@ -1355,7 +1366,7 @@ def test_two_documents_with_the_same_line_each_keep_their_own_answer_inside_a_su
 
 def test_identical_items_reuse_their_answers_in_item_order_whichever_thread_finishes_first():
     graph = inside_a_loop("staggered-inner")
-    run = graph.run(text="ab ab ab")
+    run = graph.run({"text": "ab ab ab"})
     run = run.answer({w.id: f"answer {w.loc[1]}" for w in run.waiting}).resume()
     assert run.results["e"]["result"] == ["answer 0", "answer 1", "answer 2"]
     CALLS.clear()
@@ -1365,18 +1376,18 @@ def test_identical_items_reuse_their_answers_in_item_order_whichever_thread_fini
     assert again.status == "complete" and CALLS["stagger"] == 3 and CALLS["ask"] == 0
     assert again.results["e"]["result"] == ["answer 0", "answer 1", "answer 2"]
     CALLS.clear()
-    longer = run.again(text="zz ab ab ab")
+    longer = run.again({"text": "zz ab ab ab"})
     assert [w.loc for w in longer.waiting] == [("e", 0, "q")]
     assert longer.results["e"]["result"] == [None, "answer 0", "answer 1", "answer 2"]
 
 
 def test_reuse_reaches_a_subgraph_inside_a_subgraph_and_forget_forgets_every_inner_outcome():
     graph = inside_a_loop("wrapping")
-    run = graph.run(text="ab cd")
+    run = graph.run({"text": "ab cd"})
     done = run.answer({w.id: w.inputs["text"].lower() for w in run.waiting}).resume()
     assert done.outputs == {"result": ["ab", "cd"]}
     CALLS.clear()
-    longer = done.again(text="ab cd ef")
+    longer = done.again({"text": "ab cd ef"})
     assert longer.status == "waiting" and CALLS == {"words": 1, "upper": 1, "ask": 1}
     assert [w.id.partition("~")[0] for w in longer.waiting] == ["e@2/in/q"]
     CALLS.clear()
@@ -1385,13 +1396,13 @@ def test_reuse_reaches_a_subgraph_inside_a_subgraph_and_forget_forgets_every_inn
 
 
 def test_a_previous_run_of_another_graph_is_reused_inside_a_subgraph_whose_nodes_are_unchanged():
-    run = inside_a_loop("shout-inner").run(text="ab cd")
+    run = inside_a_loop("shout-inner").run({"text": "ab cd"})
     edited = compile_graph(
         {"w": "words", "e": "shout-inner", "n": "count"},
         [("w.result", "e.text"), ("e.result", "n.items")],
     )
     CALLS.clear()
-    assert edited.with_inputs(text="ab cd", previous=run).resume().results["n"]["result"] == 2
+    assert edited.with_inputs({"text": "ab cd"}, previous=run).resume().results["n"]["result"] == 2
     assert CALLS == {}
 
 
@@ -1413,7 +1424,7 @@ def test_tables_returned_per_item_reach_a_table_input_one_per_item_wherever_they
 ):
     graph = compile_graph(nodes, edges)
     assert not graph.problems, graph.problems
-    run = graph.run(text="ab c")
+    run = graph.run({"text": "ab c"})
     assert (graph.describe().nodes["h"].per_item_of, run.status, run.results["h"]["result"]) == (
         series,
         "complete",
@@ -1448,7 +1459,7 @@ def test_a_subgraph_reads_the_same_saved_and_read_back_whenever_it_waits_and_aft
     inner: str, per_item: bool
 ):
     graph = inside_a_loop(inner, "sentences") if per_item else compile_graph({"e": inner})
-    run = graph.run(text="ab cd;ef")
+    run = graph.run({"text": "ab cd;ef"})
     assert run.status == "waiting" and reads_the_same_saved_and_read_back(run)
     while run.status == "waiting":
         first, *rest = run.waiting
@@ -1469,8 +1480,8 @@ def test_a_subgraph_reads_the_same_saved_and_read_back_whenever_it_waits_and_aft
 
 def test_an_answer_inside_a_subgraph_shows_in_its_results_before_resume_as_in_one_graph():
     in_subgraph, one_graph = (
-        compile_graph({"e": "asking-inner"}).run(text="a"),
-        compile_graph({"up": "upper", "q": "ask"}, [("up.result", "q.text")]).run(text="a"),
+        compile_graph({"e": "asking-inner"}).run({"text": "a"}),
+        compile_graph({"up": "upper", "q": "ask"}, [("up.result", "q.text")]).run({"text": "a"}),
     )
     assert in_subgraph.answer(in_subgraph.waiting[0], "yes").results == {"e": {"result": "yes"}}
     assert one_graph.answer(one_graph.waiting[0], "yes").results == {
@@ -1489,11 +1500,11 @@ def test_the_item_limit_names_the_inner_call_that_returned_a_series_a_node_outsi
     """
     alone = compile_graph(
         {"e": "series-per-item-inner", "up": "upper"}, [("e.result", "up.text")]
-    ).run(text="ab cdef", max_items=3)
+    ).run({"text": "ab cdef"}, max_items=3)
     in_a_loop = compile_graph(
         {"s": "sentences", "e": "series-per-item-inner", "up": "upper"},
         [("s.result", "e.text"), ("e.result", "up.text")],
-    ).run(text="a;b cdef", max_items=3)
+    ).run({"text": "a;b cdef"}, max_items=3)
 
     assert (alone.cause.type, alone.cause.loc, alone.cause.ctx["series"]) == (
         "item_limit",
@@ -1510,7 +1521,7 @@ def test_a_run_stopped_at_the_item_limit_keeps_the_calls_on_threads_inside_a_sub
         inputs={"few": "e.text", "many": "many.text"},
         outputs={"e": "e.result", "each": "each.result"},
     )
-    stopped = graph.run(few="a b", many="x y z", max_items=2)
+    stopped = graph.run({"few": "a b", "many": "x y z"}, max_items=2)
     assert stopped.status == "stopped" and stopped.cause.loc == ("many",)
     assert stopped.results["e"] == {"result": ["a?", "b?"]} and reads_the_same_saved_and_read_back(
         stopped
@@ -1518,7 +1529,7 @@ def test_a_run_stopped_at_the_item_limit_keeps_the_calls_on_threads_inside_a_sub
 
 
 def test_a_subgraph_failed_at_one_item_reads_the_same_saved_and_read_back():
-    failed = inside_a_loop("boom-inner").run(text="ab bad cd")
+    failed = inside_a_loop("boom-inner").run({"text": "ab bad cd"})
     assert (
         failed.status == "failed"
         and failed.results["e"] == {"result": ["AB", None, None]}
@@ -1527,7 +1538,7 @@ def test_a_subgraph_failed_at_one_item_reads_the_same_saved_and_read_back():
 
 
 def test_an_inner_node_not_called_for_none_reads_the_same_saved_and_read_back():
-    run = inside_a_loop("maybe-inner").run(text="ab none cd")
+    run = inside_a_loop("maybe-inner").run({"text": "ab none cd"})
     assert (
         run.status == "complete"
         and [call.loc for call in run.not_called] == [("e", 1, "up")]
@@ -1537,7 +1548,7 @@ def test_an_inner_node_not_called_for_none_reads_the_same_saved_and_read_back():
 
 def test_every_checkpoint_inside_a_subgraph_read_back_reads_the_same_saved_again_whichever_calls_returned():
     graph = inside_a_loop("upper-fetch-inner")
-    events = stream(graph.with_inputs(text="a b c d"), checkpoint_every=0.01)
+    events = stream(graph.with_inputs({"text": "a b c d"}), checkpoint_every=0.01)
     read_back = [
         Run.from_json(event.run.to_json(), graph)
         for event in events
@@ -1580,7 +1591,7 @@ def test_a_subgraph_used_twice_runs_one_node_with_one_code_fingerprint_asking_on
     So a saved run gives the node inside each one code fingerprint, and the waiting ids of two calls given the same
     inputs differ only by where the call is.
     """
-    run = Graph.compile(INNER["two-asks-inner"], REGISTRY).run(text="ab")
+    run = Graph.compile(INNER["two-asks-inner"], REGISTRY).run({"text": "ab"})
     code = json.loads(run.to_json())["code"]
     assert code["f/up"] == code["g/up"] and code["f/q"] == code["g/q"]
     first, second = (waiting_call.id.split("~") for waiting_call in run.waiting)
@@ -1600,9 +1611,9 @@ def test_a_node_inside_a_subgraph_is_called_again_when_the_subgraph_node_moves_i
             compile_graph({"w": "words", "up": "upper"}, [("w.result", "up.text")]),
         ),
     ]:
-        first = once.run(text="ab")
+        first = once.run({"text": "ab"})
         CALLS.clear()
-        per_word.with_inputs(text="ab", previous=first).resume()
+        per_word.with_inputs({"text": "ab"}, previous=first).resume()
         assert CALLS["upper"] == 1
 
 
@@ -1638,15 +1649,15 @@ def test_a_loop_moved_from_around_a_subgraph_node_to_inside_its_graph_calls_the_
     Drawn in one graph, the loop inside would be over ``s/words.result``, not ``words.result``.
     """
     around, inside = _split_and_upper(False), _split_and_upper(True)
-    first = around.run(text="ab cd")
-    assert first.outputs == inside.run(text="ab cd").outputs == {"r": ["AB", "CD"]}
+    first = around.run({"text": "ab cd"})
+    assert first.outputs == inside.run({"text": "ab cd"}).outputs == {"r": ["AB", "CD"]}
     CALLS.clear()
-    inside.with_inputs(text="ab cd", previous=first).resume()
+    inside.with_inputs({"text": "ab cd"}, previous=first).resume()
     assert CALLS["upper"] == 2
 
 
 def test_three_hundred_answers_given_at_once_inside_one_subgraph_complete_it():
-    run = compile_graph({"e": "lines-inner"}).run(text=" ".join(f"w{i}" for i in range(300)))
+    run = compile_graph({"e": "lines-inner"}).run({"text": " ".join(f"w{i}" for i in range(300))})
     answered = run.answer({waiting_call.id: "yes" for waiting_call in run.waiting})
     assert answered.results["e"] == {
         "result": ["yes"] * 300
@@ -1669,7 +1680,7 @@ def test_values_of_any_type_returned_per_item_are_collected_as_records_by_a_tabl
 ):
     graph = compile_graph(nodes, edges)
     assert not graph.problems, graph.problems
-    run = graph.run(text="ab c d")
+    run = graph.run({"text": "ab c d"})
     assert (graph.describe().nodes["h"].per_item_of, run.status, run.results["h"]["result"]) == (
         None,
         "complete",
@@ -1691,17 +1702,18 @@ def test_a_subgraph_with_no_output_sends_the_same_events_on_a_fresh_run_and_on_o
         ("node_complete", ("e", "n")),
         ("node_complete", ("e",)),
     ]
-    assert _said_of(stream(graph.with_inputs(text="x")), "e") == said
+    assert _said_of(stream(graph.with_inputs({"text": "x"})), "e") == said
     assert (
-        _said_of(stream(Run.from_json(graph.with_inputs(text="x").to_json(), graph)), "e") == said
+        _said_of(stream(Run.from_json(graph.with_inputs({"text": "x"}).to_json(), graph)), "e")
+        == said
     )
 
 
 def test_a_subgraph_with_no_output_completes_when_its_inner_nodes_do_and_not_before():
     graph = compile_graph({"q": "ask", "e": "quiet-inner"}, [("q.result", "e.text")])
     CALLS.clear()
-    waiting = graph.run(text="x")
-    first = stream(graph.with_inputs(text="x"))
+    waiting = graph.run({"text": "x"})
+    first = stream(graph.with_inputs({"text": "x"}))
     assert (waiting.status, _said_of(first, "e"), CALLS["note"]) == ("waiting", [], 0)
     for run in (waiting, Run.from_json(waiting.to_json(), graph)):
         said = _said_of(stream(run.answer(run.waiting[0].id, "y")), "e")
@@ -1733,7 +1745,7 @@ def test_a_subgraph_of_no_nodes_runs_to_empty_results_as_a_graph_of_no_nodes_doe
         ),
         registry,
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
     assert graph.problems == [] and (alone.status, alone.results) == ("complete", {})
     assert (run.status, run.results) == ("complete", {"u": {"result": "X"}, "e": {}})
     assert Run.from_json(run.to_json(), graph).results == run.results

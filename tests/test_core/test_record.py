@@ -667,7 +667,7 @@ def test_graph_inputs_and_graph_outputs_are_the_ones_the_record_declares():
     assert graph.problems == []
     assert {name: i.required for name, i in graph.inputs.items()} == {"value": True, "yes": True}
     assert list(graph.outputs) == ["b_result", "c_result"]
-    assert graph.run(value="v", yes="y").outputs == {"b_result": "V", "c_result": "y!"}
+    assert graph.run({"value": "v", "yes": "y"}).outputs == {"b_result": "V", "c_result": "y!"}
 
 
 def test_an_optional_input_with_no_entry_gets_the_nodes_default_and_is_no_graph_input():
@@ -710,7 +710,7 @@ def test_a_constant_is_not_a_graph_input_and_a_default_is_a_graph_input_with_tha
         and graph.inputs["no"].default == "n"
     )
     assert graph.run().outputs == {"result": "yn"}
-    assert graph.run(no="!").outputs == {"result": "y!"}
+    assert graph.run({"no": "!"}).outputs == {"result": "y!"}
 
 
 def test_a_graph_input_on_a_node_an_edge_leads_into_is_given_by_the_caller_like_any_other():
@@ -732,8 +732,8 @@ def test_a_graph_input_on_a_node_an_edge_leads_into_is_given_by_the_caller_like_
     graph = Graph.compile(record, REGISTRY)
 
     assert graph.problems == [] and list(graph.inputs) == ["value", "no"]
-    assert graph.run(value="y").outputs == {"result": "yn"} and graph.run(
-        value="y", no="!"
+    assert graph.run({"value": "y"}).outputs == {"result": "yn"} and graph.run(
+        {"value": "y", "no": "!"}
     ).outputs == {"result": "y!"}
 
 
@@ -755,7 +755,7 @@ def test_inputs_naming_one_graph_input_each_get_the_callers_one_value():
     )
 
     assert list(graph.inputs) == ["text"]
-    assert graph.run(text="x").outputs == {"a_result": "X", "b_result": "X"}
+    assert graph.run({"text": "x"}).outputs == {"a_result": "X", "b_result": "X"}
 
 
 def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required_whatever_each_inputs_own_default():
@@ -784,7 +784,7 @@ def test_one_graph_input_on_two_inputs_with_no_default_in_the_record_is_required
     assert {name: (i.required, i.default) for name, i in graph.inputs.items()} == {
         "x": (True, MISSING)
     }
-    assert graph.run(x="q").outputs == {"a_result": "q", "b_result": "Q"}
+    assert graph.run({"x": "q"}).outputs == {"a_result": "q", "b_result": "Q"}
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
     assert [(p.type, p.loc) for p in refused.value.problems] == [("missing_input", ("inputs", "x"))]
@@ -1149,7 +1149,7 @@ def test_make_graph_writes_defaults_and_compile_reports_a_list_for_an_input_of_o
     record = make_graph(_hello, defaults={"hello.name": "you"})
     assert record.nodes["hello"].inputs == {"name": InputEntry(graph_input="name", default="you")}
     assert Graph.compile(record, PLAIN).run().outputs == {"result": "hello you"}
-    assert Graph.compile(record, PLAIN).run(name="ida").outputs == {"result": "hello ida"}
+    assert Graph.compile(record, PLAIN).run({"name": "ida"}).outputs == {"result": "hello ida"}
     listed = make_graph(_hello, defaults={"hello.name": ["you"]})
     assert [(p.type, p.loc) for p in Graph.compile(listed, PLAIN).problems] == [
         ("invalid_value", ("hello", "name"))
@@ -1163,7 +1163,7 @@ def test_make_graph_makes_a_default_a_graph_input_on_a_node_an_edge_leads_into()
     graph = Graph.compile(record, PLAIN)
 
     assert list(graph.inputs) == ["times"]
-    assert graph.run().outputs == {"result": "HELLO IDA!!"} and graph.run(times=3).outputs == {
+    assert graph.run().outputs == {"result": "HELLO IDA!!"} and graph.run({"times": 3}).outputs == {
         "result": "HELLO IDA!!!"
     }
 
@@ -1274,7 +1274,7 @@ def test_graph_outputs_are_fields_described_as_a_complete_run_gives_them():
         "words": ("str", True, [], True),
     }
     assert graph.describe().outputs == graph.outputs
-    assert graph.run(text="yes no").outputs == {
+    assert graph.run({"text": "yes no"}).outputs == {
         "kept": "yes no",
         "loud": ["YES", "NO"],
         "words": ["yes", "no"],
@@ -1292,7 +1292,7 @@ def test_make_graph_names_the_graph_inputs_and_outputs_it_is_given():
     graph = Graph.compile(record, REGISTRY)
 
     assert list(graph.inputs) == ["a", "b"] and list(graph.outputs) == ["x", "y"]
-    assert graph.run(a="p", b="q").outputs == {"x": "P", "y": "Q"}
+    assert graph.run({"a": "p", "b": "q"}).outputs == {"x": "P", "y": "Q"}
 
 
 def test_make_graph_feeds_several_inputs_from_one_graph_input_given_a_list():
@@ -1306,7 +1306,10 @@ def test_make_graph_feeds_several_inputs_from_one_graph_input_given_a_list():
     graph = Graph.compile(record, REGISTRY)
 
     assert [n.inputs["text"] for n in record.nodes.values()] == [InputEntry(graph_input="text")] * 2
-    assert list(graph.inputs) == ["text"] and graph.run(text="p").outputs == {"x": "P", "y": "P"}
+    assert list(graph.inputs) == ["text"] and graph.run({"text": "p"}).outputs == {
+        "x": "P",
+        "y": "P",
+    }
 
 
 def test_make_graph_refuses_a_constant_together_with_a_graph_input_or_an_edge():
@@ -1366,7 +1369,7 @@ def test_a_compiled_graph_keeps_its_own_definitions_whatever_the_registry_does_l
 
     registry.remove("upper")
 
-    assert graph.run(text="a").outputs == {"result": "A"}
+    assert graph.run({"text": "a"}).outputs == {"result": "A"}
     assert [p.type for p in Graph.compile(graph.record, registry).problems] == ["unknown_node"]
 
 
@@ -1383,11 +1386,11 @@ def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_
         REGISTRY,
     )
 
-    assert graph.describe().nodes["u"].per_item_of is None and graph.run(text="a").outputs == {
+    assert graph.describe().nodes["u"].per_item_of is None and graph.run({"text": "a"}).outputs == {
         "result": "A"
     }
     with pytest.raises(InvalidCallError) as refused:
-        graph.run(text=["a"])
+        graph.run({"text": ["a"]})
     assert [(p.type, p.loc) for p in refused.value.problems] == [
         ("invalid_input", ("inputs", "text"))
     ]
@@ -1468,7 +1471,7 @@ def test_every_problem_in_a_callers_inputs_is_refused_at_once_unknown_names_firs
             {"name": "text", "expected": "str", "length": 2, "variant": "make_a_series"},
         ),
     ]
-    run = graph.with_inputs(text="a", yes="y", no="n")
+    run = graph.with_inputs({"text": "a", "yes": "y", "no": "n"})
     assert run.with_inputs({"text": "b"}).inputs == {"yes": "y", "no": "n", "text": "b"}
 
 
@@ -1497,7 +1500,7 @@ def test_a_list_a_graph_input_whose_type_takes_a_list_refuses_gives_its_reason_n
     graph = Graph.compile(make_graph(taking), registry_of(taking))
 
     with pytest.raises(InvalidCallError) as raised:
-        graph.run(words=given)
+        graph.run({"words": given})
 
     (problem,) = raised.value.problems
     assert (problem.type, problem.ctx.get("variant")) == ("invalid_input", None)
@@ -1518,14 +1521,14 @@ def test_a_graph_input_is_given_by_its_name_never_by_a_source_and_an_item_limit_
     with pytest.raises(InvalidCallError) as by_source:
         graph.run({"text": "a", "u.text": "b"})
     with pytest.raises(InvalidCallError) as item_limit:
-        graph.run(text="a", max_items=0)
+        graph.run({"text": "a"}, max_items=0)
 
     assert [(p.type, p.loc) for p in by_source.value.problems] == [
         ("unknown_graph_input", ("inputs", "u.text"))
     ]
     assert [p.type for p in item_limit.value.problems] == ["invalid_limit"]
     with pytest.raises(InvalidCallError):
-        graph.with_inputs(text="a").with_max_items(-1)
+        graph.with_inputs({"text": "a"}).with_max_items(-1)
 
 
 def test_a_subgraph_with_an_unknown_inner_node_is_one_problem_at_its_node_path():
@@ -1671,7 +1674,7 @@ def test_make_graph_chains_a_subgraph_by_the_inputs_and_outputs_its_record_decla
     assert record.nodes["enrich"].inputs == {
         "text": InputEntry(sources=(Source("split", "result"),))
     }
-    assert Graph.compile(record, SUBGRAPHS).run(text="a,b").outputs == {"result": "A.+B."}
+    assert Graph.compile(record, SUBGRAPHS).run({"text": "a,b"}).outputs == {"result": "A.+B."}
     with pytest.raises(InvalidCallError) as refused:
         make_graph(upper, PAIR, outputs={"upper": "upper.result"})
     assert [(p.type, p.ctx["inputs"], p.ctx["outputs"]) for p in refused.value.problems] == [
@@ -1697,7 +1700,7 @@ def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id_and_the_names_its
     )
 
     assert graph.problems == [] and list(graph.inputs) == ["text"]
-    run = graph.run(text="hi")
+    run = graph.run({"text": "hi"})
     assert (
         run.outputs == {"result": "HI."}
         and set(run.results) == {"e", "u"}
@@ -1739,7 +1742,7 @@ def test_make_graph_makes_a_graph_input_only_of_each_graph_input_a_subgraphs_rec
 
     assert record.nodes["halves"].inputs == {"a": InputEntry(graph_input="a")}
     assert record.outputs == {"x": Source("halves", "x"), "y": Source("halves", "y")}
-    assert Graph.compile(record, registry_of(upper, tail, halves)).run(a="a").outputs == {
+    assert Graph.compile(record, registry_of(upper, tail, halves)).run({"a": "a"}).outputs == {
         "x": "A",
         "y": "B",
     }
@@ -1834,7 +1837,7 @@ def test_a_subgraph_nodes_inputs_are_given_by_the_names_it_offers():
     )
 
     assert graph.problems == [] and list(graph.inputs) == ["text"]
-    assert graph.run(text="a").outputs == {"result": "AB"}
+    assert graph.run({"text": "a"}).outputs == {"result": "AB"}
 
 
 def test_an_outer_record_never_names_an_inner_node_of_a_subgraph():
@@ -1898,8 +1901,8 @@ def test_collecting_a_series_from_a_skipped_branch_is_skipped_not_called_with_an
         registry_of(gate, split, count_all),
     )
 
-    assert graph.run(text="yes").results["c"]["result"] is None and calls == []
-    assert graph.run(text="a,b").outputs == {"result": "2"}
+    assert graph.run({"text": "yes"}).results["c"]["result"] is None and calls == []
+    assert graph.run({"text": "a,b"}).outputs == {"result": "2"}
 
 
 def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
@@ -1908,7 +1911,7 @@ def test_a_skipped_item_of_a_series_output_is_a_gap_that_reads_back_from_json():
         return ["a", SKIPPED, "c"]
 
     graph = Graph.compile(make_graph(some, upper), registry_of(some, upper))
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.results["some"]["result"] == ["a", None, "c"] and run.results["upper"]["result"] == [
         "A",
@@ -1964,7 +1967,7 @@ def test_a_table_input_gets_its_declared_columns():
             }
         ),
         registry,
-    ).run(table=pl.DataFrame({"name": ["a"], "email": ["a@x"]})).outputs == {"result": "name"}
+    ).run({"table": pl.DataFrame({"name": ["a"], "email": ["a@x"]})}).outputs == {"result": "name"}
     assert narrowed.run().outputs == {"result": "name"}
 
 
@@ -2003,7 +2006,7 @@ def test_a_node_collecting_two_series_of_different_depths_is_called_per_item_of_
     assert (
         graph.describe().nodes["x"].per_item_of == "p.result"
     )  # collecting the inner series ends the inner loop, not the outer one
-    assert graph.run(text="a,b|c").outputs == {"result": ["2/2", "2/1"]}
+    assert graph.run({"text": "a,b|c"}).outputs == {"result": ["2/2", "2/1"]}
 
 
 def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_into_it_names_the_outer_source():
@@ -2085,7 +2088,7 @@ def test_collecting_items_that_a_skipped_branch_skipped_all_of_is_skipped():
         registry_of(docs, decide_doc, split, pair_two, join),
     )
 
-    assert graph.run(text="x|y,no").results["j"]["result"] == ["x:x", None]
+    assert graph.run({"text": "x|y,no"}).results["j"]["result"] == ["x:x", None]
 
 
 def test_collecting_downstream_of_a_series_output_skipped_is_skipped():
@@ -2118,7 +2121,7 @@ def test_collecting_downstream_of_a_series_output_skipped_is_skipped():
         registry_of(decide_list, upper, join),
     )
 
-    assert graph.run(text="a,b").results["after"]["result"] is None
+    assert graph.run({"text": "a,b"}).results["after"]["result"] is None
 
 
 def test_a_records_field_whose_name_has_a_dot_is_wired_by_its_source():
@@ -2529,7 +2532,7 @@ def test_make_graph_inputs_naming_one_input_leaves_the_other_automatic_graph_inp
         "a": {"text": InputEntry(graph_input="x")},
         "b": {"text": InputEntry(graph_input="text")},
     }
-    assert list(graph.inputs) == ["x", "text"] and graph.run(x="p", text="q").outputs == {
+    assert list(graph.inputs) == ["x", "text"] and graph.run({"x": "p", "text": "q"}).outputs == {
         "a_result": "P",
         "b_result": "Q",
     }
@@ -2586,9 +2589,9 @@ def test_make_graph_makes_a_required_input_on_a_node_an_edge_leads_into_a_graph_
         "yes": InputEntry(sources=(Source("hello", "result"),)),
         "no": InputEntry(graph_input="no"),
     }
-    assert list(graph.inputs) == ["name", "no"] and graph.run(name="ida", no="!").outputs == {
-        "result": "hello ida!"
-    }
+    assert list(graph.inputs) == ["name", "no"] and graph.run(
+        {"name": "ida", "no": "!"}
+    ).outputs == {"result": "hello ida!"}
 
 
 def test_a_source_is_an_output_of_a_node_by_its_id_and_a_path_cannot_be_written_in_one():

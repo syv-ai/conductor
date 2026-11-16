@@ -97,7 +97,7 @@ def test_an_estimate_counts_the_calls_after_a_split_before_any_costly_call() -> 
         ),
         registry,
     )
-    estimated = graph.with_inputs(value=["a", "b", "c"]).resume(only_costs_nothing=True)
+    estimated = graph.with_inputs({"value": ["a", "b", "c"]}).resume(only_costs_nothing=True)
 
     assert estimated.status == "ready"
     assert (

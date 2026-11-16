@@ -632,11 +632,11 @@ def test_a_function_in_a_hint_is_told_apart_by_where_it_is_written() -> None:
         return local
 
     calls: list[str] = []
-    first = _shout_checked_by(local, calls).run(text="a")
-    _shout_checked_by(local, calls).with_inputs(text="a", previous=first).resume()
+    first = _shout_checked_by(local, calls).run({"text": "a"})
+    _shout_checked_by(local, calls).with_inputs({"text": "a"}, previous=first).resume()
     assert calls == ["a"]
     _shout_checked_by(another_of_the_same_name(), calls).with_inputs(
-        text="a", previous=first
+        {"text": "a"}, previous=first
     ).resume()
     assert calls == ["a", "a"]
 
@@ -673,9 +673,9 @@ def shout(
 
 graph = Graph.compile(make_graph(shout), registry)
 if sys.argv[2] == "0":
-    open(sys.argv[1], "w").write(graph.run(text=" a ").to_json())
+    open(sys.argv[1], "w").write(graph.run({"text": " a "}).to_json())
 else:
-    again = Run.from_json(open(sys.argv[1]).read(), graph).again(text=" a ")
+    again = Run.from_json(open(sys.argv[1]).read(), graph).again({"text": " a "})
     print(again.outputs, "calls:", len(calls))
 """
 

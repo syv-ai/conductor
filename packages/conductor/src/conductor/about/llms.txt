@@ -46,7 +46,7 @@ graph = Graph.compile(GraphRecord.model_validate({            # a graph is data:
 }), registry)
 assert graph.is_runnable, graph.problems
 
-run = graph.run(text="a\nb\nc")    # the graph input text, declared on lines
+run = graph.run({"text": "a\nb\nc"})    # the graph input text, declared on lines
 run.outputs                        # {"result": "A+B+C"}: what the graph returns, by the names its outputs declare
 run.results["upper"]["result"]     # ["A", "B", "C"]: ran once per item of lines.result
 run.results["join"]["result"]      # "A+B+C": Series[str] received every value, once
@@ -430,7 +430,7 @@ What is inside a subgraph is told with where it is.
 
 ```python
 chained = Graph.compile(make_graph(lines, upper, join), registry)    # the quick start's graph, as a chain
-print(chained.run(text="a\nb").outputs)  # {'result': 'A+B'}
+print(chained.run({"text": "a\nb"}).outputs)  # {'result': 'A+B'}
 
 record = make_graph(upper, join, constants={"upper.text": "x"})
 print(record.nodes["upper"].inputs["text"].constant)  # x
@@ -760,7 +760,7 @@ def sign(ctx: Context[Signer], text: str) -> str:
 
 
 print(sign(Signer("Ida"), "Done"))  # Done, Ida
-signed = Graph.compile(make_graph(sign), signing).run(text="Done", context=Signer("Ida"))
+signed = Graph.compile(make_graph(sign), signing).run({"text": "Done"}, context=Signer("Ida"))
 print(signed.outputs)  # {'result': 'Done, Ida'}
 ```
 
@@ -789,9 +789,9 @@ print(signed.outputs)  # {'result': 'Done, Ida'}
 
 ### Running again
 
-`run.again(**changed)` runs again with some inputs changed and the rest as before. It reuses what it can. A call that would get the same arguments as a call of the same node in the previous run reuses that call's outcome, even if its item moved, and the node isn't called. Answers are reused the same way.
+`run.again(changed)` runs again with some inputs changed and the rest as before. It reuses what it can. A call that would get the same arguments as a call of the same node in the previous run reuses that call's outcome, even if its item moved, and the node isn't called. Answers are reused the same way.
 
-`run.with_inputs(**changed)` is the same run, not started, for `resume()` or `stream()`. It is to `again` what `graph.with_inputs` is to `graph.run`.
+`run.with_inputs(changed)` is the same run, not started, for `resume()` or `stream()`. It is to `again` what `graph.with_inputs` is to `graph.run`.
 
 ```python
 @registry.node("send", title="Send", description="Sends a message to a contact.")
@@ -800,8 +800,8 @@ def send(contact: str) -> str:
 
 
 sending = Graph.compile(make_graph(lines, send), registry)
-first = sending.run(text="ida@a.dk\nbo@b.dk")                # two mails
-second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added: one mail
+first = sending.run({"text": "ida@a.dk\nbo@b.dk"})              # two mails
+second = first.again({"text": "ida@a.dk\nbo@b.dk\neva@c.dk"})   # one contact added: one mail
 ```
 
 **What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own source as Python parses it, without its name, decorators, comments or docstrings, as a saved run records it, so a new Python version keeps the key; a function whose source `inspect.getsource` can't read is hashed by its bytecode instead, such as one made by `exec` with no file, one typed into `python -c` or a REPL that keeps no source, or one from a package installed without its `.py` files; so is a lambda, whose source is its whole line, and a function whose lines at its place aren't Python, hold no `def`, or whose first `def` has another name than the one its code was compiled with, as when `exec` compiles a text under a real file's name; `@node` works the code out when it declares the function), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
@@ -819,7 +819,7 @@ second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added
 - An answer is reused only by a call with the same item in every loop it is inside, an item the node doesn't take included. So when documents move, two documents' identical lines keep each document's answers, and with `pages -> size -> approve`, two pages of one length keep their own.
 - A question still waiting goes on waiting at its item's new place, and nothing new is asked.
 - A node that may ask (`asks=True`) has every outcome reused this way, a call that returned without asking too. A node that asks is told apart by its `@node`, not by each call. An item beyond the outcomes there were is called again, and asks only if its function asks.
-- A call reused this way waits until it is its turn, and so does everything downstream of it. For example, take `check -> stamp`, both `asks=True`, where `stamp` never asks. `again(items=["zz", "bo"])` reuses nothing of `stamp` for `"bo"` until `check`'s question about `"zz"` is answered, and the run waits.
+- A call reused this way waits until it is its turn, and so does everything downstream of it. For example, take `check -> stamp`, both `asks=True`, where `stamp` never asks. `again({"items": ["zz", "bo"]})` reuses nothing of `stamp` for `"bo"` until `check`'s question about `"zz"` is answered, and the run waits.
 
 **Outcomes carried on.** `again` passes on the reusable outcomes the run before it had and didn't use, while their node still has a question waiting. So an answer survives an edit and its revert. Each keeps the call it came from, so the call with the same item indexes still reuses it first. Once the node is complete, the unused ones are dropped. So an edit that is undone in the next run calls the node again for the items the edit took out.
 
@@ -878,7 +878,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 - A `NodeDeclarationError`'s `where` says where the fault is, outermost first. It is set for a fault in the function or its signature, in a hook, or a missing `Upgrade`. It starts with the node. For a fault in one parameter or output, it then names it: `("@node('shout') on shout", "text")`. A fault in the function itself, such as an `async def`, is `("@node('fetch') on fetch",)`. A `subgraph` missing its `Upgrade` is `("subgraph('enrich')",)`. The error's text is these and the problem's message, joined by `": "`. Any other fault, such as an empty title or a node id used twice, has `where` `()`.
 
 - A failed call ends the run `failed`, with its problem as the run's `cause`. Nothing more starts. The calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them.
-- A call that can't be acted on raises `InvalidCallError`, and nothing changes. A call's arguments are checked in stages, and the first stage that finds a fault raises, with a `Problem` for every fault of that stage: `graph.run(n="x", max_items=0)` gives only `invalid_limit`. Running a graph with problems raises it too, listing them.
+- A call that can't be acted on raises `InvalidCallError`, and nothing changes. A call's arguments are checked in stages, and the first stage that finds a fault raises, with a `Problem` for every fault of that stage: `graph.run({"n": "x"}, max_items=0)` gives only `invalid_limit`. Running a graph with problems raises it too, listing them.
 - A problem never quotes a value a graph carries: a graph input or its default, a constant, an output, an answer or a value in a saved run. Where a fault is inside one, its `loc` and message say where by list indexes, record fields and positions, never by the value's own dict keys: a record's fault inside a constant stops at `constant`. A field name, a hook's included, is what a developer wrote, even when the hook builds it from a constant, so a problem may name it.
 - A problem never quotes an exception's text either. A node's or a hook's exception other than a `NodeError` goes to `logging.getLogger("conductor")` with its traceback, and only its class name reaches `ctx.error`. That holds for a failed call (`execution_failed`), a hook that raises (`compute_hook_failed`, variant `raised`), an argument a question can't write as JSON (`question_unwritable`) and an `Upgrade`'s rewrite that raises in `registry.upgrade` (`cannot_move_to_version`, variant `raised`, while a rewrite's `NodeError` is variant `rewrite_failed`), which `check_registry` reports as `upgrade_broken`.
 - A type's own check is held to the same rule. In a problem's `reason` and `ctx.errors`, each error keeps its `type`, and its message is kept only when pydantic or conductor wrote it: a type's limits (`greater_than`), its choices (`literal_error`) or a missing column (`column_missing`). The one type conductor changes is a table's missing column: it is `column_missing` in every form of a table, records as well as a frame, where pydantic would say `missing`. Any other message, such as one a validator raised (`value_error`), a custom error a host's validator raised, whatever type it gives, or one of pydantic's that quotes the value (`uuid_parsing`, `union_tag_invalid`), is replaced by "The value did not pass its type's own check.". A message counts as pydantic's only when pydantic writes the same text for the error's type and `ctx`, so a host's error that gives the type `value_error` is replaced too.
@@ -1004,10 +1004,10 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 **A run never changes.** `answer`, `decline`, `resume`, `again`, `with_inputs`, `forget` and `with_max_items` each return a new `Run`, and the run they are called on is left as it was. So keep what they return: `run = run.answer(waiting, True).resume()`. Calling `run.resume()` alone leaves `run` as it was. A run's attributes can't be set (`dataclasses.FrozenInstanceError`), and `run.inputs` is a read-only mapping.
 
-**Starting a run.**
+**Starting a run.** A graph's inputs are given as one mapping, by name: `graph.run({"text": "a b"})`. Every other argument is a setting of the call, by keyword.
 
-- `graph.run(inputs={}, /, *, max_items=None, context=None, timeout=None, **by_name)` calls every node that is ready, from the start, until the run is complete, waits or ends early. It returns the `Run`. A pause or a failure is a `status`, not an exception.
-- `graph.with_inputs(inputs={}, /, *, max_items=None, previous=None, **by_name)` is a `Run` with its inputs checked, not started. `previous=` reuses an earlier run's outcomes (see "Running again").
+- `graph.run(inputs={}, *, max_items=None, previous=None, context=None, timeout=None)` calls every node that is ready, from the start, until the run is complete, waits or ends early. It returns the `Run`. A pause or a failure is a `status`, not an exception.
+- `graph.with_inputs(inputs={}, *, max_items=None, previous=None)` is a `Run` with its inputs checked, not started. `previous=` reuses an earlier run's outcomes (see "Running again").
   - It raises `InvalidCallError` with every fault in the inputs at once: a name it doesn't offer (`unknown_graph_input`), a required one left out (`missing_input`), and a value its type can't read (`invalid_input`).
   - A `max_items` that is not a whole number of at least 1 is `invalid_limit`; `True` and `2.5` are not whole numbers. It is checked first, and raised alone.
 
@@ -1017,7 +1017,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 - `run.stream(...)` takes the same arguments, plus `cancel=`, `hand_back=` and `checkpoint_every=`. It does the same, and yields its events.
 - `run.with_max_items(n)` is the same run under another item limit, not started. A run `stopped` at its item limit goes on with `run.with_max_items(100).resume()`. `run.with_max_items(None)` removes the limit; `max_items=None` on `run.with_inputs` and `run.again` keeps the run's own.
 - `run.answer(waiting, value)` or `run.answer({waiting_id: value})` answers waiting calls (see "Asking a person").
-- `run.with_inputs(inputs={}, /, *, max_items=None, **by_name)` is a run that reuses this one's outcomes, to resume or stream.
+- `run.with_inputs(inputs={}, *, max_items=None)` is a run that reuses this one's outcomes, to resume or stream.
 - `run.forget(*node_ids)` is a run of the same inputs that calls these nodes again and reuses the rest, to resume or stream.
 - `run.again(...)` is `run.with_inputs(...)` resumed. It takes `context=` and `timeout=` too.
 
@@ -1039,7 +1039,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 **Calls that cost nothing.** `Policy(costs_nothing=True)` marks a node whose call costs nothing and touches nothing outside the run. Such a node hands on an upload, splits a table, or returns a list given to it.
 
-- `run.resume(only_costs_nothing=True)` calls only those nodes, and leaves the run `ready`. So `graph.with_inputs(files=files).resume(only_costs_nothing=True).progress` gives every total the inputs decide, before any call that costs something.
+- `run.resume(only_costs_nothing=True)` calls only those nodes, and leaves the run `ready`. So `graph.with_inputs({"files": files}).resume(only_costs_nothing=True).progress` gives every total the inputs decide, before any call that costs something.
 - A node behind a call that costs something stays at `total: None`, with `known` as its floor. Conductor does not guess.
 - A call of one of these nodes that fails or asks does so as in `resume()`. The run is `failed` (and the next `resume()` calls it again) or `waiting`. The item limit stops it as it stops any `resume()`.
 - The next `resume()` makes none of its calls again, and doesn't announce again a node it completed.

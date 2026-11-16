@@ -48,8 +48,8 @@ def answer_stale(
             when a change of inputs gave its item another index.
 
     Example:
-        asked = Graph.compile(make_graph(approve), registry).run(amount=5000)
-        asked_again = asked.again(amount=5500)
+        asked = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
+        asked_again = asked.again({"amount": 5500})
         refused(lambda: asked_again.answer(asked.waiting[0].id, True))
     """
     return f"The question under {waiting_id!r} was replaced by a newer one, {current!r}. Use that id instead."
@@ -219,7 +219,7 @@ def invalid_answer(
         question: For a node that asks several questions, one per output, the name of the question that is wrong.
 
     Example:
-        waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
+        waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         refused(lambda: waiting.answer(waiting.waiting[0].id, "yes"))
     """
     return f"That isn't a valid answer: {reason.rstrip('.')}."
@@ -241,7 +241,7 @@ def invalid_answer_reason(*loc: str | int, waiting_id: str, got: str) -> str:
         got: The class of the reason given.
 
     Example:
-        waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
+        waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         refused(lambda: waiting.decline(waiting.waiting[0], reason=123))  # type: ignore[arg-type]
     """
     return (
@@ -280,7 +280,7 @@ def invalid_context_no_context_type(*loc: str | int, got: str) -> str:
     Example:
         plain = NodeRegistry()
         plain.add(upper)
-        refused(lambda: Graph.compile(make_graph(upper), plain).run(text="a", context=Caller("Ida")))  # type: ignore[arg-type]
+        refused(lambda: Graph.compile(make_graph(upper), plain).run({"text": "a"}, context=Caller("Ida")))  # type: ignore[arg-type]
     """
     return f"The context given is of class {got}, but this graph's registry takes no context. Pass no context, or name its class with NodeRegistry(context_type=...)."
 
@@ -308,7 +308,7 @@ def invalid_input(
         column: For a table, the column of the first value refused.
 
     Example:
-        refused(lambda: Graph.compile(make_graph(count), registry).run(n="many"))
+        refused(lambda: Graph.compile(make_graph(count), registry).run({"n": "many"}))
     """
     return f"The value given for '{name}' isn't valid: {reason.rstrip('.')}. Give a value of the input's type."
 
@@ -330,7 +330,7 @@ def invalid_input_make_a_series(*loc: str | int, name: str, expected: str, lengt
         length: How many items the list has.
 
     Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).run(text=["a", "b"]))
+        refused(lambda: Graph.compile(make_graph(upper), registry).run({"text": ["a", "b"]}))
     """
     return (
         f"'{name}' takes one {expected}, but it was given a list of {length}. A graph only loops over a list that a node returns "
@@ -351,7 +351,7 @@ def invalid_limit(limit: str, /, *, value: Any) -> str:
         value: The value given, of any type. ``True`` and ``"5"`` are refused as they are.
 
     Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", max_items=0))
+        refused(lambda: Graph.compile(make_graph(upper), registry).run({"text": "a"}, max_items=0))
     """
     return f"{limit} must be a whole number of 1 or more, not {value}. Leave it out for no limit on items."
 
@@ -369,7 +369,7 @@ def invalid_limit_seconds(limit: str, /, *, value: Any) -> str:
         value: The value given, of any type. ``True`` and ``"5"`` are refused as they are.
 
     Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs(text="a").resume(timeout=0))
+        refused(lambda: Graph.compile(make_graph(upper), registry).with_inputs({"text": "a"}).resume(timeout=0))
     """
     return f"{limit} must be a finite number of seconds above 0, not {value}. Leave it out for no limit."
 
@@ -427,7 +427,7 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
         nodes: The ids of the graph's nodes.
 
     Example:
-        done = Graph.compile(make_graph(upper), registry).run(text="a")
+        done = Graph.compile(make_graph(upper), registry).run({"text": "a"})
         refused(lambda: done.forget("lower"))
     """
     return f"'{node_id}' isn't a node of this graph. Its nodes are {comma_separated(nodes)}."
@@ -584,7 +584,7 @@ def unknown_graph_input(*loc: str | int, name: str, inputs: list[str]) -> str:
         inputs: The names of the graph inputs.
 
     Example:
-        refused(lambda: Graph.compile(make_graph(upper), registry).run(text="a", txt="a"))
+        refused(lambda: Graph.compile(make_graph(upper), registry).run({"text": "a", "txt": "a"}))
     """
     return f"The graph has no input '{name}'. Its inputs are {comma_separated(inputs)}."
 
@@ -604,7 +604,7 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
             when a change of inputs gave its item another index.
 
     Example:
-        waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
+        waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         refused(lambda: waiting.answer("upper", True))
     """
     return f"The id {waiting_id!r} waits on nothing. The run is {status}. run.waiting lists the questions that are waiting."
@@ -623,7 +623,7 @@ def run_not_complete(*loc: str | int, status: str, reason: str) -> str:
         reason: The message of the problem the run stopped on. Empty if the run didn't stop early.
 
     Example:
-        stopped = Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2)
+        stopped = Graph.compile(make_graph(words, upper), registry).run({"text": "a b c"}, max_items=2)
         refused(lambda: stopped.outputs)
     """
     return f"The run is {status}, so it has no outputs yet. run.results has the outputs so far. {reason}".rstrip()
@@ -645,7 +645,7 @@ def saved_run_of_another_graph(*loc: str | int, graph: str, saved: str | None = 
             one.
 
     Example:
-        saved = Graph.compile(make_graph(upper), registry).run(text="a").to_json()
+        saved = Graph.compile(make_graph(upper), registry).run({"text": "a"}).to_json()
         refused(lambda: Run.from_json(saved, Graph.compile(make_graph(count), registry)))
     """
     return f"This saved run is of another graph, not this one ({graph}). Load it into the graph it was saved from."
@@ -668,7 +668,7 @@ def saved_run_unreadable(*loc: str | int, where: str, reason: str) -> str:
 
     Example:
         uppering = Graph.compile(make_graph(upper), registry)
-        changed = json.loads(uppering.run(text="a").to_json())
+        changed = json.loads(uppering.run({"text": "a"}).to_json())
         changed["outcomes"] = {"upper": "not outcomes"}
         refused(lambda: Run.from_json(json.dumps(changed), uppering))
     """
@@ -696,7 +696,7 @@ def run_unwritable(*loc: str | int, where: str, reason: str) -> str:
             return b"\\xff" + text.encode()
 
 
-        unwritable = Graph.compile(make_graph(raw), registry).run(text="a")
+        unwritable = Graph.compile(make_graph(raw), registry).run({"text": "a"})
         refused(lambda: unwritable.to_json())
     """
     return f"The run can't be written as JSON at '{where}': {reason.rstrip('.')}. Give that output a type pydantic can write as JSON."

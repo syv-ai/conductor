@@ -125,7 +125,7 @@ def chain(*ids, then_join=None):
 
 def test_events_in_order():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "upper", then_join=True)), reg)
-    events = collect(graph.with_inputs(text="a,b,c"))
+    events = collect(graph.with_inputs({"text": "a,b,c"}))
     kinds = [e.type for e in events]
     assert kinds[0] == "run_start" and kinds[-1] == "run_end" and events[-1].status == "complete", (
         kinds
@@ -152,7 +152,7 @@ def test_concurrency_eight_calls_of_a_node_run_at_once():
     graph = Graph.compile(
         GraphRecord.model_validate(chain("split", "together")), registry_of(split, together)
     )
-    run = graph.run(text=",".join("abcdefgh"))
+    run = graph.run({"text": ",".join("abcdefgh")})
     assert run.status == "complete", run.cause
     assert run.results["together"]["result"] == [c * 2 for c in "abcdefgh"]
 
@@ -181,7 +181,7 @@ def test_pipelining_two_nodes():
         GraphRecord.model_validate(chain("split", "first", "second", then_join=True)),
         registry_of(split, first, second, join),
     )
-    run = graph.run(text=",".join("abcdefghijklmnop"))
+    run = graph.run({"text": ",".join("abcdefghijklmnop")})
     assert run.outputs["result"] == "+".join(c * 2 + "!" for c in "abcdefghijklmnop")
     assert seen_before_the_last == [True]
 
@@ -211,7 +211,7 @@ def test_stream_leaves_the_event_loop_free():
             released.set()
 
         releaser = asyncio.create_task(release())
-        events = [e async for e in graph.with_inputs(text="a").stream()]
+        events = [e async for e in graph.with_inputs({"text": "a"}).stream()]
         await releaser
         return events[-1].run
 
@@ -242,7 +242,7 @@ def test_waiting_and_skipped_events():
         ),
         reg,
     )
-    events = collect(graph.with_inputs(text="a,b,c"))
+    events = collect(graph.with_inputs({"text": "a,b,c"}))
     kinds = [e.type for e in events]
     assert "node_waiting" in kinds and events[-1].status == "waiting", kinds
     assert [
@@ -257,7 +257,7 @@ def test_waiting_and_skipped_events():
 
 def test_failure_keeps_calls_already_made():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "boom")), reg)
-    run = graph.run(text="a,b,c,d")
+    run = graph.run({"text": "a,b,c,d"})
     assert run.status == "failed" and run.cause.loc == ("boom", 2), run.cause
     # d was already running on its thread when c failed, and it finished
     assert run.results["boom"]["result"] == ["a", "b", None, "d"]
@@ -279,13 +279,13 @@ def test_failure_keeps_calls_already_made():
 
 def test_cancel_and_timeout():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "slow")), reg)
-    run = graph.with_inputs(text=",".join("abcdefghijklmnopqrstuvwx")).resume(timeout=0.15)
+    run = graph.with_inputs({"text": ",".join("abcdefghijklmnopqrstuvwx")}).resume(timeout=0.15)
     assert run.status == "timed_out", run.status
 
     async def go():
         cancel = Event()
         events = []
-        async for e in graph.with_inputs(text=",".join("abcdefghijklmnopqrstuvwx")).stream(
+        async for e in graph.with_inputs({"text": ",".join("abcdefghijklmnopqrstuvwx")}).stream(
             cancel=cancel
         ):
             events.append(e)
@@ -332,7 +332,7 @@ def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
         ),
         reg2,
     )
-    run = graph.run(text="a,b|c|d,e,f")
+    run = graph.run({"text": "a,b|c|d,e,f"})
     assert run.results["join"]["result"] == ["aa+bb", "cc", "dd+ee+ff"], run.results
 
 
@@ -349,7 +349,7 @@ def test_a_timed_out_run_keeps_the_calls_already_on_threads():
         GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4)
     )
     # four calls are running on threads when time runs out, and four never start
-    stopped = graph.with_inputs(text="a,b,c,d,e,f,g,h").resume(timeout=0.05)
+    stopped = graph.with_inputs({"text": "a,b,c,d,e,f,g,h"}).resume(timeout=0.05)
     assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
 
     finished = Run.from_json(stopped.to_json(), graph).resume()
@@ -391,7 +391,7 @@ def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
             }
         ),
         registry_of(numbers, each),
-    ).run(n=[0, 1, 2])
+    ).run({"n": [0, 1, 2]})
 
     assert run.status == "failed" and run.results["e"]["result"][0] == 0
     try:
@@ -406,7 +406,7 @@ def test_the_last_progress_event_of_a_node_is_always_sent():
     graph = Graph.compile(
         GraphRecord.model_validate(chain("split", "upper")), registry_of(split, upper)
     )
-    events = collect(graph.with_inputs(text=",".join(str(i) for i in range(3000))))
+    events = collect(graph.with_inputs({"text": ",".join(str(i) for i in range(3000))}))
 
     progress = [(e.count.finished, e.count.total) for e in events if e.type == "node_progress"]
     assert progress[-1] == (3000, 3000)
@@ -429,7 +429,9 @@ def test_an_exit_a_node_raises_ends_the_run_with_it_wherever_the_node_is_called(
         raise SystemExit(3)
 
     with pytest.raises(SystemExit):
-        Graph.compile(GraphRecord.model_validate(chain("leave")), registry_of(leave)).run(text="a")
+        Graph.compile(GraphRecord.model_validate(chain("leave")), registry_of(leave)).run(
+            {"text": "a"}
+        )
 
 
 @pytest.mark.timeout(10)
@@ -447,7 +449,9 @@ def test_a_defect_in_an_output_types_own_check_ends_the_run_with_it_wherever_the
         return text
 
     with pytest.raises(RuntimeError, match="has a bug"):
-        Graph.compile(GraphRecord.model_validate(chain("work")), registry_of(work)).run(text="a")
+        Graph.compile(GraphRecord.model_validate(chain("work")), registry_of(work)).run(
+            {"text": "a"}
+        )
 
 
 def test_retries_external_failures_then_succeeds():
@@ -481,7 +485,7 @@ def test_retries_external_failures_then_succeeds():
         GraphRecord.model_validate(chain("split", "fetch", "client")),
         registry_of(split, fetch, client),
     )
-    events = collect(graph.with_inputs(text="a,b"))
+    events = collect(graph.with_inputs({"text": "a,b"}))
     retries = [e for e in events if e.type == "node_retry"]
     assert events[-1].status == "complete" and events[-1].run.results["client"]["result"] == [
         "a!",
@@ -525,7 +529,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
             }
         ),
         registry_of(down),
-    ).run(text="x")
+    ).run({"text": "x"})
     assert run.status == "failed" and run.cause.type == "external_failed" and calls == ["x", "x"], (
         run.cause,
         calls,
@@ -539,7 +543,7 @@ def test_retries_run_out_and_plain_errors_never_retry():
             }
         ),
         registry_of(bug),
-    ).run(text="x")
+    ).run({"text": "x"})
     assert run.status == "failed" and run.cause.type == "execution_failed" and calls == ["bug"]
 
 
@@ -566,7 +570,7 @@ def test_attempt_timeout_is_final():
             }
         ),
         registry_of(hang),
-    ).run(text="x")
+    ).run({"text": "x"})
     assert (
         run.status == "failed"
         and run.cause.type == "timeout"
@@ -593,9 +597,9 @@ def test_reuse_when_inputs_match_false_calls_again():
     graph = Graph.compile(
         GraphRecord.model_validate(chain("split", "rate", "upper")), registry_of(split, rate, upper)
     )
-    first = graph.run(text="a,b")
+    first = graph.run({"text": "a,b"})
     calls.clear()
-    first.again(text="a,b")
+    first.again({"text": "a,b"})
     assert calls == ["a", "b"], calls
 
 
@@ -620,7 +624,7 @@ def test_a_saved_run_is_held_to_the_reuse_policy_its_node_has_when_it_is_read():
     )(rate)
     record = GraphRecord.model_validate(chain("split", "rate", "upper"))
     reusing = Graph.compile(record, registry_of(split, reuses, upper))
-    saved = reusing.with_inputs(text="a,b", previous=reusing.run(text="a,b")).to_json()
+    saved = reusing.with_inputs({"text": "a,b"}, previous=reusing.run({"text": "a,b"})).to_json()
 
     calls.clear()
     Run.from_json(saved, reusing).resume()
@@ -691,7 +695,7 @@ def test_added_inputs_follow_the_formula_constant():
     )
     assert not graph.problems, graph.problems
     assert list(graph.inputs) == ["text"]
-    run = graph.run(text="abc")
+    run = graph.run({"text": "abc"})
     assert run.outputs["result"] == 32.0, run.outputs
     broken = Graph.compile(
         GraphRecord.model_validate(
@@ -749,7 +753,7 @@ def test_computed_outputs_take_the_type_that_arrives_on_their_input():
         reg3,
     )
     assert not graph.problems, graph.problems
-    assert graph.run(text="abc,de").results["h"]["result"] == [1.5, 1.0]
+    assert graph.run({"text": "abc,de"}).results["h"]["result"] == [1.5, 1.0]
     wrong = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -923,7 +927,7 @@ def test_own_types_accept_and_round_trip():
         reg4,
     )
     assert not graph.problems, graph.problems
-    run = graph.run(text="abc")
+    run = graph.run({"text": "abc"})
     assert run.outputs == {"result": 3}
     again = Run.from_json(run.to_json(), graph)
     assert again.results["a"]["result"].content == b"6.0"
@@ -1031,7 +1035,7 @@ def test_an_edge_into_a_type_alias_or_a_literal_takes_what_its_values_may_be(sou
 
     assert [p.type for p in graph.problems] == ([] if fits else ["type_mismatch"])
     if fits:
-        assert graph.run(text="x").status == "complete"
+        assert graph.run({"text": "x"}).status == "complete"
 
 
 @node("as-low-or-zed", title="As low or zed", description="For a test.")
@@ -1062,8 +1066,8 @@ def test_an_edge_that_may_give_a_choice_compiles_and_each_value_is_checked_on_it
     graph = _edge(source, target)
 
     assert graph.problems == []
-    assert graph.run(text="low").outputs == {"result": "low"}
-    failed = graph.run(text="zed")
+    assert graph.run({"text": "low"}).outputs == {"result": "low"}
+    failed = graph.run({"text": "zed"})
     assert (failed.status, failed.cause.type) == ("failed", "invalid_edge_value")
 
 
@@ -1107,8 +1111,8 @@ def test_a_list_of_text_into_a_list_of_choices_compiles_and_each_item_is_checked
     graph = _edge(source, target)
 
     assert graph.problems == []
-    assert graph.run(text="low,high").outputs == {"result": "low+high"}
-    assert graph.run(text="low,zed").cause.type == "invalid_edge_value"
+    assert graph.run({"text": "low,high"}).outputs == {"result": "low+high"}
+    assert graph.run({"text": "low,zed"}).cause.type == "invalid_edge_value"
 
 
 def test_one_value_into_a_series_of_choices_names_the_values_in_its_type_mismatch():
@@ -1169,7 +1173,7 @@ def test_a_source_whose_values_the_input_may_take_compiles_and_runs(source, valu
     graph = _wired(source, value, target)
 
     assert graph.problems == []
-    assert graph.run(text="x").status == "complete"
+    assert graph.run({"text": "x"}).status == "complete"
 
 
 @pytest.mark.parametrize(
@@ -1183,7 +1187,7 @@ def test_a_source_whose_values_the_input_may_take_compiles_and_runs(source, valu
 )
 def test_choices_and_limits_below_the_top_are_checked_on_each_call(source, value, target):
     """A ``Param`` on a list's item, a record's field or a table's column is checked as one on the input is."""
-    run = _wired(source, value, target).run(text="x")
+    run = _wired(source, value, target).run({"text": "x"})
 
     assert (run.status, run.cause.type) == ("failed", "invalid_edge_value")
 
@@ -1199,7 +1203,9 @@ def test_a_literal_column_that_shares_no_choice_with_its_input_column_is_refused
 
 def test_a_value_an_inputs_check_converts_below_the_top_reaches_the_node_converted():
     """The input's own check runs on a list's items as on the input, so what it converts is what the node gets."""
-    run = _wired(list[str], ["ABC"], list[Annotated[str, AfterValidator(str.lower)]]).run(text="x")
+    run = _wired(list[str], ["ABC"], list[Annotated[str, AfterValidator(str.lower)]]).run(
+        {"text": "x"}
+    )
 
     assert run.outputs == {"result": "['abc']"}
 
@@ -1238,7 +1244,7 @@ def test_a_literal_source_lands_on_an_alias_or_a_wider_class(source, value, targ
     graph = _wired(source, value, target)
 
     assert graph.problems == []
-    assert graph.run(text="x").status == "complete"
+    assert graph.run({"text": "x"}).status == "complete"
 
 
 def test_a_validator_on_a_unions_member_checks_only_that_member():
@@ -1246,7 +1252,7 @@ def test_a_validator_on_a_unions_member_checks_only_that_member():
     by."""
     graph = _wired(str | None, None, Annotated[str, AfterValidator(str.lower)] | None)
 
-    assert graph.run(text="x").outputs == {"result": "None"}
+    assert graph.run({"text": "x"}).outputs == {"result": "None"}
 
 
 @pytest.mark.parametrize(
@@ -1369,7 +1375,7 @@ def _must_be_a_tint(value: Any) -> Any:
 def test_an_enum_is_wired_run_and_read_back(target):
     """An enum is the type for a fixed set of its members: an edge of it compiles, runs and its run reads back."""
     graph = _wired(_Tint, _Tint.RED, target)
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert graph.problems == []
     assert run.outputs == {"result": "<_Tint.RED: 'red'>"}
@@ -1377,7 +1383,7 @@ def test_an_enum_is_wired_run_and_read_back(target):
 
 
 def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():
-    run = _edge(parse_json, show_json).run(text="null")
+    run = _edge(parse_json, show_json).run({"text": "null"})
 
     assert run.outputs == {"result": "null"} and run.not_called == []
 
@@ -1434,7 +1440,7 @@ def test_two_series_on_different_branches_refused():
     record["nodes"]["p"]["node"] = "pair-optional"
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
     assert not graph.problems
-    assert graph.run(text="yes,no").outputs == {"result": "['YES', None]|[None, 'no']"}
+    assert graph.run({"text": "yes,no"}).outputs == {"result": "['YES', None]|[None, 'no']"}
 
 
 # -- 6. describe -----------------------------------------------------------------------------------
@@ -1597,11 +1603,11 @@ def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_re
         ),
         registry_of(mark, confirm, box),
     )
-    first = graph.run(a="1", b="2")
+    first = graph.run({"a": "1", "b": "2"})
     first = first.answer(first.waiting[0], True).resume()
     before = dict(calls)
 
-    again = first.again(a="changed")
+    again = first.again({"a": "changed"})
 
     assert again.status == "complete" and again.waiting == []
     assert (calls["mark"] - before["mark"], calls["confirm"] - before["confirm"]) == (1, 0)

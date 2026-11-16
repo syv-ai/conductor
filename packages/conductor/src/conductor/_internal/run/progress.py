@@ -6,7 +6,7 @@ Take this graph::
     shout(line: str, mark: str = "!") -> str # wired to lines.result: called once per line
     join(texts: Series[str]) -> str          # wired to shout.result: called once, with ["A!", "B!", "C!"]
 
-Before any call, ``graph.with_inputs(text="a\\nb\\nc").progress`` is::
+Before any call, ``graph.with_inputs({"text": "a\\nb\\nc"}).progress`` is::
 
     RunProgress(finished=0, waiting=0, skipped=0, not_called=0, known=2, total=None, nodes={
         "lines": CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=1, total=1),

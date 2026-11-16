@@ -1,6 +1,6 @@
 """``Run``, one run of a graph: its inputs and the outcome of every call so far.
 
-Take the README's graph. ``graph.run(text="a\\nb")`` calls ``lines`` once, ``shout`` once per line and ``join``
+Take the README's graph. ``graph.run({"text": "a\\nb"})`` calls ``lines`` once, ``shout`` once per line and ``join``
 once. The run stores one outcome per call, such as ``Done`` when the call returned (``outcome.py`` has the four
 kinds). A call with no outcome hasn't been made yet.
 
@@ -188,7 +188,7 @@ class Run[C]:
 
         ``only_costs_nothing=True`` calls only the nodes whose ``Policy`` says ``costs_nothing``. A host uses it to
         learn how many calls each costly node will have, before any of them is made. Say only ``files`` costs nothing
-        in ``files -> summarize``. Then ``graph.with_inputs(names=["a.pdf", "b.pdf"]).resume(only_costs_nothing=True)``
+        in ``files -> summarize``. Then ``graph.with_inputs({"names": ["a.pdf", "b.pdf"]}).resume(only_costs_nothing=True)``
         calls only ``files``, and ``progress.nodes["summarize"].total`` is 2. The run is ``ready`` afterwards, unless
         one of these calls fails, asks, or meets a series over the item limit. The next ``resume()`` doesn't make those
         calls again.
@@ -617,10 +617,8 @@ class Run[C]:
     def with_inputs(
         self,
         inputs: Mapping[str, Any] = MappingProxyType({}),
-        /,
         *,
         max_items: int | None = None,
-        **by_name: Any,
     ) -> Run[C]:
         """Returns a new run with some inputs changed and the rest as before, ready to ``resume`` or ``stream``.
 
@@ -632,7 +630,7 @@ class Run[C]:
         ``max_items`` left out, or ``None``, keeps this run's item limit. ``run.with_max_items(None)`` removes it.
         """
         return self.graph.with_inputs(
-            {**self.inputs, **inputs, **by_name},
+            {**self.inputs, **inputs},
             max_items=max_items if max_items is not None else self.max_items,
             previous=self,
         )
@@ -659,19 +657,17 @@ class Run[C]:
     def again(
         self,
         inputs: Mapping[str, Any] = MappingProxyType({}),
-        /,
         *,
         max_items: int | None = None,
         context: C | None = None,
         timeout: float | None = None,
-        **by_name: Any,
     ) -> Run[C]:
         """Runs again with some inputs changed and the rest as before, and returns the new run.
 
         It is ``run.with_inputs(...).resume(context=context, timeout=timeout)``. A call that gets the same arguments as
         before isn't made again: its outcome is reused, whatever the context is.
         """
-        return self.with_inputs(inputs, max_items=max_items, **by_name).resume(
+        return self.with_inputs(inputs, max_items=max_items).resume(
             context=context, timeout=timeout
         )
 
@@ -859,7 +855,7 @@ def _only_costs_nothing(
 def make_run[C](
     graph: Graph[C], inputs: dict[str, Any], max_items: int | None, previous: Run[Any] | None
 ) -> Run[C]:
-    """Returns a run of ``graph`` that hasn't started: what ``graph.with_inputs(text="a\\nb")`` returns.
+    """Returns a run of ``graph`` that hasn't started: what ``graph.with_inputs({"text": "a\\nb"})`` returns.
 
     No node has an outcome yet. The inputs have already been checked. With ``previous``, the new run may reuse
     that run's outcomes (see ``Run.with_inputs``).

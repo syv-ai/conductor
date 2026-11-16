@@ -274,7 +274,12 @@ What changes in how you work, before the name-by-name tables:
 - **`Run.from_json` holds a node to its current `Policy`.** It drops the outcomes a saved run could still reuse for a
   node whose `Policy` says `reuse_when_inputs_match=False` now; such a node is called again for every item, where a
   run saved before the policy changed reused them. The next save writes no `reusable` entry for it.
-- **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
+- **Breaking: a graph's inputs are given as one mapping, never as keywords.** `graph.run({"text": "a b"})`,
+  and the same for `graph.with_inputs`, `run.with_inputs` and `run.again`. Every keyword is a setting of the call, and
+  each is in the signature: `graph.run(inputs={}, *, max_items=, previous=, context=, timeout=)`, `inputs=` included.
+  So a graph input named `context`, `timeout`, `previous` or `max_items` reaches its node, where a keyword of that name
+  was taken for the setting, and an input given as a keyword is a `TypeError`.
+- **A run is one value.** `graph.run(inputs)` returns a `Run` whose `status` says whether it is
   ready, running, waiting, complete or ended early, and whose `cause` is the `Problem` that ended a run that failed,
   stopped, was cancelled or timed out (`None` otherwise). One rule reads it from the outcomes and from how the last
   `resume()` left the run: a checkpoint is `running` until it is saved, and read back is what its outcomes say; a run whose every call returned is `complete` however its resume
@@ -689,8 +694,8 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.execution.results.OutputRef` | a `Source`, written `node.output` |
 | `conductor.execution.results.project_outputs` | `run.outputs`, by the names of the graph's outputs |
 | `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `cause` |
-| `execute_sync` | `graph.run(**inputs)` |
-| `execute` | `graph.run(**inputs)` returns a `Run`; `run.stream()` yields its events |
+| `execute_sync` | `graph.run(inputs)` |
+| `execute` | `graph.run(inputs)` returns a `Run`; `run.stream()` yields its events |
 | `FlowCheckpoint` | a `Run`: `run.to_json()` and `Run.from_json(saved, graph)`; while it runs, `run.stream(checkpoint_every=)` yields `RunCheckpoint` |
 | `FOR_EACH` | gone with the for-each node |
 | `ForEachNode` | gone: a `Series` output wired to an input of one value runs the node once per item |

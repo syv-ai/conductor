@@ -170,7 +170,7 @@ def _graph_input(hint: Any, good: Any, bad: Any) -> list[Problem]:
     def take(x: hint) -> str:  # type: ignore[valid-type]
         return "ok"
 
-    return _refused(lambda: Graph.compile(make_graph(take), registry_of(take)).run(x=bad))
+    return _refused(lambda: Graph.compile(make_graph(take), registry_of(take)).run({"x": bad}))
 
 
 def _constant(hint: Any, good: Any, bad: Any) -> list[Problem]:
@@ -244,7 +244,7 @@ def _answer(hint: Any, good: Any, bad: Any) -> list[Problem]:
             definition := node("ask", title="Ask", description="For a test.", asks=True)(ask)
         ),
         registry_of(definition),
-    ).run(text="a")
+    ).run({"text": "a"})
     return _refused(lambda: run.answer(run.waiting[0], bad))
 
 
@@ -273,7 +273,7 @@ def _saved_input(hint: Any, good: Any, bad: Any) -> list[Problem]:
         return "ok"
 
     graph = Graph.compile(make_graph(take), registry_of(take))
-    saved = graph.run(x=good).to_json().replace(f'"x":{_json(good)}', f'"x":{_json(bad)}')
+    saved = graph.run({"x": good}).to_json().replace(f'"x":{_json(good)}', f'"x":{_json(bad)}')
     assert _json(bad) in saved
     return _refused(lambda: Run.from_json(saved, graph))
 

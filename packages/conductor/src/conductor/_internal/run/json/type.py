@@ -75,7 +75,7 @@ class SavedOutcomes(BaseModel):
 class SavedReusable(BaseModel):
     r"""The outcomes of one node that a run may still reuse from a previous run, in a saved run.
 
-    Say the README run has finished, and ``run.with_inputs(text="a\nb\nd")`` makes a new run. The new run may reuse
+    Say the README run has finished, and ``run.with_inputs({"text": "a\nb\nd"})`` makes a new run. The new run may reuse
     the three outcomes of ``shout``. Before it has called anything, it saves them as::
 
         "shout": {"outcomes": {"states": ["done", "done", "done"], "outputs": {"result": ["A!", "B!", "C!"]}},

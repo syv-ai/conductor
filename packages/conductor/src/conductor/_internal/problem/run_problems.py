@@ -41,7 +41,7 @@ def ask_not_declared(*loc: str | int) -> str:
             raise Ask("Sure?")
 
 
-        why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run(text="a"))
+        why_it_stopped(Graph.compile(make_graph(confirm_quietly), registry).run({"text": "a"}))
     """
     return "The node asked a person, but its @node doesn't say it may. Add asks=True to its @node."
 
@@ -60,7 +60,7 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
             doesn't quote it.
 
     Example:
-        waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
+        waiting = Graph.compile(make_graph(approve), registry).run({"amount": 5000})
         why_it_stopped(waiting.decline(waiting.waiting[0], reason="Over budget"))
     """
     return "The question was declined, so the call failed. Call resume() to ask it again."
@@ -88,7 +88,7 @@ def execution_failed(*loc: str | int, error: str) -> str:
             return 1 / n
 
 
-        why_it_stopped(Graph.compile(make_graph(divide), registry).run(n=0))
+        why_it_stopped(Graph.compile(make_graph(divide), registry).run({"n": 0}))
     """
     return (
         f"The node raised {error}, which isn't retried: only an ExternalError, or a class in Policy(retry_on=), is."
@@ -115,7 +115,7 @@ def external_failed(*loc: str | int, error: str | None = None) -> str:
             raise ConnectionError(url)
 
 
-        why_it_stopped(Graph.compile(make_graph(fetch), registry).run(url="https://example.com"))
+        why_it_stopped(Graph.compile(make_graph(fetch), registry).run({"url": "https://example.com"}))
     """
     return "A call to an outside service failed."
 
@@ -139,7 +139,7 @@ def node_error(*loc: str | int) -> str:
             raise NodeError("The document could not be read.")
 
 
-        why_it_stopped(Graph.compile(make_graph(read_pdf), registry).run(path="a.pdf"))
+        why_it_stopped(Graph.compile(make_graph(read_pdf), registry).run({"path": "a.pdf"}))
     """
     return "The node reported a failure."
 
@@ -163,7 +163,7 @@ def invalid_ask(*loc: str | int, reason: str) -> str:
             raise Ask("Sure?", default="maybe")
 
 
-        why_it_stopped(Graph.compile(make_graph(confirm), registry).run(text="a"))
+        why_it_stopped(Graph.compile(make_graph(confirm), registry).run({"text": "a"}))
     """
     return f"The node's Ask doesn't fit its outputs: {reason.rstrip('.')}. Fix the Ask."
 
@@ -210,7 +210,7 @@ def invalid_edge_value(
             return n
 
 
-        why_it_stopped(Graph.compile(make_graph(letters, small), registry).run(text="many letters"))
+        why_it_stopped(Graph.compile(make_graph(letters, small), registry).run({"text": "many letters"}))
     """
     return (
         f"The value an edge gave '{name}' isn't one it takes: {reason.rstrip('.')}. "
@@ -253,7 +253,7 @@ def invalid_output(
             return text  # type: ignore[return-value]
 
 
-        why_it_stopped(Graph.compile(make_graph(guess), registry).run(text="12"))
+        why_it_stopped(Graph.compile(make_graph(guess), registry).run({"text": "12"}))
     """
     return f"The node's return doesn't fit its outputs: {reason.rstrip('.')}. Fix what the node returns."
 
@@ -273,7 +273,7 @@ def item_limit(*loc: str | int, series: str, items: int, max_items: int) -> str:
         max_items: The run's item limit.
 
     Example:
-        why_it_stopped(Graph.compile(make_graph(words, upper), registry).run(text="a b c", max_items=2))
+        why_it_stopped(Graph.compile(make_graph(words, upper), registry).run({"text": "a b c"}, max_items=2))
     """
     return f"{series} has {items} items, more than this run's max_items of {max_items}. Raise max_items and resume the run."
 
@@ -299,7 +299,7 @@ def question_unwritable(*loc: str | int, error: str, input: str) -> str:  # noqa
             raise Ask("Send this file?")
 
 
-        why_it_stopped(Graph.compile(make_graph(approve_file), registry).run(data=b"\\xff"))
+        why_it_stopped(Graph.compile(make_graph(approve_file), registry).run({"data": b"\\xff"}))
     """
     return (
         f"The node asked a person, but its input '{input}' can't be written as JSON to show them: writing it raised {error}. "
@@ -317,7 +317,7 @@ def run_cancelled() -> str:
         async def cancelled() -> Run:
             stop = asyncio.Event()
             stop.set()
-            async for event in Graph.compile(make_graph(upper), registry).with_inputs(text="a").stream(cancel=stop):
+            async for event in Graph.compile(make_graph(upper), registry).with_inputs({"text": "a"}).stream(cancel=stop):
                 if event.type == "run_end":
                     return event.run
             raise AssertionError("the stream ended without a run_end event")
@@ -345,7 +345,7 @@ def run_timed_out(*, timeout: float) -> str:
             return text
 
 
-        why_it_stopped(Graph.compile(make_graph(slow, upper), registry).run(text="a", timeout=0.05))  # upper is never called
+        why_it_stopped(Graph.compile(make_graph(slow, upper), registry).run({"text": "a"}, timeout=0.05))  # upper is never called
     """
     return f"The run took longer than its timeout of {timeout} seconds, so it stopped. Resume it to go on from where it stopped."
 
@@ -369,7 +369,7 @@ def timeout(*loc: str | int, seconds: float) -> str:
             return text
 
 
-        why_it_stopped(Graph.compile(make_graph(stuck), registry).run(text="a"))
+        why_it_stopped(Graph.compile(make_graph(stuck), registry).run({"text": "a"}))
     """
     return (
         f"The node didn't return within {seconds} seconds, and a timed-out call isn't retried."

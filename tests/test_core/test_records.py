@@ -108,7 +108,7 @@ def _graph(source: Any = contacts) -> Any:
 )
 def test_a_node_receives_plain_records_whichever_way_the_series_was_returned(source: Any) -> None:
     RECEIVED.clear()
-    run = _graph(source).run(text="x")
+    run = _graph(source).run({"text": "x"})
 
     assert run.outputs == {
         "greet": ["hi ida", "hi bo"],
@@ -128,7 +128,7 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
     None
 ):
     graph = _graph()
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     saved = json.loads(run.to_json())
     assert saved["outcomes"]["c"]["outputs"]["result"] == [
@@ -139,7 +139,7 @@ def test_a_series_returned_as_a_table_is_kept_and_saved_as_that_table_with_only_
             ]
         }
     ]
-    assert json.loads(_graph(listed).run(text="x").to_json())["outcomes"]["c"]["outputs"][
+    assert json.loads(_graph(listed).run({"text": "x"}).to_json())["outcomes"]["c"]["outputs"][
         "result"
     ] == [[{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]]
 
@@ -176,7 +176,7 @@ def test_a_table_returned_for_a_series_of_records_is_checked_column_by_column_an
     def wrong(text: str) -> Series[Contact]:
         return frame  # type: ignore[return-value]
 
-    run = Graph.compile(make_graph(wrong), registry_of(wrong)).run(text="x")
+    run = Graph.compile(make_graph(wrong), registry_of(wrong)).run({"text": "x"})
 
     assert (run.status, run.cause.type, run.cause.ctx["reason"], run.cause.ctx["column"]) == (
         "failed",
@@ -198,7 +198,7 @@ def test_a_missing_column_is_column_missing_whether_the_table_is_a_frame_or_reco
     def wrong(text: str) -> Table[Contact]:
         return returned  # type: ignore[no-any-return]
 
-    cause = Graph.compile(make_graph(wrong), registry_of(wrong)).run(text="x").cause
+    cause = Graph.compile(make_graph(wrong), registry_of(wrong)).run({"text": "x"}).cause
 
     assert (cause.ctx["reason"], [error["type"] for error in cause.ctx["errors"]]) == (
         "the column 'name' is missing, and the row type needs it",
@@ -224,7 +224,7 @@ def test_a_field_missing_inside_a_cell_is_not_called_a_missing_column() -> None:
     def priced(text: str) -> Table[Priced]:
         return [{"name": "a", "price": {"amount": 1}}]  # type: ignore[return-value]
 
-    cause = Graph.compile(make_graph(priced), registry_of(priced)).run(text="x").cause
+    cause = Graph.compile(make_graph(priced), registry_of(priced)).run({"text": "x"}).cause
 
     assert (cause.ctx["reason"], cause.ctx["column"], cause.ctx["errors"][0]["type"]) == (
         "column 'price': the field 'currency' is required",
@@ -239,7 +239,7 @@ def test_a_table_returned_for_texts_or_dicts_of_one_type_fails_the_run(returns: 
     def texts(text: str) -> returns:  # type: ignore[valid-type]
         return FRAME
 
-    run = Graph.compile(make_graph(texts), registry_of(texts)).run(text="x")
+    run = Graph.compile(make_graph(texts), registry_of(texts)).run({"text": "x"})
 
     assert (run.status, run.cause.type) == ("failed", "invalid_output")
 
@@ -258,7 +258,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records(returns: Any) -> None
         make_graph(anything, show, edges=[("anything.result", "show.record")]),
         registry_of(anything, show),
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.outputs["result"] == [
         "{'name': 'ida', 'email': 'ida@x.dk', 'age': 41}",
@@ -268,7 +268,7 @@ def test_a_table_of_any_columns_is_a_series_of_its_records(returns: Any) -> None
 
 
 def test_a_series_of_records_kept_as_a_table_counts_its_rows_against_the_item_limit() -> None:
-    run = _graph().run(text="x", max_items=1)
+    run = _graph().run({"text": "x"}, max_items=1)
 
     assert (run.status, run.cause.type, run.cause.ctx["items"]) == ("stopped", "item_limit", 2)
 
@@ -315,7 +315,7 @@ def test_a_series_of_records_returned_per_item_inside_a_subgraph_reaches_a_serie
         registry,
     )
     RECEIVED.clear()
-    run = graph.run(text="x,y")
+    run = graph.run({"text": "x,y"})
 
     records = [{"name": "ida", "email": "ida@x.dk"}, {"name": "bo", "email": None}]
     assert (run.status, run.outputs["result"]) == ("complete", [2, 2]) and RECEIVED == [
@@ -339,7 +339,7 @@ def test_one_record_of_five_without_the_field_an_edge_reads_fails_only_the_call_
         make_graph(five, greet, edges=[("five.result.name", "greet.name")]),
         registry_of(five, greet),
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     cause = run.cause
     assert (run.status, cause.type, cause.loc, cause.ctx["record_field"]) == (
@@ -367,7 +367,7 @@ def test_a_table_input_wired_to_a_series_stored_as_a_table_is_called_with_that_t
         make_graph(contacts, rows, edges=[("contacts.result", "rows.table")]),
         registry_of(contacts, rows),
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.outputs == {"result": 2} and got[0].to_dicts() == [
         {"name": "ida", "email": "ida@x.dk"},
@@ -400,7 +400,7 @@ def test_a_table_input_loses_the_rows_another_input_of_the_same_series_has_no_va
         ),
         registry_of(contacts, mail, both),
     )
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
 
     assert run.outputs["result"] == 1  # bo has no email, so mail isn't called for him
     assert got[0][0].to_dicts() == [{"name": "ida", "email": "ida@x.dk"}] and got[0][1] == [
@@ -418,15 +418,15 @@ def test_a_call_that_takes_a_table_is_reused_when_the_table_has_the_same_cells()
 
     graph = Graph.compile(make_graph(height), registry_of(height))
     frame = pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})
-    run = graph.run(table=frame)
+    run = graph.run({"table": frame})
 
-    run = run.again(table=pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]}))
+    run = run.again({"table": pl.DataFrame({"name": ["ida", "bo"], "age": [41, 52]})})
     assert len(calls) == 1  # the same cells, so the call is reused
     for changed in (
         pl.DataFrame({"name": ["ida", "bo"], "age": [41, 53]}),
         frame.rename({"age": "years"}),
     ):
-        run = run.again(table=changed)
+        run = run.again({"table": changed})
     assert len(calls) == 3
 
 
@@ -459,7 +459,7 @@ def test_a_table_returned_as_the_records_of_another_output_is_written_under_both
     None
 ):
     graph = _people_as_records()
-    run = graph.run(text="x")
+    run = graph.run({"text": "x"})
     saved = json.loads(run.to_json())
 
     assert (
@@ -476,7 +476,7 @@ def test_a_table_returned_as_the_records_of_another_output_is_written_under_both
 
 def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused() -> None:
     graph = _people_as_records()
-    saved = json.loads(graph.run(text="x").to_json())
+    saved = json.loads(graph.run({"text": "x"}).to_json())
     saved["outcomes"]["records"]["outputs"]["result"] = [None]  # not listed under "skipped"
 
     with pytest.raises(InvalidCallError) as refused:
@@ -495,7 +495,7 @@ def test_the_json_a_host_gets_for_a_table_goes_into_polars_and_into_pandas_in_on
     import pandas as pd
 
     graph = Graph.compile(make_graph(people), registry_of(people))
-    table = json.loads(graph.run(text="x").outputs_to_json())["result"]
+    table = json.loads(graph.run({"text": "x"}).outputs_to_json())["result"]
 
     in_polars = pl.DataFrame({c["name"]: c["values"] for c in table["columns"]})
     in_pandas = pd.DataFrame({c["name"]: c["values"] for c in table["columns"]})

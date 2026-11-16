@@ -104,7 +104,7 @@ def test_a_code_fingerprint_is_the_same_on_every_compile_and_names_the_loop_the_
 
     def digest(first: Any) -> str:
         graph = Graph.compile(make_graph(first, upper), registry_of(first, upper))
-        return json.loads(graph.run(text="a").to_json())["code"]["upper"]
+        return json.loads(graph.run({"text": "a"}).to_json())["code"]["upper"]
 
     assert digest(words) == digest(words) != digest(letters)
 
@@ -433,7 +433,7 @@ def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened
             raise ConnectionError("the bank is down")
         return n
 
-    prepared = Graph.compile(make_graph(bank), registry_of(bank)).with_inputs(n=1)
+    prepared = Graph.compile(make_graph(bank), registry_of(bank)).with_inputs({"n": 1})
 
     async def streamed() -> Any:
         return [event async for event in prepared.stream()][-1].run
@@ -463,7 +463,7 @@ def test_more_than_a_thousand_retries_with_no_delay_keep_retrying_until_the_call
             raise ExternalError("not yet")
         return len(tries)
 
-    run = Graph.compile(make_graph(poll), registry_of(poll)).run(n=1)
+    run = Graph.compile(make_graph(poll), registry_of(poll)).run({"n": 1})
 
     assert (run.status, run.outputs) == ("complete", {"result": 1101})
 
@@ -621,10 +621,10 @@ def _mails() -> tuple[Any, list[str]]:
 
 def test_a_changed_item_is_called_again_at_every_downstream_node_and_nothing_else_is():
     graph, sent = _mails()
-    first = graph.run(items=["ida", "bo", "al"])
+    first = graph.run({"items": ["ida", "bo", "al"]})
     sent.clear()
 
-    again = first.again(items=["ida", "bob", "al"])
+    again = first.again({"items": ["ida", "bob", "al"]})
 
     assert sent == ["bob", "confirm sent bob"]
     assert again.results["confirm"]["result"] == ["SENT IDA", "SENT BOB", "SENT AL"]
@@ -632,26 +632,26 @@ def test_a_changed_item_is_called_again_at_every_downstream_node_and_nothing_els
 
 def test_an_item_inserted_first_or_a_duplicate_taken_out_reuses_the_other_items():
     graph, sent = _mails()
-    first = graph.run(items=["ida", "ida", "bo"])
+    first = graph.run({"items": ["ida", "ida", "bo"]})
     sent.clear()
 
-    assert first.again(items=["eva", "ida", "bo"]).results["mail"]["result"] == [
+    assert first.again({"items": ["eva", "ida", "bo"]}).results["mail"]["result"] == [
         "sent eva",
         "sent ida",
         "sent bo",
     ]
     assert sent == ["eva", "confirm sent eva"]
     sent.clear()
-    first.again(items=["ida", "bo"])
+    first.again({"items": ["ida", "bo"]})
     assert sent == []
 
 
 def test_a_run_with_changed_inputs_streams_and_a_node_entirely_reused_says_how_much():
     graph, sent = _mails()
-    first = graph.run(items=["ida", "bo"])
+    first = graph.run({"items": ["ida", "bo"]})
     sent.clear()
 
-    events = _events(first.with_inputs(items=["ida", "bo", "al"]))
+    events = _events(first.with_inputs({"items": ["ida", "bo", "al"]}))
 
     completed = {e.loc[0]: e.reused for e in events if e.type == "node_complete"}
     assert sent == ["al", "confirm sent al"] and completed == {"each": 0, "mail": 2, "confirm": 2}
@@ -667,10 +667,10 @@ def test_a_series_input_reordered_is_called_again_and_one_unchanged_is_reused():
         return "+".join(texts)
 
     graph = Graph.compile(_record({"j": join_texts}), registry_of(join_texts))
-    first = graph.run(texts=["a", "b"])
+    first = graph.run({"texts": ["a", "b"]})
 
-    first.again(texts=["a", "b"])
-    first.again(texts=["b", "a"])
+    first.again({"texts": ["a", "b"]})
+    first.again({"texts": ["b", "a"]})
 
     assert calls == [["a", "b"], ["b", "a"]]
 
@@ -684,8 +684,8 @@ def test_a_dict_given_again_in_another_key_order_is_reused():
         return 1
 
     graph = Graph.compile(_record({"t": take_mapping}), registry_of(take_mapping))
-    first = Run.from_json(graph.run(value={"a": 1, "b": 2}).to_json(), graph)
-    first.again(value={"b": 2, "a": 1})
+    first = Run.from_json(graph.run({"value": {"a": 1, "b": 2}}).to_json(), graph)
+    first.again({"value": {"b": 2, "a": 1}})
 
     assert calls == [{"a": 1, "b": 2}]
 
@@ -699,9 +699,9 @@ def test_values_that_compare_equal_but_differ_in_type_are_never_reused_for_each_
         return repr(value)
 
     graph = Graph.compile(_record({"e": echo_any}), registry_of(echo_any))
-    run = graph.run(value=1)
+    run = graph.run({"value": 1})
     for value in (1, "1", True, 1.0, [1], {"a": 1}):
-        run = run.again(value=value)
+        run = run.again({"value": value})
 
     assert calls == [1, "1", True, 1.0, [1], {"a": 1}]
 
@@ -729,8 +729,8 @@ def test_a_value_with_no_json_form_is_called_again_and_never_fails_the_run():
         return "used"
 
     graph = Graph.compile(make_graph(make, use), registry_of(make, use))
-    first = graph.run(text="a")
-    again = first.again(text="a")
+    first = graph.run({"text": "a"})
+    again = first.again({"text": "a"})
 
     assert again.status == "complete" and again.outputs == {"result": "used"}
     assert len(calls) == 2
@@ -745,11 +745,11 @@ def test_an_answer_stays_with_its_item_when_an_item_is_inserted_first_and_an_edi
         _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
         registry_of(_each, approve),
     )
-    run = graph.run(items=["ida", "bo"])
+    run = graph.run({"items": ["ida", "bo"]})
     run = run.answer("a@0", True).answer("a@1", False).resume()
 
-    moved = run.again(items=["eva", "ida", "bo"])
-    edited = run.again(items=["ida", "bob"])
+    moved = run.again({"items": ["eva", "ida", "bo"]})
+    edited = run.again({"items": ["ida", "bob"]})
 
     assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [
         None,
@@ -862,11 +862,11 @@ def test_a_document_inserted_first_is_the_only_one_read_and_the_others_lines_mov
         ),
         registry_of(_docs, lines, _line_records, shout),
     )
-    first = graph.run(text="a,b|c")
+    first = graph.run({"text": "a,b|c"})
     read.clear()
     upper_calls.clear()
 
-    again = first.again(text="x|a,b|c")
+    again = first.again({"text": "x|a,b|c"})
 
     assert read == ["x"] and upper_calls == ["x"]
     assert again.results["s"]["result"] == [["X"], ["A", "B"], ["C"]]
@@ -934,11 +934,11 @@ def _filtered(threshold_default: int = 2) -> tuple[Any, list[str], list[str]]:
 
 def test_a_row_the_filter_drops_inserted_first_leaves_the_reader_of_the_filtered_table_uncalled():
     graph, filtered, counted = _filtered()
-    first = graph.run(text="name,age\nida,30\nbo,40\n")
+    first = graph.run({"text": "name,age\nida,30\nbo,40\n"})
     filtered.clear()
     counted.clear()
 
-    again = first.again(text="name,age\neva,1\nida,30\nbo,40\n")
+    again = first.again({"text": "name,age\neva,1\nida,30\nbo,40\n"})
 
     assert filtered == ["called"] and counted == []
     assert again.outputs == {"result": "ida,bo"}
@@ -946,10 +946,10 @@ def test_a_row_the_filter_drops_inserted_first_leaves_the_reader_of_the_filtered
 
 def test_equal_tables_from_two_filter_settings_reuse_the_downstream_reader():
     graph, filtered, counted = _filtered()
-    first = graph.run(text="name,age\nida,30\nbo,40\n", min=2)
+    first = graph.run({"text": "name,age\nida,30\nbo,40\n", "min": 2})
     counted.clear()
 
-    again = first.again(min=10)
+    again = first.again({"min": 10})
 
     assert filtered == ["called", "called"] and counted == []
     assert again.outputs == {"result": "ida,bo"}
@@ -998,9 +998,9 @@ def test_a_reused_series_and_items_called_afresh_line_up_item_by_item_after_a_do
         ),
         registry_of(_docs, words, stamp, show),
     )
-    first = graph.run(text="a,b|c")
+    first = graph.run({"text": "a,b|c"})
 
-    again = first.again(text="x,y,z|a,b|c")
+    again = first.again({"text": "x,y,z|a,b|c"})
 
     assert first.results["s"]["result"] == ["a=<a>;b=<b>", "c=<c>"]
     assert again.results["s"]["result"] == ["x=<x>;y=<y>;z=<z>", "a=<a>;b=<b>", "c=<c>"]
@@ -1054,10 +1054,10 @@ def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constan
         ),
         registry_of(_docs, same, label, pair, inner),
     )
-    first = graph.run(text="a|b|c")
+    first = graph.run({"text": "a|b|c"})
 
-    again = first.again(text=rows.replace(",", "|"))
-    direct = graph.run(text=rows.replace(",", "|"))
+    again = first.again({"text": rows.replace(",", "|")})
+    direct = graph.run({"text": rows.replace(",", "|")})
 
     assert again.status == "complete" and again.results == direct.results
     assert again.results["t"]["result"] == [f"p:{r}" for r in rows.split(",")]
@@ -1065,9 +1065,9 @@ def test_again_with_changed_items_upstream_of_a_subgraph_gives_its_inner_constan
 
 def test_an_input_given_again_overrides_the_first_value_and_the_previous_run_is_unchanged():
     graph, sent = _mails()
-    first = graph.run(items=["ida"])
+    first = graph.run({"items": ["ida"]})
 
-    prepared = first.with_inputs(items=["bo"])
+    prepared = first.with_inputs({"items": ["bo"]})
     again = prepared.resume()
 
     assert "items" in graph.inputs
@@ -1135,16 +1135,16 @@ def _csv_mails() -> tuple[Any, list[str]]:
 
 def test_a_sorted_csv_or_an_edit_to_a_column_nothing_reads_sends_no_mail_and_a_changed_body_sends_every_one():
     graph, sent = _csv_mails()
-    first = graph.run(text="name,email\nida,i@a.dk\nbo,b@a.dk\n")
+    first = graph.run({"text": "name,email\nida,i@a.dk\nbo,b@a.dk\n"})
     sent.clear()
 
-    sorted_ = first.again(text="name,email\nbo,b@a.dk\nida,i@a.dk\n")
-    renamed = first.again(text="name,email\nIda,i@a.dk\nBo,b@a.dk\n")
+    sorted_ = first.again({"text": "name,email\nbo,b@a.dk\nida,i@a.dk\n"})
+    renamed = first.again({"text": "name,email\nIda,i@a.dk\nBo,b@a.dk\n"})
     assert sent == []
     assert sorted_.results["m"]["result"] == ["hej b@a.dk", "hej i@a.dk"]
     assert renamed.results["m"]["result"] == ["hej i@a.dk", "hej b@a.dk"]
 
-    new_body = first.again(body="hi")
+    new_body = first.again({"body": "hi"})
 
     assert sent == ["i@a.dk", "b@a.dk"] and new_body.results["m"]["result"] == [
         "hi i@a.dk",
@@ -1165,10 +1165,10 @@ def test_a_document_inserted_first_in_a_nested_loop_calls_only_its_own_items():
         return text.upper()
 
     graph = Graph.compile(make_graph(_docs, words, shout), registry_of(_docs, words, shout))
-    first = graph.run(text="a,b|c")
+    first = graph.run({"text": "a,b|c"})
     calls.clear()
 
-    again = first.again(text="x,y|a,b|c")
+    again = first.again({"text": "x,y|a,b|c"})
 
     assert calls == ["x", "y"]
     assert again.results["shout"]["result"] == [["X", "Y"], ["A", "B"], ["C"]]
@@ -1186,9 +1186,9 @@ def _approvals() -> Any:
 
 
 def test_each_item_still_waiting_after_again_is_announced_on_the_stream():
-    run = _approvals().run(items=["ida", "bo"])
+    run = _approvals().run({"items": ["ida", "bo"]})
 
-    events = _events(run.with_inputs(items=["eva", "ida", "bo"]))
+    events = _events(run.with_inputs({"items": ["eva", "ida", "bo"]}))
 
     assert [place(e.waiting) for e in events if e.type == "node_waiting"] == ["a@0", "a@1", "a@2"]
     assert events[-1].status == "waiting"
@@ -1209,10 +1209,10 @@ def test_an_again_that_fails_before_it_reaches_the_old_items_still_reuses_them_o
         _record({"each": _each, "m": mail_or_fail}, [("each.result", "m.to")]),
         registry_of(_each, mail_or_fail),
     )
-    first = graph.run(items=["ida", "bo"])
+    first = graph.run({"items": ["ida", "bo"]})
     sent.clear()
 
-    failed = first.again(items=["eva", "ida", "bo"])
+    failed = first.again({"items": ["eva", "ida", "bo"]})
     assert failed.status == "failed" and sent == ["eva"]
     broken["on"] = False
     resumed = Run.from_json(failed.to_json(), graph).resume()
@@ -1226,12 +1226,12 @@ def test_an_again_that_fails_before_it_reaches_the_old_items_still_reuses_them_o
 
 def test_an_again_cancelled_before_the_node_runs_then_resumed_sends_only_the_new_mail():
     graph, sent = _mails()
-    first = graph.run(items=["ida", "bo"])
+    first = graph.run({"items": ["ida", "bo"]})
     sent.clear()
     cancel = AsyncioEvent()
     cancel.set()
 
-    stopped = _events(first.with_inputs(items=["ida", "bo", "al"]), cancel=cancel)[-1].run
+    stopped = _events(first.with_inputs({"items": ["ida", "bo", "al"]}), cancel=cancel)[-1].run
     assert stopped.status == "cancelled"
     resumed = Run.from_json(stopped.to_json(), graph).resume()
 
@@ -1261,10 +1261,15 @@ def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
         ),
         registry_of(_each, approve, mail),
     )
-    run = graph.run(items=["ida", "bo"]).answer("a@0", "ida@a.dk").answer("a@1", "bo@a.dk").resume()
+    run = (
+        graph.run({"items": ["ida", "bo"]})
+        .answer("a@0", "ida@a.dk")
+        .answer("a@1", "bo@a.dk")
+        .resume()
+    )
     sent.clear()
 
-    again = run.again(items=["ida", "bo", "al"])
+    again = run.again({"items": ["ida", "bo", "al"]})
     assert [place(w) for w in again.waiting] == ["a@2"]
     done = again.answer("a@2", "al@a.dk").resume()
 
@@ -1277,10 +1282,10 @@ def test_after_an_answered_question_again_with_one_item_added_sends_one_mail():
 
 def test_a_third_run_reuses_what_the_second_had_itself_reused():
     graph, sent = _mails()
-    second = graph.run(items=["ida", "bo"]).again(items=["ida", "bo", "al"])
+    second = graph.run({"items": ["ida", "bo"]}).again({"items": ["ida", "bo", "al"]})
     sent.clear()
 
-    third = second.again(items=["ida", "bo", "al", "eva"])
+    third = second.again({"items": ["ida", "bo", "al", "eva"]})
 
     assert sent == ["eva", "confirm sent eva"] and third.results["mail"]["result"][:2] == [
         "sent ida",
@@ -1293,7 +1298,7 @@ def test_again_cancelled_and_resumed_reuses_what_again_run_to_the_end_reuses():
     graph, sent = _mails()
     names = ["ida", "bo", "al", "eva", "kim"]
     items = ["ida", "bo"]
-    run = graph.run(items=items)
+    run = graph.run({"items": items})
     cancel = AsyncioEvent()
     cancel.set()
     for _ in range(20):
@@ -1306,10 +1311,10 @@ def test_again_cancelled_and_resumed_reuses_what_again_run_to_the_end_reuses():
         else:
             rng.shuffle(edited)
         sent.clear()
-        direct = run.again(items=edited)
+        direct = run.again({"items": edited})
         direct_calls = sorted(sent)
         sent.clear()
-        stopped = _events(run.with_inputs(items=edited), cancel=cancel)[-1].run
+        stopped = _events(run.with_inputs({"items": edited}), cancel=cancel)[-1].run
         through = Run.from_json(stopped.to_json(), graph).resume()
         assert sorted(sent) == direct_calls and through.results == direct.results
         run, items = direct, edited
@@ -1338,7 +1343,7 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
         ),
         registry_of(_each, only_long, shout),
     )
-    first = graph.run(items=["a", "abc", "b"])
+    first = graph.run({"items": ["a", "abc", "b"]})
     assert first.results["o"] == {"result": [None, "abc", None]} and first.results["s"] == {
         "result": [None, "ABC", None]
     }
@@ -1355,7 +1360,7 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
         if e.type == "node_complete" and e.loc == ("o",)
     ] == [(3, 3)]
     assert again.results == first.results == read_back_again.results and first.not_called == []
-    nothing_long = _events(graph.with_inputs(items=["a", "b"]))
+    nothing_long = _events(graph.with_inputs({"items": ["a", "b"]}))
     assert [
         (e.loc, e.count.finished, e.count.skipped)
         for e in nothing_long
@@ -1369,7 +1374,7 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
 def test_a_first_run_reports_no_reuse():
     graph, _ = _mails()
 
-    events = _events(graph.with_inputs(items=["ida", "bo"]))
+    events = _events(graph.with_inputs({"items": ["ida", "bo"]}))
 
     assert {e.loc[0]: e.reused for e in events if e.type == "node_complete"} == {
         "each": 0,
@@ -1380,10 +1385,10 @@ def test_a_first_run_reports_no_reuse():
 
 def test_a_run_with_changed_inputs_not_yet_started_shows_no_results():
     graph, sent = _mails()
-    first = graph.run(items=["ida"])
+    first = graph.run({"items": ["ida"]})
     sent.clear()
 
-    prepared = first.with_inputs(items=["ida", "bo"])
+    prepared = first.with_inputs({"items": ["ida", "bo"]})
 
     assert prepared.status == "ready" and sent == []
     assert prepared.results == {
@@ -1402,9 +1407,9 @@ def test_an_input_is_compared_for_reuse_as_its_type_reads_it_so_2_and_2_0_are_on
         return x / 2
 
     graph = Graph.compile(_record({"h": half}), registry_of(half))
-    first = graph.run(x=2)
+    first = graph.run({"x": 2})
 
-    again = first.again(x=2.0)
+    again = first.again({"x": 2.0})
 
     assert calls == [2.0] and again.outputs == {"result": 1.0}
 
@@ -1423,7 +1428,7 @@ def test_a_table_column_its_row_type_doesnt_name_reads_back_from_json_as_written
         )
 
     graph = Graph.compile(_record({"m": mixed}), registry_of(mixed))
-    frame = Run.from_json(graph.run(text="a").to_json(), graph).results["m"]["result"]
+    frame = Run.from_json(graph.run({"text": "a"}).to_json(), graph).results["m"]["result"]
 
     assert frame.schema == pl.Schema(
         {"when": pl.Date, "at": pl.Time, "x": pl.Float64, "n": pl.Int64}
@@ -1461,7 +1466,7 @@ def test_waiting_items_and_a_saved_run_keep_node_then_item_order_whatever_thread
 
     graph = Graph.compile(make_graph(split, slow_ask), registry_of(split, slow_ask))
     for _ in range(3):
-        run = graph.run(text=",".join("abcdefgh"))
+        run = graph.run({"text": ",".join("abcdefgh")})
         assert [place(w) for w in run.waiting] == [f"slow-ask@{i}" for i in range(8)]
         assert [
             question["prompt"]
@@ -1479,7 +1484,7 @@ def test_a_saved_run_that_does_not_fit_is_refused_naming_where_and_never_with_a_
         return text
 
     graph = Graph.compile(make_graph(split, echo), registry_of(split, echo))
-    saved = json.loads(graph.run(text="a,b,c").to_json())
+    saved = json.loads(graph.run({"text": "a,b,c"}).to_json())
     for tamper, at in (
         (lambda s: s["outcomes"]["echo"]["states"].append(None), "outcomes.echo"),
         (lambda s: s["outcomes"]["echo"]["outputs"]["result"].pop(), "outcomes.echo"),
@@ -1509,7 +1514,7 @@ def _answered(names: list[str], answers: list[bool]) -> Any:
         _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
         registry_of(_each, approve),
     )
-    run = graph.run(items=names)
+    run = graph.run({"items": names})
     return run.answer(
         {w.id: answer for w, answer in zip(run.waiting, answers, strict=True)}
     ).resume()
@@ -1522,7 +1527,7 @@ def test_identical_items_keep_their_own_answers_kth_to_kth_when_an_item_is_inser
     """
     run = _answered(["bo", "bo", "al"], [True, False, True])
 
-    moved = run.again(items=["eva", "bo", "bo", "al"])
+    moved = run.again({"items": ["eva", "bo", "bo", "al"]})
 
     assert [place(w) for w in moved.waiting] == ["a@0"] and moved.results["a"]["result"] == [
         None,
@@ -1530,13 +1535,13 @@ def test_identical_items_keep_their_own_answers_kth_to_kth_when_an_item_is_inser
         False,
         True,
     ]
-    assert run.again(items=["bo", "bo", "al"]).results["a"]["result"] == [True, False, True]
+    assert run.again({"items": ["bo", "bo", "al"]}).results["a"]["result"] == [True, False, True]
 
 
 def test_identical_answered_items_keep_their_answers_in_order_when_they_all_move_and_through_json():
     run = _answered(["bo", "al", "bo"], [True, True, False])
 
-    moved = Run.from_json(run.to_json(), run.graph).again(items=["al", "bo", "bo"])
+    moved = Run.from_json(run.to_json(), run.graph).again({"items": ["al", "bo", "bo"]})
 
     assert moved.results["a"]["result"] == [True, True, False] and moved.waiting == []
 
@@ -1544,7 +1549,7 @@ def test_identical_answered_items_keep_their_answers_in_order_when_they_all_move
 def test_a_third_identical_item_is_asked_and_two_previous_answers_cover_only_two_items():
     run = _answered(["bo", "bo"], [True, False])
 
-    more = run.again(items=["bo", "bo", "bo"])
+    more = run.again({"items": ["bo", "bo", "bo"]})
 
     assert [place(w) for w in more.waiting] == ["a@2"] and more.results["a"]["result"] == [
         True,
@@ -1573,10 +1578,10 @@ def test_a_node_that_may_ask_reuses_each_return_once_in_item_order_and_calls_aga
     graph = Graph.compile(
         _record({"each": _each, "s": stamp}, [("each.result", "s.name")]), registry_of(_each, stamp)
     )
-    first = graph.run(items=["bo", "bo"])
+    first = graph.run({"items": ["bo", "bo"]})
     calls.clear()
 
-    moved = first.with_inputs(items=["al", "bo", "bo", "bo"])
+    moved = first.with_inputs({"items": ["al", "bo", "bo", "bo"]})
     moved = (Run.from_json(moved.to_json(), graph) if through_json else moved).resume()
 
     assert (
@@ -1602,11 +1607,11 @@ def test_identical_lines_answered_differently_under_documents_keep_their_documen
         ),
         registry_of(_each, lines, approve),
     )
-    run = graph.run(items=["d1", "d2"])
+    run = graph.run({"items": ["d1", "d2"]})
     answers = dict(zip([w.id for w in run.waiting], [True, False, False, True], strict=True))
     done = run.answer(answers).resume()
 
-    swapped = done.again(items=["d2", "d1"])
+    swapped = done.again({"items": ["d2", "d1"]})
 
     assert done.results["a"]["result"] == [[True, False], [False, True]]
     assert (
@@ -1625,11 +1630,12 @@ def test_identical_items_share_one_outcome_and_a_third_reuses_it_without_a_call(
     graph = Graph.compile(
         _record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo)
     )
-    run = graph.run(items=["a", "a"])
+    run = graph.run({"items": ["a", "a"]})
     calls.clear()
 
     assert (
-        run.again(items=["a", "a", "a"]).results["e"]["result"] == ["A", "A", "A"] and calls == []
+        run.again({"items": ["a", "a", "a"]}).results["e"]["result"] == ["A", "A", "A"]
+        and calls == []
     )
 
 
@@ -1643,14 +1649,14 @@ def test_each_item_keeps_its_own_outcome_through_a_run_made_and_never_resumed_as
     graph = Graph.compile(
         _record({"each": _each, "t": tag}, [("each.result", "t.text")]), registry_of(_each, tag)
     )
-    run = graph.run(items=["a", "a"])
+    run = graph.run({"items": ["a", "a"]})
     assert run.results["t"]["result"] == ["a first", "a second"]
 
-    edited_and_reverted = run.with_inputs(items=["b"]).with_inputs(items=["a", "a"])
+    edited_and_reverted = run.with_inputs({"items": ["b"]}).with_inputs({"items": ["a", "a"]})
 
     assert edited_and_reverted.resume().results["t"]["result"] == ["a first", "a second"]
-    saved = Run.from_json(run.with_inputs(items=["b"]).to_json(), graph)
-    assert saved.again(items=["a", "a"]).results["t"]["result"] == ["a first", "a second"]
+    saved = Run.from_json(run.with_inputs({"items": ["b"]}).to_json(), graph)
+    assert saved.again({"items": ["a", "a"]}).results["t"]["result"] == ["a first", "a second"]
 
 
 def test_a_saved_run_reuses_what_the_same_run_in_memory_reuses():
@@ -1665,12 +1671,12 @@ def test_a_saved_run_reuses_what_the_same_run_in_memory_reuses():
     graph = Graph.compile(
         _record({"each": _each, "t": tag}, [("each.result", "t.text")]), registry_of(_each, tag)
     )
-    run = graph.run(items=["a", "a"])
+    run = graph.run({"items": ["a", "a"]})
     assert run.results["t"]["result"] == ["a first", "a second"]
     # t gets an outcome of its own at (0,) and isn't complete, so its reusable outcomes stay
-    failed = run.with_inputs(items=["b", "boom"]).resume()
+    failed = run.with_inputs({"items": ["b", "boom"]}).resume()
     assert failed.status == "failed"
-    edited = failed.with_inputs(items=["a", "a"])
+    edited = failed.with_inputs({"items": ["a", "a"]})
     saved = edited.to_json()
 
     in_memory = edited.resume().results["t"]["result"]
@@ -1702,13 +1708,13 @@ def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_w
         ),
         registry_of(_each, approve, mail),
     )
-    first = graph.run(items=["ida", "bo"])
+    first = graph.run({"items": ["ida", "bo"]})
     a = first.answer({w.id: f"{w.inputs['name']}@a.dk" for w in first.waiting}).resume()
-    b = a.again(items=["ida", "bob"])
+    b = a.again({"items": ["ida", "bob"]})
     assert [w.inputs["name"] for w in b.waiting] == ["bob"]
     sent.clear()
 
-    c = Run.from_json(b.to_json(), graph).again(items=["ida", "bo"])
+    c = Run.from_json(b.to_json(), graph).again({"items": ["ida", "bo"]})
 
     assert (
         c.status == "complete"
@@ -1730,12 +1736,12 @@ def test_an_edit_after_a_failed_run_still_reuses_the_outcomes_the_failed_run_had
     graph = Graph.compile(
         _record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo)
     )
-    first = graph.run(items=["a", "b", "c"])
-    failed = first.again(items=["boom", "b", "c"])
+    first = graph.run({"items": ["a", "b", "c"]})
+    failed = first.again({"items": ["boom", "b", "c"]})
     assert failed.status == "failed"
     calls.clear()
 
-    fixed = failed.again(items=["a", "b", "c"])
+    fixed = failed.again({"items": ["a", "b", "c"]})
 
     assert (
         fixed.status == "complete"
@@ -1756,10 +1762,12 @@ def test_an_outcome_a_complete_node_did_not_reuse_is_dropped_so_an_edit_undone_t
         _record({"each": _each, "e": echo}, [("each.result", "e.text")]), registry_of(_each, echo)
     )
     # echo is complete on b, so its outcome for a is dropped
-    second = graph.run(items=["a"]).again(items=["b"])
+    second = graph.run({"items": ["a"]}).again({"items": ["b"]})
     calls.clear()
 
-    assert second.again(items=["a", "b"]).results["e"]["result"] == ["A", "B"] and calls == ["a"]
+    assert second.again({"items": ["a", "b"]}).results["e"]["result"] == ["A", "B"] and calls == [
+        "a"
+    ]
 
 
 def test_a_waiting_call_moves_with_its_item_and_is_not_asked_again():
@@ -1774,10 +1782,10 @@ def test_a_waiting_call_moves_with_its_item_and_is_not_asked_again():
         _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
         registry_of(_each, approve),
     )
-    run = graph.run(items=["ida", "bo"])
+    run = graph.run({"items": ["ida", "bo"]})
     asked.clear()
 
-    moved = run.again(items=["eva", "ida", "bo"])
+    moved = run.again({"items": ["eva", "ida", "bo"]})
 
     assert asked == ["eva"] and [(place(w), w.inputs["name"]) for w in moved.waiting] == [
         ("a@0", "eva"),
@@ -1804,10 +1812,10 @@ def test_a_waiting_call_moves_with_its_item_through_a_cancelled_again():
         _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
         registry_of(_each, approve),
     )
-    run = graph.run(items=["ida", "bo"])
+    run = graph.run({"items": ["ida", "bo"]})
     cancel = AsyncioEvent()
     cancel.set()
-    stopped = _events(run.with_inputs(items=["eva", "ida", "bo"]), cancel=cancel)[-1].run
+    stopped = _events(run.with_inputs({"items": ["eva", "ida", "bo"]}), cancel=cancel)[-1].run
     asked.clear()
 
     resumed = Run.from_json(stopped.to_json(), graph).resume()
@@ -1824,9 +1832,9 @@ def test_an_answer_to_a_call_whose_item_moved_is_answer_stale_naming_the_questio
         _record({"each": _each, "a": approve}, [("each.result", "a.name")]),
         registry_of(_each, approve),
     )
-    first = graph.run(items=["ida", "bo"])
+    first = graph.run({"items": ["ida", "bo"]})
     (_, bo) = first.waiting
-    moved = first.again(items=["ida", "al", "bo"])
+    moved = first.again({"items": ["ida", "al", "bo"]})
 
     with pytest.raises(InvalidCallError) as refused:
         moved.answer(bo.id, True)  # bo's id names a@1, where al's question waits
@@ -1867,9 +1875,9 @@ def test_an_answer_meant_for_one_page_is_never_taken_by_another_page_with_the_sa
         ),
         registry_of(_each, lines, approve),
     )
-    first = graph.run(items=["a,y", "a,x"])
+    first = graph.run({"items": ["a,y", "a,x"]})
     meant = next(w for w in first.waiting if w.loc == ("a", 1, 0))
-    swapped = first.again(items=["a,x", "a,y"])
+    swapped = first.again({"items": ["a,x", "a,y"]})
 
     with pytest.raises(InvalidCallError) as refused:
         swapped.answer(meant.id, True)
@@ -1902,10 +1910,10 @@ def test_an_answer_stays_with_its_item_when_the_node_reads_the_item_only_through
         ),
         registry_of(_each, size, approve),
     )
-    first = graph.run(items=["ab", "cd"])
+    first = graph.run({"items": ["ab", "cd"]})
     answered = first.answer(next(w.id for w in first.waiting if w.loc == ("a", 0)), True)
 
-    swapped = answered.again(items=["cd", "ab"])
+    swapped = answered.again({"items": ["cd", "ab"]})
 
     assert [w.loc for w in swapped.waiting] == [("a", 0)]
     assert swapped.results["a"]["result"] == [None, True]
@@ -1964,11 +1972,11 @@ def test_an_upgraded_node_asks_again_with_its_new_prompt_under_another_waiting_i
             }
         }
     )
-    old = Graph.compile(record, registry_of(approve_v2)).run(name="ida")
+    old = Graph.compile(record, registry_of(approve_v2)).run({"name": "ida"})
     (waiting,) = old.waiting
     newer = registry_of(approve_v2).upgrade(record, "a")
     graph = Graph.compile(newer, registry_of(approve_v2))
-    run = graph.run(name="ida")
+    run = graph.run({"name": "ida"})
 
     assert [w.prompt for w in run.waiting] == ["Send to ida?"] and run.waiting[0].id != waiting.id
 
@@ -1988,9 +1996,11 @@ def test_a_node_redeclared_under_its_id_and_version_with_other_code_is_called_ag
             "outputs": {"result": {"node": "e", "output": "result"}},
         }
     )
-    saved = Graph.compile(record, registry_of(echo)).run(text="Ab").to_json()
+    saved = Graph.compile(record, registry_of(echo)).run({"text": "Ab"}).to_json()
 
-    again = Run.from_json(saved, Graph.compile(record, registry_of(echo_changed))).again(text="Ab")
+    again = Run.from_json(saved, Graph.compile(record, registry_of(echo_changed))).again(
+        {"text": "Ab"}
+    )
 
     assert again.results["e"]["result"] == "ab"
 
@@ -2063,7 +2073,7 @@ def _waiting_id(source: str, folder: Path) -> str:
             record,
             registry_of(node("ask", title="Ask", description="For a test.", asks=True)(function)),
         )
-        .run(name="ida")
+        .run({"name": "ida"})
         .waiting
     )
     return waiting.id
@@ -2294,12 +2304,12 @@ def test_a_node_redeclared_with_another_docstring_is_reused_on_a_saved_run_and_w
             "outputs": {"result": {"node": "e", "output": "result"}},
         }
     )
-    saved = Graph.compile(record, registry_of(echo)).run(text="ab").to_json()
-    Run.from_json(saved, Graph.compile(record, registry_of(echo_documented))).again(text="ab")
+    saved = Graph.compile(record, registry_of(echo)).run({"text": "ab"}).to_json()
+    Run.from_json(saved, Graph.compile(record, registry_of(echo_documented))).again({"text": "ab"})
     assert calls == ["echo"]
 
     again = Run.from_json(saved, Graph.compile(record, registry_of(echo_other_mark))).again(
-        text="ab"
+        {"text": "ab"}
     )
     assert calls == ["echo", "echo"] and again.results["e"]["result"] == "AB?"
 
@@ -2328,9 +2338,11 @@ def test_a_node_redeclared_with_the_same_code_and_another_input_type_is_called_a
     record = GraphRecord.model_validate(
         {"nodes": {"m": {"node": "take", "inputs": {"value": {"graph_input": "value"}}}}}
     )
-    saved = Graph.compile(record, registry_of(declared(before))).run(value=given).to_json()
+    saved = Graph.compile(record, registry_of(declared(before))).run({"value": given}).to_json()
 
-    Run.from_json(saved, Graph.compile(record, registry_of(declared(after)))).again(value=given)
+    Run.from_json(saved, Graph.compile(record, registry_of(declared(after)))).again(
+        {"value": given}
+    )
 
     assert calls == [given, given]
 
@@ -2361,14 +2373,16 @@ def test_a_node_redeclared_with_the_same_code_to_no_longer_ask_is_called_again_a
 
     may_ask = node("approve", title="Approve", description="For a test.", asks=True)(approve)
     never_asks = node("approve", title="Approve", description="For a test.")(approve)
-    first = graph_of(may_ask).run(items=["bo", "bo"])
+    first = graph_of(may_ask).run({"items": ["bo", "bo"]})
     answered = first.answer(
         {w.id: answer for w, answer in zip(first.waiting, [True, False], strict=True)}
     ).resume()
     asking["on"] = False
     calls.clear()
 
-    again = graph_of(never_asks).with_inputs(items=["al", "bo", "bo"], previous=answered).resume()
+    again = (
+        graph_of(never_asks).with_inputs({"items": ["al", "bo", "bo"]}, previous=answered).resume()
+    )
 
     assert again.results["a"]["result"] == [True, True, True] and calls == ["al", "bo", "bo"]
 
@@ -2414,7 +2428,7 @@ def test_a_node_redeclared_to_take_none_is_called_for_the_item_it_was_not_called
             }
         }
     )
-    saved = Graph.compile(record, registry_of(rows, records, send)).run(text="x").to_json()
+    saved = Graph.compile(record, registry_of(rows, records, send)).run({"text": "x"}).to_json()
 
     again = Run.from_json(
         saved, Graph.compile(record, registry_of(rows, records, send_or_none))
@@ -2460,7 +2474,7 @@ def test_identical_items_finishing_out_of_order_after_forget_both_reuse_the_prev
         ),
         registry_of(split, a, c, b),
     )
-    first = graph.run(text="p,q")
+    first = graph.run({"text": "p,q"})
     calls.clear()
 
     again = first.forget("a", "c").resume()
@@ -2497,7 +2511,7 @@ def _counted() -> tuple[Any, list[str]]:
 
 def test_forget_runs_a_node_again_though_nothing_changed_and_a_reader_that_receives_the_same_is_reused():
     graph, calls = _counted()
-    run = graph.run(items=["a", "b"])
+    run = graph.run({"items": ["a", "b"]})
     calls.clear()
 
     again = run.forget("f").resume()
@@ -2508,7 +2522,7 @@ def test_forget_runs_a_node_again_though_nothing_changed_and_a_reader_that_recei
 
 def test_forget_is_not_started_survives_json_and_refuses_a_node_the_graph_lacks():
     graph, calls = _counted()
-    run = graph.run(items=["a"])
+    run = graph.run({"items": ["a"]})
     forgotten = run.forget("f")
     calls.clear()
 
@@ -2527,7 +2541,7 @@ def test_a_forgotten_nodes_table_is_not_written_in_the_saved_run():
         return text.split(",")
 
     graph = Graph.compile(_record({"s": split}), registry_of(split))
-    run = graph.run(text="a,b")
+    run = graph.run({"text": "a,b"})
 
     written = json.loads(run.forget("s").to_json())
 
@@ -2536,10 +2550,10 @@ def test_a_forgotten_nodes_table_is_not_written_in_the_saved_run():
 
 def test_identical_answered_items_keep_their_answers_across_a_cancelled_again_as_across_one_to_the_end():
     run = _answered(["bo", "bo", "al"], [True, False, True])
-    direct = run.again(items=["eva", "bo", "bo", "al"])
+    direct = run.again({"items": ["eva", "bo", "bo", "al"]})
     cancel = AsyncioEvent()
     cancel.set()
-    stopped = _events(run.with_inputs(items=["eva", "bo", "bo", "al"]), cancel=cancel)[-1].run
+    stopped = _events(run.with_inputs({"items": ["eva", "bo", "bo", "al"]}), cancel=cancel)[-1].run
 
     through = Run.from_json(stopped.to_json(), run.graph).resume()
 
@@ -2577,7 +2591,7 @@ def test_a_saved_run_of_a_node_redeclared_to_collect_its_loop_is_refused_naming_
             }
         }
     )
-    saved = Graph.compile(record, registry_of(split, count)).run(text="ab,c").to_json()
+    saved = Graph.compile(record, registry_of(split, count)).run({"text": "ab,c"}).to_json()
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(saved, Graph.compile(record, registry_of(split, count_all)))
@@ -2620,13 +2634,13 @@ def test_identical_items_reuse_previous_answers_in_item_order_whatever_thread_fi
         ),
         registry_of(_each, fetch, approve),
     )
-    first = graph.run(items=["bo-0", "bo-1"])
+    first = graph.run({"items": ["bo-0", "bo-1"]})
     answered = first.answer({w.id: w.loc[1:] == (0,) for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [True, False]
 
     for _ in range(3):
         first_done.clear()
-        again = answered.again(items=["bo-0", "bo-1"])
+        again = answered.again({"items": ["bo-0", "bo-1"]})
         assert again.results["a"]["result"] == [True, False] and again.waiting == []
 
 
@@ -2670,13 +2684,13 @@ def test_a_node_that_may_ask_on_threads_reuses_each_return_once_in_item_order_wh
         ),
         registry_of(_each, fetch, stamp),
     )
-    first = graph.run(items=["bo-0", "bo-1"])
+    first = graph.run({"items": ["bo-0", "bo-1"]})
     returned = first.results["s"]["result"]
 
     for _ in range(3):
         first_fetched.clear()
         calls.clear()
-        again = first.again(items=["al", "bo-0", "bo-1", "bo-2"])
+        again = first.again({"items": ["al", "bo-0", "bo-1", "bo-2"]})
         al, *reused, third = again.results["s"]["result"]
         assert (
             reused == returned
@@ -2716,7 +2730,7 @@ def test_an_identical_item_waits_for_an_earlier_one_whose_upstream_asks_a_person
         ),
         registry_of(_each, pre, approve),
     )
-    first = graph.run(items=["x", "x"])
+    first = graph.run({"items": ["x", "x"]})
     named = first.answer({w.id: "bo" for w in first.waiting}).resume()
     answered = named.answer({w.id: place(w) == "a@0" for w in named.waiting}).resume()
 
@@ -2770,7 +2784,7 @@ def test_identical_pages_keep_their_own_answers_when_the_first_pages_lines_come_
         ),
         registry_of(_each, split, approve),
     )
-    first = graph.run(items=["p", "p"])
+    first = graph.run({"items": ["p", "p"]})
     answered = first.answer({w.id: place(w) == "a@0@0" for w in first.waiting}).resume()
     assert answered.results["a"]["result"] == [[True], [False]]
 
@@ -2819,7 +2833,7 @@ def test_again_with_the_same_inputs_keeps_the_waiting_questions_of_two_nodes_and
         ),
         registry_of(split, ask_a, ask_b),
     )
-    first = graph.run(text="x y z")
+    first = graph.run({"text": "x y z"})
     second = first.answer({"a@1": "Y", "a@2": "Z"}).resume()
     waiting = [w.id for w in second.waiting]
     assert [w.split("~")[0] for w in waiting] == ["a@0", "b@1", "b@2"]
@@ -2848,7 +2862,7 @@ def test_an_inner_nodes_wrong_output_fails_where_the_node_is_inside_and_names_th
         make_graph(a, b, edges=[], outputs={"a": "a.result", "b": "b.result"})
     )
     graph = Graph.compile(make_graph(box), registry_of(a, b, box))
-    run = graph.run(x="q", y="w")
+    run = graph.run({"x": "q", "y": "w"})
 
     assert list(graph.outputs) == ["a", "b"]
     assert (run.status, run.cause.type, run.cause.loc, run.cause.ctx["name"]) == (
@@ -2912,10 +2926,12 @@ def test_a_saved_run_stays_the_same_size_over_one_row_edits_at_ten_thousand_rows
         registry_of(read_lines, records, enrich),
     )
     csv = "name,text\n" + "".join(f"p{i},some text for row {i}\n" for i in range(10_000))
-    run = graph.run(csv=csv)
+    run = graph.run({"csv": csv})
     sizes = []
     for edit in range(5):
-        run = Run.from_json(run.to_json(), graph).again(csv=csv.replace("p5,", f"p5v{edit},", 1))
+        run = Run.from_json(run.to_json(), graph).again(
+            {"csv": csv.replace("p5,", f"p5v{edit},", 1)}
+        )
         sizes.append(len(run.to_json()))
 
     assert run.status == "complete" and max(sizes) - min(sizes) < 100, sizes
@@ -2951,13 +2967,13 @@ def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit
         )
 
     texts = [f"t{i}" for i in range(300)]
-    first = drawn("Short").run(items=texts)
+    first = drawn("Short").run({"items": texts})
     calls.clear()
     edited = drawn("Long")
     assert edited.fingerprint != first.graph.fingerprint
 
     second = edited.with_inputs(
-        items=texts, previous=Run.from_json(first.to_json(), first.graph)
+        {"items": texts}, previous=Run.from_json(first.to_json(), first.graph)
     ).resume()
 
     assert second.results["s"]["result"][0] == "Long: T0" and calls == [
@@ -2965,7 +2981,7 @@ def test_an_edited_graph_reuses_the_previous_runs_outcomes_of_the_nodes_the_edit
     ]
     calls.clear()
     assert (
-        edited.with_inputs(items=texts, previous=second).resume().results == second.results
+        edited.with_inputs({"items": texts}, previous=second).resume().results == second.results
         and calls == []
     )
 
@@ -3000,10 +3016,10 @@ def test_an_edited_node_in_the_middle_is_called_again_with_the_nodes_it_feeds_an
             registry,
         )
 
-    first = drawn("!").run(text="a b")
+    first = drawn("!").run({"text": "a b"})
     calls.clear()
 
-    second = drawn("?").with_inputs(text="a b", previous=first).resume()
+    second = drawn("?").with_inputs({"text": "a b"}, previous=first).resume()
 
     assert second.results["s"]["result"] == ["A?", "B?"] and calls == [
         "tag a",
@@ -3048,7 +3064,7 @@ def test_again_and_with_inputs_take_inputs_by_name_in_a_mapping_as_graph_run_doe
 
     assert first.again({"text": "b"}).outputs == {"upper": "B", "joined": "xy"}
     assert first.again({"first-half": "z"}).outputs == {"upper": "A", "joined": "zy"}
-    assert first.with_inputs({"second-half": "w"}, text="c").resume().outputs == {
+    assert first.with_inputs({"second-half": "w", "text": "c"}).resume().outputs == {
         "upper": "C",
         "joined": "xw",
     }
@@ -3086,22 +3102,22 @@ def test_an_outcome_called_under_another_limit_or_other_choices_is_never_reused(
         return Graph.compile(record, registry_of(give, take))
 
     loose = graph_taking(Annotated[int, Param(ge=0)])
-    first = loose.run(n=3)
+    first = loose.run({"n": 3})
     assert first.status == "complete" and called == [3]
 
     same = (
         graph_taking(Annotated[int, Param(ge=0, title="N")])
-        .with_inputs(n=3, previous=first)
+        .with_inputs({"n": 3}, previous=first)
         .resume()
     )
     assert same.status == "complete" and called == [3]  # a title changes nothing that is read
 
-    tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs(n=3, previous=first).resume()
+    tight = graph_taking(Annotated[int, Param(ge=5)]).with_inputs({"n": 3}, previous=first).resume()
     assert tight.status == "failed" and tight.cause.type == "invalid_edge_value"
 
     chosen = (
         graph_taking(Annotated[int, Param(choices=[1, 2])])
-        .with_inputs(n=3, previous=first)
+        .with_inputs({"n": 3}, previous=first)
         .resume()
     )
     assert chosen.status == "failed" and chosen.cause.type == "invalid_edge_value"
@@ -3120,10 +3136,10 @@ def test_again_with_the_same_inputs_keeps_each_call_its_own_outcome_when_equal_a
         _record({"each": _each, "stamp": stamp}, [("each.result", "stamp.line")]),
         registry_of(_each, stamp),
     )
-    first = graph.run(items=["a", "a", "b"])
+    first = graph.run({"items": ["a", "a", "b"]})
     assert first.results["stamp"]["result"] == ["a1", "a2", "b3"]
 
-    again = first.again(items=["a", "a", "b"])
+    again = first.again({"items": ["a", "a", "b"]})
 
     assert again.results["stamp"]["result"] == ["a1", "a2", "b3"] and calls == ["a", "a", "b"]
 
@@ -3161,11 +3177,11 @@ def test_outputs_redeclared_as_branches_are_called_again_never_reused():
     plain, branched = both_of(Plain), both_of(Branched)
     first = Graph.compile(
         make_graph(plain, keep, edges=[("f.a", "keep.x")]), registry_of(plain, keep)
-    ).run(n=1)
+    ).run({"n": 1})
     graph = Graph.compile(
         make_graph(branched, keep, edges=[("f.a", "keep.x"), ("f.b", "keep.x")]),
         registry_of(branched, keep),
     )
-    assert graph.run(n=1).cause.type == "invalid_output"
-    reused = graph.with_inputs(n=1, previous=first).resume()
+    assert graph.run({"n": 1}).cause.type == "invalid_output"
+    reused = graph.with_inputs({"n": 1}, previous=first).resume()
     assert (reused.status, reused.cause.type) == ("failed", "invalid_output")
