@@ -7,14 +7,14 @@ writes. One test checks a held run whose store fails.
 from __future__ import annotations
 
 import asyncio
+import json
 from asyncio import Event as AsyncioEvent
 from typing import Any
 
 from conductor import Graph, Problem
 from conductor_providers.fastapi import RunChanges, StoredRun
-from conductor_providers.fastapi.bodies import Decline
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
-from conductor_providers.fastapi.state import QueuedAnswers, RunOutcome, RunState
+from conductor_providers.fastapi.state import QueuedReply, RunOutcome, RunState
 from conductor_providers.fastapi.store import GuardedStore
 from pydantic import TypeAdapter
 from pytest import LogCaptureFixture
@@ -102,7 +102,7 @@ def test_a_failed_resume_call_keeps_the_queued_and_writes_only_the_outcome() -> 
         "failed",
         cause,
         False,
-        [QueuedAnswers(answers={"approve~1": True})],
+        [QueuedReply(waiting_id="approve~1", answer=True)],
     )
     assert changes == {"outcome": '{"waiting": [], "outputs": null, "progress": null}'}
 
@@ -114,7 +114,7 @@ def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -
     state = refused.with_queued({"a": 1, "c": 3}).with_queued({"a": 2}).answered({"a"})
 
     assert (state.queued, list(state.refused)) == (
-        [QueuedAnswers(answers={"c": 3})],
+        [QueuedReply(waiting_id="c", answer=3)],
         ["b"],
     )
 
@@ -124,9 +124,7 @@ def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_wit
 ):
     run, waiting_id = _waiting()
 
-    state, changes = _ended_with(
-        RunState.started().with_queued(Decline(waiting_id=waiting_id, reason="No")), run
-    )
+    state, changes = _ended_with(RunState.started().with_queued(declines={waiting_id: "No"}), run)
 
     declined = run.decline(waiting_id, reason="No")
     assert (state.status, state.cause, state.queued) == ("failed", declined.cause, [])
@@ -142,7 +140,7 @@ def test_a_decline_the_run_takes_clears_a_cancel_asked_since_the_run_has_ended()
     run, waiting_id = _waiting()
 
     state, _ = _ended_with(
-        RunState.started().asked_to_stop().with_queued(Decline(waiting_id=waiting_id)), run
+        RunState.started().asked_to_stop().with_queued(declines={waiting_id: None}), run
     )
 
     assert (state.status, state.cancel_asked) == ("failed", False)
@@ -165,13 +163,13 @@ def test_with_only_answers_queued_a_run_takes_no_decline_and_is_given_nothing(
 def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() -> None:
     """The second finds nothing waiting, so conductor refuses it as ``not_waiting``, as a second answer is."""
     run, waiting_id = _waiting()
-    decline = Decline(waiting_id=waiting_id)
+    decline = {waiting_id: None}
 
     answered_first, _ = _ended_with(
-        RunState.started().with_queued({waiting_id: True}).with_queued(decline), run
+        RunState.started().with_queued({waiting_id: True}).with_queued(declines=decline), run
     )
     declined_first, _ = _ended_with(
-        RunState.started().with_queued(decline).with_queued({waiting_id: True}), run
+        RunState.started().with_queued(declines=decline).with_queued({waiting_id: True}), run
     )
 
     assert answered_first.status == "running"
@@ -180,22 +178,27 @@ def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() 
         assert [problem.type for problem in state.refused[waiting_id]] == ["not_waiting"]
 
 
-def test_each_queued_entry_reads_back_from_the_rows_json_by_its_kind_alone() -> None:
-    """An answer mapping whose keys are ``waiting_id`` and ``reason`` is still read back as answers."""
-    looks_like_a_decline = {"waiting_id": "b", "reason": "No"}
+def test_the_queue_is_stored_as_one_reply_per_waiting_id_and_reads_back_as_it_was() -> None:
+    """One call's answers are one reply each, and a decline is one reply too, all in the one shape."""
     state = (
-        RunState.started().with_queued(looks_like_a_decline).with_queued(Decline(waiting_id="b"))
+        RunState.started()
+        .with_queued({"a": 1, "b": {"waiting_id": "c", "reason": "No"}})
+        .with_queued(declines={"c": "No"})
     )
 
-    read = RunState.model_validate_json(state.model_dump_json())
+    stored = json.loads(state.model_dump_json())
 
-    assert read.queued == [
-        QueuedAnswers(answers=looks_like_a_decline),
-        Decline(waiting_id="b"),
+    assert stored["queued"] == [
+        {"waiting_id": "a", "declined": False, "answer": 1, "reason": None},
+        {
+            "waiting_id": "b",
+            "declined": False,
+            "answer": {"waiting_id": "c", "reason": "No"},
+            "reason": None,
+        },
+        {"waiting_id": "c", "declined": True, "answer": None, "reason": "No"},
     ]
-    assert read.answered({"b"}).queued == [
-        QueuedAnswers(answers={"waiting_id": "b", "reason": "No"})
-    ]
+    assert RunState.model_validate_json(state.model_dump_json()) == state
 
 
 class _DownStore(MemoryStore):

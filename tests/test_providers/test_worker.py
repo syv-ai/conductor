@@ -34,7 +34,7 @@ from conductor import (
     make_graph,
 )
 from conductor_providers.fastapi import RunChanges, StoredRun, Worker
-from pydantic import GetCoreSchemaHandler, ValidationError
+from pydantic import GetCoreSchemaHandler
 from pydantic_core import core_schema
 from pytest import LogCaptureFixture, MonkeyPatch
 
@@ -1004,9 +1004,7 @@ async def test_a_decline_sent_while_another_call_runs_ends_the_runs_events_with_
 async def test_an_answer_or_a_reason_json_cant_write_is_refused_alike_whether_or_not_the_run_runs() -> (
     None
 ):
-    """A reason that isn't a ``str`` is refused before the run is read, as the declines body refuses it.
-
-    An answer or a reason JSON can't write is refused with the problem the run gives it, whether the run is running
+    """An answer or a reason JSON can't write is refused with the problem the run gives it, whether the run is running
     (and the answer would be queued) or not. Either way the row is as it was.
     """
     registry, graph, gate, inputs, waiting_id = asking()
@@ -1028,8 +1026,6 @@ async def test_an_answer_or_a_reason_json_cant_write_is_refused_alike_whether_or
 
     async with worker.serving():
         running = await _started(worker, graph, inputs)
-        with pytest.raises(ValidationError):
-            await worker.decline(running, waiting_id, reason=b"no", allows=EVERY_RUN)  # type: ignore[arg-type]
         while_running = await refusals(running)
         gate.set()
         await store.ended(running)
@@ -1394,7 +1390,14 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
             state=json.dumps(
                 {
                     **store.state(run_id),
-                    "queued": [{"kind": "answers", "answers": {waiting_id: False}}],
+                    "queued": [
+                        {
+                            "waiting_id": waiting_id,
+                            "declined": False,
+                            "answer": False,
+                            "reason": None,
+                        }
+                    ],
                 }
             ),
         )  # leave an answer queued, as a resume call that raised does; the test above gets there through a real raise

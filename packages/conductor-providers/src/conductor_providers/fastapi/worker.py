@@ -26,7 +26,6 @@ from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
-from conductor_providers.fastapi.bodies import Decline
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings, loaded
 from conductor_providers.fastapi.problems import no_such_run, run_not_resumable
 from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView
@@ -347,8 +346,6 @@ class Worker(Generic[M, X]):
             The run as written, ``running``.
 
         Raises:
-            ValidationError: ``reason`` isn't a ``str`` or ``None``, such as ``b"no"``. It is raised before the run
-                is read.
             InvalidCallError: No run has the id (``no_such_run``). Or ``reason`` is a ``str`` JSON can't write, such
                 as one with a lone surrogate (``invalid_answer``, variant ``reason``), whether the run is running or
                 not. Or the run isn't running, and refuses the decline: ``not_waiting`` or ``answer_stale``.
@@ -356,16 +353,18 @@ class Worker(Generic[M, X]):
 
             Nothing is written when any of these is raised.
         """
-        declined = Decline(waiting_id=waiting_id, reason=reason)
+        declines = {waiting_id: reason}
         row = await self._row(run_id, allows)
         while True:
-            row = await self._ask_of_a_running_run(row, lambda state: state.with_queued(declined))
+            row = await self._ask_of_a_running_run(
+                row, lambda state: state.with_queued(declines=declines)
+            )
             state = RunState.model_validate_json(row.state)
             if state.is_running:
                 return self._view(row)
             taken, nodes = row, self.nodes_for(self._metadata_in(row))
             await asyncio.to_thread(lambda: loaded(taken, nodes).decline(waiting_id, reason=reason))
-            claimed = await self._claim(row, state.with_queued(declined).running())
+            claimed = await self._claim(row, state.with_queued(declines=declines).running())
             if claimed is not None:
                 return self._view(claimed)
             row = await self._row(run_id)

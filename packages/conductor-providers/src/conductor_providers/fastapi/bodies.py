@@ -8,7 +8,7 @@ route's ``openapi_extra``, with ``declared``.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from conductor import GraphRecord, read_json
 from fastapi.exceptions import RequestValidationError
@@ -105,17 +105,10 @@ class StartRun(BaseModel):
 
 
 class Decline(BaseModel):
-    """The body of ``POST /runs/{run_id}/declines``: the question a person declines to answer, and why.
+    """The body of ``POST /runs/{run_id}/declines``: the question a person declines to answer, and why."""
 
-    ``kind`` may be left out, since it can only be ``"decline"``.
-    """
-
-    # A run's state queues this body as it came, beside the answers, until the run takes it (see state.py).
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["decline"] = Field(
-        default="decline", description='Always `"decline"`; it may be left out.'
-    )
     waiting_id: str = Field(
         description="The `id` of the waiting call, as the run's `waiting` lists it."
     )

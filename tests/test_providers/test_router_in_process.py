@@ -496,6 +496,34 @@ async def test_an_answer_or_a_reason_json_cant_write_is_the_same_422_whether_or_
     ]
 
 
+async def test_a_decline_body_is_the_waiting_id_and_the_reason_and_nothing_else() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    app = _app(store=store, registry=lambda _: registry)
+
+    assert set(app.openapi()["components"]["schemas"]["Decline"]["properties"]) == {
+        "waiting_id",
+        "reason",
+    }
+    async with _serving(app) as client:
+        run_id = (
+            await client.post(
+                "/runs", json={"graph": graph.model_dump(mode="json"), "inputs": inputs}
+            )
+        ).json()["id"]
+        await store.ended(run_id)
+        refused = await client.post(
+            f"/runs/{run_id}/declines", json={"waiting_id": waiting_id, "kind": "decline"}
+        )
+
+    assert refused.status_code == 422
+    assert [(error["type"], error["loc"]) for error in refused.json()["detail"]] == [
+        ("extra_forbidden", ["body", "kind"])
+    ]
+    assert (await store.view(run_id)).status == "waiting"
+
+
 async def test_an_answer_to_a_question_that_waits_in_a_cancelled_run_starts_the_next_resume_call() -> (
     None
 ):
