@@ -412,6 +412,10 @@ What changes in how you work, before the name-by-name tables:
 - **`run.with_max_items(None)` removes a run's item limit.** Its signature says `int | None`; it said `int`, so a
   type checker refused the one call that removes the limit, while `max_items=None` on `run.with_inputs` and
   `run.again` keeps the run's own.
+- **A checkpoint remembers which nodes its stream announced complete.** A run read back from a `run_checkpoint`
+  streams `node_complete` only for the nodes not announced before that checkpoint. It announced again every node
+  that completed during the stream, since a checkpoint kept the list the stream started with. The checkpoint's
+  saved `complete` lists those nodes.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

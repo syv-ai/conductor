@@ -2119,6 +2119,38 @@ def test_a_stream_offers_checkpoints_and_resuming_the_last_one_repeats_only_the_
     assert len(calls) == 400 - kept  # only the calls the checkpoint has no outcome for
 
 
+def test_a_run_read_back_from_a_checkpoint_announces_complete_only_the_nodes_not_announced_before_it():
+    @node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node("shout", title="Shout", description="For a test.", policy=Policy(concurrency=2))
+    def shout(line: str) -> str:
+        time.sleep(0.05)
+        return line.upper()
+
+    graph = Graph.compile(make_graph(lines, shout), registry_of(lines, shout))
+
+    async def completed(run: Run) -> list[tuple[list[str], Run | None]]:
+        """Returns the nodes announced complete before each checkpoint, with the checkpoint, and then in all."""
+        announced: list[str] = []
+        seen: list[tuple[list[str], Run | None]] = []
+        async for event in run.stream(checkpoint_every=0.01):
+            if event.type == "node_complete":
+                announced.append(event.loc[0])
+            elif event.type == "run_checkpoint":
+                seen.append((list(announced), event.run))
+        return [*seen, (announced, None)]
+
+    *checkpoints, (in_all, _) = _bounded(completed(graph.with_inputs(text="a,b,c")))
+
+    assert any(before for before, _ in checkpoints)  # a node is announced before some checkpoint
+    for before, checkpoint in checkpoints:
+        read_back = Run.from_json(checkpoint.to_json(), graph)
+        ((after, _),) = _bounded(completed(read_back))[-1:]
+        assert sorted(before + after) == sorted(in_all) == ["lines", "shout"], (before, after)
+
+
 def test_a_checkpoint_is_running_while_calls_go_on_and_read_back_is_what_its_outcomes_say():
     @node("q", title="Q", description="For a test.", asks=True)
     def q(n: int) -> int:

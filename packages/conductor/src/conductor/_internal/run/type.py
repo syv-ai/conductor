@@ -292,27 +292,32 @@ class Run[C]:
         # The scheduler stores outcomes into this copy's dicts as calls return. The run returned at the end is made
         # from it, with how the scheduler stopped and which nodes are complete.
         working = self._copy()
-        checkpoint: Callable[[LastResume], None] | None = None
-        if emit is not None:
-            emit(RunStart(waiting=tuple(working.waiting)))
-            if checkpoint_every is not None:
-                listener = emit
-
-                def checkpoint(stopped: LastResume) -> None:
-                    saved = dataclasses.replace(
-                        working._copy(), _last_resume="running" if stopped is None else stopped
-                    )
-                    listener(with_run(RunCheckpoint(), saved))
-
         blueprint = self._blueprint
         nodes = blueprint.function_nodes
         complete_before = working._complete_nodes
         reader, function_nodes = working._reader, list(nodes.values())
-        node_events = (
-            NodeEvents(emit, function_nodes, working._outcomes, complete_before, reader)
-            if emit is not None
-            else None
-        )
+        node_events: NodeEvents | None = None
+        checkpoint: Callable[[LastResume], None] | None = None
+        if emit is not None:
+            emit(RunStart(waiting=tuple(working.waiting)))
+            node_events = NodeEvents(
+                emit, function_nodes, working._outcomes, complete_before, reader
+            )
+            if checkpoint_every is not None:
+                listener, announced = emit, node_events.complete
+
+                # A checkpoint lists the nodes announced complete so far, so a run read back from it doesn't
+                # announce them again.
+                def checkpoint(stopped: LastResume) -> None:
+                    saved = dataclasses.replace(
+                        working._copy(),
+                        _last_resume="running" if stopped is None else stopped,
+                        _complete_nodes=frozenset(
+                            path for path, node in nodes.items() if node in announced
+                        ),
+                    )
+                    listener(with_run(RunCheckpoint(), saved))
+
         stopped = Scheduler(
             nodes=function_nodes,
             threads=blueprint.threads,

@@ -890,7 +890,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the call) |
 | `node_waiting` | `loc`, `waiting` (a `Waiting`, whose `loc` names the call) |
 | `run_start` | `waiting` |
-| `run_checkpoint` | `run` (status `running`, or how the run stopped; read back from its JSON, a copy made while the run goes on is what its outcomes say, and the copy made as it stops says how it stopped), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when the run is stopped with calls on threads; and as the last event of a run handed back (`stream(hand_back=)`), `running`, in place of `run_end` |
+| `run_checkpoint` | `run` (status `running`, or how the run stopped; read back from its JSON, a copy made while the run goes on is what its outcomes say, and the copy made as it stops says how it stopped; a stream of it read back announces complete only the nodes not announced before the checkpoint), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when the run is stopped with calls on threads; and as the last event of a run handed back (`stream(hand_back=)`), `running`, in place of `run_end` |
 | `run_end` | `status`, `cause`, and `run`, which it does not write |
 
 ### Saving a graph
