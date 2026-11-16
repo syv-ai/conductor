@@ -194,6 +194,8 @@ print(run.status)   # complete
 print(run.outputs)  # {'summary': '2 of 2 approved'}
 ```
 
+A run never changes in place. `answer` and `resume` each return a new run, so keep what they return, as `run = ...` does here. A bare `run.answer(...)` leaves `run` waiting.
+
 The answer is checked before anything runs. A wrong one raises `InvalidCallError`, and the run stays as it was. `resume()` carries on from where the run stopped, and no node is called twice for the same invoice.
 
 ## Run it again with a change

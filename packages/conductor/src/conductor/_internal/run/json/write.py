@@ -136,7 +136,7 @@ def saved_run(run: Run) -> SavedRun:
         if run._last_resume == "running"
         else run._last_resume,  # a resume still going is never saved
         max_items=run.max_items,
-        inputs=run.inputs,
+        inputs=dict(run.inputs),
         outcomes=outcomes,
         reusable=reusable,
         code=code,

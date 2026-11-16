@@ -640,7 +640,7 @@ A `Table` input collects records the same way.
 
 A node can stop and ask a person for a value, such as an approval or a reason.
 
-`run.resume()` calls every node that is ready until the run is complete, waits for a person, or ends early: failed, stopped, cancelled or timed out. Then it returns the `Run`. `graph.run` does the same from the start. `status` says how it stopped: `complete`, `waiting`, `failed`, `stopped`, `cancelled` or `timed_out`. For the last four, `cause` is the `Problem` that ended it. The other two statuses, `ready` and `running`, are under "Running".
+`run.resume()` calls every node that is ready until the run is complete, waits for a person, or ends early: failed, stopped, cancelled or timed out. Then it returns a new `Run` (see "A run never changes"). `graph.run` does the same from the start. `status` says how it stopped: `complete`, `waiting`, `failed`, `stopped`, `cancelled` or `timed_out`. For the last four, `cause` is the `Problem` that ended it. The other two statuses, `ready` and `running`, are under "Running".
 
 A node asks by raising `Ask(prompt, choices=, default=)`, and says it may with `asks=True` on its `@node`. What is asked is what the node returns. So its return type says the answer's shape and how to ask. How a question looks (title, description, widget) is its `Param`, as for an input. `-> str` with a bare `raise Ask(prompt)` is a free-text question.
 
@@ -978,6 +978,8 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 - A second node under one id raises. A subregistry is copied in when it is added.
 
 ### Running
+
+**A run never changes.** `answer`, `decline`, `resume`, `again`, `with_inputs`, `forget` and `with_max_items` each return a new `Run`, and the run they are called on is left as it was. So keep what they return: `run = run.answer(waiting, True).resume()`. Calling `run.resume()` alone leaves `run` as it was. A run's attributes can't be set (`dataclasses.FrozenInstanceError`), and `run.inputs` is a read-only mapping.
 
 **Starting a run.**
 

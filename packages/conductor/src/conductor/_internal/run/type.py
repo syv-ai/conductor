@@ -88,12 +88,14 @@ class NotCalled(ConductorModel):
     input: str
 
 
-@dataclass(eq=False, repr=False)
+@dataclass(frozen=True, eq=False, repr=False)
 class Run[C]:
     """One run of a graph: its inputs and the outcome of every call so far.
 
-    A run you hold never changes. Every method that moves it on, like ``resume`` or ``answer``, returns a new
-    ``Run``. ``to_json`` saves all of it.
+    A run you hold never changes. ``answer``, ``decline``, ``resume``, ``with_inputs``, ``forget``, ``again`` and
+    ``with_max_items`` each return a new ``Run`` and leave this one as it was, so keep what they return:
+    ``run = run.answer(waiting, True).resume()``. Its attributes can't be set, and ``inputs`` can't be changed.
+    ``to_json`` saves all of it.
 
     A run is made by ``graph.with_inputs(...)``, ``graph.run(...)`` or ``Run.from_json(saved, graph)``. Each checks
     what the run is made of.
@@ -104,13 +106,13 @@ class Run[C]:
 
     Attributes:
         graph: The graph the run runs.
-        inputs: The graph inputs the caller gave, after they were checked, by name (``"text"``).
+        inputs: The graph inputs the caller gave, after they were checked, by name (``"text"``). It is read-only.
         max_items: The item limit: the most items a series a node is called per item of may have. Past it, the
             run stops as ``stopped``. ``None`` means no limit.
     """
 
     graph: Graph[C]
-    inputs: dict[str, Any]
+    inputs: Mapping[str, Any]
     max_items: int | None
     #: The outcomes of each function node, by the node's path and then by item indexes, in item order.
     #: ``_outcomes[("w",)]`` is a node of the graph itself, and ``_outcomes[("e", "ask")]`` one inside ``e``. Only
@@ -123,6 +125,10 @@ class Run[C]:
     #: The nodes that were complete when the last ``resume()`` ended. A later stream doesn't report them complete
     #: again, and their reusable outcomes from the previous run are dropped.
     _complete_nodes: frozenset[NodePath] = frozenset()
+
+    def __post_init__(self) -> None:
+        """Stores the inputs as a read-only copy, so no one can change a run's inputs after it is made."""
+        object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
 
     @property
     def _blueprint(self) -> RunBlueprint:
@@ -171,7 +177,7 @@ class Run[C]:
         timeout: float | None = None,
         only_costs_nothing: bool = False,
     ) -> Run[C]:
-        """Calls every node that is ready, and returns the run once it has to stop.
+        """Calls every node that is ready, and returns a new run once it has to stop.
 
         It stops when the run is complete, waits for a person, fails, or reaches its item limit or its ``timeout``.
 
@@ -193,7 +199,7 @@ class Run[C]:
             only_costs_nothing: Whether to call only the nodes whose ``Policy`` says ``costs_nothing``.
 
         Returns:
-            The run after those calls.
+            A new run, after those calls. The run you called it on is left as it was, so keep this one.
 
         Raises:
             InvalidCallError: ``invalid_limit`` if ``timeout`` isn't a number of seconds above 0.
@@ -284,34 +290,36 @@ class Run[C]:
             RuntimeError: The scheduler wasn't stopped, yet it left a call untried that was ready. That is a bug in the
                 scheduler.
         """
-        run = self._copy()
+        # The scheduler stores outcomes into this copy's dicts as calls return. The run returned at the end is made
+        # from it, with how the scheduler stopped and which nodes are complete.
+        working = self._copy()
         checkpoint: Callable[[LastResume], None] | None = None
         if emit is not None:
-            emit(RunStart(waiting=tuple(run.waiting)))
+            emit(RunStart(waiting=tuple(working.waiting)))
             if checkpoint_every is not None:
                 listener = emit
 
                 def checkpoint(stopped: LastResume) -> None:
                     saved = dataclasses.replace(
-                        run._copy(), _last_resume="running" if stopped is None else stopped
+                        working._copy(), _last_resume="running" if stopped is None else stopped
                     )
                     listener(with_run(RunCheckpoint(), saved))
 
         blueprint = self._blueprint
         nodes = blueprint.function_nodes
-        complete_before = run._complete_nodes
-        reader, function_nodes = run._reader, list(nodes.values())
+        complete_before = working._complete_nodes
+        reader, function_nodes = working._reader, list(nodes.values())
         node_events = (
-            NodeEvents(emit, function_nodes, run._outcomes, complete_before, reader)
+            NodeEvents(emit, function_nodes, working._outcomes, complete_before, reader)
             if emit is not None
             else None
         )
-        run._last_resume = stopped = Scheduler(
+        stopped = Scheduler(
             nodes=function_nodes,
             threads=blueprint.threads,
-            outcomes=run._outcomes,
-            reusable=run._reusable,
-            max_items=run.max_items,
+            outcomes=working._outcomes,
+            reusable=working._reusable,
+            max_items=working.max_items,
             arguments_for=_only_costs_nothing(reader)
             if only_costs_nothing
             else reader.arguments_for,
@@ -321,20 +329,22 @@ class Run[C]:
             checkpoint=checkpoint,
             checkpoint_every=checkpoint_every,
         ).run()
-        outcomes = run._outcomes
-        run._complete_nodes = frozenset(
+        outcomes = working._outcomes
+        complete = frozenset(
             path
             for path, node in nodes.items()
             if path in complete_before or is_complete(outcomes, node)
         )
-        run._reusable.drop(run._complete_nodes)  # a complete node has no call left to reuse them
+        # A complete node has no call left to reuse an outcome of the previous run.
+        working._reusable.drop(complete)
+        run = dataclasses.replace(working, _last_resume=stopped, _complete_nodes=complete)
         if (
             stopped is None
             and not only_costs_nothing
-            and len(run._complete_nodes) < len(nodes)
+            and len(complete) < len(nodes)
             and run.status == "ready"
         ):
-            lacking = sorted(path for path in nodes if path not in run._complete_nodes)
+            lacking = sorted(path for path in nodes if path not in complete)
             raise RuntimeError(
                 f"the scheduler has nothing to try, and no outcome for every call of {lacking}"
             )
@@ -367,7 +377,8 @@ class Run[C]:
             value: The answer, when ``waiting`` names one call. Give nothing here with a mapping.
 
         Returns:
-            A copy of the run with the answers in it.
+            A new run with the answers in it. The run you called it on is left as it was, so keep this one:
+            ``run = run.answer(waiting, True)``.
 
         Raises:
             TypeError: A call is named without its answer, or a mapping is given with one.
@@ -444,7 +455,7 @@ class Run[C]:
                 message doesn't quote it.
 
         Returns:
-            A copy of the run with the call failed.
+            A new run with the call failed. The run you called it on is left as it was, so keep this one.
 
         Raises:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
@@ -594,7 +605,7 @@ class Run[C]:
         timeout: float | None = None,
         **by_name: Any,
     ) -> Run[C]:
-        """Runs again with some inputs changed and the rest as before.
+        """Runs again with some inputs changed and the rest as before, and returns the new run.
 
         It is ``run.with_inputs(...).resume(context=context, timeout=timeout)``. A call that gets the same arguments as
         before isn't made again: its outcome is reused, whatever the context is.

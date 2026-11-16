@@ -15,7 +15,7 @@ import datetime
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -1339,6 +1339,22 @@ def test_answer_runs_nothing_and_leaves_the_run_it_was_given_as_it_was():
         and [place(w) for w in run.waiting] == ["q@1", "q@2"]
     )
     assert [place(w) for w in answered.waiting] == ["q@2"]
+
+
+def test_a_run_cant_be_changed_and_a_run_made_from_it_doesnt_share_its_inputs():
+    """A ``Run`` is a value: its attributes can't be set, and its ``inputs`` can't be changed in place.
+
+    The methods that move a run on return a new one, and a run that could still be changed would make that rule
+    leaky. Setting ``max_items`` would skip the check ``with_max_items`` makes. The run ``answer`` returns would share
+    its inputs with the run it was made from, so changing one would change both.
+    """
+    run = _approve_then_pay().run(text="A:100,B:900")
+    answered = run.answer(run.waiting[0], True)
+    with pytest.raises(FrozenInstanceError):
+        run.max_items = -3  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        answered.inputs["text"] = "changed"  # type: ignore[index]
+    assert (run.max_items, dict(run.inputs)) == (None, {"text": "A:100,B:900"})
 
 
 def test_a_run_whose_every_question_is_answered_is_complete_when_nothing_is_left_to_call():

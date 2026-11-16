@@ -52,6 +52,7 @@ What changes in how you work, before the name-by-name tables:
   `accepts` widens what lands on it, and a subclass of a builtin needs no schema of its own. A table's one JSON form is
   `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `series-stack`.
 
+- **A `Run` can't be changed after it is made.** `answer`, `decline`, `resume`, `again`, `with_inputs`, `forget` and `with_max_items` each return a new run, as before; the run they are called on is left as it was, so `run.answer(w, True); run.resume()` leaves `run` waiting. A run is now a frozen dataclass, so setting an attribute (`run.max_items = 5`) raises `dataclasses.FrozenInstanceError` (it was taken unchecked), and `run.inputs` is a read-only mapping (changing one run's inputs changed every run made from it).
 - **A field's description is one flat record.** It has `is_series`, `type`, `schema` (always set),
   `type_variables` and `loops`; there is no `shape` and no `columns`, a table's columns are in its type and its
   schema. An input of a node in `graph.describe()` and a graph input have the field as `field`. A node's description is
