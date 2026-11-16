@@ -1,4 +1,5 @@
-"""The two checks on asking a person: one on the ``Ask`` a node raises, one on the answer a person gives.
+"""The checks on asking a person: one on the ``Ask`` a node raises, one on the answer a person gives, and one on
+the reason a person gives when they decline to answer.
 
 ``AskValidator`` runs when a node raises ``Ask``. It makes sure the choices and the default fit the node's outputs.
 Say ``assign(ticket: str) -> str`` raises ``Ask("Who?", choices=[1, 2])``. The answer has to be a ``str``, so no
@@ -8,6 +9,9 @@ one could ever pick ``1`` or ``2``. The ``Ask`` is refused with ``invalid_ask``.
 ``approve(line: str) -> bool`` is waiting. The answer ``True`` gives the outputs ``{"result": True}``. The answer
 ``"yes"`` is refused with ``invalid_answer``, since a yes or no is ``True`` or ``False``, not a word that means one.
 
+``DeclineValidator`` runs when a person declines with ``run.decline``. Its reason is text, or ``None`` for none, so
+``reason=123`` is refused with ``invalid_answer``, variant ``reason``.
+
 An answer is read strictly, the way its JSON text would be read. That way an answer given from Python and the same
 answer sent over HTTP are read the same. It is read by the same rules as a value the node returns, since the
 answer stands in for that value.
@@ -16,10 +20,15 @@ answer stands in for that value.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from pydantic import MISSING, JsonValue, ValidationError
-from pydantic_core import PydanticCustomError, PydanticSerializationError
+from pydantic_core import (
+    PydanticCustomError,
+    PydanticSerializationError,
+    SchemaValidator,
+    core_schema,
+)
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, validate_as_json
 from conductor._internal.field import Field, exclusive_groups, groups_without_one_value
@@ -376,3 +385,46 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
         raise PydanticCustomError("not_its_type", refused.message()) from None
     except ValidationError as error:
         raise PydanticCustomError("not_its_type", value_type.refusal(error).reason) from None
+
+
+#: Checks a decline's reason: a ``str``, or ``None``.
+_REASON = SchemaValidator(core_schema.nullable_schema(core_schema.str_schema(strict=True)))
+
+
+class DeclineValidator(Validator[Any, str | None]):
+    """A validator for the reason a person gives when they decline to answer a node that raised ``Ask``.
+
+    The reason is text, or ``None`` for none. ``run.decline`` puts it in the ``ctx`` of the run's ``answer_declined``
+    problem, which a saved run writes as JSON. So ``"Over budget"`` is taken, and ``123`` is refused.
+
+    Raises (when called):
+        InvalidCallError: One ``invalid_answer`` problem, variant ``reason``, with the class of what was given. It
+            doesn't quote the reason.
+    """
+
+    def __init__(self, *, loc: Loc, waiting_id: str) -> None:
+        """Builds the validator for a decline of one waiting call.
+
+        Args:
+            loc: Where the waiting call is in the run. The problem names it.
+            waiting_id: The id the decline was given for. The problem names it too.
+        """
+        self._loc = loc
+        self._waiting_id = waiting_id
+
+    def __call__(self, reason: Any) -> str | None:
+        """Checks ``reason`` and returns it.
+
+        Raises:
+            InvalidCallError: See the class.
+        """
+        try:
+            return cast(str | None, _REASON.validate_python(reason))
+        except ValidationError:
+            raise InvalidCallError(
+                [
+                    call_problems.invalid_answer_reason(
+                        *self._loc, waiting_id=self._waiting_id, got=type(reason).__name__
+                    )
+                ]
+            ) from None

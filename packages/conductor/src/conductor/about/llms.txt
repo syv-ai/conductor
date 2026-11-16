@@ -718,7 +718,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 
 - The call fails as a call whose node raised does: it has no outcome, and the run is `failed` with `answer_declined` as its `cause`. Nothing that reads its outputs is called. The other questions still wait, and an answer to one of them leaves the run `failed`.
 - The decline is the host's latest act, so `answer_declined` becomes the `cause` even of a run a `resume()` had already ended `failed` or `stopped`.
-- `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it.
+- `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it. A `reason` that isn't a `str` or `None` is refused as `invalid_answer`, variant `reason`, with `ctx.got` its class, and the run is left as it was.
 - A saved run holds it as it holds a failed call. The next `resume()` calls the node again, so it asks again, under the same id while its inputs and code are the same.
 - An id is read by the rules `run.answer` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
 

@@ -119,6 +119,27 @@ def invalid_answer(
     return f"That isn't a valid answer: {reason.rstrip('.')}."
 
 
+@CALL_PROBLEMS.problem("invalid_answer", variant="reason")
+def invalid_answer_reason(*loc: str | int, waiting_id: str, got: str) -> str:
+    """The reason given to ``run.decline`` isn't text.
+
+    The reason goes in the ``ctx`` of the run's ``answer_declined`` problem, for a host to show, so it is a ``str``,
+    or ``None`` for no reason.
+
+    To fix it, give the reason as a ``str``, or leave it out.
+
+    Args:
+        loc: The node and the item indexes of the call that was declined.
+        waiting_id: The waiting id given to ``run.decline``.
+        got: The class of the reason given.
+
+    Example:
+        waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
+        refused(lambda: waiting.decline(waiting.waiting[0], reason=123))  # type: ignore[arg-type]
+    """
+    return f"The reason for declining must be text, not of class {got}. Give a str, or leave the reason out."
+
+
 @CALL_PROBLEMS.problem()
 def invalid_context(*loc: str | int, expected: str, got: str) -> str:
     """A call gives ``context`` an object that isn't an instance of the class the registry names.

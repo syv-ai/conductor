@@ -21,6 +21,6 @@ The full rules are in the reference: ``python -m conductor.about asking-a-person
 
 from .question import as_asked
 from .type import Ask
-from .validator import AnswerValidator, AskValidator
+from .validator import AnswerValidator, AskValidator, DeclineValidator
 
-__all__ = ["AnswerValidator", "Ask", "AskValidator", "as_asked"]
+__all__ = ["AnswerValidator", "Ask", "AskValidator", "DeclineValidator", "as_asked"]

@@ -334,7 +334,8 @@ What changes in how you work, before the name-by-name tables:
   does and returns a new run: the call fails as a node that raised does, and the run is `failed` with the new
   problem `answer_declined` as its `cause`, whose `ctx.reason` holds the host's reason. Nothing downstream is
   called, a saved run keeps it as a failed call, and the next `resume()` asks again. An id is refused as `answer`
-  refuses it (`not_waiting`, `answer_stale`).
+  refuses it (`not_waiting`, `answer_stale`). A reason that isn't a `str` is refused as `invalid_answer`, variant
+  `reason` (`ctx.got`, its class).
 - **The runs router takes a decline.** `POST /runs/{id}/declines` with `{"waiting_id", "reason"}`, and
   `Worker.decline(run_id, waiting_id, reason=None, *, allows=)`, decline one question. The decline is queued as an
   answer is, in the row's `queued_answers`; the run takes what was queued in order, the first of an answer and a

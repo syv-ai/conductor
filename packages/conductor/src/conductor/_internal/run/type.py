@@ -26,7 +26,7 @@ from threading import Event as ThreadEvent
 from types import MappingProxyType
 from typing import Any, Literal, assert_never, overload
 
-from conductor._internal.ask import AnswerValidator
+from conductor._internal.ask import AnswerValidator, DeclineValidator
 from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
@@ -448,10 +448,12 @@ class Run[C]:
 
         Raises:
             InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
-                whose call now asks another question, as ``answer`` refuses them. The run is left as it was.
+                whose call now asks another question, as ``answer`` refuses them. ``invalid_answer``, variant
+                ``reason``, for a reason that isn't a ``str`` or ``None``. The run is left as it was.
         """
         waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
         node, item_indexes, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
+        reason = DeclineValidator(loc=loc, waiting_id=waiting_id)(reason)
         cause = run_problems.answer_declined(*loc, reason=reason)
         run = dataclasses.replace(
             self._copy(share_outcomes=True), _last_resume=EndedEarly("failed", cause)
