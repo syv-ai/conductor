@@ -172,8 +172,8 @@ class _Attempt:
         number: 0 for the first attempt at the call, 1 for its first retry, and so on.
         future: The pool's handle on the attempt, once it is handed to a thread. It lets an attempt still in the
             pool's queue be cancelled. It is ``None`` before that, and for an attempt made on the scheduler's thread.
-        deadline: The ``time.monotonic()`` at which its ``attempt_timeout`` runs out, for an attempt on a thread
-            whose node has one. ``None`` otherwise.
+        deadline: The timer for its ``attempt_timeout``, for an attempt on a thread whose node has one. ``None``
+            otherwise. It is taken off the timers when the attempt comes back.
         returned_at: The ``time.monotonic()`` at which its function returned or raised on its thread. The
             scheduler may see the attempt back later than that, while it makes a call of its own.
     """
@@ -183,7 +183,7 @@ class _Attempt:
     arguments: dict[str, Any]
     number: int
     future: Future[None] | None = None
-    deadline: float | None = None
+    deadline: _Timer | None = None
     returned_at: float | None = None
 
 
@@ -880,22 +880,24 @@ class Scheduler:
         """An attempt is back from its thread. Starts the node's next waiting attempt, then retries this one or
         records its outcome.
 
-        An attempt that came back after its deadline, while the scheduler was busy with a call of its own, is timed
-        out as its deadline timer would have done in time, and its outcome is dropped. Otherwise its outcome is
-        dropped if its deadline has passed, since the run has already failed with ``timeout`` for it. It is also dropped if ``end`` dropped the call.
-        There's one exception: the deadline has passed, the function returned without an error, and the run is
+        Its deadline timer, if it has one, is taken off the timers, so the timer doesn't keep the attempt and its
+        arguments until it falls due. An attempt that came back after its deadline, while the scheduler was busy
+        with a call of its own, is timed out as its deadline timer would have done in time, and its outcome is
+        dropped. Otherwise its outcome is dropped if its deadline has passed, since the run has already failed with
+        ``timeout`` for it. It is also dropped if ``end`` dropped the call. There's one exception: the deadline has passed, the function returned without an error, and the run is
         ending. The call was made, so its outcome is recorded, and a later ``resume()`` doesn't make it again.
         """
         attempt, outputs, error = returned
         node, item_indexes = attempt.node, attempt.item_indexes
-        if (
-            attempt.deadline is not None
-            and attempt.returned_at is not None
-            and attempt.returned_at > attempt.deadline
-            and self.running.get((node, item_indexes)) is attempt
-        ):
-            self._time_out(attempt)
-            return
+        if (deadline := attempt.deadline) is not None:
+            self._drop_timer(deadline)
+            if (
+                attempt.returned_at is not None
+                and attempt.returned_at > deadline.when
+                and self.running.get((node, item_indexes)) is attempt
+            ):
+                self._time_out(attempt)
+                return
         self._start_waiting_calls(node)
         if (
             self.running.get((node, item_indexes)) is not attempt
@@ -949,15 +951,22 @@ class Scheduler:
 
     def _set_timer(
         self, seconds: float, kind: Literal["retry", "deadline"], attempt: _Attempt
-    ) -> float:
-        """Sets a timer that is due ``seconds`` from now, and returns the ``time.monotonic()`` at which it is due.
+    ) -> _Timer:
+        """Sets a timer that is due ``seconds`` from now, and returns it.
 
         A ``"retry"`` timer makes ``attempt`` when it is due. A ``"deadline"`` timer is for the ``attempt_timeout``
         of ``attempt``, which starts on a thread now.
         """
-        when = time.monotonic() + seconds
-        heapq.heappush(self.timers, _Timer(when, next(self.timer_order), kind, attempt))
-        return when
+        timer = _Timer(time.monotonic() + seconds, next(self.timer_order), kind, attempt)
+        heapq.heappush(self.timers, timer)
+        return timer
+
+    def _drop_timer(self, timer: _Timer) -> None:
+        """Takes ``timer`` off the timers, if it is still there. Timers sort by ``when`` and ``order``, and no two
+        have the same ``order``, so the one taken off is this one."""
+        if timer in self.timers:
+            self.timers.remove(timer)
+            heapq.heapify(self.timers)
 
     def _due(self, timer: _Timer) -> None:
         """Handles a timer that is due.

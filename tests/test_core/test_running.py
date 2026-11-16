@@ -13,6 +13,7 @@ A node's ``Policy`` decides how it is called. Either it is called one item at a 
 
 import asyncio
 import contextlib
+import gc
 import math
 import threading
 import time
@@ -1520,6 +1521,41 @@ def test_a_retry_that_falls_due_while_the_scheduler_makes_its_own_calls_is_made_
     run = Graph.compile(graph, registry_of(a_flaky, b_items, c_own)).run(n=1, count=20)
 
     assert run.status == "complete" and any(run.outputs["seen"])
+
+
+def test_an_attempt_that_returned_isnt_kept_until_its_attempt_timeout():
+    """A deadline timer kept after its attempt returned would hold the attempt, and its arguments, for up to
+    ``attempt_timeout`` more.
+
+    Nothing public shows what a run still holds, so ``after``, called once every ``shout`` has returned, counts the
+    attempts of ``shout`` the garbage collector still finds, by their class's name and their arguments.
+    """
+
+    @node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.split(",")
+
+    @node(
+        "shout",
+        title="Shout",
+        description="For a test.",
+        policy=Policy(concurrency=2, attempt_timeout=30),
+    )
+    def shout(line: str) -> str:
+        return line.upper()
+
+    @node("after", title="After", description="For a test.")
+    def after(texts: Series[str]) -> int:
+        gc.collect()
+        return sum(
+            type(kept).__name__ == "_Attempt" and kept.arguments.get("line") in lines_given
+            for kept in gc.get_objects()
+        )
+
+    graph = Graph.compile(make_graph(lines, shout, after), registry_of(lines, shout, after))
+
+    lines_given = {f"timed-{letter}" for letter in "abcdefghij"}
+    assert graph.run(text=",".join(sorted(lines_given))).outputs == {"result": 0}
 
 
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
