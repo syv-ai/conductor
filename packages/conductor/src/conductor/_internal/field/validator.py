@@ -25,8 +25,8 @@ from conductor._internal.problem import (
     InvalidCallError,
     NodeDeclarationError,
     compile_problems,
+    conductor_error,
     declaration_problems,
-    value_fault,
 )
 from conductor._internal.types import Type
 from conductor._internal.validation import Validator, schema_validator_of
@@ -228,7 +228,7 @@ def _read_default(whole: Type, default: Any) -> Any:
     try:
         whole.to_json(read)
     except (PydanticSerializationError, UnicodeDecodeError):
-        no_json_form = value_fault("no_json_form", "it can't be written as JSON")
+        no_json_form = conductor_error("no_json_form", "it can't be written as JSON")
         raise ValidationError.from_exception_data(
             whole.id, [{"type": no_json_form, "loc": (), "input": default}]
         ) from None

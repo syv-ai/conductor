@@ -32,7 +32,12 @@ from pydantic_core import (
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, validate_as_json
 from conductor._internal.field import Field, exclusive_groups, groups_without_one_value
-from conductor._internal.problem import InvalidCallError, call_problems, run_problems, value_fault
+from conductor._internal.problem import (
+    InvalidCallError,
+    call_problems,
+    conductor_error,
+    run_problems,
+)
 from conductor._internal.types import (
     Choice,
     Type,
@@ -351,7 +356,7 @@ def _check_picks(field: Field, written: Any, choices: tuple[Choice, ...] | None)
     if choices is not None:
         check_one_of(choice_texts(choices), picks)
     if len(set(picks)) != len(picks):
-        raise value_fault("picked_twice", "a choice is picked twice")
+        raise conductor_error("picked_twice", "a choice is picked twice")
 
 
 def _has_picks_to_check(field: Field, choices: tuple[Choice, ...] | None) -> bool:
@@ -381,11 +386,11 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
             schema_output_validator_of(value_type), value, fallback=untyped_as_json
         )
     except PydanticSerializationError:
-        raise value_fault("no_json_form", "the value can't be written as JSON") from None
+        raise conductor_error("no_json_form", "the value can't be written as JSON") from None
     except PydanticCustomError as refused:  # a table with a column a saved run can't keep as it is
-        raise value_fault("not_its_type", refused.message()) from None
+        raise conductor_error("not_its_type", refused.message()) from None
     except ValidationError as error:
-        raise value_fault("not_its_type", value_type.refusal(error).reason) from None
+        raise conductor_error("not_its_type", value_type.refusal(error).reason) from None
 
 
 #: Checks a decline's reason: a ``str``, or ``None``.

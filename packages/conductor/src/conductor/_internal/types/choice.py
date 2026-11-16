@@ -20,7 +20,7 @@ from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
 from pydantic_core import PydanticSerializationError, SchemaValidator
 
 from conductor._internal.base import ConductorModel, canonical_json, validate_as_json
-from conductor._internal.problem import value_fault, value_free_errors
+from conductor._internal.problem import conductor_error, value_free_errors
 
 
 class Choice(ConductorModel):
@@ -96,13 +96,13 @@ def read_choices(
             for choice in choices
         )
     except PydanticSerializationError:
-        raise value_fault("no_json_form", "one can't be written as JSON") from None
+        raise conductor_error("no_json_form", "one can't be written as JSON") from None
     except ValidationError as refused:
-        raise value_fault("not_its_type", value_free_errors(refused)[0]["msg"]) from None
+        raise conductor_error("not_its_type", value_free_errors(refused)[0]["msg"]) from None
     if not read:
-        raise value_fault("no_choices", "none is given")
+        raise conductor_error("no_choices", "none is given")
     if len(choice_texts(read)) != len(read):
-        raise value_fault("choice_twice", "one is given twice")
+        raise conductor_error("choice_twice", "one is given twice")
     return read
 
 
@@ -141,4 +141,4 @@ def check_one_of(texts: frozenset[str], picks: list[str]) -> None:
             the value.
     """
     if not texts.issuperset(picks):
-        raise value_fault("not_a_choice", "the value is not one of the choices")
+        raise conductor_error("not_a_choice", "the value is not one of the choices")

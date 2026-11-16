@@ -28,8 +28,8 @@ from pydantic_core import CoreSchema, core_schema
 from conductor._internal.problem import (
     OWN_MESSAGE,
     NodeDeclarationError,
+    conductor_error,
     declaration_problems,
-    value_fault,
 )
 from conductor._internal.types import Type
 
@@ -59,7 +59,7 @@ def _frame_of(columns: Iterable[tuple[str, list[Any], Any]], *, strict: bool) ->
             ]
         )
     except (PolarsError, TypeError):  # polars' own message may quote a cell, so it isn't passed on
-        raise value_fault(
+        raise conductor_error(
             "not_a_table",
             "the columns don't make a table: a name may be used twice, the columns may differ in length, or a column's cells may not share one type",
         ) from None
@@ -307,19 +307,19 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
         if kept is None:
             saved = _saved_dtype(dtype)
             if saved is None:
-                raise value_fault(
+                raise conductor_error(
                     "column_not_saved",
                     "column '{column}' is {type}, which can't be written as JSON",
                     {"column": name, "type": str(dtype)},
                 )
-            raise value_fault(
+            raise conductor_error(
                 "column_not_saved",
                 "column '{column}' is {type}, and a saved run would read it back as {saved}",
                 {"column": name, "type": str(dtype), "saved": str(saved)},
             )
         for check in checks:
             if (fault := check(frame[name])) is not None:
-                raise value_fault(
+                raise conductor_error(
                     "column_not_saved", "column '{column}' " + fault, {"column": name}
                 )
         if kept != dtype:
@@ -331,7 +331,7 @@ def as_saved(frame: pl.DataFrame) -> pl.DataFrame:
     # a UInt64 cell too big for an Int64, in the column itself or inside a list or struct
     except InvalidOperationError:
         failed = next(name for name, kept in casts.items() if not _casts(frame[name], kept))
-        raise value_fault(
+        raise conductor_error(
             "column_not_saved",
             "column '{column}' is {type}, and has a whole number too big for an Int64, which is what a saved run reads its whole numbers back as",
             {"column": failed, "type": str(frame.schema[failed])},
@@ -407,13 +407,13 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
             )
         for name, column in columns.items():
             if name not in frame.columns:
-                raise value_fault(
+                raise conductor_error(
                     "column_missing",
                     "the column '{column}' is missing, and the row type needs it",
                     {"column": name},
                 )
             if not column.optional and frame[name].null_count():
-                raise value_fault(
+                raise conductor_error(
                     "column_blank",
                     "column '{column}' has a blank cell, and its type doesn't allow blanks",
                     {"column": name},

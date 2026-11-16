@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 from conductor._internal.base import ConductorModel, Name, Source
-from conductor._internal.problem import value_fault, value_free_errors
+from conductor._internal.problem import conductor_error, value_free_errors
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
@@ -46,7 +46,7 @@ def _one_fault(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
         return handler(value)
     except ValidationError as error:
         [first, *_] = value_free_errors(error)
-        raise value_fault(first["type"], first["msg"]) from None
+        raise conductor_error(first["type"], first["msg"]) from None
 
 
 #: A field whose value a graph carries, such as a constant: a fault inside it is reported at the field.
@@ -62,11 +62,11 @@ def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
         PydanticCustomError: ``no_sources`` if the list is empty, ``repeated_source`` if a source is listed twice.
     """
     if not sources:
-        raise value_fault("no_sources", "an input's sources must list at least one output")
+        raise conductor_error("no_sources", "an input's sources must list at least one output")
     seen: set[Source] = set()
     for source in sources:
         if source in seen:
-            raise value_fault(
+            raise conductor_error(
                 "repeated_source", "{source} is listed twice", {"source": str(source)}
             )
         seen.add(source)
@@ -112,12 +112,12 @@ class InputEntry(ConductorModel):
                 more than one. ``default_without_graph_input`` if it has a default but no graph input.
         """
         if [self.constant, self.graph_input, self.sources].count(MISSING) != 2:
-            raise value_fault(
+            raise conductor_error(
                 "one_of_constant_graph_input_sources",
                 "an input must get exactly one of a constant, a graph input or sources",
             )
         if self.default is not MISSING and self.graph_input is MISSING:
-            raise value_fault(
+            raise conductor_error(
                 "default_without_graph_input",
                 "the entry has a default but no graph_input, and only a graph input can have a default",
             )

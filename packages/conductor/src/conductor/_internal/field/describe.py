@@ -8,7 +8,7 @@ from pydantic import MISSING, ConfigDict, JsonValue, SerializeAsAny, model_valid
 from pydantic import Field as PydanticField
 
 from conductor._internal.base import ConductorModel
-from conductor._internal.problem import value_fault
+from conductor._internal.problem import conductor_error
 from conductor._internal.types import Choice
 
 
@@ -95,17 +95,17 @@ class FieldDescription(ConductorModel):
         has_default = self.default is not MISSING
         in_group = self.exclusive_group is not None
         if self.required and in_group:
-            raise value_fault(
+            raise conductor_error(
                 "required_in_exclusive_group",
                 "an output of an exclusive group is never required, since leaving it out means its branch wasn't chosen",
             )
         if has_default and in_group:
-            raise value_fault(
+            raise conductor_error(
                 "default_in_exclusive_group",
                 "an output of an exclusive group can't have a default, since leaving it out means its branch wasn't chosen",
             )
         if self.loops and not self.is_series:
-            raise value_fault(
+            raise conductor_error(
                 "loops_without_series",
                 "a field with loops must be a list (is_series), with one level of list per loop",
             )

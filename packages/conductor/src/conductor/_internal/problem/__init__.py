@@ -27,7 +27,7 @@ from .errors import (
     InvalidCallError,
     NodeDeclarationError,
     NodeError,
-    value_fault,
+    conductor_error,
     value_free_errors,
 )
 from .type import Problem, ProblemCatalogue, ProblemKind
@@ -47,6 +47,6 @@ __all__ = [
     "compile_problems",
     "declaration_problems",
     "run_problems",
-    "value_fault",
+    "conductor_error",
     "value_free_errors",
 ]

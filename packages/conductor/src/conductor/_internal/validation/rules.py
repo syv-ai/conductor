@@ -37,7 +37,7 @@ from weakref import WeakKeyDictionary
 
 from pydantic_core import CoreSchema, SchemaValidator, core_schema
 
-from conductor._internal.problem import value_fault
+from conductor._internal.problem import conductor_error
 from conductor._internal.types import NAMES, Type, a_number, union_members
 
 
@@ -94,7 +94,7 @@ def output_schema_of(value_type: Type) -> CoreSchema:
 
     def of_its_class(read: Any) -> Any:
         if not isinstance(read, exact):
-            raise value_fault(
+            raise conductor_error(
                 "not_its_class",
                 "its type's own check returned a {got}, not a {type}",
                 {"got": type(read).__name__, "type": type_id},
@@ -142,7 +142,7 @@ def _not_a_bool(value: Any) -> Any:
     ``bool`` can't be subclassed, so ``True`` and ``False`` are its only values.
     """
     if value is True or value is False:
-        raise value_fault("bool_is_not_a_number", "a yes or no is not a number")
+        raise conductor_error("bool_is_not_a_number", "a yes or no is not a number")
     return value
 
 

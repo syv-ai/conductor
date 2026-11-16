@@ -8,7 +8,7 @@ from typing import Annotated
 from pydantic import MISSING, AfterValidator
 
 from conductor._internal.base import ConductorModel, Name, Source
-from conductor._internal.problem import value_fault
+from conductor._internal.problem import conductor_error
 
 from .node import JSON_ONLY, NodeRecord
 
@@ -22,7 +22,7 @@ def _whole_output(source: Source) -> Source:
         PydanticCustomError: ``output_has_field`` if ``source`` names a field.
     """
     if source.field is not None:
-        raise value_fault(
+        raise conductor_error(
             "output_has_field",
             "a graph output names a field, and a graph output can only be a whole output",
         )

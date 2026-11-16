@@ -63,18 +63,19 @@ _PYDANTIC_TYPES = frozenset(get_args(ErrorType))
 #: tag, read from the value), ``encoding_error`` (the byte that isn't base64) and ``tz_actual`` (a datetime's offset).
 _QUOTING_KEYS = frozenset({"error", "tag", "encoding_error", "tz_actual"})
 
-#: The ``ctx`` that marks a pydantic error whose message conductor wrote to quote no value. ``value_fault`` adds it
+#: The ``ctx`` that marks a pydantic error whose message conductor wrote to quote no value. ``conductor_error`` adds it
 #: to an error conductor raises, and a schema's ``custom_error_context`` gives it to the error the schema reports.
 OWN_MESSAGE: Mapping[str, bool] = MappingProxyType({"conductor": True})
 
 
-def value_fault(
+def conductor_error(
     error_type: str, message: str, ctx: Mapping[str, Any] | None = None
 ) -> PydanticCustomError:
-    """Makes the pydantic error conductor raises when it refuses a value.
+    """Makes a pydantic error whose message conductor wrote.
 
+    Every pydantic error conductor raises is made here, whether it refuses a value, a record or what a node returned.
     Conductor writes ``message`` to name only what a developer or a host wrote, such as a column of a row type, and
-    never the value. So ``value_free_errors`` keeps it, where it replaces the message of an error a host's validator
+    never a value. So ``value_free_errors`` keeps it, where it replaces the message of an error a host's validator
     raised.
 
     Args:
@@ -111,13 +112,13 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
         {
             "type": fault["type"],
             "loc": [],
-            "msg": fault["msg"] if _names_no_value(fault) else _VALIDATOR_PREFIX,
+            "msg": fault["msg"] if _message_holds_no_value(fault) else _VALIDATOR_PREFIX,
         }
         for fault in error.errors()
     ]
 
 
-def _names_no_value(fault: ErrorDetails) -> bool:
+def _message_holds_no_value(fault: ErrorDetails) -> bool:
     """Says whether the message of one of pydantic's errors was written by pydantic or conductor to quote no value."""
     ctx = fault.get("ctx", {})
     written_by_conductor = OWN_MESSAGE.items() <= ctx.items()
