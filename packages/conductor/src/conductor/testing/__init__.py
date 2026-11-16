@@ -421,8 +421,10 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
 def _same(one: Any, other: Any) -> bool:
     """Whether two values are equal, comparing dicts and lists item by item, and frames cell by cell.
 
-    ``==`` can't compare two frames: it returns a frame of results, not a ``bool``. For any other value where ``==``
-    raises, the two are equal only when they are the same object.
+    A frame is the same only as another frame with equal cells. A list of records with the frame's rows is not the
+    same: a node that swaps one for the other has changed what the next call of the run gets. ``==`` can't be used
+    on a frame, since it returns a frame of results, or raises when the other side is not a frame. For any other
+    value where ``==`` raises, the two are equal only when they are the same object.
     """
     if one is other:
         return True
@@ -430,8 +432,10 @@ def _same(one: Any, other: Any) -> bool:
         return one.keys() == other.keys() and all(_same(one[key], other[key]) for key in one)
     if isinstance(one, list) and isinstance(other, list):
         return len(one) == len(other) and all(_same(a, b) for a, b in zip(one, other, strict=True))
-    if isinstance(one, pl.DataFrame):
-        return isinstance(other, pl.DataFrame) and one.equals(other)
+    if isinstance(one, pl.DataFrame) or isinstance(other, pl.DataFrame):
+        return (
+            isinstance(one, pl.DataFrame) and isinstance(other, pl.DataFrame) and one.equals(other)
+        )
     try:
         return bool(one == other)
     except (ValueError, TypeError):

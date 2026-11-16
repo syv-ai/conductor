@@ -7,6 +7,7 @@ node that breaks one.
 import logging
 from typing import Annotated, Any
 
+import polars as pl
 from conductor import (
     Ask,
     Context,
@@ -295,6 +296,26 @@ def test_a_body_that_changes_a_value_it_was_given_is_changed_its_inputs():
         "changed_its_inputs",
         ("appends", 1),
         "items",
+    )
+
+
+def test_a_body_that_puts_a_frame_where_its_input_had_a_list_is_changed_its_inputs():
+    """A frame is never the same value as a list of records with its rows, and comparing the two doesn't raise.
+
+    ``==`` between a list and a frame raises a polars error, which was reported as the node's own failure.
+    """
+
+    @node("tabulates", title="Tabulates", description="For a test.")
+    def tabulates(data: dict[str, Any]) -> int:
+        data["rows"] = pl.DataFrame(data["rows"])
+        return data["rows"].height
+
+    examples = {"tabulates": [{"data": {"rows": [{"amount": 1}, {"amount": 2}]}}]}
+    [problem] = check_registry(registry_of(tabulates), examples=examples)
+    assert (problem.type, problem.loc, problem.ctx["input"]) == (
+        "changed_its_inputs",
+        ("tabulates", 1),
+        "data",
     )
 
 
