@@ -6,7 +6,7 @@ value a node returns, a person's answer and a value in a saved run.
 
 Pydantic quotes a value in several ways: in its own ``input``, in a validator's message, in an ``assert``, in a
 union's tag, in a key of a dict and in the message of a host's own pydantic error, even one that gives the type of
-one of pydantic's own errors. Each case below makes a value that pydantic would quote in one of those ways. It
+one of pydantic's own errors, and in a ``column`` in its ``ctx``. Each case below makes a value that pydantic would quote in one of those ways. It
 feeds that value into each place a value enters and can be refused.
 """
 
@@ -117,6 +117,18 @@ class _QuotedUnderALimitsType(BaseModel):
         return value
 
 
+@host_type("QuotedAsAColumn", title="Quoted as a column")
+class _QuotedAsAColumn(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def refuse(cls, value: str) -> str:
+        if value != "ok":
+            raise PydanticCustomError("bad_code", "bad code", {"column": value})
+        return value
+
+
 @host_type("QuotedCounts", title="Counts")
 class _Counts(BaseModel):
     counts: dict[str, int]
@@ -142,6 +154,7 @@ TYPES = {
         {"code": "ok"},
         {"code": SECRET},
     ),
+    "a-custom-errors-column": (_QuotedAsAColumn, {"code": "ok"}, {"code": SECRET}),
 }
 
 

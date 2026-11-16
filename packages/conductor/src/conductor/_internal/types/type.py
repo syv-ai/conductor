@@ -34,6 +34,7 @@ from conductor._internal.base import NON_FINITE_FLOATS, plain_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     declaration_problems,
+    is_conductor_error,
     value_free_errors,
 )
 from conductor._internal.utils import qualified_name
@@ -541,9 +542,8 @@ class Type:
             if column is not None:
                 columns.append(column)
                 error_record["msg"] = owner._fault_in(column, raw["type"], error_record["msg"])
-            elif whole := raw.get("ctx", {}).get(
-                "column"
-            ):  # an error about a whole column of a frame
+            # an error conductor raised about a whole column of a frame; a host's error may put anything in its ctx
+            elif is_conductor_error(raw) and (whole := raw.get("ctx", {}).get("column")):
                 columns.append(whole)
                 error_record["loc"] = [whole]
         return TypeRefusal(value_free[0]["msg"], value_free, columns[0] if columns else None)

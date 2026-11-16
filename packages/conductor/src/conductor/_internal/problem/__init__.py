@@ -28,6 +28,7 @@ from .errors import (
     NodeDeclarationError,
     NodeError,
     conductor_error,
+    is_conductor_error,
     value_free_errors,
 )
 from .type import Problem, ProblemCatalogue, ProblemKind
@@ -48,5 +49,6 @@ __all__ = [
     "declaration_problems",
     "run_problems",
     "conductor_error",
+    "is_conductor_error",
     "value_free_errors",
 ]

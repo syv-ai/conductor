@@ -86,6 +86,15 @@ def conductor_error(
     return PydanticCustomError(error_type, message, {**(ctx or {}), **OWN_MESSAGE})
 
 
+def is_conductor_error(fault: ErrorDetails) -> bool:
+    """Says whether conductor raised one of pydantic's errors, with ``conductor_error`` or a schema's ``OWN_MESSAGE``.
+
+    Only such an error's message and ``ctx`` are conductor's own words, so only they are read as conductor wrote
+    them: its message is kept, and a ``column`` in its ``ctx`` names a table's column.
+    """
+    return OWN_MESSAGE.items() <= fault.get("ctx", {}).items()
+
+
 def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
     """Returns pydantic's errors with nothing of the refused value left in them.
 
@@ -125,9 +134,9 @@ def _message_holds_no_value(fault: ErrorDetails) -> bool:
     ``PydanticKnownError("greater_than", {"gt": value})``, gets pydantic's own text back, value included. So does one
     that puts conductor's mark, ``OWN_MESSAGE``, in its own error's ``ctx``.
     """
-    ctx = fault.get("ctx", {})
-    if OWN_MESSAGE.items() <= ctx.items():
+    if is_conductor_error(fault):
         return True
+    ctx = fault.get("ctx", {})
     if _QUOTING_KEYS & ctx.keys():
         return False
     try:
