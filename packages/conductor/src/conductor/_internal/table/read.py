@@ -342,8 +342,8 @@ def _table_form(value: Any) -> str | None:
     """Says which of a table's three forms ``value`` is in: a frame, a list of records, or conductor's JSON."""
     if isinstance(value, pl.DataFrame):
         return "frame"
-    if isinstance(value, Mapping):
-        return "written"
+    if isinstance(value, Mapping) and "columns" in value:
+        return "written"  # a dict without it, such as one record, is no table
     if isinstance(value, list):
         return "records"
     return None

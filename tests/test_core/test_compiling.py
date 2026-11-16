@@ -1193,6 +1193,34 @@ def test_with_inputs_refuses_every_problem_at_once_listing_what_it_offers():
     ]
 
 
+def test_a_table_graph_input_given_one_record_or_a_wrong_key_inside_is_refused_as_its_value_not_as_its_name():
+    class Name(TypedDict):
+        name: str
+
+    @node("count-names", title="Count names", description="For a test.")
+    def count_names(names: Table[Name]) -> int:
+        return names.height
+
+    graph = Graph.compile(make_graph(count_names), registry_of(count_names))
+
+    def refused(value: Any) -> list[tuple[str, tuple[str | int, ...], str]]:
+        with pytest.raises(InvalidCallError) as error:
+            graph.run(names=value)
+        return [(p.type, p.loc, p.ctx["reason"]) for p in error.value.problems]
+
+    assert refused({"name": "Ida"}) == [
+        (
+            "invalid_input",
+            ("inputs", "names"),
+            "a table must be a frame, or a list of records with one object per row",
+        )
+    ]
+    assert [problem[:2] for problem in refused({"columns": [], "rows": 1})] == [
+        ("invalid_input", ("inputs", "names"))
+    ]
+    assert graph.run(names=[{"name": "Ida"}]).outputs == {"result": 1}
+
+
 # -- subgraphs -------------------------------------------------------------------------------
 
 
@@ -1768,7 +1796,13 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
         ["type_mismatch"],
     )
     assert _described(graph, "t") == (True, None, {"text": "one_value"}, ["result"], [])
-    assert _described(graph, "j") == (True, None, {"texts": "missing"}, ["result"], ["type_mismatch"])
+    assert _described(graph, "j") == (
+        True,
+        None,
+        {"texts": "missing"},
+        ["result"],
+        ["type_mismatch"],
+    )
     assert graph.describe().nodes["f"].found and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()

@@ -103,7 +103,9 @@ class InputsValidator(Validator[Mapping[Any, Any], dict[str, Any]]):
         first_faults: dict[str, ErrorDetails] = {}
         for fault in error.errors():
             key = fault["loc"][0]
-            if fault["type"] in ("extra_forbidden", "invalid_key"):
+            if (
+                fault["type"] in ("extra_forbidden", "invalid_key") and len(fault["loc"]) == 1
+            ):  # a key inside a value, such as a record's, is a fault of that input
                 names.append(
                     call_problems.unknown_graph_input(
                         "inputs", key, name=str(key), inputs=list(self._inputs)

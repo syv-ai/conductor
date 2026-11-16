@@ -566,8 +566,7 @@ class Compiler:
             one_value = [
                 edge
                 for edge in sources
-                if not edge.per_item
-                and loops[: len(edge.loops_of_value)] == edge.loops_of_value
+                if not edge.per_item and loops[: len(edge.loops_of_value)] == edge.loops_of_value
             ]
             if not one_value:
                 continue
