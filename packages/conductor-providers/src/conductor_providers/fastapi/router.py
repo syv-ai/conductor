@@ -216,8 +216,9 @@ def run_router(
         """Decline to answer what waits under ``waiting_id``.
 
         A run that takes the decline ends ``failed`` with ``answer_declined``, and is not resumed: a later resume
-        asks the question again. A decline the run refuses is in the 422, and so is a reason JSON can't write,
-        running or not. While the run is running, the decline waits until it stops and is given to it then, in order with the
+        asks the question again. A run that isn't running takes it at once and comes back ``failed``, also when a
+        decline queued before this one failed it. A decline the run refuses is in the 422, and so is a reason JSON
+        can't write, running or not. While the run is running, the decline waits until it stops and is given to it then, in order with the
         answers. The run can refuse it then, as ``not_waiting`` after an answer to the same question or as
         ``answer_stale``: it is in the run's ``refused``, and the run goes on as it would have.
         """
@@ -233,7 +234,8 @@ def run_router(
         body: Resume = Resume(),
     ) -> RunView:
         """Resume a run that ended early; no node call that finished is made again. ``{"max_items": ...}`` raises
-        the item limit of a run that stopped at it, and a resume needs no body."""
+        the item limit of a run that stopped at it, and a resume needs no body. A run that holds a decline queued
+        while it ran, which it takes, isn't resumed: it comes back ``failed`` with ``answer_declined``."""
         return await worker.resume(run_id, body.max_items, allows=allows)
 
     @router.post("/runs/{run_id}/again", status_code=202)

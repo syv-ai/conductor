@@ -173,6 +173,18 @@ class _RefusesEveryEvent(MemoryStore):
         return False
 
 
+class _EventsOnlyWhileRunning(MemoryStore):
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        if self.rows[run_id].status != "running":
+            return False
+        return await super().add_event(run_id, owner, body)
+
+
+class _ExpiredOnlyWhileRunning(MemoryStore):
+    async def expired(self, now: float) -> list[StoredRun]:
+        return [row for row in await super().expired(now) if row.status == "running"]
+
+
 class _AnyoneMayAdd(MemoryStore):
     async def add_event(self, run_id: str, owner: str, body: str) -> bool:
         self.written[run_id].append(body)
@@ -203,6 +215,11 @@ class _CreateRaises(MemoryStore):
         (_AnHourOut, "expired: gave a run whose lease_until, "),
         (_NoLeaseIsZero, "expired: gave a run whose lease_until is None"),
         (_RefusesEveryEvent, "add_event: gave False for the run's owner"),
+        (
+            _EventsOnlyWhileRunning,
+            "add_event: gave False for the owner of a run whose status isn't running",
+        ),
+        (_ExpiredOnlyWhileRunning, "expired: left out a run whose status isn't running"),
         (_AnyoneMayAdd, "add_event: added an event for a worker that doesn't hold the run"),
         (_FromAfterOn, "events: events(run_id, 0) gave the events numbered [0, 1, 2]"),
         (_CreateRaises, "create: raised ConnectionError: the database is down"),

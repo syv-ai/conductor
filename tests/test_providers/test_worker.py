@@ -11,7 +11,8 @@ import dataclasses
 import json
 import time
 from asyncio import Event as AsyncioEvent
-from collections.abc import Mapping
+from asyncio import Task
+from collections.abc import Awaitable, Callable, Mapping
 from threading import Event as ThreadEvent
 from typing import Any, TypedDict
 
@@ -964,6 +965,35 @@ async def test_a_worker_that_never_served_declines_a_waiting_run() -> None:
     assert (written.status, written.cause.type) == ("failed", "answer_declined")
 
 
+def _failed_with_queued(store: MemoryStore, run_id: str, reply: dict[str, Any]) -> None:
+    """Writes the run's row as a resume call that raised leaves it, with ``reply`` queued while it ran."""
+    store.rows[run_id] = dataclasses.replace(
+        store.rows[run_id],
+        status="failed",
+        state=json.dumps(
+            {
+                **store.state(run_id),
+                "status": "failed",
+                "cause": {"type": "raised_outside_a_node", "msg": "It raised.", "ctx": {}},
+                "queued": [reply],
+            }
+        ),
+    )
+
+
+def _queued_decline(waiting_id: str) -> dict[str, Any]:
+    return {"waiting_id": waiting_id, "declined": True, "answer": None, "reason": "First"}
+
+
+def _event_types(events: list[dict[str, Any]]) -> list[str]:
+    return [
+        ":".join(
+            [event["type"], event.get("status") or "", (event.get("cause") or {}).get("type", "")]
+        )
+        for event in events
+    ]
+
+
 async def test_a_decline_to_a_stopped_run_is_given_after_what_is_queued_so_an_answer_queued_first_wins() -> (
     None
 ):
@@ -977,18 +1007,10 @@ async def test_a_decline_to_a_stopped_run_is_given_after_what_is_queued_so_an_an
     async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         await store.ended(run_id)
-    store.rows[run_id] = dataclasses.replace(
-        store.rows[run_id],
-        state=json.dumps(
-            {
-                **store.state(run_id),
-                "status": "failed",
-                "cause": {"type": "raised_outside_a_node", "msg": "It raised.", "ctx": {}},
-                "queued": [
-                    {"waiting_id": waiting_id, "declined": False, "answer": True, "reason": None}
-                ],
-            }
-        ),
+    _failed_with_queued(
+        store,
+        run_id,
+        {"waiting_id": waiting_id, "declined": False, "answer": True, "reason": None},
     )
     before = store.rows[run_id]
 
@@ -997,6 +1019,201 @@ async def test_a_decline_to_a_stopped_run_is_given_after_what_is_queued_so_an_an
 
     assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
     assert store.rows[run_id] == before
+
+
+async def test_a_decline_to_a_stopped_run_whose_queue_already_declines_the_question_fails_the_run() -> (
+    None
+):
+    """The run's view shows the question waiting on a failed row, though its queue holds a decline of it. Declining
+    it is not refused: the queued decline fails the run, this one is in ``refused`` as a running run would have it,
+    and the run's events get the ``run_end``."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+    _failed_with_queued(store, run_id, _queued_decline(waiting_id))
+    events = len(await store.stored_events(run_id))
+    assert [waiting.id for waiting in (await store.view(run_id)).waiting] == [waiting_id]
+
+    written = await worker.decline(run_id, waiting_id, reason="Second", allows=EVERY_RUN)
+
+    assert written == await store.view(run_id)
+    assert (written.status, written.cause.type, written.cause.ctx, written.waiting) == (
+        "failed",
+        "answer_declined",
+        {"reason": "First"},
+        [],
+    )
+    assert {key: [problem.type for problem in value] for key, value in written.refused.items()} == {
+        waiting_id: ["not_waiting"]
+    }
+    assert store.state(run_id)["queued"] == []
+    assert _event_types((await store.stored_events(run_id))[events:]) == [
+        "run_end:failed:answer_declined"
+    ]
+
+
+async def test_a_resume_of_a_failed_run_whose_queue_holds_a_decline_it_takes_ends_it_with_no_resume_call() -> (
+    None
+):
+    """A person declined while the run ran, and its resume call then raised. A resume makes no call again: the run
+    is given the queue, ends ``failed`` with the decline, and its events get only that ``run_end``."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        _failed_with_queued(store, run_id, _queued_decline(waiting_id))
+        events = len(await store.stored_events(run_id))
+
+        written = await worker.resume(run_id, allows=EVERY_RUN)
+
+        assert written == await store.view(run_id)
+        assert (written.status, written.cause.type, written.cause.ctx) == (
+            "failed",
+            "answer_declined",
+            {"reason": "First"},
+        )
+        assert (store.rows[run_id].owner, store.rows[run_id].lease_until) == (None, None)
+        assert _event_types((await store.stored_events(run_id))[events:]) == [
+            "run_end:failed:answer_declined"
+        ]
+
+
+class _InBetween(MemoryStore):
+    """A ``MemoryStore`` that awaits ``hook`` once, just before it adds the first ``run_end`` that says ``failed``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hook: Callable[[], Awaitable[None]] | None = None
+
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        if self.hook is not None and json.loads(body).get("status") == "failed":
+            hook, self.hook = self.hook, None
+            await hook()
+        return await super().add_event(run_id, owner, body)
+
+
+async def test_a_resume_on_the_same_worker_between_a_declines_write_and_its_run_end_keeps_the_decline_out_of_its_events() -> (
+    None
+):
+    """The decline writes the waiting run failed, and before its ``run_end`` is stored, a resume on the same worker
+    claims the run. The decline's ``run_end`` is refused, since the claim moved the row's owner, so the resume call's
+    events are all that follow."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = _InBetween()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        events = len(await store.stored_events(run_id))
+
+        async def resume() -> None:
+            await worker.resume(run_id, allows=EVERY_RUN)
+
+        store.hook = resume
+        await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+        ended = await store.ended(run_id)
+
+    added = _event_types((await store.stored_events(run_id))[events:])
+    assert (added[0], added[-1], ended.status) == ("run_start::", "run_end:waiting:", "waiting")
+    assert "run_end:failed:answer_declined" not in added
+
+
+class _FailsOnARunEnd(MemoryStore):
+    """A ``MemoryStore`` whose ``add_event`` raises once, for the first ``run_end`` that says ``failed``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed = False
+
+    async def add_event(self, run_id: str, owner: str, body: str) -> bool:
+        if not self.failed and json.loads(body).get("status") == "failed":
+            self.failed = True
+            raise ConnectionError("the database went away")
+        return await super().add_event(run_id, owner, body)
+
+
+async def test_a_decline_whose_run_end_the_store_fails_answers_failed_and_a_sweep_stores_the_run_end() -> (
+    None
+):
+    """The store fails after the decline wrote the run. The decline still answers with the run ``failed``. Once the
+    lease runs out, a sweep stores the ``run_end`` and clears the owner, so the row and its last ``run_end`` agree."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = _FailsOnARunEnd()
+    worker = _worker(store, registry, lease=0.3)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+
+        written = await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+
+        assert (written.status, written.cause.type) == ("failed", "answer_declined")
+        assert store.failed and store.rows[run_id].owner is not None
+        row = await store.until(run_id, lambda row: row.owner is None)
+
+    assert (row.status, row.lease_until) == ("failed", None)
+    assert _event_types(await store.stored_events(run_id))[-1] == "run_end:failed:answer_declined"
+
+
+async def test_a_decline_after_a_store_failure_stores_the_run_end_the_failure_left_out() -> None:
+    """No worker serves, so no sweep runs. Once the lease runs out, the next decline stores the ``run_end`` the
+    failure left out, clears the owner, and is refused as ``not_waiting``, since the question is declined."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = _FailsOnARunEnd()
+    served = _worker(store, registry)
+    async with served.serving():
+        run_id = await _started(served, graph, inputs)
+        await store.ended(run_id)
+    worker = _worker(store, registry, lease=0.05)
+    await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+    await asyncio.sleep(0.1)
+
+    with pytest.raises(InvalidCallError) as refused:
+        await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+
+    row = store.rows[run_id]
+    assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
+    assert (row.status, row.owner, row.lease_until) == ("failed", None, None)
+    assert _event_types(await store.stored_events(run_id))[-1] == "run_end:failed:answer_declined"
+
+
+async def test_a_follower_that_connects_as_a_declines_run_end_is_stored_gets_it() -> None:
+    """The decline has written the run failed and not yet stored its ``run_end`` when a follower connects. The run
+    still has the decline's owner, so the follower waits for the ``run_end``."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = _InBetween()
+    worker = _worker(store, registry, poll=0.01)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+        last = len(await store.stored_events(run_id)) - 1
+        got: list[str] = []
+
+        async def follow() -> None:
+            async for _, body in await worker.events(run_id, last, allows=EVERY_RUN):
+                got.append(json.loads(body)["type"])
+
+        following: list[Task[None]] = []
+
+        async def connect() -> None:
+            following.append(asyncio.create_task(follow()))
+            await asyncio.sleep(0.05)
+
+        store.hook = connect
+        await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+        await asyncio.wait_for(following[0], 5)
+
+    assert got == ["run_end"]
 
 
 async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_fails_the_run_when_it_stops() -> (

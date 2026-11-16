@@ -120,6 +120,11 @@ class RunState(BaseModel):
         """Whether a worker resumes the run, or is about to."""
         return self.status == "running"
 
+    @property
+    def declined(self) -> bool:
+        """Whether the run failed because a person declined to answer a question (``answer_declined``)."""
+        return self.cause is not None and self.cause.type == "answer_declined"
+
     def running(self) -> RunState:
         """This state with the run running again, for a worker to resume."""
         return self.model_copy(update={"status": "running", "cause": None})
@@ -173,8 +178,10 @@ class RunState(BaseModel):
     def ended_with(self, run: Run[Any], saved: str, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once the run stops and is given what was queued meanwhile.
 
-        The run stops when a resume call returns it, or when a decline comes for a run that isn't running: the worker
-        queues the decline last and calls this with the run as the row has it.
+        The run stops when a resume call returns it. A run that isn't running is given its queue here too, with the
+        run as the row has it. That happens when a decline comes for it, which the worker queues last. It also happens
+        when it is resumed with a decline still queued from a resume call that raised, so the decline ends it with no
+        resume call.
 
         The queued replies are given to the run in the order they came, with ``run.answer`` and ``run.decline``. So
         a wrong one is refused alone. One the run refuses goes to ``refused`` with its problems, and one it takes
@@ -254,8 +261,9 @@ class RunState(BaseModel):
     def failed(self, cause: Problem, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once a resume call raised, or conductor refused it, so it returned no run.
 
-        The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued until the
-        run is resumed and stops again, and a cancel asked is cleared, since the run has stopped.
+        The row keeps its last checkpoint as ``run``. The replies queued meanwhile stay queued, and a cancel asked
+        is cleared, since the run has stopped. A decline or a resume gives the run the queue then, and a resume makes
+        a resume call only when the queue holds no decline the run takes.
 
         Args:
             cause: Why the resume call failed.

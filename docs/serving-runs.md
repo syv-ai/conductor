@@ -85,6 +85,8 @@ class SqliteRunStore:
 
 A store raises only when the database fails, since the worker takes an exception for an outage. It never deletes a run whose `status` is `running`. Deleting old runs is up to you.
 
+`add_event` checks the owner and nothing else, and `expired` checks `lease_until` and nothing else, as above. A run that stops with no resume call, such as a waiting run someone declines, is written with how it stopped and an owner of its own, and its `run_end` is added after that. So a store that also checks `status` loses that event. `check_run_store` tests for both.
+
 Test your store with one line, on an empty database of the test's own. `check_run_store` gives one plain message per fault it finds, such as `"update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given"`.
 
 ```python
@@ -208,8 +210,8 @@ Every route under `/runs` but the events route answers with the run as it is aft
 | `GET /runs/{id}` | The run, as of when it last stopped running. |
 | `GET /runs/{id}/events` | The run's events, as server-sent events, from whichever worker runs it. |
 | `POST /runs/{id}/answers` | Answers what waits, as `{waiting_id: value}`, and goes on with the run. |
-| `POST /runs/{id}/declines` | Declines one question, as `{"waiting_id": ..., "reason": ...}`. The run ends `failed` with `answer_declined`, and isn't resumed; a resume asks the question again. A run that isn't running takes it at once, and the route answers with it `failed`. Its events get a `run_end` that says so, with no `run_start` before it, since nothing resumes it. A running run is given it when its resume call stops, and that call's `run_end` says `failed`. It can still refuse it then, as `not_waiting` after an answer to the same question or as `answer_stale`: the decline is in the run's `refused`, and the run goes on as it would have. |
-| `POST /runs/{id}/resume` | Goes on with a run that ended early. `{"max_items": n}` raises its item limit. |
+| `POST /runs/{id}/declines` | Declines one question, as `{"waiting_id": ..., "reason": ...}`. The run ends `failed` with `answer_declined`, and isn't resumed; a resume asks the question again. A run that isn't running takes it at once, and the route answers with it `failed`. Its events get a `run_end` that says so, with no `run_start` before it, since nothing resumes it. If a decline queued earlier already failed it, the route answers the same, and this decline is in the run's `refused`. A running run is given it when its resume call stops, and that call's `run_end` says `failed`. It can still refuse it then, as `not_waiting` after an answer to the same question or as `answer_stale`: the decline is in the run's `refused`, and the run goes on as it would have. |
+| `POST /runs/{id}/resume` | Goes on with a run that ended early. `{"max_items": n}` raises its item limit. A run whose resume call raised with a decline still queued isn't resumed: it takes the decline and ends `failed`, as `/declines` ends it. |
 | `POST /runs/{id}/again` | A new run of the same graph with some inputs changed. What didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Asks the run to stop before its next node call. A run that answers `running` here ends `cancelled`. A cancel that comes after its last node call started is dropped if the run completes or ends early. If the run ends `waiting`, it still ends `cancelled`. |
 
@@ -285,7 +287,7 @@ Run as many workers on one store as you like. Each of them serves every run.
 
 **A deploy.** When a worker shuts down, it stops starting nodes, waits for the calls already going on, saves the run and hands it back. Another worker picks it up within seconds, and no call is made twice.
 
-**A store outage.** If your store raises, the worker never fails the run for it. It stops the run and lets the lease run out. Once the store is back, a worker goes on from the last checkpoint.
+**A store outage.** If your store raises, the worker never fails the run for it. It stops the run and lets the lease run out. Once the store is back, a worker goes on from the last checkpoint. A decline that the store fails after the run is written still answers with the run `failed`. If its `run_end` wasn't stored, a worker stores it once the lease runs out.
 
 **Two answers at once.** Of two workers that answer one run at the same moment, one goes on with the run. The other reads the run again. If the run is still running, the second answer is queued, and the run turns it down as `not_waiting` in its `refused` when it stops. If the run has already finished, the second answer is a 422 with the same code. Either way, the question was answered once.
 
