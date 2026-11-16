@@ -890,6 +890,87 @@ async def test_an_answer_to_a_complete_run_is_refused_by_conductor_as_not_waitin
     ]
 
 
+# -- declines -------------------------------------------------------------------------------------
+
+
+async def test_a_decline_of_a_waiting_run_fails_it_with_no_resume_call_and_a_resume_asks_again() -> (
+    None
+):
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+
+        written = await worker.decline(run_id, waiting_id, "Over budget", allows=EVERY_RUN)
+        ended = await store.ended(run_id)
+
+        assert written.status == "running"
+        assert (ended.status, ended.cause.type, ended.cause.ctx, ended.waiting) == (
+            "failed",
+            "answer_declined",
+            {"reason": "Over budget"},
+            [],
+        )
+        events = await store.stored_events(run_id)
+        assert await _resume_calls(store, run_id) == 1
+        assert (events[-1]["type"], events[-1]["status"]) == ("run_end", "failed")
+
+        await worker.resume(run_id, allows=EVERY_RUN)
+        again = await store.ended(run_id)
+        assert (again.status, [waiting.id for waiting in again.waiting]) == (
+            "waiting",
+            [waiting_id],
+        )
+
+
+async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_fails_the_run_when_it_stops() -> (
+    None
+):
+    registry, graph, gate, inputs, waiting_id = asking()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+
+        assert (await worker.decline(run_id, waiting_id, allows=EVERY_RUN)).status == "running"
+        gate.set()
+        ended = await store.ended(run_id)
+
+    assert (ended.status, ended.cause.type, ended.outputs, ended.refused) == (
+        "failed",
+        "answer_declined",
+        None,
+        {},
+    )
+    assert await _resume_calls(store, run_id) == 1
+
+
+async def test_a_decline_to_a_complete_run_is_not_waiting_and_to_a_stale_id_answer_stale() -> None:
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        waits = await _started(worker, graph, inputs)
+        await store.ended(waits)
+        with pytest.raises(InvalidCallError) as stale:
+            await worker.decline(waits, waiting_id.split("~")[0] + "~00000000", allows=EVERY_RUN)
+        assert (await store.view(waits)).status == "waiting"
+
+        await worker.answer(waits, {waiting_id: True}, allows=EVERY_RUN)
+        assert (await store.ended(waits)).status == "complete"
+        with pytest.raises(InvalidCallError) as ended:
+            await worker.decline(waits, waiting_id, allows=EVERY_RUN)
+
+    assert [problem.type for problem in stale.value.problems] == ["answer_stale"]
+    assert [(problem.type, problem.ctx["status"]) for problem in ended.value.problems] == [
+        ("not_waiting", "complete")
+    ]
+
+
 async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_long_the_first_takes_to_write_its_end() -> (
     None
 ):
@@ -1148,7 +1229,12 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
         assert (waiting.status, list(waiting.refused)) == ("waiting", [waiting_id])
         store.rows[run_id] = dataclasses.replace(
             store.rows[run_id],
-            state=json.dumps({**store.state(run_id), "queued_answers": [{waiting_id: False}]}),
+            state=json.dumps(
+                {
+                    **store.state(run_id),
+                    "queued_answers": [{"kind": "answers", "answers": {waiting_id: False}}],
+                }
+            ),
         )  # leave an answer queued, as a resume call that raised does; the test above gets there through a real raise
 
         assert (

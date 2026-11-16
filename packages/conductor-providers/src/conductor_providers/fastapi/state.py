@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Mapping
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from conductor import InvalidCallError, Problem, Run, RunProgress, RunStatus, Waiting
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
+from conductor_providers.fastapi.bodies import Decline
 from conductor_providers.fastapi.problems import raised_outside_a_node
 from conductor_providers.fastapi.store import RunChanges
 
@@ -63,11 +64,35 @@ class RunOutcome(BaseModel):
         return cls(waiting=run.waiting, outputs=outputs, progress=run.progress)
 
 
+class QueuedAnswers(BaseModel):
+    """The answers one call sent while the run was running, waiting in its state until the run stops.
+
+    ``kind`` tells it from a ``QueuedDecline`` in the row's JSON, so each entry is read by its ``kind`` alone.
+
+    Attributes:
+        kind: ``"answers"``.
+        answers: The answers by waiting id, as the call sent them.
+    """
+
+    kind: Literal["answers"] = "answers"
+    answers: dict[str, Any]
+
+
+class QueuedDecline(Decline):
+    """A decline waiting in a run's state until the run is given it.
+
+    Attributes:
+        kind: ``"decline"``, which tells it from a ``QueuedAnswers``.
+    """
+
+    kind: Literal["decline"] = "decline"
+
+
 class RunState(BaseModel):
     """Where a run is, and what was asked of it while it was running: a row's ``state``, as JSON.
 
     For a running run that one answer was sent to, it reads ``{"status": "running", "cause": null,
-    "queued_answers": [{"approve~3fa2c0d1": true}], "refused": {}, "cancel_asked": false}``.
+    "queued_answers": [{"kind": "answers", "answers": {"approve~3fa2c0d1": true}}], "refused": {}, "cancel_asked": false}``.
 
     ``status`` and ``cause`` repeat the run's own, so a route reads them without loading a run that can be
     megabytes. Two values are the worker's own, which no saved run can hold: ``running``, while a worker resumes the
@@ -76,16 +101,18 @@ class RunState(BaseModel):
     Attributes:
         status: ``running`` while a worker resumes the run or is about to; else the run's status as it was stored.
         cause: Why the run ended early; ``None`` for a running run, and for one that didn't end early.
-        queued_answers: The answers that came while the run was running, each mapping as one call sent it, in the
-            order they came. The run is given them when it stops.
-        refused: By waiting id, the problems of the last answer to that question, when the run refused it.
+        queued_answers: What came for the run's questions while it was running, in the order it came: each
+            mapping of answers as one call sent it, and each decline. The run is given them when it stops. A decline
+            is also queued for a run that isn't running, so that the worker that claims it applies it.
+        refused: By waiting id, the problems of the last answer or decline to that question, when the run refused
+            it.
         cancel_asked: Whether someone asked the running run to stop. A waiting run that is cancelled is made
             running with it set, so its resume call ends before any node call.
     """
 
     status: RunStatus
     cause: Problem | None
-    queued_answers: list[dict[str, Any]]
+    queued_answers: list[Annotated[QueuedAnswers | QueuedDecline, Field(discriminator="kind")]]
     refused: dict[str, list[Problem]]
     cancel_asked: bool
 
@@ -103,9 +130,19 @@ class RunState(BaseModel):
         """This state with the run running again, for a worker to resume."""
         return self.model_copy(update={"status": "running", "cause": None})
 
-    def queued(self, answers: Mapping[str, Any]) -> RunState:
-        """This state with one more call's answers queued, after those queued before."""
-        return self.model_copy(update={"queued_answers": [*self.queued_answers, dict(answers)]})
+    @property
+    def has_a_decline_queued(self) -> bool:
+        """Whether a decline is queued. The worker that holds the run then applies the queue without a resume call."""
+        return any(isinstance(entry, QueuedDecline) for entry in self.queued_answers)
+
+    def queued(self, entry: Mapping[str, Any] | Decline) -> RunState:
+        """This state with one more call's answers, or a decline, queued after what was queued before."""
+        added = (
+            QueuedDecline(waiting_id=entry.waiting_id, reason=entry.reason)
+            if isinstance(entry, Decline)
+            else QueuedAnswers(answers=dict(entry))
+        )
+        return self.model_copy(update={"queued_answers": [*self.queued_answers, added]})
 
     def asked_to_stop(self) -> RunState:
         """This state with a cancel asked."""
@@ -120,42 +157,60 @@ class RunState(BaseModel):
         Returns:
             The state without them in ``refused`` and ``queued_answers``.
         """
-        queued = [
-            left
-            for answers in self.queued_answers
-            if (left := {key: value for key, value in answers.items() if key not in waiting_ids})
-        ]
+        queued: list[QueuedAnswers | QueuedDecline] = []
+        for entry in self.queued_answers:
+            if isinstance(entry, QueuedDecline):
+                if entry.waiting_id not in waiting_ids:
+                    queued.append(entry)
+            elif left := {
+                key: value for key, value in entry.answers.items() if key not in waiting_ids
+            }:
+                queued.append(QueuedAnswers(answers=left))
         refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
         return self.model_copy(update={"queued_answers": queued, "refused": refused})
 
     def ended_with(self, run: Run[Any], saved: str, outcome: str) -> tuple[RunState, RunChanges]:
-        """This state once a resume call returned ``run``, after the run was given the answers queued meanwhile.
+        """This state once a resume call returned ``run``, after the run was given what was queued meanwhile.
 
-        The queued answers are given to the run in the order they came, one waiting id at a time, with
-        ``run.answer``. So a wrong answer is refused alone. An answer the run refuses goes to ``refused`` with its
-        problems, and one it takes clears what ``refused`` had for its question. A second answer to a question the
-        first one answered is refused by conductor as ``not_waiting``. An answer whose check raises something other
-        than a refusal (a fault in a host's type) is logged and refused as ``raised_outside_a_node``.
+        The queued answers and declines are given to the run in the order they came, one waiting id at a time, with
+        ``run.answer`` and ``run.decline``. So a wrong one is refused alone. One the run refuses goes to ``refused``
+        with its problems, and one it takes clears what ``refused`` had for its question. Of an answer and a decline
+        to one question, the one that came first is taken: the second is refused by conductor as ``not_waiting``,
+        as a second answer is. An answer whose check raises something other than a refusal (a fault in a host's
+        type) is logged and refused as ``raised_outside_a_node``.
 
-        If the run takes any answer, it is running again, so the worker resumes it at once, with the answered run as
-        the row's ``run``. A cancel that was asked but didn't end this resume call then stays asked, and ends the
-        next one before any node call. So does a cancel that came after the call's last node call, when the run
-        ends ``waiting``: it is running again, and ends ``cancelled``, as a cancel of a waiting run does. Otherwise
-        the cancel is cleared: a run that is complete or ended early has nothing to cancel.
+        If the run takes a decline, it has failed, so it isn't resumed: its status and cause are the declined run's,
+        with every answer taken before or after the decline in it, and a cancel asked is cleared. Otherwise, if it
+        takes any answer, it is running again, so the worker resumes it at once, with the answered run as the row's
+        ``run``. A cancel that was asked but didn't end this resume call then stays asked, and ends the next one
+        before any node call. So does a cancel that came after the call's last node call, when the run ends
+        ``waiting``: it is running again, and ends ``cancelled``, as a cancel of a waiting run does. Otherwise the
+        cancel is cleared: a run that is complete or ended early has nothing to cancel.
 
         Args:
-            run: The run the resume call returned.
+            run: The run the resume call returned, or the run as the row has it when a decline is applied without
+                a resume call.
             saved: ``run``, as JSON.
             outcome: The row's ``outcome`` for ``run``, as JSON.
 
         Returns:
             The new state, and the row's ``run`` and ``outcome`` to write with it.
         """
-        answered, taken, refused = run, False, dict(self.refused)
-        for answers in self.queued_answers:
-            for waiting_id, value in answers.items():
+        given, taken, declined, refused = run, False, False, dict(self.refused)
+        for entry in self.queued_answers:
+            is_decline = isinstance(entry, QueuedDecline)
+            given_to: list[tuple[str, Any]] = (
+                [(entry.waiting_id, entry.reason)]
+                if isinstance(entry, QueuedDecline)
+                else list(entry.answers.items())
+            )
+            for waiting_id, value in given_to:
                 try:
-                    answered = answered.answer(waiting_id, value)
+                    given = (
+                        given.decline(waiting_id, reason=value)
+                        if is_decline
+                        else given.answer(waiting_id, value)
+                    )
                 except InvalidCallError as error:
                     refused[waiting_id] = error.problems
                 except Exception as error:
@@ -163,13 +218,14 @@ class RunState(BaseModel):
                     refused[waiting_id] = [raised_outside_a_node(error=type(error).__name__)]
                 else:
                     taken = True
+                    declined = declined or is_decline
                     refused.pop(waiting_id, None)
         # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
         unheard = self.cancel_asked and run.status != "cancelled"
-        if taken or (unheard and run.status == "waiting"):
-            status: RunStatus = "running"
-            cause = None
-            cancel_asked = unheard
+        if declined:
+            status, cause, cancel_asked = given.status, given.cause, False
+        elif taken or (unheard and run.status == "waiting"):
+            status, cause, cancel_asked = "running", None, unheard
         else:
             status, cause, cancel_asked = run.status, run.cause, False
         state = self.model_copy(
@@ -181,7 +237,9 @@ class RunState(BaseModel):
                 "cancel_asked": cancel_asked,
             }
         )
-        return state, {"run": answered.to_json() if taken else saved, "outcome": outcome}
+        if declined:  # the run stops here, so the row's outcome is the declined run's
+            outcome = RunOutcome.of(given).model_dump_json()
+        return state, {"run": given.to_json() if taken else saved, "outcome": outcome}
 
     def failed(self, cause: Problem, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once a resume call raised, or conductor refused it, so it returned no run.
@@ -229,8 +287,8 @@ class RunView(RunOutcome):
             columns); ``None`` until then.
         progress: How many calls of each node have an outcome, and how many there will be, as ``run.progress``
             says it: as of the last checkpoint while the run is running.
-        refused: By waiting id, the problems of the last answer sent to that question while the run was running,
-            when the run refused it once it stopped.
+        refused: By waiting id, the problems of the last answer or decline sent to that question while the run
+            was running, when the run refused it once it stopped.
     """
 
     id: str

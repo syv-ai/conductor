@@ -521,6 +521,14 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
             f"/runs/{waits}/answers", json={waiting_id: "not a bool", "nonesuch": True}
         )
         assert wrong.status_code == 422 and len(wrong.json()["detail"]) == 2
+        declined = await client.post(
+            f"/runs/{waits}/declines", json={"waiting_id": waiting_id, "reason": "No"}
+        )
+        assert _status(declined) == (202, "running")
+        assert (await store.ended(waits)).cause.type == "answer_declined"
+        assert refusal(
+            await client.post(f"/runs/{waits}/declines", json={"waiting_id": waiting_id})
+        ) == (422, [("not_waiting", {"waiting_id": waiting_id, "status": "failed"})])
 
 
 def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape() -> None:
@@ -545,6 +553,7 @@ def test_each_route_declares_the_refusals_it_can_answer_with_in_one_shape() -> N
         ("get", "/runs/{run_id}"): on_a_run,
         ("get", "/runs/{run_id}/events"): on_a_run,
         ("post", "/runs/{run_id}/answers"): on_a_run,
+        ("post", "/runs/{run_id}/declines"): on_a_run,
         ("post", "/runs/{run_id}/resume"): {**on_a_run, "409": refused},
         ("post", "/runs/{run_id}/again"): on_a_run,
         ("post", "/runs/{run_id}/cancel"): on_a_run,
@@ -773,6 +782,7 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
         ("get", "/runs/{run_id}"): "Read Run",
         ("get", "/runs/{run_id}/events"): "Follow Run",
         ("post", "/runs/{run_id}/answers"): "Answer Run",
+        ("post", "/runs/{run_id}/declines"): "Decline Run",
         ("post", "/runs/{run_id}/resume"): "Resume Run",
         ("post", "/runs/{run_id}/again"): "Run Again",
         ("post", "/runs/{run_id}/cancel"): "Cancel Run",

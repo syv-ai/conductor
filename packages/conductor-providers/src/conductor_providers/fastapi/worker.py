@@ -26,6 +26,7 @@ from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
 
+from conductor_providers.fastapi.bodies import Decline
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings, loaded
 from conductor_providers.fastapi.problems import (
     no_such_run,
@@ -310,6 +311,55 @@ class Worker(Generic[M, X]):
             claimed = await self._claim(
                 row, state.answered(answers.keys()).running(), changed=answered
             )
+            if claimed is not None:
+                return self._view(claimed)
+            row = await self._row(run_id)
+
+    async def decline(
+        self,
+        run_id: str,
+        waiting_id: str,
+        reason: str | None = None,
+        *,
+        allows: Callable[[M], bool],
+    ) -> RunView:
+        """Decline to answer a question that waits in a run, so the run fails, as ``run.decline`` fails it.
+
+        A decline is queued as an answer is. While the run is running, it waits in the queue until the run's resume
+        call ends, and the run is given it then, in order with the answers queued with it. Otherwise the run is
+        checked first, so a decline the run refuses is refused here, and then claimed with the decline queued. The
+        worker that holds it gives it the queue without a resume call, so the declined call doesn't ask again. Either
+        way the run ends ``failed``, with ``answer_declined`` as its cause, and isn't resumed.
+
+        When another call takes the run between this call's read and its write, the run is read again, and the
+        decline goes by what it is then: queued if it is running, refused as ``not_waiting`` if the question was
+        answered.
+
+        Args:
+            run_id: The run's id.
+            waiting_id: The id of the waiting call, as the run's ``waiting`` lists it.
+            reason: Why the person declined, which the run's cause keeps in ``ctx.reason``.
+            allows: The run filter of the request, a test of a run's metadata: a run it turns away is refused as
+                ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
+
+        Returns:
+            The run as written, ``running``.
+
+        Raises:
+            InvalidCallError: No run has the id (``no_such_run``), or the run refuses the decline (``not_waiting``,
+                ``answer_stale``).
+            RuntimeError: The run is not running, so the decline would be claimed, and the worker has never served.
+        """
+        declined = Decline(waiting_id=waiting_id, reason=reason)
+        row = await self._row(run_id, allows)
+        while True:
+            row = await self._ask_of_a_running_run(row, lambda state: state.queued(declined))
+            state = RunState.model_validate_json(row.state)
+            if state.is_running:
+                return self._view(row)
+            taken, nodes = row, self.nodes_for(self._metadata_in(row))
+            await asyncio.to_thread(lambda: loaded(taken, nodes).decline(waiting_id, reason=reason))
+            claimed = await self._claim(row, state.queued(declined).running())
             if claimed is not None:
                 return self._view(claimed)
             row = await self._row(run_id)

@@ -96,6 +96,23 @@ class StartRun(BaseModel):
             ) from None
 
 
+class Decline(BaseModel):
+    """The body of ``POST /runs/{run_id}/declines``: the question a person declines to answer, and why.
+
+    It is also how a decline is queued in a running run's state, beside the answers, until the run takes it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    waiting_id: str = Field(
+        description="The `id` of the waiting call, as the run's `waiting` lists it."
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Why the person declined, which the run's cause keeps in `ctx.reason`.",
+    )
+
+
 class Resume(BaseModel):
     """The body of ``POST /runs/{run_id}/resume``, which may be left out."""
 

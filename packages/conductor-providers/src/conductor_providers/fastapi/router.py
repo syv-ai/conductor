@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
-from conductor_providers.fastapi.bodies import Resume, StartRun, declared
+from conductor_providers.fastapi.bodies import Decline, Resume, StartRun, declared
 from conductor_providers.fastapi.problems import STATUS
 from conductor_providers.fastapi.state import M, RunView
 from conductor_providers.fastapi.worker import Worker, X
@@ -202,6 +202,23 @@ def run_router(
         the answers wait until it stops and are given to it then; one it refuses then is in the run's ``refused``.
         """
         return await worker.answer(run_id, answers, allows=allows)
+
+    @router.post(
+        "/runs/{run_id}/declines",
+        status_code=202,
+    )
+    async def decline_run(
+        run_id: str,
+        allows: Annotated[Callable[[M], bool], Depends(run_filter)],
+        body: Decline,
+    ) -> RunView:
+        """Decline to answer what waits under ``waiting_id``, so the run ends ``failed`` with ``answer_declined``.
+
+        The run is not resumed: a later resume asks the question again. A decline the run refuses is in the 422.
+        While the run is running, the decline waits until it stops and is given to it then, in order with the
+        answers; one it refuses then is in the run's ``refused``.
+        """
+        return await worker.decline(run_id, body.waiting_id, body.reason, allows=allows)
 
     @router.post(
         "/runs/{run_id}/resume",

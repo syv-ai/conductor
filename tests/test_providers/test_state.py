@@ -12,8 +12,9 @@ from typing import Any
 
 from conductor import Graph, Problem
 from conductor_providers.fastapi import RunChanges, StoredRun
+from conductor_providers.fastapi.bodies import Decline
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings
-from conductor_providers.fastapi.state import RunOutcome, RunState
+from conductor_providers.fastapi.state import QueuedAnswers, QueuedDecline, RunOutcome, RunState
 from conductor_providers.fastapi.store import GuardedStore
 from pydantic import TypeAdapter
 from pytest import LogCaptureFixture
@@ -99,7 +100,7 @@ def test_a_failed_resume_call_keeps_the_queued_answers_and_writes_only_the_outco
         "failed",
         cause,
         False,
-        [{"approve~1": True}],
+        [QueuedAnswers(answers={"approve~1": True})],
     )
     assert changes == {"outcome": '{"waiting": [], "outputs": null, "progress": null}'}
 
@@ -110,7 +111,63 @@ def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -
     )
     state = refused.queued({"a": 1, "c": 3}).queued({"a": 2}).answered({"a"})
 
-    assert (state.queued_answers, list(state.refused)) == ([{"c": 3}], ["b"])
+    assert (state.queued_answers, list(state.refused)) == (
+        [QueuedAnswers(answers={"c": 3})],
+        ["b"],
+    )
+
+
+def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_with_nothing_waiting() -> (
+    None
+):
+    run, waiting_id = _waiting()
+
+    state, changes = _ended_with(
+        RunState.started().queued(Decline(waiting_id=waiting_id, reason="No")), run
+    )
+
+    declined = run.decline(waiting_id, reason="No")
+    assert (state.status, state.cause, state.queued_answers) == ("failed", declined.cause, [])
+    assert changes == {
+        "run": declined.to_json(),
+        "outcome": RunOutcome.of(declined).model_dump_json(),
+    }
+    assert RunOutcome.model_validate_json(changes["outcome"]).waiting == []
+
+
+def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() -> None:
+    """The second finds nothing waiting, so conductor refuses it as ``not_waiting``, as a second answer is."""
+    run, waiting_id = _waiting()
+    decline = Decline(waiting_id=waiting_id)
+
+    answered_first, _ = _ended_with(
+        RunState.started().queued({waiting_id: True}).queued(decline), run
+    )
+    declined_first, _ = _ended_with(
+        RunState.started().queued(decline).queued({waiting_id: True}), run
+    )
+
+    assert answered_first.status == "running"
+    assert (declined_first.status, declined_first.cause.type) == ("failed", "answer_declined")
+    for state in (answered_first, declined_first):
+        assert [problem.type for problem in state.refused[waiting_id]] == ["not_waiting"]
+
+
+def test_each_queued_entry_reads_back_from_the_rows_json_by_its_kind_alone() -> None:
+    """An answer mapping whose keys are ``waiting_id`` and ``reason`` is still read back as answers."""
+    looks_like_a_decline = {"waiting_id": "b", "reason": "No"}
+    state = RunState.started().queued(looks_like_a_decline).queued(Decline(waiting_id="b"))
+
+    read = RunState.model_validate_json(state.model_dump_json())
+
+    assert read.queued_answers == [
+        QueuedAnswers(answers=looks_like_a_decline),
+        QueuedDecline(waiting_id="b"),
+    ]
+    assert read.has_a_decline_queued
+    assert read.answered({"b"}).queued_answers == [
+        QueuedAnswers(answers={"waiting_id": "b", "reason": "No"})
+    ]
 
 
 class _DownStore(MemoryStore):
