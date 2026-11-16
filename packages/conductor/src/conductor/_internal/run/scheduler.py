@@ -108,7 +108,7 @@ from typing import Any, Literal
 
 from conductor._internal.ask import Ask
 from conductor._internal.base import ItemIndexes, NodePath, place_text
-from conductor._internal.node import RunningCalls
+from conductor._internal.node import LONGEST_WAIT, RunningCalls
 from conductor._internal.problem import (
     ExternalError,
     InvalidCallError,
@@ -917,7 +917,8 @@ class Scheduler:
         """Sets a timer to make the call again, if ``attempt`` failed and its node's ``Policy`` retries the error.
 
         The rules for which errors are retried are in the reference: ``python -m conductor.about
-        retries-and-timeouts``. The delay is ``retry_delay`` seconds, doubled for each attempt before this one.
+        retries-and-timeouts``. The delay is ``retry_delay`` seconds, doubled for each attempt before this one, up
+        to ``LONGEST_WAIT``.
 
         Returns:
             Whether the call will be made again. If not, the caller records the outcome of ``attempt``.
@@ -935,7 +936,8 @@ class Scheduler:
             isinstance(error, _NEVER_RETRIED) or not isinstance(error, policy.retry_on)
         ):
             return False
-        delay = policy.retry_delay * 2**attempt.number
+        # 2.0 ** 1024 is past what a float holds. A product past it is inf, which the cap brings down.
+        delay = min(policy.retry_delay * 2.0 ** min(attempt.number, 1023), LONGEST_WAIT)
         retry = _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1)
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)

@@ -7,12 +7,18 @@ again. ``Deprecation`` is a notice, shown in an editor, that a version of the no
 from __future__ import annotations
 
 import functools
+import threading
+from typing import Final
 
 from pydantic import ConfigDict
 from pydantic import Field as PydanticField
 from pydantic.dataclasses import dataclass
 
 from conductor._internal.base import ConductorModel
+
+#: The longest wait, in seconds, a policy may set and the scheduler makes: ``threading.TIMEOUT_MAX``, the most a
+#: thread can wait for anything, about 292 years. A retry's delay, doubled at each retry, stops growing there.
+LONGEST_WAIT: Final = threading.TIMEOUT_MAX
 
 
 @dataclass(frozen=True, config=ConfigDict(strict=True))
@@ -48,7 +54,8 @@ class Policy:
             place, the inner run waits for one forever. With ``concurrency=2``, two items or two runs calling the
             node at once are already enough.
         retries: How many more times a failed call is tried, at least 0.
-        retry_delay: How many seconds the first retry waits. Each later retry waits twice as long.
+        retry_delay: How many seconds the first retry waits. Each later retry waits twice as long, up to
+            ``LONGEST_WAIT``.
         attempt_timeout: How many seconds one attempt may take, or ``None`` for no limit. An attempt that runs over
             fails the call for good. Its thread can't be stopped, so trying again could repeat what it does.
         retry_on: Exception classes of the node's own client to try again, like an ``ExternalError``.
@@ -61,8 +68,8 @@ class Policy:
 
     concurrency: int | None = PydanticField(default=None, ge=1)
     retries: int = PydanticField(default=0, ge=0)
-    retry_delay: float = PydanticField(default=1.0, ge=0, allow_inf_nan=False)
-    attempt_timeout: float | None = PydanticField(default=None, gt=0, allow_inf_nan=False)
+    retry_delay: float = PydanticField(default=1.0, ge=0, le=LONGEST_WAIT)
+    attempt_timeout: float | None = PydanticField(default=None, gt=0, le=LONGEST_WAIT)
     retry_on: tuple[type[BaseException], ...] = ()
     reuse_when_inputs_match: bool = True
     costs_nothing: bool = False

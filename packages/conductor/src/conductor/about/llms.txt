@@ -186,7 +186,7 @@ assert list(greet.versions) == [2, 1] and greet.versions[1] is greet_v1
 - Watch out for nesting. Say a node's function runs a graph that uses the node again, or uses a node that uses it back. Then `concurrency` deadlocks once the nesting is as deep as `concurrency`: the outer calls hold every place, and the inner run waits for one.
 - With `concurrency` 1 or `None` and no `attempt_timeout`, the node is called in order on the run's own thread. Otherwise it is called on threads.
 
-The values are checked. `concurrency` is at least 1, or `None`. `retries` is at least 0. `retry_delay` is a finite number of seconds, at least 0, and `attempt_timeout` a finite number of seconds above 0. `Policy` is a frozen pydantic dataclass read strictly, so anything else raises pydantic's own validation error. A yes or no, a text, or `1.5` is not a whole number.
+The values are checked. `concurrency` is at least 1, or `None`. `retries` is at least 0. `retry_delay` is a number of seconds, at least 0, and `attempt_timeout` a number of seconds above 0, each at most `threading.TIMEOUT_MAX` (about 292 years), the longest a thread can wait. A retry's delay doubles at each retry and stops growing there, so any number of retries can be made. `Policy` is a frozen pydantic dataclass read strictly, so anything else raises pydantic's own validation error. A yes or no, a text, or `1.5` is not a whole number.
 
 **Version numbers and upgrades.**
 

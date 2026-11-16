@@ -24,7 +24,7 @@ The package has these parts:
 
 from .declare import node, subgraph
 from .describe import NodeDescription
-from .policy import Deprecation, Policy
+from .policy import LONGEST_WAIT, Deprecation, Policy
 from .running_calls import RunningCalls
 from .type import (
     FunctionDefinition,
@@ -38,6 +38,7 @@ from .type import (
 from .validator import HookValidator, ReturnValidator
 
 __all__ = [
+    "LONGEST_WAIT",
     "Deprecation",
     "FunctionDefinition",
     "HookName",

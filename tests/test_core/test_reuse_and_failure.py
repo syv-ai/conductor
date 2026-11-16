@@ -392,6 +392,8 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
         {"attempt_timeout": inf},
         {"retry_delay": nan},
         {"retry_delay": inf},
+        {"retry_delay": 1e10},
+        {"attempt_timeout": 1e10},
         {"retries": True},
         {"retries": "2"},
         {"concurrency": 1.0},
@@ -403,6 +405,25 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
     assert (
         Policy(retry_delay=2, attempt_timeout=5).attempt_timeout == 5
     )  # a whole number of seconds is a number
+
+
+def test_more_than_a_thousand_retries_with_no_delay_keep_retrying_until_the_call_succeeds():
+    """The delay doubles at each retry. From the 1025th, two to that power is past what a float holds, and the delay
+    stops growing at ``LONGEST_WAIT``, so the run goes on."""
+    tries: list[int] = []
+
+    @node(
+        "poll", title="Poll", description="For a test.", policy=Policy(retries=2000, retry_delay=0)
+    )
+    def poll(n: int) -> int:
+        tries.append(n)
+        if len(tries) <= 1100:
+            raise ExternalError("not yet")
+        return len(tries)
+
+    run = Graph.compile(make_graph(poll), registry_of(poll)).run(n=1)
+
+    assert (run.status, run.outputs) == ("complete", {"result": 1101})
 
 
 def test_a_failed_item_is_retried_alone():
