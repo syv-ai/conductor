@@ -723,7 +723,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - An empty mapping answers no call, so it changes nothing: a run that was `cancelled` or `timed_out` stays so.
 - A node that asked is not called again for that item.
 
-**Declining.** `run.decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.answer` does, an entry of `run.waiting` or its id, and returns a new run.
+**Declining.** `run.decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.answer` does, an entry of `run.waiting` or its id, and returns a new run. A decline is not an answer: it ends the run `failed`, and the next `resume()` asks the question again. To reject one item and let the run go on, answer it.
 
 - The call fails as a call whose node raised does: it has no outcome, and the run is `failed` with `answer_declined` as its `cause`. Nothing that reads its outputs is called. The other questions still wait. `run.answer` to one of them returns a run still `failed`; the runs router resumes the run with such an answer, and that asks the declined question again.
 - The decline is the host's latest act, so `answer_declined` becomes the `cause` even of a run a `resume()` had already ended `failed` or `stopped`.
