@@ -164,7 +164,6 @@ def test_each_queued_entry_reads_back_from_the_rows_json_by_its_kind_alone() -> 
         QueuedAnswers(answers=looks_like_a_decline),
         QueuedDecline(waiting_id="b"),
     ]
-    assert read.has_a_decline_queued
     assert read.answered({"b"}).queued_answers == [
         QueuedAnswers(answers={"waiting_id": "b", "reason": "No"})
     ]

@@ -130,10 +130,18 @@ class RunState(BaseModel):
         """This state with the run running again, for a worker to resume."""
         return self.model_copy(update={"status": "running", "cause": None})
 
-    @property
-    def has_a_decline_queued(self) -> bool:
-        """Whether a decline is queued. The worker that holds the run then applies the queue without a resume call."""
-        return any(isinstance(entry, QueuedDecline) for entry in self.queued_answers)
+    def takes_a_decline(self, run: Run[Any]) -> bool:
+        """Whether ``run`` takes a decline when it is given what is queued, and so fails.
+
+        The worker that holds the run then gives it the queue without a resume call, since a resume would ask the
+        declined question again. A decline the run refuses as it is, such as one for a question it hasn't asked
+        yet, doesn't count: the run is resumed, and given the queue again when it stops.
+
+        Args:
+            run: The run as the row has it.
+        """
+        _, _, declined, _ = self._given_to(run)
+        return declined
 
     def queued(self, entry: Mapping[str, Any] | Decline) -> RunState:
         """This state with one more call's answers, or a decline, queued after what was queued before."""
@@ -196,6 +204,37 @@ class RunState(BaseModel):
         Returns:
             The new state, and the row's ``run`` and ``outcome`` to write with it.
         """
+        given, taken, declined, refused = self._given_to(run)
+        # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
+        unheard = self.cancel_asked and run.status != "cancelled"
+        if declined:
+            status, cause, cancel_asked = given.status, given.cause, False
+        elif taken or (unheard and run.status == "waiting"):
+            status, cause, cancel_asked = "running", None, unheard
+        else:
+            status, cause, cancel_asked = run.status, run.cause, False
+        state = self.model_copy(
+            update={
+                "status": status,
+                "cause": cause,
+                "queued_answers": [],
+                "refused": refused,
+                "cancel_asked": cancel_asked,
+            }
+        )
+        if declined:  # the run stops here, so the row's outcome is the declined run's
+            outcome = RunOutcome.of(given).model_dump_json()
+        return state, {"run": given.to_json() if taken else saved, "outcome": outcome}
+
+    def _given_to(self, run: Run[Any]) -> tuple[Run[Any], bool, bool, dict[str, list[Problem]]]:
+        """``run`` once it is given what is queued, in the order it came, one waiting id at a time.
+
+        Args:
+            run: The run to give it to.
+
+        Returns:
+            The run given it, whether it took any of it and any decline, and ``refused`` with what it refused.
+        """
         given, taken, declined, refused = run, False, False, dict(self.refused)
         for entry in self.queued_answers:
             is_decline = isinstance(entry, QueuedDecline)
@@ -220,26 +259,7 @@ class RunState(BaseModel):
                     taken = True
                     declined = declined or is_decline
                     refused.pop(waiting_id, None)
-        # a cancel this resume call didn't hear is kept, so the next one ends cancelled before any node call
-        unheard = self.cancel_asked and run.status != "cancelled"
-        if declined:
-            status, cause, cancel_asked = given.status, given.cause, False
-        elif taken or (unheard and run.status == "waiting"):
-            status, cause, cancel_asked = "running", None, unheard
-        else:
-            status, cause, cancel_asked = run.status, run.cause, False
-        state = self.model_copy(
-            update={
-                "status": status,
-                "cause": cause,
-                "queued_answers": [],
-                "refused": refused,
-                "cancel_asked": cancel_asked,
-            }
-        )
-        if declined:  # the run stops here, so the row's outcome is the declined run's
-            outcome = RunOutcome.of(given).model_dump_json()
-        return state, {"run": given.to_json() if taken else saved, "outcome": outcome}
+        return given, taken, declined, refused
 
     def failed(self, cause: Problem, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once a resume call raised, or conductor refused it, so it returned no run.

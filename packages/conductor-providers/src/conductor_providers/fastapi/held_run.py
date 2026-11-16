@@ -166,8 +166,8 @@ class HeldRun:
             metadata = settings.metadata.validate_json(self._row.metadata)
             run = await asyncio.to_thread(loaded, self._row, settings.nodes_for(metadata))
             held = await asyncio.to_thread(RunOutcome.of, run)
-            if self._state.has_a_decline_queued:
-                return await self._applied_without_a_resume_call(run, held)
+            if await asyncio.to_thread(self._state.takes_a_decline, run):
+                return await self._declined(run, held)
             stream = run.stream(
                 context=settings.context_for(metadata, self._stop),
                 timeout=settings.resume_timeout,
@@ -214,21 +214,20 @@ class HeldRun:
             cause, outcome_json
         )
 
-    async def _applied_without_a_resume_call(
+    async def _declined(
         self, run: Run[Any], held: RunOutcome
-    ) -> tuple[str | None, Callable[[RunState], tuple[RunState, RunChanges]]]:
-        """Give the run what is queued, with no resume call, since a decline in the queue fails the run.
+    ) -> tuple[str, Callable[[RunState], tuple[RunState, RunChanges]]]:
+        """Give the run what is queued with no resume call, since it takes a decline from the queue and fails.
 
-        The worker claims a run that isn't running with the decline queued, so the decline is applied here, by the
-        worker that holds the run, as a queued answer is. The run isn't resumed: the call it declined would ask again.
+        A worker claims a run that isn't running with the decline queued, so the worker that holds the run applies
+        it, as it applies a queued answer. The run isn't resumed: the call it declined would ask again.
 
         Args:
             run: The run as the row has it.
             held: Its outcome.
 
         Returns:
-            The ``run_end`` to store, as JSON, and how the row's state changes, as ``_resume_call`` returns them. The
-            ``run_end`` is ``None`` when the decline was refused and an answer taken, so the run goes on.
+            The ``run_end`` to store, as JSON, and how the row's state changes, as ``_resume_call`` returns them.
         """
         saved, written = await asyncio.to_thread(lambda: (run.to_json(), held.model_dump_json()))
 
@@ -236,8 +235,6 @@ class HeldRun:
             return state.ended_with(run, saved, written)
 
         ended, _ = await asyncio.to_thread(after, self._state)
-        if ended.is_running:
-            return None, after
         return RunEnd(status=ended.status, cause=ended.cause).model_dump_json(), after
 
     async def _finish(

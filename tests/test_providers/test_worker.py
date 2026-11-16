@@ -971,6 +971,33 @@ async def test_a_decline_to_a_complete_run_is_not_waiting_and_to_a_stale_id_answ
     ]
 
 
+async def test_a_run_taken_over_with_a_decline_it_cant_take_yet_is_resumed_and_given_the_decline_when_it_stops() -> (
+    None
+):
+    """A worker died while the run ran, before it asked the question that a decline queued meanwhile names.
+
+    The worker that takes the run over resumes it, since the run refuses the decline as it is. The run asks the
+    question, stops, and takes the decline then. A decline for an id that never waits is refused once the run
+    stops, and the run ends as its resume call left it.
+    """
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    never_asked = waiting_id.replace("confirm", "after", 1)
+    for run_id, declined in (("asked", waiting_id), ("never", never_asked)):
+        ready = Graph.compile(graph, registry).with_inputs(inputs)
+        await store.create(left_running(run_id, graph, ready, owner="a-dead-worker"))
+        assert (await worker.decline(run_id, declined, allows=EVERY_RUN)).status == "running"
+
+    async with worker.serving():
+        asked, never = await store.ended("asked"), await store.ended("never")
+
+    assert (asked.status, asked.cause.type, asked.refused) == ("failed", "answer_declined", {})
+    assert (never.status, [waiting.id for waiting in never.waiting]) == ("waiting", [waiting_id])
+    assert [problem.type for problem in never.refused[never_asked]] == ["not_waiting"]
+
+
 async def test_an_answer_queued_during_a_resume_call_starts_the_next_however_long_the_first_takes_to_write_its_end() -> (
     None
 ):
