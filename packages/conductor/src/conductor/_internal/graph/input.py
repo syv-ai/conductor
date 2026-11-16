@@ -26,9 +26,11 @@ node that returns it, and the output's name. That's so even when the list comes 
 
 A compiled input writes its paths from the graph its node is in, and a path always names a function node, never a
 subgraph node. A subgraph is never called itself, only the functions inside it. One compiled subgraph may be used as
-a node in many places. The run blueprint (``run/blueprint.py``) names each input inside it from the outer graph
-with ``from_outside``, once per place: the subgraph node's path goes in front of every path, and its loops in front
-of every list of loops. A subgraph node names its outputs from the graph around it by the same rule.
+a node in many places. Its outer graph is the graph the subgraph node is in. ``in_outer_graph`` names an edge, an
+input, a loop or a path of the subgraph's graph from its outer graph: the subgraph node's path goes in front of every
+path, and its loops in front of every list of loops. A subgraph node names its outputs that way. The run blueprint
+(``run/blueprint.py``) names every input inside a subgraph that way too, once per place, so a run reads full paths
+only.
 """
 
 from __future__ import annotations
@@ -62,7 +64,7 @@ class Edge:
     Attributes:
         wired_to: What the graph record wires the edge to: an output, and the field of the record it returns, or
             ``None`` for the whole output. Problems name the edge by it. It always names the output as the graph the
-            edge is drawn in does, even in an edge that ``from_outside`` names from another graph.
+            edge is drawn in does, even in an edge that ``in_outer_graph`` names from another graph.
         node: The path of the function node that returns the output. That's ``("shout",)``, or
             ``("loud", "shout")`` for an output of the subgraph node ``loud``.
         output: The output's name on that function node.
@@ -89,7 +91,7 @@ class Edge:
         """
         return (*self.loops, (self.node, self.output)) if self.per_item else self.loops
 
-    def from_outside(
+    def in_outer_graph(
         self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
     ) -> Edge:
         """Returns this edge of a subgraph's graph, named from the graph the subgraph node is in.
@@ -107,12 +109,12 @@ class Edge:
         """
         return replace(
             self,
-            node=(*subgraph_path, *self.node),
-            loops=loops_from_outside(subgraph_path, subgraph_loops, self.loops),
+            node=path_in_outer_graph(subgraph_path, self.node),
+            loops=loops_in_outer_graph(subgraph_path, subgraph_loops, self.loops),
         )
 
 
-def loops_from_outside(
+def loops_in_outer_graph(
     subgraph_path: NodePath,
     subgraph_loops: tuple[tuple[NodePath, str], ...],
     loops: tuple[tuple[NodePath, str], ...],
@@ -128,22 +130,22 @@ def loops_from_outside(
         subgraph_loops: The loops the subgraph node is in, named from that graph.
         loops: The loops as the subgraph's graph names them.
     """
-    return (*subgraph_loops, *[_list_from_outside(subgraph_path, loop) for loop in loops])
+    return (
+        *subgraph_loops,
+        *[(path_in_outer_graph(subgraph_path, node), output) for node, output in loops],
+    )
 
 
-def _list_from_outside(
-    subgraph_path: NodePath, series: tuple[NodePath, str]
-) -> tuple[NodePath, str]:
-    """Returns a list of a subgraph's graph, named from the graph the subgraph node is in.
+def path_in_outer_graph(subgraph_path: NodePath, node_path: NodePath) -> NodePath:
+    """Returns the path of a node of a subgraph's graph, named from the graph the subgraph node is in.
 
-    ``(("split",), "result")`` inside ``loud`` is ``(("loud", "split"), "result")`` from outside.
+    ``("split",)`` inside ``loud`` is ``("loud", "split")`` from outside.
 
     Args:
         subgraph_path: The subgraph node's path in the graph it is in.
-        series: The list as the subgraph's graph names it: the path of the node that returns it, and the output.
+        node_path: The node's path as the subgraph's graph names it.
     """
-    node, output = series
-    return (*subgraph_path, *node), output
+    return (*subgraph_path, *node_path)
 
 
 # -- how an input gets its value ----------------------------------------------------------------
@@ -236,12 +238,12 @@ class EdgeInput:
     loops: tuple[tuple[NodePath, str], ...]
     as_list: bool = False
 
-    def from_outside(
+    def in_outer_graph(
         self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
     ) -> EdgeInput:
         """Returns this input of a node in a subgraph's graph, named from the graph the subgraph node is in.
 
-        Its edges and loops are named as ``Edge.from_outside`` names them.
+        Its edges and loops are named as ``Edge.in_outer_graph`` names them.
 
         Args:
             subgraph_path: The subgraph node's path in the graph it is in.
@@ -250,9 +252,9 @@ class EdgeInput:
         return replace(
             self,
             sources=tuple(
-                edge.from_outside(subgraph_path, subgraph_loops) for edge in self.sources
+                edge.in_outer_graph(subgraph_path, subgraph_loops) for edge in self.sources
             ),
-            loops=loops_from_outside(subgraph_path, subgraph_loops, self.loops),
+            loops=loops_in_outer_graph(subgraph_path, subgraph_loops, self.loops),
         )
 
 
@@ -280,12 +282,12 @@ class CollectingInput:
     loops: tuple[tuple[NodePath, str], ...]
     sources: tuple[Edge, ...]
 
-    def from_outside(
+    def in_outer_graph(
         self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
     ) -> CollectingInput:
         """Returns this input of a node in a subgraph's graph, named from the graph the subgraph node is in.
 
-        Its ``series``, edges and loops are named as ``Edge.from_outside`` names them.
+        Its ``series``, edges and loops are named as ``Edge.in_outer_graph`` names them.
 
         Args:
             subgraph_path: The subgraph node's path in the graph it is in.
@@ -293,10 +295,10 @@ class CollectingInput:
         """
         return replace(
             self,
-            series=_list_from_outside(subgraph_path, self.series),
-            loops=loops_from_outside(subgraph_path, subgraph_loops, self.loops),
+            series=(path_in_outer_graph(subgraph_path, self.series[0]), self.series[1]),
+            loops=loops_in_outer_graph(subgraph_path, subgraph_loops, self.loops),
             sources=tuple(
-                edge.from_outside(subgraph_path, subgraph_loops) for edge in self.sources
+                edge.in_outer_graph(subgraph_path, subgraph_loops) for edge in self.sources
             ),
         )
 

@@ -19,7 +19,7 @@ itself, as a ``BlueprintSubgraphNode`` with no outcomes of its own.
 
 Inside a compiled graph, a node is named by its path from that graph. A run names it by its full path from the
 outer graph instead, which is the subgraph node's path followed by the inner path. The blueprint names every node,
-loop and input that way once, when it's built (``Edge.from_outside``), so a run never asks which graph an input
+loop and input that way once, when it's built (``Edge.in_outer_graph``), so a run never asks which graph an input
 was compiled in:
 
 - ``join.texts`` is wired to ``loud.result``, which the function node ``("loud", "shout")`` returns. ``join`` is
@@ -59,7 +59,8 @@ from conductor._internal.graph import (
     Graph,
     GraphInput,
     MissingInput,
-    loops_from_outside,
+    loops_in_outer_graph,
+    path_in_outer_graph,
 )
 from conductor._internal.node import Policy
 
@@ -285,8 +286,8 @@ def _add_blueprint_nodes(
     graph_path, outer_loops = (parent.node_path, parent.loops) if parent is not None else ((), ())
     graph_nodes: dict[str, BlueprintNode] = {}
     for compiled_node in graph._nodes.values():
-        node_path = (*graph_path, compiled_node.id)
-        loops = loops_from_outside(graph_path, outer_loops, compiled_node.loops)
+        node_path = path_in_outer_graph(graph_path, (compiled_node.id,))
+        loops = loops_in_outer_graph(graph_path, outer_loops, compiled_node.loops)
         node: BlueprintNode
         if isinstance(compiled_node, CompiledSubgraphNode):
             node = BlueprintSubgraphNode(
@@ -311,7 +312,7 @@ def _function_node(
     """Returns the blueprint node of one function node.
 
     It works out where the node is, what each call of it reads, and which function nodes those values come from.
-    Each input that edges lead to is named by full paths here (``from_outside``), once.
+    Each input that edges lead to is named by full paths here (``in_outer_graph``), once.
 
     It also records each ``Series`` output that an input reads one item at a time. The output goes into the
     ``looped_outputs`` of the function node that returns it, named by the output the edge is wired to.
@@ -352,7 +353,7 @@ def _function_node(
                     f"'{place_text(node_path, field.name)}' gets no value: a graph with problems has no blueprint"
                 )
             case EdgeInput():
-                node_input = node_input.from_outside(*around)
+                node_input = node_input.in_outer_graph(*around)
                 sources = [functions[edge.node] for edge in node_input.sources]
                 read = [(source, len(source.loops)) for source in sources]
                 depth = len(node_input.loops)
@@ -360,7 +361,7 @@ def _function_node(
                     if edge.per_item and not node_input.as_list:
                         functions[edge.node].looped_outputs.setdefault(edge.output, edge.wired_to)
             case CollectingInput(field=field):
-                node_input = node_input.from_outside(*around)
+                node_input = node_input.in_outer_graph(*around)
                 looped_over = node_input.series
                 series_node = functions[looped_over[0]]
                 sources = [functions[edge.node] for edge in node_input.sources]

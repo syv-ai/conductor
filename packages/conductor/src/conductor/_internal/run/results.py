@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath
-from conductor._internal.graph import CollectingInput, Edge
+from conductor._internal.graph import CollectingInput
 from conductor._internal.series import StoredSeries
 from conductor._internal.types import NoSuchFieldError
 
@@ -28,7 +28,11 @@ def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
     """Returns ``run.results``: every node's outputs so far, by node id and output name."""
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
     return {
-        n: {o: reader.display_value(compiled_node.edge_reading(o)) for o in compiled_node.outputs}
+        n: {
+            o: reader.display_value(edge.node, edge.output)
+            for o in compiled_node.outputs
+            for edge in [compiled_node.edge_reading(o)]
+        }
         for n, compiled_node in run.graph._nodes.items()
     }
 
@@ -36,7 +40,11 @@ def results_of(run: Run[Any]) -> dict[str, dict[str, Any]]:
 def outputs_of(run: Run[Any]) -> dict[str, Any]:
     """Returns ``run.outputs`` of a complete run: the graph outputs by name, each shown as ``run.results`` shows it."""
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
-    return {name: reader.display_value(run.graph._edge_reading(name)) for name in run.graph.outputs}
+    return {
+        name: reader.display_value(edge.node, edge.output)
+        for name in run.graph.outputs
+        for edge in [run.graph._edge_reading(name)]
+    }
 
 
 class DisplayReader(ResultReader):
@@ -101,7 +109,9 @@ class DisplayReader(ResultReader):
         except NoSuchFieldError:
             return None
 
-    def display_value(self, edge: Edge, item_indexes: ItemIndexes = ()) -> Any:
+    def display_value(
+        self, node_path: NodePath, output: str, item_indexes: ItemIndexes = ()
+    ) -> Any:
         """Returns one output of a function node, as ``run.results`` shows it.
 
         Say ``documents -> lines -> shout`` has three documents, and the second is empty, so ``lines`` gave it no
@@ -109,8 +119,9 @@ class DisplayReader(ResultReader):
         ``[["A", "B"], None, ["C"]]``.
 
         Args:
-            edge: The edge that reads the whole output (``edge_reading``). Only its ``node``, the path of the function
-                node that returns the output from the outer graph, and its ``output`` are read.
+            node_path: The path of the function node that returns the output, from the outer graph (the ``node`` of
+                its ``edge_reading``).
+            output: The output's name.
             item_indexes: The item index in each loop of the node already chosen. Empty for the whole output.
 
         Returns:
@@ -119,7 +130,7 @@ class DisplayReader(ResultReader):
             ``None`` in place of a list when the list being looped over was never made, or when a skipped branch
             outside the loop means no item could have a value.
         """
-        node, output, depth = self.function_nodes[edge.node], edge.output, len(item_indexes)
+        node, depth = self.function_nodes[node_path], len(item_indexes)
         if depth == len(node.loops):  # one call, so show what it returned
             value = self.read_output(node, output, item_indexes, None, one_item=False)
             return None if value is SKIPPED else value
@@ -133,5 +144,6 @@ class DisplayReader(ResultReader):
         if looped_over is None or looped_over is SKIPPED:
             return None
         return [
-            self.display_value(edge, (*item_indexes, index)) for index in range(len(looped_over))
+            self.display_value(node_path, output, (*item_indexes, index))
+            for index in range(len(looped_over))
         ]

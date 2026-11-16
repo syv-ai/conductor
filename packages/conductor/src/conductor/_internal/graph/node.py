@@ -29,7 +29,7 @@ from conductor._internal.base import SKIPPED, NodePath, Source, place_text, shor
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
 
-from .input import Edge, Input
+from .input import Edge, Input, path_in_outer_graph
 
 if TYPE_CHECKING:
     from .type import Graph
@@ -59,6 +59,23 @@ class RequiredBranch(NamedTuple):
     group: str
     output: str
     depth: int
+
+    def in_outer_graph(
+        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
+    ) -> RequiredBranch:
+        """Returns this branch of a subgraph's graph, named from the graph the subgraph node is in.
+
+        Its node is named as ``path_in_outer_graph`` names it, and the loops the subgraph node is in count toward
+        its depth, as ``loops_in_outer_graph`` puts them first.
+
+        Args:
+            subgraph_path: The subgraph node's path in the graph it is in.
+            subgraph_loops: The loops the subgraph node is in, named from that graph.
+        """
+        return self._replace(
+            node=path_in_outer_graph(subgraph_path, self.node),
+            depth=len(subgraph_loops) + self.depth,
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -266,7 +283,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """Returns the edge that reads the whole of ``output``.
 
         It's the edge that reads the graph output inside the subgraph, named from this graph
-        (``Edge.from_outside``). For ``e`` above, which is called once, ``edge_reading("shouted")`` has the
+        (``Edge.in_outer_graph``). For ``e`` above, which is called once, ``edge_reading("shouted")`` has the
         ``node`` ``("e", "shout")``. Its ``loops`` are the loop over ``e/documents.result``, then the loop over
         ``e/lines.result``.
 
@@ -278,7 +295,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         ``parts``. Then ``s.edge_reading("parts")`` has the ``node`` ``("s", "chars")`` and the ``output``
         ``"result"``. That's also how ``upper``'s output names the loop over ``parts``.
         """
-        edge = self.inner._edge_reading(output).from_outside((self.id,), self.loops)
+        edge = self.inner._edge_reading(output).in_outer_graph((self.id,), self.loops)
         return replace(edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
@@ -295,12 +312,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """
         source, output_inside = self.inner._node_returning(output)
         inside = source.branches_required_for(output_inside)
-        depth = len(self.loops)
         return self.required_branches | {
-            RequiredBranch(
-                (self.id, *branch.node), branch.group, branch.output, depth + branch.depth
-            )
-            for branch in inside
+            branch.in_outer_graph((self.id,), self.loops) for branch in inside
         }
 
     def described_outputs(self) -> list[FieldDescription]:

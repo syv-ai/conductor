@@ -28,7 +28,8 @@ from .input import (
     GraphInput,
     Input,
     MissingInput,
-    loops_from_outside,
+    loops_in_outer_graph,
+    path_in_outer_graph,
 )
 from .node import (
     CompiledFunctionNode,
@@ -51,5 +52,6 @@ __all__ = [
     "InputSource",
     "LimitsValidator",
     "MissingInput",
-    "loops_from_outside",
+    "loops_in_outer_graph",
+    "path_in_outer_graph",
 ]
