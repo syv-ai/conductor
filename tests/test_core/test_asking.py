@@ -233,6 +233,37 @@ def test_a_literal_offers_its_values_and_an_answer_outside_them_is_refused():
     assert run.answer("q", "high").resume().outputs == {"result": "high"}
 
 
+@dataclass(frozen=True)
+class _Closing:
+    reason: str
+    hours: float = 1.0
+    comment: str | None = None
+    escalate_to: Literal["ida", "bo"] = SKIPPED
+
+
+def test_a_branch_typed_as_a_literal_offers_its_values_and_left_out_is_skipped():
+    """Fixed choices on a form's field are a ``Literal`` on the dataclass, and the ``Ask`` stays bare.
+
+    ``describe()`` shows them before any run. The branch is not required: left out of the answer, it is skipped.
+    """
+
+    @node("close", title="Close", description="For a test.", asks=True)
+    def close(ticket: str) -> _Closing:
+        raise Ask(f"Close {ticket}")
+
+    described = {output.name: output for output in close.describe().outputs}
+    assert described["escalate_to"].choices == (Choice("ida", "ida"), Choice("bo", "bo"))
+    _, run = _once(close, ticket="T-1")
+    (question,) = [q for q in run.waiting[0].questions if q.name == "escalate_to"]
+    assert (question.choices, question.required) == (described["escalate_to"].choices, False)
+    (fault,) = _refused(lambda: run.answer("q", {"reason": "done", "escalate_to": "zed"}))
+    assert fault.type == "invalid_answer"
+    taken = run.answer("q", {"reason": "done", "escalate_to": "ida"}).resume()
+    assert taken.outputs["escalate_to"] == "ida"
+    skipped = run.answer("q", {"reason": "done"}).resume()
+    assert (skipped.status, skipped.outputs["escalate_to"]) == ("complete", None)
+
+
 def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign(ticket: str) -> str:

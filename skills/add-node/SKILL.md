@@ -65,7 +65,7 @@ assert registry["greet"] is greet
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of records. A `Table` input wired to records collects them |
 | A branch | give each output the default `SKIPPED`, and return a value on at most one of them. Two independent ways to go are two nodes |
 | To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
-| A person's answer | `raise Ask(prompt, choices=..., default=...)`, and `asks=True` on the `@node`. The answer becomes the node's outputs. See "Asking a person" below |
+| A person's answer | `raise Ask(prompt)`, and `asks=True` on the `@node`. The answer becomes the node's outputs. See "Asking a person" below |
 | A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`. Name the class once with `NodeRegistry(context_type=AppContext)`, and pass the object as `run.resume(context=AppContext(...))` |
 | Retries, a timeout, a concurrency limit | `@node("x", title="X", description="...", policy=Policy(retries=3, attempt_timeout=10, concurrency=4))` |
 | A second version | `replaces=node("x", title="X", description="...")(run_v1), upgrade=Upgrade(renamed_inputs={...})` on `@node` |
@@ -75,9 +75,9 @@ assert registry["greet"] is greet
 
 ### Asking a person
 
-- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, and a frozen dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
-- The output's `Param` says how the question looks.
-- `choices=` and `default=` have the answer's shape. On a node with several outputs, they go by output name. `Choice(id, title)` gives a choice a title.
+- The return type of the function that raises `Ask` says what the answer is and how to ask: `-> str` is free text, `-> bool` a yes or no, `-> Literal["low", "high"]` one of those values, and a frozen dataclass a form. Every type is in `python -m conductor.about asking-a-person`.
+- The output's `Param` says how the question looks. Fixed choices are part of the type: a `Literal`, with `Param(choices=[Choice(id, title), ...])` to give its values titles.
+- `Ask(prompt, choices=..., default=...)` carries what only the run knows: choices that are data, such as a list on an input, and a proposed answer. Each has the answer's shape. On a node with several outputs, they go by output name.
 - A node that needs the answer reads it through an edge. For example, `approval(invoice) -> bool` asks, and is wired into `pay(invoice, ok: bool)`. To offer the two as one palette entry, put them in a `subgraph`.
 
 ## Registries

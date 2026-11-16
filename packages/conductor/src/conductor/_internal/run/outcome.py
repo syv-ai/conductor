@@ -141,8 +141,9 @@ class Unanswered:
     """The function raised ``Ask`` to ask a person, and no answer has come yet.
 
     It stores what the ``Ask`` said, after ``AskValidator`` has checked it, and it is saved with the run. Say
-    ``assign(ticket: str) -> str`` raises ``Ask("Who?", choices=["ida", "bo"])``. Its outcome is
-    ``Unanswered("Who?", {"result": (Choice("ida"), Choice("bo"))})``.
+    ``pick(ticket: str, team: list[str]) -> str`` is called with ``team=["ida", "bo"]`` and raises
+    ``Ask("Who?", choices=team)``. Its outcome is
+    ``Unanswered("Who?", {"result": (Choice("ida", "ida"), Choice("bo", "bo"))})``.
 
     The arguments the call got aren't stored. When a host asks for ``run.waiting``, they are worked out again from
     the run's outcomes. There are no outputs yet, so a call that needs one of them isn't ready.

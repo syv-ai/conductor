@@ -525,15 +525,15 @@ Whether a field needs a hook or a type variable is in `python -m conductor.about
 
 Some nodes need a person to decide. `raise Ask(prompt)` stops that call of the node and asks. `asks=True` on the `@node` says the node may ask, so a host knows before any run which graphs can pause for a person. A node that raises `Ask` without it fails with [`ask_not_declared`](problems.md#ask_not_declared).
 
-Your return type says what the person answers. `-> str` asks for a line of text, `-> bool` for a yes or no, and a frozen dataclass for a form, with one question per field. `Ask` adds what only the run knows: `choices` and a `default`.
+Your return type says what the person answers. `-> str` asks for a line of text, `-> bool` for a yes or no, `-> Literal["ida", "bo"]` for one of those values, and a frozen dataclass for a form, with one question per field. The type is the node's contract, so fixed choices go on it, and `describe()` shows them before any run. `Ask` carries what only the run knows: choices that come from the run's data, and a proposed `default`.
 
 ```python
 from conductor import Ask
 
 
 @registry.node("assign", title="Assign", description="Asks a person who should take a ticket.", asks=True)
-def assign(ticket: str) -> str:
-    raise Ask(f"Who takes {ticket}?", choices=["ida", "bo"], default="ida")
+def assign(ticket: str) -> Literal["ida", "bo"]:
+    raise Ask(f"Who takes {ticket}?", default="ida")
 
 
 run = Graph.compile(make_graph(assign), registry).run(ticket="T-1")
@@ -541,7 +541,19 @@ print(run.status)                           # waiting
 print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='bo', title='bo'))
 ```
 
-A form works the same way. Since it has several questions, `choices` and `default` are given by field name, for only the fields they are for. A `Choice(id, title)` gives a choice a title of its own. A waiting run can be saved as JSON and answered much later, in another process:
+When the choices are data, such as a team that changes from run to run, they come in on an input, and the `Ask` offers them:
+
+```python
+@registry.node("pick", title="Pick", description="Asks a person which member of a team takes a ticket.", asks=True)
+def pick(ticket: str, team: list[str]) -> str:
+    raise Ask(f"Who takes {ticket}?", choices=team)
+
+
+run = Graph.compile(make_graph(pick), registry).run(ticket="T-1", team=["ida", "al"])
+print(run.waiting[0].questions[0].choices)  # (Choice(id='ida', title='ida'), Choice(id='al', title='al'))
+```
+
+A form works the same way. `Param(choices=)` gives a `Literal`'s values titles, a `Choice(id, title)` each. Since a form has several questions, an `Ask`'s `choices` and `default` are given by field name, for only the fields they are for. A waiting run can be saved as JSON and answered much later, in another process:
 
 ```python
 from conductor import Choice, Run
@@ -550,13 +562,13 @@ from conductor import Choice, Run
 @dataclass(frozen=True)
 class Review:
     approved: bool
-    owner: str
+    owner: Annotated[Literal["ida", "bo"], Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])]
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
 @registry.node("review", title="Review", description="Asks a person to review a proposal.", asks=True)
 def review(proposal: str) -> Review:
-    raise Ask(f"Review: {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
+    raise Ask(f"Review: {proposal}")
 
 
 graph = Graph.compile(make_graph(review), registry)

@@ -16,21 +16,27 @@ class Ask(BaseException):
     """Raised by a node to ask a person for a value.
 
     The node's return type says what kind of answer it takes. ``-> str`` asks for a line of text, ``-> bool`` for a
-    yes or no, and a frozen dataclass for a form with one question per field. The person's answer becomes the
-    node's outputs, so the node isn't called again for it. Nothing that reads those outputs runs until then.
+    yes or no, ``-> Literal["ida", "bo"]`` for one of those values, and a frozen dataclass for a form with one
+    question per field. The person's answer becomes the node's outputs, so the node isn't called again for it.
+    Nothing that reads those outputs runs until then.
 
     A node that may raise ``Ask`` says so with ``asks=True`` on its ``@node``. If it raises ``Ask`` without that,
     the call fails with ``ask_not_declared``.
 
-    Here are two nodes that ask. The first takes any text. The second lets the person pick one of two people::
+    Here are three nodes that ask. The first takes any text. The second lets the person pick one of two people,
+    named on its return type. The third offers the members of a team that comes in on an input::
 
         @node("reason", title="Reason", description="Asks why a ticket was closed.", asks=True)
         def reason(ticket: str) -> str:
             raise Ask(f"Why was {ticket} closed?")
 
         @node("assign", title="Assign", description="Asks who takes a ticket.", asks=True)
-        def assign(ticket: str) -> str:
-            raise Ask(f"Who takes {ticket}?", choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])
+        def assign(ticket: str) -> Literal["ida", "bo"]:
+            raise Ask(f"Who takes {ticket}?")
+
+        @node("pick", title="Pick", description="Asks which member of a team takes a ticket.", asks=True)
+        def pick(ticket: str, team: list[str]) -> str:
+            raise Ask(f"Who takes {ticket}?", choices=team)
 
     Sometimes a node should ask only now and then. Give the question a node of its own, and wire its output to the
     node that needs the answer. For example, ``approval(invoice) -> bool`` returns ``True`` for a small invoice and
@@ -42,11 +48,12 @@ class Ask(BaseException):
 
     Args:
         prompt: The text the person reads, such as ``"Who takes T-12?"``.
-        choices: The values the person may pick from, when they are only known as the node runs. Each is a value,
-            or a ``Choice`` to give it a title. For a node with one output, pass a list. For a node with several,
-            pass a mapping from output name to list, naming only the outputs you want to limit. On a ``Series``
-            output, the person may pick several. Choices you know when you write the node go on its type instead:
-            a ``Literal``, or ``Param(choices=)``.
+        choices: The values the person may pick from, when they come from the run's data, such as a list on an
+            input or in the context. Choices you know when you write the node are its contract, so they go on its
+            return type instead: a ``Literal``, or ``Param(choices=)``. Each is a value, or a ``Choice`` to give
+            it a title. For a node with one output, pass a list. For a node with several, pass a mapping from
+            output name to list, naming only the outputs you want to limit. On a ``Series`` output, the person may
+            pick several.
         default: A proposed answer. It has the answer's shape: a value for a node with one output, or a mapping by
             output name for several, naming only the outputs it proposes for. On a node with several outputs, a
             question with a default may be left out of the answer. A node with one output is still answered with a

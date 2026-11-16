@@ -5,7 +5,7 @@ One module, one example per kind of node; the rules are in `python -m conductor.
 ```python
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from conductor import SKIPPED, Ask, Choice, Context, Deprecation, ExternalError, Param, Policy, Series, Upgrade, node
 from conductor.widgets import Switch, Textarea, TextInput
@@ -41,14 +41,15 @@ def approve(ctx: Context[AppContext], proposal: Annotated[str, Param(title="Prop
 @dataclass(frozen=True)
 class Review:                         # a form: one question per field; a field's default is proposed
     approved: bool
+    urgency: Annotated[Literal["low", "high"], Param(choices=[Choice("low", "Can wait"), Choice("high", "Today")])]   # fixed choices are the type
     owner: str
     note: Annotated[str | None, Param(widget=Textarea())] = None
 
 
 @node("review", title="Review", description="Asks a person to review a proposal.", category="review", asks=True)
-def review(proposal: str) -> Review:
-    # several outputs: what only the run knows goes by output name
-    raise Ask(f"Review {proposal}", choices={"owner": [Choice("ida", "Ida B."), Choice("bo", "Bo K.")]})
+def review(proposal: str, team: list[str]) -> Review:
+    # choices that are data come in on an input; on several outputs, they go by output name
+    raise Ask(f"Review {proposal}", choices={"owner": team})
 
 
 def fetch_v1(url: Annotated[str, Param(title="URL", widget=TextInput())]) -> Annotated[str, Param(title="Body")]:
