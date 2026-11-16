@@ -941,10 +941,10 @@ class Scheduler:
         retry = _Attempt(node, item_indexes, attempt.arguments, attempt.number + 1)
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)
+        # Made with or without a listener, since making it logs the error.
+        failure = self._failure(node, item_indexes, error)
         if self.node_events is not None:
-            self.node_events.call_retries(
-                node, attempt.number + 1, delay, self._failure(node, item_indexes, error)
-            )
+            self.node_events.call_retries(node, attempt.number + 1, delay, failure)
         return True
 
     def _set_timer(

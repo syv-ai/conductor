@@ -407,6 +407,34 @@ def test_a_policy_out_of_bounds_or_of_another_type_is_refused():
     )  # a whole number of seconds is a number
 
 
+@pytest.mark.parametrize("listened", [False, True])
+def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened: bool, caplog):
+    """One scheduler, with or without a listener: the failure a retry follows goes to the log either way."""
+    tries: list[int] = []
+
+    @node(
+        "bank",
+        title="Bank",
+        description="For a test.",
+        policy=Policy(retries=1, retry_delay=0, retry_on=(ConnectionError,)),
+    )
+    def bank(n: int) -> int:
+        tries.append(n)
+        if len(tries) == 1:
+            raise ConnectionError("the bank is down")
+        return n
+
+    prepared = Graph.compile(make_graph(bank), registry_of(bank)).with_inputs(n=1)
+
+    async def streamed() -> Any:
+        return [event async for event in prepared.stream()][-1].run
+
+    with caplog.at_level(logging.ERROR, logger="conductor"):
+        run = asyncio.run(streamed()) if listened else prepared.resume()
+
+    assert run.status == "complete" and "the bank is down" in caplog.text
+
+
 def test_more_than_a_thousand_retries_with_no_delay_keep_retrying_until_the_call_succeeds():
     """The delay doubles at each retry. From the 1025th, two to that power is past what a float holds, and the delay
     stops growing at ``LONGEST_WAIT``, so the run goes on."""
