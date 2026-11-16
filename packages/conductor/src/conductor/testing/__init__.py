@@ -18,6 +18,8 @@ Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)`
 - ``hook_failed``: a ``compute_added_inputs`` or ``compute_outputs`` hook fails. Without an example, the hook is
   called with the node's defaults and made-up values. With one, it is called on the example.
 - ``needs_example``: a hook reads a required input that no value can be made up for.
+- ``subgraph_broken``: a subgraph's own graph doesn't compile on the registry's nodes, so ``registry.describe()``
+  leaves it out.
 - ``upgrade_broken``: a graph saved with an older version of the node doesn't compile after ``registry.upgrade``
   moves it to the newest, or the upgrade raises.
 - ``changed_its_inputs``: the node changed a value it was given.
@@ -136,7 +138,7 @@ def _version_problems(
     With no examples, only its hooks are checked. With examples, each one is run.
     """
     if not given:
-        return _hook_problems(version, registry)
+        return _problems_without_example(version, registry)
     return [
         problem
         for example in given
@@ -163,19 +165,32 @@ def _one_node_graph(version: NodeDefinition, constants: Mapping[str, Any]) -> Gr
     )
 
 
-def _hook_problems(version: NodeDefinition, registry: NodeRegistry[Any]) -> list[Problem]:
-    """Checks a node's hooks without an example.
+def _problems_without_example(
+    version: NodeDefinition, registry: NodeRegistry[Any]
+) -> list[Problem]:
+    """Checks a node without an example: a function's hooks, or a subgraph's own graph.
 
-    The node is compiled in a graph of its own, which calls its hooks. Its inputs keep their defaults. Each
-    required input that takes only a constant gets a made-up value, so the hooks have a value to read.
+    A subgraph's graph is compiled as it is. A function with hooks is compiled in a graph of its own, which calls
+    its hooks. Its inputs keep their defaults. Each required input that takes only a constant gets a made-up value,
+    so the hooks have a value to read.
     """
     match version:
         case FunctionDefinition(hook_parameters=hooks) if hooks:
             pass
-        case (
-            FunctionDefinition() | SubgraphDefinition()
-        ):  # a function with no hooks, or a subgraph, which never has hooks of its own
+        case FunctionDefinition():  # a function with no hooks
             return []
+        case SubgraphDefinition(graph=record):
+            graph_problems = Graph.compile(record, registry).problems
+            if not graph_problems:
+                return []
+            return [
+                problems.subgraph_broken(
+                    version.id,
+                    version.version,
+                    reason=_reason(graph_problems),
+                    problems=[p.model_dump(mode="json") for p in graph_problems],
+                )
+            ]
     values = {
         name: _made_up(field)
         for name, field in sorted(version.inputs.items())

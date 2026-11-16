@@ -44,7 +44,7 @@ from conductor._internal.node import (
     with_defaults,
 )
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
-from conductor._internal.record import GraphRecord, NodeRecord
+from conductor._internal.record import GraphRecord
 from conductor._internal.types import Type
 from conductor._internal.utils import comma_separated, plural, qualified_name
 
@@ -131,8 +131,8 @@ class NodeRegistry[C]:
         self._nodes: dict[str, NodeDefinition] = {}
         #: Every type, by id: first the ones the nodes use, then the ones the host named.
         self._types: dict[str, type] = _by_id(self._named_types)
-        #: Each subgraph's description, by id, worked out against this registry. Cleared whenever the nodes change.
-        self._graph_descriptions: dict[str, NodeDescription] = {}
+        #: Each subgraph's own graph, by id, compiled against this registry. Cleared whenever the nodes change.
+        self._subgraphs: dict[str, Graph[C]] = {}
 
     def __repr__(self) -> str:
         """Shows how many nodes there are, then each node's own repr, one per line."""
@@ -316,7 +316,7 @@ class NodeRegistry[C]:
         """
         self._types = _by_id((*_types_declared_by(nodes.values()), *named_types))
         self._nodes, self._named_types = nodes, named_types
-        self._graph_descriptions = {}
+        self._subgraphs = {}
 
     def _not_here(self, node_id: str) -> KeyError:
         return KeyError(
@@ -338,12 +338,19 @@ class NodeRegistry[C]:
     def describe(self) -> RegistryDescription:
         """Describes the registry for an editor's palette: every node, and every type.
 
+        A subgraph whose graph doesn't compile on this registry's nodes has no fields to offer, and is left out.
+        ``check_registry`` reports its problems (``subgraph_broken``), and so does compiling a graph that uses it.
+
         Each type lists the types that take a value of it, its own type included. That list is worked out from
         subclassing and each type's ``accepts``, so nobody keeps a table of it by hand.
         """
         types = self._types.items()
         return RegistryDescription(
-            nodes=[self._described(definition) for definition in self._nodes.values()],
+            nodes=[
+                described
+                for definition in self._nodes.values()
+                if (described := self._described(definition)) is not None
+            ],
             types=[
                 TypeDescription(
                     id=type_id_,
@@ -358,31 +365,29 @@ class NodeRegistry[C]:
             ],
         )
 
-    def _described(self, definition: NodeDefinition) -> NodeDescription:
-        """Describes one node for the palette.
+    def _described(self, definition: NodeDefinition) -> NodeDescription | None:
+        """Describes one node for the palette, or returns ``None`` for a subgraph whose graph has problems.
 
-        A subgraph's inputs, outputs and whether a node inside it asks depend on this registry's nodes. So the
-        subgraph is compiled here once to find them, and the result is kept.
+        A subgraph offers its own graph's inputs and outputs, and asks when a node inside it asks. Those depend on
+        this registry's nodes, so its graph is compiled here once, and kept until the nodes change.
         """
         match definition:
             case FunctionDefinition():
                 return definition.describe()
             case SubgraphDefinition():
                 pass
-        if definition.id not in self._graph_descriptions:
-            record = GraphRecord(
-                nodes={"node": NodeRecord(node=definition.id, version=definition.version)}
-            )
-            compiled = Graph.compile(record, self)
-            described = compiled.describe().nodes["node"]
-            self._graph_descriptions[definition.id] = definition.described_as(
-                inputs=[described_input.field for described_input in described.inputs],
-                outputs=described.outputs,
-                asks=compiled.asks,
-                takes_added_inputs=False,
-                computes_outputs=False,
-            )
-        return self._graph_descriptions[definition.id]
+        if definition.id not in self._subgraphs:
+            self._subgraphs[definition.id] = Graph.compile(definition.graph, self)
+        graph = self._subgraphs[definition.id]
+        if graph.problems:
+            return None
+        return definition.described_as(
+            inputs=list(graph.inputs.values()),
+            outputs=list(graph.outputs.values()),
+            asks=graph.asks,
+            takes_added_inputs=False,
+            computes_outputs=False,
+        )
 
     # -- graphs ------------------------------------------------------------------
 

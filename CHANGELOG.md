@@ -117,7 +117,10 @@ What changes in how you work, before the name-by-name tables:
   name, sorted, each the `FieldDescription` of what a complete run gives, where they were a list of names: as a
   subgraph node's output is described, one that needs a branch is `"required": false` with no `default`, and one
   whose node is inside loops is a list with its `loops`. `graph.asks` says whether a node of the graph, or of a
-  subgraph in it, may stop to ask a person.
+  subgraph in it, may stop to ask a person. A subgraph's palette entry in `registry.describe()` has its own graph's
+  `inputs`, `outputs` and `asks`. A subgraph whose graph has problems on the registry's nodes is left out of
+  `registry.describe()`, where it was an entry with no inputs or outputs and no word why, and `check_registry`
+  reports it as `subgraph_broken`, with its graph's problems in `ctx.problems`.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with

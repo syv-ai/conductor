@@ -210,6 +210,30 @@ def upgrade_raised(*loc: str | int, newest: int, error: str) -> str:
 
 
 @REGISTRY_CHECK_PROBLEMS.problem()
+def subgraph_broken(*loc: str | int, reason: str, problems: list[dict[str, Any]]) -> str:
+    """A subgraph's own graph doesn't compile on the registry's nodes.
+
+    A graph that uses the subgraph would have these problems, so it can't run, and ``registry.describe()`` leaves the
+    subgraph out, since it has no inputs or outputs to offer. In the example below, the subgraph uses ``upper``, which
+    the registry doesn't have.
+
+    To fix it, add the nodes it uses to the registry, or fix its graph record.
+
+    Args:
+        loc: The subgraph and its version.
+        reason: The message of each problem that compiling its graph reported.
+        problems: Those problems, as JSON.
+
+    Example:
+        capitals = subgraph("capitals", title="Capitals", description="Puts a text in capitals.")(make_graph(upper))
+        checked = NodeRegistry()
+        checked.add(capitals)
+        check_registry(checked)
+    """
+    return f"The subgraph's graph doesn't compile: {reason}"
+
+
+@REGISTRY_CHECK_PROBLEMS.problem()
 def changed_its_inputs(*loc: str | int, input: str) -> str:  # noqa: A002  the ctx key a developer reads
     """A node changed a value it was given, in place.
 

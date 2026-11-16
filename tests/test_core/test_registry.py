@@ -836,6 +836,47 @@ def test_a_subgraphs_inputs_and_outputs_are_listed_by_the_registry_not_by_its_de
     ]
 
 
+def test_a_subgraph_is_described_as_its_own_graph_compiles_and_left_out_when_that_has_problems():
+    @node("upper", title="Upper", description="For a test.")
+    def upper(text: str) -> str:
+        return text.upper()
+
+    @node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(text: str) -> bool:
+        return bool(text)
+
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "z": {"node": "upper", "inputs": {"text": {"graph_input": "first"}}},
+                "a": {"node": "approve", "inputs": {"text": {"graph_input": "second"}}},
+                "b": {
+                    "node": "approve",
+                    "inputs": {"text": {"sources": [{"node": "z", "output": "result"}]}},
+                },
+            },
+            "outputs": {
+                "loud": {"node": "z", "output": "result"},
+                "ok": {"node": "a", "output": "result"},
+            },
+        }
+    )
+    registry = NodeRegistry()
+    registry.add(
+        upper, approve, subgraph("check", title="Check", description="For a test.")(record)
+    )
+    alone = Graph.compile(record, registry)
+    (listed,) = [n for n in registry.describe().nodes if n.id == "check"]
+
+    assert (listed.inputs, listed.outputs, listed.asks) == (
+        list(alone.inputs.values()),
+        list(alone.outputs.values()),
+        alone.asks,
+    )
+    registry.remove("upper")
+    assert [n.id for n in registry.describe().nodes] == ["approve"]
+
+
 def test_a_subgraph_is_compiled_once_for_describe_until_the_registry_changes() -> None:
     """``describe()`` compiles a subgraph once, and again only after the registry changes.
 

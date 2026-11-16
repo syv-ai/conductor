@@ -111,6 +111,18 @@ def test_a_node_built_from_a_graph_runs_its_example_as_any_node_does():
     assert found(registry_of(upper, shout), examples={"shout": [{"text": "hi"}]}) == []
 
 
+def test_a_subgraph_whose_graph_does_not_compile_is_reported_with_its_graphs_problems():
+    # the subgraph uses upper, which the registry doesn't have
+    (problem,) = check_registry(registry_of(shout))
+
+    assert (problem.type, problem.loc, behind(problem)) == (
+        "subgraph_broken",
+        ("shout", 1),
+        ["unknown_node"],
+    )
+    assert found(registry_of(upper, shout)) == []
+
+
 def test_no_body_is_called_without_an_example_and_each_example_calls_it_once():
     calls: list[str] = []
 
