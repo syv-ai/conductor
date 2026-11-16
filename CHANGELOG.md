@@ -1,31 +1,606 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and from `1.0.0` onward this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-See the "Stability and versioning" section in [`README.md`](README.md) for the
-public-API guarantees that take effect at `1.0.0`.
-
-This file covers the three workspace packages — `syv-conductor`,
-`syv-conductor-nodes`, and `syv-conductor-providers` — which are released in
-lockstep from this monorepo.
+All notable changes to `syv-conductor`, `syv-conductor-nodes` and `syv-conductor-providers`,
+released together at one version. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); from `1.0.0` the project follows
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Future deprecation candidates
+Ships as 2.0.0, a new major. The node contract, the graph record, compiling and the engine are each
+replaced, and no alias keeps a 1.x name alive. Conductor depends on `polars>=2.0`,
+`pydantic>=2.14` (the first to export `MISSING`, which a record without a value is written with) and `typing-extensions>=4.16`. The README walks through the design, and `python -m conductor.about` has every
+rule.
 
-These shapes are part of the `1.0.0` public surface and are not deprecated, but
-they are likely targets for a future major bump:
+What changes in how you work, before the name-by-name tables:
 
-- `conductor.errors` legacy exception aliases — `NodeValidationException`,
-  `NodeExecutionException`, `FlowExecutionException`, `FlowPausedException`.
-  These are kept as aliases of the `*Error` names for back-compat.
-- `result` key duplication in `normalize_result` for dict returns
-  (`{result: dict, **dict}`) — surface area that exists for back-compat with
-  early node authors.
-- Cross-package `==` pin in `syv-conductor[all]` — could relax to
-  `~=` once the providers/nodes packages stabilize independently.
+- **A graph record is its nodes by id, and declares what the graph takes and returns.** `{"nodes": {"shout":
+  {"node": "shout", "inputs": {...}}}, "outputs": {"result": {"node": "join", "output": "result"}}}`. Each input a
+  node lists gets exactly one of a `constant`, a `graph_input` (with an optional `default`) or the `sources` of the
+  edges into it, each `{"node", "output", "field"?}`. A graph input sits on any node's input, and several inputs
+  may name one when they read the same type from their hints (type, limits, choices and validators) and are shown
+  alike (title, description, widget), so `int` and `Annotated[int, Param()]` agree, else `graph_input_used_two_ways`
+  (a `Ge(0)` and a `Param(ge=0)` are two types); a graph output is named in `outputs`. A subgraph's inputs and
+  outputs are those names, so an edge reads `loud.result`, never a node inside. The record keeps no order of its
+  nodes: where order matters, nodes go by id. A key written twice in the JSON (two nodes with one id), a name with
+  `.`, `/`, `@` or `~`, a source listed twice, an empty list of sources, an input given no kind or two, a `default`
+  without a `graph_input` and a field on a graph output are refused when the record is read (`invalid_record`, with
+  the fault in `ctx.error`). A graph input's default is the record's: an entry with no `default` is required.
+  `graph.inputs`, `run.inputs`, `graph.outputs` and `run.outputs` are keyed by the declared names. `make_graph`
+  declares the graph's inputs and outputs itself: each required input that gets nothing, on any node, and each key
+  of `defaults` is a graph input of the input's name, and each output of a node no edge leaves a graph output of the
+  output's name; `inputs=` and `outputs=` name some of them otherwise, on top of that, and two of one name are
+  refused (`graph_inputs_share_a_name`, `graph_outputs_share_a_name`). A node given as `(id, definition)` gets that
+  id. `Graph.compile` takes a `GraphRecord`, its JSON text or that JSON as data, and `read_json(text)` reads JSON
+  text with every key seen. New public names: `InputEntry`, `Source`, `read_json`. New codes: `input_has_no_value`,
+  `graph_input_used_two_ways`, `graph_output_not_found`, `graph_inputs_share_a_name`, `graph_outputs_share_a_name`,
+  `invalid_place`.
+- **A node that asks says so.** `@node(..., asks=True)` on a node whose function raises `Ask`; a raise
+  without it fails the call as `ask_not_declared`, so `describe().asks` tells a host which graphs can
+  pause. A subgraph's palette entry in `registry.describe()` has `asks` too, true when a node inside it asks, at
+  any depth. The answer is the node's outputs, and a node that needs it reads it from an edge: "approve, then
+  pay" is an asking `approval(invoice) -> bool` wired into `pay(invoice, ok: bool)`, and a host that offers
+  the two as one palette entry makes them a `subgraph`. New code: `ask_not_declared`.
+- **A type means what it says, wherever it is read.** `Series[T]` and `Table[R]` are ordinary generic
+  types: a table stands in a union, a `Series` and a record, and `Table[R]` read anywhere has exactly
+  `R`'s columns. A node may have type variables (`def split[T](value: Table[T] | list[T]) -> Series[T]`),
+  bound from its edges when a graph is compiled. Generic arguments are compared (`list[int]` lands on
+  `list[float]`, never on `list[str]`) and shown in a type's id. `Annotated` metadata that is no `Param`
+  is pydantic's, except pydantic's `Field(...)`, which is refused (`pydantic_field_in_hint`): `Param` is the one way to
+  write a title, a description and limits on an input or an output. A function in a hint (`AfterValidator(strip)`) is
+  written into a node's code fingerprint by its module and name, so a run saved in one process is reused in another. A host type is declared with `@host_type("money", title="Money", accepts=[...])` above the class, checked when the class statement ends;
+  `accepts` widens what lands on it, and a subclass of a builtin needs no schema of its own. A table's one JSON form is
+  `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `series-stack`.
+
+- **A field's description is one flat record.** It has `is_series`, `type`, `schema` (always set),
+  `type_variables` and `loops`; there is no `shape` and no `columns`, a table's columns are in its type and its
+  schema. An input of a node in `graph.describe()` and a graph input have the field as `field`. A node's description is
+  one `NodeDescription` for a function and a subgraph alike, with no `kind`: a subgraph's `takes_added_inputs` and
+  `computes_outputs` are false, and its fields are listed by `registry.describe()` only. A palette carries no policy:
+  `PolicyDescription` is gone, and a host reads a function's `Policy` from its definition. `Policy` is a frozen
+  pydantic dataclass, never written as JSON, and a policy out of bounds raises pydantic's validation error.
+- **A field's `title` is what its `Param(title=)` says, and `null` without one.** Nothing is guessed from the
+  field's name: `case_sensitive` with no title has `"title": null` in `describe()`, `graph.describe()`, a graph
+  input and a waiting call's question (it was "Case sensitive", and a lone output's "Result"). A host that shows a
+  label for an untitled field writes its own from `name`.
+- **A widget with no JSON form is a declaration problem.** A widget given a value its `Any` field cannot write
+  as JSON raises `NodeDeclarationError` where the node is declared, with the code `widget_without_json_form`,
+  `ctx.widget` the widget's class and the field's name in front of the message (it raised pydantic's
+  `PydanticSerializationError`, which named no field).
+- **An input added by `compute_added_inputs` is held to what `@node` holds a parameter to.** An `exclusive_group`
+  on it, or the default `SKIPPED`, is the hook's failure, `compute_hook_failed` with `ctx.error`
+  `exclusive_group_on_input` or `default_invalid` (it was accepted, and a `SKIPPED` default reached the function as
+  the sentinel). A parameter whose default is `SKIPPED` raises `NodeDeclarationError` with `default_invalid`,
+  variant `skipped_on_input`: only an output on a branch not chosen is `SKIPPED`.
+- **An output of an `exclusive_group` has no default but `SKIPPED`.** A field of a returned dataclass in a group
+  with any other default raises `NodeDeclarationError` with `default_invalid`, variant `on_exclusive_group`, and a
+  `compute_outputs` hook that gives one is the hook's failure, `compute_hook_failed` with `ctx.error`
+  `default_invalid`. It was accepted and shown as the output's default, while leaving the output out gave a branch
+  not chosen, and returning the other branch failed with `invalid_output`.
+- **A node returns a value on exactly one output of an `exclusive_group`.** A returned dataclass or mapping that
+  gives none of a group a value fails the call with `invalid_output` ("none of the exclusive group 'length' (long,
+  short) holds a value; ..."), as one that gives two already did; it was accepted, every branch of the group not
+  chosen. `return SKIPPED` chooses no branch, and skips every output of the node with it. A node that has other
+  outputs beside a group, or two groups, and may choose none in a group while giving the rest values, makes "none"
+  a branch of that group (an output such as `neither`), or is split in two. An answer was already held to exactly
+  one.
+- **An output whose default is `SKIPPED` is a branch wherever conductor asks.** Where its node is not called (an
+  argument `None` its input does not take), it is `SKIPPED`, a branch not chosen, as an output of an
+  `exclusive_group` is, and the nodes wired to it are skipped; it was `None`, and they were called with `None`. Its
+  description already said leaving it out gives a branch not chosen. A run saved before this reads back with a
+  downstream call that was made with `None` kept, though the current code would skip it; no value in `run.results`
+  changes.
+- **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
+  (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
+  `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
+  `"required": false` it is a branch not chosen (an output in an `exclusive_group`, or a form field whose default
+  is `SKIPPED`). `"default": null` is a default of `None`. A `FieldDescription` that is `required` and has a
+  `default` is refused (`required_with_default`), and so is an output of an `exclusive_group` that is `required` or
+  has a `default` (`required_in_exclusive_group`, `default_in_exclusive_group`) and `loops` without `is_series`
+  (`loops_without_series`). A host that writes these records with `exclude_none` turns `"default": null` into a
+  branch not chosen. An output in `describe()`, `registry.describe()` and
+  `graph.describe()` is the question its type sets, the same record a waiting call shows without an `Ask`: `-> str
+  | None` is `"required": false, "default": null` (it was `"required": true` in the palette and `false` in the
+  question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `schema` and
+  `choices` are the value the node inside returns (`"type": "str"`, where it was `"Series[str]"` for an output
+  inside two loops); its `loops` give one level of list per entry, and a `Series` it returns outside every loop
+  has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
+  `Outcome`), written before this change no longer loads: a required question there has `"default": null`.
+  There is no migration.
+  An `Ask` that proposes a default for an output of an `exclusive_group` fails the node (`invalid_ask`): an answer
+  that left that output out would give it the default, so no other output of the group could be answered.
+
+- **The run's context is one object of the host's class.** Name the class once,
+  `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,
+  `graph.run(context=AppContext(...))`. A node that needs it takes it as its first parameter,
+  `def sign(ctx: Context[AppContext], text: str)`, and a test calls `sign(app_context, "Done")`. A node may
+  name the class, a base of it, or a `Protocol` the class satisfies. Compiling checks each node against the
+  class, a `Protocol`'s members by name only (`context_does_not_fit`, at the node and parameter); starting a run checks the object
+  (`invalid_context`, `context_missing`). `NodeRegistry`, `Graph` and `Run` are generic in the class, so a
+  type checker refuses a `context=` of another class. The context is never saved with a run.
+
+- **Five modules.** Import from `conductor`, `conductor.widgets`, `conductor.events`,
+  `conductor.testing` and `conductor.about`, the reference. Everything else is `conductor._internal`.
+  A type's `accepted_as` is read from `registry.describe().types`.
+- **`conductor.about` has no names.** Its `__all__` is empty. `get_content`, `list_sections` and `get_section`
+  are what `python -m conductor.about` calls, and are not part of the public API.
+- **The problems page is printed from the code.** `python -m conductor.about problems` prints every
+  problem code with an example, its message, what its `ctx` keys mean and how to fix it, each kind from the
+  docstring of the function that declares it, and a test runs every example. The docs build writes the same
+  page; there is no `docs/problems.md`. `ProblemCatalogue(title, text)` is one section of the page,
+  `ProblemCatalogue.joined(...)` one catalogue of several, and `ProblemKind.section` says which a kind is in.
+  `PROBLEMS` has three: compiling a graph (in `graph.problems`), refused calls (raised as `InvalidCallError`)
+  and why a run stopped.
+- **Problem messages are short and plain.** Each says what is wrong, then what to do, in a sentence or two
+  (`'upper' has no input 'txet'. Its inputs are text.`), and so do the reasons inside them. Codes and `ctx`
+  are unchanged, so a host that translates by code needs nothing new. The messages of `execution_failed`,
+  `timeout` and `run_timed_out` name the exception's class and the seconds from their `ctx`.
+- **Seven names in problems are plainer.** `bound_invalid` is `limit_not_supported`, with `ctx.unknown_limits` for
+  `unheld`; `type_not_carried` is `type_not_supported`, its variant `declared` `host_type_not_supported`;
+  `not_offered` is `unknown_graph_input`; `not_a_place` is `invalid_place`; a `NodeError` without a code of its
+  own is `node_error`, where it was `failed` (a run's status `failed` stays); `make_a_series`'s `ctx.whole` is
+  `ctx.kind`; and `compute_hook_failed`'s `ctx.error` `added_input_taken` is `added_input_exists`.
+- **A refused call lists its problems in `problems`.** `InvalidCallError.problems` is every `Problem` the call
+  was refused for, as `graph.problems` is for a graph, and `read_json` raises it too.
+- **What a person sees for a type is declared.** Each entry of `registry.describe().types` has the
+  `id` and `title` its owner declared: conductor's own types from one fixed table (`str` is `Text`,
+  `int` `Whole number`), a host's class from its `@host_type` declaration;
+  nothing falls back to the class's name, and a class with no declaration is `type_not_named` where its node is declared. The types a registry holds are
+  every class a field's type id names: each member of a union, a `Literal`'s value types and a
+  generic's class (`list[str]` names `list`); `Any`, `None`, a type alias and a table name none.
+- **A node is a typed function.** `@node("id", title=, description=)` (registers nothing) or
+  `@registry.node(...)` returns a frozen, callable `FunctionDefinition` (`subgraph(...)(record)` returns a `SubgraphDefinition`,
+  with no function to call; `NodeDefinition` is either). Its title and description are
+  required, and the docstring never reaches a person. The signature is the interface:
+  `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
+  keeps (pydantic metadata, so its limits and choices apply inside your own `BaseModel` or dataclass
+  too, and a field's `schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
+  winning, and a `Param` on a `Series` item is the field's; a table's column
+  typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several (kept as the definition's `outputs_dataclass`). A
+  `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no
+  `bool` (`int | float`) included, as a field's value or in a table's column. `async def` and
+  auto-discovery are gone. A node declared wrong raises `NodeDeclarationError` at import, whose
+  `problems` is the one problem behind it, a kind of `DECLARATION_PROBLEMS`; `python -m conductor.about problems`
+  lists each kind with an example. A `Param` is checked against its type as pydantic
+  builds the schema: a limit pydantic doesn't hold on the type (`ge` on a `bool` or an `IntEnum`), or
+  a choice that isn't a value of it, is `limit_not_supported` or `choices_invalid`, so a host's `BaseModel`
+  with one fails as its class is made. Limits are pydantic's own: bounds on numbers, a `Decimal`,
+  dates, times and durations, lengths on texts, bytes and collections. `Param` is a frozen dataclass whose limits
+  are its fields, so an argument it doesn't have is Python's own `TypeError`.
+- **A graph record becomes a node, a subgraph, with `subgraph`.** `subgraph("id", title=, description=)(record)`
+  and `registry.subgraph(...)` take a `GraphRecord` or its JSON text and return a
+  `SubgraphDefinition`. `node(...)` and `@registry.node(...)` take only a function. `subgraph` has no
+  `policy`, `compute_added_inputs` or `compute_outputs` argument, so passing one is Python's own `TypeError`,
+  and the declaration code `not_for_a_graph` is gone.
+- **A node's title and description are not empty.** `@node`, `@registry.node`, `subgraph` and
+  `registry.subgraph` raise `NodeDeclarationError` with the code `empty_title_or_description` for a
+  `title` or `description` that is empty or only spaces; the message names the node and which one.
+- **The types decide one or many.** A `Series[X]` output wired to an input typed for one `X` runs
+  that node once per item, and everything after it; the node never sees the difference. A
+  `Series[X]` input collects every item in one call, and a `Table[R]` input collects records into a
+  table. An outer value, from a node outside the loop, is the same on every call. A table (a whole
+  `polars.DataFrame`) and a list are each one value: `series-split` in `syv-conductor-nodes`, or any node
+  that returns a `Series`, makes the items, and an edge may name one field of a record
+  (`series-split.result.email`). A list given to an input of one value is refused (`invalid_input`), and
+  so is one written as a constant (`invalid_value`). Items of two Series meeting at one node are refused
+  (`series_not_nested`) until one is returned by a node inside the other's loop. `graph.describe()` says how often each node
+  runs, before any run. A `None` keeps the node from being called for that item unless its input
+  says `| None`. A node that collects a loop leaves out only what was decided per item: when no item
+  could have a value, for a branch not chosen or a `None` outside the loop, it is skipped or not
+  called, with two items as with none, and `Series[X | None]` receives a `None` in each item's place. Each item
+  of a list given there is held to the input's limits and choices, as one value is. A choice is
+  read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
+  value or a date's ISO text is a choice. A value an edge gives is held to the input's limits and choices
+  alike (`invalid_edge_value`).
+- **Compiling never raises for a fault in the graph.** `Graph.compile(record, registry)` returns a `Graph`;
+  read `graph.problems`, each a `Problem(type, loc, msg, ctx)`. Only a record of the wrong shape raises,
+  `InvalidCallError` with the code `invalid_record`. A constant or a graph input that its field refuses
+  (`invalid_value`, `invalid_input`) carries pydantic's value-free `errors` in `ctx`. `make_graph(*nodes, edges=, constants=, defaults=, inputs=, outputs=)`
+  writes a record from Python and compiles nothing: it raises one error listing what it can't write
+  (a value for a node it wasn't given, a value with no JSON form, a place that is not `node.name`
+  (`invalid_place`), two graph inputs or outputs of one name (`graph_inputs_share_a_name`,
+  `graph_outputs_share_a_name`), what the record refuses (`invalid_record`), a chain it can't draw; a chain never wires
+  an input a hook reads, which takes a constant, and when only such inputs are left `not_a_chain` has the variant `read_by_a_hook`, naming them in
+  `ctx.read_by_hooks`), and an input a
+  node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
+  `Graph.compile(record, registry).problems`. A record's constants, defaults and
+  `display` are JSON values; `make_graph` writes each constant and default as its JSON, a float that isn't
+  finite as `"NaN"` or `"Infinity"`, so a record equals its JSON, and an `upgrade` rewrite is written
+  the same way (`invalid_value` where it has no JSON form). A subgraph offers
+  the graph inputs and outputs its record declares, by name (`e.result`), and `subgraph` takes no `policy` or hook. Its inner nodes are laid out in the graph that uses it, each with a call per item of every loop the subgraph
+  node is inside, so they are called, retried, timed out, cancelled and reused by `run.again` as the
+  same nodes drawn in the graph itself, and say their events once, under `("e", "upper")`. A `None`
+  arriving at the subgraph node leaves the inner nodes that read it uncalled, and `run.not_called`
+  lists them. A saved run has an inner node's outcomes under `e/upper`. A node outside reads an output returned inside loops as it would with the same nodes drawn in the graph, and an inner decision's group
+  is named by its node's path, `d1.answer` (for a node `d1` in the subgraph), `g/d1.answer` for one a subgraph deeper. A problem inside has the subgraph node (and item) in front
+  of its `loc`; there is no `embedded_graph_broken`. Every node event, a `Waiting` and a
+  `NotCalled` say where they are with one `loc` in place of `node_id` and an item: a call's is a
+  problem's (`("e", 0, "ask")`), a node's its id behind the subgraph node's (`("e", "ask")`); a waiting id inside reads `e@0/ask~3fa2c0d1`.
+  Every node event's `loc` names the node, `node_waiting` and `node_retry` included; the call is in the `loc` of
+  its `waiting` or its `cause`.
+  An id with an index that is not a number is `not_waiting` at the place read up to it: `e@1/ask@x` at `("e", 1, "ask")`.
+  A waiting id has one spelling, the one `run.waiting` gives (or that text without `~` and its fingerprint); any other names nothing and is `not_waiting`: `e/ask@0` for `e@0/ask`, `ask@01`, `ask@0~`.
+- **`Graph.compile`, `registry.upgrade` and `subgraph(...)(record)` take a `GraphRecord` or its JSON text** (`str` or `bytes`),
+  as their type says. `InvalidCallError` with `invalid_record` problems is what JSON text of the wrong shape raises.
+- **`registry.upgrade` drops an input the newer version doesn't have, for a subgraph as for a function.** What it gets (a constant, a graph input
+  or the edges into it) goes once a `rewrite` has read its constant or default, and a subgraph's inputs are the graph inputs its record names, so
+  a subgraph node upgraded to a version that takes fewer graph inputs compiles clean (it kept them, and compiling said `unknown_input`). A subgraph's
+  newer version that drops a graph input or output of the one it replaces needs an `Upgrade` saying where it went, as a function's does
+  (`upgrade_missing` where it is declared).
+- **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
+  ready, running, waiting, complete or ended early, and whose `cause` is the `Problem` that ended a run that failed,
+  stopped, was cancelled or timed out (`None` otherwise). One rule reads it from the outcomes and from how the last
+  `resume()` left the run: a checkpoint is `running` until it is saved, and read back is what its outcomes say; a run whose every call returned is `complete` however its resume
+  ended; a failed call keeps the run `failed` until it is tried again; and an answer to a cancelled or timed-out run
+  reads it from its outcomes, so answering the last question makes a run `ready`, or `complete` when no call is left,
+  before any `resume()`. It pauses for a person (`raise Ask(...)`, then `run.answer(...)` and `run.resume()`), writes
+  itself as JSON (`run.to_json()`, `Run.from_json(saved, graph)`, which reads a save from its JSON text; a save that
+  doesn't fit (it may have been changed, other code may have written it, or a value may not read back from its JSON; a new run is the remedy) is `saved_run_unreadable`, `ctx.where` its place in the save, such as `outcomes.upper.outputs.result.1`; a save has each node's
+  outcomes as a list per output with one entry per call, a `Series` of records returned as a table as that table, under `e/ask` for a node inside a subgraph, and how the last resume ended early under `ended_early`, `null` for one that did not;
+  a float that isn't finite is saved as its text and read back by its declared type, the float under `float` and the text under `Any`) and runs again on changed inputs,
+  calling the nodes only for the items that changed (`run.again(...)`). A run's `max_items` is a whole number of
+  at least 1 and its `timeout` and `checkpoint_every` finite seconds above 0, a `bool` neither,
+  refused at the call as `invalid_limit` (`ctx.variant` `seconds` for `timeout` and `checkpoint_every`), whose `loc` and `ctx.limit` name the limit and whose `ctx.value` is the value given. A number of seconds of another type, such as `Decimal("1.5")`, is read as the `float` `1.5`.
+- **Every exception conductor raises says what is wrong as problems.** `NodeDeclarationError`, `InvalidCallError` and
+  `NodeError` each have `problems`, a list of `Problem`. A `NodeError` makes its one problem where it is raised, from its
+  message, `code` and `ctx`, with an empty `loc` that the run fills with the call's; it has no `code`, `ctx` or `message`
+  attribute, and `NodeDeclarationError` no `code` or `problem`.
+- **A problem's `ctx` is JSON.** `Problem.ctx` is typed `Mapping[str, JsonValue]`, and
+  `NodeError(ctx=)` and `ExternalError(ctx=)` read theirs where the error is made: a value with no
+  JSON form (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at the node's
+  own `raise`, so the node fails as `execution_failed` and the run still saves. The `loc` of each
+  entry in a problem's `ctx["errors"]` is a list, so a problem equals what its JSON reads back.
+- **Only an outside failure is retried.** `ExternalError`, or a class in `Policy(retry_on=)`;
+  a `NodeError`, a wrong output or an `Ask` never is, whatever `retry_on` names.
+  A node's own exception goes to the `conductor` logger; only its class name reaches the problem, as `ctx.error`.
+- **Two companion packages, rebuilt on this API.** `syv-conductor-nodes` holds 36 nodes that only
+  compute, a registry per module (`conductor_nodes.text.registry`) and all of them in
+  `conductor_nodes.registry`. `series-split` takes a table or a list apart into a `Series` (a node may return a table for `Series[R]`, and a run stores that table, not a copy of its rows), `series-stack` puts the table of each item into one, `table-collect` puts records back into a
+  table with new columns (its `records` input is a `Table`, so records split from a table arrive as that table and the new columns are added beside its own, with no copy and their column types kept), `text-list` gives a list of texts a person enters, and `text-split` is titled "Split text" and splits on a newline. A saved run writes each output's value under that output, a table that two outputs share (a table read and then split) under both.
+  `math-round` rounds a half away from zero (2.5 to 3), and
+  `regex-replace` fails a replacement that refers to a missing group as `invalid_replacement`. `syv-conductor-providers` holds `run_router`, a FastAPI router that
+  starts, follows, answers, resumes and cancels runs on several workers over a `RunStore` you
+  write ([`docs/serving-runs.md`](docs/serving-runs.md)). An answer sent while the run is running waits for it to
+  stop, and one that then finds nothing waiting, or a run that needs a resume, is kept in `refused`; `again` runs on the nodes of
+  the request that asks; `resume` takes no body, and a ceiling it raises applies to the run from then on; a run whose event
+  the store fails to take stops before its next call, so no node is called once the run reads `failed`; `GET /runs/{id}` says the `cause` of a run that
+  didn't complete; a run's `outputs` there are what `run.outputs_to_json()` writes, each by its output's type, so a host's type that only its own
+  schema can write completes over HTTP as it does in the engine, a table reads as its columns and a float that isn't finite as `"Infinity"` or `"NaN"`;
+  `syv-conductor-providers` no longer depends on polars.
+  There is no canvas package.
+- **`syv-conductor-nodes` has a `series` category.** It holds `series-collect` ("Collect"), which runs once
+  and gives the value of every item as one list. `split` and `stack` are `series-split` and
+  `series-stack` and live in `conductor_nodes.series`. `decision` is `control-decide`. `logic-if-empty` and
+  `logic-if-equals`, which sent a text one way or the other, are gone: `logic-is-empty` and `logic-equals` give a
+  yes or no on a value of any type, to wire into `control-decide.when`. `control-switch` sends its `value` down the
+  branch its `case` names, one output per name in the constant `cases`, or down `other` (a case named `other` or
+  given twice is `compute_hook_failed`, `ctx.error` `case_named_other` or `case_given_twice`), and `control-default`
+  gives its `value`, or its `fallback` when the value is `None`. A graph record that names an old id
+  needs the new one, and a run saved from a graph that used an old id is refused by `Run.from_json`
+  (`saved_run_of_another_graph`), because the graph's fingerprint includes the ids of its nodes.
+- **`syv-conductor-nodes` gives a widget only where it says more than the type.** A text to work on
+  keeps its `Textarea`, and so does `json-parse`'s JSON text. Every `TextInput` on a `str`, `NumberInput` on
+  a number, `Switch` on a `bool` and `ListInput` on a list is gone, so those inputs' `widget` is `null` in
+  `describe()`.
+- **A declared choice's `id` is the field type's JSON form.** `Decimal` choices show `"1"` and a `datetime` its seconds, so the id a question shows is an answer it takes.
+- **A choice is a `Choice` wherever conductor gives one.** `FieldDescription.choices`, on a field `describe()` writes and on a waiting call's question, is a tuple of `Choice`, each with every field a host gave it; its JSON is unchanged. `Choice("ida", "Ida B.", team="sales")` carries `team` without a subclass, and a description or a saved run read back keeps it. A `Param`'s choices and an `Ask`'s are read by one rule, `read_choices`: two ids are one choice when their JSON is, with the keys of a dict in any order, so `Param(choices=[float("inf"), float("nan")])` is taken and `[{"a": 1, "b": 2}, {"b": 2, "a": 1}]` is one choice given twice, refused by `Param` (`choices_invalid`) and by an `Ask` (`invalid_ask`) alike. An `Ask`'s choices are read by the validator of the output, as an answer is, so a yes or no is never a number there. An `Ask` refused for its choices says so as `invalid_ask` with `ctx.reason` "the choices for 'result' are refused: one is given twice" (or "none is given", "one has no JSON form", or the reason its type refuses one).
+- **An answer is read as a return is.** A person's answer is read from its JSON form by the schema that reads what the node returns, so a host type whose own check gives another class refuses an answer as it refuses a return (`invalid_answer`, "its type's own check gave a dict, not a Square"). An `Ask` choice with no JSON form fails the call with `invalid_ask` ("the value has no JSON form"), where it raised out of `resume()`.
+- **A value matches a choice by its JSON text, wherever it is checked.** An input, a return and an answer are held to choices by one rule: a value and a choice id are the same when their JSON is, with a dict's keys in any order and a float that is not finite written as its text (`"Infinity"`). On an `int | float` or `Any` field with the choice `1`, the values `1.0` and `True` are not one of the choices, as an input or a return too (`Param(choices=)` took them by Python's `==`). Two fields whose choices differ only as Python compares them hold a value each to their own: `Annotated[Any, Param(choices=[True])]` declared after `Param(choices=[1])` refused `True` and took `1`, and `Param(choices=[True, 2])` on an `int` declared after `[1, 2]` was not refused. Only an answer picks each choice once (`picked_twice`): a node may return, and an input may take, a `Series` that holds a value twice. A `Literal`'s choices are its values other than `None`, so `Annotated[Literal["a", None], Param(choices=["a"])]` is declared, as `Literal["a"] | None` was (it was `choices_invalid`). A value holding a float that is not finite is hashed by that text too, where some hashes held the bare word `Infinity`, which is not JSON: for a call that received one, the fingerprint a later run reuses its outcome by (a table's digest inside it included) differs from an earlier build's, and so does `graph.fingerprint` of a record read from JSON text with a bare `Infinity`, now the same as the record written with `"Infinity"`, so a run of that graph saved by an earlier build is refused when loaded. A waiting id is unchanged. `None` is no pick: a type that takes `None` takes it beside its choices, so `run.answer` takes `None` for `Series[str] | None` with choices (it raised `TypeError`), and an `Ask(choices=[...], default=None)` on an output that takes `None` waits with that default (it failed with `invalid_ask`, or raised `TypeError` on a `Series`). An answer outside the choices reads "the value is not one of the choices", as an input does.
+- **A yes or no is not a number in JSON either.** `Run.from_json` refuses a saved run with `true` where an `int` or `float` is saved (a graph input, an output, an item of a `Series`, a field of a record, a cell of a table) as `saved_run_unreadable`, with the reason "a yes or no is not a number; give a number"; it read `true` as `1`. A person's answer with `true` for a number, and an `Ask` choice of `True` for one, are refused with that reason too, where pydantic's "Input should be a valid integer" was given.
+- **A list refused by an input whose type takes a list says why.** `Annotated[list[str], Param(min_length=1)]` given `[]` is `invalid_input` with the `min_length` reason ("List should have at least 1 item"), not the variant `make_a_series`, which is kept for a list given to an input whose type takes no list; so is `int | list[int]` given `["x"]`, refused for its item.
+- **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
+- **An input can take only a constant: `Param(constant_only=True)`**, a setting fixed when the graph is drawn (1.x's `disable_handle=True` on its widget). Every input a `compute_...` hook reads is one too, and the one rule holds for both: its `FieldDescription` has `constant_only: true`, `make_graph` by itself never wires it or makes it a graph input (`not_a_chain` variant `constant_only`, `ctx.inputs`), a record that gives it `sources` or a `graph_input` is `input_takes_only_a_constant` (`ctx.given`) when compiled, and one with no constant and no default is `input_has_no_value` (variant `constant_only`). An edge into an input a hook reads, which was taken while the hook read the input's default, is that problem too. On an output it is `constant_only_on_output`.
+- **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_to_json` are `null` where the Series was never returned because of a `None` outside the loop, or a branch there wasn't chosen (they were `[]`, the same as for a Series returned with no items), and `null` where every item is skipped from outside (they were a list of `null`s). A `None` outside still shows a `None` in each place. The same nodes inside a subgraph show the same.
+- **An output made inside two loops is shown as a list of lists.** `run.results`, `run.outputs` and `outputs_to_json` show the output of a node called per item of a list that is itself returned per item as one list per outer item, `null` for an outer item whose inner list was never returned (it was one flat list over every item): three documents split into lines, the second empty, show `[["A", "B"], null, ["C"]]`. The same nodes inside a subgraph show the same.
+- **A node outside a subgraph reads its outputs as it would read the same nodes drawn in its own graph.** For the subgraph `documents -> lines -> shout`, a `Series[str]` input wired to `shout.result` is called once per document with that document's lines (it was called once, with one flat list over every document), and an input of one `str` once per line; a node outside and `run.results` see the same list per document. A loop outside is named by the list inside that is looped over (`describe()` gives `per_item_of` as `e/documents.result`; it named the offered output), so outputs returned in the same loop inside are paired item by item: one item of each of two of them reaches one call (it was `series_not_nested`), also when one of them is the list looped over itself (`e.parts`, and `e.loud` returned once per item of it), and a `Series` input beside an input of one value wired to the same per-item output receives that item's one value, as drawn flat (it received every item). The output is described with `is_series` and one `Series` per loop (`type` `Series[str]` for a list per document) and lists its `loops`; every field description gains `loops`, empty but here. A `Series` returned once per document is `Series[Series[T]]` too (it was a `Series` of whole lists). `series_not_nested` for a list inside a subgraph has `ctx.variant` `inside_subgraph` and tells the author what they can do.
+- **`json-parse` fails with `not_json` on a number of more than 4,300 digits.** Python refuses it with a `ValueError`, which escaped the node as it was.
+- **A saved run keeps what a waiting call's `Ask` said, and nothing of a question once it is answered.** A waiting call's entry under `questions` is its `prompt` and, each left out when the `Ask` set none, `"choices": {"result": [...]}` and `"defaults": {"result": "bo"}` by output name. An answered call is `"done"` in `states`, as a call whose function returned is, with its outputs and no question. What a waiting call received is not saved: `Waiting.inputs` is read again from the outcomes the call reads.
+- **`Run.from_json` takes the JSON text `run.to_json()` wrote**, as `str` or `bytes`. It took a mapping too; a host that holds one writes `Run.from_json(json.dumps(saved), graph)`.
+- **`run.results` reads a run in any state and never raises.** A run that failed because an edge named a field its record lacks (`invalid_edge_value`) shows `None` where that field was read; the failure is the run's cause.
+- **A run's item ceiling is raised in one way: `run.with_max_items(n)`.** It gives the same run under the ceiling `n`, with nothing started, so `run.with_max_items(100).resume()` goes on with a run that stopped at its ceiling. `run.resume` and `run.stream` take no `max_items`; `graph.run`, `graph.with_inputs`, `run.with_inputs` and `run.again` set it where a run is made. The router's `POST /runs/{id}/resume` stores the run with the raised ceiling as it claims it, so a run whose worker is killed before its first checkpoint goes on under the raised ceiling. Its body's `max_items` is an integer (`true` and `2.5` are a 422 `int_type`), and conductor decides that it is at least 1: `0` is a 422 with conductor's `invalid_limit`.
+- **A subgraph costs what its nodes cost.** Its node has no outputs of its own: what reads one of its outputs reads the inner node that returns it, and `results`, the events and `not_called` say of it what they say of the inner nodes. Two `Series` inputs wired to two of its outputs returned per item of one Series inside are paired item by item, as they are drawn flat. A save's `complete` lists function nodes only, the subgraph's node says no `node_progress`, and one with no nodes inside says no events.
+- **A `Series` input wired to one value returned where its node runs receives that value, as a Series of one.** A node that runs per document, because another input collects the document's lines, and whose `Series[str]` input is wired to the document's summary, receives its own document's summary. It received every document's summaries on each call, and the same nodes inside a subgraph received one.
+- **`run.not_called` is a list of `NotCalled` records** (`loc`, `input`), exported from `conductor`, not a list of dicts. It is in item order on a live run, in a checkpoint and after `Run.from_json`.
+- **A graph with problems is still drawn.** `graph.describe()` gives a node with a problem its fields and where it runs (`found` true), and the nodes that read it too; an input whose edge is refused has the mode `missing`, which `InputSource.mode` gains. `found` is false only where the node's definition isn't found, and such a node has no fields.
+- **A default a generic node declares is read by the type its edges bind.** `first(one: T, other: T = 0)` wired from a `str` gives the graph the problem `invalid_value` with `ctx.variant` `bound_default` at `("first", "other")`; `Graph.compile` raised `NodeDeclarationError` for it. A default of `None` is read the same way, so `first(one: T, other: T = None)` wired from a `str` has the same problem, and so has a generic dataclass of outputs whose field defaults to `None`. An input an edge or a constant gives its value never uses its default, so its default is not read.
+- **A whole table or list wired where one value is taken says to make a series.** `type_mismatch` and `unknown_output` have the variant `make_a_series` for it, as `invalid_input` has for a list given to an input of one value: put a node between that returns the rows or items as a `Series`.
+- **A row type's fields are all required.** A `Table[R]` or a `Series[R]` of records whose `R` has a `NotRequired` field, or is declared `total=False`, is refused when the node is declared (`row_field_optional`, a new declaration code); a node returning such a `Series` failed its run with pydantic's own schema error. Declare the field `X | None`.
+- **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`, and one that gives a field a name a graph cannot have is `compute_hook_failed` at that name with `error: not_a_name`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
+- **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. `node_complete` counts a node's skipped calls in `skipped`: a call downstream of a branch not chosen, or one whose every output is `SKIPPED`; a node with no output that returns `SKIPPED` is not counted. A node was skipped when `outcomes > 0` and `skipped` equals `outcomes`, and a subgraph node counts each of its calls whose every call inside was skipped.
+- **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early. The run saved in the row is its last checkpoint, which reads back as its outcomes say: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
+- **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and resumes the run, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`invalid_answer`, and `not_waiting`, also for an answer to a `complete` run). Answers queued while the run is running are given to the run it stopped as, whatever its status; a resume that raised keeps them queued. The code `run_not_waiting` is gone.
+- **The runs router cancels a waiting run.** `POST /runs/{id}/cancel` on a run that is `waiting` resumes it with the cancel already set, so it ends `cancelled` before any node call, as `run.stream(cancel=...)` does, and answers with the run, `running`: its questions still wait, and an answer or a resume carries it on. A host's own scheduler sends it to end a run whose question nobody answers. Like any resume call, it can end the run `failed` when its context or a node can't be had. A cancel that meets a run another call changed first goes by the run as it now is, and a run that is complete or already ended early is answered as it is.
+- **How a run stopped is stored once, when the router has decided what it is.** A run handed back at shutdown stores no `run_end` (it read `cancelled`, for a run nobody cancelled that another worker then finished), so a follower's stream goes on into the next worker's events. A resume that raised outside a node reads `failed` with a cause, `raised_outside_a_node` (`ctx.error` the exception's class name), in `GET /runs/{id}` and on its `run_end` (the cause was null). The worker's own codes are a catalogue, `conductor_providers.fastapi.SERVING_PROBLEMS`, a function per code as conductor's `PROBLEMS` is: `no_such_run`, `run_not_resumable`, `previous_run_unloadable`, and `raised_outside_a_node`. The metadata for a new run is checked against the worker's `metadata_type` before anything is stored, and written by alias, so it always reads back; a value of another type is the host's own bug and raises pydantic's `ValidationError`, a 500.
+- **Every refusal of the runs router is a list of problems.** A 404 and a 409 are `{"detail": [{type, loc, msg, ctx}]}` as a 422 is (they were an English sentence), with the worker's own codes: `no_such_run` (404) and `run_not_resumable` (409, `ctx.status`). An answer to a complete run is conductor's `not_waiting` (422). Answers sent while a run is running are all queued, in the order they came, and a second answer to a question the first answered is refused as `not_waiting` when the run stops; of two calls that act on one run at once, the one whose write loses reads the run again and acts on it as it is then. The worker raises every refusal as conductor's `InvalidCallError`, and the router picks the status from the first problem's code. The OpenAPI schema declares both as FastAPI's own `HTTPValidationError`, which a problem fits.
+- **The runs router is mounted over a `Worker`.** `run_router(worker, metadata=, run_filter=)`: the worker holds the store and the settings (`Worker(store, nodes_for=, context=, metadata_type=, max_items=, lease=, checkpoint_every=, resume_timeout=, poll=)`, each setting with its default there), and the router only the routes. The worker is generic in `M`, the type of a run's metadata (`dict[str, str]` unless `metadata_type` names a pydantic model), and `X`, the registry's `context_type`, with one constructor and no overloads: `nodes_for=` is a function of the metadata that returns the registry its graphs compile on (`lambda metadata: registry` for one registry), and `context=` a function of the metadata and a stop event; the type checker holds both to `M` and `X`. A registry that needs a context with no `context=` given passes the type checker, and conductor refuses the run (`context_missing`).
+- **`run_router` requires `metadata` and `run_filter`.** `metadata` is a FastAPI dependency that gives the metadata for a request: a run the request starts keeps it, written once as JSON, and every resume builds the run's registry and context from it; on `/nodes`, `/compile`, `/estimate` and `again` it picks the request's own nodes. `run_filter` is a FastAPI dependency that gives, for the request, a test of a run's metadata, `Callable[[M], bool]`, asked on every route under `/runs/{run_id}` on the row the route reads anyway, once, passed to the worker method as `allows=`: a run it turns away is a 404 `no_such_run`, as an unknown id is. There is no default for either, since no rule is safe for every host; a host with no logins gives `metadata` a function that returns `{}` and `run_filter` one that returns `lambda metadata: True`.
+- **A stored run's `lease_until` is null when no worker needs to resume it,** and a time for a run a worker holds or handed back, so a store's `expired(now)` is `lease_until < now` with no status clause, and a store that forgets the status can't re-run finished runs. `RunStore.add_event` returns whether it appended, not a number.
+- **A stored run is ten columns.** `StoredRun` and the table a host writes for it keep `id`, `graph`, `metadata`, `run`, `status`, `rev`, `owner` and `lease_until`, and two texts hold what the router alone reads: `state` (why the run ended early, the answers queued and refused, a cancel that was asked; small whatever the size of the run) and `outcome` (what the last resume left for a reader: what waits and the outputs). The columns `waiting`, `outputs`, `cancel`, `pending`, `refused` and `cause` are gone, and `RunChanges` is the six columns that change (`run`, `status`, `state`, `outcome`, `owner`, `lease_until`). `status` is written with `state`, from it, so a host's query on `status` never disagrees with what `GET /runs/{id}` says. The store on `docs/serving-runs.md` is the six methods with no per-column conversion.
+- **A run whose resume raised lists what waits in the run as stored.** `GET /runs/{id}` on a run that reads `failed` because its worker raised lists as `waiting` what waits in its last checkpoint, the run an answer is given to (it listed what waited before the resume, some of it answered since); a run that could not be loaded lists nothing. A raise from the `RunStore` fails no run: the resume is given up and a worker goes on from the last checkpoint once the lease runs out.
+- **A store that fails for one statement costs the runs router one try.** A sweep for runs whose lease ran out, a take-over of one of them and a renewal of a lease are each logged with their traceback when they raise, and the next one runs (a sweep that raised once took over nothing for the worker's life, and a renewal that raised once let another worker take a healthy run and make its calls again).
+- **The worker behind the runs router is public, for a host with routes of its own.** `conductor_providers.fastapi.Worker` begins, reads, answers, resumes, cancels and follows runs and takes over those whose lease ran out, with no HTTP in it; `run_router` is a thin layer of routes over one, and a host that admits runs its own way calls it the same way, inside `worker.serving()`. A run's metadata is stored once with it, and every resume builds the run's registry and context from it; `await worker.metadata_of(run_id)` reads it back. Every method that acts on a run takes its id and the request's filter (`allows=`), reads the run once itself, and returns the run as it wrote it, a `RunView`. `begin(graph, inputs, metadata, previous=run_id)` starts a graph from the work of another run, as `graph.with_inputs(previous=)` does, and, once the graph and the inputs are checked, refuses with the router's `previous_run_unloadable` when that run can't be loaded on the new run's nodes; a worker that has never entered `serving()` raises `RuntimeError` and writes nothing from a call that would make a run running, and one that has served and left hands such a run back at once for another worker; `again(run_id, inputs, metadata)` is `run.with_inputs`. Exported beside it: `RunView`, the run as a reader sees it, its `metadata` the JSON object the run keeps (`id`, `metadata`, `status`, `cause`, `waiting`, `outputs`, `progress`, `refused`), which `worker.read` gives and every route under `/runs` answers with: `POST /runs`, `/again`, `/answers`, `/resume` and `/cancel` answer with the run as written (where they answered `{"id"}`, `{"answers": "started" | "queued"}` and `{"cancelled": bool}`). The answers a running run has queued and a cancel asked of it are not shown. `RunView` has no type parameter, so it is one OpenAPI component, `RunView`, whatever the metadata type, and a host's own route that answers with it shares it. The worker refuses with conductor's `InvalidCallError`, as conductor does, with the router's problems.
+- **`Worker.events` is awaited, then iterated.** `async for number, body in await worker.events(run_id, allows=...)`: awaiting it reads the run and checks it against the filter, so a run that isn't there, or that the request may not see, is refused as `no_such_run` before any event; it was an async generator iterated directly, which raised only once iteration started.
+- **A node can stop a slow call when its run is cancelled under the worker.** The worker's `context` function is called with the run's metadata and a `threading.Event`, `context(metadata, stop)`, new for each resume call and set when that call stops early: the run was cancelled (on this worker, or on another and heard at the next renewal of the lease), another worker took it over, or the store raised and the worker gave the run up. It is not set when the worker shuts down. A host puts it in its context, and a node that streams checks `ctx.stop.is_set()` between chunks and raises; it never sets it. `run.stream(cancel=)` takes a `threading.Event` as well as an `asyncio.Event`; the worker's stop event is the one it passes there. A call that fails once its run was cancelled, by `run.stream(cancel=)` or the worker, ends the run `cancelled`, not `failed`, and a resume makes the call again; a call that fails after the `timeout` passed or while the run is handed back still ends it `failed`.
+- **A host's run store is tested with one call.** `await conductor_providers.fastapi.testing.check_run_store(store)` writes runs and events through a `RunStore`'s six methods and returns every way the store differs from what the worker relies on, as plain messages that each start with the method at fault, such as `"update: wrote at rev 1 while the run was at rev 2; write only while the run is at the rev given"`: a run not kept as written (a JSON column as the same JSON value, so a `jsonb` column passes), a run found for an id that has none, an update written at an old `rev` or two written at once, `expired` giving the wrong runs, `add_event` refusing the owner or appending for another worker, `events` out of order, and a method that raises where it should answer. `RunStore`'s docstrings say that `get` reads what another worker just wrote, that a run's first event is numbered `0`, and that a method raises only when the database fails.
+- **The runs router's schema reads as a generated client needs it.** Its operations are `list_nodes`, `compile_graph`, `start_run`, `estimate_run`, `read_run`, `follow_run`, `answer_run`, `resume_run`, `run_again` and `cancel_run`, each with a description; the body of a resume is the component `Resume`; the two free-form bodies say what they contain. The bodies that carry a graph (`/compile`, `/runs`, `/estimate`) are read as text, once, by conductor's `read_json`, and their schema is declared through `openapi_extra` with every `$ref` written in, so every reference in the document resolves; a fault in a graph record is conductor's `invalid_record`, and a fault in the rest of the body (inputs that aren't an object) is FastAPI's own (`dict_type` at `["body", "inputs"]`). `POST /runs` and `/estimate` take `"previous": run_id`, which the run filter checks as it checks a route under `/runs/{run_id}`. `published=` and its routes `POST /graphs/{name}/runs` and `/graphs/{name}/estimate` are gone: a host offers a saved graph with a route of its own that calls `worker.begin`. `RunView` is exported with the worker.
+- **A kind of problem is declared by one function.** `ProblemCatalogue().problem()` over a function makes a `ProblemKind`: the function's name is the code, a keyword-only parameter is a `ctx` key (one that defaults to `None` may be left out), a positional-only parameter (before the `/`) is a part of `loc` and a `ctx` key, so it cannot be given by name and the two always agree, `*loc` is the parts of `loc` the message does not use, and the function returns the message. Calling the kind makes the `Problem`, so a type checker refuses a misspelled code, a `ctx` key left out and a value of the wrong type where the problem is made; a signature outside those three rules is a `TypeError` where it is declared. A kind has its `code`, `variant`, `section`, `sentence` (the English with a slot per key) and `ctx_type` (a `TypedDict`). A code has one kind with no variant, and every other kind under it a `variant` of its own, which the problem's `ctx.variant` gives; a second kind under a code without one is a `TypeError` where it is declared. The declaration codes with several kinds give it: `limit_not_supported` (`limit_value`), `choices_invalid` (`on_a_literal`, `not_a_value`, `no_json_form`), `context_type_differs` (`on_subregistry_only`), `default_invalid` (`none_not_taken`), `hook_parameter_unknown` (`not_by_name`, `var_keyword`), `pydantic_field_in_hint` (`discriminator`), `type_declaration_invalid` (`not_on_a_class`, `not_writable`) and `type_not_supported` (`declared`); and so do `check_registry`'s: `hook_failed` (`on_an_example`), `upgrade_broken` (`raised`) and `run_failed` (`not_compiled`, `refused`). The reference (`python -m conductor.about`) prints each kind from its function: the sentence, and each `ctx` key with its type, whether it is always given and what it holds; `python -m conductor.about not-a-chain` prints one. `check_registry`'s problems are declared the same way and listed in the reference, and each has in `ctx` what its sentence is made from: `reason` (the sentences of the problems behind it), and `newest`, `status` or `named` where the sentence says them. `PROBLEMS` is the catalogue of conductor's core, every code it writes; a host reads every code as `PROBLEMS.codes`, and `conductor.PROBLEM_CODES` is gone. Every kind's `sentence` can be filled with `sentence.format(**problem.ctx)`. A problem whose sentence names its node or field has them in `ctx` too, as `node_id` and `field`, so a host fills its own sentence from `ctx` alone: the id is the node's in the graph it is in, as the sentence says it, where `loc` of a problem inside a subgraph has the subgraph node in front. A waiting id and a saved run's `code` digests differ from an earlier build's for a node that runs per item (the digest is made of the text of each loop the node is inside, its node's path and output: `e/split.result` for a loop over a list returned inside the subgraph node `e`, so a node in such a loop, or in a subgraph inside another, has a digest of its own once more, and an earlier save of it reuses nothing). Two older keys that used those words for something else are renamed: `edge_names_missing_node` names the node that isn't there as `ctx.missing`, and `unknown_output` and `invalid_edge_value` name the field of a record an edge reads as `ctx.record_field`.
+- **A run doesn't hang on Python 3.12 when a timer falls due as it starts to wait.** CPython 3.12's `SimpleQueue.get(timeout=)` never returns when its timeout runs out before its first look at an empty queue, so a run with a retry or an attempt deadline due within about a microsecond of the scheduler's wait stood still for ever (3.13 and 3.14 don't do it). The scheduler looks at its queue once without waiting before it waits with a timeout.
+- **`Policy(concurrency=n)` caps a node's calls in the whole process.** At most `n` calls of one `@node` definition
+  run at once, over every place a graph uses it and every run going on, so a node used twice with `concurrency=2`
+  makes two calls at once, not four, and two runs of it at once make two as well. A run that waits for another run's
+  call calls its other nodes meanwhile, and a run that keeps the node busy can't keep the others out. Setting
+  `concurrency` is how a node keeps an outside service's quota; set on a node whose function runs a graph that
+  uses the node again, it is a deadlock. The
+  default is `concurrency=None`: each run calls the node one item at a time and takes no notice of other runs.
+- **A call on a thread that raises past the engine ends the run with it.** A node with `concurrency` above 1 or an `attempt_timeout` that raised `SystemExit` or `KeyboardInterrupt`, or whose output type's own check raised what is no refusal, was kept by its thread: the run waited for the call for ever, and a stream of it couldn't be cancelled. The exception is handed back and raised from `resume()` or `stream()`, as it is for a node called on the scheduler's own thread.
+- **A host reads how far a run is, and can know it before any costly call.** `run.progress` (a `RunProgress`) is read from the run's outcomes each time, for the run and for each node by node path: `finished` (calls with an outcome that is not waiting), `waiting`, `known` (a floor that only grows) and `total` (`None` while a series that decides it does not exist yet), each a `CallCount`. A stream's `node_progress` carries the same `CallCount` of its node, as `count`, and comes when any of its four numbers changes. Nothing of it is saved, so a run read back in another process has the same. A node author marks a node whose call costs nothing with `Policy(costs_nothing=True)` (a node that takes `Context[...]` is refused it, `costs_nothing_takes_context`), and `run.resume(only_costs_nothing=True)` (or `run.stream(only_costs_nothing=True)`) calls only those and leaves the run `ready` (`failed` or `waiting` when one of those calls fails or asks, as in `resume()`), so the totals the inputs decide are known first; the next `resume()` repeats none of those calls or their events. The runs router has `POST /estimate`, which answers that progress and stores nothing, and `GET /runs/{id}` has the run's `progress`, written with its `outcome`, also at each checkpoint.
+- **A run redone keeps each person's answer with the item it belongs to, whatever waits upstream.** Of the items that get the same arguments, the first takes the first previous answer even when a question upstream of it waits: an item after it takes no answer until that question is answered, and the run waits (a later identical item took the first answer, and the earlier one the second). With two loops, one inside the other, an item takes no answer until the inner lists of every item before it are known, so two equal pages keep their own answers whichever page's lines come back from a thread first (they could swap them). A node that may ask (`asks=True`) has every outcome reused this way, a call that returned without asking too: an identical item beyond the outcomes there were calls the function again, where it reused the first return. Such a call also waits its turn: while a question upstream of an earlier item waits, it reuses nothing, and nothing downstream of it runs (with `check -> stamp`, both `asks=True` and `stamp` never asking, `again(items=["zz", "bo"])` leaves `stamp` for `"bo"` waiting until `check`'s question about `"zz"` is answered, where it reused `stamp`'s return at once). Whether a node may ask is part of its code fingerprint, so a node that stops or starts asking is called again, and its waiting ids change.
+- **`graph.describe()` says how often a node runs in one field, `per_item_of`.** It is the list of the innermost loop the node is inside, as its node path and output (`lines.result`, or `per-word/split.result` for a list returned inside the subgraph node `per-word`), and `None` for a node called once and for one that was not compiled. `RunsOn`, the record that said it with `mode`, `series` and an English `msg`, is gone, and so is `InputSource.msg`: an input's `source` is its `mode` and `series`.
+- **Every cell of a table a run keeps reads back from its JSON as it is.** A table a node returns, a caller gives, a person answers or an edge brings is converted where it arrives to the column types a saved run reads it back as, when no cell changes: every whole-number type as `Int64` (a `UInt64` when every cell fits), `Float32` as `Float64`, `Categorical` and `Enum` as `String`, a `Datetime` or `Duration` in milliseconds, or in nanoseconds when every cell is a whole microsecond, in microseconds, a `Decimal` as precision 38, an `Array` as a `List`, and a list or struct of these inside; the run, the nodes downstream and a loaded run all have the converted table. A column that would read back changed is refused, naming the column and the type to cast it to (`invalid_output`, `invalid_input`, `invalid_answer` or `invalid_edge_value`): a `Datetime` in another time zone than UTC, bytes, a list or struct holding a date, a time, a decimal or a float that is not finite, a `UInt64` past the largest `Int64`, a time finer than a microsecond, a millisecond time too far out for microseconds. A column with no value at all (empty, or every cell null) may still read back with another type. Such columns were saved and read back changed with no error (a `UInt64` cell past `Int64` as null, an `Int32` column as `Int64`), or refused when loaded. A saved run's table is read strictly: a cell that does not fit its column's type is refused, not read as null.
+- **`@node(policy=)` is a `Policy`, `Policy()` when left out.** `None` is not a policy: mypy and pyright refuse `@node(policy=None)`.
+- **A node's versions are one read-only mapping.** `definition.versions` is the node at each of its versions, by version number, newest first: `definition.versions[1]` is version 1, `list(definition.versions)` the numbers, and `1 in definition.versions` asks. A version it doesn't have is a plain `KeyError`, and writing into it a `TypeError`.
+
+A 1.x graph doesn't compile as saved. Convert each graph record with the table under
+"Converting a stored 1.x graph", then save the `GraphRecord`.
+
+### From 1.12.2, name by name
+
+Every public name of 1.12.2, by the module it was imported from. A name not listed under 2.0 is gone.
+
+| 1.12.2 | 2.0 |
+|---|---|
+| **Nodes** | |
+| `Actor` | gone: a node declares no actor; the host decides who runs what |
+| `BaseNode` | a plain function under `@node("id", title=, description=)` or `@registry.node(...)` |
+| `conductor.metadata.InputMetadata` | `FieldDescription`, an entry of `definition.describe().inputs`; the hint and its `Param(...)` say it |
+| `conductor.metadata.OutputMetadata` | `FieldDescription`, an entry of `definition.describe().outputs` |
+| `conductor.registry.dynamic_inputs.ComputeInputsContext` | gone: a `compute_added_inputs` hook is a plain function whose parameters name the inputs it reads |
+| `conductor.registry.dynamic_inputs.ComputeInputsFn` | `compute_added_inputs=`, a plain function returning `{name: type hint}` |
+| `conductor.registry.dynamic_outputs.ComputeOutputsContext` | gone: a `compute_outputs` hook's parameters name what it reads; one annotated `type` receives the arriving type |
+| `conductor.registry.dynamic_outputs.ComputeOutputsFn` | `compute_outputs=`, a plain function returning `{name: type hint}` |
+| `conductor.registry.dynamic_outputs.IncomingBinding` | gone: a hook parameter annotated `type` receives the type arriving on that input |
+| `conductor.registry.dynamic_outputs.strip_sub_output_prefix` | gone: an output is named by its field |
+| `conductor.registry.NodeDefinition` | `NodeDefinition`, the union of `FunctionDefinition` (frozen and callable, returned by `@node`) and `SubgraphDefinition` (returned by `subgraph`) |
+| `conductor.types.Base64Str` | gone: any type pydantic carries travels; `bytes` is one |
+| `conductor.types.Date` | `datetime.date` |
+| `conductor.types.MultiNamedFile` | gone: `Series[YourFile]` |
+| `conductor.types.NamedFile` | gone: declare your own pydantic model or dataclass |
+| `conductor.types.NodeResult` | gone: a node returns its value; a run's are `run.results` and `run.outputs` |
+| `conductor.types.OUTPUT_PREFIX` | gone: outputs are named by their fields |
+| `conductor.types.RESULT_KEY` | an output of `-> X` is named `result`; a frozen dataclass names several |
+| `FlowStore` | the run's context: a node's first parameter `Context[AppContext]`, the class named by `NodeRegistry(context_type=)`, the object passed as `context=` |
+| `NodeCategory` | a plain string, `@node("id", title=, description=, category="text")` |
+| `NodeRegistry` | `NodeRegistry(category=, tags=, extra=, types=)`, empty until nodes are added |
+| `ResultFormat` | gone: a node returns its value, typed by its return hint |
+| `RetryConfig` | `Policy(retries=, retry_delay=, attempt_timeout=, retry_on=)` on `@node(policy=)` |
+| `SKIPPED` | `SKIPPED`, returned on a branch not taken |
+| **Widgets** | |
+| `conductor.widgets.Checkbox` | `Switch` |
+| `conductor.widgets.CodeEditor` | gone: a host subclasses `Widget` |
+| `conductor.widgets.ColumnSelect` | gone: an edge names one field of a record, `node.output.field`, after a node that gives a table's records one at a time (`series-split`) |
+| `conductor.widgets.ConditionBuilder` | gone: a host subclasses `Widget` |
+| `conductor.widgets.ConnectionList` | gone: a `Series[X]` input takes every edge into it |
+| `conductor.widgets.DatePicker` | `DatePicker` |
+| `conductor.widgets.DependentDropdown` | gone: a host subclasses `Widget` |
+| `conductor.widgets.Dropdown` | `Dropdown`, which takes no choices: they live on the field, `Param(choices=[Choice(id, title)])` or a `Literal` |
+| `conductor.widgets.EntityDropdown` | gone: a host subclasses `Widget` |
+| `conductor.widgets.FileUpload` | `FileUpload`, without `multiple`: a `Series` field takes several files |
+| `conductor.widgets.HumanReview` | `raise Ask(...)` in the node; its return type says what is asked |
+| `conductor.widgets.IfElseBuilder` | gone with the if-else node: outputs of one `Param(exclusive_group=)` are the branches |
+| `conductor.widgets.List` | `ListInput` |
+| `conductor.widgets.Multiselect` | an input typed `Series[Literal[...]]`, or `Dropdown` on a `Series` |
+| `conductor.widgets.Number` | `NumberInput`, without `integer_only`: an `int` field takes whole numbers |
+| `conductor.widgets.Output` | gone: an output has no widget |
+| `conductor.widgets.Range` | `Slider`; its limits go on `Param(ge=, le=)` |
+| `conductor.widgets.SchemaBuilder` | gone: a host subclasses `Widget` |
+| `conductor.widgets.Switch` | `Switch` |
+| `conductor.widgets.TableInput` | an input typed `Table[R]`, the table given as records |
+| `conductor.widgets.TableSource` | an input typed `Table[R]` |
+| `conductor.widgets.Tags` | gone: an input typed `Series[str]` |
+| `conductor.widgets.TemplateTextarea` | gone: a host subclasses `Widget` |
+| `conductor.widgets.Text` | `TextInput` |
+| `conductor.widgets.Textarea` | `Textarea` |
+| `conductor.widgets.WIDGET_SCHEMA_KEYS` | gone: a widget is a pydantic model; its fields are its keys |
+| `conductor.widgets.Widget` | `Widget`; a host subclasses it for a control of its own, and a subclass with a field that has no JSON form (a class pydantic checks only with `isinstance`, a `polars.DataFrame`, a `type[X]`) raises pydantic's `PydanticInvalidForJsonSchema` where its class statement ends |
+| `widgets` | `conductor.widgets`, imported as a module |
+| `WidgetType` | a widget's `type` field |
+| **Graphs and compiling** | |
+| `compile` | `Graph.compile(record, registry)`, which returns a `Graph` and never raises for a fault in the graph |
+| `CompiledGraph` | `Graph` |
+| `conductor.expr`: `Expression`, `ExpressionError`, `ExpressionParseError`, `ExpressionRuntimeError`, `ExpressionTypeError`, `evaluate`, `parse` | gone with CEL guards on edges |
+| `conductor.flow_format.dump_flow` | `record.model_dump_json()` |
+| `conductor.flow_format.flow_to_dict` | `record.model_dump(mode="json")` |
+| `conductor.flow_format.flow_to_yaml` | gone: YAML isn't written |
+| `conductor.flow_format.load_flow_from_path` | gone: read the file and `Graph.compile` its text |
+| `conductor.flow_format.load_flow` | `Graph.compile(json_text, registry)` or `GraphRecord.model_validate_json` |
+| `conductor.flow_format.yaml_to_flow` | gone: YAML isn't read |
+| `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs of one `exclusive_group` are the branches |
+| `conductor.graph.compiler.ExtensionResolver` | gone: a graph record is a node, `subgraph("id", title=, description=)(record)`, added to a registry |
+| `conductor.graph.dynamic_inputs.resolve_node_inputs` | `Graph.compile(record, registry).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
+| `DefinitionSource` | gone with `RegistryView` |
+| `expr` | gone with CEL guards on edges |
+| `Flow` | `GraphRecord`; see "Converting a stored 1.x graph" |
+| `FlowDependency` | gone: a graph uses another as a node, `subgraph("id", title=, description=)(record)` |
+| `FlowTrigger` | gone: the host decides when a graph runs |
+| `GraphEdge` | a source, `{"node": "a", "output": "result"}`, on the input it leads into |
+| `GraphNode` | `NodeRecord`; see "Converting a stored 1.x graph" |
+| `RegistryView` | `registry.filter(predicate)` and `add_subregistry`; a request's own nodes go in a registry of their own |
+| `resolve_graph_inputs` | `Graph.compile(record, registry).inputs`, each a `GraphInputDescription` |
+| `resolve_graph_outputs` | `Graph.compile(record, registry).outputs` |
+| **Running** | |
+| `compute_for_each_end_outputs` | gone: a `Series[X]` input collects the items |
+| `conductor.compound.CompoundNodeType` | gone with compound nodes |
+| `conductor.compound.NodeExecutor` | gone with compound nodes |
+| `conductor.compound.Region` | gone with regions |
+| `conductor.execution.engine.collect` | `graph.run(...)`, then `run.results` |
+| `conductor.execution.events.CompensationCompleteEvent` | gone with compensation |
+| `conductor.execution.events.CompensationFailedEvent` | gone with compensation |
+| `conductor.execution.events.CompensationStartEvent` | gone with compensation |
+| `conductor.execution.events.EventSink` | `async for event in run.stream()` |
+| `conductor.execution.events.ExecutionEvent` | `Event`, a union told apart by `type` |
+| `conductor.execution.events.FlowCancelledEvent` | `RunEnd` with `status` `cancelled` |
+| `conductor.execution.events.FlowCompleteEvent` | `RunEnd` with `status` `complete` |
+| `conductor.execution.events.FlowErrorEvent` | `RunEnd` with `status` `failed` |
+| `conductor.execution.events.FlowPausedEvent` | `NodeWaiting` per waiting call, then `RunEnd` with `status` `waiting` |
+| `conductor.execution.events.FlowTimeoutEvent` | `RunEnd` with `status` `timed_out` |
+| `conductor.execution.events.NodeCompleteEvent` | `NodeComplete` |
+| `conductor.execution.events.NodeErrorEvent` | `NodeFailed`, its `cause` a `Problem` |
+| `conductor.execution.events.NodeProgressEvent` | `NodeProgress` |
+| `conductor.execution.events.NodeRetryEvent` | `NodeRetry` |
+| `conductor.execution.events.NodeSkippedEvent` | `NodeComplete` with `outcomes > 0` and `skipped` equal to `outcomes` |
+| `conductor.execution.events.NodeStartEvent` | `NodeStart` |
+| `conductor.execution.events.RuntimeWarningEvent` | gone: a type fault is a problem in `graph.problems` |
+| `conductor.execution.events.SignalWaitingEvent` | `NodeWaiting` |
+| `conductor.execution.resolver.finalize_connection_labels` | gone with connection labels: an input is named by its field |
+| `conductor.execution.resolver.InputResolver` | gone: the graph reads its inputs, `graph.with_inputs(...)` |
+| `conductor.execution.resolver.MULTI_VALUE_SEPARATOR` | gone: several edges into a `Series` input arrive as a list, never joined |
+| `conductor.execution.results.extract_output` | `run.results[node_id][output]` |
+| `conductor.execution.results.filter_all_skipped` | gone: a skipped item is `None` in `run.results` |
+| `conductor.execution.results.filter_skipped` | gone: a skipped item is `None` in `run.results` |
+| `conductor.execution.results.normalize_result` | gone: what a node returns is checked against its type |
+| `conductor.execution.results.OutputRef` | a `Source`, written `node.output` |
+| `conductor.execution.results.project_outputs` | `run.outputs`, by the names of the graph's outputs |
+| `conductor.execution.state.FlowRunState` | `Run`: `status`, `results`, `waiting`, `cause` |
+| `execute_sync` | `graph.run(**inputs)` |
+| `execute` | `graph.run(**inputs)` returns a `Run`; `run.stream()` yields its events |
+| `FlowCheckpoint` | a `Run`: `run.to_json()` and `Run.from_json(saved, graph)`; while it runs, `run.stream(checkpoint_every=)` yields `RunCheckpoint` |
+| `FOR_EACH` | gone with the for-each node |
+| `ForEachNode` | gone: a `Series` output wired to an input of one value runs the node once per item |
+| `resume_sync` | `run.resume()` |
+| `resume` | `run.answer(...)`, then `run.resume()` |
+| `SUBPROCESS` | gone with the subprocess node |
+| `SubprocessNode` | a graph record is a node, `subgraph("id", title=, description=)(record)` |
+| `SubprocessRegistry` | gone: a subgraph's node goes in a registry like any other |
+| `WHILE` | gone with the while node |
+| `WhileNode` | gone: a graph has no cycles |
+| **Errors** | |
+| `CompilationError` | gone: compiling never raises; read `graph.problems` |
+| `conductor.errors.CycleDetectionError` | the problem `cycle` in `graph.problems` |
+| `conductor.errors.FlowExecutionException` | gone, as `FlowExecutionError` |
+| `conductor.errors.FlowPausedException` | gone, as `FlowPausedError` |
+| `conductor.errors.InputResolutionError` | `InvalidCallError` at `graph.run`, listing `missing_input`, `unknown_graph_input`, `invalid_input` |
+| `conductor.errors.NodeExecutionException` | `NodeError` |
+| `conductor.errors.NodeValidationException` | `NodeError` |
+| `conductor.errors.TypeCheckError` | the problem `type_mismatch` in `graph.problems` |
+| `ConductorError` | gone: catch `NodeDeclarationError`, `InvalidCallError` or `NodeError` |
+| `errors` | gone as a module: the classes import from `conductor` |
+| `FlowExecutionError` | gone: a run that failed is returned as a `Run` whose `status` is `failed` and `cause` a `Problem` |
+| `FlowPausedError` | gone: a run waiting for a person is returned as a `Run`, `status` `waiting` |
+| `HumanInputRequired` | `raise Ask(prompt, choices=, default=)`; each has the answer's shape, so on several outputs each goes by output name; a question's widget is its output type's `Param` |
+| `LoopRunawayError` | `graph.run(max_items=)`, the problem `item_limit` |
+| `NodeConnectionError` | `ExternalError`, the one failure that is retried |
+| `NodeError` | `NodeError(message, code=, ctx=)`, never retried; its `problems` is its one problem |
+| `NodeExecutionError` | `NodeError(message, code=, ctx=)` |
+| `NodeTimeoutError` | `Policy(attempt_timeout=)`; the call fails with the code `timeout` |
+| `NodeValidationError` | `NodeError(message, code=, ctx=)` |
+| `SignalRequired` | `raise Ask(...)` |
+| `SubprocessFailedError` | the failing inner node's `node_failed`; its `cause.loc` starts with the subgraph node and its item |
+| **The palette** | |
+| `conductor.registry.schema.serialize_input_model` | `FieldDescription` |
+| `conductor.registry.schema.serialize_input` | an entry of `definition.describe().inputs`, a `FieldDescription` |
+| `conductor.registry.schema.serialize_node_model` | `definition.describe()`, a `NodeDescription` |
+| `conductor.registry.schema.serialize_node` | `definition.describe()`, a `NodeDescription`; `.model_dump(mode="json")` for a dict |
+| `conductor.registry.schema.serialize_output_model` | `FieldDescription` |
+| `conductor.registry.schema.serialize_output` | an entry of `definition.describe().outputs`, a `FieldDescription` |
+| `conductor.registry.schema.serialize_registry` | `registry.describe()`, a `RegistryDescription` |
+| `conductor.registry.serialized.SerializedInput` | `FieldDescription` |
+| `conductor.registry.serialized.SerializedNode` | `NodeDescription` |
+| `conductor.registry.serialized.SerializedOutput` | `FieldDescription` |
+| **Packages** | |
+| `conductor.about.get_content` | `get_content`, unchanged |
+| `conductor.about.get_section` | `get_section`, unchanged |
+| `conductor.about.list_sections` | `list_sections`, unchanged |
+| `conductor_nodes.control_operators`: `OPERATORS`, `OPERATORS_BY_ID`, `OPERATORS_BY_LABEL`, `OPERATORS_BY_TYPE`, `OperatorEvaluationError`, `OperatorSpec`, `UNARY_OPERATORS` | gone: a condition is a node that returns a `bool` (`logic-equals`, `logic-is-empty`, `text-contains`, `regex-match`), wired into `control-decide.when` |
+| `conductor_nodes`: `get_default_registry`, `register_all` | `conductor_nodes.registry`, added with `registry.add_subregistry(...)` |
+| `conductor_nodes`: `CATEGORIES` | gone: each node has its `category`; `conductor_nodes.registry.filter(lambda d: d.category == "math")` |
+| `conductor_nodes`: `decision`, `json_ops`, `logic`, `math`, `regex_ops`, `text` | a module per category, each with a `registry` of its own nodes: `control` (`control-decide`, `control-switch`, `control-default`), `json_ops`, `logic` (`logic-not`, `logic-equals`, `logic-is-empty`), `math`, `regex_ops`, `text`; `decision` is `control-decide`, `logic-if-empty` and `logic-if-equals` are gone (`logic-is-empty` and `logic-equals` wired into `control-decide.when`), and the other node ids are unchanged |
+| `conductor_nodes`: `loop`, `while_loop`, `signal`, `subprocess` | gone: a node typed for one value runs once per item of a `Series` wired to it, and a pause is `raise Ask(...)` |
+| `conductor_providers.fastapi.conductor_router` | `conductor_providers.fastapi.run_router(worker, metadata=, run_filter=)` over a `Worker(store, nodes_for=)`, `nodes_for=` a function of a run's metadata: runs by id, kept in a `RunStore`, on several workers; `/nodes` is the `describe()` of the request's registry, `/compile` is `POST /compile` (`graph.describe()`), `/execute-stream` is `POST /runs` and `GET /runs/{id}/events` |
+| `conductor_providers.fastapi`: `ExecuteRequest`, `NodeInput`, `EdgeInput` | `StartRun`, a `GraphRecord` and its inputs |
+| `conductor_providers.fastapi`: `CompileResult`, `CompileWarning` | `GraphDescription`, whose problems name each node |
+| `conductor_providers.fastapi.sse_frame` | gone: each frame is an event's own JSON |
+| `conductor_providers.fastapi` (`context_factory=`, `entity_resolver=`) | `context=`, a function of the run's metadata that returns the run's context; an entity list is a route of your own |
+| `conductor_providers.react`: `graph_to_react`, `palette_from_registry`, `react_to_graph`, `topological_positions` | gone: a canvas stores the `GraphRecord` as it is, a node's position in `display` |
+| `conductor_providers`: `PROVIDERS`, `react` | gone |
+
+### `@registry.node(...)` arguments
+
+| 1.12.2 | 2.0 |
+|---|---|
+| `base_id` | the id, first and required: `@node("upper", title=, description=)` |
+| `version` | `version=`, one past the version replaced, or 1 |
+| `name` | `title=`, required |
+| `description` | `description=`, required; the docstring is never shown |
+| `tags` | `tags=`; a registry's tags add to them |
+| `category` | `category=`, a string |
+| `max_retries` | `Policy(retries=)` |
+| `retry_delay` | `Policy(retry_delay=)` |
+| `width` | gone: how a node is drawn is the host's, `NodeRecord.display` |
+| `docs` | `docs=` |
+| `actor` | gone with `Actor` |
+| `timeout` | `Policy(attempt_timeout=)` |
+| `idempotency_key` | gone: `again` reuses a call whose arguments match, `Policy(reuse_when_inputs_match=)` |
+| `uses` | gone: a first parameter typed `Context[...]` says what the node needs from the run |
+| `is_decision` | `Param(exclusive_group=)` on the outputs that are branches |
+| `is_signal` | gone: `raise Ask(...)` |
+| `dynamic_handles` | gone: `compute_added_inputs=` and `compute_outputs=` |
+| `compute_outputs` | `compute_outputs=`, a plain function returning `{name: type hint}` |
+| `compute_inputs` | `compute_added_inputs=`, the inputs it adds, taken as `**kwargs` |
+
+### Converting a stored 1.x graph
+
+A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": {id: node, ...}, "outputs": {...}}`. Each `GraphNode` becomes a `NodeRecord` under its id, `{node, version, inputs, display}`, empty fields left out. Each `GraphEdge` becomes a source on the input it leads into, `{"sources": [{"node": source, "output": source_handle}]}`. Declare the graph's inputs (`{"graph_input": name}` on each input a caller fills) and outputs (`outputs`). Compile the result and read `graph.problems` to see what didn't carry over. A 1.x for-each over a list is gone: return the list from a node as a `Series[X]` and wire it to the input that took one item, and the node runs once per item; a node after it that collected the items takes them through a `Series` input.
+
+| 1.x field | 2.0 |
+|---|---|
+| `GraphNode.id` | its key in `nodes`, without `.`, `/`, `@` or `~` |
+| `GraphNode.type` | `node` (the id of the node it uses) and `version`, 1 when left out |
+| `GraphNode.data` | an input's entry: `{"constant": v}` for what is fixed, `{"graph_input": name, "default": v}` for what a caller may change; an input wired by an edge has `{"sources": [...]}` |
+| `GraphNode.produces` | gone: the node's outputs are its return type's |
+| `GraphNode.consumes` | gone: the node's inputs are its signature's |
+| `GraphNode.compensation` | gone with compensation |
+| `GraphNode.on_error` | gone: a failed call ends the run `failed` |
+| `GraphNode.node_label` | `display`, the host's own |
+| `GraphNode.output_labels` | `display`, or a `Param(title=)` on the output |
+| `GraphEdge.id` | gone: an edge is a source on the input it leads into |
+| `GraphEdge.source` | the source's `node` |
+| `GraphEdge.target` | the node whose input lists the source |
+| `GraphEdge.source_handle` | the source's `output`, with `field` for one field of a record of a `Series` (a table's column is no field: `series-split` gives its records one at a time) |
+| `GraphEdge.target_handle` | the input the source is listed on |
+| `GraphEdge.when` | gone: a branch is an output of one `exclusive_group`; wire from that output |
+| `GraphEdge.priority` | gone: several sources of one input are alternatives, opposite branches of one decision |
+| `Flow.nodes` | `nodes`, by id |
+| `Flow.edges` | the `sources` of each input |
+| `Flow.id` | not stored in the record: the host keys its rows |
+| `Flow.version` | not stored: each node has its own `version` |
+| `Flow.name` | not stored: the host's own, or the subgraph's `title` |
+| `Flow.description` | not stored: the host's own, or the subgraph's `description` |
+| `Flow.dependencies` | gone: a subgraph is a node added to the registry |
+| `Flow.triggers` | gone: the host decides when a graph runs |
+| `Flow.on_error_default` | gone: a failed call ends the run `failed` |
+
+### Events
+
+Events are frozen pydantic models in `conductor.events`, told apart by `type`. Two are new: `run_start`, always first, and `run_checkpoint`, the run while it runs, for a host to store, sent when `run.stream(checkpoint_every=)` asks. `run_end` is always last (but for a run its host hands back with `run.stream(hand_back=event)`, which leaves the run with calls to make and ends with a `run_checkpoint` of it), its `status` one of `complete`, `waiting`, `failed`, `stopped`, `cancelled`, `timed_out`, and its `cause` the run's `Problem` for one that failed, stopped, was cancelled or timed out (`null` otherwise). Every event reads back from its JSON as an equal event, with `TypeAdapter(Event).validate_json(text)`. The `run_end` and `run_checkpoint` a stream yields give the host the run as `event.run`, which is not part of the event: it is not in their JSON and equality leaves it out, so one read back from JSON, or made as `RunEnd(status="failed", cause=...)`, equals the streamed one and has no `run`. `Event` is declared with a `type` statement, so a JSON schema that uses it names it: a model with a field `event: Event` has `{"$ref": "#/$defs/Event"}`, and FastAPI lists it as the component `Event`.
+
+| 1.12.2 `type` | 2.0 |
+|---|---|
+| `node_start` | `node_start` |
+| `node_complete` | `node_complete`: `outcomes`, `skipped`, `not_called`, `reused`, counts only; the values are `run.results` |
+| `node_skipped` | `node_complete` with `outcomes > 0` and `skipped` equal to `outcomes` |
+| `node_error` | `node_failed`, `cause` a `Problem` |
+| `node_progress` | `node_progress`: `count`, the node's `CallCount` (`finished`, `waiting`, `known`, `total`), as `run.progress` has it |
+| `runtime_warning` | gone: a type fault is a problem in `graph.problems` |
+| `flow_complete` | `run_end`, `status` `complete` |
+| `flow_error` | `run_end`, `status` `failed` |
+| `flow_cancelled` | `run_end`, `status` `cancelled` |
+| `flow_timeout` | `run_end`, `status` `timed_out` |
+| `flow_paused` | `node_waiting` per waiting call, then `run_end`, `status` `waiting` |
+| `node_retry` | `node_retry`: `loc` (the node), `attempt`, `retries`, `delay`, `cause` (its `loc` the call) |
+| `compensation_start` | gone with compensation |
+| `compensation_complete` | gone with compensation |
+| `compensation_failed` | gone with compensation |
+| `signal_waiting` | `node_waiting`: `loc` (the node), `waiting` (its `loc` the call) |
 
 ## [1.12.2]
 
@@ -495,15 +1070,29 @@ First publish to PyPI as three workspace packages.
   imports unchanged (`conductor`, `conductor_nodes`, `conductor_providers`).
   License: Apache-2.0. Each wheel ships `LICENSE`.
 
-[Unreleased]: https://github.com/syvai/conductor/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/syvai/conductor/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/syvai/conductor/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/syvai/conductor/compare/v0.1.7...v1.0.0
-[0.1.7]: https://github.com/syvai/conductor/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/syvai/conductor/compare/v0.1.5...v0.1.6
-[0.1.5]: https://github.com/syvai/conductor/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/syvai/conductor/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/syvai/conductor/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/syvai/conductor/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/syvai/conductor/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/syvai/conductor/releases/tag/v0.1.0
+[Unreleased]: https://github.com/syv-ai/conductor/compare/v1.12.2...HEAD
+[1.12.2]: https://github.com/syv-ai/conductor/compare/v1.12.1...v1.12.2
+[1.12.1]: https://github.com/syv-ai/conductor/compare/v1.12.0...v1.12.1
+[1.12.0]: https://github.com/syv-ai/conductor/compare/v1.11.0...v1.12.0
+[1.11.0]: https://github.com/syv-ai/conductor/compare/v1.10.0...v1.11.0
+[1.10.0]: https://github.com/syv-ai/conductor/compare/v1.9.0...v1.10.0
+[1.9.0]: https://github.com/syv-ai/conductor/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/syv-ai/conductor/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/syv-ai/conductor/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/syv-ai/conductor/compare/v1.5.2...v1.6.0
+[1.5.2]: https://github.com/syv-ai/conductor/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/syv-ai/conductor/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/syv-ai/conductor/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/syv-ai/conductor/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/syv-ai/conductor/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/syv-ai/conductor/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/syv-ai/conductor/compare/v1.0.1...v1.1.0
+[1.0.0]: https://github.com/syv-ai/conductor/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/syv-ai/conductor/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/syv-ai/conductor/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/syv-ai/conductor/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/syv-ai/conductor/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/syv-ai/conductor/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/syv-ai/conductor/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/syv-ai/conductor/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/syv-ai/conductor/releases/tag/v0.1.0

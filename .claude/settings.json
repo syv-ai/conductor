@@ -1,0 +1,161 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "SubagentHandback",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 70
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "EnterWorktree|ExitWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 70
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 70
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "clear|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/rulecast.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

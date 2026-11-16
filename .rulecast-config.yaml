@@ -1,0 +1,692 @@
+# Conductor's coding conventions live in conventions/; each rule below points an agent at the section it enforces.
+minimum_rulecast_version: 0.13.0
+conventions: conventions/
+llm:
+  provider: claude-code
+  model: haiku
+
+repos:
+  - repo: local
+    rules:
+      # ---------------------------------------------------------------- delivered on first touch
+      # A touch rule gives the one or two sections a file's area gets wrong, at the moment it is opened; the
+      # principles and the rest of conventions/ are read at the start of the work, and a broken rule is caught by
+      # its own check below, so neither is sent again here.
+      - id: touch/library-code
+        name: How conductor's library code is written
+        files: '^packages/[^/]+/src/.*\.py$'
+        stages: [touch]
+        context:
+          - "@conventions/names-and-words.md#plain-words-a-stranger-reads-right"
+          - "@conventions/names-and-words.md#one-idea-per-sentence"
+
+      - id: touch/validation
+        name: Where outside values are validated
+        files: '^packages/conductor/src/conductor/_internal/([^/]+/validator\.py$|validation/)'
+        stages: [touch]
+        context:
+          - "@conventions/validation.md#validation-is-the-wall"
+          - "@conventions/validation.md#a-validator-is-a-class-in-its-concepts-validatorpy"
+
+      - id: touch/places
+        name: Where JSON and place text are read
+        files: '^(packages/conductor/src/conductor/_internal/(base/place|record/validator|graph/make|graph/type)\.py|packages/conductor-providers/src/conductor_providers/fastapi/router\.py)$'
+        stages: [touch]
+        context:
+          - "@conventions/validation.md#text-is-read-once-where-it-enters"
+
+      - id: touch/package-layout
+        name: Package layout
+        files: '^packages/conductor/src/conductor/_internal/'
+        stages: [touch]
+        context:
+          - "@conventions/modules-and-imports.md#a-concept-is-a-package"
+
+      - id: touch/json
+        name: A concept's JSON
+        files: '^packages/conductor/src/conductor/_internal/(.*/(read|write|stored)\.py|run/json/)'
+        stages: [touch]
+        context:
+          - "@conventions/modules-and-imports.md#json-in-and-out-is-one-concept"
+
+      - id: touch/engine-paths
+        name: The engine's rules and hot paths
+        files: '^packages/conductor/src/conductor/_internal/(run|graph|registry|node)/'
+        stages: [touch]
+        context:
+          - "@conventions/design.md#one-rule-one-place"
+          - "@conventions/design.md#look-up-dont-scan"
+
+      - id: touch/shown-to-people
+        name: Text a person sees
+        files: '^packages/conductor/src/conductor/_internal/(types|node|registry|field)/'
+        stages: [touch]
+        context:
+          - "@conventions/types-and-models.md#what-a-person-sees-is-declared"
+
+      - id: touch/public-surface
+        name: What a host sees
+        files: '^(packages/conductor/src/conductor/(__init__|widgets|events)\.py|packages/conductor/src/conductor/(testing|about)/|packages/conductor/src/conductor/_internal/problem/|packages/conductor-providers/src/|README\.md$|docs/|CHANGELOG\.md$|skills/)'
+        stages: [touch]
+        context:
+          - "@conventions/commits-and-docs.md#docs-are-part-of-the-change"
+
+      - id: touch/tests
+        name: How tests are written
+        files: '^tests/.*\.py$'
+        stages: [touch]
+        context:
+          - "@conventions/design.md#tests-read-public-names"
+          - "@conventions/design.md#no-mirrors"
+
+      # ---------------------------------------------------------------- the project's own checks
+      # ---------------------------------------------------------------- ruff rules the project does not select
+      - id: names/errors-end-in-error
+        name: Exception classes end in Error
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: class_definition
+              has:
+                field: superclasses
+                has: { kind: identifier, regex: '(Error|Exception)$' }
+              not:
+                has: { field: name, regex: '(Error|^Ask)$' }
+        message: "{{file}}:{{line}} declares an exception whose name does not end in Error. Name it for what went wrong and end it in Error (Ask is the one exception)."
+        context:
+          - "@conventions/names-and-words.md#errors-end-in-error"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/ask/type.py
+              code: |
+                class WrongAsk(ConductorError):
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/ask/type.py
+              code: |
+                class InvalidAskError(ConductorError):
+                    pass
+                class Ask(BaseException):
+                    pass
+                class Event(BaseModel):
+                    pass
+
+      - id: types/no-blind-except
+        name: No except that swallows every exception
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: except_clause
+              has: { kind: identifier, regex: '^(Exception|BaseException)$' }
+              not: { has: { kind: comment, stopBy: end } }
+              all:
+                - has:
+                    kind: block
+                    has: { nthChild: 1, any: [ { kind: pass_statement }, { kind: continue_statement }, { kind: return_statement, regex: '^return( None)?$' } ] }
+        message: "{{file}}:{{line}} swallows every exception. Catch the exception you expect, or let it raise."
+        context:
+          - "@conventions/types-and-models.md#fail-loud"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/graph/type.py
+              code: |
+                try:
+                    text = to_json(value)
+                except Exception:
+                    return None
+              expect: { lines: [3] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/stream.py
+              code: |
+                try:
+                    scheduler.run()
+                except BaseException as error:
+                    failed.append(error)
+
+      # ---------------------------------------------------------------- ruled-out names
+      - id: names/ruled-out-identifiers
+        name: Ruled-out names stay out
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - kind: identifier
+                  inside: { kind: parameters, stopBy: end }
+                  regex: '^at$'
+                - kind: identifier
+                  regex: '^(WrongAsk|Referred|_Said|_say|AsItStandsReader|EarlierWork|_as_earlier_work|earlier_columns|SavedForm|has_every_unit|comes_to|_?wanted(_\w*)?|\w*_wanted|_?legs?(_\w*)?|\w*_legs?|_?placed(_\w*)?|\w*_placed|Placed\w*|_places|\w*_places|places_\w+|_inlined|\w*_inlined|[A-Z]\w*At[A-Z]\w*|(\w+_)?at_path|_?node_at)$'
+        message: "{{file}}:{{line}} names `{{text}}`, a ruled-out name. Choose a plain name that says its job."
+        context:
+          - "@conventions/names-and-words.md#ruled-out-names"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                for leg in self.legs:
+                    pass
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/types/fit.py
+              code: |
+                wanted_args = get_args(target)
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/ask/type.py
+              code: |
+                class WrongAsk(Exception):
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              code: |
+                for item_indexes in self.loop_items:
+                    legal = True  # "leg" inside a word is not the name
+            - path: packages/conductor/src/conductor/_internal/types/fit.py
+              code: |
+                """Whether the target's legs are wanted, as it is said in a docstring."""
+                target_args = get_args(target)
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/type.py
+              before: |
+                def walk(run):
+                    for leg in run.parts:
+                        pass
+              after: |
+                def walk(run):
+                    count = 0
+                    for leg in run.parts:
+                        pass
+                    wanted = 1
+              expect: { new: [5], preexisting: [3] }
+
+      - id: types/no-alias-for-a-container
+        name: No alias that only renames a dict, list or tuple
+        files: '^packages/[^/]+/src/.*\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/base/place\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - kind: expression_statement
+                  inside: { kind: module }
+                  has:
+                    kind: assignment
+                    has:
+                      field: right
+                      kind: generic_type
+                      regex: '^(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+                - kind: expression_statement
+                  inside: { kind: module }
+                  has:
+                    kind: assignment
+                    has:
+                      field: right
+                      kind: subscript
+                      regex: '^(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+                - pattern: '$NAME: TypeAlias = $TYPE'
+                  inside: { kind: module, stopBy: end }
+                  regex: '=\s*(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+                - kind: type_alias_statement
+                  not: { inside: { kind: if_statement, regex: '^if TYPE_CHECKING', stopBy: end } }
+                  regex: '=\s*(dict|list|tuple|set|frozenset|Mapping|Sequence|MutableMapping)\['
+        severity: warning
+        message: "{{file}}:{{line}} names a container type: `{{text}}`. Write the type out where it is used, or make a dataclass with named fields if it is a record."
+        context:
+          - "@conventions/principles.md#fewer-concepts-and-models"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                CallInputs = dict[str, Any]
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                type Scope = tuple[str, ...]
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                def call(inputs: dict[str, Any]) -> None:
+                    seen = dict[str, int]()
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              code: |
+                _CTX = TypeAdapter(dict[str, JsonValue])
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/run/arguments.py
+              before: |
+                CallInputs = dict[str, Any]
+                x = 1
+              after: |
+                CallInputs = dict[str, Any]
+                x = 2
+                Units = list[int]
+              expect: { new: [3], preexisting: [1] }
+
+      - id: types/one-model-per-concept
+        name: No second model of a concept
+        files: '^packages/.*\.py$'
+        detect:
+          llm:
+            model: sonnet
+            question: >
+              Report the `class` line of a class, dataclass, pydantic model, TypedDict or Protocol that this
+              change adds and that holds facts an existing model already holds or is a second shape of an
+              existing concept (keyed against list, flat against compiled, description against definition, a
+              "checked" or "keyed" twin). Do not report a class that is the only model of its concept, or a dict
+              built once to look values up by key (an index over data held elsewhere is a lookup, not a model).
+              A class is added only when its `class` line is marked and its name is on no unmarked line. A class
+              whose name is on an unmarked line (a signature, a call, an annotation) was there before the change
+              and was moved or edited: never report it.
+            grounding: false
+        severity: warning
+        message: "{{file}}:{{line}} may be a second model of a concept: {{reason}}"
+        context:
+          - "@conventions/principles.md#fewer-concepts-and-models"
+        examples:
+          baseline:
+            - path: packages/conductor-nodes/src/conductor_nodes/control.py
+              before: |
+                @dataclass(frozen=True)
+                class Decided[T]:
+                    """The outputs of ``control-decide``: ``value`` on one of them, ``SKIPPED`` on the other."""
+
+                    if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
+                    if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
+
+
+                @dataclass(frozen=True)
+                class Emptiness:
+                    """The outputs of ``control-if-empty``."""
+
+                    not_empty: Annotated[str, Param(title="Not empty", exclusive_group="emptiness")]
+                    empty: Annotated[str, Param(title="Empty", exclusive_group="emptiness")]
+
+
+                def if_empty(text: str) -> Emptiness:
+                    return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
+              after: |
+                @dataclass(frozen=True)
+                class Emptiness:
+                    """The outputs of ``control-if-empty``: the text on one of them, ``SKIPPED`` on the other."""
+
+                    not_empty: Annotated[str, Param(title="Not empty", exclusive_group="emptiness")]
+                    empty: Annotated[str, Param(title="Empty", exclusive_group="emptiness")]
+
+
+                @dataclass(frozen=True)
+                class Decided[T]:
+                    """The outputs of ``control-decide``: ``value`` on one of them, ``SKIPPED`` on the other."""
+
+                    if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
+                    if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
+
+
+                def if_empty(text: str) -> Emptiness:
+                    return Emptiness(not_empty=text, empty=SKIPPED) if text.strip() else Emptiness(not_empty=SKIPPED, empty=text)
+              expect: {}
+            - path: packages/conductor/src/conductor/_internal/record/graph.py
+              before: |
+                class GraphRecord(ConductorModel):
+                    """A graph as a host saves it: its nodes by id, and the outputs it declares."""
+
+                    nodes: dict[str, NodeRecord]
+                    outputs: dict[str, Source] = {}
+
+
+                def node_ids(record: GraphRecord) -> list[str]:
+                    return list(record.nodes)
+              after: |
+                class GraphRecord(ConductorModel):
+                    """A graph as a host saves it: its nodes by id, and the outputs it declares."""
+
+                    nodes: dict[str, NodeRecord]
+                    outputs: dict[str, Source] = {}
+
+
+                class ListedGraphRecord(ConductorModel):
+                    """A graph as a list of its nodes, each with its id, and the outputs it declares."""
+
+                    nodes: list[NodeRecord]
+                    outputs: dict[str, Source] = {}
+
+
+                def node_ids(record: GraphRecord) -> list[str]:
+                    return list(record.nodes)
+
+
+                def listed(record: GraphRecord) -> ListedGraphRecord:
+                    return ListedGraphRecord(nodes=list(record.nodes.values()), outputs=record.outputs)
+              expect: { new: [8] }
+
+      - id: types/display-text-guessed
+        name: Text a person sees is declared, not guessed
+        files: '^packages/conductor/src/conductor/_internal/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: getattr($OBJ, $NAME, $DEFAULT)
+                  has: { kind: string, regex: 'title|label|description|name|__doc__', stopBy: end }
+                - pattern: inspect.getdoc($$$)
+                - pattern: getdoc($$$)
+        severity: warning
+        message: "{{file}}:{{line}} guesses text a person may see: `{{text}}`. Read the title or description that @node, @host_type or Param declares."
+        context:
+          - "@conventions/types-and-models.md#what-a-person-sees-is-declared"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/types/type.py
+              code: |
+                title = getattr(cls, "title", None) or cls.__name__
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/types/type.py
+              code: |
+                title = declared.title
+                limit = getattr(field, "max_length", None)
+
+      # ---------------------------------------------------------------- validation
+      - id: validation/validator-outside-validator-module
+        name: Validators are built only in a validator.py
+        files: '^packages/conductor/src/conductor/.*\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/([^/]+/validator\.py$|validation/|types/|run/json/|problem/errors\.py$|base/json\.py$)'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: TypeAdapter($$$)
+                - pattern: SchemaValidator($$$)
+                - pattern: $V.validate_python($$$)
+                - pattern: $V.validate_json($$$)
+                - pattern: $V.validate_strings($$$)
+                - pattern: $M.model_validate($$$)
+                - pattern: $M.model_validate_json($$$)
+        message: "{{file}}:{{line}} validates outside a validator: `{{text}}`. Read outside data where it enters, in the validator.py of the concept it is a value of, and trust its types inside."
+        context:
+          - "@conventions/validation.md#validation-is-the-wall"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                record = GraphRecord.model_validate(data)
+              expect: { lines: [1] }
+            - path: packages/conductor/src/conductor/_internal/field/type.py
+              code: |
+                _NOT_A_BOOL = TypeAdapter(int)
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                text = record.model_dump_json()
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                record = RecordValidator()(data)
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              before: |
+                def compile(data):
+                    record = GraphRecord.model_validate(data)
+                    return record
+              after: |
+                def compile(data):
+                    count = 0
+                    record = GraphRecord.model_validate(data)
+                    other = TypeAdapter(int)
+                    return record
+              expect: { new: [4], preexisting: [3] }
+
+      - id: validation/place-split-by-hand
+        name: A dotted place is read only by make_graph
+        files: '^packages/conductor/src/conductor/.*\.py$'
+        exclude: '^packages/conductor/src/conductor/_internal/graph/make\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: $T.split(".")
+                - pattern: $T.split(".", $N)
+                - pattern: $T.rsplit(".", $$$)
+                - pattern: $T.partition(".")
+                - pattern: $T.rpartition(".")
+        message: "{{file}}:{{line}} splits text at a dot by hand: `{{text}}`. A dotted place is read once, by make_graph; keep the Source or NodePath it gives."
+        context:
+          - "@conventions/validation.md#text-is-read-once-where-it-enters"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                node, name = target.split(".", 1)
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                node, output = source.node, source.output
+                words = text.split(" ")
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                node, _, name = text.partition(":")
+          baseline:
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              before: |
+                def read(target):
+                    node, name = target.split(".", 1)
+                    return node
+              after: |
+                def read(target):
+                    count = 0
+                    node, name = target.split(".", 1)
+                    head = target.partition(".")
+                    return node
+              expect: { new: [4], preexisting: [3] }
+
+      - id: validation/json-read-catches-value-error
+        name: A JSON read catches ValueError
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: except_clause
+              has: { regex: '^(json\.)?JSONDecodeError$', stopBy: { kind: block }, any: [ { kind: identifier }, { kind: attribute } ] }
+              not:
+                any:
+                  # the same clause catches ValueError too: except (JSONDecodeError, ValueError)
+                  - has: { kind: identifier, regex: '^ValueError$', stopBy: { kind: block } }
+                  # a later clause of the same try catches ValueError, to word the two apart
+                  - precedes: { kind: except_clause, stopBy: end, has: { kind: identifier, regex: '^ValueError$', stopBy: { kind: block } } }
+        message: "{{file}}:{{line}} catches JSONDecodeError, but json.loads also raises plain ValueErrors (a number of more than 4,300 digits, bytes that are not UTF-8), which then get past it. Catch ValueError."
+        context:
+          - "@conventions/validation.md#validation-is-the-wall"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/record/validator.py
+              code: |
+                try:
+                    return json.loads(text)
+                except JSONDecodeError as not_json:
+                    raise InvalidCallError([]) from None
+              expect: { lines: [3] }
+            - path: packages/conductor/src/conductor/_internal/record/validator.py
+              code: |
+                try:
+                    return json.loads(text)
+                except JSONDecodeError as not_json:
+                    raise ValueError("not JSON") from None
+              expect: { lines: [3] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/record/validator.py
+              code: |
+                try:
+                    return json.loads(text)
+                except ValueError as not_json:
+                    raise InvalidCallError([]) from None
+            - path: packages/conductor-nodes/src/conductor_nodes/json_ops.py
+              code: |
+                try:
+                    parsed = json.loads(text)
+                except JSONDecodeError as error:
+                    raise NodeError(f"not JSON at character {error.pos}") from None
+                except ValueError as error:
+                    raise NodeError(f"not JSON: {error}") from None
+
+      # ---------------------------------------------------------------- modules
+      - id: modules/kind-test-chain
+        name: No chain of type tests over a concept's kinds
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              any:
+                - pattern: type($X) is $A or type($X) is $B
+                - pattern: type($X) is $A or type($X) is $B or $$$REST
+        severity: warning
+        message: "{{file}}:{{line}} asks which kind {{X}} is: `{{text}}`. Ask the object through the one interface its concept offers, or match the closed set once and end it in assert_never."
+        context:
+          - "@conventions/principles.md#deep-modules-uniform-surfaces"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/scheduler.py
+              code: |
+                if type(outcome) is Skipped or type(outcome) is NoneInput:
+                    pass
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/scheduler.py
+              code: |
+                if type(outcome) is Skipped:
+                    pass
+            - path: packages/conductor/src/conductor/_internal/run/scheduler.py
+              code: |
+                if outcome.has_value or other.has_value:
+                    pass
+
+      # ---------------------------------------------------------------- design
+      - id: design/no-chained-conditional-expressions
+        name: A choice between several outcomes is written as statements
+        files: '^(packages/[^/]+/src|tests)/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: conditional_expression
+              has: { kind: conditional_expression, stopBy: end }
+              not: { inside: { kind: conditional_expression, stopBy: end } }
+        message: "{{file}}:{{line}} chains conditional expressions. Write the cases as if/elif/return or if/raise statements, or look the value up in a dict."
+        context:
+          - "@conventions/design.md#a-choice-between-several-outcomes-is-written-as-statements"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/table/read.py
+              code: |
+                def form(value):
+                    return "written" if isinstance(value, dict) else "records" if isinstance(value, list) else None
+              expect: { lines: [2] }
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                value = default if entry is None else constants.get(name, field.default if entry.empty else REQUIRED)
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/table/read.py
+              code: |
+                def form(value):
+                    if isinstance(value, dict):
+                        return "written"
+                    if isinstance(value, list):
+                        return "records"
+                    return None
+            - path: packages/conductor/src/conductor/_internal/graph/compile.py
+              code: |
+                middle = (low + high) // 2 if whole else (low + high) / 2
+
+      - id: design/no-build-then-drop
+        name: Nothing is built only to be dropped when empty
+        files: '^packages/[^/]+/src/.*\.py$'
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: if_statement
+              inside: { kind: block, inside: { kind: for_statement } }
+              follows:
+                kind: expression_statement
+                has: { kind: assignment, all: [ { has: { field: left, kind: identifier, pattern: $V } }, { has: { field: right, kind: call } } ] }
+              has:
+                field: condition
+                any:
+                  - pattern: $V
+                  - pattern: $V.$A
+                  - pattern: len($V)
+                  - pattern: $V is not None
+              all:
+                - has:
+                    field: consequence
+                    has: { nthChild: 1, kind: expression_statement, has: { kind: assignment, has: { field: right, pattern: $V } } }
+        message: "{{file}}:{{line}} builds a value for every item and keeps it only when it is not empty. Ask the source which items have something, and build only those."
+        context:
+          - "@conventions/design.md#look-up-dont-scan"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/json/write.py
+              code: |
+                for path, node in function_nodes.items():
+                    of_node = saved_reusable(node, run._reusable, path)
+                    if of_node.fingerprints:
+                        reusable[names[path]] = of_node
+              expect: { lines: [3] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/json/write.py
+              code: |
+                for path, node in function_nodes.items():
+                    if path in run._reusable.done:
+                        reusable[names[path]] = saved_reusable(node, run._reusable, path)
+                for name in names:
+                    text = name.strip()
+                    if text:
+                        print(text)
+
+      - id: design/text-read-in-one-spelling
+        name: Text read by hand is checked against its writer
+        files: '^packages/conductor/src/.*\.py$'
+        scope: container
+        detect:
+          ast-grep:
+            language: python
+            rule:
+              kind: function_definition
+              all:
+                - has: { stopBy: end, pattern: int($X) }
+                - has: { stopBy: end, any: [ { pattern: $T.split($$$) }, { pattern: $T.partition($$$) } ] }
+              not:
+                has: { stopBy: end, kind: call, has: { field: function, regex: '(^|\.)(write|format)_\w+$' } }
+        message: "{{file}}:{{line}} reads text by hand with int(), which also takes \" 1\", \"01\", \"+1\" and \"1_0\", so one thing gets several spellings. Write what was read back with the function that writes this text, and refuse the text when it differs."
+        context:
+          - "@conventions/design.md#one-rule-one-place"
+        examples:
+          bad:
+            - path: packages/conductor/src/conductor/_internal/run/waiting.py
+              code: |
+                def read_waiting_id(waiting_id):
+                    place, _, fingerprint = waiting_id.partition("~")
+                    return [int(index) for index in place.split("@")[1:]]
+              expect: { lines: [1] }
+          good:
+            - path: packages/conductor/src/conductor/_internal/run/waiting.py
+              code: |
+                def read_waiting_id(waiting_id):
+                    place, _, fingerprint = waiting_id.partition("~")
+                    loc = [int(index) for index in place.split("@")[1:]]
+                    if write_waiting_id(loc, fingerprint) != waiting_id:
+                        raise InvalidCallError([])
+                    return loc
+
+      # ---------------------------------------------------------------- tests
