@@ -746,7 +746,7 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
 def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_node_id_is(name: str):
-    """An output name a hook returns follows the same rule as a node id.
+    """A field name a hook returns, an output's or an added input's, follows the same rule as a node id.
 
     It can't be empty, and it can't use the characters that sources, locs and waiting ids are written with.
     """
@@ -762,6 +762,18 @@ def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_no
 
     assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [
         ("compute_hook_failed", ("d", name), "not_a_name")
+    ]
+
+    @node("adds", title="Adds", description="For a test.", compute_added_inputs=lambda: {name: int})
+    def adds(**kwargs: Any) -> int:
+        return 1
+
+    added = Graph.compile(
+        GraphRecord.model_validate({"nodes": {"a": {"node": "adds"}}, "outputs": {}}),
+        registry_of(adds),
+    )
+    assert [(p.type, p.loc, p.ctx["error"]) for p in added.problems] == [
+        ("compute_hook_failed", ("a", name), "not_a_name")
     ]
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {name: {"node": "dotted"}}}), registry_of(dotted))

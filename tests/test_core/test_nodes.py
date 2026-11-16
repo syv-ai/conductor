@@ -1331,19 +1331,6 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
     )
 
 
-def test_a_hook_adding_an_input_whose_name_has_a_character_of_a_source_is_refused():
-    @node(
-        "adds", title="Adds", description="For a test.", compute_added_inputs=lambda: {"a.b": int}
-    )
-    def adds(**kwargs: Any) -> int:
-        return 1
-
-    graph = compiled_graph(adds)
-    assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [
-        ("compute_hook_failed", ("adds", "a.b"), "not_a_name")
-    ]
-
-
 # -- signatures conductor refuses, and signatures it takes as written ------------------------
 
 
