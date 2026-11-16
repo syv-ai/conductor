@@ -17,7 +17,7 @@ A node that raises ``Ask`` is answered by filling in its outputs, and each outpu
 
 ## One idea per sentence
 
-Write short sentences with one idea each, in the tone you would use to explain the code to a colleague. Don't fit every fact into one sentence: split it. Say each thing once, where a reader looks for it: the package docstring says what the concept is and where it fits, the class teaches how to use it, and a helper says what it checks. Leave out what the code says, and point to the reference (`python -m conductor.about <section>`) instead of repeating its rules. Where it helps, add an example with real values.
+Write short sentences with one idea each, in the tone you would use to explain the code to a colleague. Don't fit every fact into one sentence: split it. Say each thing once, where a reader looks for it: the package docstring says what the concept is and where it fits, the class teaches how to use it, and a helper says what it checks. Leave out what the code says, and point to the reference (`python -m conductor.about <section>`) instead of repeating its rules. Where it helps, add an example with real values. A comment that explains a line goes above it, not after it, so a long comment never makes `ruff format` split the code.
 
 Why: a sentence that carries five facts has to be read three times. Short, relaxed sentences are read once.
 
@@ -66,7 +66,7 @@ class InvalidAskError(Exception): ...  # good
 
 ## Google-style docstrings
 
-Give every public class and function a Google-style docstring, and hold a private helper's docstring to the same rule. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for. A kind of problem's docstring is its entry on the problems page, so it says what is wrong, then why, then "To fix it, ...".
+Give every public class and function a Google-style docstring, and hold a private helper's docstring to the same rule. Its first line says what the thing is or does, in a short sentence a reader gets in one go. A few plain sentences follow where they help, then `Args`, `Returns`, `Raises` and `Attributes`, each saying what an argument or field is for. A kind of problem's docstring is its entry on the problems page, so it says what is wrong, then why, then "To fix it, ...". A test's docstring says first the behaviour it proves, then why, where that isn't obvious. A docstring that a test uses as data, such as a sample node's or a sample problem function's, is test data, not prose.
 
 Why: one format is easy to read and to find things in. The reference shows a public name's first paragraph alone, so that paragraph has to make sense on its own.
 
