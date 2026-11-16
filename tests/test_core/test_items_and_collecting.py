@@ -2656,6 +2656,28 @@ def test_the_item_limit_is_on_each_series_never_on_all_their_items_together():
     )
 
 
+def test_the_item_limit_problem_names_the_call_that_returned_the_series():
+    """The problem's loc is the node's id and the item indexes of its call, so a host can tell which call it was."""
+    compiled = graph(
+        {"id": "d", "node": "split", "constants": {"sep": "|"}},
+        {"id": "l", "node": "split"},
+        {"id": "u", "node": "upper"},
+        edges=(("d.result", "l.text"), ("l.result", "u.text")),
+    )
+
+    stopped = compiled.run(text="a,b|c,d,e,f|g", max_items=3)
+    nested = graph(
+        {"id": "d", "node": "split", "constants": {"sep": "|"}},
+        {"id": "l", "node": "split", "constants": {"sep": ";"}},
+        {"id": "m", "node": "split"},
+        {"id": "u", "node": "upper"},
+        edges=(("d.result", "l.text"), ("l.result", "m.text"), ("m.result", "u.text")),
+    ).run(text="a|b;c,d,e,f", max_items=3)
+
+    assert (stopped.cause.type, stopped.cause.loc) == ("item_limit", ("l", 1))
+    assert (nested.cause.type, nested.cause.loc) == ("item_limit", ("m", 1, 1))
+
+
 @pytest.mark.timeout(10)
 def test_the_item_limit_stops_a_run_whose_calls_wait_for_threads_and_resume_calls_each_item_once():
     calls: list[str] = []

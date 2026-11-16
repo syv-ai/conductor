@@ -1049,7 +1049,8 @@ class Scheduler:
 
         The problem names the series the way the graph that has the loop names it. ``node.looped_outputs[output]``
         gives that name. It's usually the node and output themselves. But if the loop is outside a subgraph the
-        node is inside, it's the subgraph node and its output. The problem's loc has the item indexes of that node.
+        node is inside, it's the subgraph node and its output. The problem's loc is the call that returned the
+        series, the loc a failure of that call would have.
 
         Returns:
             Whether a series has too many items.
@@ -1058,10 +1059,7 @@ class Scheduler:
             items = length(outcome.outputs[output])
             if items > item_limit:
                 if self.going:
-                    loc = outcome_loc(
-                        named,
-                        item_indexes[: len(named.parent.loops) if named.parent is not None else 0],
-                    )
+                    loc = outcome_loc(node, item_indexes)
                     series = place_text((named.compiled_node.id,), series_output)
                     self.end(
                         EndedEarly(

@@ -627,7 +627,7 @@ A `Table` input collects records the same way.
 
 - It is checked when the series is returned, before any call for its items.
 - A series that is only collected or passed whole is not counted.
-- Over the limit, the run stops (`status` `stopped`) with the problem `item_limit` (`series`, `items`, `max_items`).
+- Over the limit, the run stops (`status` `stopped`) with the problem `item_limit` (`series`, `items`, `max_items`). Its `loc` is the call that returned the series, the loc a failure of that call has: `("lines", 1)` for the second call of `lines`.
 - `run.with_max_items(...).resume()` goes on under a higher limit, calling nothing again.
 
 **Subgraphs.** A subgraph's inner nodes are inside every loop its node is inside. A `Series` input inside it collects only loops inside the subgraph.

@@ -950,7 +950,7 @@ def test_the_item_limit_applies_inside_a_subgraph_and_is_raised_on_resume():
     assert (
         run.status == "stopped"
         and run.cause.type == "item_limit"
-        and run.cause.loc == ("e", 1, "c")
+        and run.cause.loc == ("e", 1, "c", 0)
     )
     resumed = Run.from_json(run.to_json(), graph).with_max_items(10).resume()
     assert resumed.status == "complete" and resumed.results["e"]["result"] == [
@@ -1438,6 +1438,27 @@ def test_an_answer_inside_a_subgraph_shows_in_its_results_before_resume_as_in_on
     assert in_subgraph.results == {
         "e": {"result": None}
     }  # the run the answer was given to has none
+
+
+def test_the_item_limit_names_the_inner_call_that_returned_a_series_a_node_outside_loops_over():
+    """The loc is the call inside the subgraph that returned the series, as a failure of that call's loc is.
+
+    The series is named by the subgraph's output, ``e.result``, since the loop is outside the subgraph.
+    """
+    alone = compile_graph(
+        {"e": "series-per-item-inner", "up": "upper"}, [("e.result", "up.text")]
+    ).run(text="ab cdef", max_items=3)
+    in_a_loop = compile_graph(
+        {"s": "sentences", "e": "series-per-item-inner", "up": "upper"},
+        [("s.result", "e.text"), ("e.result", "up.text")],
+    ).run(text="a;b cdef", max_items=3)
+
+    assert (alone.cause.type, alone.cause.loc, alone.cause.ctx["series"]) == (
+        "item_limit",
+        ("e", "c", 1),
+        "e.result",
+    )
+    assert (in_a_loop.cause.type, in_a_loop.cause.loc) == ("item_limit", ("e", 1, "c", 1))
 
 
 def test_a_run_stopped_at_the_item_limit_keeps_the_calls_on_threads_inside_a_subgraph_in_its_results():
