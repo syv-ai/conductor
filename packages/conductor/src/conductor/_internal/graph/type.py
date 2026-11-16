@@ -93,7 +93,8 @@ class Graph[C]:
         record: The graph record it was compiled from.
         problems: Everything wrong with the graph. Empty when it can run.
         inputs: The graph inputs the record declares, by name. These are what a caller gives.
-        outputs: The graph outputs the record declares, by name. These are what a complete run gives.
+        outputs: The graph outputs the record declares whose node compiled, by name. These are what a complete run
+            gives. One whose node didn't compile isn't here, as with ``inputs``.
         asks: Whether a node of the graph, or of a subgraph in it at any depth, may stop to ask a person.
     """
 
@@ -147,13 +148,13 @@ class Graph[C]:
     def inputs(self) -> dict[str, FieldDescription]:
         """The graph inputs, by name: what a caller gives values for. In the example, that's ``text``.
 
-        They come in the order the nodes run in: a node's after those of the nodes it reads from, where that leaves
-        a choice by node id, and a node's own in the order it declares them. The record doesn't decide it, since it
+        They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where
+        that leaves a choice, and a node's own in the order it declares them. The record doesn't decide it, since it
         keeps no order.
         """
         return {name: field.description for name, field in self._inputs.items()}
 
-    @property
+    @functools.cached_property
     def outputs(self) -> dict[str, FieldDescription]:
         """The graph outputs, by name, sorted: what a complete run gives (``run.outputs``).
 
@@ -189,7 +190,8 @@ class Graph[C]:
     def asks(self) -> bool:
         """Whether any function node may stop to ask a person, in this graph or in a subgraph at any depth.
 
-        A node says it may with ``asks=True``.
+        A node says it may with ``asks=True``. Only the nodes that compiled are read, so it is certain only for a
+        graph with no problems.
         """
         return any(
             node.inner.asks if isinstance(node, CompiledSubgraphNode) else node.definition.asks

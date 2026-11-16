@@ -42,7 +42,7 @@ def outputs_of(run: Run[Any]) -> dict[str, Any]:
     reader = DisplayReader(run._blueprint.function_nodes, run._outcomes, run.inputs)
     return {
         name: reader.display_value(edge.node, edge.output)
-        for name in run.graph.outputs
+        for name in run.graph._outputs
         for edge in [run.graph._edge_reading(name)]
     }
 

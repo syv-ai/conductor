@@ -198,7 +198,11 @@ class Compiler:
                 continue
             if node is None and source.node in self.record.nodes:
                 continue  # the node didn't compile, and has a problem saying why
-            found = [place_text((source.node,), output) for output in node.outputs] if node else []
+            found = (
+                [place_text((source.node,), output) for output in node.outputs]
+                if node is not None
+                else []
+            )
             self.problems.append(
                 compile_problems.graph_output_not_found(
                     output=name, source=place_text((source.node,), source.output), outputs=found
