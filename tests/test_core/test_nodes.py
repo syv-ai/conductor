@@ -1277,6 +1277,31 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
     assert f"returned a {type(returned).__name__}, not a mapping" in problem.msg
 
 
+@pytest.mark.parametrize(
+    ("returned", "reason"),
+    [
+        ({}, "'a' is missing from the outputs the node returned"),
+        ("a", "the node must return a mapping with one key per output (a), not a str"),
+        ({"a": 1, "zzz": 2}, "'zzz' isn't one of the node's outputs"),
+    ],
+)
+def test_a_return_that_does_not_fit_the_outputs_says_so_whatever_is_wrong_with_it(
+    returned: Any, reason: str
+):
+    """The message opens with what is true of every such return, not with "returned something it doesn't declare",
+    which is wrong for an output that is missing."""
+
+    @node("h", title="H", description="For a test.", compute_outputs=lambda: {"a": int})
+    def h(x: str = "a") -> dict:
+        return returned  # type: ignore[no-any-return]
+
+    cause = compiled_graph(h, outputs={"a": "h.a"}).run().cause
+    assert (cause.type, cause.msg) == (
+        "invalid_output",
+        f"The node's return doesn't fit its outputs: {reason}. Fix what the node returns.",
+    )
+
+
 def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
     assert [(p.type, p.loc, p.ctx["error"]) for p in _computing(lambda: {1: int}).problems] == [
         ("compute_hook_failed", ("h", "1"), "not_a_name")

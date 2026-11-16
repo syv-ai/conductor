@@ -274,7 +274,7 @@ def _mapping_items(names: tuple[str, ...]) -> Callable[[Any], dict[str, Any]]:
         if not isinstance(returned, Mapping):
             raise conductor_error(
                 "not_a_mapping",
-                "the node must return its outputs as a mapping of {names}, not a {got}",
+                "the node must return a mapping with one key per output ({names}), not a {got}",
                 {"names": listed, "got": type(returned).__name__},
             )
         for name in names:

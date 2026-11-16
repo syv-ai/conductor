@@ -229,6 +229,9 @@ def invalid_output(
 ) -> str:
     """A node returned a value that its return type doesn't allow.
 
+    The value may be of the wrong type or the wrong shape, or miss an output. For a value an output's type refuses,
+    ``ctx.errors`` says where in the output it is.
+
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
     branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. The reference has
     the rule under "Branches" (``python -m conductor.about the-node-contract``).
@@ -252,7 +255,7 @@ def invalid_output(
 
         why_it_stopped(Graph.compile(make_graph(guess), registry).run(text="12"))
     """
-    return f"The node returned something it doesn't declare: {reason.rstrip('.')}. Fix what the node returns."
+    return f"The node's return doesn't fit its outputs: {reason.rstrip('.')}. Fix what the node returns."
 
 
 @RUN_PROBLEMS.problem()
