@@ -804,7 +804,7 @@ second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added
 - A node that may ask (`asks=True`) has every outcome reused this way, a call that returned without asking too. A node that asks is told apart by its `@node`, not by each call. An item beyond the outcomes there were is called again, and asks only if its function asks.
 - A call reused this way waits until it is its turn, and so does everything downstream of it. For example, take `check -> stamp`, both `asks=True`, where `stamp` never asks. `again(items=["zz", "bo"])` reuses nothing of `stamp` for `"bo"` until `check`'s question about `"zz"` is answered, and the run waits.
 
-**Outcomes carried on.** `again` passes on the reusable outcomes the run before it had and didn't use, while their node still has a question waiting. So an answer survives an edit and its revert. Once the node is complete, the unused ones are dropped. So an edit that is undone in the next run calls the node again for the items the edit took out.
+**Outcomes carried on.** `again` passes on the reusable outcomes the run before it had and didn't use, while their node still has a question waiting. So an answer survives an edit and its revert. Each keeps the call it came from, so the call with the same item indexes still reuses it first. Once the node is complete, the unused ones are dropped. So an edit that is undone in the next run calls the node again for the items the edit took out.
 
 **Forgetting.** `run.forget("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
 

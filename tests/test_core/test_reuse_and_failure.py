@@ -1569,6 +1569,26 @@ def test_identical_items_share_one_outcome_and_a_third_reuses_it_without_a_call(
     )
 
 
+def test_each_item_keeps_its_own_outcome_through_a_run_made_and_never_resumed_as_through_one_run_again():
+    returned = iter(["first", "second"])
+
+    @node("tag", title="Tag", description="For a test.")
+    def tag(text: str) -> str:
+        return f"{text} {next(returned)}"
+
+    graph = Graph.compile(
+        _record({"each": _each, "t": tag}, [("each.result", "t.text")]), registry_of(_each, tag)
+    )
+    run = graph.run(items=["a", "a"])
+    assert run.results["t"]["result"] == ["a first", "a second"]
+
+    edited_and_reverted = run.with_inputs(items=["b"]).with_inputs(items=["a", "a"])
+
+    assert edited_and_reverted.resume().results["t"]["result"] == ["a first", "a second"]
+    saved = Run.from_json(run.with_inputs(items=["b"]).to_json(), graph)
+    assert saved.again(items=["a", "a"]).results["t"]["result"] == ["a first", "a second"]
+
+
 def test_an_answer_survives_an_edit_and_its_revert_while_the_edited_item_still_waits_and_mails_once():
     """An answer survives an edit and its revert while the edited item still waits, and only one mail is sent.
 

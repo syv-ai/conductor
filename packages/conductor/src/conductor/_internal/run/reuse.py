@@ -83,7 +83,7 @@ class ReusableOutcomes:
         """Returns what a run made from ``run`` may reuse.
 
         That is each node's finished and waiting calls in item order, then the outcomes ``run`` itself could have
-        reused and didn't.
+        reused and didn't, each still with the call it came from.
 
         ``into`` is the blueprint of the new run's graph, which may be ``run``'s graph or an edited one. A node is only
         kept if ``into`` has it unchanged (the same ``code_fingerprint``) and its ``Policy`` says
@@ -121,6 +121,10 @@ class ReusableOutcomes:
                         reusable.add(new_node, fingerprint, outcome, item_indexes=item_indexes)
             for fingerprint, done in previous.reused_freely.get(path, {}).items():
                 reusable.add(new_node, fingerprint, done)
+            for item_indexes, (fingerprint, done) in previous.reused_freely_by_call.get(
+                path, {}
+            ).items():
+                reusable.add(new_node, fingerprint, done, item_indexes=item_indexes)
             for fingerprint, outcomes in previous.reused_in_item_order.get(path, {}).items():
                 for outcome in outcomes:
                     reusable.add(new_node, fingerprint, outcome)
@@ -143,16 +147,15 @@ class ReusableOutcomes:
             fingerprint: The call fingerprint of the call the outcome came from.
             outcome: The outcome.
             item_indexes: For a node that never asks, the item indexes of the call, when they are known. The call with
-                the same item indexes gets the outcome first.
+                the same item indexes gets the outcome first. Of two outcomes added for one call, the first is kept.
         """
         path = node.node_path
         match outcome:
             case Done() if not node.compiled_node.definition.asks:
                 self.reused_freely.setdefault(path, {}).setdefault(fingerprint, outcome)
                 if item_indexes is not None:
-                    self.reused_freely_by_call.setdefault(path, {})[item_indexes] = (
-                        fingerprint,
-                        outcome,
+                    self.reused_freely_by_call.setdefault(path, {}).setdefault(
+                        item_indexes, (fingerprint, outcome)
                     )
             case Done() | Unanswered():
                 self.reused_in_item_order.setdefault(path, {}).setdefault(fingerprint, []).append(

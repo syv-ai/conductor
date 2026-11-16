@@ -416,6 +416,10 @@ What changes in how you work, before the name-by-name tables:
   streams `node_complete` only for the nodes not announced before that checkpoint. It announced again every node
   that completed during the stream, since a checkpoint kept the list the stream started with. The checkpoint's
   saved `complete` lists those nodes.
+- **An outcome carried on keeps the call it came from.** A run made from a run that was itself made and not run to
+  the end (`run.with_inputs(...).with_inputs(...)`, or `forget` then `again`) reuses for each call the outcome of
+  the call with the same item indexes, as one `again` does. Two identical items each got the first one's outcome.
+  A saved run writes the carried outcomes' `item_indexes` too.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.
