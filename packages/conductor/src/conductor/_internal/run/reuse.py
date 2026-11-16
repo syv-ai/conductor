@@ -96,8 +96,7 @@ class ReusableOutcomes:
             if (
                 new_node is None
                 or not new_node.policy.reuse_when_inputs_match
-                or new_node.compiled_node.code_fingerprint
-                != old_node.compiled_node.code_fingerprint
+                or new_node.code_fingerprint != old_node.code_fingerprint
             ):
                 continue
             if path not in previous.code_changed:
@@ -269,7 +268,7 @@ def call_fingerprint(
         The fingerprint, or ``None`` when an argument or an item can't be written as JSON. A call with no
         fingerprint is never reused.
     """
-    hashed = [node.compiled_node.code_fingerprint, arguments]
+    hashed = [node.code_fingerprint, arguments]
     if node.compiled_node.definition.asks:
         # The node that returned each series has outputs here, since a call inside a loop is only made once its
         # series exists.

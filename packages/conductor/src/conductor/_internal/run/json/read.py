@@ -91,8 +91,7 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     code_changed = {
         path: fingerprint
         for name, fingerprint in read.code.items()
-        if fingerprint
-        != blueprint.function_nodes[path := parse_node_path(name)].compiled_node.code_fingerprint
+        if fingerprint != blueprint.function_nodes[path := parse_node_path(name)].code_fingerprint
     }
     reusable = ReusableOutcomes(code_changed=code_changed)
     try:

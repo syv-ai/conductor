@@ -101,6 +101,9 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
 
     Attributes:
         compiled_node: The node as its own graph compiled it.
+        code_fingerprint: What a call's outputs depend on besides its arguments, as a short hash
+            (``CompiledFunctionNode.code_fingerprint``), with the loops around the subgraph the node is in. An
+            earlier call is reused, and a waiting id still matches, only while it stays the same.
         constants: Every input by name, in the order declared. An input that is a constant has its value, and
             every other input has ``None``. A call's arguments start as a copy of this.
         graph_inputs: The inputs whose value the caller gives: each input's name, and the name of its graph input
@@ -130,6 +133,7 @@ class BlueprintFunctionNode(_BlueprintNodeBase):
     """
 
     compiled_node: CompiledFunctionNode
+    code_fingerprint: str
     constants: dict[str, Any]
     graph_inputs: tuple[tuple[str, str], ...]
     edge_inputs: dict[str, EdgeInput | CollectingInput]
@@ -388,6 +392,7 @@ def _function_node(
         upstream.setdefault(functions[loops[-1][0]], len(loops) - 1)
     return BlueprintFunctionNode(
         compiled_node=compiled_node,
+        code_fingerprint=compiled_node.code_fingerprint(parent.loops if parent is not None else ()),
         parent=parent,
         node_path=node_path,
         loops=loops,

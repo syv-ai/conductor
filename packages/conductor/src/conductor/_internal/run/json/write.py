@@ -125,7 +125,7 @@ def saved_run(run: Run) -> SavedRun:
                 path,
             )
     code = {
-        names[path]: run._reusable.code_changed.get(path) or node.compiled_node.code_fingerprint
+        names[path]: run._reusable.code_changed.get(path) or node.code_fingerprint
         for path, node in function_nodes.items()
         if names[path] in outcomes or names[path] in reusable
     }

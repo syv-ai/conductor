@@ -136,12 +136,21 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
     definition: FunctionDefinition[..., Any]
 
-    @functools.cached_property
-    def code_fingerprint(self) -> str:
-        """A short hash of what a call's outputs depend on, besides its arguments.
+    def code_fingerprint(self, outer_loops: tuple[tuple[NodePath, str], ...]) -> str:
+        """Returns a short hash of what a call's outputs depend on, besides its arguments.
 
         That's the node's ``@node`` id and version, its code, the name and type of each input and output (limits and
-        choices included), its loops, and whether it may ask a person.
+        choices included), the loops it runs in, and whether it may ask a person.
+
+        The loops it runs in are its own loops and, inside a subgraph, the loops the subgraph node is in. One
+        compiled subgraph may be used in several places, so each blueprint node works its hash out with the loops
+        of its own place (``BlueprintFunctionNode.code_fingerprint``). Moving a subgraph node into a loop changes
+        the hash of every node inside it, as moving the nodes themselves into the loop would.
+
+        The loops around the subgraph are written by their path in the outer graph, and the node's own loops by
+        their path in its own graph, with ``"/"`` between the two. So a loop moved from around the subgraph node to
+        inside its graph changes the hash too, even when the node that returns the list keeps its id. A node with
+        no loops around its subgraph writes its own loops alone, so its hash is the same in every place it's used.
 
         A run can reuse calls from an earlier run (``with_inputs(previous=run)``), but only while this hash is the
         same. So the node is called again if it's redeclared under the same id and version with other code, an
@@ -154,6 +163,10 @@ class CompiledFunctionNode(_CompiledNodeBase):
         The code is the function's own parsed source, not the functions it calls, so a new Python version keeps the
         hash. A function whose source can't be read, such as a lambda or one made by ``exec``, is hashed by its
         bytecode instead (see ``code_text_of``).
+
+        Args:
+            outer_loops: The loops around the subgraph this node is in, named from the outer graph. Empty for a node
+                of the outer graph.
         """
         definition = self.definition
         fields = [
@@ -166,7 +179,9 @@ class CompiledFunctionNode(_CompiledNodeBase):
         code = definition.code_text
         # Each loop is written with place_text, like "e/split.result", not with repr. Waiting-call ids and saved
         # runs contain the hash, so it should change only when that text does.
-        loops = tuple([place_text(node, output) for node, output in self.loops])
+        own = tuple([place_text(node, output) for node, output in self.loops])
+        around = tuple([place_text(node, output) for node, output in outer_loops])
+        loops = (*around, "/", *own) if around else own
         written = repr((definition.id, definition.version, code, fields, loops, definition.asks))
         return short_hash(written.encode(), 8)
 

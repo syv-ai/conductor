@@ -39,7 +39,7 @@ class Waiting(ConductorModel):
         id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
             index of each item the call is for, then ``~`` and the start of the call's fingerprint. That is the
             fingerprint reuse matches calls by: a hash of the node's code fingerprint
-            (``CompiledFunctionNode.code_fingerprint`` says what that covers), the call's inputs and its item in
+            (``BlueprintFunctionNode.code_fingerprint`` says what that covers), the call's inputs and its item in
             every loop it is inside, not of the ``Ask``'s prompt, choices or default. Inside a subgraph, the
             subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If any of those change, the
             call may ask something else, so the old id stops matching. An answer to it is refused with

@@ -1571,6 +1571,64 @@ def test_a_subgraph_used_twice_runs_one_node_with_one_code_fingerprint_asking_on
     assert (first[0], second[0]) == ("f/q", "g/q") and first[1] == second[1]
 
 
+def test_a_node_inside_a_subgraph_is_called_again_when_the_subgraph_node_moves_into_a_loop_as_in_one_graph():
+    """A node's code fingerprint covers the loops it runs in, those around its subgraph node too.
+
+    So an earlier call made once for the whole text isn't reused once the call is per word, even with the same
+    argument. The same goes for the node drawn in the graph itself.
+    """
+    for once, per_word in [
+        (compile_graph({"e": "shout-inner"}), inside_a_loop("shout-inner")),
+        (
+            compile_graph({"up": "upper"}),
+            compile_graph({"w": "words", "up": "upper"}, [("w.result", "up.text")]),
+        ),
+    ]:
+        first = once.run(text="ab")
+        CALLS.clear()
+        per_word.with_inputs(text="ab", previous=first).resume()
+        assert CALLS["upper"] == 1
+
+
+def _split_and_upper(loop_inside_the_subgraph: bool) -> Graph[Any]:
+    """Returns ``split -> s`` with ``s`` the subgraph of ``upper``, or ``s`` alone with ``split -> upper`` inside.
+
+    Either way ``upper`` is called once per word, and it is ``s/upper`` in a run.
+    """
+    registry = NodeRegistry()
+    for definition in (words, upper):
+        registry.add(definition)
+    inner = (
+        make_graph(words, upper, edges=[("words.result", "upper.text")])
+        if loop_inside_the_subgraph
+        else make_graph(upper)
+    )
+    registry.add(subgraph("s", title="S", description="The s node.")(inner))
+    record = (
+        make_graph(registry["s"], inputs={"text": "s.text"}, outputs={"r": "s.result"})
+        if loop_inside_the_subgraph
+        else make_graph(
+            words, registry["s"], edges=[("words.result", "s.text")], outputs={"r": "s.result"}
+        )
+    )
+    graph = Graph.compile(record, registry)
+    assert not graph.problems, graph.problems
+    return graph
+
+
+def test_a_loop_moved_from_around_a_subgraph_node_to_inside_its_graph_calls_the_node_inside_again():
+    """The loops around the subgraph and those inside it are hashed apart, so the two never write the same text.
+
+    Drawn in one graph, the loop inside would be over ``s/words.result``, not ``words.result``.
+    """
+    around, inside = _split_and_upper(False), _split_and_upper(True)
+    first = around.run(text="ab cd")
+    assert first.outputs == inside.run(text="ab cd").outputs == {"r": ["AB", "CD"]}
+    CALLS.clear()
+    inside.with_inputs(text="ab cd", previous=first).resume()
+    assert CALLS["upper"] == 2
+
+
 def test_three_hundred_answers_given_at_once_inside_one_subgraph_complete_it():
     run = compile_graph({"e": "lines-inner"}).run(text=" ".join(f"w{i}" for i in range(300)))
     answered = run.answer({waiting_call.id: "yes" for waiting_call in run.waiting})
