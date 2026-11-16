@@ -845,7 +845,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 └── ExternalError         retried
 ```
 
-- A `NodeDeclarationError`'s `where` says where the fault is, outermost first. It is set when `@node` or `subgraph` finds the fault while building the node. It starts with the node, and for a fault in one input or output it then names that field: `("@node('shout') on shout", "text")`. A fault in the function itself, such as an `async def`, is `("@node('fetch') on fetch",)`, and a `subgraph` missing its `Upgrade` is `("subgraph('enrich')",)`. The error's text is these and the problem's message, joined by `": "`. Any other fault, such as an empty title or a node id used twice, has `where` `()`.
+- A `NodeDeclarationError`'s `where` says where the fault is, outermost first. It is set for a fault in the function or its signature, in a hook, or a missing `Upgrade`. It starts with the node. For a fault in one parameter or output, it then names it: `("@node('shout') on shout", "text")`. A fault in the function itself, such as an `async def`, is `("@node('fetch') on fetch",)`. A `subgraph` missing its `Upgrade` is `("subgraph('enrich')",)`. The error's text is these and the problem's message, joined by `": "`. Any other fault, such as an empty title or a node id used twice, has `where` `()`.
 
 - A failed call ends the run `failed`, with its problem as the run's `cause`. Nothing more starts. The calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them.
 - A call that can't be acted on raises `InvalidCallError`, and nothing changes. A call's arguments are checked in stages, and the first stage that finds a fault raises, with a `Problem` for every fault of that stage: `graph.run(n="x", max_items=0)` gives only `invalid_limit`. Running a graph with problems raises it too, listing them.
@@ -1035,7 +1035,7 @@ A `Problem`'s `type` is a stable code. A host translates by it, filling its sent
 
 - `PROBLEMS.codes` is every code a graph or a run can report, for a test that pins your translations to it.
 - `DECLARATION_PROBLEMS` has the codes of a `NodeDeclarationError`, which only a node's developer meets. `check_registry` has codes of its own (see "conductor.testing"). Neither is in `PROBLEMS.codes`.
-- Any other code is a node's own, from a `NodeError`.
+- Any other code is a node's own, from a `NodeError`, or one a package declares on its own catalogue.
 - `python -m conductor.about problems` prints every code, the declaration codes and `check_registry`'s among them. Each comes with its message, an example, what its `ctx` keys mean and how to fix it.
 
 A host's text for a code can't be worked out from conductor. So this test is how its catalogue stays complete when conductor adds a code:
@@ -1059,7 +1059,7 @@ def test_translations_match_the_codes(translations: dict[str, str], own_codes: s
 - its `section`: where a host meets it;
 - its `ctx_type`: a `TypedDict` of the keys its `ctx` has.
 
-A package declares kinds of its own the same way, on a catalogue of its own. `conductor_providers.fastapi.SERVING_PROBLEMS` is one. The function's name is the code, and the function returns the message, made from its parameters alone. Calling it makes the `Problem`:
+A package declares kinds of its own the same way, on a catalogue of its own. `conductor_providers.fastapi.SERVING_PROBLEMS` is one. The code is the function's name, unless `problem()` is given one. The function returns the message. It makes the message from its parameters alone. Calling it makes the `Problem`.
 
 ```python
 from conductor import ProblemCatalogue
@@ -1083,11 +1083,11 @@ print(run_archived("r1").ctx)  # {'run_id': 'r1', 'variant': 'archived'}
 ```
 
 - A positional-only parameter is a part of `loc`. It is a `str` or an `int`, has no default, and is a key of `ctx` too.
-- `*loc: str | int` is the rest of `loc`, the parts the message doesn't use. They are in `loc` only.
-- A keyword-only parameter is a key of `ctx`, with its type. `None` is the only default it may have, and then a call may leave it out, so it is absent from `ctx`.
+- `*loc: str | int` is the rest of `loc`. The message doesn't use these parts, and they are in `loc` only.
+- A keyword-only parameter is a key of `ctx`. Its value has the parameter's type. Its only allowed default is `None`. A call may then leave it out or pass `None`, and the key is absent from `ctx`.
 - The return type is `str`.
 - `problem(code, variant=...)` declares a second message under a code declared before it, and its problems have `ctx.variant`.
-- Anything else raises a `TypeError` where the function is declared: a parameter that can be given by name, a `**kwargs`, another default, a code and variant declared twice, or a variant of a code not declared yet.
+- Anything else raises a `TypeError` when the function is declared. That covers a parameter that can be given by name, a `**kwargs`, a type or default the rules above don't allow, a return type other than `str`, a code and variant declared twice, and a variant of a code not declared yet.
 
 A key that may be left out is absent when it doesn't apply, never `null`. A problem whose sentence names its node or field has them in `ctx`, as `node_id` and `field`, so a sentence is filled from `ctx` alone.
 
