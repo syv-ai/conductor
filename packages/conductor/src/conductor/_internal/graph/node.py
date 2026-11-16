@@ -135,8 +135,8 @@ class CompiledFunctionNode(_CompiledNodeBase):
     def code_fingerprint(self) -> str:
         """A short hash of what a call's outputs depend on, besides its arguments.
 
-        That's the node's id and version, its code, the types of its inputs and outputs, its loops, and whether it
-        may ask a person.
+        That's the node's ``@node`` id and version, its code, the name and type of each input and output (limits and
+        choices included), its loops, and whether it may ask a person.
 
         A run can reuse calls from an earlier run (``with_inputs(previous=run)``), but only while this hash is the
         same. So the node is called again if it's redeclared under the same id and version with other code, an

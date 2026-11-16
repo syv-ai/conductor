@@ -302,8 +302,8 @@ the item index comes next. Then comes the inner node.
 - A failure of `upper` for the second word is at `("shout", 1, "upper")`.
 - `run.waiting` (calls waiting for a person) and `run.not_called` use the same kind of `loc`.
 - A waiting call's `id` says the same in text. If `shout` had an inner node `ask` that asked a person, its call for
-  the second word would be `shout@1/ask~3fa2c0d1`. The part after `~` is a fingerprint of the node's id, its version,
-  code and field types, and the call's inputs. If they change, an answer meant for the old call is refused.
+  the second word would be `shout@1/ask~3fa2c0d1`. The part after `~` is a fingerprint of the node and the call's inputs,
+  as `python -m conductor.about asking-a-person` says. If they change, an answer meant for the old call is refused.
 - The events `run.stream()` yields for an inner node come once for all the words together, as for any node that
   runs per item. Their `loc` is `("shout", "upper")`.
 - The subgraph node has events too, with the `loc` `("shout",)`. Its `node_start` comes when its first inner node

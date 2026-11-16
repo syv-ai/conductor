@@ -38,12 +38,11 @@ class Waiting(ConductorModel):
     Attributes:
         id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
             index of each item the call is for, then ``~`` and a short fingerprint. The fingerprint is a hash of the
-            node's id in the graph, its code fingerprint and the call's inputs, not of the ``Ask``'s prompt, choices
-            or default. The code fingerprint covers the node's ``@node`` id and version, its code, the type of each
-            input and output, its loops and ``asks``. Inside a subgraph, the subgraph node and its item come first:
-            ``"review@0/approve@1~3fa2c0d1"``. If the call's inputs, the node's code, its version or a field's type
-            change, it may ask something else, so the old id stops matching. An answer to it is refused with
-            ``answer_stale``.
+            node's id in the graph, its code fingerprint (``CompiledFunctionNode.code_fingerprint`` says what that
+            covers) and the call's inputs, not of the ``Ask``'s prompt, choices or default. Inside a subgraph, the
+            subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If the call's inputs or the
+            node's code fingerprint change, it may ask something else, so the old id stops matching. An answer to it
+            is refused with ``answer_stale``.
         loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
             that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
             subgraph node and its item come first: ``("review", 0, "approve", 1)``.
@@ -124,7 +123,8 @@ def received(
 def question_fingerprint(compiled_node: CompiledFunctionNode, inputs: dict[str, Any]) -> str:
     """Returns a short fingerprint of a question: eight hex digits.
 
-    It is a hash of the node that asks, its code, and the inputs the call was given (as ``received`` returns them).
+    It is a hash of the node that asks, its code fingerprint (``CompiledFunctionNode.code_fingerprint``), and the
+    inputs the call was given (as ``received`` returns them).
     The fingerprint is part of the waiting id. If any of those change, the call may ask something else, so the old
     id stops matching. Every input counts, so a change to any one of them asks again.
     """
