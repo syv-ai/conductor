@@ -2237,6 +2237,76 @@ def test_pay_failing_after_the_answer_is_retried_and_resumed_and_nothing_is_aske
     assert attempts == [True, True, True] and calls_made == []
 
 
+# -- declining a question ------------------------------------------------------------------------------
+
+
+def test_a_declined_question_fails_the_run_with_the_reason_in_ctx_and_calls_nothing_after_it():
+    run = _approve_then_pay().run(text="A:100,B:900")
+    calls_made.clear()
+    declined = run.decline(run.waiting[0], reason="Over budget")
+    assert (declined.status, declined.waiting) == ("failed", [])
+    assert (declined.cause.type, declined.cause.loc, declined.cause.ctx) == (
+        "answer_declined",
+        ("approval", 1),
+        {"reason": "Over budget"},
+    )
+    assert "Over budget" not in declined.cause.msg
+    assert declined.results["pay"]["result"] == ["paid A", None]
+    assert run.status == "waiting"  # The run declined is left as it was.
+    assert calls_made == []
+
+
+def test_resume_after_a_decline_asks_again_under_the_same_id():
+    run = _approve_then_pay().run(text="B:900")
+    declined = run.decline(run.waiting[0].id)
+    assert declined.cause.ctx.get("reason") is None
+    calls_made.clear()
+    again = declined.resume()
+    assert (again.status, again.cause, [w.id for w in again.waiting]) == (
+        "waiting",
+        None,
+        [run.waiting[0].id],
+    )
+    assert calls_made == [("approval", "B")]
+    assert again.answer(again.waiting[0], True).resume().outputs == {"result": "paid B"}
+
+
+def test_a_declined_run_saved_and_read_back_is_failed_with_the_same_cause_and_asks_again():
+    graph = _approve_then_pay()
+    run = graph.run(text="B:900")
+    declined = run.decline(run.waiting[0], reason="Over budget")
+    read = Run.from_json(declined.to_json(), graph)
+    assert (read.status, read.cause, read.waiting) == ("failed", declined.cause, [])
+    assert [w.id for w in read.resume().waiting] == [run.waiting[0].id]
+
+
+def test_a_decline_leaves_the_other_questions_waiting_and_an_answer_to_them_keeps_the_run_failed():
+    run = _approve_then_pay().run(text="A:900,B:900")
+    first, second = run.waiting
+    declined = run.decline(first)
+    assert [w.id for w in declined.waiting] == [second.id]
+    answered = declined.answer(second, True)
+    assert (answered.status, answered.cause.type) == ("failed", "answer_declined")
+    assert [w.id for w in answered.resume().waiting] == [first.id]
+
+
+def test_a_decline_names_its_call_by_the_rules_an_answer_does():
+    graph = _approve_then_pay()
+    run = graph.run(text="A:900")
+    (waiting,) = run.waiting
+    declined = run.decline(waiting)
+    (twice,) = _refused(lambda: declined.decline(waiting))
+    (nothing,) = _refused(lambda: run.decline("pay@0"))
+    assert (twice.type, twice.ctx["status"], nothing.type) == (
+        "not_waiting",
+        "failed",
+        "not_waiting",
+    )
+    moved = graph.with_inputs(text="A:950", previous=run).resume()
+    (stale,) = _refused(lambda: moved.decline(waiting))
+    assert (stale.type, stale.ctx["current"]) == ("answer_stale", moved.waiting[0].id)
+
+
 # -- with_inputs reuses the answer ---------------------------------------------------------------------
 
 

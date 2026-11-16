@@ -47,6 +47,26 @@ def ask_not_declared(*loc: str | int) -> str:
 
 
 @RUN_PROBLEMS.problem()
+def answer_declined(*loc: str | int, reason: str | None = None) -> str:
+    """A person declined to answer a node's question, with ``run.decline``.
+
+    The call fails as if the node had raised. It has no outcome, and nothing that reads its outputs is called.
+
+    To fix it, call ``resume()``. The node is called again and asks again.
+
+    Args:
+        loc: The call that asked.
+        reason: The reason the host gave to ``run.decline``. It is left out when the host gave none. The message
+            doesn't quote it.
+
+    Example:
+        waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
+        why_it_stopped(waiting.decline(waiting.waiting[0], reason="Over budget"))
+    """
+    return "The question was declined, so the call failed. Call resume() to ask it again."
+
+
+@RUN_PROBLEMS.problem()
 def execution_failed(*loc: str | int, error: str) -> str:
     """A node raised an exception that isn't a ``NodeError``.
 

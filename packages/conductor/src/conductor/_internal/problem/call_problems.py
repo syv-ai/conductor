@@ -31,12 +31,13 @@ CALL_PROBLEMS = ProblemCatalogue(
 def answer_stale(
     *loc: str | int, waiting_id: str, current: str, moved_to: str | None = None
 ) -> str:
-    """An answer is for a question that a newer question has replaced.
+    """An answer, or a decline with ``run.decline``, is for a question that a newer question has replaced.
 
     A run made with other inputs, by ``run.again`` or ``run.with_inputs``, asks again wherever a call's inputs changed.
     The new question has a new waiting id.
 
-    To fix it, answer the question that is waiting now. ``ctx.current`` is its id, and ``run.waiting`` lists it.
+    To fix it, answer or decline the question that is waiting now. ``ctx.current`` is its id, and ``run.waiting``
+    lists it.
 
     Args:
         loc: The node and the item indexes of the call the answer is for.
@@ -50,7 +51,7 @@ def answer_stale(
         asked_again = asked.again(amount=5500)
         refused(lambda: asked_again.answer(asked.waiting[0].id, True))
     """
-    return f"This answer is for {waiting_id!r}, but a newer question, {current!r}, has replaced it. Answer that one instead."
+    return f"The question under {waiting_id!r} was replaced by a newer one, {current!r}. Use that id instead."
 
 
 @CALL_PROBLEMS.problem()
@@ -430,9 +431,9 @@ def unknown_graph_input(*loc: str | int, name: str, inputs: list[str]) -> str:
 
 @CALL_PROBLEMS.problem()
 def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | None = None) -> str:
-    """An answer is for a waiting id that no call of the run is waiting under.
+    """An answer, or a decline with ``run.decline``, is for a waiting id that no call of the run is waiting under.
 
-    To fix it, answer one of the ids in ``run.waiting``.
+    To fix it, use one of the ids in ``run.waiting``.
 
     Args:
         loc: The node and the item indexes the waiting id names. If one of the indexes isn't a number, only the
@@ -446,7 +447,7 @@ def not_waiting(*loc: str | int, waiting_id: str, status: str, moved_to: str | N
         waiting = Graph.compile(make_graph(approve), registry).run(amount=5000)
         refused(lambda: waiting.answer("upper", True))
     """
-    return f"Nothing in the run is waiting for an answer under {waiting_id!r}. The run is {status}. run.waiting lists the questions that are waiting."
+    return f"The id {waiting_id!r} waits on nothing. The run is {status}. run.waiting lists the questions that are waiting."
 
 
 @CALL_PROBLEMS.problem()

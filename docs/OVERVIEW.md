@@ -68,7 +68,7 @@ When an argument is `None` and its input doesn't take `None`, the node isn't cal
 
 A node with branches returns `SKIPPED` for the ones it didn't choose. Nodes wired only to a branch that wasn't chosen are skipped. Inside a loop, that's for that one item. Outside a loop, they're skipped altogether.
 
-A node raises `Ask` when a person has to answer. That call waits, and so does every call after it. The rest of the graph runs on, and the run ends `waiting`. `run.answer(...)` gives the answers, and each one is checked before anything runs. Then `run.resume()` carries on. No call that finished is made again.
+A node raises `Ask` when a person has to answer. That call waits, and so does every call after it. The rest of the graph runs on, and the run ends `waiting`. `run.answer(...)` gives the answers, and each one is checked before anything runs. Then `run.resume()` carries on. No call that finished is made again. A person who won't answer is declined with `run.decline(waiting, reason=...)`: the call fails, and the run ends `failed`, until a `resume()` asks again.
 
 ## Running again
 

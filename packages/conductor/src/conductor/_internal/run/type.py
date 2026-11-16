@@ -34,7 +34,7 @@ from conductor._internal.base import (
     NodePath,
 )
 from conductor._internal.graph import Graph, LimitsValidator
-from conductor._internal.problem import InvalidCallError, Problem, call_problems
+from conductor._internal.problem import InvalidCallError, Problem, call_problems, run_problems
 
 from .arguments import ResultReader
 from .blueprint import BlueprintFunctionNode, RunBlueprint, outcome_loc
@@ -60,7 +60,7 @@ from .progress import RunProgress, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
-from .state import LastResume, RunStatus, deadline, kept_by_an_answer, status_of
+from .state import EndedEarly, LastResume, RunStatus, deadline, kept_by_an_answer, status_of
 from .stream import stream
 from .waiting import (
     Waiting,
@@ -387,47 +387,13 @@ class Run[C]:
                 )
         problems: list[Problem] = []
         answered: dict[tuple[BlueprintFunctionNode, ItemIndexes], Outcome] = {}
-        reader = self._reader
         # Working out the status looks at every outcome, so it is only done when a refusal needs it.
         status = cache(lambda: self.status)
         for waiting_id, one in given.items():
             try:
-                loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=status)
+                node, item_indexes, loc, found = self._waiting_call(waiting_id, status)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
-                continue
-            # None when the id names a subgraph, or no node at all
-            node = self._blueprint.function_nodes.get(nodes)
-            outcome = self._outcomes[nodes].get(item_indexes) if node is not None else None
-            match node, outcome:
-                case BlueprintFunctionNode(), Unanswered() as found if (
-                    outcome_loc(node, item_indexes) == loc
-                ):  # each item index in the id comes right after the node whose loop it counts
-                    pass
-                case _, Unanswered() | Done() | Skipped() | NoneInput() | None:
-                    moved_to = (
-                        self._moved_to(nodes, fingerprint) if fingerprint is not None else None
-                    )
-                    problems.append(
-                        call_problems.not_waiting(
-                            *loc, waiting_id=waiting_id, status=status(), moved_to=moved_to
-                        )
-                    )
-                    continue
-                case _:
-                    assert_never(outcome)
-            compiled_node = node.compiled_node
-            asked = question_fingerprint(compiled_node, received(node, item_indexes, reader))
-            if fingerprint is not None and asked != fingerprint:
-                current = write_waiting_id(outcome_loc(node, item_indexes), asked)
-                problems.append(
-                    call_problems.answer_stale(
-                        *loc,
-                        waiting_id=waiting_id,
-                        current=current,
-                        moved_to=self._moved_to(nodes, fingerprint),
-                    )
-                )
                 continue
             if (node, item_indexes) in answered:
                 problems.append(
@@ -438,7 +404,7 @@ class Run[C]:
                 continue
             try:
                 read = AnswerValidator(
-                    compiled_node.outputs,
+                    node.compiled_node.outputs,
                     found.choices,
                     found.defaults,
                     loc=loc,
@@ -461,6 +427,94 @@ class Run[C]:
         for (node, item_indexes), now in answered.items():
             run._outcomes[node.node_path][item_indexes] = now
         return run
+
+    def decline(self, waiting: Waiting | str, /, *, reason: str | None = None) -> Run[C]:
+        """Declines to answer a waiting call, and fails the run. Nothing runs until the next ``resume``.
+
+        The call fails as a call whose node raised does: it loses its outcome, and the run is ``failed``, with
+        ``answer_declined`` as its ``cause``. Nothing that reads the call's outputs is called. The next ``resume``
+        calls the node again, so it asks again. A decline is the host's latest act, so its problem becomes the run's
+        ``cause`` even when a ``resume`` had already ended the run ``failed`` or ``stopped``. Say ``approve`` waits under ``"approve@1~3fa2c0d1"``. Then
+        ``run.decline("approve@1~3fa2c0d1", reason="Over budget")`` is ``failed``, and its ``cause.ctx["reason"]``
+        is ``"Over budget"``.
+
+        Args:
+            waiting: The call to decline, as ``run.waiting`` lists it or by its id.
+            reason: Why the person declined, for the host to show. It goes in the problem's ``ctx``, and the
+                message doesn't quote it.
+
+        Returns:
+            A copy of the run with the call failed.
+
+        Raises:
+            InvalidCallError: ``not_waiting`` for an id that names no waiting call, and ``answer_stale`` for an id
+                whose call now asks another question, as ``answer`` refuses them. The run is left as it was.
+        """
+        waiting_id = waiting.id if isinstance(waiting, Waiting) else waiting
+        node, item_indexes, loc, _ = self._waiting_call(waiting_id, cache(lambda: self.status))
+        cause = run_problems.answer_declined(*loc, reason=reason)
+        run = dataclasses.replace(
+            self._copy(share_outcomes=True), _last_resume=EndedEarly("failed", cause)
+        )
+        path = node.node_path
+        run._outcomes[path] = {
+            indexes: outcome
+            for indexes, outcome in self._outcomes[path].items()
+            if indexes != item_indexes
+        }
+        return run
+
+    def _waiting_call(
+        self, waiting_id: str, status: Callable[[], RunStatus]
+    ) -> tuple[BlueprintFunctionNode, ItemIndexes, Loc, Unanswered]:
+        """Finds the call that ``waiting_id`` names, still waiting on the question the id was written for.
+
+        ``answer`` and ``decline`` name a call this way.
+
+        Args:
+            waiting_id: The id, as a host gave it.
+            status: Returns the run's status, for a refusal's message. It is only called when the id is refused.
+
+        Returns:
+            The call's node, its item indexes, its loc, and its outcome.
+
+        Raises:
+            InvalidCallError: ``not_waiting`` for an id that names no waiting call. ``answer_stale`` for an id whose
+                call now asks another question, with ``ctx.moved_to`` when that question now waits on another call.
+        """
+        loc, nodes, item_indexes, fingerprint = read_waiting_id(waiting_id, status=status)
+        # None when the id names a subgraph, or no node at all
+        node = self._blueprint.function_nodes.get(nodes)
+        outcome = self._outcomes[nodes].get(item_indexes) if node is not None else None
+        match node, outcome:
+            case BlueprintFunctionNode(), Unanswered() as found if (
+                outcome_loc(node, item_indexes) == loc
+            ):  # each item index in the id comes right after the node whose loop it counts
+                pass
+            case _, Unanswered() | Done() | Skipped() | NoneInput() | None:
+                moved_to = self._moved_to(nodes, fingerprint) if fingerprint is not None else None
+                raise InvalidCallError(
+                    [
+                        call_problems.not_waiting(
+                            *loc, waiting_id=waiting_id, status=status(), moved_to=moved_to
+                        )
+                    ]
+                )
+            case _:
+                assert_never(outcome)
+        asked = question_fingerprint(node.compiled_node, received(node, item_indexes, self._reader))
+        if fingerprint is not None and asked != fingerprint:
+            raise InvalidCallError(
+                [
+                    call_problems.answer_stale(
+                        *loc,
+                        waiting_id=waiting_id,
+                        current=write_waiting_id(outcome_loc(node, item_indexes), asked),
+                        moved_to=self._moved_to(nodes, fingerprint),
+                    )
+                ]
+            )
+        return node, item_indexes, loc, found
 
     def _moved_to(self, nodes: NodePath, fingerprint: str) -> str | None:
         """Returns the id of the call where a stale question now waits, or ``None``.

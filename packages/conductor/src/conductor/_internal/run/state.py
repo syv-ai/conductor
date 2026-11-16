@@ -9,6 +9,7 @@ The rest comes from how the last ``resume()`` ended, which the run stores beside
 early in four ways: a call failed (``failed``), a series had more items than the limit (``stopped``), the stream
 was cancelled (``cancelled``), or the timeout passed (``timed_out``). A copy of the run made while a resume is
 still going is ``running``. That copy only exists in memory, and a saved run never says ``running``.
+``run.decline`` stores how it left the run in the same place: ``failed``, as if a resume had failed the call.
 
 An answer changes some of this. A failed call or a series over the limit is still there after an answer, so the
 run stays ``failed`` or ``stopped`` until a ``resume()`` tries again. A cancel or a timeout belonged to that one
@@ -47,7 +48,7 @@ class EndedEarly:
     The next ``resume()`` goes on from where this one stopped.
 
     Attributes:
-        status: ``failed`` when a node raised, ``stopped`` when a series had more items than ``max_items``,
+        status: ``failed`` when a node raised or a question was declined, ``stopped`` when a series had more items than ``max_items``,
             ``cancelled`` when the stream's ``cancel`` was set, and ``timed_out`` when the ``timeout`` passed.
         cause: The problem that ended the run, with its ``loc`` and code.
     """
