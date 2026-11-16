@@ -498,8 +498,9 @@ class Scheduler:
         For example, ``_record(lines, (), Done({"result": ["a", "b", "c"]}))`` writes ``outcomes[("lines",)][()]``,
         and puts ``shout (0,)``, ``shout (1,)`` and ``shout (2,)`` on ``ready``.
 
-        What follows comes in this order: a checkpoint if one is due, the item limit check, the listener, and the
-        downstream calls. A ``Problem`` instead of an outcome means the call failed. Then nothing is written, and
+        What follows comes in this order: a checkpoint if one is due, the listener, the item limit check, and the
+        downstream calls. The listener hears of every outcome written, so a reused one over the item limit still
+        starts its node. A ``Problem`` instead of an outcome means the call failed. Then nothing is written, and
         the run ends as ``failed``.
 
         Args:
@@ -517,11 +518,11 @@ class Scheduler:
             checkpoints := self.checkpoints
         ) is not None and time.monotonic() >= checkpoints.next_at:
             self._checkpoint(checkpoints)
+        if self.node_events is not None:
+            self.node_events.outcome_recorded(node, item_indexes, outcome)
         if self.max_items is not None and node.looped_outputs and outcome.has_outputs:
             if self._stop_if_over_item_limit(node, item_indexes, outcome, self.max_items):
                 return
-        if self.node_events is not None:
-            self.node_events.outcome_recorded(node, item_indexes, outcome)
         if self.going and outcome.has_outputs:  # a call that reads a waiting outcome isn't ready
             self._make_downstream_ready(node, item_indexes)
 

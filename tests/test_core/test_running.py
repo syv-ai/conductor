@@ -46,6 +46,7 @@ from conductor import (
     node,
     subgraph,
 )
+from conductor.events import NodeComplete, NodeStart
 from pydantic import AfterValidator, BaseModel, model_serializer
 from pytest import MonkeyPatch
 
@@ -1757,6 +1758,39 @@ def test_a_series_over_the_item_limit_returned_by_a_call_that_ran_while_a_cancel
     ended = _stopped_in_the_call(stop, lambda: ["a", "b", "c"])
 
     assert (ended.status, ended.cause.type) == ("stopped", "item_limit")
+
+
+def test_a_series_reused_over_the_item_limit_starts_its_node_before_it_completes():
+    """Only a node skipped by a branch not chosen completes with no ``node_start``.
+
+    A reused outcome comes without a call, so it starts its node when it is written, even when its series is over
+    the item limit and stops the run.
+    """
+
+    @node("lines", title="Lines", description="For a test.")
+    def lines(text: str) -> Series[str]:
+        return text.splitlines()
+
+    @node("shout", title="Shout", description="For a test.")
+    def shout(line: str) -> str:
+        return line.upper()
+
+    graph = Graph.compile(make_graph(lines, shout), registry_of(lines, shout))
+    again = graph.run(text="a\nb\nc").with_inputs(max_items=2)
+
+    async def events() -> list[Any]:
+        return [event async for event in again.stream()]
+
+    streamed = _bounded(events())
+    assert [
+        (type(event).__name__, event.loc)
+        for event in streamed
+        if isinstance(event, NodeStart | NodeComplete)
+    ] == [
+        ("NodeStart", ("lines",)),
+        ("NodeComplete", ("lines",)),
+    ]
+    assert (streamed[-1].run.status, streamed[-1].run.cause.type) == ("stopped", "item_limit")
 
 
 @pytest.mark.parametrize(
