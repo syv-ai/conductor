@@ -375,11 +375,12 @@ def code_text_of(function: Callable[..., Any]) -> str:
     stays the same. A docstring that's all of a body is written as ``pass``.
 
     A function whose source can't be read is written from its bytecode instead. Bytecode changes with each Python
-    version, and it keeps docstrings. That is a lambda, whose source is the whole line it's on, which may hold
-    other code. It is also a function made by ``exec``, which has no file, or none of its own: one compiled from a
-    text under a real file's name gets that file's lines. When those lines aren't Python, hold no def, or start with
-    a def of another name than the one the function was compiled with, the function is written from its bytecode.
-    A def of the same name at the same place is taken as the function's own.
+    version, and it keeps docstrings. That is any function whose source ``inspect.getsource`` can't read: one made
+    by ``exec`` with no file, one typed into ``python -c`` or a REPL that keeps no source, or one from a package
+    installed without its ``.py`` files. It is also a lambda, whose source is the whole line it's on, which may
+    hold other code. And it is a function whose lines at its place aren't Python, hold no def, or start with a def
+    of another name than the one its code was compiled with, as when ``exec`` compiles a text under a real file's
+    name. A def of the same name at the same place is taken as the function's own.
     """
     function = inspect.unwrap(function)
     code = function.__code__

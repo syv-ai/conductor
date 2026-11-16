@@ -1,4 +1,4 @@
-"""``Worker``: starts, answers, resumes and cancels stored runs, on any number of processes sharing one store.
+"""``Worker``: starts, answers, declines, resumes and cancels stored runs, on any number of processes sharing one store.
 
 A worker keeps runs in your store. To go on with a run, it takes the run's lease and starts a ``HeldRun``, which
 makes the resume calls in the background and writes a checkpoint every few seconds. Another worker takes over a run
@@ -43,10 +43,11 @@ log = logging.getLogger("conductor_providers.fastapi")
 
 
 class Worker(Generic[M, X]):
-    """Starts, answers, resumes and cancels the runs kept in one store, on as many processes as share it.
+    """Starts, answers, declines, resumes and cancels the runs kept in one store, on as many processes as share it.
 
     ``run_router`` is a thin layer of routes over one worker. With routes of your own, you call the worker as the
-    routes do: ``begin`` a run (or ``estimate`` one first), ``read`` it, ``answer``, ``resume`` or ``cancel`` it,
+    routes do: ``begin`` a run (or ``estimate`` one first), ``read`` it, ``answer``, ``decline``, ``resume`` or
+    ``cancel`` it,
     follow its ``events``, or start it ``again`` with some inputs changed. Each method that acts on a run takes its id,
     reads the run itself, and returns the run as it is after the call.
 
@@ -328,8 +329,10 @@ class Worker(Generic[M, X]):
         A decline is queued as an answer is. While the run is running, it waits in the queue until the run's resume
         call ends, and the run is given it then, in order with the answers queued with it. Otherwise the run is
         checked first, so a decline the run refuses is refused here, and then claimed with the decline queued. The
-        worker that holds it gives it the queue without a resume call, so the declined call doesn't ask again. Either
-        way the run ends ``failed``, with ``answer_declined`` as its cause, and isn't resumed.
+        worker that holds it gives it the queue without a resume call, so the declined call doesn't ask again. A run
+        that takes the decline ends ``failed``, with ``answer_declined`` as its cause, and isn't resumed. A running
+        run can still refuse it when it is given it, as ``not_waiting`` after an answer to the same question or as
+        ``answer_stale``. It is then in the run's ``refused``, and the run goes on as it would have.
 
         When another call takes the run between this call's read and its write, the run is read again, and the
         decline goes by what it is then: queued if it is running, refused as ``not_waiting`` if the question was
@@ -347,7 +350,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``), or the run refuses the decline (``not_waiting``,
-                ``answer_stale``).
+                ``answer_stale``, or ``invalid_answer``, variant ``reason``, for a reason it can't keep).
             RuntimeError: The run is not running, so the decline would be claimed, and the worker has never served.
         """
         declined = Decline(waiting_id=waiting_id, reason=reason)

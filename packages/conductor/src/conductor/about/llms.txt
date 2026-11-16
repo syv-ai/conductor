@@ -691,7 +691,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 
 **A waiting call.** Each entry of `run.waiting` is a `Waiting`:
 
-- `id`, such as `approve@1~3fa2c0d1`: the node's id, then `@` and a number for each item it was called for, from the outside in, then `~` and a fingerprint of the call. A node that runs once is `approve` alone before the `~`. Inside a subgraph, the nodes are joined by `/`, each with the item index of its own loop: `review@0/approve@1~...`. The fingerprint is made from the node's id, its code and the call's inputs; the `Ask`'s prompt, choices and default are not in it.
+- `id`, such as `approve@1~3fa2c0d1`: the node's id, then `@` and a number for each item it was called for, from the outside in, then `~` and a fingerprint of the call. A node that runs once is `approve` alone before the `~`. Inside a subgraph, the nodes are joined by `/`, each with the item index of its own loop: `review@0/approve@1~...`. The fingerprint is made from the node's id in the graph, its code fingerprint and the call's inputs. The code fingerprint covers the node's `@node` id and version, its code, the name and type of each input and output (limits and choices included), the loops it runs in and `asks`. So a new version, or a field of another type, gives a new id even when the code is the same. The `Ask`'s prompt, choices and default are not in it.
 - `loc`: the node, then its item, as a problem's `loc`.
 - `prompt`.
 - `inputs`: what the call received, as JSON.
@@ -716,9 +716,9 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 
 **Declining.** `run.decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.answer` does, an entry of `run.waiting` or its id, and returns a new run.
 
-- The call fails as a call whose node raised does: it has no outcome, and the run is `failed` with `answer_declined` as its `cause`. Nothing that reads its outputs is called. The other questions still wait, and an answer to one of them leaves the run `failed`.
+- The call fails as a call whose node raised does: it has no outcome, and the run is `failed` with `answer_declined` as its `cause`. Nothing that reads its outputs is called. The other questions still wait. `run.answer` to one of them returns a run still `failed`; the runs router resumes the run with such an answer, and that asks the declined question again.
 - The decline is the host's latest act, so `answer_declined` becomes the `cause` even of a run a `resume()` had already ended `failed` or `stopped`.
-- `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it. A `reason` that isn't a `str` JSON can write, or `None`, is refused as `invalid_answer`, variant `reason`, with `ctx.got` its class, and the run is left as it was: a `str` with a lone surrogate is refused too.
+- `ctx.reason` holds the host's `reason`, and is left out when it gave none. The message doesn't quote it. The `reason` is checked as its JSON text would be: text, or `None`. So `bytes` and a `str` enum member are taken as their text, and `1.5`, `3` and a `str` with a lone surrogate are refused as `invalid_answer`, variant `reason`, with `ctx.got` its class. The run is left as it was.
 - A saved run holds it as it holds a failed call. The next `resume()` calls the node again, so it asks again, under the same id while its inputs and code are the same.
 - An id is read by the rules `run.answer` reads it by: one that waits on nothing is `not_waiting`, and one whose place waits with another fingerprint is `answer_stale`.
 
@@ -788,7 +788,7 @@ first = sending.run(text="ida@a.dk\nbo@b.dk")                # two mails
 second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added: one mail
 ```
 
-**What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own source as Python parses it, without its name, decorators, comments or docstrings, as a saved run records it, so a new Python version keeps the key; a function whose source can't be read, by its bytecode: a lambda, or one made by `exec` with no file; one `exec` compiled under a file's name is read from that file's lines at its place, and is hashed by its bytecode when those lines aren't Python, hold no `def`, or their first `def` has another name than the one the function was compiled with; `@node` works the code out when it declares the function), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
+**What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own source as Python parses it, without its name, decorators, comments or docstrings, as a saved run records it, so a new Python version keeps the key; a function whose source `inspect.getsource` can't read is hashed by its bytecode instead, such as one made by `exec` with no file, one typed into `python -c` or a REPL that keeps no source, or one from a package installed without its `.py` files; so is a lambda, whose source is its whole line, and a function whose lines at its place aren't Python, hold no `def`, or whose first `def` has another name than the one its code was compiled with, as when `exec` compiles a text under a real file's name; `@node` works the code out when it declares the function), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
 
 **Which outcome a call reuses.**
 

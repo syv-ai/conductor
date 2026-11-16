@@ -52,17 +52,18 @@ def previous_run_unloadable(*, run_id: str, reason: str) -> str:
 
 @SERVING_PROBLEMS.problem()
 def raised_outside_a_node(*, error: str) -> str:
-    """Something raised outside any node while the worker resumed the run, or checked an answer queued while it ran.
+    """Something raised outside any node while the worker resumed the run, or checked an answer or a decline queued
+    while it ran.
 
-    It is the cause of a run that failed, or a queued answer's entry in the run's ``refused``. The server log has the
-    traceback.
+    It is the cause of a run that failed, or a queued answer's or decline's entry in the run's ``refused``. The server
+    log has the traceback.
 
     Args:
         error: The exception's class name.
     """
     return (
-        f"The worker hit {error} outside any node while it resumed the run or checked an answer; the server log "
-        "says why. Resume the run, or send the answer again, once that is fixed."
+        f"The worker hit {error} outside any node while it resumed the run or checked an answer or a decline; the "
+        "server log says why. Resume the run, or send the answer or decline again, once that is fixed."
     )
 
 

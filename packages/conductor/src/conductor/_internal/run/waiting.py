@@ -38,10 +38,12 @@ class Waiting(ConductorModel):
     Attributes:
         id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
             index of each item the call is for, then ``~`` and a short fingerprint. The fingerprint is a hash of the
-            node's id, its code and the call's inputs, not of the ``Ask``'s prompt, choices or default. Inside a
-            subgraph, the subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If the call's
-            inputs or the node's code change, it may ask something else, so the old id stops matching. An answer
-            to it is refused with ``answer_stale``.
+            node's id in the graph, its code fingerprint and the call's inputs, not of the ``Ask``'s prompt, choices
+            or default. The code fingerprint covers the node's ``@node`` id and version, its code, the type of each
+            input and output, its loops and ``asks``. Inside a subgraph, the subgraph node and its item come first:
+            ``"review@0/approve@1~3fa2c0d1"``. If the call's inputs, the node's code, its version or a field's type
+            change, it may ask something else, so the old id stops matching. An answer to it is refused with
+            ``answer_stale``.
         loc: Which call it is, written the way a ``Problem``'s ``loc`` is: ``("approve", 1)``. It is the node
             that asks, then the index of its item in each Series the node is looped over. Inside a subgraph, the
             subgraph node and its item come first: ``("review", 0, "approve", 1)``.

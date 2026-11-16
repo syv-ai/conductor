@@ -212,11 +212,12 @@ def run_router(
         allows: Annotated[Callable[[M], bool], Depends(run_filter)],
         body: Decline,
     ) -> RunView:
-        """Decline to answer what waits under ``waiting_id``, so the run ends ``failed`` with ``answer_declined``.
+        """Decline to answer what waits under ``waiting_id``. A run that takes it ends ``failed`` with ``answer_declined``.
 
         The run is not resumed: a later resume asks the question again. A decline the run refuses is in the 422.
         While the run is running, the decline waits until it stops and is given to it then, in order with the
-        answers; one it refuses then is in the run's ``refused``.
+        answers. The run can refuse it then, as ``not_waiting`` after an answer to the same question or as
+        ``answer_stale``: it is in the run's ``refused``, and the run goes on as it would have.
         """
         return await worker.decline(run_id, body.waiting_id, reason=body.reason, allows=allows)
 

@@ -28,9 +28,9 @@ failure is of this sort by raising ``ExternalError``, or by naming the client's 
 **What a person is told.** A problem may be shown to anyone, since a host may stream problems to a browser. So a
 problem never quotes a value a graph carries: a graph input or its default, a constant, an output, an answer or a
 value in a saved run. Where a fault is inside such a value, the problem says where by list indexes, record fields and
-positions, never by the value's own dict keys. A problem never quotes an exception's text either, since it might
-quote a value. A node's or a hook's exception goes to the ``conductor`` logger with its traceback, and the problem
-names only the exception's class. ``value_free_errors`` does the same for pydantic's errors.
+positions, never by the value's own dict keys. A problem never quotes the text of an exception other than a
+``NodeError`` either, since it might quote a value. Such an exception from a node or a hook goes to the ``conductor``
+logger with its traceback, and the problem names only the exception's class. ``value_free_errors`` does the same for pydantic's errors.
 
 A problem may name what a developer or a host wrote: node ids, input, output and field names, places, waiting ids,
 the limits a type declares and where a JSON text stops being JSON. A field name a ``compute_...`` hook returns is

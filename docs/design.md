@@ -146,7 +146,7 @@ item order instead, so inserting an item keeps everyone's answer. The rules, wit
 
 Errors are data. There's one `Problem` record everywhere, with stable codes in `PROBLEMS.codes` for a host to
 translate. A message says how to fix the fault. A problem never quotes a value a graph carries (an input, a constant,
-an output, an answer, a saved value) or an exception's text: a node's or a hook's own exception text goes to the log,
+an output, an answer, a saved value) or the text of an exception other than a `NodeError`: a node's or a hook's own exception text goes to the log,
 and the problem names only the exception's class. It may name what a developer or a host wrote, such as ids, places
 and field names, a hook's field names among them. A `NodeError` keeps its message, which its developer wrote for people. The reference's errors
 section has the rule: `python -m conductor.about errors`.
@@ -273,7 +273,7 @@ A question is the same record as a field: the `FieldDescription` a palette reads
 answer was rejected: it loses a host type's id and exclusive groups, and has no place for a widget.
 
 An answer is read strictly from its JSON form (`true`, never `"yes"`), and every fault is refused at once. A waiting
-id like `approve@1~3fa2c0d1` names the call and a fingerprint of the node's id, its code and the call's inputs. So an
+id like `approve@1~3fa2c0d1` names the call and a fingerprint of the node's id, its version, code and field types, and the call's inputs. So an
 answer to a place that waits with another fingerprint is refused as `answer_stale`, and one to a place that waits on
 nothing as `not_waiting`. The rules are in `python -m conductor.about asking-a-person`.
 

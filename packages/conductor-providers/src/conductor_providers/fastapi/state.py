@@ -1,6 +1,7 @@
 """The two JSON columns the worker keeps in a run's row, every way the first one changes, and what a reader is shown.
 
-A row's ``state`` is ``RunState``: where the run is, the answers queued while it runs, and a cancel asked of it. It
+A row's ``state`` is ``RunState``: where the run is, the answers and declines queued while it runs, and a cancel
+asked of it. It
 is small however large the run is. So queuing an answer or asking a cancel writes only it and the row's
 ``status``, though the read before the write fetches the whole row. A row's ``outcome`` is ``RunOutcome``: what
 waits for a person, the outputs, and how far the run is. It can be megabytes, so it is written only when the run
@@ -245,7 +246,9 @@ class RunState(BaseModel):
                 except InvalidCallError as error:
                     refused[waiting_id] = error.problems
                 except Exception as error:
-                    log.exception("the answer queued for %s could not be checked", waiting_id)
+                    log.exception(
+                        "the answer or decline queued for %s could not be checked", waiting_id
+                    )
                     refused[waiting_id] = [raised_outside_a_node(error=type(error).__name__)]
                 else:
                     taken = True
@@ -256,7 +259,7 @@ class RunState(BaseModel):
     def failed(self, cause: Problem, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once a resume call raised, or conductor refused it, so it returned no run.
 
-        The row keeps its last checkpoint as ``run``. The answers queued meanwhile stay queued until the run is
+        The row keeps its last checkpoint as ``run``. The answers and declines queued meanwhile stay queued until the run is
         resumed and stops again, and a cancel asked is cleared, since the run has stopped.
 
         Args:
@@ -281,8 +284,8 @@ class RunView(RunOutcome):
     """A run as a reader sees it, as it was when it last stopped running, read without loading the run.
 
     ``Worker.read`` gives it, and every route under ``/runs`` but the events route answers with it, so an action
-    answers with the run as it wrote it. It shows only what a reader needs: the answers a running run has queued, and a cancel asked of it,
-    are the worker's own business and aren't shown.
+    answers with the run as it wrote it. It shows only what a reader needs: the answers and declines a running run
+    has queued, and a cancel asked of it, are the worker's own business and aren't shown.
 
     Attributes:
         id: The run's id.
