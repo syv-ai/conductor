@@ -371,8 +371,9 @@ class Compiler:
         (``line`` and ``result``), so an edge reads ``loud.result``. Each output keeps the field the node inside
         declares.
 
-        The compiled node works out the loops and branches each output depends on itself (``edge_reading`` and
-        ``branches_required_for``). It answers as it would if the subgraph's nodes were drawn in this graph.
+        The compiled node works out the loops each output depends on itself (``edge_reading``), as it would if the
+        subgraph's nodes were drawn in this graph. Its outputs are never branches, so ``branches_required_for`` gives
+        only the branches the node itself needs.
 
         A subgraph that contains itself is a problem. So is every problem of the subgraph's own graph, with this
         node's id put in front of its ``loc``. Either way, the node is left out, since the inputs and outputs of a

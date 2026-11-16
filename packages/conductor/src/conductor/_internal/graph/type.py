@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
-from conductor._internal.base import Loc, json_hash
+from conductor._internal.base import REQUIRED, Loc, json_hash
 from conductor._internal.context import ContextValidator
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
@@ -220,12 +220,11 @@ class Graph[C]:
     def _output_field(self, output: str) -> Field:
         """Returns the graph output ``output`` as a field, for a subgraph node that uses this graph.
 
-        It's the field of the node output behind it, under the graph output's name. So a graph output read from a
-        branch is a branch of the subgraph node too.
+        It's the field of the node output behind it, under the graph output's name, with no default. So a graph
+        output read from a branch is never a branch of the subgraph node: a branch is a function node's output.
         """
         node, name = self._node_returning(output)
-        field = node.outputs[name]
-        return Field(output, field.hint, field.default, is_output=True)
+        return Field(output, node.outputs[name].hint, REQUIRED, is_output=True)
 
     # -- what a run uses --------------------------------------------------------
 

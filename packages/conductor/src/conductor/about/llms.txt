@@ -392,11 +392,11 @@ The description of such an output says `is_series`. Its `type`, `json_schema` an
 - `loops` is empty for every field but a subgraph's output that is returned inside loops.
 - A `Series` returned once per document is a `Series[Series[T]]` the same way, and a table returned once per document is a `Series` of tables.
 
-Branches inside a subgraph work as they would drawn in the outer graph.
+Branches and a subgraph.
 
-- A graph output read from a branch is a branch of the subgraph node: `"required": false`, with no `default`.
-- "At most one branch has a value" holds for each node inside, not for the subgraph node as a whole. Two outputs that come from different branches of one node inside, or from nodes downstream of them, may be wired into one input, and each call gets the value from the branch that has one. Outputs from branches of two different nodes inside can both have a value, so wired into one input they are `several_edges_into_one_input`. The compiler looks inside to tell them apart; `describe()` doesn't say which outputs come from which node.
-- Collected into two `Series` inputs of one node, two outputs from different branches of one node inside are `lists_from_different_loops`.
+- A branch is a function node's output. A subgraph node's outputs are never branches, even one read from a branch inside: each is `"required": true`. So no two outputs of one subgraph node may be wired into one input (`several_edges_into_one_input`). Merge branches inside the subgraph, and return the merged value.
+- A skipped branch inside still reaches the nodes after the subgraph node as a skip, and they are skipped.
+- Two `Series` inputs collected from two outputs of a subgraph node that come from different branches inside get two lists that never share an item, so both are empty. Drawn flat, that is `lists_from_different_loops`; through a subgraph node, it isn't caught.
 - A `None`, or a skipped branch, arriving at one of its inputs makes the inner nodes wired to it not called, or skipped. `run.not_called` lists those nodes.
 
 A subgraph is compiled on its own, apart from the graph it is used in. So a type variable at one of its graph inputs has no edge to bind it, and reads as its bound, else `Any`.

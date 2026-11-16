@@ -84,8 +84,8 @@ What changes in how you work, before the name-by-name tables:
   too: `SKIPPED` means a way not taken, and an output that may be missing beside other outputs is typed `X | None`
   and returned as `None`. A node has one set of branches, so a node with two independent ways to go is two nodes.
   An answer gives a value to at most one branch, and an answer that leaves every branch out skips them all. A
-  subgraph node's outputs read from branches inside are branches of it; the compiler looks inside to tell whose
-  branches they are, and `describe()` no longer names a group. `several_edges_into_one_input` says how to make
+  subgraph node's outputs are never branches, even one read from a branch inside: each is `"required": true` in
+  `describe()`, and no two of them may share an input (provisional). Join branches inside the subgraph instead. `several_edges_into_one_input` says how to make
   outputs branches. Where its node is not called (an argument `None` its input does not take), a branch is
   `SKIPPED`, and the nodes wired to it are skipped.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON

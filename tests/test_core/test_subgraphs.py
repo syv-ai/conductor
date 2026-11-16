@@ -615,42 +615,33 @@ def test_a_table_returned_per_item_inside_a_subgraph_is_offered_as_a_series_of_t
     )
 
 
-def test_a_branch_inside_a_subgraph_is_a_branch_of_the_subgraph_node():
+def test_a_branch_inside_a_subgraph_is_not_a_branch_of_the_subgraph_node():
+    """A branch is a function node's output. A subgraph node's outputs are never branches.
+
+    So its outputs are required in ``describe()``, and two of them can't share an input, even when they come from
+    two branches of one node inside. The skip still reaches the nodes after the subgraph node as a value.
+    """
     last = compile_graph({"e": subgraph_of("decide")})
     assert {output.name: output.required for output in last.describe().nodes["e"].outputs} == {
-        "long": False,
-        "short": False,
+        "long": True,
+        "short": True,
     }
     joined = compile_graph(
         {"e": subgraph_of("decide"), "j": "exclaim"}, [("e.short", "j.text"), ("e.long", "j.text")]
     )
-    assert joined.is_runnable
+    assert problems(joined) == [("several_edges_into_one_input", ("j", "text"))]
+    one = compile_graph({"e": subgraph_of("decide"), "j": "exclaim"}, [("e.long", "j.text")])
+    assert one.run(text="ab").results["j"] == {"result": None}  # "ab" is short, so j is skipped
 
 
-def test_a_branch_two_subgraphs_deep_is_a_branch_of_the_outer_subgraph_node():
-    """Both branches of a node two subgraphs deep may share an input outside, as they could drawn flat."""
-    if "wrapped-decide" not in REGISTRY:
-        record = chain(("in", subgraph_of("decide")), outputs=("short", "long"))
-        REGISTRY.add(
-            subgraph(
-                "wrapped-decide", title="Wrapped decide", description="The decide node, wrapped."
-            )(GraphRecord.model_validate(record))
-        )
-    graph = compile_graph(
-        {"e": "wrapped-decide", "j": "exclaim"}, [("e.short", "j.text"), ("e.long", "j.text")]
-    )
-    assert graph.is_runnable
+def test_two_outputs_on_different_branches_inside_a_subgraph_are_merged_inside_it():
+    """Wired outside, two outputs of one subgraph node can't share an input. Drawn flat, the same branches can.
 
-
-def test_two_outputs_on_different_branches_inside_a_subgraph_may_share_one_input_as_in_one_graph():
+    To merge them, merge inside the subgraph: ``deciding-inner`` wired as one graph runs as before.
+    """
     inside = compile_graph(
-        {"w": "words", "e": "deciding-inner", "j": "exclaim", "n": "count"},
-        [
-            ("w.result", "e.text"),
-            ("e.short", "j.text"),
-            ("e.long", "j.text"),
-            ("j.result", "n.items"),
-        ],
+        {"w": "words", "e": "deciding-inner", "j": "exclaim"},
+        [("w.result", "e.text"), ("e.short", "j.text"), ("e.long", "j.text")],
     )
     inner, inner_edges = inner_nodes("deciding-inner")
     one_graph = compile_graph(
@@ -663,22 +654,11 @@ def test_two_outputs_on_different_branches_inside_a_subgraph_may_share_one_input
             ("j.result", "n.items"),
         ],
     )
-    assert problems(inside) == problems(one_graph) == []
-    ran, ran_flat = inside.run(text="ab long cd"), one_graph.run(text="ab long cd")
-    assert ran.results["j"] == ran_flat.results["j"] == {"result": ["ab!!", "LONG!", "cd!!"]}
-    assert ran.results["n"] == ran_flat.results["n"] == {"result": 3}
-    same_branch = compile_graph(
-        {"e": "deciding-twice-inner", "j": "exclaim"},
-        [("e.exclaimed", "j.text"), ("e.shouted", "j.text")],
-    )
-    assert problems(same_branch) == [
-        ("several_edges_into_one_input", ("j", "text"))
-    ]  # both need d.short: a call could get two values
-    nested = compile_graph(
-        {"e": subgraph_of("deciding-inner"), "j": "exclaim"},
-        [("e.short", "j.text"), ("e.long", "j.text")],
-    )
-    assert problems(nested) == [] and nested.run(text="ab").results["j"] == {"result": "ab!!"}
+    assert problems(inside) == [("several_edges_into_one_input", ("j", "text"))]
+    assert problems(one_graph) == []
+    ran_flat = one_graph.run(text="ab long cd")
+    assert ran_flat.results["j"] == {"result": ["ab!!", "LONG!", "cd!!"]}
+    assert ran_flat.results["n"] == {"result": 3}
 
 
 def test_two_collected_branches_of_a_loop_inside_a_subgraph_cannot_share_one_input_as_in_one_graph():
@@ -693,7 +673,7 @@ def test_two_collected_branches_of_a_loop_inside_a_subgraph_cannot_share_one_inp
         {**inner, **nodes},
         [*inner_edges, ("s.result", "n1.items"), ("l.result", "n2.items"), *collecting],
     )
-    # n1 and n2 are both called, whichever branch d chose for a word. So both have a value, and g.value would get two
+    # n1 and n2 are both called, whichever branch d took for a word. So both have a value, and g.value would get two
     assert (
         problems(inside)
         == problems(one_graph)
@@ -701,7 +681,7 @@ def test_two_collected_branches_of_a_loop_inside_a_subgraph_cannot_share_one_inp
     )
 
 
-def test_two_lists_collected_from_opposite_branches_inside_a_subgraph_are_refused_as_in_one_graph():
+def test_two_lists_collected_from_different_branches_are_refused_drawn_flat_but_not_through_a_subgraph():
     inside = compile_graph(
         {"w": "words", "e": "deciding-inner", "p": "pair"},
         [("w.result", "e.text"), ("e.short", "p.first"), ("e.long", "p.second")],
@@ -711,8 +691,11 @@ def test_two_lists_collected_from_opposite_branches_inside_a_subgraph_are_refuse
         {"w": "words", **inner, "p": "pair"},
         [("w.result", "d.text"), *inner_edges, ("s.result", "p.first"), ("l.result", "p.second")],
     )
-    # a word is short or long, so each list leaves some words out. p takes one item of each, but no word is in both
-    assert problems(inside) == problems(one_graph) == [("lists_from_different_loops", ("p",))]
+    # a word is short or long, so each list leaves some words out. p takes one item of each, but no word is in both.
+    # Drawn flat, that is refused. Through a subgraph node, whose outputs are never branches, the compiler doesn't
+    # see the two branches, and p gets two empty lists.
+    assert problems(one_graph) == [("lists_from_different_loops", ("p",))]
+    assert problems(inside) == []
 
 
 def subgraph_of(node_id: str) -> str:

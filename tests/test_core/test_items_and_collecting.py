@@ -2808,14 +2808,14 @@ def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_s
     assert compiled.describe().nodes["u2"].inputs[0].source.series == "e/split.result"
 
 
-def test_the_branches_of_a_node_inside_a_subgraph_are_branches_of_the_subgraph_node():
+def test_the_branches_of_a_node_inside_a_subgraph_are_not_branches_of_the_subgraph_node():
     inner = as_subgraph("decider", {"id": "d", "node": "decide"})
     compiled = graph({"id": "e", "node": "decider"}, registry=registry_of(decide, inner))
 
     assert {
         output.name: (output.required, output.default)
         for output in compiled.describe().nodes["e"].outputs
-    } == {"no": (False, MISSING), "yes": (False, MISSING)}
+    } == {"no": (True, MISSING), "yes": (True, MISSING)}
 
 
 TWO_DECISIONS = {
@@ -2829,11 +2829,10 @@ TWO_DECISIONS = {
 }
 
 
-def test_branches_of_two_nodes_inside_one_subgraph_may_not_share_an_input_outside():
-    """The compiler looks inside a subgraph node to tell which of its branches belong to one node.
+def test_no_two_outputs_of_one_subgraph_node_may_share_an_input_outside():
+    """A subgraph node's outputs are never branches, so no two of them may share an input.
 
-    Two branches of ``d1`` may share an input outside, as they could if ``d1`` were drawn there. A branch of
-    ``d1`` and one of ``d2`` may both have a value on one call, so they can't.
+    That holds for two branches of ``d1`` too: they are merged inside the subgraph, not outside it.
     """
     inner = as_subgraph(
         "two", {"id": "d1", "node": "decide"}, {"id": "d2", "node": "decide"}, **TWO_DECISIONS
@@ -2848,7 +2847,7 @@ def test_branches_of_two_nodes_inside_one_subgraph_may_not_share_an_input_outsid
         )
         return [problem.type for problem in compiled.problems]
 
-    assert wired("first-yes", "first-no") == []
+    assert wired("first-yes", "first-no") == ["several_edges_into_one_input"]
     assert wired("first-yes", "second-no") == ["several_edges_into_one_input"]
 
 

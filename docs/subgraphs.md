@@ -189,15 +189,11 @@ empty `loops`, and it's just one list.
 
 ### Branches
 
-A branch is an output whose default is `SKIPPED`, and a call gives a value to at most one branch of a node. A graph
-output read from a branch inside is a branch of the subgraph node too.
+A branch is a function node's output. A subgraph node's outputs are never branches, even one the subgraph reads
+from a branch inside, so no two of them may be wired into one input outside: that is `several_edges_into_one_input`.
+To join two branches, wire them into one input inside the subgraph, and return what that node gives.
 
-Two outputs that come from different branches of one node inside can be wired into one input outside. Each call gets
-the value of the branch that has one, as it would if the nodes were drawn in the outer graph. Outputs from the
-branches of two different nodes inside can both have a value, so wiring them into one input is
-`several_edges_into_one_input`. The compiler looks inside the subgraph to tell them apart. Wired into two `Series`
-inputs of one node, two outputs from different branches of one node are refused with `lists_from_different_loops`,
-because one of the two lists would always be empty.
+A skipped branch inside still skips the nodes after the subgraph node that read it, as it would drawn flat.
 
 ## A `None` or a skip coming in
 

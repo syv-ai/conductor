@@ -82,7 +82,7 @@ An input the record leaves out takes its declared default. A required input left
 Some more rules for a record:
 
 - A source may name one field of a record: `{"node": "series-split", "output": "result", "field": "email"}`. In `make_graph` that's `"series-split.result.email"`.
-- Several sources into one input must be different branches of one node (outputs whose default is `SKIPPED`), or downstream of them. Otherwise it's `several_edges_into_one_input`.
+- Several sources into one input must be different branches of one function node (outputs whose default is `SKIPPED`), or downstream of them. Two outputs of one subgraph node are never branches, so they can't share an input. Otherwise it's `several_edges_into_one_input`.
 - A node with a single output names it `result`.
 - A node id, an input, an output and a graph port are names: not empty, and with no `.`, `/`, `@` or `~` in them (`invalid_record`).
 

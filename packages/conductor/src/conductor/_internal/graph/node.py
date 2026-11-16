@@ -29,7 +29,7 @@ from conductor._internal.base import SKIPPED, NodePath, Source, place_text, shor
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
 
-from .input import Edge, Input, path_in_outer_graph
+from .input import Edge, Input
 
 if TYPE_CHECKING:
     from .type import Graph
@@ -40,40 +40,21 @@ class RequiredBranch(NamedTuple):
 
     A branch is an output whose default is ``SKIPPED``, and a call gives a value to at most one branch of a node.
     Say ``route`` has the branches ``long`` and ``short``, and ``shout`` is wired to ``route.long``. Then ``shout``
-    is called only where ``route`` gave ``long`` a value, so it needs ``RequiredBranch(("route",), "long",
-    depth=0)``.
+    is called only where ``route`` gave ``long`` a value, so it needs ``RequiredBranch("route", "long", depth=0)``.
 
     The compiler uses these to allow two edges into one input. That's fine when the two need different branches of
     one node, since a call then gets a value from at most one of them.
 
     Attributes:
-        node: The path of the node the branch belongs to, from the graph being compiled. That's ``("route",)``, or
-            ``("e", "route")`` for a node inside the subgraph node ``e``.
+        node: The id of the function node the branch belongs to. A subgraph node has no branches.
         output: The branch that must be taken.
         depth: How many loops that node is in. A node inside the loop over ``lines.result`` takes a branch once
             per line.
     """
 
-    node: NodePath
+    node: str
     output: str
     depth: int
-
-    def in_outer_graph(
-        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
-    ) -> RequiredBranch:
-        """Returns this branch of a subgraph's graph, named from the graph the subgraph node is in.
-
-        Its node is named as ``path_in_outer_graph`` names it, and the loops the subgraph node is in count toward
-        its depth, as ``loops_in_outer_graph`` puts them first.
-
-        Args:
-            subgraph_path: The subgraph node's path in the graph it is in.
-            subgraph_loops: The loops the subgraph node is in, named from that graph.
-        """
-        return self._replace(
-            node=path_in_outer_graph(subgraph_path, self.node),
-            depth=len(subgraph_loops) + self.depth,
-        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -126,7 +107,7 @@ class _CompiledNodeBase:
         it has a value only where the node gave it one.
         """
         return (
-            self.required_branches | {RequiredBranch((self.id,), output, len(self.loops))}
+            self.required_branches | {RequiredBranch(self.id, output, len(self.loops))}
             if self.outputs[output].is_branch
             else self.required_branches
         )
@@ -294,24 +275,6 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """
         edge = self.inner._edge_reading(output).in_outer_graph((self.id,), self.loops)
         return replace(edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
-
-    def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
-        """Returns the branches that must be taken for ``output`` to have a value.
-
-        These are the branches this node needs to be called, and those the output needs inside the subgraph. A
-        branch inside is named by the path of its node, from this graph.
-
-        Say the subgraph ``e`` is ``route -> shout`` and ``route -> whisper``, one on each output of ``route``. Its
-        record declares the graph outputs ``loud`` (``shout.result``) and ``quiet`` (``whisper.result``). Then
-        ``branches_required_for("loud")`` is ``RequiredBranch(("e", "route"), "long", 0)``, and the one
-        for ``quiet`` names ``short``. So one input outside may be wired to both, just as it could if the nodes were
-        drawn in the outer graph.
-        """
-        source, output_inside = self.inner._node_returning(output)
-        inside = source.branches_required_for(output_inside)
-        return self.required_branches | {
-            branch.in_outer_graph((self.id,), self.loops) for branch in inside
-        }
 
     def described_outputs(self) -> list[FieldDescription]:
         """Returns each output as an editor shows it.
