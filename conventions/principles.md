@@ -10,7 +10,7 @@ Why: code a reader can guess, built from the simplest shape that works, with one
 
 ```text
 Bad:  make_graph, a helper on top of everything, sits beside ConductorModel, which everything stands on.
-Good: base/model.py holds ConductorModel; graph/make.py holds make_graph.
+Good: base/model.py holds ConductorModel; make_graph.py, above every package, holds make_graph.
 ```
 
 ## Deep modules, uniform surfaces

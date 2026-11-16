@@ -11,7 +11,6 @@ The files:
 - ``compile.py``: the compiler behind ``Graph.compile``.
 - ``node.py`` and ``input.py``: the compiled nodes, and where each of their inputs gets its value.
 - ``describe.py``: what ``graph.describe()`` shows a host.
-- ``make.py``: ``make_graph``, which writes a graph record from Python.
 - ``validator.py``: the checks on what a graph is given, such as a caller's inputs and a run's limits.
 
 Code outside this package imports from here only. The graph record itself is in ``record/``.
@@ -30,7 +29,6 @@ from .input import (
     Input,
     MissingInput,
 )
-from .make import make_graph
 from .node import (
     CompiledFunctionNode,
     CompiledSubgraphNode,
@@ -52,5 +50,4 @@ __all__ = [
     "InputSource",
     "LimitsValidator",
     "MissingInput",
-    "make_graph",
 ]

@@ -92,6 +92,7 @@ name = "conductor._internal is in layers"
 type = "layers"
 containers = ["conductor._internal"]
 layers = [
+    "make_graph",
     "registry | run",
     "graph",
     "node",
