@@ -313,9 +313,8 @@ class Type:
             return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
         if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "record"
             return "record", "Record", ()
-        # a value that is no type at all, like 5 or [int], which may not even be hashable
-        if not isinstance(origin, type):
-            raise NodeDeclarationError(declaration_problems.type_not_supported(type=repr(one)))
+        # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
+        _check_is_type(one)
         own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
         own = () if origin in (Any, type(None)) else (origin,)
         if all(
@@ -344,9 +343,9 @@ class Type:
         """
         bare, param, others = self._parts
         if isinstance(bare, Mapping):
-            # pydantic reads a dict as a core schema, so a dict given as a type, like {"a": int}, is named first, and
-            # naming refuses it as no type at all
-            self.id  # noqa: B018
+            # pydantic reads a dict as a core schema, so a dict given as a type, like {"a": int}, is refused before
+            # its schema is built
+            _check_is_type(bare)
         pydantic_fields = [
             other for other in others if isinstance(other, FieldInfo)
         ]  # like Annotated[int, Field(ge=0)], here or on a list's item
@@ -620,6 +619,16 @@ class Type:
             return bool(one == other)
         except (ValueError, TypeError):
             return one is other
+
+
+def _check_is_type(hint: Any) -> None:
+    """Checks that a hint is a type, or a generic of one, and not some other value like ``5``, ``[int]`` or ``{}``.
+
+    Raises:
+        NodeDeclarationError: ``type_not_supported`` if the hint is no type.
+    """
+    if not isinstance(get_origin(hint) or hint, type):
+        raise NodeDeclarationError(declaration_problems.type_not_supported(type=repr(hint)))
 
 
 def _host_name(cls: type) -> tuple[str, str]:
