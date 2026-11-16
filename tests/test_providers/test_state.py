@@ -135,6 +135,17 @@ def test_a_queued_decline_the_run_takes_fails_it_and_writes_the_declined_run_wit
     assert RunOutcome.model_validate_json(changes["outcome"]).waiting == []
 
 
+def test_a_decline_the_run_takes_clears_a_cancel_asked_since_the_run_has_ended() -> None:
+    """The run is failed and not resumed, so a cancel left asked would end its next resume call for nothing."""
+    run, waiting_id = _waiting()
+
+    state, _ = _ended_with(
+        RunState.started().asked_to_stop().queued(Decline(waiting_id=waiting_id)), run
+    )
+
+    assert (state.status, state.cancel_asked) == ("failed", False)
+
+
 def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() -> None:
     """The second finds nothing waiting, so conductor refuses it as ``not_waiting``, as a second answer is."""
     run, waiting_id = _waiting()
