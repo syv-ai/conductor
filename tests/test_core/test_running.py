@@ -1523,39 +1523,48 @@ def test_a_retry_that_falls_due_while_the_scheduler_makes_its_own_calls_is_made_
     assert run.status == "complete" and any(run.outputs["seen"])
 
 
-def test_an_attempt_that_returned_isnt_kept_until_its_attempt_timeout():
-    """A deadline timer kept after its attempt returned would hold the attempt, and its arguments, for up to
-    ``attempt_timeout`` more.
+def test_the_arguments_of_a_call_that_returned_arent_kept_until_its_attempt_timeout():
+    """``count`` is given a list collected for its call alone, and returns long before its ``attempt_timeout`` of 30
+    seconds. Once it has, nothing holds that list, so ``after``, called next in the same run, finds no list equal
+    to it.
 
-    Nothing public shows what a run still holds, so ``after``, called once every ``shout`` has returned, counts the
-    attempts of ``shout`` the garbage collector still finds, by their class's name and their arguments.
+    The run's outcomes hold each item, never that list, so only something kept from the call could hold it. A weak
+    reference can't be used: a list can't have one, and every argument that can is held by the outcomes.
     """
 
     @node("lines", title="Lines", description="For a test.")
     def lines(text: str) -> Series[str]:
         return text.split(",")
 
-    @node(
-        "shout",
-        title="Shout",
-        description="For a test.",
-        policy=Policy(concurrency=2, attempt_timeout=30),
-    )
+    @node("shout", title="Shout", description="For a test.")
     def shout(line: str) -> str:
         return line.upper()
 
+    @node(
+        "count",
+        title="Count",
+        description="For a test.",
+        policy=Policy(concurrency=2, attempt_timeout=30),
+    )
+    def count(texts: Series[str]) -> int:
+        return len(texts)
+
+    given = [f"timed-{letter}" for letter in "abcdefghij"]
+
     @node("after", title="After", description="For a test.")
-    def after(texts: Series[str]) -> int:
+    def after(n: int) -> int:
         gc.collect()
+        counted = [line.upper() for line in given]
         return sum(
-            type(kept).__name__ == "_Attempt" and kept.arguments.get("line") in lines_given
+            type(kept) is list and kept is not counted and kept == counted
             for kept in gc.get_objects()
         )
 
-    graph = Graph.compile(make_graph(lines, shout, after), registry_of(lines, shout, after))
+    graph = Graph.compile(
+        make_graph(lines, shout, count, after), registry_of(lines, shout, count, after)
+    )
 
-    lines_given = {f"timed-{letter}" for letter in "abcdefghij"}
-    assert graph.run(text=",".join(sorted(lines_given))).outputs == {"result": 0}
+    assert graph.run(text=",".join(given)).outputs == {"result": 0}
 
 
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
