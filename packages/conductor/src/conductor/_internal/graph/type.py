@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
-from conductor._internal.base import Loc, NodePath, json_hash, place_text
+from conductor._internal.base import Loc, json_hash, place_text
 from conductor._internal.context import ContextValidator
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
@@ -47,6 +47,7 @@ from .describe import (
     innermost_series,
     input_source_of,
 )
+from .input import Edge
 from .node import (
     CompiledNode,
     CompiledSubgraphNode,
@@ -208,6 +209,15 @@ class Graph[C]:
         source = self.record.outputs[output]
         return self._nodes[source.node], source.output
 
+    def _edge_reading(self, output: str) -> Edge:
+        """Returns the edge that reads the whole of the graph output ``output``.
+
+        It's the ``edge_reading`` of the node behind the graph output, so its ``node`` names the function node that
+        returns the value, from this graph.
+        """
+        node, name = self._node_returning(output)
+        return node.edge_reading(name)
+
     def _output_field(self, output: str) -> Field:
         """Returns the graph output ``output`` as a field, for a subgraph node that uses this graph.
 
@@ -219,25 +229,16 @@ class Graph[C]:
         """
         node, name = self._node_returning(output)
         field = node.outputs[name]
-        group = self._group_of(output)
+        returning = node.edge_reading(name).node
+        # A node never needs a branch of its own to be called, so the one branch on the node that returns the
+        # output is the output's own group.
+        group = next((b for b in node.branches_required_for(name) if b.node == returning), None)
         hint = (
-            Annotated[field.hint, Param(exclusive_group=place_text(*group))]
+            Annotated[field.hint, Param(exclusive_group=place_text(group.node, group.group))]
             if group is not None
             else field.hint
         )
         return Field(output, hint, field.default, is_output=True)
-
-    def _group_of(self, output: str) -> tuple[NodePath, str] | None:
-        """Returns the exclusive group the graph output ``output`` is in, or ``None``.
-
-        The group is given as the path of the function node that chooses it, from this graph, and the group's name.
-        """
-        node, name = self._node_returning(output)
-        if isinstance(node, CompiledSubgraphNode):
-            inside = node.inner._group_of(name)
-            return None if inside is None else ((node.id, *inside[0]), inside[1])
-        group = node.outputs[name].param.exclusive_group
-        return None if group is None else ((node.id,), group)
 
     # -- what a run uses --------------------------------------------------------
 

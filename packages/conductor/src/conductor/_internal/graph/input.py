@@ -31,7 +31,7 @@ many places, and the run blueprint (``run/blueprint.py``) works out its inputs i
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, ClassVar, final
 
 from conductor._internal.base import NodePath, Source
@@ -85,6 +85,62 @@ class Edge:
         ``Series``, the loop over that ``Series`` is added at the end.
         """
         return (*self.loops, (self.node, self.output)) if self.per_item else self.loops
+
+    def from_outside(
+        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
+    ) -> Edge:
+        """Returns this edge of a subgraph's graph, named from the graph the subgraph node is in.
+
+        The subgraph node's path goes in front of ``node``, and the loops follow the subgraph node's own. Say
+        ``loud``'s graph has the edge from ``shout.result``, and ``loud`` is inside the loop over ``lines.result``.
+        From outside, the edge's ``node`` is ``("loud", "shout")`` and its ``loops`` are
+        ``((("lines",), "result"),)``.
+
+        ``wired_to`` stays as it is, since it names the edge in the graph it was drawn in.
+
+        Args:
+            subgraph_path: The subgraph node's path in the graph it is in.
+            subgraph_loops: The loops the subgraph node is in, named from that graph.
+        """
+        return replace(
+            self,
+            node=(*subgraph_path, *self.node),
+            loops=loops_from_outside(subgraph_path, subgraph_loops, self.loops),
+        )
+
+
+def loops_from_outside(
+    subgraph_path: NodePath,
+    subgraph_loops: tuple[tuple[NodePath, str], ...],
+    loops: tuple[tuple[NodePath, str], ...],
+) -> tuple[tuple[NodePath, str], ...]:
+    """Returns loops of a subgraph's graph, named from the graph the subgraph node is in.
+
+    They come after the subgraph node's own loops, and each list's node gets the subgraph node's path in front. Say
+    ``loud`` is inside the loop over ``lines.result``, and its graph has the loop over ``split.result``. From
+    outside, that's ``((("lines",), "result"), (("loud", "split"), "result"))``.
+
+    Args:
+        subgraph_path: The subgraph node's path in the graph it is in.
+        subgraph_loops: The loops the subgraph node is in, named from that graph.
+        loops: The loops as the subgraph's graph names them.
+    """
+    return (*subgraph_loops, *[_list_from_outside(subgraph_path, loop) for loop in loops])
+
+
+def _list_from_outside(
+    subgraph_path: NodePath, series: tuple[NodePath, str]
+) -> tuple[NodePath, str]:
+    """Returns a list of a subgraph's graph, named from the graph the subgraph node is in.
+
+    ``(("split",), "result")`` inside ``loud`` is ``(("loud", "split"), "result")`` from outside.
+
+    Args:
+        subgraph_path: The subgraph node's path in the graph it is in.
+        series: The list as the subgraph's graph names it: the path of the node that returns it, and the output.
+    """
+    node, output = series
+    return (*subgraph_path, *node), output
 
 
 # -- how an input gets its value ----------------------------------------------------------------

@@ -21,15 +21,15 @@ from __future__ import annotations
 
 import functools
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from conductor._internal.ask import AskValidator
-from conductor._internal.base import SKIPPED, NodePath, place_text, short_hash
+from conductor._internal.base import SKIPPED, NodePath, Source, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
 
-from .input import Input
+from .input import Edge, Input
 
 if TYPE_CHECKING:
     from .type import Graph
@@ -83,21 +83,26 @@ class _CompiledNodeBase:
     outputs: dict[str, Field]
     required_branches: frozenset[RequiredBranch]
 
-    def loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
-        """Returns the loops ``output`` has one value per item of, outermost first.
+    def edge_reading(self, output: str) -> Edge:
+        """Returns the edge that reads the whole of ``output``.
 
-        For a function node, these are just the loops the node is in. In the example,
-        ``shout.loops_around("result")`` is the loop over ``lines.result``.
+        Its ``node`` and ``output`` name the function node that returns the value, and the output there. Its
+        ``loops`` are the loops that function node is in. For a function node, that's the node itself and its own
+        loops. In the example, ``shout.edge_reading("result")`` has the ``node`` ``("shout",)`` and the loop over
+        ``lines.result``.
+
+        The ``node`` and ``output`` of ``lines.edge_reading("result")`` are ``("lines",)`` and ``"result"``. That's
+        also how the loop over that list is named.
         """
-        return self.loops
-
-    def returned_by(self, output: str) -> tuple[NodePath, str]:
-        """Returns the function node that returns ``output``, as a path from this graph, and the output's name there.
-
-        For a function node, that's the node itself and ``output``. In the example, ``lines.returned_by("result")``
-        is ``(("lines",), "result")``. That's also how the loop over that list is named.
-        """
-        return (self.id,), output
+        field = self.outputs[output]
+        return Edge(
+            Source(self.id, output),
+            (self.id,),
+            output,
+            self.loops,
+            field.type,
+            per_item=field.is_series,
+        )
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value.
@@ -231,7 +236,7 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     once per document, and ``shout`` once per line. So a node outside wired to ``e.shouted`` is called once per line
     of each document if it takes one ``str``, and once per document if it takes a ``Series[str]``.
 
-    ``outputs`` has the output as ``shout`` declares it (``str``), and ``loops_around`` names the two loops. Its
+    ``outputs`` has the output as ``shout`` declares it (``str``), and ``edge_reading`` names the two loops. Its
     description says it's a list (``is_series``) of ``str``, with one level of list per loop.
 
     Attributes:
@@ -242,32 +247,24 @@ class CompiledSubgraphNode(_CompiledNodeBase):
     definition: SubgraphDefinition
     inner: Graph[Any]
 
-    def loops_around(self, output: str) -> tuple[tuple[NodePath, str], ...]:
-        """Returns the loops ``output`` has one value per item of, outermost first.
+    def edge_reading(self, output: str) -> Edge:
+        """Returns the edge that reads the whole of ``output``.
 
-        These are the loops this node is in, followed by the loops inside the subgraph. For ``e`` above, which is
-        called once, ``loops_around("shouted")`` is ``((("e", "documents"), "result"), (("e", "lines"), "result"))``.
+        It's the edge that reads the graph output inside the subgraph, named from this graph
+        (``Edge.from_outside``). For ``e`` above, which is called once, ``edge_reading("shouted")`` has the
+        ``node`` ``("e", "shout")`` and the ``loops`` ``((("e", "documents"), "result"), (("e", "lines"),
+        "result"))``.
 
         A loop inside is named by the path of the node inside, from this graph, and its output. So two outputs
         returned in the same loop inside name the same loop. A node outside that reads both is then called once per
         item, with both values of that item.
-        """
-        source, output_inside = self.inner._node_returning(output)
-        inside = source.loops_around(output_inside)
-        return (*self.loops, *[((self.id, *node), name) for node, name in inside])
-
-    def returned_by(self, output: str) -> tuple[NodePath, str]:
-        """Returns the function node inside the subgraph that returns ``output``, as a path from this graph, and the
-        output's name there.
 
         Say the subgraph ``s`` is ``chars -> upper``, and its record declares ``chars.result`` as the graph output
-        ``parts``. Then ``s.returned_by("parts")`` is ``(("s", "chars"), "result")``. That's also how
-        ``loops_around`` names the loop over ``parts`` for ``upper``'s output. So a node outside that reads one item
-        of ``parts``, and ``upper``'s value for that item, is called once per item with both.
+        ``parts``. Then ``s.edge_reading("parts")`` has the ``node`` ``("s", "chars")`` and the ``output``
+        ``"result"``. That's also how ``upper``'s output names the loop over ``parts``.
         """
-        source, output_inside = self.inner._node_returning(output)
-        path, returned = source.returned_by(output_inside)
-        return (self.id, *path), returned
+        inner_edge = self.inner._edge_reading(output).from_outside((self.id,), self.loops)
+        return replace(inner_edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value.
@@ -304,17 +301,15 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """
         described = []
         for name, field in self.outputs.items():
-            loops = [
-                place_text(node[1:], output)
-                for node, output in self.loops_around(name)[len(self.loops) :]
-            ]
+            # The edge as the subgraph's own graph names it, since the description names the loops that way.
+            inner_edge = self.inner._edge_reading(name)
+            loops = [place_text(*loop) for loop in inner_edge.loops]
             if not loops:
                 described.append(field.description)
                 continue
             # an output that's a Series itself adds one more, innermost level: the list it returns
             if field.is_series:
-                node, output = self.returned_by(name)
-                loops.append(place_text(node[1:], output))
+                loops.append(place_text(inner_edge.node, inner_edge.output))
             described.append(
                 field.description.model_copy(update={"is_series": True, "loops": loops})
             )

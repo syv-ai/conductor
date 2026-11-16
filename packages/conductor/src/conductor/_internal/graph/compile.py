@@ -42,7 +42,7 @@ import heapq
 import logging
 import typing
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, TypeVar
 
 from pydantic import MISSING, JsonValue
@@ -371,7 +371,7 @@ class Compiler:
         (``line`` and ``result``), so an edge reads ``loud.result``. Each output keeps the field the node inside
         declares.
 
-        The compiled node works out the loops and branches each output depends on itself (``loops_around`` and
+        The compiled node works out the loops and branches each output depends on itself (``edge_reading`` and
         ``branches_required_for``). It answers as it would if the subgraph's nodes were drawn in this graph.
 
         A subgraph that contains itself is a problem. So is every problem of the subgraph's own graph, with this
@@ -837,13 +837,7 @@ class Compiler:
                 )
             )
             return None
-        return Edge(
-            source,
-            *node.returned_by(source.output),
-            node.loops_around(source.output),
-            read_type,
-            per_item=field.is_series,
-        )
+        return replace(node.edge_reading(source.output), wired_to=source, type=read_type)
 
     def _edge_order(self, edge: Edge) -> tuple[int, int, str]:
         """Returns where an edge goes among several into one input.
