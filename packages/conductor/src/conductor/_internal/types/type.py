@@ -313,6 +313,9 @@ class Type:
             return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
         if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "record"
             return "record", "Record", ()
+        # a value that is no type at all, like 5 or [int], which may not even be hashable
+        if not isinstance(origin, type):
+            raise NodeDeclarationError(declaration_problems.type_not_supported(type=repr(one)))
         own_id, title = NAMES[origin] if origin in NAMES else _host_name(origin)
         own = () if origin in (Any, type(None)) else (origin,)
         if all(
@@ -340,6 +343,10 @@ class Type:
                 (``type_not_supported``).
         """
         bare, param, others = self._parts
+        if isinstance(bare, Mapping):
+            # pydantic reads a dict as a core schema, so a dict given as a type, like {"a": int}, is named first, and
+            # naming refuses it as no type at all
+            self.id  # noqa: B018
         pydantic_fields = [
             other for other in others if isinstance(other, FieldInfo)
         ]  # like Annotated[int, Field(ge=0)], here or on a list's item
@@ -615,18 +622,15 @@ class Type:
             return one is other
 
 
-def _host_name(cls: Any) -> tuple[str, str]:
+def _host_name(cls: type) -> tuple[str, str]:
     """Returns the id and title a host's class declared with ``@host_type``.
 
     For a generic pydantic model ``Box``, pydantic makes a class ``Box[int]``. Its id is ``box[int]``, and its
     title is ``Box``'s.
 
     Raises:
-        NodeDeclarationError: ``type_not_supported`` if ``cls`` isn't a class or a hint at all, like ``5`` or
-            ``"str"``. ``type_not_named`` if the class has no declaration.
+        NodeDeclarationError: ``type_not_named`` if the class has no declaration.
     """
-    if not isinstance(cls, type):
-        raise NodeDeclarationError(declaration_problems.type_not_supported(type=repr(cls)))
     generic = vars(cls).get("__pydantic_generic_metadata__")
     if generic is not None and generic["origin"] is not None:
         declared = declaration_of(generic["origin"])

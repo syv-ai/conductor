@@ -1369,9 +1369,13 @@ def test_a_field_a_hook_declares_wrong_keeps_the_declarations_code_and_never_its
     assert "secret-default" not in problem.model_dump_json() and "'count'" in problem.msg
 
 
-@pytest.mark.parametrize("not_a_type", [5, "str", object()], ids=["an-int", "a-str", "an-instance"])
+@pytest.mark.parametrize(
+    "not_a_type",
+    [5, "str", object(), [int], {"a": int}, {int}],
+    ids=["an-int", "a-str", "an-instance", "a-list", "a-dict", "a-set"],
+)
 def test_a_hook_that_gives_a_field_no_type_at_all_fails_with_the_declarations_code(not_a_type: Any):
-    """A hook's value that is no type, like ``5``, is ``compute_hook_failed`` with ``type_not_supported``.
+    """A hook's value that is no type, like ``5`` or ``[int]``, is ``compute_hook_failed`` with ``type_not_supported``.
 
     It is the code ``@node`` gives the same value in a signature, and compiling reports it rather than raising.
     """
@@ -1379,9 +1383,13 @@ def test_a_hook_that_gives_a_field_no_type_at_all_fails_with_the_declarations_co
     assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "type_not_supported")
 
 
-@pytest.mark.parametrize("not_a_type", [5, object()], ids=["an-int", "an-instance"])
+@pytest.mark.parametrize(
+    "not_a_type",
+    [5, object(), [int], {"a": int}, {int}],
+    ids=["an-int", "an-instance", "a-list", "a-dict", "a-set"],
+)
 def test_a_signature_whose_type_is_no_type_at_all_is_refused_as_not_supported(not_a_type: Any):
-    """``def f() -> 5`` is ``type_not_supported``, a ``NodeDeclarationError``, not a bare ``TypeError``.
+    """``def f() -> 5`` or ``-> [int]`` is ``type_not_supported``, a ``NodeDeclarationError``, not a bare ``TypeError``.
 
     A string in a signature is a forward reference, which ``@node`` resolves, so it is left out here.
     """
