@@ -328,6 +328,29 @@ def node_not_in_graph(node_id: str, /, *, nodes: list[str]) -> str:
 
 
 @CALL_PROBLEMS.problem()
+def hook_outputs_not_named(node_id: str, /) -> str:
+    """``make_graph`` is given a node whose ``compute_outputs`` hook gives its outputs, and nothing reads them.
+
+    ``make_graph`` makes each output that no edge reads a graph output. A hook's outputs aren't known until the
+    graph is compiled, so ``make_graph`` can't make them graph outputs by itself. Without this problem, the graph
+    would return nothing at all.
+
+    To fix it, name the outputs the graph returns with ``outputs=``, like ``outputs={"a": "pick.a"}``. Or wire them
+    into another node with ``edges=``.
+
+    Args:
+        node_id: The node with the hook.
+
+    Example:
+        refused(lambda: make_graph(pick, constants={"pick.names": "a,b"}))
+    """
+    return (
+        f"'{node_id}' gets its outputs from its compute_outputs hook when the graph is compiled, so make_graph can't make them graph outputs by itself. "
+        "Name the ones the graph returns with make_graph's outputs=."
+    )
+
+
+@CALL_PROBLEMS.problem()
 def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: list[str]) -> str:
     """``make_graph`` is given no edges, and it can't wire one of its nodes to the node before it.
 
@@ -368,7 +391,7 @@ def not_a_chain_constant_only(node_id: str, /, *, before: str, inputs: list[str]
         inputs: The required inputs of ``node_id`` that only take a constant and have none.
 
     Example:
-        refused(lambda: make_graph(upper, pick))
+        refused(lambda: make_graph(upper, pick, outputs={"a": "pick.a"}))
     """
     return (
         f"make_graph can't wire '{node_id}' after '{before}' by itself, because only a constant can give {comma_separated(inputs)} a value. "

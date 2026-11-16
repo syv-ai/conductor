@@ -69,7 +69,8 @@ def make_graph(
     ``inputs={"line": ["strip.line", "shout.line"]}`` for one graph input that feeds two inputs, or
     ``outputs={"long": "a.result"}``. Two graph inputs or outputs that would end up with one name are refused,
     unless ``inputs`` joins them. Inputs a hook adds and outputs a hook returns aren't known until the graph is
-    compiled, so a graph input or output on one must be named in ``inputs`` or ``outputs``.
+    compiled, so a graph input or output on one must be named in ``inputs`` or ``outputs``. A node with a
+    ``compute_outputs`` hook that no edge leaves, and none of whose outputs ``outputs`` names, is refused.
 
     ``make_graph`` never wires a ``constant_only`` input or makes it a graph input by itself. If ``edges``,
     ``defaults`` or ``inputs`` do, they're written as given, and compiling the record reports
@@ -89,6 +90,8 @@ def make_graph(
             ``invalid_record``: the record itself is refused. For example, an input is given both a value and an
             edge, an edge is written twice, one id is given to two nodes, or a name isn't a valid name.
             ``not_a_chain``: there are no ``edges``, and the nodes can't be chained.
+            ``hook_outputs_not_named``: no edge leaves a node whose ``compute_outputs`` hook gives its outputs,
+            and ``outputs`` names none of them.
         TypeError: An argument isn't of the type its annotation says, such as ``outputs=None``. The message names
             the argument.
     """
@@ -335,6 +338,9 @@ def _graph_outputs(
     First come the ones ``named`` gives. Then every output of a node that no edge leaves (isn't in ``led_out``),
     under the output's own name.
 
+    A node whose ``compute_outputs`` hook gives its outputs has none until the graph is compiled. So when no edge
+    leaves it and ``named`` names none of its outputs, ``hook_outputs_not_named`` goes to ``problems``.
+
     If two of those automatic graph outputs share a name, or one shares a name with an output in ``named``,
     ``graph_outputs_share_a_name`` goes to ``problems``.
     """
@@ -343,6 +349,14 @@ def _graph_outputs(
         place = _place(text, ("outputs", name), definitions, problems, field=True)
         if place is not None:
             declared[name] = Source(*place)
+    named_nodes = {source.node for source in declared.values()}
+    for node_id, definition in definitions.items():
+        if (
+            isinstance(definition, FunctionDefinition)
+            and definition.compute_outputs is not None
+            and node_id not in led_out | named_nodes
+        ):
+            problems.append(call_problems.hook_outputs_not_named(node_id))
     taken = {(source.node, source.output) for source in declared.values()}
     leaves = [
         (node_id, output)

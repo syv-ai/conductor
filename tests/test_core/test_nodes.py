@@ -53,13 +53,16 @@ def registry_of(*definitions):
     return registry
 
 
-def compiled_graph(*definitions, record=None, constants=None):
+def compiled_graph(*definitions, record=None, constants=None, outputs=None):
     """Compiles a graph against a registry that has only ``definitions``.
 
-    The graph is ``record`` when it's given. Otherwise it's ``definitions`` joined in a chain.
+    The graph is ``record`` when it's given. Otherwise it's ``definitions`` joined in a chain, with ``outputs`` named
+    as ``make_graph`` names them. A last node whose hook gives its outputs needs one named there.
     """
     return Graph.compile(
-        record if record is not None else make_graph(*definitions, constants=constants or {}),
+        record
+        if record is not None
+        else make_graph(*definitions, constants=constants or {}, outputs=outputs or {}),
         registry_of(*definitions),
     )
 
@@ -995,9 +998,12 @@ def test_a_hook_gets_the_constant_or_else_the_declared_default():
     def fan(n: int = 2) -> dict:
         return {f"o{i}": i for i in range(n)}
 
-    assert compiled_graph(fan).describe().nodes["fan"].outputs[1].name == "o1"
+    assert (
+        compiled_graph(fan, outputs={"o0": "fan.o0"}).describe().nodes["fan"].outputs[1].name
+        == "o1"
+    )
     assert seen == [2]
-    compiled_graph(fan, constants={"fan.n": 3})
+    compiled_graph(fan, constants={"fan.n": 3}, outputs={"o0": "fan.o0"})
     assert seen == [2, 3]
 
 
@@ -1012,7 +1018,7 @@ def test_a_hook_is_not_called_when_a_value_it_needs_has_none():
     def fan(n: int) -> dict:
         return {"result": n}
 
-    graph = compiled_graph(fan)
+    graph = compiled_graph(fan, outputs={"result": "fan.result"})
     assert (
         seen == []
         and codes(graph) == ["input_has_no_value"]
@@ -1074,7 +1080,7 @@ def test_an_output_a_hook_declares_may_be_none_when_its_type_says_so():
     def maybe(x: str) -> dict:
         return {"result": None}
 
-    graph = compiled_graph(maybe)
+    graph = compiled_graph(maybe, outputs={"result": "maybe.result"})
     output = graph.describe().nodes["maybe"].outputs[0]
     assert output.type == "int" and {"type": "null"} in output.json_schema["anyOf"]
     assert graph.run(x="a").results["maybe"]["result"] is None
@@ -1123,8 +1129,8 @@ def test_a_hook_gets_any_for_an_unwired_any_input_even_with_a_constant():
     def f(x: Any) -> dict:
         return {"result": 1}
 
-    compiled_graph(f)
-    compiled_graph(f, constants={"f.x": "typed"})
+    compiled_graph(f, outputs={"result": "f.result"})
+    compiled_graph(f, constants={"f.x": "typed"}, outputs={"result": "f.result"})
     assert seen == [Any, Any]
 
 
@@ -1133,7 +1139,13 @@ def test_a_node_whose_hook_gives_no_outputs_leaves_the_graph_runnable():
     def empty(x: str) -> dict:
         return {}
 
-    graph = compiled_graph(empty)
+    # make_graph refuses a node whose hook outputs nothing names, so the record is written out
+    graph = compiled_graph(
+        empty,
+        record=GraphRecord.model_validate(
+            {"nodes": {"empty": {"node": "empty", "inputs": {"x": {"graph_input": "x"}}}}}
+        ),
+    )
     assert graph.problems == [] and graph.outputs == [] and graph.run(x="a").status == "complete"
 
 
@@ -1213,7 +1225,8 @@ def test_a_series_of_tables_from_a_hook_compiles_with_no_problems():
                     title="H",
                     description="For a test.",
                     compute_outputs=lambda: {"result": Series[Table]},
-                )(h)
+                )(h),
+                outputs={"result": "h.result"},
             )
         )
         == []
@@ -1233,7 +1246,8 @@ def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_pro
     for hint in (Sheet, Series[Sheet]):
         assert codes(
             compiled_graph(
-                node("h", title="H", description="For a test.", compute_outputs=giving(hint))(h)
+                node("h", title="H", description="For a test.", compute_outputs=giving(hint))(h),
+                outputs={"result": "h.result"},
             )
         ) == ["compute_hook_failed"], hint
 
@@ -1244,7 +1258,10 @@ def _computing(hook: Any) -> Any:
     def h(x: str = "a") -> dict:
         return {}
 
-    return compiled_graph(node("h", title="H", description="For a test.", compute_outputs=hook)(h))
+    return compiled_graph(
+        node("h", title="H", description="For a test.", compute_outputs=hook)(h),
+        outputs={"result": "h.result"},
+    )
 
 
 @pytest.mark.parametrize("returned", [None, ["result"], "result"])
@@ -1597,7 +1614,7 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
     def look(rows: Table) -> dict:
         return {"result": ",".join(rows.columns)}
 
-    graph = compiled_graph(read, look)
+    graph = compiled_graph(read, look, outputs={"result": "look.result"})
     row_type = typing.get_args(seen[0])[
         0
     ]  # in Table[R], R is a TypedDict of the columns the input gets

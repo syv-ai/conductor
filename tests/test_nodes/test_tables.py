@@ -112,10 +112,19 @@ for _definition in (
     REGISTRY.add(_definition)
 
 
+#: ``table-collect`` works out its output when the graph is compiled, so ``make_graph`` is told it's the graph's.
+COLLECTED = {"result": "table-collect.result"}
+
+
 def compile_graph(
-    *nodes: Any, edges: list[tuple[str, str]], constants: dict[str, Any] | None = None
+    *nodes: Any,
+    edges: list[tuple[str, str]],
+    constants: dict[str, Any] | None = None,
+    outputs: dict[str, str] | None = None,
 ):
-    return Graph.compile(make_graph(*nodes, edges=edges, constants=constants or {}), REGISTRY)
+    return Graph.compile(
+        make_graph(*nodes, edges=edges, constants=constants or {}, outputs=outputs or {}), REGISTRY
+    )
 
 
 def output(graph, node_id: str):
@@ -159,6 +168,7 @@ def test_a_node_reading_a_field_of_a_split_record_is_not_called_where_the_field_
         series.split,
         send,
         tables.collect,
+        outputs=COLLECTED,
         edges=[
             ("contacts.result", "series-split.value"),
             ("series-split.result.email", "send.email"),
@@ -342,6 +352,7 @@ def test_collect_types_its_table_by_the_records_and_what_arrives_on_each_new_col
         send,
         sentence,
         tables.collect,
+        outputs=COLLECTED,
         edges=[
             ("contacts.result", "series-split.value"),
             ("series-split.result.email", "send.email"),
@@ -382,6 +393,7 @@ def test_collect_takes_the_records_as_a_table_and_keeps_its_columns_as_they_are(
             series.split,
             shout,
             tables.collect,
+            outputs=COLLECTED,
             edges=[
                 ("small-numbers.result", "series-split.value"),
                 ("series-split.result.name", "shout.text"),
@@ -409,6 +421,7 @@ def test_collect_given_a_whole_table_types_its_result_by_that_tables_columns():
         contacts,
         sentence,
         tables.collect,
+        outputs=COLLECTED,
         edges=[
             ("contacts.result", "table-collect.records"),
             ("sentence.result", "table-collect.team"),
@@ -429,6 +442,7 @@ def test_collect_refuses_a_new_column_the_records_already_have_naming_it():
         contacts,
         series.split,
         tables.collect,
+        outputs=COLLECTED,
         edges=[
             ("contacts.result", "series-split.value"),
             ("series-split.result", "table-collect.records"),
@@ -474,7 +488,9 @@ def test_collect_refuses_a_new_column_that_a_table_of_any_columns_already_has_wh
     A bare ``Table`` declares no columns, so its column names are only known once the node runs. The graph compiles
     without a problem, and the run fails.
     """
-    graph = compile_graph(*nodes, tables.collect, edges=edges, constants=constants)
+    graph = compile_graph(
+        *nodes, tables.collect, outputs=COLLECTED, edges=edges, constants=constants
+    )
     assert graph.problems == []
     cause = graph.run().cause
     assert (cause.type, cause.loc, cause.ctx) == (
@@ -487,6 +503,7 @@ def test_collect_refuses_a_new_column_that_a_table_of_any_columns_already_has_wh
 def test_collect_refuses_a_column_named_twice():
     graph = compile_graph(
         tables.collect,
+        outputs=COLLECTED,
         edges=[],
         constants={"table-collect.columns": ["team"], "table-collect.constant_columns": ["team"]},
     )
@@ -530,6 +547,7 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
             series.split,
             words,
             tables.collect,
+            outputs=COLLECTED,
             edges=[
                 ("people.result", "series-split.value"),
                 ("series-split.result", "table-collect.records"),
@@ -572,6 +590,7 @@ def test_collect_refuses_a_column_wired_from_a_value_returned_once_and_takes_it_
                 series.split,
                 sentence,
                 tables.collect,
+                outputs=COLLECTED,
                 edges=[
                     ("two-people.result", "series-split.value"),
                     ("series-split.result", "table-collect.records"),
@@ -626,6 +645,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
         series.split,
         shout,
         tables.collect,
+        outputs=COLLECTED,
         edges=[
             ("csv.result", "series-split.value"),
             ("series-split.result.name", "shout.text"),
@@ -648,7 +668,7 @@ def test_collect_of_records_of_unknown_columns_is_a_table_of_any_columns():
 
 def test_collect_takes_records_only():
     (problem,) = compile_graph(
-        words, tables.collect, edges=[("words.result", "table-collect.records")]
+        words, tables.collect, outputs=COLLECTED, edges=[("words.result", "table-collect.records")]
     ).problems
     assert (problem.type, problem.loc, problem.ctx["got"], problem.ctx["expected"]) == (
         "type_mismatch",

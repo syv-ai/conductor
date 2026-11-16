@@ -217,7 +217,11 @@ def test_a_switch_whose_cases_name_other_or_one_case_twice_is_a_problem_when_com
     cases: list[str], error: str
 ) -> None:
     graph = Graph.compile(
-        make_graph(control.switch, constants={"control-switch.cases": cases}, outputs={}),
+        make_graph(
+            control.switch,
+            constants={"control-switch.cases": cases},
+            outputs={"a": "control-switch.a"},
+        ),
         conductor_nodes.registry,
     )
 

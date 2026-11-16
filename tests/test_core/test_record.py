@@ -994,7 +994,7 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
     def blank(width: int) -> dict[str, Any]:
         return {"result": " " * width}
 
-    record = make_graph(_hello, pad)
+    record = make_graph(_hello, pad, outputs={"padded": "pad.result"})
 
     assert record.nodes["pad"].inputs == {"text": InputEntry(sources=(Source("hello", "result"),))}
     graph = Graph.compile(record, registry_of(_hello, pad))
@@ -1002,7 +1002,7 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
         ("input_has_no_value", ("pad", "width"))
     ]
     with pytest.raises(InvalidCallError) as refused:
-        make_graph(_hello, blank)
+        make_graph(_hello, blank, outputs={"blank": "blank.result"})
     assert [(p.type, p.loc, p.ctx) for p in refused.value.problems] == [
         (
             "not_a_chain",
@@ -1019,6 +1019,30 @@ def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says
         "make_graph can't wire 'blank' after 'hello' by itself, because only a constant can give width a value. "
         "Give width a constant, and pass edges= to make_graph."
     )
+
+
+def test_make_graph_refuses_a_node_whose_hook_gives_its_outputs_when_no_edge_or_outputs_reads_them():
+    """A hook's outputs are known only when the graph is compiled, so ``make_graph`` can't make them graph outputs.
+
+    Without ``outputs=``, the graph would return nothing at all, so ``make_graph`` says so at the node. Named in
+    ``outputs=``, or read by an edge, the hook's outputs are used as given.
+    """
+
+    def by_names(names: str) -> dict[str, Any]:
+        return {name: str for name in names.split(",")}
+
+    @node("pick", title="Pick", description="For a test.", compute_outputs=by_names)
+    def pick(names: str) -> dict[str, Any]:
+        return {name: name.upper() for name in names.split(",")}
+
+    with pytest.raises(InvalidCallError, match="outputs=") as refused:
+        make_graph(pick, constants={"pick.names": "a,b"})
+    assert [(p.type, p.loc) for p in refused.value.problems] == [
+        ("hook_outputs_not_named", ("pick",))
+    ]
+    named = make_graph(pick, constants={"pick.names": "a,b"}, outputs={"a": "pick.a"})
+    assert Graph.compile(named, registry_of(pick)).run().outputs == {"a": "A"}
+    make_graph(pick, upper, constants={"pick.names": "a"}, edges=[("pick.a", "upper.text")])
 
 
 def test_make_graph_refuses_a_place_on_a_node_it_was_not_given():
