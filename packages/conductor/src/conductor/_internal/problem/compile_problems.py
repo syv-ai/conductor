@@ -473,7 +473,7 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
 
     An input can take several edges only if at most one of them has a value on each call. That is the case when they
     come from different branches of one node, or from nodes downstream of them. A branch is an output whose default is
-    ``SKIPPED``, and a call gives a value to at most one branch of a node. A ``Series`` input follows the same rule.
+    ``SKIPPED`` (the reference has the rule, under "Branches"). A ``Series`` input follows the same rule.
 
     To fix it, add a node with an input for each edge, and wire them there. When the edges come from outputs of one
     function node, and a call gives a value to only one of them, give those outputs the default ``SKIPPED`` instead:

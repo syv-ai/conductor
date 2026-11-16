@@ -95,8 +95,7 @@ class Done:
 class Skipped:
     """The function wasn't called, because the node is downstream of a skipped branch.
 
-    A branch is an output whose default is ``SKIPPED``. On each call, the node gives a value to at most one of its
-    branches, and the rest are ``SKIPPED``. Say ``route(line)`` has the branches ``short`` and ``long``, and
+    A branch is an output whose default is ``SKIPPED`` (the reference has the rule, under "Branches"). Say ``route(line)`` has the branches ``short`` and ``long``, and
     ``shout`` is wired to ``route.long``. For the line ``"a"``, ``route`` gives ``short`` the value, so that call
     of ``shout`` is ``Skipped({"result": SKIPPED})``. So is the call for that line of every node wired to
     ``shout.result``.

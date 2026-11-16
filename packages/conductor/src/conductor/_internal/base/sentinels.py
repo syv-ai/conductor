@@ -1,10 +1,12 @@
 """``REQUIRED`` and ``SKIPPED``, two special values that each mean a different kind of "no value".
 
 ``REQUIRED`` is the default of an input that has no default, so its value has to come from somewhere else.
-``SKIPPED`` means a way not taken. An output whose default is ``SKIPPED`` is a branch, and a call gives a value to
-at most one branch of a node. Say a node ``route(line)`` has two branches, ``short`` and ``long``. For the line
+``SKIPPED`` means a way not taken. An output whose default is ``SKIPPED`` is a branch; the reference has the rule
+branches follow, under "Branches". Say a node ``route(line)`` has two branches, ``short`` and ``long``. For the line
 ``"a"`` it returns ``long=SKIPPED``, and the nodes wired to ``long`` are skipped for that line. ``None`` is
-different: it means no value. An output that may be missing beside other outputs is typed ``str | None``.
+different: it means no value, but a branch returned as ``None`` was still taken, so it counts as given beside
+another branch with a value. An output that may be missing beside other outputs is typed ``str | None``, not a
+branch.
 
 Both are made with ``typing_extensions.sentinel`` (PEP 661), like pydantic's ``MISSING``. Each prints as its name,
 stays the same object when it is copied or pickled, and is tested with ``is``.

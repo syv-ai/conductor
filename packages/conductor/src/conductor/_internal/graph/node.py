@@ -38,12 +38,11 @@ if TYPE_CHECKING:
 class RequiredBranch(NamedTuple):
     """A branch that must be taken for a node to be called, or for an output to have a value.
 
-    A branch is an output whose default is ``SKIPPED``, and a call gives a value to at most one branch of a node.
-    Say ``route`` has the branches ``long`` and ``short``, and ``shout`` is wired to ``route.long``. Then ``shout``
+    A branch is an output whose default is ``SKIPPED`` (the reference has the rule, under "Branches"). Say ``route`` has the branches ``long`` and ``short``, and ``shout`` is wired to ``route.long``. Then ``shout``
     is called only where ``route`` gave ``long`` a value, so it needs ``RequiredBranch("route", "long", depth=0)``.
 
     The compiler uses these to allow two edges into one input. That's fine when the two need different branches of
-    one node, since a call then gets a value from at most one of them.
+    one node, since those never both have a value.
 
     Attributes:
         node: The id of the function node the branch belongs to. A subgraph node has no branches.

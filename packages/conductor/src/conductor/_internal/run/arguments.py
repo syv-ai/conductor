@@ -182,7 +182,7 @@ class ResultReader:
         """Returns what the edges into one input give for the call at ``item_indexes``.
 
         With one edge, that is what ``read_output`` reads from the output the edge comes from. Several edges into one
-        input come from different branches of one choice, so for one call at most one of them has a value. When the
+        input come from different branches of one node, so for one call no two of them have a value. When the
         reader is asked about any item of a loop, several may have one.
 
         Returns:

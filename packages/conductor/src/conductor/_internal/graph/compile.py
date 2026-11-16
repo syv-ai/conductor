@@ -863,7 +863,7 @@ class Compiler:
         """Finds the inputs whose edges can't be used together, and adds a problem for each.
 
         Several edges into one input must never both have a value. Each pair has to need different branches of one
-        node, so a call gets a value from at most one of them. Otherwise it's ``several_edges_into_one_input``.
+        node, so they never both have a value. Otherwise it's ``several_edges_into_one_input``.
         They must also be in the same loops, so the one with the value is found at the same item indexes. Otherwise
         it's ``branches_from_different_loops``.
 
@@ -1173,8 +1173,7 @@ def _field_type(record: Type, name: str) -> Type | None:
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
     """Whether two sets of required branches can never both be taken.
 
-    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node. A call gives a
-    value to at most one branch of a node.
+    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node.
     """
     return any(x.node == y.node and x.output != y.output for x in a for y in b)
 

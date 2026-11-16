@@ -1,14 +1,12 @@
-"""Branches: the outputs of a node whose default is ``SKIPPED``. A call gives a value to at most one of them.
+"""Branches: the outputs of a node whose default is ``SKIPPED``, and the one rule they follow.
 
-Say ``route`` sends a line on to ``long`` or to ``short``, but never both. Its author gives both outputs the
-default ``SKIPPED``, and returns a value on one of them. The other stays ``SKIPPED``, and what is wired to it is
-skipped. Since a call never gives two branches of one node a value, both may be wired into one input.
+The rule is written in the reference, under "Branches" (``python -m conductor.about the-node-contract``). Say
+``route`` sends a line on to ``long`` or to ``short``. Its author gives both outputs the default ``SKIPPED``, and
+returns a value on one of them. Returning a value on both breaks the rule.
 
-An output that may be missing but may also have a value beside another output isn't a branch. It is typed
-``str | None``, and gets ``None`` when it has no value.
-
-The rule is checked in two places. ``ReturnValidator`` checks what a node returns, and ``AnswerValidator`` checks
-a person's answer to a node that asked. Both use the function here.
+The rule is checked in three places. ``ReturnValidator`` checks what a node returns, ``AnswerValidator`` checks
+a person's answer to a node that asked, and ``AskValidator`` checks the defaults an ``Ask`` fills an answer in with.
+All three use the function here.
 """
 
 from __future__ import annotations

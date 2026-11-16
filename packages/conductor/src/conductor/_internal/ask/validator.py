@@ -115,7 +115,7 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     ) from None
         if ask.default is not REQUIRED:
             proposed = self._by_output(ask.default, "default")
-            # The defaults fill an answer in, so they give a value to at most one branch, as an answer does.
+            # The defaults fill an answer in, so they are held to the branch rule an answer is.
             if len(filled := branches_given(outputs, proposed)) > 1:
                 reason = f"the default fills {comma_separated(filled)}, but they default to SKIPPED, so they are branches of one node"
                 raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
@@ -254,7 +254,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
 
         A question left out of the answer gets its default. With no default, it is a skipped branch if it isn't
         required. Otherwise leaving it out is a fault. A branch left out is skipped, never given its default, when
-        the answer gives another branch a value: a call gives a value to at most one branch.
+        the answer gives another branch a value.
 
         Returns:
             The outputs read, by name, and the faults. Each fault is ``(question, reason)``. ``question`` is

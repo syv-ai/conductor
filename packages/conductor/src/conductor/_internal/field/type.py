@@ -91,8 +91,7 @@ class Field:
     def is_branch(self) -> bool:
         """Whether it is a branch: an output whose default is ``SKIPPED``.
 
-        A call gives a value to at most one branch of a node. Every other branch is skipped on that call, and so is
-        what is wired to it.
+        The rule branches follow is in the reference, under "Branches".
         """
         return self.default is SKIPPED
 

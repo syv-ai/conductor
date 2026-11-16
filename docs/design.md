@@ -225,11 +225,12 @@ effects, would be worse.
 Each spelling says one thing: `Series[X]` leaves `None` items out, `Series[X | None]` keeps them, and `Series[X] | None`
 is a list that may itself be `None`.
 
-`SKIPPED` is a skipped branch, not a `None`: a way not taken, where `None` is no value. It skips the nodes
+`SKIPPED` is a skipped branch, not a `None`: a way not taken, where `None` is no value. A branch returned as `None`
+was taken, so it counts as given beside another branch with a value. `SKIPPED` skips the nodes
 downstream, for one item inside a loop or altogether outside one. A skip wins over a `None` or a fault on another
 input.
 
-A branch is declared by its default alone. A call gives a value to at most one branch of a node, which is what lets
+A branch is declared by its default alone. That at most one branch of a node has a value on a call is what lets
 branches of one node share an input. A named group of outputs was rejected: its name meant nothing outside the
 node, and an output with a `SKIPPED` default and no group looked like a branch but couldn't share an input. **Worth
 questioning:** an output that may be missing beside another one can't default to `SKIPPED`. It is `X | None`, and a

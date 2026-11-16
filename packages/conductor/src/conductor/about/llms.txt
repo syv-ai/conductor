@@ -119,6 +119,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - A call gives a value to at most one branch of a node. The others are skipped, and so is what is wired to them. Two branches with a value are `invalid_output`.
 - So branches of one node may be wired into one input ("Several edges into one input").
 - `SKIPPED` means a way not taken, and `None` means no value. An output that may be missing beside other outputs isn't a branch: type it `X | None`, and return `None`. `SKIPPED` on an output that isn't a branch is `invalid_output`.
+- A branch typed `X | None` and returned as `None` was taken: it counts as given, so `None` on one branch beside a value on another is two branches with a value.
 - A call that gives no branch a value skips them all. `return SKIPPED` skips every output, branches or not.
 - A node has one set of branches. Two independent ways to go, such as keep or drop and left or right, are two nodes.
 
@@ -606,7 +607,7 @@ A `Table` input collects records the same way.
 
 **Several edges into one input** must never both have a value, for a `Series` input as for any other.
 
-- Each must be on its own branch of one node, or downstream of one. A call gives a value to at most one branch of a node, so it gets at most one. Otherwise it is `several_edges_into_one_input`.
+- Each must be on its own branch of one function node, or downstream of one ("Branches"), so no two have a value on one call. Otherwise it is `several_edges_into_one_input`.
 - They must be inside the same loops, or they are `branches_from_different_loops`.
 - Different branches into one `Series` input are collected as one list, in item order.
 - Whole tables on different branches into one `Table` input give the one whose branch has a value.
