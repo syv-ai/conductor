@@ -402,6 +402,9 @@ What changes in how you work, before the name-by-name tables:
 - **A node's versions are one read-only mapping.** `definition.versions` is the node at each of its versions, by version number, newest first: `definition.versions[1]` is version 1, `list(definition.versions)` the numbers, and `1 in definition.versions` asks. A version it doesn't have is a plain `KeyError`, and writing into it a `TypeError`.
 - **`run.answer({})` changes nothing.** An empty mapping answers no call, so the run is returned as it is. It
   made a `cancelled` or `timed_out` run `waiting` or `ready`, as an answer to a call does.
+- **A saved run is held to each output's type as a node's return is.** `Run.from_json` refuses a `null` item in a
+  `Series[str]` that `skipped_items` doesn't list (`saved_run_unreadable` at `outcomes.<node>`). It read it back as a
+  `None` item, though a node that returns such a list fails with `invalid_output`.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

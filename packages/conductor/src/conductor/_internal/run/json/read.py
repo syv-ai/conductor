@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from conductor._internal.base import SKIPPED, ItemIndexes, NodePath, parse_node_path, place_text
 from conductor._internal.graph import CompiledFunctionNode, Graph
 from conductor._internal.problem import InvalidCallError, call_problems, value_free_errors
+from conductor._internal.series import SeriesItems
 
 from ..blueprint import BlueprintFunctionNode
 from ..outcome import Done, NoneInput, Outcome, Skipped, Unanswered
@@ -166,20 +167,13 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
 
     Raises:
         ValueError: An output's list isn't as long as ``states``. Or a done call has ``null`` for an output whose
-            type takes no ``None``, and ``skipped`` doesn't list it. Or ``skipped``, ``skipped_items``,
-            ``questions`` or ``not_called_because`` names a call that doesn't exist or can't have it.
+            type takes no ``None``, or for an item whose type takes none, and ``skipped`` or ``skipped_items``
+            doesn't list it. Or ``skipped``, ``skipped_items``, ``questions`` or ``not_called_because`` names a
+            call that doesn't exist or can't have it.
     """
     states, values_by_output = saved.states, saved.outputs
     if any(len(values) != len(states) for values in values_by_output.values()):
         raise ValueError("the list of an output is not as long as 'states'")
-    for name, values in values_by_output.items():
-        if not node.outputs[name].whole.optional:
-            skipped_calls = set(saved.skipped.get(name, ()))
-            for call_number, (state, value) in enumerate(zip(states, values, strict=True)):
-                if state == SAVED_DONE and value is None and call_number not in skipped_calls:
-                    raise ValueError(
-                        f"call {call_number} is done and has null for '{name}', whose type takes no None"
-                    )
     try:
         for name, call_numbers in saved.skipped.items():
             for call_number in call_numbers:
@@ -216,7 +210,41 @@ def outcomes_from_saved(node: CompiledFunctionNode, saved: SavedOutcomes) -> lis
     ):  # a call number past the end of the lists, or a call of another kind
         message = "'skipped', 'skipped_items', 'questions' or 'not_called_because' names a call that does not exist or cannot have it"
         raise ValueError(message) from None
+    _refuse_null_where_none_is_refused(node, states, values_by_output)
     return outcomes
+
+
+def _refuse_null_where_none_is_refused(
+    node: CompiledFunctionNode, states: list[Any], values_by_output: dict[str, list[Any]]
+) -> None:
+    """Refuses a ``null`` in a done call's output where the output's type takes no ``None``.
+
+    A saved run writes ``SKIPPED`` as ``null``, so its codec takes ``null`` for every output and every item of a
+    ``Series``. Once ``skipped`` and ``skipped_items`` have put ``SKIPPED`` back, a ``None`` left over is one the
+    node returned. A node that returned it would have failed with ``invalid_output``, so a save is refused for it
+    too. Say ``split`` returns ``Series[str]``, and its saved ``["a", null]`` lists no skipped item: it is refused.
+
+    Raises:
+        ValueError: A done call has ``None`` for an output, or for an item of a ``Series`` output, whose type takes
+            no ``None``.
+    """
+    for name, values in values_by_output.items():
+        field = node.outputs[name]
+        for call_number, (state, value) in enumerate(zip(states, values, strict=True)):
+            if state != SAVED_DONE:
+                continue
+            if value is None and not field.whole.optional:
+                raise ValueError(
+                    f"call {call_number} is done and has null for '{name}', whose type takes no None"
+                )
+            if (
+                type(value) is SeriesItems
+                and not field.type.optional
+                and any(item is None for item in value)
+            ):
+                raise ValueError(
+                    f"call {call_number} is done and has null for an item of '{name}', whose items take no None"
+                )
 
 
 def add_reusable_from_saved(

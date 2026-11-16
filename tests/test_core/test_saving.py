@@ -1199,6 +1199,21 @@ def test_a_series_saved_as_null_for_a_done_call_is_refused_at_the_node_that_retu
     assert _refused(graph, saved).ctx["where"] == "outcomes.split"
 
 
+def test_a_null_item_in_a_saved_series_whose_items_take_no_none_is_refused_unless_it_is_listed_skipped():
+    graph, saved = _saved_echoes()
+    saved["outcomes"]["split"]["outputs"]["result"][0][1] = None
+
+    problem = _refused(graph, saved)
+
+    assert problem.ctx["where"] == "outcomes.split"
+    saved["outcomes"]["split"]["skipped_items"] = {"result": {"0": [1]}}
+    assert Run.from_json(json.dumps(saved), graph).results["split"]["result"] == [
+        "secret-a",
+        None,
+        "secret-c",
+    ]
+
+
 def _saved_table() -> tuple[Any, dict[str, Any]]:
     class Name(TypedDict):
         name: str
