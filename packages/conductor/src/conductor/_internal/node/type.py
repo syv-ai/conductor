@@ -377,12 +377,14 @@ def code_text_of(function: Callable[..., Any]) -> str:
     A function whose source can't be read is written from its bytecode instead. Bytecode changes with each Python
     version, and it keeps docstrings. That is a lambda, whose source is the whole line it's on, which may hold
     other code. It is also a function made by ``exec``, which has no file, or none of its own: one compiled from a
-    text under a real file's name gets that file's lines, which may be another function, no function, or no Python
-    at all.
+    text under a real file's name gets that file's lines. When those lines aren't Python, hold no def, or start with
+    a def of another name than the one the function was compiled with, the function is written from its bytecode.
+    A def of the same name at the same place is taken as the function's own.
     """
     function = inspect.unwrap(function)
     code = function.__code__
-    if function.__name__ == "<lambda>":
+    # The name the code was compiled with, which a factory that sets ``__name__`` after the def doesn't change.
+    if code.co_name == "<lambda>":
         return _bytecode_text(code)
     try:
         source = inspect.getsource(function)
@@ -392,12 +394,12 @@ def code_text_of(function: Callable[..., Any]) -> str:
     # OSError: no file. TokenError and SyntaxError: the lines read aren't Python, so they aren't this function.
     except (OSError, TokenError, SyntaxError):
         return _bytecode_text(code)
-    # The lines read are another function's, or no function's, when exec compiled the text under another file's name.
+    # The lines read hold no def, or a def of another name, when exec compiled the text under another file's name.
     definition = next(
         (part for part in ast.walk(tree) if isinstance(part, FunctionDef | AsyncFunctionDef)),
         None,
     )
-    if definition is None or definition.name != function.__name__:
+    if definition is None or definition.name != code.co_name:
         return _bytecode_text(code)
     definition.name, definition.decorator_list = "", []
     for part in ast.walk(definition):

@@ -2013,6 +2013,37 @@ def test_a_function_whose_lines_are_not_its_own_is_hashed_by_its_bytecode_from_n
     assert _code(_made_under_a_file_name(path, "!")) != _code(_made_under_a_file_name(path, "?"))
 
 
+def _shout_factory(id: str) -> Any:
+    """Returns a function made by a node factory, which names it after the node's id once it is defined."""
+
+    def run(text: str = "ab") -> str:
+        """Shouts."""
+        return text.upper()
+
+    run.__name__ = id
+    return run
+
+
+def _yell_factory(id: str) -> Any:
+    """``_shout_factory`` with another docstring."""
+
+    def run(text: str = "ab") -> str:
+        """Yells."""
+        return text.upper()
+
+    run.__name__ = id
+    return run
+
+
+def test_a_function_a_factory_renames_is_hashed_by_its_source():
+    """A factory that sets ``__name__`` after the def keeps the parsed source, so another docstring keeps the code.
+
+    The def's name is checked against the name the code was compiled with, which renaming doesn't change. Hashed by
+    its bytecode instead, the two would differ, since bytecode keeps the docstring.
+    """
+    assert _code(_shout_factory("shout")) == _code(_yell_factory("yell"))
+
+
 def test_a_partial_is_refused_at_node():
     """``@node`` reads a function's type hints, which a ``functools.partial`` doesn't have.
 
