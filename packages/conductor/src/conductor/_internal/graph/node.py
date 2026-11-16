@@ -252,8 +252,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
 
         It's the edge that reads the graph output inside the subgraph, named from this graph
         (``Edge.from_outside``). For ``e`` above, which is called once, ``edge_reading("shouted")`` has the
-        ``node`` ``("e", "shout")`` and the ``loops`` ``((("e", "documents"), "result"), (("e", "lines"),
-        "result"))``.
+        ``node`` ``("e", "shout")``. Its ``loops`` are the loop over ``e/documents.result``, then the loop over
+        ``e/lines.result``.
 
         A loop inside is named by the path of the node inside, from this graph, and its output. So two outputs
         returned in the same loop inside name the same loop. A node outside that reads both is then called once per
@@ -263,8 +263,8 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         ``parts``. Then ``s.edge_reading("parts")`` has the ``node`` ``("s", "chars")`` and the ``output``
         ``"result"``. That's also how ``upper``'s output names the loop over ``parts``.
         """
-        inner_edge = self.inner._edge_reading(output).from_outside((self.id,), self.loops)
-        return replace(inner_edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
+        edge = self.inner._edge_reading(output).from_outside((self.id,), self.loops)
+        return replace(edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
         """Returns the branches that must be chosen for ``output`` to have a value.

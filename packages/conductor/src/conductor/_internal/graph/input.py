@@ -24,9 +24,11 @@ A loop means a node is called once per item of a list. A loop is named by that l
 node that returns it, and the output's name. That's so even when the list comes out of a subgraph node, as in
 ``(("loud", "split"), "result")``.
 
-Paths are written from the graph the node is in, and a path always names a function node, never a subgraph node.
-A subgraph is never called itself, only the functions inside it. One compiled subgraph may be used as a node in
-many places, and the run blueprint (``run/blueprint.py``) works out its inputs in each place.
+A compiled input writes its paths from the graph its node is in, and a path always names a function node, never a
+subgraph node. A subgraph is never called itself, only the functions inside it. One compiled subgraph may be used as
+a node in many places. The run blueprint (``run/blueprint.py``) names each input inside it from the outer graph
+with ``from_outside``, once per place: the subgraph node's path goes in front of every path, and its loops in front
+of every list of loops. A subgraph node names its outputs from the graph around it by the same rule.
 """
 
 from __future__ import annotations
@@ -59,7 +61,8 @@ class Edge:
 
     Attributes:
         wired_to: What the graph record wires the edge to: an output, and the field of the record it returns, or
-            ``None`` for the whole output. Problems name the edge by it.
+            ``None`` for the whole output. Problems name the edge by it. It always names the output as the graph the
+            edge is drawn in does, even in an edge that ``from_outside`` names from another graph.
         node: The path of the function node that returns the output. That's ``("shout",)``, or
             ``("loud", "shout")`` for an output of the subgraph node ``loud``.
         output: The output's name on that function node.
