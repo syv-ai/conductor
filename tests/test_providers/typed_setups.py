@@ -1,6 +1,11 @@
-"""The two setups a host writes, as the docs show them, for mypy to check: one with dict metadata, one with a typed
-model. ``test_typed_setups.py`` runs mypy on this file. The lines marked ``type: ignore`` are mistakes mypy must
-catch: if it stops catching one, the ignore is unused and mypy fails."""
+"""Two ways a host sets up the run routes, written as the docs show them, for mypy to check.
+
+One setup keeps a run's metadata as a dict, and the other as a typed model. ``test_typed_setups.py`` runs mypy on
+this file.
+
+The lines marked ``type: ignore`` are mistakes that mypy must catch. If mypy stops catching one, its ignore is unused,
+and ``--warn-unused-ignores`` makes mypy fail.
+"""
 
 from __future__ import annotations
 
@@ -76,7 +81,7 @@ def with_a_typed_model(store: RunStore, registry: NodeRegistry[AppContext]) -> F
 
 
 def mistakes(store: RunStore, registry: NodeRegistry[AppContext]) -> None:
-    Worker(  # type: ignore[misc]  # a context of another class than the registry's
+    Worker(  # type: ignore[misc]  # the context isn't the class the registry expects
         store,
         metadata_type=Member,
         nodes_for=lambda member: registry,

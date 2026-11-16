@@ -1,6 +1,9 @@
-"""What ``run_router``'s routes add to the worker they call, served in this process over a store in memory: who the
-caller is and what they may see, the status and body of each answer and refusal, the stream of a follower, and the
-schema. ``test_worker.py`` has what the worker does."""
+"""Tests of what ``run_router``'s routes add on top of the worker they call.
+
+The app is served in this process, over a store in memory. The tests cover who the caller is and which runs they may
+see, the HTTP status and body of each answer and refusal, the event stream a follower reads, and the OpenAPI schema.
+What the worker itself does is tested in ``test_worker.py``.
+"""
 
 from __future__ import annotations
 
@@ -59,9 +62,11 @@ def _app(
     run_filter: Any = _own_runs,
     **settings: Any,
 ) -> FastAPI:
-    """An app with the runs routes over a worker on ``settings`` (its ``store`` among them), whose runs keep the
-    user named by the ``x-user`` header, each seen only by that user, unless ``metadata`` and ``run_filter`` say
-    otherwise."""
+    """Builds an app with the run routes, over a worker made from ``settings``.
+
+    ``settings`` must include the worker's ``store``. By default, each run keeps the user named by the ``x-user``
+    header as its metadata, and only that user may see it. ``metadata`` and ``run_filter`` change that.
+    """
     worker: Worker[Any, Any] = Worker(settings.pop("store"), nodes_for=registry, **settings)
     app = FastAPI()
     app.include_router(run_router(worker, metadata=metadata, run_filter=run_filter))
@@ -86,7 +91,7 @@ def _frames(response: Any) -> list[dict[str, Any]]:
 
 
 def _doubling() -> tuple[NodeRegistry, NodeRegistry, dict[str, Any]]:
-    """A registry with a node, one without it, and a graph of that node."""
+    """Returns a registry with the node ``double``, a registry without it, and a graph that uses it."""
     full, bare = NodeRegistry(), NodeRegistry()
 
     @full.node("double", title="Double", description="For a test.")
@@ -133,7 +138,7 @@ async def test_again_by_another_user_who_may_see_the_run_is_checked_on_that_user
 
 
 class _Member(BaseModel):
-    """A run's metadata as a typed model: who started it and in which team."""
+    """A run's metadata as a typed model: who started the run, and in which team."""
 
     user: str
     team: str
@@ -249,7 +254,10 @@ async def test_a_router_with_no_logins_lets_every_request_see_every_run() -> Non
 
 
 async def test_the_access_check_reads_only_the_runs_metadata() -> None:
-    """A run whose ``outcome`` isn't JSON is followed all the same: no route parses it to check access."""
+    """A follower can read a run whose ``outcome`` column isn't valid JSON.
+
+    The access check reads only the run's metadata, so no route parses the outcome just to check access.
+    """
     registry, graph, gate, inputs, _ = asking()
     gate.set()
     store = MemoryStore()
@@ -290,7 +298,7 @@ async def test_the_registry_is_asked_for_the_requests_nodes_once_for_each_reques
             "id"
         ]
         assert (await store.ended(run_id)).status == "complete"
-        assert asked == ["bo", "anna", "anna"]  # the start, then the worker's resume
+        assert asked == ["bo", "anna", "anna"]  # the start, then the worker's resume call
 
 
 async def test_one_registry_for_every_request_serves_its_nodes() -> None:
@@ -304,7 +312,7 @@ async def test_one_registry_for_every_request_serves_its_nodes() -> None:
 
 
 def _status(response: Any) -> tuple[int, str]:
-    """A route's answer as its HTTP status and the status of the run it answers with."""
+    """Returns a route's answer as a pair: its HTTP status, and the status of the run in its body."""
     return response.status_code, response.json()["status"]
 
 
@@ -587,7 +595,13 @@ async def test_a_follower_gets_each_event_as_a_frame_with_its_number_and_last_ev
 
 
 def _uploads() -> tuple[NodeRegistry, dict[str, Any], list[str]]:
-    """A graph whose first node costs nothing and hands on the files it is given, then a node per file."""
+    """Builds a graph whose first node, ``upload``, costs nothing and hands on the files it is given.
+
+    Then ``review`` is called once for each file.
+
+    Returns:
+        The registry, the graph, and ``calls``, the nodes called, in order.
+    """
     registry, calls = NodeRegistry(), []
 
     @registry.node(
@@ -780,7 +794,7 @@ def test_the_schema_names_each_operation_and_body_as_a_generated_client_reads_th
 
 
 def _refs(value: Any) -> list[str]:
-    """Every ``$ref`` in a JSON schema."""
+    """Returns every ``$ref`` in a JSON schema, at any depth."""
     if isinstance(value, dict):
         own = [value["$ref"]] if "$ref" in value else []
         return own + [ref for item in value.values() for ref in _refs(item)]
@@ -855,7 +869,7 @@ async def test_a_run_started_from_a_previous_one_reuses_its_work_and_one_the_fil
         second = (await client.post("/runs", json=body)).json()["id"]
         ended = await store.ended(second)
 
-    # an estimate checks the previous run as a start does; a reused call is still a call it counts
+    # an estimate checks the previous run just as a start does, and counts a reused call as a call
     assert estimated.json()["nodes"]["review"]["total"] == 3
     assert (hidden.status_code, [problem["type"] for problem in hidden.json()["detail"]]) == (
         404,
@@ -886,7 +900,7 @@ def test_an_app_with_a_typed_router_and_a_route_of_its_own_has_one_runview_compo
 
 
 class _Camel(BaseModel):
-    """Metadata whose field has an alias, as a camelCase model writes it."""
+    """Metadata whose field has a camelCase alias."""
 
     user_id: str = Field(alias="userId")
 
@@ -913,8 +927,11 @@ async def test_metadata_with_an_alias_is_stored_so_it_reads_back_and_a_resume_ge
 async def test_metadata_not_of_the_workers_type_is_a_bug_of_the_host_that_raises_before_anything_is_stored() -> (
     None
 ):
-    """Metadata comes from the host's own dependency, so a value of another type is the host's bug: pydantic's
-    error is raised as it is, a 500, and no run is stored."""
+    """Metadata of the wrong type is the host's bug, so it raises and nothing is stored.
+
+    The metadata comes from the host's own dependency, not from the caller. So pydantic's error is raised as it is,
+    the caller gets a 500, and no run is stored.
+    """
     registry, _, graph = _doubling()
     store = MemoryStore()
     app = _app(

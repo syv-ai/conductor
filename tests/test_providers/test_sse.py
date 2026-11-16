@@ -1,4 +1,8 @@
-"""An event is what pydantic writes: every value by its own type, a float that isn't finite as text."""
+"""Tests of the JSON that stream events are written as.
+
+pydantic writes each event. Every value is written by its own type, and a float that isn't finite, such as ``nan``,
+is written as text.
+"""
 
 from __future__ import annotations
 

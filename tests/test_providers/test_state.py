@@ -1,4 +1,8 @@
-"""How a run's state changes when a resume call ends, on a ``Run`` with no store, and a held run whose store fails."""
+"""Tests of ``RunState``, which tracks a served run's status, its queued answers and any cancel asked for.
+
+Most tests end a resume call on a plain ``Run``, with no store behind it, and check the new state and the changes it
+writes. One test checks a held run whose store fails.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ from tests.test_providers.in_memory import MemoryStore, asking, left_running
 
 
 def _waiting() -> tuple[Any, str]:
-    """A run of the ``asking`` graph that waits on its question, and the question's waiting id."""
+    """Returns a run of the ``asking`` graph that waits on its question, and the question's waiting id."""
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
     return Graph.compile(graph, registry).run(inputs), waiting_id
@@ -110,7 +114,7 @@ def test_answers_taken_clear_what_was_queued_and_refused_for_their_questions() -
 
 
 class _DownStore(MemoryStore):
-    """A store whose every method raises, as a database that went away."""
+    """A store that raises on every method, like a database that has gone away."""
 
     async def create(self, run: StoredRun) -> None:
         raise ConnectionError("the database is down")

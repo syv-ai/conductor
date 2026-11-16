@@ -1,5 +1,7 @@
-"""The problems the router writes: each kind's sentence fills from its ``ctx``, and the page on serving runs lists
-every kind."""
+"""Tests of the kinds of problem the router reports.
+
+Each kind's sentence must fill in from its ``ctx`` keys, and the docs page on serving runs must list every kind.
+"""
 
 import re
 from pathlib import Path
@@ -18,7 +20,10 @@ def test_every_serving_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brac
 
 
 def test_the_page_on_serving_runs_writes_in_every_serving_kind() -> None:
-    """The docs build fills the page's marker from the router's catalogue, each kind under a heading of its code."""
+    """The page has one marker, which the docs build fills in from ``SERVING_PROBLEMS``.
+
+    Each kind of problem gets a heading named after its code.
+    """
     page = PAGE.read_text()
     filled = fill_placeholders(page)
 

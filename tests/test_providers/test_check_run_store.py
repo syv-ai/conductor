@@ -1,5 +1,8 @@
-"""``check_run_store`` passes the stores the suite has, and gives one message, naming the method, for each kind of
-fault a store can have."""
+"""Tests of ``check_run_store``, the test a host runs on its own ``RunStore``.
+
+The stores in this suite pass it. Each broken store below has one kind of fault, and the check gives one message for
+it that names the method at fault.
+"""
 
 from __future__ import annotations
 
@@ -56,7 +59,8 @@ async def test_runs_of_the_hosts_own_in_the_store_are_left_out() -> None:
 
 
 class _KeepsJsonAsJsonb(MemoryStore):
-    """Writes every JSON text back another way, keys sorted and spaced, as a Postgres ``jsonb`` column gives it."""
+    """Gives back every JSON text reformatted, with sorted keys and new spacing, the way a Postgres ``jsonb`` column
+    does."""
 
     @staticmethod
     def _rewritten(text: str) -> str:
@@ -88,7 +92,7 @@ async def test_a_store_that_writes_its_json_another_way_passes() -> None:
 
 
 class _ReadsAReplicaThatLags(MemoryStore):
-    """Misses the first run written, as a replica that is a moment behind the database written to."""
+    """Finds nothing on its first read, like a read replica that is a moment behind the database."""
 
     lagged = False
 
@@ -106,7 +110,8 @@ class _SkipsNone(MemoryStore):
 
 
 class _ForgetsRunAndState(MemoryStore):
-    """An ``UPDATE`` written by hand that leaves out two of the columns it is given."""
+    """Leaves out the ``run`` and ``state`` columns on update, like a hand-written ``UPDATE`` that forgot two
+    columns."""
 
     async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
         kept = {name: value for name, value in changes.items() if name not in ("run", "state")}
@@ -131,7 +136,10 @@ class _ForgetsTheRev(MemoryStore):
 
 
 class _ReadsThenWrites(MemoryStore):
-    """Reads the ``rev`` and writes in two steps, with an ``await`` between them, as two statements would be."""
+    """Checks the ``rev`` and writes the row in two steps, with an ``await`` in between.
+
+    That is how two separate SQL statements behave: another write can land between them.
+    """
 
     async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
         row = self.rows.get(run_id)
@@ -148,7 +156,7 @@ class _ZeroIsNoLease(MemoryStore):
 
 
 class _AnHourOut(MemoryStore):
-    """Compares the time an hour out, as when one side is local time and the other UTC."""
+    """Compares lease times an hour off, as happens when one side uses local time and the other UTC."""
 
     async def expired(self, now: float) -> list[StoredRun]:
         return await super().expired(now + 3600)

@@ -1,7 +1,10 @@
-"""The nodes the served app's tests run, shared by worker processes through two files in the app's directory.
+"""The nodes that the tests of the served app run.
 
-``gate`` waits for the file ``open`` to exist, so a test can stop a run in the middle of a resume call; every call a test counts is a line
-appended to ``calls``, so the calls of every worker are counted together.
+The app runs in several worker processes, so these nodes can't share Python state. They share two files in the app's
+directory instead:
+
+- ``gate`` waits until a file named ``open`` exists. That lets a test pause a run in the middle of a resume call.
+- Each call a test counts adds a line to the file ``calls``. That way the calls of every worker are counted together.
 """
 
 from __future__ import annotations
@@ -71,7 +74,11 @@ def after(approved: bool) -> bool:
 
 @dataclass(frozen=True)
 class Missing:
-    """A class the page's run context is not, so a graph with ``needs_missing`` has a problem when it is compiled."""
+    """A context class that the app's registry doesn't use.
+
+    ``needs_missing`` asks for a ``Context[Missing]``, but the app's run context is another class. So a graph that uses
+    ``needs_missing`` has a problem when it is compiled.
+    """
 
 
 @served.node("needs_missing", title="Needs missing", description="For a test.")

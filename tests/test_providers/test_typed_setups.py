@@ -1,4 +1,7 @@
-"""The setups in ``typed_setups.py`` type-check, and mypy still catches the mistakes marked there."""
+"""Runs mypy on ``typed_setups.py``.
+
+The two setups there must type-check, and mypy must still catch each mistake marked there.
+"""
 
 from __future__ import annotations
 

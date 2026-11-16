@@ -1,8 +1,8 @@
-"""``docs/serving-runs.md`` as written, served by real uvicorn workers on one SQLite file.
+"""Runs the app from ``docs/serving-runs.md`` as written, on real uvicorn workers that share one SQLite file.
 
-Each worker is a process running the page's Python blocks, in order, as one module, with the test nodes added and the
-lease and checkpoint shortened. A kill is ``SIGKILL``, so its lease runs out as a dead process's would; a deploy is
-``SIGTERM``, so uvicorn shuts the app down.
+Each worker is its own process. It runs the page's Python blocks in order, as one module, with the test nodes added
+and a shorter lease and checkpoint. Killing a worker sends ``SIGKILL``, so its lease runs out the way a crashed
+process's would. A deploy sends ``SIGTERM``, so uvicorn shuts the app down cleanly.
 """
 
 from __future__ import annotations
@@ -30,7 +30,9 @@ pytest.importorskip("uvicorn")
 PAGE = Path(__file__).parents[2] / "docs" / "serving-runs.md"
 HERE = Path(__file__).parent
 
-#: What a test changes on the page's app: short leases and checkpoints, the test nodes, and a user named by header.
+#: Code added to the end of the page's app for the tests: the test nodes, a node ``who`` that returns the user in the
+#: run's context, and the user taken from the ``x-user`` header. ``_app_source`` also shortens the lease and the
+#: checkpoint.
 _TEST_SETTINGS = """
 from conductor import Context
 from fastapi import Header
@@ -69,7 +71,7 @@ def _free_port() -> int:
 
 
 class Worker:
-    """One uvicorn process serving the page's app."""
+    """One uvicorn process that serves the page's app."""
 
     def __init__(self, directory: Path, **environment: str) -> None:
         self.port = _free_port()
@@ -127,7 +129,11 @@ class Worker:
         raise AssertionError(f"never {statuses}: {row}")
 
     async def until_refused(self, run_id: str) -> dict[str, Any]:
-        """The run once it has a refused answer, which is written just after the resume call's own last write."""
+        """Waits until the run has a refused answer, then returns the run.
+
+        A refused answer is written just after the resume call's own last write, so waiting on the status alone could
+        read the run too early.
+        """
         for _ in range(3000):
             row = await self.read(run_id)
             if row["refused"]:
@@ -146,7 +152,10 @@ class Worker:
 
 
 class Served:
-    """The directory the workers share: the app, the database, the gate and the calls."""
+    """The directory the workers share.
+
+    It holds the app's source, the SQLite database, the gate file and the file of counted calls.
+    """
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -189,13 +198,16 @@ def _run(scenario: Callable[[], Coroutine[Any, Any, None]]) -> None:
 
 
 def _source(node_id: str) -> dict[str, Any]:
-    """The entry of an input fed by the output ``result`` of ``node_id``."""
+    """Returns an input entry that reads the output ``result`` of the node ``node_id``."""
     return {"sources": [{"node": node_id, "output": "result"}]}
 
 
 def _graph(nodes: dict[str, dict[str, Any]], *, returns: str | None = None) -> dict[str, Any]:
-    """A graph record of ``nodes``, each ``{node id: inputs}`` where the node's id is its definition's; with ``returns``,
-    the graph returns that node's output ``result`` as ``result``."""
+    """Builds a graph record from ``nodes``, a mapping from node id to inputs.
+
+    Each node's id is also the id of its definition. With ``returns``, the graph returns that node's ``result`` as its
+    own output ``result``.
+    """
     record: dict[str, Any] = {
         "nodes": {node_id: {"node": node_id, "inputs": inputs} for node_id, inputs in nodes.items()}
     }
@@ -256,7 +268,7 @@ def test_a_run_started_on_one_worker_is_followed_read_and_answered_on_the_other(
             ).json()["status"] == "running"
             done = await a.until_status(run_id, "complete")
             assert done["outputs"] == {"result": True}
-            assert served.calls == ["gate"]  # what ran did not run again
+            assert served.calls == ["gate"]  # the gate node that already ran isn't called again
 
     _run(scenario)
 
@@ -272,8 +284,8 @@ def test_two_workers_answering_one_run_at_once_start_one_resume_call(served: Ser
                 a.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: True}),
                 b.client.post(f"/runs/{run_id}/answers", json={waiting_call["id"]: False}),
             )
-            # the answer that lost reads the run again: still running, it is queued, and the run refuses it when it
-            # stops; already complete, it is refused at once
+            # The worker whose answer lost reads the run again. If the run is still running, the answer is queued and
+            # refused when the run stops. If the run has already completed, the answer is refused at once.
             lost = second if first.json().get("status") == "running" else first
             await a.until_status(run_id, "complete")
             assert served.calls == ["after"]
@@ -298,7 +310,7 @@ def test_a_run_whose_worker_is_killed_is_finished_by_the_other_from_its_last_che
             await b.until_status(run_id, "complete")
             work_calls = [call for call in served.calls if call.startswith("work")]
             assert sorted(set(work_calls)) == sorted(f"work {i}" for i in range(40))
-            # only what the last checkpoint had no record of is called again
+            # only the calls made after the last checkpoint are made again
             assert len(work_calls) - 40 <= 6, work_calls
 
     _run(scenario)
@@ -342,8 +354,11 @@ def test_a_cancel_sent_to_either_worker_stops_the_run_and_a_resume_finishes_it(
 def test_a_cancel_sent_to_one_worker_while_the_other_resumes_the_run_ends_it_cancelled(
     served: Served,
 ) -> None:
-    """A resume on one worker and a cancel on the other, sent at once, many times: a cancel answered ``running`` was
-    asked, so the run ends ``cancelled`` however the two cross."""
+    """A cancel answered ``running`` ends the run ``cancelled``, however it races a resume.
+
+    The test sends a resume to one worker and a cancel to the other at the same moment, fifteen times over. Whenever
+    the cancel's answer says ``running``, the cancel was taken, so the run must end ``cancelled``.
+    """
 
     async def scenario() -> None:
         async with _workers(served) as (a, b):
@@ -376,7 +391,7 @@ def test_a_run_that_timed_out_is_resumed_by_its_route_until_it_completes(served:
                     break
             assert sorted(served.calls) == sorted(
                 f"work {i}" for i in range(30)
-            )  # a resume call that timed out keeps what it called
+            )  # a resume call that timed out keeps the calls it made
             assert (await a.client.post(f"/runs/{run_id}/resume", json={})).status_code == 409
 
     _run(scenario)
@@ -690,7 +705,7 @@ def test_a_run_started_from_the_work_of_a_previous_one_calls_only_what_changed(
                 "result": [0, 1, 2, 3]
             }
             assert served.calls == ["work 0", "work 1", "work 2", "work 3"]
-            # a run the request may not see is not one to start from
+            # a run the caller may not see can't be used as the previous run
             hidden = await a.client.post(
                 "/runs",
                 json={"graph": _WORK, "inputs": {"n": 4}, "previous": first},
