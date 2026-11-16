@@ -368,7 +368,8 @@ class Run[C]:
         ``run.answer(waiting, value)`` answers one call, and ``run.answer({waiting_id: value, ...})`` answers several.
         Each answer is checked against the questions its call asked (``AnswerValidator`` has the rules). An answer
         becomes the call's outputs, and the call's outcome becomes ``Done``. The next ``resume`` then calls the nodes
-        that read those outputs. A run that ended early, even a cancelled one, takes answers the same way.
+        that read those outputs. A run that ended early, even a cancelled one, takes answers the same way. An empty
+        mapping answers no call, so it changes nothing: the run is returned as it is.
 
         Args:
             waiting: The call to answer, as ``run.waiting`` lists it or by its id. Or a mapping of answers by waiting
@@ -427,6 +428,9 @@ class Run[C]:
             answered[(node, item_indexes)] = Done(read)
         if problems:
             raise InvalidCallError(problems)
+        # A cancel or a timeout is dropped only once a call is answered after it.
+        if not answered:
+            return self
         run = dataclasses.replace(
             self._copy(share_outcomes=True), _last_resume=kept_by_an_answer(self._last_resume)
         )

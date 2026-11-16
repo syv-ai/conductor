@@ -712,6 +712,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
   - `not_waiting` is for a call that is not waiting, with `ctx.waiting_id`, `ctx.status`, and `ctx.moved_to` when its question now waits on another call.
   - `answer_stale` is for an id whose place waits with another fingerprint: the call there got other inputs, as when `run.again` moved another item there, or the node's code changed. `ctx.current` is the id waiting there now, and `ctx.moved_to` is there when the old question now waits on another call. An id whose place waits on nothing is `not_waiting`.
 - An id without its `~` part names the call alone, and answers whatever question waits there.
+- An empty mapping answers no call, so it changes nothing: a run that was `cancelled` or `timed_out` stays so.
 - A node that asked is not called again for that item.
 
 **Declining.** `run.decline(waiting, reason=None)` declines to answer one waiting call. It takes the call as `run.answer` does, an entry of `run.waiting` or its id, and returns a new run.

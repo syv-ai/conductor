@@ -1405,6 +1405,17 @@ def test_a_run_that_timed_out_and_is_answered_is_ready_as_its_outcomes_say_also_
     assert answered.resume().outputs == {"result": ["A", "slow", "slow"]}
 
 
+def test_an_empty_answer_changes_nothing_so_a_run_that_timed_out_stays_timed_out():
+    graph, _ = _waiting_outcomes(_ask_or_wait_or_fail(), text="ask,slow,slow")
+    timed_out = graph.with_inputs().resume(timeout=0.03)
+    assert timed_out.status == "timed_out"
+
+    answered = timed_out.answer({})
+
+    assert (answered.status, answered.cause) == ("timed_out", timed_out.cause)
+    assert answered.to_json() == timed_out.to_json()
+
+
 def test_a_failed_call_keeps_the_run_failed_after_an_answer_to_another_call():
     graph, run = _waiting_outcomes(_ask_or_wait_or_fail(), text="ask,boom")
     answered = run.answer(run.waiting[0], "A")
