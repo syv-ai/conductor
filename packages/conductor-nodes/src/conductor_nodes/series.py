@@ -51,9 +51,8 @@ def collect[T](values: Series[T]) -> Series[T]:
     The result is a ``Series`` too, so you can wire it into an input that takes one item to start a new loop.
 
     You also need this node for a node inside a loop that must see every item. Say ``check(line, all_lines)`` is
-    called once for each line. If ``all_lines`` is wired straight from the loop, each call only gets its own line:
-    ``["A"]`` on the call for ``"a"``. Wire ``all_lines`` from ``series-collect`` instead, and every call gets
-    ``["A", "B"]``.
+    called once for each line. Wired straight from the loop, ``all_lines`` would get one value per call, which
+    compiling refuses. Wire ``all_lines`` from ``series-collect`` instead, and every call gets ``["A", "B"]``.
     """
     return values
 

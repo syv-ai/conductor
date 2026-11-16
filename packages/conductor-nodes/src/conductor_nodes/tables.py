@@ -110,7 +110,8 @@ def collect(
 
     The columns of ``columns`` come first, then those of ``constant_columns``. ``values`` has one argument for each
     new column, under its name. For a name in ``columns`` it is a list with one value per record. For a name in
-    ``constant_columns`` it is one value.
+    ``constant_columns`` it is one value. A column wired from a value returned once, the same for every record, goes
+    in ``constant_columns``: under ``columns`` it is ``type_mismatch`` (``one_value``) when the graph is compiled.
 
     Raises:
         NodeError: ``column_taken`` if a new column has the name of a column the records already have.
@@ -120,14 +121,9 @@ def collect(
     for name in columns:
         count = len(values[name])
         if count != records.height:
-            constant_hint = (
-                " If it is one value for every record, name it in 'constant_columns' instead."
-                if count == 1
-                else ""
-            )
             raise NodeError(
                 f"The column '{name}' has {count} value{'s' if count != 1 else ''} for {records.height} record{'s' if records.height != 1 else ''}. "
-                f"Wire it from a node that runs once for each of the same records.{constant_hint}",
+                "Wire it from a node that runs once for each of the same records.",
                 code="columns_not_aligned",
                 ctx={"column": name, "records": records.height, "values": count},
             )

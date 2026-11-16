@@ -106,7 +106,8 @@ What changes in how you work, before the name-by-name tables:
   `table-collect`'s `constant_columns`. A subgraph is held to it when its own record is compiled, and is refused
   wherever it is used. `describe()` no longer gives the source `{"mode": "collected", "series": null}`: `collected`
   always names its series. An output declared `Any` into a `Table` input is a whole table wherever it gives each call
-  one value, inside a loop too.
+  one value, inside a loop too. `table-collect`'s `columns_not_aligned` no longer suggests `constant_columns` for a
+  column of one value, since such a column is now refused when the graph is compiled.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
