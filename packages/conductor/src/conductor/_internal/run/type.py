@@ -682,9 +682,10 @@ class Run[C]:
 
         A node called once shows what it returned. A node called per item shows a list with one entry per item, and
         ``None`` for an item with no value yet. A node called per item of a list that is itself made per item shows a
-        list of lists. Say three documents are split into lines, and the second document is empty. Then the lines show
-        as ``[["A", "B"], None, ["C"]]``. ``None`` in place of a list means the list being looped over was never made,
-        or no item of it could have a value.
+        list of lists. Say three documents are split into lines, and the second document is ``None``, so it is never
+        split. Then the lines show as ``[["A", "B"], None, ["C"]]``. An empty second document shows ``[]`` there.
+        ``None`` in place of a list means the list being looped over was never made, or no item of it could have a
+        value.
         """
         return results_of(self)
 

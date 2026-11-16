@@ -100,9 +100,9 @@ class DisplayReader(ResultReader):
     ) -> Any:
         """Returns one output of a function node, as ``run.results`` shows it.
 
-        Say ``documents -> lines -> shout`` has three documents, and the second is empty, so ``lines`` gave it no
-        lines. ``shout`` is called once per line of each document, and its output is shown as
-        ``[["A", "B"], None, ["C"]]``.
+        Say ``documents -> lines -> shout`` has three documents, and the second is ``None``, so ``lines`` isn't
+        called for it. ``shout`` is called once per line of each document, and its output is shown as
+        ``[["A", "B"], None, ["C"]]``. Had the second document been empty, it would show ``[]`` there.
 
         Args:
             node_path: The path of the function node that returns the output, from the outer graph (the ``node`` of
