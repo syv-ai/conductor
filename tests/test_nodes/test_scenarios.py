@@ -6,7 +6,7 @@ test checks how many nodes the graph needs, how often each node is called, and w
 
 from dataclasses import dataclass
 from io import StringIO
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 import conductor_nodes
 import polars as pl
@@ -16,7 +16,6 @@ from conductor import (
     Ask,
     Graph,
     NodeRegistry,
-    Param,
     Run,
     Series,
     Table,
@@ -143,8 +142,8 @@ def approved_total(amounts: Series[float], approved: Series[bool]) -> float:
 
 @dataclass(frozen=True)
 class BySize:
-    large: Annotated[Invoice, Param(exclusive_group="size")] = SKIPPED
-    small: Annotated[Invoice, Param(exclusive_group="size")] = SKIPPED
+    large: Invoice = SKIPPED
+    small: Invoice = SKIPPED
 
 
 @node(

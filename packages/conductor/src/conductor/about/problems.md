@@ -60,8 +60,8 @@ def join(texts: Series[str]) -> str:
 
 @dataclass(frozen=True)
 class Route:
-    short: Annotated[str, Param(exclusive_group="length")]
-    long: Annotated[str, Param(exclusive_group="length")]
+    short: str = SKIPPED
+    long: str = SKIPPED
 
 
 @registry.node("route", title="Route", description="Sends a text down the short or the long branch.")

@@ -29,15 +29,14 @@ import functools
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Annotated, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from conductor._internal.base import Loc, json_hash, place_text
+from conductor._internal.base import Loc, json_hash
 from conductor._internal.context import ContextValidator
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
 from conductor._internal.problem import InvalidCallError, Problem
 from conductor._internal.record import GraphRecord
-from conductor._internal.types import Param
 from conductor._internal.utils import plural
 
 from .describe import (
@@ -221,24 +220,12 @@ class Graph[C]:
     def _output_field(self, output: str) -> Field:
         """Returns the graph output ``output`` as a field, for a subgraph node that uses this graph.
 
-        It's the field of the node output behind it, under the graph output's name.
-
-        The output may be in an exclusive group: a set of outputs of which a node fills exactly one per call. Then
-        the group is renamed after the path of the node that chooses it, like ``route.length``, or
-        ``g/route.length`` for a node inside the subgraph node ``g``. That keeps the groups of two nodes apart.
+        It's the field of the node output behind it, under the graph output's name. So a graph output read from a
+        branch is a branch of the subgraph node too.
         """
         node, name = self._node_returning(output)
         field = node.outputs[name]
-        returning = node.edge_reading(name).node
-        # A node never needs a branch of its own to be called, so the one branch on the node that returns the
-        # output is the output's own group.
-        group = next((b for b in node.branches_required_for(name) if b.node == returning), None)
-        hint = (
-            Annotated[field.hint, Param(exclusive_group=place_text(group.node, group.group))]
-            if group is not None
-            else field.hint
-        )
-        return Field(output, hint, field.default, is_output=True)
+        return Field(output, field.hint, field.default, is_output=True)
 
     # -- what a run uses --------------------------------------------------------
 

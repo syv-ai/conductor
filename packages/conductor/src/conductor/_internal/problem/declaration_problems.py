@@ -398,36 +398,11 @@ def default_none_not_taken() -> str:
     return "the default is None, but the type doesn't take None. Write the type with | None, like str | None."
 
 
-@DECLARATION_PROBLEMS.problem("default_invalid", variant="on_exclusive_group")
-def default_on_exclusive_group() -> str:
-    """An output in an exclusive group has a default other than ``SKIPPED``.
-
-    A call gives exactly one output of an exclusive group. Every other output in the group is a branch not chosen. An
-    output that is left out, of a return or of an answer, is ``SKIPPED``, never a default.
-
-    To fix it, give the output the default ``SKIPPED``, or no default.
-
-    Example:
-        @dataclass(frozen=True)
-        class Kept:
-            keep: Annotated[str, Param(exclusive_group="way")] = "kept"
-            drop: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-
-
-        def keep(text: str) -> Kept:
-            return Kept(keep=text)
-
-
-        declaration_refused(lambda: node("keep", title="Keep", description="Keeps the text.")(keep))
-    """
-    return "an output of an exclusive group that is left out is a branch not chosen, so it can't have a default. Give it the default SKIPPED, or none."
-
-
 @DECLARATION_PROBLEMS.problem("default_invalid", variant="skipped_on_input")
 def default_skipped_on_input() -> str:
     """An input's default is ``SKIPPED``.
 
-    ``SKIPPED`` is the value of an output on a branch that wasn't chosen. So only an output can have it as its default.
+    ``SKIPPED`` is the value of an output on a skipped branch. So only an output can have it as its default.
 
     To fix it, give the input a value of its type as its default, or no default.
 
@@ -438,7 +413,7 @@ def default_skipped_on_input() -> str:
 
         declaration_refused(lambda: node("carried", title="Carried", description="Passes the text on as it is.")(carried))
     """
-    return "an input can't default to SKIPPED, since only an output on a branch not chosen is SKIPPED. Give the input a value of its type as its default, or none."
+    return "an input can't default to SKIPPED, since only an output on a skipped branch is SKIPPED. Give the input a value of its type as its default, or none."
 
 
 @DECLARATION_PROBLEMS.problem()
@@ -522,25 +497,6 @@ def empty_title_or_description(
         declaration_refused(lambda: node("whisper", title="Whisper", description="")(whisper))
     """
     return f"{declared_with}({id!r}) has an empty {empty}. Write what a person should read about the node in a palette."
-
-
-@DECLARATION_PROBLEMS.problem()
-def exclusive_group_on_input() -> str:
-    """An input's ``Param`` names an ``exclusive_group``.
-
-    An exclusive group is a set of outputs, and a call gives exactly one of them. It means nothing on an input.
-
-    To fix it, put ``exclusive_group`` on the outputs that are branches. Those are fields of the frozen dataclass the
-    node returns.
-
-    Example:
-        def branchy(text: Annotated[str, Param(exclusive_group="x")]) -> str:
-            return text
-
-
-        declaration_refused(lambda: node("branchy", title="Branchy", description="Passes the text on as it is.")(branchy))
-    """
-    return "exclusive_group is for outputs, not inputs. Put it on an output's Param."
 
 
 @DECLARATION_PROBLEMS.problem()

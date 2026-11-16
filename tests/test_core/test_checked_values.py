@@ -341,24 +341,38 @@ def test_a_mapping_with_outputs_it_does_not_declare_names_the_first_of_them_in_o
 @dataclass(frozen=True)
 class Routed:
     count: int = 0
-    long: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
-    short: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+    long: str = SKIPPED
+    short: str = SKIPPED
 
 
-def test_a_return_that_gives_no_output_of_a_group_a_value_is_refused():
-    """A return must give exactly one output of an exclusive group a value.
+def test_a_return_that_gives_no_branch_a_value_skips_every_branch():
+    """A call gives a value to at most one branch, so it may give none.
 
-    So a return with only ``count`` is refused. Returning ``SKIPPED`` is fine: it chooses no branch, and skips
-    ``count`` too.
+    A return with only ``count`` skips ``long`` and ``short``. Returning ``SKIPPED`` skips ``count`` too.
     """
-    neither = _returning(Routed(count=2), Routed).cause
-
-    assert (neither.type, neither.ctx.get("name"), neither.ctx["reason"]) == (
-        "invalid_output",
-        None,
-        "no output of the exclusive group 'length' (long, short) has a value",
-    )
+    assert _returning(Routed(count=2), Routed).results["g"] == {
+        "count": 2,
+        "long": None,
+        "short": None,
+    }
     assert _returning(SKIPPED, Routed).results["g"] == {"count": None, "long": None, "short": None}
+
+
+def test_a_return_that_skips_an_output_that_is_not_a_branch_is_refused():
+    """Only a branch, an output whose default is ``SKIPPED``, may be ``SKIPPED`` in a return.
+
+    ``count`` defaults to 0, so it isn't a branch. The message says what makes an output a branch, and what an
+    output that may have no value is typed instead.
+    """
+    run = _returning(Routed(count=SKIPPED, long="a"), Routed)
+
+    assert (run.cause.type, run.cause.ctx["name"], run.cause.ctx["reason"]) == (
+        "invalid_output",
+        "count",
+        "'count' is SKIPPED, but only a branch can be: an output whose default is SKIPPED, written "
+        "(type, SKIPPED) in a compute_outputs hook. An output that may have no value beside the others "
+        "is typed X | None, and is None",
+    )
 
 
 def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values():
@@ -369,9 +383,10 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
 
     assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
-    assert (
-        run.cause.ctx["reason"]
-        == "'long' and 'short' are in the exclusive group 'length', and both have a value"
+    assert run.cause.ctx["reason"] == (
+        "'long' and 'short' both have a value, but they default to SKIPPED, which makes them branches, and a "
+        "call gives a value to at most one branch of a node. Outputs that may have a value together are typed "
+        "X | None instead"
     )
     assert _returning(Routed(long="a", count=2), Routed).results["g"] == {
         "count": 2,
@@ -382,22 +397,22 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
 
 @dataclass(frozen=True)
 class Routed3:
-    long: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
-    medium: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
-    short: Annotated[str, Param(exclusive_group="length")] = SKIPPED  # type: ignore[assignment]
+    long: str = SKIPPED
+    medium: str = SKIPPED
+    short: str = SKIPPED
 
 
-def test_a_return_giving_three_outputs_of_a_group_a_value_names_all_three():
+def test_a_return_giving_three_branches_a_value_names_all_three():
     run = _returning(Routed3(long="a", medium="b", short="c"), Routed3)
 
     assert run.cause.type == "invalid_output"
-    assert (
-        run.cause.ctx["reason"]
-        == "'long', 'medium' and 'short' are in the exclusive group 'length', and all have a value"
+    assert run.cause.ctx["reason"].startswith(
+        "'long', 'medium' and 'short' all have a value, but they default to SKIPPED"
     )
     assert (
-        "'long' and 'medium' are in the exclusive group 'length', and both have a value"
-        == _returning(Routed3(long="a", medium="b"), Routed3).cause.ctx["reason"]
+        _returning(Routed3(long="a", medium="b"), Routed3)
+        .cause.ctx["reason"]
+        .startswith("'long' and 'medium' both have a value")
     )
 
 
@@ -1005,8 +1020,8 @@ def test_a_field_an_item_or_untyped_column_lacks_fails_the_target_at_that_item_o
 
 @dataclass(frozen=True)
 class _YesNo:
-    yes: Annotated[str, Param(exclusive_group="answer")]
-    no: Annotated[str, Param(exclusive_group="answer")]
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @node("decide", title="Decide", description="For a test.")
@@ -1021,7 +1036,7 @@ def test_a_skipped_input_skips_the_call_also_when_an_input_before_it_names_a_fie
     """A skipped input skips the call, even when another input has a fault.
 
     ``both`` collects ``give.result.name``, and one of the records has no ``name``. Its other input, ``one``, is on
-    a branch not chosen. The skip wins over the fault, whichever input comes first in the signature. So the call is
+    a skipped branch. The skip wins over the fault, whichever input comes first in the signature. So the call is
     skipped, and the missing field fails nothing.
     """
     items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])

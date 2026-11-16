@@ -1,14 +1,14 @@
 """Tests what happens to a node that collects a loop when a value from outside the loop is missing.
 
 A value can be missing in two ways. It can be ``None`` where the input doesn't take ``None``, or it can sit on a
-branch that wasn't chosen.
+skipped branch.
 
 Take the graph ``items -> pair -> count``. ``items`` returns ``["a", "b"]``. ``pair`` is called once per item, and
 its input ``b`` is wired to ``outside-value``, a node outside the loop. ``count`` collects every ``pair.result``.
 
 - If ``outside-value`` returns ``None``, and ``pair.b`` doesn't take ``None``, no call of ``pair`` can return a
   value. So ``count`` is not called. That holds for two items, and for none.
-- If ``outside-value`` is on a branch not chosen, ``count`` is skipped.
+- If ``outside-value`` is on a skipped branch, ``count`` is skipped.
 - Otherwise each item has its own say, and a loop with no items is collected as an empty list.
 
 So the outside value decides the collecting node only when it decides every item the same way.
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Any
 
 import pytest
 from conductor import (
@@ -35,7 +35,6 @@ from conductor import (
     Graph,
     GraphRecord,
     NodeRegistry,
-    Param,
     Run,
     Series,
     make_graph,
@@ -64,8 +63,8 @@ def outside_value(kind: str) -> str | None:
 
 @dataclass(frozen=True)
 class Way:
-    yes: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-    no: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @_node("decide")
@@ -260,7 +259,7 @@ BOTH_WAYS = (
         ("yes", "x", "a", 1),
     ],
 )
-def test_a_none_outside_the_loop_on_the_branch_not_chosen_does_not_decide_the_collecting_node(
+def test_a_none_outside_the_loop_on_the_skipped_branch_does_not_decide_the_collecting_node(
     go: str, kind: str, text: str, n: Any
 ) -> None:
     assert outcome_of(ran(*BOTH_WAYS, go=go, kind=kind, text=text), "n") == n
@@ -312,7 +311,7 @@ def _nested_loops(joiner: str, kind: str, text: str) -> Any:
 
 
 @pytest.mark.parametrize("text", ["ab cd", "ab", ""])
-def test_a_none_or_a_branch_not_chosen_outside_nested_loops_decides_the_inner_and_the_outer_collect(
+def test_a_none_or_a_skipped_branch_outside_nested_loops_decides_the_inner_and_the_outer_collect(
     text: str,
 ) -> None:
     none_outside, skipped = (
@@ -323,7 +322,7 @@ def test_a_none_or_a_branch_not_chosen_outside_nested_loops_decides_the_inner_an
     assert none_outside.results["j"]["result"] == [None] * len(
         text.split()
     )  # For each item, the inner collect is not called, so there is a None in its place.
-    # With the branch outside not chosen, no item can get a value, so there is one None for the whole loop.
+    # With the branch outside skipped, no item can get a value, so there is one None for the whole loop.
     assert skipped.results["j"]["result"] is None
     assert [call.loc[0] for call in skipped.not_called] == []
     assert _nested_loops("join", "x", "ab cd").results["n"]["result"] == 2
@@ -400,7 +399,7 @@ def test_a_branch_node_not_called_for_one_items_none_leaves_that_item_out_of_the
     assert outcome_of(run, "n") == 2
 
 
-def test_a_none_outside_beside_a_branch_chosen_per_item_leaves_the_collect_not_called() -> None:
+def test_a_none_outside_beside_a_branch_taken_per_item_leaves_the_collect_not_called() -> None:
     nodes = {"s": "items", "t": "outside-value", "w": "decide", "p": "pair", "n": "count"}
     edges = [("s.result", "w.go"), ("w.yes", "p.a"), ("t.result", "p.b"), ("p.result", "n.values")]
     assert [
@@ -408,7 +407,7 @@ def test_a_none_outside_beside_a_branch_chosen_per_item_leaves_the_collect_not_c
     ] == ["not called", "not called"]
 
 
-def test_a_branch_not_chosen_outside_skips_an_inner_collect_also_for_an_item_whose_series_is_none() -> (
+def test_a_skipped_branch_outside_skips_an_inner_collect_also_for_an_item_whose_series_is_none() -> (
     None
 ):
     nodes = {
@@ -500,7 +499,7 @@ def test_a_node_in_a_loop_collecting_a_series_never_returned_is_not_called_nor_i
         ("yes", "yes", "", 0),
     ],
 )
-def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_branch_not_chosen(
+def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_skipped_branch(
     first: str, second: str, text: str, n: Any
 ) -> None:
     # a needs e.yes and f.yes, and b needs e.no and f.no. Both feed p, which is called per item and then collected.
@@ -589,7 +588,7 @@ def test_forty_stages_of_alternatives_in_the_loop_are_decided_node_by_node_not_p
 
 
 @pytest.mark.parametrize("counter", ["count", "count-or-none", "dashes-for-none"])
-def test_a_series_never_returned_into_a_branch_node_skips_the_collect_as_no_branch_was_chosen(
+def test_a_series_never_returned_into_a_branch_node_skips_the_collect_as_no_branch_was_taken(
     counter: str,
 ) -> None:
     nodes, edges = (
@@ -1064,8 +1063,8 @@ def settings() -> dict[str, str]:
 def test_the_order_of_a_nodes_parameters_does_not_change_a_collect_over_a_loop(text: str) -> None:
     """Swapping the order of a node's parameters doesn't change how a loop is collected.
 
-    Inside the loop, ``t`` reads a field that ``settings`` doesn't return. The pair's other input is on a branch not
-    chosen. The run ends the same way with either order, for an empty list and for one item.
+    Inside the loop, ``t`` reads a field that ``settings`` doesn't return. The pair's other input is on a skipped
+    branch. The run ends the same way with either order, for an empty list and for one item.
     """
     statuses = []
     for pair_id in ("pair", "pair-reversed"):

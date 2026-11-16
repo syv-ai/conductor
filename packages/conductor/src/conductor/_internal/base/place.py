@@ -13,7 +13,7 @@ used as one node::
 - A **node path** names a node. It is the node's id, after the id of each subgraph node it is inside. The inner
   node ``shout`` is ``("loud", "shout")``, written ``"loud/shout"``. The node ``lines`` is ``("lines",)``, written
   ``"lines"``. An output is named by its node path and its name, written with a dot between them:
-  ``"loud/shout.result"``. An exclusive group is named the same way.
+  ``"loud/shout.result"``.
 - **Item indexes** say which call of a node, when it is called once per item. There is one index per loop the node
   is inside, outermost first. The call of ``loud/shout`` for the line ``" "`` has the item indexes ``(1,)``.
 - A **loc** names one call: the node path and the item indexes in one tuple. Each index goes right after the id of
@@ -137,7 +137,7 @@ class Source:
 def place_text(node: NodePath, name: str | None = None, field: str | None = None) -> str:
     """Writes a node, or one of its outputs, as text for a person to read.
 
-    The node path is joined with ``/``. The name of an output or an exclusive group follows after a dot, and a
+    The node path is joined with ``/``. The name of an output follows after a dot, and a
     record field after another dot. A saved run writes a node the same way.
 
     ``place_text(("loud", "shout"))`` returns ``"loud/shout"``, ``place_text(("lines",), "result")`` returns
@@ -145,7 +145,7 @@ def place_text(node: NodePath, name: str | None = None, field: str | None = None
 
     Args:
         node: The node's path.
-        name: The name of an output or an exclusive group of the node; ``None`` for the node itself.
+        name: The name of an output of the node; ``None`` for the node itself.
         field: The field of the record the output returns; ``None`` for the whole output.
     """
     text = "/".join(node)

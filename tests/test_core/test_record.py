@@ -54,8 +54,8 @@ def join(texts: Series[str]) -> str:
 
 @dataclass(frozen=True)
 class YesNo:
-    yes: Annotated[str, Param(exclusive_group="answer")]
-    no: Annotated[str, Param(exclusive_group="answer")]
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @node("decide", title="Decide", description="For a test.")
@@ -287,7 +287,7 @@ def test_the_json_schema_gives_an_input_one_entry_of_a_constant_a_graph_input_a_
 def test_the_order_of_an_inputs_sources_never_tells_two_records_apart():
     """The order of an input's sources never makes two records different.
 
-    Several sources on one input come from branches where only one is chosen. So nothing depends on their order.
+    Several sources on one input come from different branches of one node. So nothing depends on their order.
     """
 
     def record(*sources: str) -> GraphRecord:
@@ -1733,7 +1733,7 @@ def test_a_subgraph_lists_its_inputs_and_outputs_in_the_registrys_describe():
     ] == ["result"]
 
 
-def test_collecting_a_series_from_a_branch_not_chosen_is_skipped_not_called_with_an_empty_list():
+def test_collecting_a_series_from_a_skipped_branch_is_skipped_not_called_with_an_empty_list():
     calls: list[list[str]] = []
 
     @node("gate", title="Gate", description="For a test.")
@@ -1902,10 +1902,10 @@ def test_a_node_id_with_a_slash_beside_a_subgraph_node_is_refused_and_an_edge_in
     ]
 
 
-def test_collecting_items_that_a_branch_not_chosen_skipped_all_of_is_skipped():
-    """When a branch not chosen skipped every item being collected, the collecting call is skipped too.
+def test_collecting_items_that_a_skipped_branch_skipped_all_of_is_skipped():
+    """When a skipped branch skipped every item being collected, the collecting call is skipped too.
 
-    A branch is chosen per document, and every line of the document reads it. Where the branch isn't chosen, each
+    A branch is taken per document, and every line of the document reads it. Where the branch is skipped, each
     line is skipped, so that document's join is skipped as well.
     """
 
@@ -1955,11 +1955,11 @@ def test_collecting_items_that_a_branch_not_chosen_skipped_all_of_is_skipped():
     assert graph.run(text="x|y,no").results["j"]["result"] == ["x:x", None]
 
 
-def test_collecting_downstream_of_a_series_output_not_chosen_is_skipped():
+def test_collecting_downstream_of_a_series_output_skipped_is_skipped():
     @dataclass(frozen=True)
     class FullOrEmpty:
-        full: Annotated[Series[str], Param(exclusive_group="size")]
-        empty: Annotated[Series[str], Param(exclusive_group="size")]
+        full: Series[str] = SKIPPED
+        empty: Series[str] = SKIPPED
 
     @node("decide-list", title="Decide list", description="For a test.")
     def decide_list(text: str) -> FullOrEmpty:

@@ -91,7 +91,7 @@ def test_a_series_returned_inside_a_loop_starts_a_nested_loop_and_a_series_input
     assert graph.run(text="a1,b2 3,c").outputs == {"result": ["1", "2, 3", ""]}
 
 
-def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is_skipped() -> None:
+def test_a_decision_sends_its_value_down_one_branch_and_the_other_branch_is_skipped() -> None:
     graph = Graph.compile(
         make_graph(
             control.decision,
@@ -103,11 +103,10 @@ def test_a_decision_sends_its_value_to_the_chosen_branch_and_the_other_branch_is
     )
 
     assert {
-        output.name: output.exclusive_group
-        for output in graph.describe().nodes["control-decide"].outputs
-    } == {"if_true": "when", "if_false": "when"}
-    chosen = graph.run(value="hi", when=True)
-    assert chosen.outputs == {"result": "HI"} and chosen.results["control-decide"] == {
+        output.name: output.required for output in graph.describe().nodes["control-decide"].outputs
+    } == {"if_true": False, "if_false": False}
+    taken = graph.run(value="hi", when=True)
+    assert taken.outputs == {"result": "HI"} and taken.results["control-decide"] == {
         "if_true": "hi",
         "if_false": None,
     }
@@ -168,7 +167,7 @@ def test_is_empty_is_true_for_nothing_found_and_for_a_table_of_no_rows() -> None
     assert table.run().outputs == {"result": True}
 
 
-def test_a_switch_sends_each_item_down_its_cases_branch_and_the_node_after_them_takes_the_chosen_one() -> (
+def test_a_switch_sends_each_item_down_its_cases_branch_and_the_node_after_them_takes_the_one_taken() -> (
     None
 ):
     graph = Graph.compile(

@@ -22,7 +22,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 import polars as pl
 import pytest
@@ -35,7 +35,6 @@ from conductor import (
     InvalidCallError,
     NodeError,
     NodeRegistry,
-    Param,
     Policy,
     Run,
     Series,
@@ -175,8 +174,8 @@ def maybe(text: str) -> str | None:
 
 @dataclass(frozen=True)
 class Way:
-    short: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-    long: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    short: str = SKIPPED
+    long: str = SKIPPED
 
 
 @_node("decide")
@@ -616,19 +615,20 @@ def test_a_table_returned_per_item_inside_a_subgraph_is_offered_as_a_series_of_t
     )
 
 
-def test_a_branch_inside_a_subgraph_is_a_branch_of_the_subgraph_node_named_by_its_inner_node():
+def test_a_branch_inside_a_subgraph_is_a_branch_of_the_subgraph_node():
     last = compile_graph({"e": subgraph_of("decide")})
-    assert {
-        output.name: output.exclusive_group for output in last.describe().nodes["e"].outputs
-    } == {"long": "d.way", "short": "d.way"}
+    assert {output.name: output.required for output in last.describe().nodes["e"].outputs} == {
+        "long": False,
+        "short": False,
+    }
     joined = compile_graph(
         {"e": subgraph_of("decide"), "j": "exclaim"}, [("e.short", "j.text"), ("e.long", "j.text")]
     )
     assert joined.is_runnable
 
 
-def test_a_branch_two_subgraphs_deep_is_named_by_the_path_of_its_node_from_the_outer_subgraph():
-    """Each subgraph level puts its node's id in front of the group's name, so two uses never share a group."""
+def test_a_branch_two_subgraphs_deep_is_a_branch_of_the_outer_subgraph_node():
+    """Both branches of a node two subgraphs deep may share an input outside, as they could drawn flat."""
     if "wrapped-decide" not in REGISTRY:
         record = chain(("in", subgraph_of("decide")), outputs=("short", "long"))
         REGISTRY.add(
@@ -639,13 +639,10 @@ def test_a_branch_two_subgraphs_deep_is_named_by_the_path_of_its_node_from_the_o
     graph = compile_graph(
         {"e": "wrapped-decide", "j": "exclaim"}, [("e.short", "j.text"), ("e.long", "j.text")]
     )
-    assert {
-        output.name: output.exclusive_group for output in graph.describe().nodes["e"].outputs
-    } == {"long": "in/d.way", "short": "in/d.way"}
     assert graph.is_runnable
 
 
-def test_two_outputs_on_opposite_branches_inside_a_subgraph_may_share_one_input_as_in_one_graph():
+def test_two_outputs_on_different_branches_inside_a_subgraph_may_share_one_input_as_in_one_graph():
     inside = compile_graph(
         {"w": "words", "e": "deciding-inner", "j": "exclaim", "n": "count"},
         [
@@ -814,7 +811,7 @@ def test_an_output_two_loops_deep_is_the_same_nested_list_alone_and_inside_a_sub
     }
 
 
-def test_a_branch_not_chosen_inside_a_subgraph_skips_the_nodes_downstream_as_in_one_graph():
+def test_a_skipped_branch_inside_a_subgraph_skips_the_nodes_downstream_as_in_one_graph():
     graph = compile_graph(
         {"w": "words", "e": subgraph_of("decide"), "s": "exclaim", "l": "upper"},
         [("w.result", "e.text"), ("e.short", "s.text"), ("e.long", "l.text")],
@@ -833,10 +830,10 @@ def test_a_branch_not_chosen_inside_a_subgraph_skips_the_nodes_downstream_as_in_
     )
     assert (
         inside.run(text="ab long cd").results["n"]["result"] == 2
-    )  # the item whose branch was not chosen is left out of what count collects
+    )  # the item whose branch was skipped is left out of what count collects
 
 
-def test_an_item_whose_branch_was_not_chosen_outside_skips_the_inner_nodes_for_that_item():
+def test_an_item_whose_branch_was_skipped_outside_skips_the_inner_nodes_for_that_item():
     graph = compile_graph(
         {"w": "words", "d": "decide", "e": "shout-inner", "n": "count"},
         [("w.result", "d.text"), ("d.short", "e.text"), ("e.result", "n.items")],
@@ -894,9 +891,7 @@ def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes
         (e.count.finished, e.count.skipped)
         for e in stream(once.with_inputs(text="ab long"))
         if isinstance(e, NodeComplete) and e.loc == ("e",)
-    ] == [
-        (7, 2)
-    ]  # words, two decisions, and four calls after them, one per branch not chosen skipped
+    ] == [(7, 2)]  # words, two decisions, and four calls after them, one per skipped branch
     skipped_once = compile_graph(
         {"d": "decide", "e": "shout-inner"}, [("d.short", "e.text")], inputs={"text": "d.text"}
     )

@@ -40,8 +40,8 @@ def _declared_field(name: str, hint: Any, default: Any, *, is_output: bool) -> F
     Args:
         name: The parameter's name, or the output's.
         hint: The type hint, as the author wrote it.
-        default: The default, as the author wrote it. ``REQUIRED`` means there is none. ``SKIPPED`` means an
-            output is left empty on a branch not taken.
+        default: The default, as the author wrote it. ``REQUIRED`` means there is none. ``SKIPPED`` makes an
+            output a branch.
         is_output: Whether the field is an output.
 
     Raises:
@@ -66,16 +66,14 @@ class DeclaredInputValidator(Validator[Any, Field]):
     """A validator for one input a node declares, called with the input's default.
 
     It checks the default against the input's type and returns the input as a ``Field``. It also refuses what only
-    an output may have. An input is never a branch, so it can't be in an exclusive group, and its default can't be
-    ``SKIPPED``.
+    an output may have. An input is never a branch, so its default can't be ``SKIPPED``.
 
     ``@node`` uses it for each parameter of the function. ``HookValidator`` uses it for each input a
-    ``compute_added_inputs`` hook adds. So ``text: Annotated[str, Param(exclusive_group="x")]`` is refused in both.
+    ``compute_added_inputs`` hook adds. So ``text: str = SKIPPED`` is refused in both.
 
     Raises (when called):
-        NodeDeclarationError: Naming the input. The default is wrong for the type (``default_invalid``), the input
-            is in an exclusive group (``exclusive_group_on_input``), or its default is ``SKIPPED``
-            (``default_invalid``, variant ``skipped_on_input``).
+        NodeDeclarationError: Naming the input. The default is wrong for the type (``default_invalid``), or it is
+            ``SKIPPED`` (``default_invalid``, variant ``skipped_on_input``).
     """
 
     def __init__(self, name: str, hint: Any) -> None:
@@ -96,28 +94,21 @@ class DeclaredInputValidator(Validator[Any, Field]):
         """
         if default is SKIPPED:
             raise NodeDeclarationError(declaration_problems.default_skipped_on_input(), self._name)
-        field = _declared_field(self._name, self._hint, default, is_output=False)
-        if field.param.exclusive_group is not None:
-            raise NodeDeclarationError(declaration_problems.exclusive_group_on_input(), self._name)
-        return field
+        return _declared_field(self._name, self._hint, default, is_output=False)
 
 
 class DeclaredOutputValidator(Validator[Any, Field]):
     """A validator for one output a node declares, called with the output's default.
 
     It checks the default against the output's type and returns the output as a ``Field``. It also refuses what an
-    output may not have. ``constant_only`` is for inputs only. And an output in an exclusive group can't have a real
-    default: when it isn't returned or answered, it is a branch not chosen and stays empty. So its default is
-    ``SKIPPED`` or none.
+    output may not have: ``constant_only`` is for inputs only.
 
     ``@node`` uses it for each field of a returned dataclass. ``HookValidator`` uses it for each output a
-    ``compute_outputs`` hook gives. So ``keep: Annotated[str, Param(exclusive_group="way")] = "x"`` is refused in
-    both.
+    ``compute_outputs`` hook gives. So ``keep: Annotated[str, Param(constant_only=True)]`` is refused in both.
 
     Raises (when called):
-        NodeDeclarationError: Naming the output. The default is wrong for the type (``default_invalid``), the
-            output is ``constant_only`` (``constant_only_on_output``), or an output in an exclusive group has a
-            default other than ``SKIPPED`` (``default_invalid``, variant ``on_exclusive_group``).
+        NodeDeclarationError: Naming the output. The default is wrong for the type (``default_invalid``), or the
+            output is ``constant_only`` (``constant_only_on_output``).
     """
 
     def __init__(self, name: str, hint: Any) -> None:
@@ -133,7 +124,7 @@ class DeclaredOutputValidator(Validator[Any, Field]):
     def __call__(self, default: Any) -> Field:
         """Checks ``default`` and returns the output.
 
-        ``REQUIRED`` means the output has no default. ``SKIPPED`` means it stays empty on a branch not taken.
+        ``REQUIRED`` means the output has no default. ``SKIPPED`` makes it a branch.
 
         Raises:
             NodeDeclarationError: See the class.
@@ -141,14 +132,6 @@ class DeclaredOutputValidator(Validator[Any, Field]):
         field = _declared_field(self._name, self._hint, default, is_output=True)
         if field.param.constant_only:
             raise NodeDeclarationError(declaration_problems.constant_only_on_output(), self._name)
-        if (
-            field.param.exclusive_group is not None
-            and default is not REQUIRED
-            and default is not SKIPPED
-        ):
-            raise NodeDeclarationError(
-                declaration_problems.default_on_exclusive_group(), self._name
-            )
         return field
 
 

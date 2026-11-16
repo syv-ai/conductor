@@ -113,8 +113,8 @@ def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_te
 
 @dataclass(frozen=True)
 class Emptiness:
-    not_empty: Annotated[str, Param(exclusive_group="emptiness")]
-    empty: Annotated[str, Param(exclusive_group="emptiness")]
+    not_empty: str = SKIPPED
+    empty: str = SKIPPED
 
 
 @node("if-empty", title="If empty", description="For a test.")
@@ -126,7 +126,7 @@ def if_empty(text: str) -> Emptiness:
     )
 
 
-def test_a_branch_nodes_completion_streams_with_none_for_the_branch_not_chosen():
+def test_a_branch_nodes_completion_streams_with_none_for_the_skipped_branch():
     events = _events(
         GraphRecord.model_validate(
             {

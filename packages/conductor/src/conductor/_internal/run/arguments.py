@@ -12,7 +12,7 @@ loop the node is inside. ``ResultReader.arguments_for(shout, (1,))`` returns its
 
 Sometimes a node can't be called, and ``arguments_for`` says why instead. It checks these in order:
 
-1. An input gets only ``SKIPPED``, because every edge into it comes from a branch that wasn't chosen. The call is
+1. An input gets only ``SKIPPED``, because every edge into it comes from a skipped branch. The call is
    ``Skipped``, whatever the other inputs get.
 2. A value an input needs doesn't exist yet. The call is ``NOT_READY``, and the run tries it again later.
 3. An edge reads a field of a record (``lines.result.name``) that the record doesn't have. The call fails with
@@ -21,7 +21,7 @@ Sometimes a node can't be called, and ``arguments_for`` says why instead. It che
    function isn't called.
 
 ``join.texts`` is a collecting input: it gets a list with one value per item of a loop. Before it looks at the
-items, it asks whether any item could have a value at all. Say ``mark`` comes from a branch that wasn't chosen.
+items, it asks whether any item could have a value at all. Say ``mark`` comes from a skipped branch.
 Then every call of ``shout`` is skipped. With two lines, ``join`` would get ``[None, None]``, and with no lines
 ``[]``. Instead, ``join`` is skipped either way, so the answer doesn't depend on how many lines there are.
 
@@ -187,7 +187,7 @@ class ResultReader:
 
         Returns:
             The first value an edge gives. Otherwise ``NOT_READY`` if any edge gave that. Otherwise ``None`` if any
-            edge gave that. ``SKIPPED`` when every edge comes from a branch that wasn't chosen.
+            edge gave that. ``SKIPPED`` when every edge comes from a skipped branch.
         """
         best: Any = SKIPPED
         for edge in edges:
@@ -339,7 +339,7 @@ class ResultReader:
 
         Returns:
             The stored list, which has ``len()``. Or ``None`` or ``SKIPPED``, when the list itself is that, or when a
-            ``None`` or a branch not chosen outside the loop means no item can have a value. Or ``NOT_READY``.
+            ``None`` or a skipped branch outside the loop means no item can have a value. Or ``NOT_READY``.
         """
         value = _may_have_value(for_any_item, keeps_none_items)
         if value is not MAY_HAVE_VALUE:

@@ -14,7 +14,7 @@ The rules are short:
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict
+from typing import Any, TypedDict
 
 import pytest
 from conductor import (
@@ -23,7 +23,6 @@ from conductor import (
     GraphRecord,
     InvalidCallError,
     NodeRegistry,
-    Param,
     Series,
     Table,
     host_type,
@@ -109,8 +108,8 @@ def both(first: Series[str], second: Series[str]) -> int: ...
 
 @dataclass(frozen=True)
 class Way:
-    yes: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-    no: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @_node("decide")
@@ -119,8 +118,8 @@ def decide(text: str) -> Way: ...
 
 @dataclass(frozen=True)
 class Size:
-    small: Annotated[str, Param(exclusive_group="size")] = SKIPPED
-    large: Annotated[str, Param(exclusive_group="size")] = SKIPPED
+    small: str = SKIPPED
+    large: str = SKIPPED
 
 
 @_node("measure")

@@ -99,7 +99,7 @@ class _InputPlans:
         inputs: The compiled input of each input, by name.
         loops: The loops the node is in, outermost first. In the example, ``shout`` is in the loop over
             ``lines.result``.
-        required_branches: The branches that must be chosen upstream for the node to be called.
+        required_branches: The branches that must be taken upstream for the node to be called.
         bound: The type each type variable (like ``T``) of the node's inputs gets from the edges into the node.
             ``None`` for a node with no type variables, which is nearly every node.
     """
@@ -439,10 +439,10 @@ class Compiler:
         list of one. ``_edge_input`` already decides that for an input whose edges are in no loop. For the rest, it
         depends on the node's loops, which are known only once step 2 has left out the refused inputs.
 
-        Step 2 has to come before step 3. It refuses two lists on opposite branches inside a loop
+        Step 2 has to come before step 3. It refuses two lists on different branches inside a loop
         (``lists_from_different_loops``), even when another input puts the node inside that loop. It finds those
         lists among the collecting inputs. After step 3 they'd no longer collect: each would be one value per call,
-        ``None`` on the branch not chosen.
+        ``None`` on the skipped branch.
 
         Args:
             node_id: The node's id.
@@ -855,19 +855,19 @@ class Compiler:
     # -- branches ---------------------------------------------------------------
 
     def _branches_required_for(self, edge: Edge) -> frozenset[RequiredBranch]:
-        """Returns the branches that must be chosen for the output ``edge`` reads to have a value."""
+        """Returns the branches that must be taken for the output ``edge`` reads to have a value."""
         return self.nodes[edge.wired_to.node].branches_required_for(edge.wired_to.output)
 
     def _inputs_with_conflicting_edges(self, node_id: str, inputs: Mapping[str, Input]) -> set[str]:
         """Finds the inputs whose edges can't be used together, and adds a problem for each.
 
-        Several edges into one input must be alternatives. Each pair has to need different outputs of one exclusive
-        group, so a call gets a value from at most one of them. Otherwise it's ``several_edges_into_one_input``.
+        Several edges into one input must never both have a value. Each pair has to need different branches of one
+        node, so a call gets a value from at most one of them. Otherwise it's ``several_edges_into_one_input``.
         They must also be in the same loops, so the one with the value is found at the same item indexes. Otherwise
         it's ``alternatives_from_different_loops``.
 
         Two collecting inputs are a problem too, when neither takes ``None`` items and all their edges are on
-        opposite branches (``lists_from_different_loops``). An item that one list has no value for is left out of
+        different branches of one node (``lists_from_different_loops``). An item that one list has no value for is left out of
         both lists, so both would always be empty.
 
         Args:
@@ -916,11 +916,11 @@ class Compiler:
         return refused
 
     def _required_branches(self, inputs: Mapping[str, Input]) -> frozenset[RequiredBranch]:
-        """Returns the branches that must be chosen for a node with these ``inputs`` to be called.
+        """Returns the branches that must be taken for a node with these ``inputs`` to be called.
 
         For each input, those are the branches that every edge into it needs.
 
-        A collecting input needs only the branches chosen outside the loop it collects. A branch chosen per item
+        A collecting input needs only the branches taken outside the loop it collects. A branch taken per item
         inside the loop just leaves items out of the list. The node is still called.
         """
         required_branches: set[RequiredBranch] = set()
@@ -1170,13 +1170,12 @@ def _field_type(record: Type, name: str) -> Type | None:
 
 
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:
-    """Whether two sets of required branches can never both be chosen.
+    """Whether two sets of required branches can never both be taken.
 
-    That's so when one exclusive group must choose one output for ``a`` and a different one for ``b``.
+    That's so when ``a`` needs one branch of a node and ``b`` a different branch of the same node. A call gives a
+    value to at most one branch of a node.
     """
-    return any(
-        x.node == y.node and x.group == y.group and x.output != y.output for x in a for y in b
-    )
+    return any(x.node == y.node and x.output != y.output for x in a for y in b)
 
 
 def _reaches(start: str, goal: str, downstream: Mapping[str, list[str]], within: set[str]) -> bool:

@@ -49,7 +49,8 @@ assert registry["greet"] is greet
 - `Any` means a value passed on without being read.
 
 **Outputs.**
-- Only an output can default to `SKIPPED` or have an `exclusive_group`. That holds in a hook too.
+- An output whose default is `SKIPPED` is a branch, `(type, SKIPPED)` in a hook. A call gives a value to at most one branch of a node. Only an output can default to `SKIPPED`.
+- `SKIPPED` means a way not taken, and `None` means no value. An output that may be missing beside other outputs is `str | None`, not a branch.
 
 **The function.**
 - It's a plain `def` (not `async def`) that returns a value of its declared type.
@@ -62,7 +63,7 @@ assert registry["greet"] is greet
 | To run once per item | return `Series[X]`. A node that takes one `X` from it runs once per item, and so does everything after it |
 | Every item in one call | a `Series[X]` input. It collects the items, in order |
 | A whole table in or out | `Table[Contact]` (a `TypedDict` names the columns, and the table has exactly those) or a bare `Table`. It's a `polars.DataFrame` and counts as one value. The node may return it as a list of records. A `Table` input wired to records collects them |
-| A branch | return `SKIPPED` on the output not taken, and put the outputs in one `exclusive_group` |
+| A branch | give each output the default `SKIPPED`, and return a value on at most one of them. Two independent ways to go are two nodes |
 | To take `None` | `email: str \| None`. Otherwise the node isn't called for that item, and its outputs are `None` there |
 | A person's answer | `raise Ask(prompt, choices=..., default=...)`, and `asks=True` on the `@node`. The answer becomes the node's outputs. See "Asking a person" below |
 | A client, a clock, the caller | the run's context: `def sign(ctx: Context[AppContext], text: str)`. Name the class once with `NodeRegistry(context_type=AppContext)`, and pass the object as `run.resume(context=AppContext(...))` |

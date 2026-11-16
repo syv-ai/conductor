@@ -89,12 +89,12 @@ class Field:
 
     @property
     def is_branch(self) -> bool:
-        """Whether it is an output the node may leave without a value on a call.
+        """Whether it is a branch: an output whose default is ``SKIPPED``.
 
-        Such an output is a branch. On a call that doesn't take the branch, its value is ``SKIPPED``. An output of an
-        exclusive group is a branch, and so is an output whose default is ``SKIPPED``.
+        A call gives a value to at most one branch of a node. Every other branch is skipped on that call, and so is
+        what is wired to it.
         """
-        return self.param.exclusive_group is not None or self.default is SKIPPED
+        return self.default is SKIPPED
 
     @property
     def is_series(self) -> bool:
@@ -144,9 +144,8 @@ class Field:
 
         - A field with a default gets it. ``mark: str = "!"`` gets ``"!"``.
         - An output like ``-> str | None`` gets ``None``. That holds for an output with no default whose type takes
-          ``None``, unless it has choices, is a ``Series`` or is in an exclusive group.
-        - A branch (an output of an exclusive group, or one whose default is ``SKIPPED``) is a branch not chosen. It
-          has no default, and isn't required.
+          ``None``, unless it has choices, is a ``Series`` or is a branch.
+        - A branch, an output whose default is ``SKIPPED``, is skipped. It has no default, and isn't required.
         - Anything else can't be left out. ``text: str`` and ``-> str`` are required.
 
         An input whose type takes ``None`` but has no default is still required. An edge or a constant gives it its
@@ -182,7 +181,6 @@ class Field:
             default=default,
             choices=choices,
             widget=None if widget is None else widget.model_dump(mode="json"),
-            exclusive_group=self.param.exclusive_group,
             constant_only=self.param.constant_only is True,
         )
 

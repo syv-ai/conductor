@@ -1,6 +1,6 @@
 """The engine's larger features, each in a section of its own.
 
-The sections are: events and pipelining, ``Policy``, hooks, a host's own types, branches (``exclusive_group``),
+The sections are: events and pipelining, ``Policy``, hooks, a host's own types, branches,
 ``describe()``, what a node's signature declares, and reuse inside a subgraph.
 """
 
@@ -635,10 +635,10 @@ def formula(formula: str = "", **values: float) -> float:
 def _branch_outputs(cases: list[str], value: type) -> dict[str, Any]:
     from typing import Annotated
 
-    from conductor import Param
+    from conductor import SKIPPED, Param
 
     return {
-        name: Annotated[value, Param(title=name.title(), exclusive_group="case")]
+        name: (Annotated[value, Param(title=name.title())], SKIPPED)
         for name in [*cases, "otherwise"]
     }
 
@@ -1032,13 +1032,13 @@ def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():
     assert run.outputs == {"result": "null"} and run.not_called == []
 
 
-# -- 5. exclusive_group -----------------------------------------------------------------------------
+# -- 5. branches ------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class YesNo:
-    yes: Annotated[str, Param(exclusive_group="answer")]
-    no: Annotated[str, Param(exclusive_group="answer")]
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @node("decide", title="Decide", description="For a test.")
@@ -1056,7 +1056,7 @@ def pair_optional(a: Series[str | None], b: Series[str | None]) -> str:
     return f"{a}|{b}"
 
 
-def test_two_series_on_opposite_branches_refused():
+def test_two_series_on_different_branches_refused():
     reg6 = registry_of(split, decide, upper, pair_lists, pair_optional)
     record = {
         "nodes": {
@@ -1083,19 +1083,8 @@ def test_two_series_on_opposite_branches_refused():
     assert [p.type for p in graph.problems] == ["lists_from_different_loops"], graph.problems
     record["nodes"]["p"]["node"] = "pair-optional"
     graph = Graph.compile(GraphRecord.model_validate(record), reg6)
-    assert not graph.problems and {
-        output.name: output.exclusive_group for output in graph.describe().nodes["d"].outputs
-    } == {"yes": "answer", "no": "answer"}
+    assert not graph.problems
     assert graph.run(text="yes,no").outputs == {"result": "['YES', None]|[None, 'no']"}
-    try:
-
-        @node("bad", title="Bad", description="For a test.")
-        def bad(x: Annotated[str, Param(exclusive_group="g")]) -> str:
-            return x
-
-        raise AssertionError
-    except TypeError:
-        pass
 
 
 # -- 6. describe -----------------------------------------------------------------------------------
@@ -1106,7 +1095,10 @@ def test_a_registrys_description_has_each_nodes_hooks_branches_and_the_types_eac
     palette = json.loads(reg7.describe().model_dump_json())
     nodes = {n["id"]: n for n in palette["nodes"]}
     assert nodes["formula"]["takes_added_inputs"] and nodes["route"]["computes_outputs"]
-    assert nodes["decide"]["outputs"][0]["exclusive_group"] == "answer"
+    assert [(o["name"], o["required"], "default" in o) for o in nodes["decide"]["outputs"]] == [
+        ("yes", False, False),
+        ("no", False, False),
+    ]
     types = {t["id"]: t["accepted_as"] for t in palette["types"]}
     assert "number" in types["integer"] and "integer" not in types["number"], types
 

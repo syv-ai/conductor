@@ -1,4 +1,4 @@
-"""Ready-made nodes for conductor: text, numbers, yes or no, JSON, patterns, loops, tables and choosing a way.
+"""Ready-made nodes for conductor: text, numbers, yes or no, JSON, patterns, loops, tables and branches.
 
 None of them call out to anything. They only work on the values they are given.
 

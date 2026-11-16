@@ -8,13 +8,14 @@ The package has four parts:
 
 - ``Field`` (``type.py``) is one input or output, built from its hint.
 - ``FieldDescription`` (``describe.py``) is the same field as JSON, for an editor to show.
-- ``exclusive_group.py`` has the rule for outputs that are alternatives: exactly one of them gets a value on a call.
+- ``branch.py`` has the rule for branches, the outputs whose default is ``SKIPPED``: a call gives a value to at most
+  one of them.
 - ``validator.py`` checks the default a node gives a field, when the node is declared and again when a graph is
   compiled.
 """
 
+from .branch import branches_given
 from .describe import FieldDescription
-from .exclusive_group import exclusive_groups, groups_without_one_value
 from .type import Field
 from .validator import BoundDefaultValidator, DeclaredInputValidator, DeclaredOutputValidator
 
@@ -24,6 +25,5 @@ __all__ = [
     "DeclaredOutputValidator",
     "Field",
     "FieldDescription",
-    "exclusive_groups",
-    "groups_without_one_value",
+    "branches_given",
 ]

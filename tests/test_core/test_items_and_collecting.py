@@ -11,7 +11,7 @@ same one.
 
 A table is one value. A node that splits a table returns a ``Series`` of its records.
 
-A node given ``None`` on an input that doesn't take ``None`` is not called. A node that reads a branch not chosen
+A node given ``None`` on an input that doesn't take ``None`` is not called. A node that reads a skipped branch
 is skipped.
 """
 
@@ -47,6 +47,7 @@ from conductor import (
     node,
     subgraph,
 )
+from pydantic import MISSING
 
 from tests.test_core.nodes import registry_of
 
@@ -130,8 +131,8 @@ def show(table: Table) -> Table:
 
 @dataclass(frozen=True)
 class YesNo:
-    yes: Annotated[str, Param(exclusive_group="answer")]
-    no: Annotated[str, Param(exclusive_group="answer")]
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @node("decide", title="Decide", description="``yes`` unless the text has ``no`` in it.")
@@ -516,7 +517,7 @@ def test_an_input_read_from_one_edge_and_a_collecting_input_keep_the_order_a_ski
 
     ``mixed`` gets ``one`` through a single edge, and ``many`` by collecting the loop over ``docs.result``. The test
     tries both orders of the two parameters. ``many`` ends up ``None`` or skipped because ``pair``, the node in the
-    loop, reads a ``None`` or a branch not chosen from outside the loop.
+    loop, reads a ``None`` or a skipped branch from outside the loop.
     """
 
     @node("nothing", title="Nothing", description="For a test.")
@@ -624,7 +625,7 @@ def test_both_branches_of_a_node_not_called_are_skipped():
     assert run.results["u"]["result"] == ["IDA@X", None, "NINA@X"]
     assert [(n.loc[0], n.loc[1:]) for n in run.not_called] == [
         ("b", (1,))
-    ]  # b was not called there, so no branch was chosen and u is skipped
+    ]  # b was not called there, so no branch was taken and u is skipped
 
 
 def test_a_branching_node_not_called_for_an_item_skips_both_branches_even_an_input_taking_none():
@@ -694,10 +695,10 @@ class Noted:
     extra: str = SKIPPED  # type: ignore[assignment]
 
 
-def test_an_output_whose_default_is_skipped_is_a_branch_not_chosen_where_its_node_is_not_called():
-    """An output whose default is ``SKIPPED`` is a branch. Where its node isn't called, that branch isn't chosen.
+def test_an_output_whose_default_is_skipped_is_a_skipped_branch_where_its_node_is_not_called():
+    """An output whose default is ``SKIPPED`` is a branch. Where its node isn't called, that branch is skipped.
 
-    Here ``d`` isn't called, because its input is ``None``. So ``extra`` is not chosen, and ``y``, which reads it, is
+    Here ``d`` isn't called, because its input is ``None``. So ``extra`` is skipped, and ``y``, which reads it, is
     skipped. ``note`` is just ``None``, and ``z``, whose input takes ``None``, is called.
     """
 
@@ -1428,7 +1429,7 @@ def test_a_node_in_a_loop_over_an_empty_series_never_starts_and_collecting_gets_
     assert through_json(run).results["u"]["result"] == []
 
 
-def test_a_branch_not_chosen_skips_the_node_downstream():
+def test_a_skipped_branch_skips_the_node_downstream():
     run = ran(
         {"id": "g", "node": "decide"},
         {"id": "y", "node": "upper"},
@@ -1440,7 +1441,7 @@ def test_a_branch_not_chosen_skips_the_node_downstream():
     assert run.results["y"]["result"] == "HEY" and run.results["n"]["result"] is None
 
 
-def test_a_failing_node_on_the_branch_not_chosen_is_never_called():
+def test_a_failing_node_on_the_skipped_branch_is_never_called():
     @node("always-fail", title="Always fail", description="For a test.")
     def always_fail(text: str) -> str:
         raise ValueError("never")
@@ -1508,7 +1509,7 @@ def test_a_skipped_series_node_has_no_items_so_everything_downstream_is_skipped(
     )
 
 
-def test_a_branch_not_chosen_outside_the_loop_skips_collecting_but_per_item_collects_an_empty_series():
+def test_a_skipped_branch_outside_the_loop_skips_collecting_but_per_item_collects_an_empty_series():
     CALLED.clear()
     outside = ran(
         {"id": "b", "node": "decide"},
@@ -1602,7 +1603,7 @@ def test_a_skip_upstream_of_an_empty_series_skips_the_collecting_node():
     assert run.results["j"]["result"] == [None]
 
 
-def test_a_document_on_the_branch_not_chosen_has_no_lines_and_collecting_them_is_skipped():
+def test_a_document_on_the_skipped_branch_has_no_lines_and_collecting_them_is_skipped():
     run = ran(
         {"id": "docs", "node": "split", "constants": {"sep": "|"}},
         {"id": "g", "node": "decide"},
@@ -1664,11 +1665,11 @@ def test_skipped_items_of_a_returned_series_are_none_downstream_also_after_json(
     assert through_json(run).results == run.results
 
 
-def test_a_branch_on_a_whole_series_skips_the_nodes_on_the_branch_not_chosen():
+def test_a_branch_on_a_whole_series_skips_the_nodes_on_the_skipped_branch():
     @dataclass(frozen=True)
     class Decided:
-        full: Annotated[Series[str], Param(exclusive_group="d")]
-        empty: Annotated[Series[str], Param(exclusive_group="d")]
+        full: Series[str] = SKIPPED
+        empty: Series[str] = SKIPPED
 
     @node("decide-list", title="Decide list", description="For a test.")
     def decide_list(texts: Series[str]) -> Decided:
@@ -2182,7 +2183,7 @@ def test_two_branches_wired_into_one_input_merge_back_per_item_and_the_chain_sta
 
 
 def test_nodes_downstream_of_two_branches_merge_back_too():
-    """Nodes downstream of opposite branches can feed one input, since they never both have a value."""
+    """Nodes downstream of different branches can feed one input, since they never both have a value."""
     run = ran(
         {"id": "s", "node": "split"},
         {"id": "d", "node": "decide"},
@@ -2244,7 +2245,7 @@ def test_opposite_branches_through_one_series_input_are_one_series_in_item_order
     assert run.results["j"]["result"] == "v10+no11+v12"
 
 
-def test_alternatives_per_item_of_different_series_into_one_input_are_a_problem_never_a_value_lost():
+def test_branches_per_item_of_different_series_into_one_input_are_a_problem_never_a_value_lost():
     """Branches over different Series into one input are a problem, so no value is lost.
 
     ``d.yes`` is split into words, and ``d.no`` is used as it is. A document that went ``no`` has no words to put its
@@ -2291,8 +2292,8 @@ class Line(TypedDict):
 
 @dataclass(frozen=True)
 class BigOrSmall:
-    big: Annotated[Table[Line], Param(exclusive_group="size")]
-    small: Annotated[Table[Line], Param(exclusive_group="size")]
+    big: Table[Line] = SKIPPED
+    small: Table[Line] = SKIPPED
 
 
 @node(
@@ -2807,13 +2808,14 @@ def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_s
     assert compiled.describe().nodes["u2"].inputs[0].source.series == "e/split.result"
 
 
-def test_the_exclusive_groups_of_a_subgraph_name_the_outputs_it_offers():
+def test_the_branches_of_a_node_inside_a_subgraph_are_branches_of_the_subgraph_node():
     inner = as_subgraph("decider", {"id": "d", "node": "decide"})
     compiled = graph({"id": "e", "node": "decider"}, registry=registry_of(decide, inner))
 
     assert {
-        output.name: output.exclusive_group for output in compiled.describe().nodes["e"].outputs
-    } == {"no": "d.answer", "yes": "d.answer"}
+        output.name: (output.required, output.default)
+        for output in compiled.describe().nodes["e"].outputs
+    } == {"no": (False, MISSING), "yes": (False, MISSING)}
 
 
 TWO_DECISIONS = {
@@ -2827,21 +2829,27 @@ TWO_DECISIONS = {
 }
 
 
-def test_two_branching_nodes_inside_one_subgraph_are_two_exclusive_groups():
+def test_branches_of_two_nodes_inside_one_subgraph_may_not_share_an_input_outside():
+    """The compiler looks inside a subgraph node to tell which of its branches belong to one node.
+
+    Two branches of ``d1`` may share an input outside, as they could if ``d1`` were drawn there. A branch of
+    ``d1`` and one of ``d2`` may both have a value on one call, so they can't.
+    """
     inner = as_subgraph(
         "two", {"id": "d1", "node": "decide"}, {"id": "d2", "node": "decide"}, **TWO_DECISIONS
     )
-    compiled = graph({"id": "e", "node": "two"}, registry=registry_of(decide, inner))
 
-    groups = {
-        output.name: output.exclusive_group for output in compiled.describe().nodes["e"].outputs
-    }
-    assert groups == {
-        "first-yes": "d1.answer",
-        "first-no": "d1.answer",
-        "second-yes": "d2.answer",
-        "second-no": "d2.answer",
-    }
+    def wired(first: str, second: str) -> list[str]:
+        compiled = graph(
+            {"id": "e", "node": "two"},
+            {"id": "u", "node": "upper"},
+            edges=((f"e.{first}", "u.text"), (f"e.{second}", "u.text")),
+            registry=registry_of(decide, upper, inner),
+        )
+        return [problem.type for problem in compiled.problems]
+
+    assert wired("first-yes", "first-no") == []
+    assert wired("first-yes", "second-no") == ["several_edges_into_one_input"]
 
 
 def test_two_branching_nodes_inside_one_subgraph_each_choose_their_own_branch():
@@ -3087,7 +3095,7 @@ def test_an_inner_node_collecting_the_subgraphs_input_gets_a_series_of_one_per_o
     assert run.results["after"]["result"] == "A+B+C"
 
 
-def test_a_branch_not_chosen_inside_a_subgraph_skips_its_inner_collecting_node_per_outer_item():
+def test_a_skipped_branch_inside_a_subgraph_skips_its_inner_collecting_node_per_outer_item():
     inner = as_subgraph(
         "skips",
         {"id": "b", "node": "decide"},
@@ -3375,7 +3383,7 @@ def test_a_collecting_node_over_no_items_waits_for_a_value_its_loop_reads_from_o
 
     ``p`` is called once per item of ``s``, and also reads ``m``, which is outside the loop. Until ``m`` has a value,
     no one knows whether any call of ``p`` could run. So ``n``, which collects ``p``, isn't called yet, even when
-    ``s`` has no items. ``m`` may still turn out to be a branch not chosen, and then ``n`` is skipped.
+    ``s`` has no items. ``m`` may still turn out to be a skipped branch, and then ``n`` is skipped.
     """
 
     @node("mark", title="Mark", description="Asks a person for the mark.", asks=True)

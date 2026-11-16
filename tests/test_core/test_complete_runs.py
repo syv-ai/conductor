@@ -13,7 +13,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Annotated, Any, NamedTuple
+from typing import Any, NamedTuple
 
 import pytest
 from conductor import (
@@ -22,7 +22,6 @@ from conductor import (
     Graph,
     GraphRecord,
     NodeRegistry,
-    Param,
     Policy,
     Series,
     make_graph,
@@ -63,8 +62,8 @@ def join(items: Series[str]) -> str:
 
 @dataclass(frozen=True)
 class Way:
-    yes: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-    no: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 def decide(text: str) -> Way:
@@ -143,7 +142,7 @@ GRAPHS: dict[str, Case] = {
         "a b;;c",
         {"text": ["d.text", "l.text"]},
     ),
-    "a branch not chosen upstream of collecting per line, one line with no words": Case(
+    "a skipped branch upstream of collecting per line, one line with no words": Case(
         {"d": "decide", "l": "lines", "w": "words", "t": "tag", "j": "join"},
         [
             ("l.result", "w.text"),
@@ -316,7 +315,7 @@ def test_a_node_collecting_an_empty_series_gets_an_empty_list_when_the_node_retu
     [frozenset(), frozenset({"decide", "pieces"})],
     ids=["no threads", "the decision and the Series on threads"],
 )
-def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skipped_per_item_while_other_calls_wait(
+def test_a_node_in_a_loop_downstream_of_a_skipped_branch_outside_it_is_skipped_per_item_while_other_calls_wait(
     threaded: frozenset[str],
 ) -> None:
     nodes = {"d": "decide", "w": "pieces", "q": "ask", "t": "tag"}

@@ -6,8 +6,7 @@ fields ``name`` and ``age`` asks two.
 
 A question looks just like its output does in ``describe()``: a title, a type, a widget and so on. The ``Ask`` can
 add two things on top. It can offer choices to pick from, and it can propose a default answer. A node with one
-output is answered with a value, so its one question is required, unless the output is in an exclusive group: an
-output of a group is never required, even when it is the node's only output.
+output is answered with a value, so its one question is always required.
 """
 
 from __future__ import annotations
@@ -34,9 +33,7 @@ def as_asked(
     So its question is required, and a default is only the value a host starts the answer with. For example,
     ``assign(ticket: str) -> str`` raises ``Ask("Who?", default="bo")``. Its one question, ``result``, has
     ``default="bo"`` and ``required=True``. An answer of ``{}``, or ``None`` where the output doesn't take ``None``, is
-    refused as ``invalid_answer``.
-
-    An output in an exclusive group is never required, even when it is the node's only output.
+    refused as ``invalid_answer``. That holds for a branch too.
 
     On a node with several outputs, a question left out of the mapping answer takes its default. So a question with
     a default from the ``Ask`` isn't required.
@@ -56,8 +53,7 @@ def as_asked(
         asked = field.description_with(choices[name]) if name in choices else field.description
         if name in defaults:
             asked = asked.model_copy(update={"default": defaults[name], "required": False})
-        # An output in an exclusive group is never required, even alone: its record would be refused.
-        if len(outputs) == 1 and field.param.exclusive_group is None:
+        if len(outputs) == 1:
             asked = asked.model_copy(update={"required": True})
         questions[name] = asked
     return questions

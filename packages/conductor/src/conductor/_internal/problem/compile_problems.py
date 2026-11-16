@@ -380,8 +380,8 @@ def lists_from_different_loops(*loc: str | int, inputs: list[str]) -> str:
     A node with two ``Series`` inputs leaves out an item when one of them has no value for it. In the example, each word
     is either short or long, never both. So every item would be left out.
 
-    To fix it, write ``Series[X | None]`` on both inputs. That keeps every item, with ``None`` for the branch not
-    chosen. Or wire both branches into one input.
+    To fix it, write ``Series[X | None]`` on both inputs. That keeps every item, with ``None`` for the skipped
+    branch. Or wire both branches into one input.
 
     Args:
         loc: The node.
@@ -474,11 +474,11 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
     """More than one edge into an input can give it a value on the same call.
 
     An input can take several edges only if at most one of them has a value on each call. That is the case when they
-    come from different branches of one node: outputs in one ``exclusive_group``. A ``Series`` input follows the same
-    rule.
+    come from different branches of one node, or from nodes downstream of them. A branch is an output whose default is
+    ``SKIPPED``, and a call gives a value to at most one branch of a node. A ``Series`` input follows the same rule.
 
-    To fix it, wire the input from different branches of one node. Or add a node with an input for each edge, and wire
-    them there.
+    To fix it, give the outputs the default ``SKIPPED`` to make them branches of one node, if a call gives a value to
+    only one of them. Or add a node with an input for each edge, and wire them there.
 
     Args:
         node_id: The node.
@@ -494,7 +494,8 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
     """
     return (
         f"'{field}' has edges from {comma_separated(sources)}, and more than one of them can give it a value on the same call. "
-        "Wire it from different branches of one node, or add a node with an input for each edge."
+        "Only different branches of one node may share an input: give those outputs the default SKIPPED to make them "
+        "branches, if a call gives a value to only one of them. Or add a node with an input for each edge."
     )
 
 

@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Annotated, TypedDict
+from typing import TypedDict
 from unittest import mock
 
 import pytest
@@ -26,7 +26,6 @@ from conductor import (
     NodeDeclarationError,
     NodeRegistry,
     NotCalled,
-    Param,
     Run,
     Series,
     Source,
@@ -66,8 +65,8 @@ def each_invoice(table: Table[InvoiceLine]) -> Series[InvoiceLine]:
 
 @dataclass(frozen=True)
 class Length:
-    long: Annotated[str, Param(exclusive_group="length")] = SKIPPED
-    short: Annotated[str, Param(exclusive_group="length")] = SKIPPED
+    long: str = SKIPPED
+    short: str = SKIPPED
 
 
 @node("route", title="Route", description="For a test.")

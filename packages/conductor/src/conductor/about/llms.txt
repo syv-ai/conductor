@@ -114,26 +114,28 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - With `compute_outputs`, the function returns the outputs the hook gives, as a mapping by name.
 - `-> None` declares no outputs.
 
-**Branches.** A node can choose which of its outputs gets a value. `Param(exclusive_group=)` on the fields of a returned dataclass makes them alternatives, called branches. Exactly one of them has a value on each call; anything else is `invalid_output`.
+**Branches.** A node can send its value one way or another. Each way is a branch: an output whose default is `SKIPPED`, a field `large: int = SKIPPED` of a returned dataclass, or `(int, SKIPPED)` from a `compute_outputs` hook.
 
-- `return SKIPPED` chooses none, and skips every output.
-- A node that may choose none in a group, while giving its other outputs values, makes "none" a branch of its own: `neither: Annotated[bool, Param(exclusive_group="size")]`.
-- A branch's default is `SKIPPED`, or it has none. Any other default is `default_invalid`.
+- A call gives a value to at most one branch of a node. The others are skipped, and so is what is wired to them. Two branches with a value are `invalid_output`.
+- So branches of one node may be wired into one input ("Several edges into one input").
+- `SKIPPED` means a way not taken, and `None` means no value. An output that may be missing beside other outputs isn't a branch: type it `X | None`, and return `None`. `SKIPPED` on an output that isn't a branch is `invalid_output`.
+- A call that gives no branch a value skips them all. `return SKIPPED` skips every output, branches or not.
+- A node has one set of branches. Two independent ways to go, such as keep or drop and left or right, are two nodes.
 
 **`None`.** A value can be `None`.
 
 - An input gets `None` only if its type says so, as `email: str | None` or `Any` do. Otherwise the node isn't called for that item. Its outputs are `None` there, and `run.not_called` records the node, the item and the input.
-- Of its branches (the outputs of an `exclusive_group`, or those whose default is `SKIPPED`), none is chosen there. So what is wired to any branch is skipped there.
+- Its branches are all skipped there, and so is what is wired to them.
 - `Series[X]` leaves `None` items out, and `Series[X | None]` keeps them (see "One or many").
 - `Series[X] | None` is a list, or `None` in its place. `Table[R] | None` is a table, or `None`. Such an input takes `None` given as a constant or as its default. A node may return `None` for either. And a list or table that was never returned (its node had a `None` argument, or returned `None`) reaches it as `None`.
 - `Series[X] = None`, without `| None`, is `default_invalid`.
 
-**A skip wins.** A node with one input on a branch not chosen, and another input that is `None`, is skipped, whatever the order of its parameters.
+**A skip wins.** A node with one input on a skipped branch, and another input that is `None`, is skipped, whatever the order of its parameters.
 
 - A skip also wins over an input whose edge names a field its record lacks. That input fails the call (`invalid_edge_value`, for the first such input in the signature) only when no input is skipped.
 - A skip wins over an input with no value yet, too. The node is skipped at once, and the nodes downstream go on while the other input's source still waits for a person.
 
-**Skipping and asking.** The function returns `SKIPPED` on a branch not chosen. It raises `Ask(...)` when a person must answer, and its `@node` says so with `asks=True`. `Ask` is a `BaseException`, so an `except Exception` in the node lets it through. "Asking a person" has the rules.
+**Skipping and asking.** The function returns `SKIPPED` on a skipped branch. It raises `Ask(...)` when a person must answer, and its `@node` says so with `asks=True`. `Ask` is a `BaseException`, so an `except Exception` in the node lets it through. "Asking a person" has the rules.
 
 **The run's context.** What the host supplies for a run reaches a node as its first parameter, typed `Context[X]`. "Context" has the rules.
 
@@ -217,7 +219,7 @@ def operand_inputs(count: int) -> dict:          # inputs to ADD; the function t
 
 
 def branch_outputs(names: str, value: type) -> dict:   # all the outputs; value: the type arriving on "value"
-    return {name: Annotated[value, Param(exclusive_group="branches")] for name in names.split(",")}
+    return {name: (value, SKIPPED) for name in names.split(",")}
 ```
 
 - A hook is a plain function, given per version as `compute_added_inputs=` or `compute_outputs=` on `@node`. It is called when a graph is compiled, never per call.
@@ -227,7 +229,7 @@ def branch_outputs(names: str, value: type) -> dict:   # all the outputs; value:
 - A table arriving is `Table[R]` or a bare `Table`. So `typing.get_args(table)` is its record type `R`, or empty.
 - If an input the hook reads gets no value, the hook is not called, and the node's own problem says why.
 - A hook returns `{name: type hint}`, read like a signature. For a field with a default it returns `{name: (type hint, default)}`, as pydantic's `create_model` takes one.
-- Each field it returns is held to the same rules `@node` holds a parameter to (an input) or a returned field to (an output). So these are the hook's failure: an added input with an `exclusive_group` or the default `SKIPPED`, and an output of an `exclusive_group` with a default other than `SKIPPED`. A field `@node` would refuse is `compute_hook_failed` with the declaration's code in `ctx.error`: `type_not_named` for a class with no `@host_type`, and `type_not_supported` for a type pydantic can't check or a value that is no type at all, like `5`, `[int]` or `"str"`.
+- Each field it returns is held to the same rules `@node` holds a parameter to (an input) or a returned field to (an output). So an added input with the default `SKIPPED` is the hook's failure. A field `@node` would refuse is `compute_hook_failed` with the declaration's code in `ctx.error`: `type_not_named` for a class with no `@host_type`, and `type_not_supported` for a type pydantic can't check or a value that is no type at all, like `5`, `[int]` or `"str"`.
 - A hook that raises is never an exception. It is the problem `compute_hook_failed` on the node: a `NodeError` keeps its code in `ctx.error` and its message, and any other exception is the variant `raised`, with its class name in `ctx.error` and its text in the `conductor` log. So is a field it gives a name a graph can't have: the problem is at that name, with `ctx.error` `not_a_name`.
 - A hook that raises `NodeError` gives the problem its message, its `code` as `ctx.error`, and its own `ctx` whole as `ctx.error_ctx`.
 - `graph.describe()` shows each node's fields as its hooks made them.
@@ -346,7 +348,7 @@ A graph record is a graph as data. A graph declares what it takes and what it re
 **What an input's entry says.**
 
 - An edge is a source on the input it leads into: `{"node": "a", "output": "result"}`. Add `"field": "email"` to read one field of the record that output gives.
-  - Several sources of one input are alternatives (see "One or many"). A source listed twice is refused (`invalid_record`).
+  - Several sources of one input must come from different branches of one node (see "Several edges into one input"). A source listed twice is refused (`invalid_record`).
   - A source naming a node the graph doesn't have is `edge_names_missing_node`.
   - A graph output naming a node the graph doesn't have, or an output its node doesn't have, is `graph_output_not_found`, with `loc` `()` and `ctx` `output`, `source` and `outputs`.
 - `{"constant": v}` is the input's value on every call of every run. The graph doesn't offer that input to a caller.
@@ -392,9 +394,10 @@ The description of such an output says `is_series`. Its `type`, `json_schema` an
 
 Branches inside a subgraph work as they would drawn in the outer graph.
 
-- An exclusive group inside is named by the path of its deciding node: `d.answer`, or `g/d.answer` for a node `d` inside a subgraph node `g`.
-- Two outputs that depend on opposite branches of one decision inside are alternatives outside. Both may be wired into one input, and each call gets the value from the branch that was chosen. Collected into two `Series` inputs of one node, they are `lists_from_different_loops`.
-- A `None`, or a branch not chosen, arriving at one of its inputs makes the inner nodes wired to it not called, or skipped. `run.not_called` lists those nodes.
+- A graph output read from a branch is a branch of the subgraph node: `"required": false`, with no `default`.
+- "At most one branch has a value" holds for each node inside, not for the subgraph node as a whole. Two outputs that come from different branches of one node inside, or from nodes downstream of them, may be wired into one input, and each call gets the value from the branch that has one. Outputs from branches of two different nodes inside can both have a value, so wired into one input they are `several_edges_into_one_input`. The compiler looks inside to tell them apart; `describe()` doesn't say which outputs come from which node.
+- Collected into two `Series` inputs of one node, two outputs from different branches of one node inside are `lists_from_different_loops`.
+- A `None`, or a skipped branch, arriving at one of its inputs makes the inner nodes wired to it not called, or skipped. `run.not_called` lists those nodes.
 
 A subgraph is compiled on its own, apart from the graph it is used in. So a type variable at one of its graph inputs has no edge to bind it, and reads as its bound, else `Any`.
 
@@ -493,7 +496,7 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - A graph input with no value yet is not a problem. A required input that gets nothing is `input_has_no_value`.
 - `graph.outputs` is the names of the graph outputs the record declares.
 
-**`graph.describe()`** is the graph as an editor draws it, a `GraphDescription`. It has each node's fields as its hooks made them (an output's `exclusive_group` among them), how often each node runs, the inputs, the outputs and the problems.
+**`graph.describe()`** is the graph as an editor draws it, a `GraphDescription`. It has each node's fields as its hooks made them, how often each node runs, the inputs, the outputs and the problems.
 
 - How often a node runs is its `per_item_of`: the list of the innermost loop it is inside, or `None` for a node called once.
 - It is written as the list's node path and output: `lines.result`, or `per-word/split.result` for the list `split.result` returned inside the subgraph node `per-word`. That is a place inside the subgraph that no edge of this graph names, and that is not a key of `nodes`.
@@ -601,29 +604,29 @@ A `Table` input collects records the same way.
 - A `Table[R]` output is cut to `R`'s columns too. A bare `Table` output keeps every column it returns.
 - A table written as the constant of a `Table` input, or given for one by a caller, is a frame or a list of records, and `[]` is a table of no rows. Each column `R` names is read by its own type (a date from its ISO text, a host type from its own text), and other columns are left out. A missing column, or a cell its type refuses, is `invalid_value` as a constant and `invalid_input` when given, with `ctx.column` naming it.
 
-**Several edges into one input are alternatives,** for a `Series` input as for any other.
+**Several edges into one input** must never both have a value, for a `Series` input as for any other.
 
-- Each must be on its own branch of one node: outputs that share an `exclusive_group`, or nodes downstream of them. So a call gets at most one. Otherwise it is `several_edges_into_one_input`.
+- Each must be on its own branch of one node, or downstream of one. A call gives a value to at most one branch of a node, so it gets at most one. Otherwise it is `several_edges_into_one_input`.
 - They must be inside the same loops, or they are `alternatives_from_different_loops`.
-- Opposite branches into one `Series` input are collected as one list, in item order.
-- Whole tables on opposite branches into one `Table` input give the one whose branch was chosen.
+- Different branches into one `Series` input are collected as one list, in item order.
+- Whole tables on different branches into one `Table` input give the one whose branch has a value.
 
 **What collecting leaves out.** Three rules.
 
 1. A `Series` input gets the items that have a value, in order.
-   - An item with none (`None`, or its branch not chosen) is left out of every `Series` input of the node together. So two `Series` inputs wired to one loop stay paired. `Series[T | None]` keeps the item's place as `None`.
+   - An item with none (`None`, or its branch skipped) is left out of every `Series` input of the node together. So two `Series` inputs wired to one loop stay paired. `Series[T | None]` keeps the item's place as `None`.
    - A `Series` output passed whole lines up with them the same way.
    - A `Table` input keeps no place, since a record is never `None`.
    - No items is an empty list, and the node is called with it.
-   - Two `Series[X]` inputs wired to opposite branches of one node would lose every item: `lists_from_different_loops`.
+   - Two `Series[X]` inputs wired to different branches of one node would lose every item: `lists_from_different_loops`.
 2. Only what was decided per item is left out. Before looking at any item, the collecting node asks one question of what is decided outside the loop: could any item have a value here?
    - The answers are ordered: skipped, then `None`, then "could have a value".
    - An outer value is read as it is.
-   - A node inside the loop is the worst of its inputs, where an input that takes `None` receives it. An input is the best of its alternative edges. An output in an `exclusive_group` of a node that isn't called is skipped.
-   - When no item could have a value, the collecting node is treated like any node wired there, with two items as with none. It is skipped when the cause is a branch not chosen, and not called when the cause is a `None`. `Series[T] | None` then receives `None`. `Series[T | None]`, which takes `None` per item, is called with a `None` in each item's place.
-   - A series that was never returned has no items, so it is the input's own `None`. A node that chooses a branch from an item of it chooses none, which skips what collects that branch. But downstream of a node that takes `None`, the choosing node could be called, so what collects its branch isn't called, as for any `None`.
+   - A node inside the loop is the worst of its inputs, where an input that takes `None` receives it. An input is the best of its edges. A branch of a node that isn't called is skipped.
+   - When no item could have a value, the collecting node is treated like any node wired there, with two items as with none. It is skipped when the cause is a skipped branch, and not called when the cause is a `None`. `Series[T] | None` then receives `None`. `Series[T | None]`, which takes `None` per item, is called with a `None` in each item's place.
+   - A series that was never returned has no items, so it is the input's own `None`. A node that would take a branch for an item of it takes none, which skips what collects that branch. But downstream of a node that takes `None`, the branching node could be called, so what collects its branch isn't called, as for any `None`.
    - A list of one is read the same way: its one value, `None` or not, is its one item.
-   - When an item could have a value, each item answers for itself by rule 1. A branch chosen per item, or a `None` item, leaves only that item out.
+   - When an item could have a value, each item answers for itself by rule 1. A branch taken per item, or a `None` item, leaves only that item out.
 3. A collecting node waits until every item has an outcome.
 
 **Skipping one item.** `SKIPPED` for one item leaves a gap there (`None` in `run.results`), and the nodes wired to it are skipped for that item. Outside a loop, it skips the nodes wired to it.
@@ -672,7 +675,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - `bool` asks for a yes or no.
 - `Literal["low", "high"]` asks for one of its values.
 - `str`, `int`, `float` and `date` ask for a value.
-- A frozen dataclass is a form of one question per field. A field's default is proposed. A field whose default is `SKIPPED` proposes nothing, and left out of the answer it is a branch not chosen.
+- A frozen dataclass is a form of one question per field. A field's default is proposed. A branch, a field whose default is `SKIPPED`, proposes nothing, and left out of the answer it is skipped.
 - `Table[R]` is a table answered as records. It is read as a caller's table is, but each cell strictly from its JSON form: other columns are dropped, and a missing column is refused.
 - `Series[X]` asks for several values. So `Series[Literal[...]]`, or `Series[str]` with `choices`, is a pick of several.
 - A hook's output types ask the same way.
@@ -683,7 +686,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - Each has the answer's shape. So on a node of several outputs, each goes by output name: `choices={output: [...]}`, `default={output: value}`.
 - An `Ask` that doesn't fit the outputs fails the node as `invalid_ask`, with `ctx.reason`. That is:
   - a default or choice its type refuses, or a default an answer couldn't be;
-  - a default for an output of an `exclusive_group`, which, left out, is a branch not chosen;
+  - a default for a branch, even a node's only one;
   - no choices, or one choice given twice;
   - a name that isn't an output;
   - the one-output form on several outputs, or a `choices` mapping on one output.
@@ -699,14 +702,14 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - `questions`, one per output. Each is the field record `describe()` writes for the output (`name`, `title`, `is_series`, `type`, `json_schema`, `required`, ...). A question is titled as `describe()` titles its output: `Param(title=)` on the return type, else `None`.
 - A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)` or `Literal`.
 - A question's `default` comes from the `Ask`, else from the output's own.
-- `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a branch not chosen.
-- A node of one output is answered with its value, so its one question is `required`, unless that output is in an `exclusive_group` (one a `compute_outputs` hook gives, say): an output of a group is never `required`. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.answer(id, {})` is refused as `invalid_answer`.
+- `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a skipped branch.
+- A node of one output is answered with its value, so its one question is `required`, a branch too. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.answer(id, {})` is refused as `invalid_answer`.
 
 **Answering.** `run.answer(waiting, value)` answers one waiting call, and `run.answer({waiting_id: value, ...})` answers several in one call. It returns a new run, and nothing runs until `resume()`.
 
 - One question is answered with its value. Several (a node of several outputs) are answered with a mapping by output name.
-- In the mapping, a question left out gives what it says: its `default`, else a branch not chosen when it is not `required`, else it is refused. So a question with a default may be left out, and so may one whose type takes `None` and that has no choices (its `default` is `null`).
-- Of an `exclusive_group`, exactly one is answered. The others are branches not chosen.
+- In the mapping, a question left out gives what it says: its `default`, else a skipped branch when it is not `required`, else it is refused. So a question with a default may be left out, and so may one whose type takes `None` and that has no choices (its `default` is `null`).
+- At most one branch is answered. The others are skipped. An answer that leaves out every branch skips them all.
 - Each answer is read strictly from its JSON form: `true`, not `"yes"` or `1`; `3`, not `"3"`; a date as its ISO text. It is checked against its question before anything runs.
 - Every fault is refused at once, and nothing is answered.
   - `invalid_answer` has `ctx.waiting_id`, `ctx.reason`, and `ctx.question` when it is about one question. It also covers one call answered twice in one `answer`.
@@ -939,23 +942,23 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - A subgraph's `takes_added_inputs` and `computes_outputs` are false. Its `asks` is true when a node inside it asks, inside a subgraph of it too.
 - A node's `Policy` is not in it. A subgraph is never called, and a host that wants a function's policy reads it from the definition.
 
-**`FieldDescription`.** Each field of a node is a `FieldDescription`, one flat record: `name`, `title`, `description`, `is_series`, `loops`, `type`, `type_variables`, `json_schema`, `required`, `default`, `choices`, `widget`, `exclusive_group` and `constant_only`.
+**`FieldDescription`.** Each field of a node is a `FieldDescription`, one flat record: `name`, `title`, `description`, `is_series`, `loops`, `type`, `type_variables`, `json_schema`, `required`, `default`, `choices`, `widget` and `constant_only`.
 
 - `type` and `json_schema` are always set. A table's columns are in both: as `Table[name: str]`, and as a `columns` array in the schema.
-- `title`, `description`, `choices`, `widget` and `exclusive_group` are `None` when the field has none.
+- `title`, `description`, `choices` and `widget` are `None` when the field has none.
 - A `Param`'s limits are in `json_schema`, as `minimum`, `maxLength` and the like. Its title and description are the field's own, and are never repeated there.
 - `loops` is described under "The graph record".
 
 **`required` and `default`** say what leaving the field out gives. `default` is also the value an editor starts the field with.
 
 - `"default": v` gives that value. `null` is the value `None`, and nothing else.
-- `"default": v` with `"required": true` can't be left out, and `v` is only where an editor starts. That is the one question of a node of one output, unless the output is in an `exclusive_group`.
+- `"default": v` with `"required": true` can't be left out, and `v` is only where an editor starts. That is the one question of a node of one output.
 - No `default` key, with `"required": true`, is refused. That is an input with no default, or an output an answer must give.
-- No `default` key, with `"required": false`, is a branch not chosen. That is an output in an `exclusive_group`, or one whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`.
-- A missing `default` key means no value. So a host that writes these records with `exclude_none` turns `"default": null` into a branch not chosen. Write them as pydantic writes them.
+- No `default` key, with `"required": false`, is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`. Left out, it is skipped.
+- A missing `default` key means no value. So a host that writes these records with `exclude_none` turns `"default": null` into a skipped branch. Write them as pydantic writes them.
 - An output is described as the question its type sets, the same as a waiting call's question without an `Ask` on a node of several outputs. So `-> str | None` is `"required": false, "default": null`.
 
-A record whose parts contradict each other is refused: an output of an `exclusive_group` that is `required` or has a `default` (`required_in_exclusive_group`, `default_in_exclusive_group`), and `loops` without `is_series` (`loops_without_series`).
+A record whose parts contradict each other is refused: `loops` without `is_series` (`loops_without_series`).
 
 **A registry and a graph.**
 
@@ -1010,7 +1013,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 - It has a `CallCount` for the run, and one for each node by its node path as text: `nodes["shout"]`, `nodes["emb/upper"]`. A subgraph node is never called itself, so its count is the sum of the nodes inside it. The events carry the same counts (see "Events").
 - `finished` is the calls with an outcome that is not waiting: done, skipped or not called.
-- `skipped` is the finished calls that were skipped: a branch not chosen, or `SKIPPED` returned on every output. A node was skipped when `finished > 0` and `skipped` equals `finished`.
+- `skipped` is the finished calls that were skipped: a skipped branch, or `SKIPPED` returned on every output. A node was skipped when `finished > 0` and `skipped` equals `finished`.
 - `not_called` is the finished calls not made because an input got `None`.
 - `waiting` is the calls waiting for a person.
 - `known` is the calls known so far: one per item of each series the node is looped over that exists. It only grows.
@@ -1029,7 +1032,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 - A node that runs once has one value.
 - A node that runs per item has what a `Series` input wired to it would be given: a list in item order, with `None` where an item has no value or no outcome yet, and `[]` for a series returned with no items.
-- Where no item could have a value, because the series was never returned, the list is `None`. That is when there was a `None` outside the loop, or a branch not chosen. Until the series is returned there is nothing so far, which is `None` too.
+- Where no item could have a value, because the series was never returned, the list is `None`. That is when there was a `None` outside the loop, or a skipped branch. Until the series is returned there is nothing so far, which is `None` too.
 - A value outside the loop that isn't there yet, such as a question still waiting, is no `None`. Once the series is returned, each item shows `None` until its call has an outcome, a branch's outputs too.
 - So a host tells "nothing was tried" (`None`) from "tried, and none" (`[]`).
 - A node called per item of a list that is itself made per item shows a list of lists. An outer item whose inner list was never made is `None`. Say three documents are split into lines, and the second document is `None`, so it is never split. Then the lines show `[["A", "B"], None, ["C"]]`. An empty second document shows `[["A", "B"], [], ["C"]]`. `outputs_to_json` writes the same shape.

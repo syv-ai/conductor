@@ -12,7 +12,7 @@ from asyncio import Event as AsyncioEvent
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event as ThreadEvent
-from typing import Annotated, Any
+from typing import Any
 
 from conductor import (
     SKIPPED,
@@ -21,7 +21,6 @@ from conductor import (
     Graph,
     GraphRecord,
     NodeRegistry,
-    Param,
     Policy,
     Run,
     Series,
@@ -68,8 +67,8 @@ def fetch(line: str) -> str:
 
 @dataclass(frozen=True)
 class Way:
-    yes: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-    no: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    yes: str = SKIPPED
+    no: str = SKIPPED
 
 
 @node("decide", title="Decide", description="For a test.")

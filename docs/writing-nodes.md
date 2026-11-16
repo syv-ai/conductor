@@ -403,7 +403,7 @@ An item that is `None` is left out of a `Series[X]` input, and `Series[X | None]
 
 ## Several outputs, and branches
 
-Return a frozen dataclass to give a node several outputs, one per field. Outputs that share an `exclusive_group` are branches. On each call the node gives one of them a value, the chosen branch, and returns `SKIPPED` for the others. A node wired to a branch that wasn't chosen is skipped, and so is every node after it:
+Return a frozen dataclass to give a node several outputs, one per field. An output whose default is `SKIPPED` is a branch, a way the value can go. On each call the node gives a value to at most one of its branches, and the others stay `SKIPPED`. A node wired to a skipped branch is skipped, and so is every node after it:
 
 ```python
 from conductor import SKIPPED
@@ -411,15 +411,15 @@ from conductor import SKIPPED
 
 @dataclass(frozen=True)
 class Routed:
-    large: Annotated[int, Param(exclusive_group="size")]
-    small: Annotated[int, Param(exclusive_group="size")]
+    large: int = SKIPPED
+    small: int = SKIPPED
 
 
 @registry.node("route", title="Route", description="Sends an amount down one of two paths.")
 def route(amount: int) -> Routed:
     if amount >= 1000:
-        return Routed(large=amount, small=SKIPPED)
-    return Routed(large=SKIPPED, small=amount)
+        return Routed(large=amount)
+    return Routed(small=amount)
 
 
 @registry.node("notify", title="Notify", description="Tells the manager about an amount.")
@@ -432,7 +432,11 @@ print(graph.run(amount=5000).results["notify"])  # {'result': 'told the manager 
 print(graph.run(amount=5).results["notify"])     # {'result': None}
 ```
 
-For 5, `route` chose `small`, so `notify` was skipped. A skipped node's outputs show as `None` in `run.results` and `run.outputs`.
+For 5, `route` gave `small` the value, so `notify` was skipped. A skipped node's outputs show as `None` in `run.results` and `run.outputs`.
+
+Since a call never gives two branches of one node a value, both may be wired into one input. That input gets the value of whichever branch has it.
+
+`SKIPPED` means a way not taken, and `None` means no value. So an output that may be missing beside other outputs, like the phone number an extractor didn't find next to the email it did, isn't a branch. Type it `str | None` and return `None`. Two branches that both get a value fail the call with `invalid_output`, and so does `SKIPPED` on an output that isn't a branch. A node has one set of branches: two independent ways to go are two nodes.
 
 ## A node for any type
 
@@ -473,13 +477,13 @@ A dataclass of outputs can take a type variable too:
 ```python
 @dataclass(frozen=True)
 class Checked[T]:
-    passed: Annotated[T, Param(exclusive_group="check")]
-    failed: Annotated[T, Param(exclusive_group="check")]
+    passed: T = SKIPPED
+    failed: T = SKIPPED
 
 
 @registry.node("check", title="Check", description="Sends a value one way if it passed and the other way if it failed.")
 def check[T](value: T, ok: bool) -> Checked[T]:
-    return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
+    return Checked(passed=value) if ok else Checked(failed=value)
 
 
 print(Graph.compile(make_graph(check), registry).run(value="late", ok=False).outputs)  # {'failed': 'late', 'passed': None}

@@ -87,7 +87,7 @@ class InputEntry(ConductorModel):
       Several inputs may name the same graph input, and then they all get the caller's one value.
     - ``{"sources": [{"node": "lines", "output": "result"}]}`` lists the outputs whose edges lead into the input.
       A source may also name one field of a record, as in ``{"node": "read", "output": "result", "field":
-      "email"}``. Several sources are alternatives, from opposite branches of one decision.
+      "email"}``. Several sources come from different branches of one node.
 
     Attributes:
         constant: The fixed value.

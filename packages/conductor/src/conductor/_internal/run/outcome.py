@@ -23,7 +23,7 @@ A call has at most one outcome. Once stored, it changes only when a person answe
 - ``Done``: the call has its outputs. Either the function returned them, or it asked a person and the person
   answered.
 - ``Unanswered``: the function raised ``Ask`` to ask a person, and no answer has come yet.
-- ``Skipped``: the function wasn't called, because the node is downstream of a branch that wasn't chosen.
+- ``Skipped``: the function wasn't called, because the node is downstream of a skipped branch.
 - ``NoneInput``: the function wasn't called, because an argument was ``None`` and its parameter doesn't take
   ``None``.
 
@@ -81,7 +81,7 @@ class Done:
 
     Attributes:
         outputs: The call's outputs by name. An output may be ``None``, or ``SKIPPED`` when it is a branch that
-            wasn't chosen. A ``Series`` output is stored as a ``StoredSeries``, which reads like the list the
+            was skipped. A ``Series`` output is stored as a ``StoredSeries``, which reads like the list the
             function returned.
         has_outputs: ``True``.
     """
@@ -93,11 +93,11 @@ class Done:
 @final
 @dataclass(frozen=True, slots=True)
 class Skipped:
-    """The function wasn't called, because the node is downstream of a branch that wasn't chosen.
+    """The function wasn't called, because the node is downstream of a skipped branch.
 
-    A branch is one of several outputs that share a ``Param(exclusive_group=...)``. On each call, the node gives a
-    value to exactly one of them and ``SKIPPED`` to the rest. Say ``route(line)`` has the branches ``short`` and
-    ``long``, and ``shout`` is wired to ``route.long``. For the line ``"a"``, ``route`` picks ``short``, so that call
+    A branch is an output whose default is ``SKIPPED``. On each call, the node gives a value to at most one of its
+    branches, and the rest are ``SKIPPED``. Say ``route(line)`` has the branches ``short`` and ``long``, and
+    ``shout`` is wired to ``route.long``. For the line ``"a"``, ``route`` gives ``short`` the value, so that call
     of ``shout`` is ``Skipped({"result": SKIPPED})``. So is the call for that line of every node wired to
     ``shout.result``.
 
@@ -124,7 +124,7 @@ class NoneInput:
 
     Attributes:
         outputs: The call's outputs by name, each ``None``. An output that is a branch is ``SKIPPED`` instead,
-            since no branch was chosen.
+            since no branch was taken.
         input: The name of the input that got ``None``.
         has_outputs: ``True``.
     """

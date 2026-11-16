@@ -90,8 +90,8 @@ def join(texts: Series[str]) -> str:
 
 @dataclass(frozen=True)
 class Length:
-    long: str
-    short: str
+    long: str = SKIPPED
+    short: str = SKIPPED
 
 
 @text.node("route", title="Route", description="For a test.")

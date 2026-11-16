@@ -227,7 +227,7 @@ class EdgeInput:
     Attributes:
         field: The input, as its node declares it.
         sources: What each edge into the input carries. With several edges, each comes from a different branch of
-            one decision, and a call gets the value from the branch that was chosen.
+            one node, and a call gets the value from the branch that has one.
         loops: The loops the node must be in to get the value, outermost first. These come from the edges, which
             all have the same ones.
         as_list: Whether a call gets the value as a list of one.
@@ -274,7 +274,7 @@ class CollectingInput:
         loops: The loops the node must be in to get the list, outermost first. These are the loops of the node
             that returns ``series``. The loop over ``series`` itself isn't one of them.
         sources: What each edge into the input carries for one item. Several edges come from different branches
-            of one decision, as for any input.
+            of one node, as for any input.
     """
 
     field: Field

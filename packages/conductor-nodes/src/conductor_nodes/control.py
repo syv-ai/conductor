@@ -1,9 +1,9 @@
-"""Nodes that choose where a value goes: ``control-decide``, ``control-switch`` and ``control-default``.
+"""Nodes that send a value one way or another: ``control-decide``, ``control-switch`` and ``control-default``.
 
-``control-decide`` and ``control-switch`` send their value down one of several outputs. Each output is a branch.
-The chosen branch gets the value and the others get ``SKIPPED``, so the nodes after them are skipped for that call.
-You can wire several branches into one input. That node then takes the value from whichever branch was chosen, so
-you don't need a node to join the branches again.
+``control-decide`` and ``control-switch`` send their value down one of several outputs. Each output is a branch: its
+default is ``SKIPPED``. One branch gets the value and the others are skipped, so the nodes after them are skipped for
+that call. You can wire several branches into one input. That node then takes the value from whichever branch has
+it, so you don't need a node to join the branches again.
 
 ``control-decide`` picks its branch by ``when``, a yes or no. It doesn't parse a condition. Another node works out
 the yes or no, and you wire it in: ``logic-equals``, ``logic-is-empty``, ``text-contains``, ``regex-match`` or
@@ -28,8 +28,8 @@ _OTHER = "other"
 class Decided[T]:
     """The two outputs of ``control-decide``. One gets the value, and the other gets ``SKIPPED``."""
 
-    if_true: Annotated[T, Param(title="If true", exclusive_group="when")] = SKIPPED
-    if_false: Annotated[T, Param(title="If false", exclusive_group="when")] = SKIPPED
+    if_true: Annotated[T, Param(title="If true")] = SKIPPED
+    if_false: Annotated[T, Param(title="If false")] = SKIPPED
 
 
 @registry.node(
@@ -46,8 +46,8 @@ def _branches(cases: list[str], value: type) -> dict[str, Any]:
     """Works out the outputs of ``control-switch``: one for each name in ``cases``, and one more called ``other``.
 
     Conductor calls this when the graph is compiled. With ``cases`` set to ``["invoice", "receipt"]``, the outputs
-    are ``invoice``, ``receipt`` and ``other``. Each has the type of what is wired to ``value``. They share one
-    exclusive group, since only one of them gets the value on a call.
+    are ``invoice``, ``receipt`` and ``other``. Each has the type of what is wired to ``value``, and the default
+    ``SKIPPED``, which makes it a branch. Only one of them gets the value on a call.
 
     Raises:
         NodeError: ``case_named_other`` if a case is called ``other``. ``case_given_twice`` if a name is in
@@ -65,7 +65,7 @@ def _branches(cases: list[str], value: type) -> dict[str, Any]:
             code="case_given_twice",
             ctx={"case": twice[0]},
         )
-    return {name: Annotated[value, Param(exclusive_group="case")] for name in [*cases, _OTHER]}
+    return {name: (value, SKIPPED) for name in [*cases, _OTHER]}
 
 
 @registry.node(
@@ -80,8 +80,8 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
     ``cases`` decides which outputs the node has, so it must be a constant written in the graph. ``case`` has to
     match a name exactly. To ignore upper and lower case, put ``text-lowercase`` in front.
     """
-    chosen = case if case in cases else _OTHER
-    return {name: value if name == chosen else SKIPPED for name in [*cases, _OTHER]}
+    taken = case if case in cases else _OTHER
+    return {name: value if name == taken else SKIPPED for name in [*cases, _OTHER]}
 
 
 @registry.node(
@@ -92,8 +92,8 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
 def default[T](value: T | None, fallback: T) -> T:
     """Returns ``value``, or ``fallback`` when ``value`` is ``None``.
 
-    When ``value`` is ``None``, the nodes after it get ``fallback``. If ``value`` comes from a branch that wasn't
-    chosen, this node is skipped like any other, and so are the nodes after it. ``fallback`` can be a constant. Wire
+    When ``value`` is ``None``, the nodes after it get ``fallback``. If ``value`` comes from a skipped branch, this
+    node is skipped like any other, and so are the nodes after it. ``fallback`` can be a constant. Wire
     it from another node instead, and you get the first of two values that isn't ``None``.
     """
     return fallback if value is None else value

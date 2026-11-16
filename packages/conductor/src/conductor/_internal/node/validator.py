@@ -32,8 +32,7 @@ from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
     Field,
-    exclusive_groups,
-    groups_without_one_value,
+    branches_given,
 )
 from conductor._internal.problem import (
     InvalidCallError,
@@ -142,9 +141,9 @@ def _several_outputs(
 ) -> Callable[[Any], dict[str, Any]]:
     """Builds the check for a node with several outputs, as one pydantic validator for all of them.
 
-    It works in three steps. First, ``taken_apart`` splits the returned value by output name, and checks that each
-    exclusive group has exactly one output with a value. Then pydantic checks each output's value against its type.
-    Last, ``with_skipped`` puts ``SKIPPED`` back on each output that was skipped.
+    It works in three steps. First, ``taken_apart`` splits the returned value by output name. It checks that only
+    branches are ``SKIPPED``, and that at most one branch has a value. Then pydantic checks each output's value
+    against its type. Last, ``with_skipped`` puts ``SKIPPED`` back on each output that was skipped.
 
     Every check raises ``PydanticCustomError``. Any other exception would escape pydantic with the value in its
     message.
@@ -155,26 +154,30 @@ def _several_outputs(
             It raises ``PydanticCustomError`` for a value of the wrong shape.
     """
     names = list(outputs)
-    groups = exclusive_groups(outputs)
 
     def taken_apart(returned: Any) -> dict[str, Any]:
         given = by_name(returned)
-        fault = next(groups_without_one_value(groups, given), None)
-        if fault is None:
-            return given
-        if len(fault.given) > 1:
-            quoted = [f"'{name}'" for name in fault.given]
-            holders = f"{comma_separated(quoted[:-1])} and {quoted[-1]}"
-            holding = "both" if len(quoted) == 2 else "all"
+        not_branches = [name for name in names if name not in given and not outputs[name].is_branch]
+        if not_branches:
             raise conductor_error(
-                "alternatives_both_given",
-                f"{holders} are in the exclusive group '{fault.group}', and {holding} have a value",
-                {"given": fault.given, "group": fault.group},
+                "skipped_not_a_branch",
+                "'{name}' is SKIPPED, but only a branch can be: an output whose default is SKIPPED, written "
+                "(type, SKIPPED) in a compute_outputs hook. An output that may have no value beside the others "
+                "is typed X | None, and is None",
+                {"name": not_branches[0]},
             )
+        taken = branches_given(outputs, given)
+        if len(taken) <= 1:
+            return given
+        quoted = [f"'{name}'" for name in taken]
+        holders = f"{comma_separated(quoted[:-1])} and {quoted[-1]}"
+        holding = "both" if len(quoted) == 2 else "all"
         raise conductor_error(
-            "no_alternative_given",
-            "no output of the exclusive group '{group}' ({members}) has a value",
-            {"group": fault.group, "members": comma_separated(fault.members)},
+            "several_branches_given",
+            f"{holders} {holding} have a value, but they default to SKIPPED, which makes them branches, and a call "
+            "gives a value to at most one branch of a node. Outputs that may have a value together are typed "
+            "X | None instead",
+            {"given": taken},
         )
 
     def with_skipped(read: dict[str, Any]) -> dict[str, Any]:
@@ -207,17 +210,17 @@ def _first_fault(outputs: Mapping[str, Field], error: ValidationError) -> Invali
     """Turns the first fault in a node's several outputs into an ``invalid_output`` error.
 
     Some faults are about the shape of the whole value: not the dataclass, not a mapping, or an output missing or
-    unknown. Others are about two outputs of one group both having a value. These name the output their message is
-    about. A value that an output's type refuses is described as the type describes it, with every error pydantic
+    unknown. Others are about branches: an output that isn't a branch is ``SKIPPED``, or two branches have a value.
+    These name the output their message is about. A value that an output's type refuses is described as the type describes it, with every error pydantic
     found in that output.
     """
     first = error.errors()[0]
     ctx = first.get("ctx", {})
-    if first["type"] == "alternatives_both_given":
+    if first["type"] == "several_branches_given":
         return InvalidCallError(
             [run_problems.invalid_output(reason=first["msg"], name=ctx["given"][1])]
         )
-    if first["type"] in ("output_missing", "output_unknown"):
+    if first["type"] in ("output_missing", "output_unknown", "skipped_not_a_branch"):
         return InvalidCallError(
             [run_problems.invalid_output(reason=first["msg"], name=ctx["name"])]
         )

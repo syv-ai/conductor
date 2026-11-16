@@ -41,8 +41,8 @@ class Line(TypedDict):
 
 @dataclass(frozen=True)
 class Length:
-    long: str
-    short: str
+    long: str = SKIPPED
+    short: str = SKIPPED
 
 
 @host_type("Reading", title="Reading")
@@ -559,7 +559,7 @@ def test_a_run_writes_its_outputs_as_json_by_their_types() -> None:
     assert json.loads(
         written, parse_constant=lambda constant: pytest.fail(f"not strict JSON: {constant}")
     ) == {
-        "letters": [["a", "b"], [None, "a"]],  # an item on a branch not chosen is None
+        "letters": [["a", "b"], [None, "a"]],  # an item on a skipped branch is None
         "reading": {
             "value": "NaN",
             "note": "Infinity",
@@ -667,8 +667,8 @@ def _went_on(run: Any) -> list[tuple[Any, ...]]:
     ]
 
 
-def test_only_a_series_output_can_be_saved_with_items_on_a_branch_not_chosen() -> None:
-    """Only a ``Series`` output can be saved with items on a branch not chosen.
+def test_only_a_series_output_can_be_saved_with_items_on_a_skipped_branch() -> None:
+    """Only a ``Series`` output can be saved with items on a skipped branch.
 
     An output that isn't a series is saved with no ``skipped_items``, even when its value is a list.
     """

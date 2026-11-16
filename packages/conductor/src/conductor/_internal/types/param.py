@@ -60,8 +60,6 @@ class Param:
         description: A longer text about the field, shown as help.
         widget: The ``conductor.widgets`` control a person edits the field with, or answers it with on an output.
             A host's own control is a subclass of ``Widget``. Conductor passes it on to the host and never uses it.
-        exclusive_group: Outputs of one node with the same group are alternatives. On each call, the node gives a
-            value on one of them and ``SKIPPED`` on the rest.
         constant_only: Whether an input takes only a constant, from the graph record or its default, and never an
             edge or a graph input. ``None`` means no. An editor offers no edge for it.
         choices: The values the field takes, each a plain value or a ``Choice`` with a title. They are kept as
@@ -77,7 +75,6 @@ class Param:
     title: str | None = None
     description: str | None = None
     widget: Widget | None = None
-    exclusive_group: str | None = None
     constant_only: bool | None = None
     choices: list[Any] | tuple[Any, ...] | None = None
     ge: _Bound | None = None

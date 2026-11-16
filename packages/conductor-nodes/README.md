@@ -1,6 +1,6 @@
 # syv-conductor-nodes
 
-Ready-made nodes for [Conductor](https://github.com/syv-ai/conductor). They work on text, numbers, yes or no, JSON, regular expressions, lists and tables, and they choose where a value goes. None of them call out to anything: they only work on what they're given.
+Ready-made nodes for [Conductor](https://github.com/syv-ai/conductor). They work on text, numbers, yes or no, JSON, regular expressions, lists and tables, and they send a value one way or another. None of them call out to anything: they only work on what they're given.
 
 ```bash
 uv add syv-conductor-nodes
@@ -30,7 +30,7 @@ Each module holds one kind of node. The category is what `describe()` shows for 
 - `text` (category `text`): change, split, join and search text.
 - `math` (category `math`): add, divide, round and other arithmetic.
 - `logic` (category `logic`): answer yes or no about a value.
-- `control` (category `control`): choose where a value goes.
+- `control` (category `control`): send a value one way or another.
 - `json_ops` (category `json`): read and write JSON.
 - `regex_ops` (category `regex`): match, replace and find with regular expressions.
 - `series` (category `series`): start and end a loop.
@@ -104,11 +104,11 @@ If you wire a whole table or list into an input that takes one value, compiling 
 
 How loops work in full: `python -m conductor.about one-or-many`.
 
-## Choosing a way
+## Branches
 
-`control-decide` sends its `value` to `if_true` or `if_false`, by `when`. The nodes after the other output are skipped. `when` comes from a node that answers yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`.
+`control-decide` sends its `value` to `if_true` or `if_false`, by `when`. Each is a branch: an output whose default is `SKIPPED`. The nodes after the other output are skipped. `when` comes from a node that answers yes or no, such as `logic-equals`, `logic-is-empty` or `text-contains`.
 
-`control-switch` has one output per name in its `cases`, and one more called `other`. You can wire several branches into one input, and that node takes whichever one was chosen.
+`control-switch` has one output per name in its `cases`, and one more called `other`. You can wire several branches into one input, and that node takes whichever one has the value.
 
 `control-default` gives its `value`, or its `fallback` when the value is `None`.
 

@@ -36,27 +36,25 @@ if TYPE_CHECKING:
 
 
 class RequiredBranch(NamedTuple):
-    """A branch that must be chosen for a node to be called, or for an output to have a value.
+    """A branch that must be taken for a node to be called, or for an output to have a value.
 
-    Some nodes choose. Each call fills exactly one output of an exclusive group, and the others are skipped. Say
-    ``route`` has the outputs ``long`` and ``short`` in the group ``length``, and ``shout`` is wired to
-    ``route.long``. Then ``shout`` is called only where ``route`` chose ``long``, so it needs
-    ``RequiredBranch(("route",), "length", "long", depth=0)``.
+    A branch is an output whose default is ``SKIPPED``, and a call gives a value to at most one branch of a node.
+    Say ``route`` has the branches ``long`` and ``short``, and ``shout`` is wired to ``route.long``. Then ``shout``
+    is called only where ``route`` gave ``long`` a value, so it needs ``RequiredBranch(("route",), "long",
+    depth=0)``.
 
-    The compiler uses these to allow two edges into one input. That's fine when the two need different outputs of
-    one group, since a call then gets a value from at most one of them.
+    The compiler uses these to allow two edges into one input. That's fine when the two need different branches of
+    one node, since a call then gets a value from at most one of them.
 
     Attributes:
-        node: The path of the node that chooses, from the graph being compiled. That's ``("route",)``, or
+        node: The path of the node the branch belongs to, from the graph being compiled. That's ``("route",)``, or
             ``("e", "route")`` for a node inside the subgraph node ``e``.
-        group: The exclusive group the node chooses an output of.
-        output: The output of the group that must be chosen.
-        depth: How many loops the choosing node is in. A node inside the loop over ``lines.result`` chooses once
+        output: The branch that must be taken.
+        depth: How many loops that node is in. A node inside the loop over ``lines.result`` takes a branch once
             per line.
     """
 
     node: NodePath
-    group: str
     output: str
     depth: int
 
@@ -91,7 +89,7 @@ class _CompiledNodeBase:
             edges carry.
         outputs: Each output, by name, as compiled: as the definition declares it, or as a ``compute_outputs``
             hook returned it.
-        required_branches: The branches that must be chosen upstream for the node to be called.
+        required_branches: The branches that must be taken upstream for the node to be called.
     """
 
     id: str
@@ -122,15 +120,14 @@ class _CompiledNodeBase:
         )
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
-        """Returns the branches that must be chosen for ``output`` to have a value.
+        """Returns the branches that must be taken for ``output`` to have a value.
 
-        These are the branches the node needs to be called at all. If ``output`` is in an exclusive group, it's
-        added too, since it has a value only where the node chose it.
+        These are the branches the node needs to be called at all. If ``output`` is a branch, it's added too, since
+        it has a value only where the node gave it one.
         """
-        group = self.outputs[output].param.exclusive_group
         return (
-            self.required_branches | {RequiredBranch((self.id,), group, output, len(self.loops))}
-            if group
+            self.required_branches | {RequiredBranch((self.id,), output, len(self.loops))}
+            if self.outputs[output].is_branch
             else self.required_branches
         )
 
@@ -216,7 +213,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
 
     @functools.cached_property
     def outputs_when_skipped(self) -> dict[str, Any]:
-        """The outputs of the node when it isn't called because it's on a branch that wasn't chosen.
+        """The outputs of the node when it isn't called because it's on a skipped branch.
 
         Every output is ``SKIPPED``. For ``shout``, that's ``{"result": SKIPPED}``.
         """
@@ -227,7 +224,7 @@ class CompiledFunctionNode(_CompiledNodeBase):
         """The outputs of the node when it isn't called because an argument was ``None``, and its parameter doesn't
         take ``None``.
 
-        An output that's a branch (``Field.is_branch``) is ``SKIPPED``, since it wasn't chosen. Every other output
+        An output that's a branch (``Field.is_branch``) is ``SKIPPED``, since it wasn't taken. Every other output
         is ``None``. For ``shout``, that's ``{"result": None}``. Say ``route`` has the branches ``short`` and
         ``long``, and one more output ``note`` that isn't a branch. Then it's
         ``{"short": SKIPPED, "long": SKIPPED, "note": None}``.
@@ -299,14 +296,14 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         return replace(edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
 
     def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
-        """Returns the branches that must be chosen for ``output`` to have a value.
+        """Returns the branches that must be taken for ``output`` to have a value.
 
         These are the branches this node needs to be called, and those the output needs inside the subgraph. A
         branch inside is named by the path of its node, from this graph.
 
         Say the subgraph ``e`` is ``route -> shout`` and ``route -> whisper``, one on each output of ``route``. Its
         record declares the graph outputs ``loud`` (``shout.result``) and ``quiet`` (``whisper.result``). Then
-        ``branches_required_for("loud")`` is ``RequiredBranch(("e", "route"), "length", "long", 0)``, and the one
+        ``branches_required_for("loud")`` is ``RequiredBranch(("e", "route"), "long", 0)``, and the one
         for ``quiet`` names ``short``. So one input outside may be wired to both, just as it could if the nodes were
         drawn in the outer graph.
         """

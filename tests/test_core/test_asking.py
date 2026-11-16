@@ -15,7 +15,7 @@ import datetime
 import json
 import re
 import time
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import FrozenInstanceError, dataclass, fields
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -156,15 +156,15 @@ def test_how_a_question_looks_is_its_types_so_a_hook_can_give_each_output_a_widg
     ]
 
 
-def test_a_lone_output_in_an_exclusive_group_is_asked_as_not_required():
-    """A node's only output is asked as required, except when it is in an exclusive group.
+def test_a_lone_branch_is_asked_as_required_as_its_answer_must_give_it():
+    """A node's only output is asked as required, even when it is a branch.
 
-    An output of a group is never required, since leaving it out means its branch wasn't chosen. A
-    ``compute_outputs`` hook can give a node one output in a group.
+    A node of one output is answered with its value, never with a mapping that could leave it out. So the question
+    says what the answer check does. A ``compute_outputs`` hook can give a node one branch.
     """
 
     def outputs() -> dict[str, Any]:
-        return {"way": Annotated[str, Param(exclusive_group="route")]}
+        return {"way": (str, SKIPPED)}
 
     @node("lone", title="Lone", description="For a test.", compute_outputs=outputs, asks=True)
     def lone(text: str) -> dict[str, Any]:
@@ -172,7 +172,11 @@ def test_a_lone_output_in_an_exclusive_group_is_asked_as_not_required():
 
     _, run = _once(lone, text="a")
     [question] = run.waiting[0].questions
-    assert (question.name, question.exclusive_group, question.required) == ("way", "route", False)
+    assert (question.name, question.required) == ("way", True)
+    assert (
+        _refused(lambda: run.answer("q", None))[0].ctx["reason"] == "Input should be a valid string"
+    )
+    assert run.answer("q", "left").resume().results["q"] == {"way": "left"}
 
 
 def test_a_node_that_returns_nothing_is_answered_with_none_to_go_on():
@@ -627,9 +631,9 @@ def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_
 class Triage:
     note: str
     comment: str | None
-    escalate: str = SKIPPED
-    keep: Annotated[str, Param(exclusive_group="way")] = SKIPPED
-    drop: Annotated[str, Param(exclusive_group="way")] = SKIPPED
+    escalate: str | None
+    keep: str = SKIPPED
+    drop: str = SKIPPED
 
 
 @node("triage", title="Triage", description="For a test.", asks=True)
@@ -646,16 +650,16 @@ def test_default_in_json_is_what_leaving_the_question_out_gives_and_null_is_only
     assert written == {
         "note": (True, "no default"),  # Must be answered.
         "comment": (False, None),  # Left out, it is None.
-        "escalate": (False, "no default"),  # Left out, the branch isn't taken.
-        "keep": (False, "no default"),
+        "escalate": (False, None),  # Not a branch, so it may have a value beside keep or drop.
+        "keep": (False, "no default"),  # Left out, the branch is skipped.
         "drop": (False, "no default"),
     }
     assert Waiting.model_validate_json(run.waiting[0].model_dump_json()) == run.waiting[0]
-    answered = run.answer(run.waiting[0], {"note": "n", "keep": "k"}).resume()
+    answered = run.answer(run.waiting[0], {"note": "n", "escalate": "e", "keep": "k"}).resume()
     assert answered.results["q"] == {
         "note": "n",
         "comment": None,
-        "escalate": None,
+        "escalate": "e",
         "keep": "k",
         "drop": None,
     }
@@ -674,27 +678,34 @@ def test_an_output_in_the_palette_is_the_question_its_type_sets():
     assert run.waiting[0].questions[0] == in_palette.model_copy(update={"required": True})
 
 
-def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node():
+@dataclass(frozen=True)
+class Route:
+    keep: str = SKIPPED
+    drop: str = SKIPPED
+
+
+@pytest.mark.parametrize("returned", [Route, Routed], ids=["one of two branches", "a lone branch"])
+def test_an_ask_proposing_a_default_for_a_branch_fails_the_node(returned):
+    """An ``Ask`` can't propose a default for a branch, even the node's only branch.
+
+    A default would give the branch a value even when the person answers another one.
+    """
+    branch = next(field.name for field in fields(returned) if field.default is SKIPPED)
+
     @node("route", title="Route", description="For a test.", asks=True)
-    def route(text: str) -> Route:
-        raise Ask(f"Keep {text}?", default={"keep": "a"})
+    def route(text: str) -> returned:  # type: ignore[valid-type]
+        raise Ask(f"Keep {text}?", default={branch: "a"})
 
     _, run = _once(route, text="a")
     assert (run.status, run.cause.type, run.waiting) == ("failed", "invalid_ask", [])
-    assert (
-        run.cause.ctx["reason"]
-        == "'keep' is in an exclusive group, and an output of a group can't have a default"
+    assert run.cause.ctx["reason"] == (
+        f"'{branch}' defaults to SKIPPED, so it is a branch, and an Ask can't propose a default for a branch"
     )
 
 
 @pytest.mark.parametrize(
     ("written", "error"),
     [
-        ({"required": True, "exclusive_group": "way"}, "required_in_exclusive_group"),
-        (
-            {"required": False, "exclusive_group": "way", "default": "a"},
-            "default_in_exclusive_group",
-        ),
         ({"required": False, "default": None, "loops": ["s.result"]}, "loops_without_series"),
     ],
 )
@@ -711,19 +722,20 @@ def test_a_field_whose_parts_agree_reads_back():
         FieldDescription.model_validate({**one, "required": False, "default": None}).default is None
     )
     assert FieldDescription.model_validate({**one, "required": True, "default": "a"}).default == "a"
-    assert (
-        FieldDescription.model_validate(
-            {**one, "required": False, "exclusive_group": "way"}
-        ).default
-        is MISSING
-    )
+    assert FieldDescription.model_validate({**one, "required": False}).default is MISSING
     assert FieldDescription.model_validate(
         {**one, "required": False, "is_series": True, "loops": ["s.result"]}
     ).loops == ["s.result"]
 
 
+@dataclass(frozen=True)
+class Noted:
+    note: str
+    escalate: str | None
+
+
 @node("route_to", title="Route to", description="For a test.", asks=True)
-def route_to(text: str) -> Routed:
+def route_to(text: str) -> Noted:
     raise Ask(f"Route {text}", choices={"escalate": ["boss", "team"]}, default={"escalate": "team"})
 
 
@@ -740,7 +752,7 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_checked_agai
     assert run.answer("q", {"note": "fine"}).resume().outputs == {
         "note": "fine",
         "escalate": "team",
-    }  # The Ask's default, not SKIPPED.
+    }  # The Ask's default, not None.
     assert run.answer("q", {"note": "fine", "escalate": "boss"}).resume().outputs == {
         "note": "fine",
         "escalate": "boss",
@@ -902,13 +914,7 @@ def test_a_hooks_outputs_are_asked_by_their_types():
     }
 
 
-@dataclass(frozen=True)
-class Route:
-    keep: Annotated[str, Param(exclusive_group="route")]
-    drop: Annotated[str, Param(exclusive_group="route")]
-
-
-def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken():
+def test_answering_one_branch_skips_the_other_and_answering_none_skips_both():
     @node("route", title="Route", description="For a test.", asks=True)
     def route(text: str) -> Route:
         raise Ask(f"Keep {text}?")
@@ -936,9 +942,9 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
         registry_of(route, upper),
     )
     run = graph.run()
-    assert [(q.exclusive_group, q.required) for q in run.waiting[0].questions] == [
-        ("route", False),
-        ("route", False),
+    assert [(q.name, q.required, q.default) for q in run.waiting[0].questions] == [
+        ("keep", False, MISSING),
+        ("drop", False, MISSING),
     ]
     done = run.answer("q", {"keep": "a"}).resume()
     assert (
@@ -948,43 +954,57 @@ def test_answering_one_branch_of_an_exclusive_group_leaves_the_other_not_taken()
     )
     assert (
         _refused(lambda: run.answer("q", {"keep": "a", "drop": "a"}))[0].msg
-        == "That isn't a valid answer: exactly one of keep, drop needs an answer."
+        == "That isn't a valid answer: keep, drop default to SKIPPED, so they are branches, and at most one of them can be answered."
     )
-    assert (
-        _refused(lambda: run.answer("q", {}))[0].msg
-        == "That isn't a valid answer: exactly one of keep, drop needs an answer."
-    )
+    neither = run.answer("q", {}).resume()
+    assert neither.status == "complete" and neither.results["k"] == neither.results["d"] == {
+        "result": None
+    }
 
 
 @dataclass(frozen=True)
-class TwoRoutes:
-    keep: Annotated[str, Param(exclusive_group="route")]
-    drop: Annotated[str, Param(exclusive_group="route")]
-    left: Annotated[str, Param(exclusive_group="side")]
-    right: Annotated[str, Param(exclusive_group="side")]
+class Side:
+    left: str = SKIPPED
+    right: str = SKIPPED
 
 
-def test_an_answer_breaking_two_exclusive_groups_names_both():
-    @node("routes", title="Routes", description="For a test.", asks=True)
-    def routes() -> TwoRoutes:
-        raise Ask("Which way?")
+def test_two_ways_to_go_are_two_nodes_and_an_answer_to_each_is_checked_on_its_own():
+    """A node's branches are one set: a call gives a value to at most one of them.
+
+    Two independent ways to go, such as keep or drop and left or right, are two nodes. Answering two branches of
+    each is two faults, one per node.
+    """
+
+    @node("route", title="Route", description="For a test.", asks=True)
+    def route() -> Route:
+        raise Ask("Keep or drop?")
+
+    @node("side", title="Side", description="For a test.", asks=True)
+    def side() -> Side:
+        raise Ask("Left or right?")
 
     run = Graph.compile(
         GraphRecord.model_validate(
             {
-                "nodes": {"q": {"node": "routes"}},
-                "outputs": {"keep": {"node": "q", "output": "keep"}},
+                "nodes": {"r": {"node": "route"}, "s": {"node": "side"}},
+                "outputs": {
+                    "keep": {"node": "r", "output": "keep"},
+                    "left": {"node": "s", "output": "left"},
+                },
             }
         ),
-        registry_of(routes),
+        registry_of(route, side),
     ).run()
 
-    problems = _refused(lambda: run.answer("q", {"keep": "a", "drop": "b"}))
-
+    problems = _refused(
+        lambda: run.answer({"r": {"keep": "a", "drop": "b"}, "s": {"left": "a", "right": "b"}})
+    )
     assert sorted(problem.ctx["reason"] for problem in problems) == [
-        "exactly one of keep, drop needs an answer",
-        "exactly one of left, right needs an answer",
+        "keep, drop default to SKIPPED, so they are branches, and at most one of them can be answered",
+        "left, right default to SKIPPED, so they are branches, and at most one of them can be answered",
     ]
+    done = run.answer({"r": {"keep": "a"}, "s": {"left": "b"}}).resume()
+    assert done.outputs == {"keep": "a", "left": "b"}
 
 
 # -- picking several -----------------------------------------------------------------------------
@@ -1812,7 +1832,6 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
                 "default": "ida",
                 "widget": {"type": "textarea", "rows": 4},
                 "description": None,
-                "exclusive_group": None,
                 "constant_only": False,
             }
         ],
@@ -2454,8 +2473,8 @@ def test_results_show_one_none_per_item_of_a_branch_inside_a_loop_while_a_questi
 
     @dataclass(frozen=True)
     class Picked:
-        yes: Annotated[str, Param(exclusive_group="pick")] = SKIPPED
-        no: Annotated[str, Param(exclusive_group="pick")] = SKIPPED
+        yes: str = SKIPPED
+        no: str = SKIPPED
 
     @node("pick", title="Pick", description="For a test.")
     def pick(line: str, mark: str) -> Picked:

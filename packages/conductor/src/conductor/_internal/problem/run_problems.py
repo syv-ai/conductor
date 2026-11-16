@@ -222,7 +222,9 @@ def invalid_output(
 ) -> str:
     """A node returned a value that its return type doesn't allow.
 
-    Return values are checked strictly, so ``"12"`` is never an ``int``.
+    Return values are checked strictly, so ``"12"`` is never an ``int``. The branches of a node are checked too. A
+    branch is an output whose default is ``SKIPPED``, and a call gives a value to at most one of them. ``SKIPPED`` on
+    an output that isn't a branch is refused as well.
 
     To fix it, make the node return what it declares.
 

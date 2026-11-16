@@ -12,14 +12,14 @@ from conductor.widgets import Switch, Textarea, TextInput
 
 
 @dataclass(frozen=True)
-class Branches:                       # one output per field; a shared choice makes them a branch
-    yes: Annotated[str, Param(title="If yes", exclusive_group="answer")]
-    no: Annotated[str, Param(title="If no", exclusive_group="answer")]
+class Branches:                       # one output per field; the default SKIPPED makes each a branch, and a call gives a value to at most one
+    yes: Annotated[str, Param(title="If yes")] = SKIPPED
+    no: Annotated[str, Param(title="If no")] = SKIPPED
 
 
 @node("route", title="Route", description="Sends the text one way or the other.", category="logic")
 def route(text: Annotated[str, Param(title="Text", widget=Textarea())], go: Annotated[bool, Param(title="Yes?", widget=Switch())]) -> Branches:
-    return Branches(yes=text, no=SKIPPED) if go else Branches(yes=SKIPPED, no=text)
+    return Branches(yes=text) if go else Branches(no=text)
 
 
 @node("words", title="Words", description="The words of a text.", category="text")
@@ -73,13 +73,13 @@ def columns(names: Annotated[str, Param(title="Column names", widget=TextInput()
 
 @dataclass(frozen=True)
 class Checked[T]:                     # generic outputs: each takes the type that arrives on the edge
-    passed: Annotated[T, Param(exclusive_group="check")]
-    failed: Annotated[T, Param(exclusive_group="check")]
+    passed: T = SKIPPED
+    failed: T = SKIPPED
 
 
 @node("check", title="Check", description="Sends a value one way if it passed and the other if it failed.", category="logic")
 def check[T](value: T, ok: bool) -> Checked[T]:        # a node for any type: T is bound by the edge when a graph is compiled
-    return Checked(passed=value, failed=SKIPPED) if ok else Checked(passed=SKIPPED, failed=value)
+    return Checked(passed=value) if ok else Checked(failed=value)
 
 
 assert approve.context is not None and approve.context.cls is AppContext and list(approve.inputs) == ["proposal"]

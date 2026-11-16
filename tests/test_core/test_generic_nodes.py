@@ -7,7 +7,7 @@ a type variable. Once the graph is compiled, the node's inputs and outputs have 
 
 import asyncio
 from dataclasses import dataclass
-from typing import Annotated, Any, TypedDict, TypeVar
+from typing import Any, TypedDict, TypeVar
 
 import polars as pl
 import pytest
@@ -16,7 +16,6 @@ from conductor import (
     Ask,
     Graph,
     NodeDeclarationError,
-    Param,
     Series,
     Table,
     make_graph,
@@ -33,8 +32,8 @@ class Row(TypedDict):
 
 @dataclass(frozen=True)
 class Decided[T]:
-    if_true: Annotated[T, Param(exclusive_group="when")] = SKIPPED
-    if_false: Annotated[T, Param(exclusive_group="when")] = SKIPPED
+    if_true: T = SKIPPED
+    if_false: T = SKIPPED
 
 
 @node("decision", title="Decision", description="For a test.")
@@ -236,7 +235,7 @@ def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called
     assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any allows None already
 
 
-def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -> None:
+def test_a_branch_node_not_called_for_a_none_leaves_both_branches_skipped() -> None:
     graph = _compiled(
         returns_none,
         decision,

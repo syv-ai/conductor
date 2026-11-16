@@ -23,15 +23,13 @@ class FieldDescription(ConductorModel):
     - It has a ``default``, such as ``"default": "a"`` or ``"default": null``, and ``"required": false``. Left out,
       it gets that value, and ``null`` means ``None``.
     - It has a ``default`` and ``"required": true``. It can't be left out, and the default is only the value it
-      starts with. That is the one question of a node with one output, whose ``Ask`` proposed a default, unless
-      that output is in an ``exclusive_group``: an output of a group is never ``required``, even alone.
+      starts with. That is the one question of a node with one output, whose ``Ask`` proposed a default.
     - It has no ``default`` key and ``"required": true``. It can't be left out, like ``text: str``.
-    - It has no ``default`` key and ``"required": false``. Left out, it is a branch not chosen (``SKIPPED``). That
-      is an output in an ``exclusive_group``, or an output whose default is ``SKIPPED``.
+    - It has no ``default`` key and ``"required": false``. It is a branch, an output whose default is ``SKIPPED``.
+      Left out, it is skipped.
 
     In Python, a ``default`` that isn't there is pydantic's ``MISSING``. A description whose parts contradict each
-    other is refused: an output of an ``exclusive_group`` that is ``required`` or has a ``default``, and ``loops`` on
-    a field that isn't ``is_series``.
+    other is refused: ``loops`` on a field that isn't ``is_series``.
 
     Attributes:
         name: The parameter's name, or the output's.
@@ -54,7 +52,6 @@ class FieldDescription(ConductorModel):
             ``Param(choices=)`` or, on a question, from the ``Ask``. Each is a ``Choice`` with every field a host
             gave it.
         widget: The control a person edits the field with, as JSON.
-        exclusive_group: The group of alternative outputs this output belongs to.
         constant_only: Whether an input takes only a constant. An editor then offers it no edge and no graph input.
         loops: For an output of a subgraph that comes from inside loops: the lists it loops over, outermost first,
             each written as its source inside the subgraph. If the node inside returns a ``Series``, that list comes
@@ -80,25 +77,12 @@ class FieldDescription(ConductorModel):
     default: JsonValue | MISSING = MISSING
     choices: tuple[SerializeAsAny[Choice], ...] | None = None
     widget: dict[str, Any] | None = None
-    exclusive_group: str | None = None
     constant_only: bool = False
     loops: list[str] = []
 
     @model_validator(mode="after")
     def _check_invariants(self) -> Self:
         """Refuses a description whose parts contradict each other, each case with its own error type."""
-        has_default = self.default is not MISSING
-        in_group = self.exclusive_group is not None
-        if self.required and in_group:
-            raise conductor_error(
-                "required_in_exclusive_group",
-                "an output of an exclusive group is never required, since leaving it out means its branch wasn't chosen",
-            )
-        if has_default and in_group:
-            raise conductor_error(
-                "default_in_exclusive_group",
-                "an output of an exclusive group can't have a default, since leaving it out means its branch wasn't chosen",
-            )
         if self.loops and not self.is_series:
             raise conductor_error(
                 "loops_without_series",

@@ -105,7 +105,7 @@ class NodeStart(_NodeEvent):
     the one ``run.with_inputs(...)`` or ``run.again(...)`` was called on. Or the function isn't called because an
     argument is ``None``. Either way the node has started.
 
-    A node that is skipped on every call, because it sits on a branch that wasn't chosen, gets no ``NodeStart``.
+    A node that is skipped on every call, because it sits on a skipped branch, gets no ``NodeStart``.
     It only gets ``NodeComplete``, with ``NodeProgress`` before it if it is inside a loop. A node whose function
     returned ``SKIPPED`` was still called, so it does get its ``NodeStart``.
 

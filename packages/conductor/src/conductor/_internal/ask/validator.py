@@ -31,7 +31,7 @@ from pydantic_core import (
 )
 
 from conductor._internal.base import REQUIRED, SKIPPED, Loc, validate_as_json
-from conductor._internal.field import Field, exclusive_groups, groups_without_one_value
+from conductor._internal.field import Field, branches_given
 from conductor._internal.problem import (
     InvalidCallError,
     call_problems,
@@ -115,9 +115,9 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                     ) from None
         if ask.default is not REQUIRED:
             for name, default in self._by_output(ask.default, "default").items():
-                # A default would give this output a value even when the person picks another of its group.
-                if outputs[name].param.exclusive_group is not None:
-                    reason = f"'{name}' is in an exclusive group, and an output of a group can't have a default"
+                # A default would give this branch a value even when the person answers another branch.
+                if outputs[name].is_branch:
+                    reason = f"'{name}' defaults to SKIPPED, so it is a branch, and an Ask can't propose a default for a branch"
                     raise InvalidCallError([run_problems.invalid_ask(reason=reason)])
                 defaults[name] = _proposed(outputs[name], default, choices.get(name))
         return choices, defaults
@@ -189,14 +189,14 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
 
     It checks the answer and turns it into the node's outputs. A node with one output is answered with a plain
     value. A node with several is answered with a mapping by output name, one entry per question. An entry may be
-    left out when its question has a default, or when the question is a branch the person may leave unchosen.
+    left out when its question has a default, or when it is a branch, which is then skipped.
 
     One validator is built for each answer, from the questions the call asked.
 
     Raises (when called):
         InvalidCallError: One ``invalid_answer`` problem per fault, none of them quoting the answer. The faults
             are: no mapping where there are several questions, a name that isn't a question, a required question
-            left out, a value its type or its choices refuse, and not exactly one answer in an exclusive group.
+            left out, a value its type or its choices refuse, and more than one branch answered.
     """
 
     def __init__(
@@ -218,7 +218,6 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             waiting_id: The id of the waiting call being answered. The problems name it too.
         """
         self._outputs = outputs
-        self._groups = exclusive_groups(outputs)
         self._choices = choices
         self._defaults = defaults
         self._loc = loc
@@ -252,7 +251,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
     def _read(self, answer: Any) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
         """Reads ``answer`` into outputs, and collects every fault rather than stopping at the first.
 
-        A question left out of the answer gets its default. With no default, it is a branch not chosen if it isn't
+        A question left out of the answer gets its default. With no default, it is a skipped branch if it isn't
         required. Otherwise leaving it out is a fault.
 
         Returns:
@@ -295,9 +294,13 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
                     faults.append((name, f"'{name}' has no answer"))
             except PydanticCustomError as refused:
                 faults.append((name, f"'{name}': {refused.message()}"))
-        for fault in groups_without_one_value(self._groups, answer):
+        given = branches_given(outputs, answer)
+        if len(given) > 1:
             faults.append(
-                (None, f"exactly one of {comma_separated(fault.members)} needs an answer")
+                (
+                    None,
+                    f"{comma_separated(given)} default to SKIPPED, so they are branches, and at most one of them can be answered",
+                )
             )
         return read, faults
 
