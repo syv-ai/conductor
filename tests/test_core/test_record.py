@@ -1571,6 +1571,23 @@ COLLECT = subgraph("collect", title="Collect", description="For a test.")(
 SUBGRAPHS = registry_of(upper, tail, split, join, both, ENRICH, PAIR, COLLECT)
 
 
+def test_make_graph_chains_a_subgraph_by_the_inputs_and_outputs_its_record_declares():
+    """A subgraph is chained as a function node is: its one required graph input, and its one graph output.
+
+    When it can't be, ``not_a_chain`` lists the subgraph's own inputs and outputs, never "none".
+    """
+    record = make_graph(split, ENRICH, join)
+    assert record.nodes["enrich"].inputs == {
+        "text": InputEntry(sources=(Source("split", "result"),))
+    }
+    assert Graph.compile(record, SUBGRAPHS).run(text="a,b").outputs == {"result": "A.+B."}
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(upper, PAIR, outputs={"upper": "upper.result"})
+    assert [(p.type, p.ctx["inputs"], p.ctx["outputs"]) for p in refused.value.problems] == [
+        ("not_a_chain", ["x_text", "y_text"], ["result"])
+    ]
+
+
 def test_a_subgraph_node_is_given_wired_and_read_by_its_own_id_and_the_names_its_record_declares():
     graph = Graph.compile(
         GraphRecord.model_validate(

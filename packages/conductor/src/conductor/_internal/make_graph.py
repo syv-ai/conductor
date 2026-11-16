@@ -430,28 +430,28 @@ def _chain_edges(
     """Returns the edges that chain the nodes, one from each node into the next.
 
     ``filled`` is the inputs that already get a constant or a default. Between two nodes, the edge goes from the
-    first node's one output into the second node's one required input that's left. If two nodes can't be joined
+    first node's one output into the second node's one required input that's left. A subgraph is chained the same
+    way, by the graph inputs and outputs its record declares. If two nodes can't be joined
     that way, ``not_a_chain`` goes to ``problems``. Its variant ``constant_only`` is used when the only required
     inputs left take only a constant.
     """
     edges: list[tuple[str, str]] = []
     chain = list(definitions.items())
     for (before_id, before), (after_id, after) in zip(chain, chain[1:], strict=False):
-        match before, after:
-            case FunctionDefinition(), FunctionDefinition():
-                outputs = list(before.outputs)
-                open_inputs = [
-                    name for name in after.required_inputs if (after_id, name) not in filled
-                ]
-                needs_constant = [
-                    name
-                    for name, field in after.inputs.items()
-                    if field.param.constant_only
-                    and field.default is REQUIRED
-                    and (after_id, name) not in filled
-                ]
-            case _:  # a subgraph's types are known only once it's compiled, so a chain can't go through one
-                outputs, open_inputs, needs_constant = [], [], []
+        outputs = list(before.output_names)
+        open_inputs = [name for name in after.required_inputs if (after_id, name) not in filled]
+        # a subgraph's inputs are graph inputs of its record, and a graph input never takes only a constant
+        needs_constant = (
+            [
+                name
+                for name, field in after.inputs.items()
+                if field.param.constant_only
+                and field.default is REQUIRED
+                and (after_id, name) not in filled
+            ]
+            if isinstance(after, FunctionDefinition)
+            else []
+        )
         if len(outputs) == 1 and len(open_inputs) == 1:
             edges.append((f"{before_id}.{outputs[0]}", f"{after_id}.{open_inputs[0]}"))
         elif not open_inputs and needs_constant:

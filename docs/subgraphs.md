@@ -55,13 +55,11 @@ You wire a subgraph like any other node. Its inputs and outputs are the ones its
 `make_graph(upper, exclaim)` declared the input `text` (from `upper`) and the output `result` (from `exclaim`). So
 the outer graph wires `shout.text` and `shout.result`.
 
-`make_graph` can't chain a subgraph for you, so write the edges out. Without them it raises `not_a_chain`.
+`make_graph` chains a subgraph as it chains any node, by those names: `split.result` into `shout.text`, and
+`shout.result` into `join.texts`.
 
 ```python
-graph = Graph.compile(
-    make_graph(split, shout, join, edges=[("split.result", "shout.text"), ("shout.result", "join.texts")]),
-    registry,
-)
+graph = Graph.compile(make_graph(split, shout, join), registry)
 
 print(graph.run(text="hi there").outputs)  # {'result': 'HI! THERE!'}
 print(graph.describe().nodes["shout"].per_item_of)  # split.result

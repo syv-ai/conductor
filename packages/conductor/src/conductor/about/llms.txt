@@ -440,7 +440,7 @@ print(record.nodes["upper"].inputs["text"].constant)  # x
 - When that can't be drawn, it is `not_a_chain`. When the only required inputs left take only a constant, it is `not_a_chain` with the variant `constant_only` and `ctx.inputs`.
 - By itself, `make_graph` never wires an input that takes only a constant, or makes it a graph input. Compiled without a constant, such an input is `input_has_no_value`, variant `constant_only`.
 - `edges=`, `defaults=` or `inputs=` that do wire one are written as given, for compiling to refuse (`input_takes_only_a_constant`).
-- A chain reads the fields each node declares. A subgraph, or a node whose fields a hook works out, takes `edges=`.
+- A chain reads the fields each node declares. A subgraph is chained by the graph inputs and outputs its record declares. A node whose fields a hook works out takes `edges=`.
 
 **Edges.** `edges=[("upper.result", "join.texts")]` lists every edge, and nothing is matched by name. `"read.result.email"` is the field `email` of the record `read` returns.
 

@@ -355,8 +355,9 @@ def not_a_chain(node_id: str, /, *, before: str, inputs: list[str], outputs: lis
     """``make_graph`` is given no edges, and it can't wire one of its nodes to the node before it.
 
     Without ``edges=``, ``make_graph`` wires the nodes in a chain. It takes the one output of the node before, and wires
-    it to the node's one required input that has no constant and that an edge can feed. When a node doesn't have
-    exactly one such input, or the node before it doesn't have exactly one output, it can't.
+    it to the node's one required input that has no constant and that an edge can feed. A subgraph's inputs and outputs
+    are the graph inputs and outputs its record declares. When a node doesn't have exactly one such input, or the node
+    before it doesn't have exactly one output, it can't.
 
     To fix it, pass the edges, like ``make_graph(upper, greet, edges=[("upper.result", "greet.name")])``.
 

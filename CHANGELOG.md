@@ -221,7 +221,8 @@ What changes in how you work, before the name-by-name tables:
   (`invalid_place`), two graph inputs or outputs of one name (`graph_inputs_share_a_name`,
   `graph_outputs_share_a_name`), what the record refuses (`invalid_record`), a node with a `compute_outputs` hook
   whose outputs no edge reads and `outputs=` doesn't name, which would give the graph nothing from it
-  (`hook_outputs_not_named`), a chain it can't draw; a chain never wires
+  (`hook_outputs_not_named`), a chain it can't draw; a chain goes through a subgraph by the graph inputs and
+  outputs its record declares, and never wires
   an input a hook reads, which takes a constant, and when only such inputs are left `not_a_chain` has the variant `read_by_a_hook`, naming them in
   `ctx.read_by_hooks`), and an input a
   node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
