@@ -982,6 +982,14 @@ def test_make_graph_without_edges_refuses_nodes_it_cannot_chain_and_says_to_pass
     )
 
 
+def test_make_graph_reports_only_the_gap_in_a_chain_not_the_graph_outputs_that_would_follow_from_it():
+    """Unchained, both nodes' ``result`` would become graph outputs of one name. That clash is the gap's doing, so
+    the author is shown one problem for one mistake."""
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_email, _count)
+    assert [(p.type, p.loc) for p in refused.value.problems] == [("not_a_chain", ("count",))]
+
+
 def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says_it_needs_a_constant():
     def width_outputs(width: int) -> dict[str, Any]:
         return {"result": str}

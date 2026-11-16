@@ -89,7 +89,8 @@ def make_graph(
             name.
             ``invalid_record``: the record itself is refused. For example, an input is given both a value and an
             edge, an edge is written twice, one id is given to two nodes, or a name isn't a valid name.
-            ``not_a_chain``: there are no ``edges``, and the nodes can't be chained.
+            ``not_a_chain``: there are no ``edges``, and the nodes can't be chained. The graph inputs and
+            outputs aren't written then, since they would follow from the gap, so their faults aren't listed.
             ``hook_outputs_not_named``: no edge leaves a node whose ``compute_outputs`` hook gives its outputs,
             and ``outputs`` names none of them.
         TypeError: An argument isn't of the type its annotation says, such as ``outputs=None``. The message names
@@ -101,7 +102,12 @@ def make_graph(
     constant_of = _values_by_place("constants", constants, definitions, problems)
     default_of = _values_by_place("defaults", defaults, definitions, problems)
     if edges is None:
+        found_before_the_chain = len(problems)
         edges = _chain_edges(definitions, constant_of.keys() | default_of.keys(), problems)
+        # A chain with a gap leaves inputs unwired and outputs unread, so the graph inputs and outputs written for
+        # them would be refused for that gap alone. Only the gap is reported.
+        if len(problems) > found_before_the_chain:
+            raise InvalidCallError(problems)
     sources_of: dict[tuple[str, str], list[Source]] = {}
     for i, (source_text, target_text) in enumerate(edges):
         source, target = (
