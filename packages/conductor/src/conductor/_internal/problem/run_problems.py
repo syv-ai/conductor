@@ -70,10 +70,14 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
 def execution_failed(*loc: str | int, error: str) -> str:
     """A node raised an exception that isn't a ``NodeError``.
 
+    The call isn't retried, whatever its ``Policy(retries=)`` says. Only an ``ExternalError``, or an exception class
+    named in ``Policy(retry_on=)``, is: running the same computation again fails the same way.
+
     A problem may be shown to anyone, and the exception's text might quote a value. So the text and the traceback go to
     the ``conductor`` logger, and ``ctx.error`` only has the exception's class name.
 
-    To fix it, fix the node, then call ``resume()``.
+    To fix it, fix the node, then call ``resume()``. If the exception comes from an outside service, name its class in
+    ``Policy(retry_on=)``, or raise ``ExternalError``.
 
     Args:
         loc: The call that failed.
@@ -87,7 +91,10 @@ def execution_failed(*loc: str | int, error: str) -> str:
 
         why_it_stopped(Graph.compile(make_graph(divide), registry).run(n=0))
     """
-    return f"The node raised {error}. Its developer can find the details in the conductor log."
+    return (
+        f"The node raised {error}, which isn't retried: only an ExternalError, or a class in Policy(retry_on=), is."
+        " Its developer can find the details in the conductor log."
+    )
 
 
 @RUN_PROBLEMS.problem()
@@ -344,7 +351,7 @@ def run_timed_out(*, timeout: float) -> str:
 def timeout(*loc: str | int, seconds: float) -> str:
     """One call of a node took longer than its ``Policy(attempt_timeout=)``.
 
-    A call that timed out isn't retried.
+    A call that timed out isn't retried, whatever its ``Policy(retries=)`` says.
 
     To fix it, increase the node's ``attempt_timeout``, or make the call faster.
 
@@ -361,4 +368,7 @@ def timeout(*loc: str | int, seconds: float) -> str:
 
         why_it_stopped(Graph.compile(make_graph(stuck), registry).run(text="a"))
     """
-    return f"The node didn't return within {seconds} seconds. Its Policy(attempt_timeout=) sets how long it may take."
+    return (
+        f"The node didn't return within {seconds} seconds, and a timed-out call isn't retried."
+        " Its Policy(attempt_timeout=) sets how long it may take."
+    )

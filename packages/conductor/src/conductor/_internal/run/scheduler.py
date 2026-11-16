@@ -951,7 +951,7 @@ class Scheduler:
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)
         # Made with or without a listener, since making it logs the error.
-        failure = self._failure(node, item_indexes, error)
+        failure = self._failure(node, item_indexes, error, retry_in=delay)
         if self.node_events is not None:
             self.node_events.call_retries(node, attempt.number + 1, delay, failure)
         return True
@@ -1045,7 +1045,11 @@ class Scheduler:
         return self._failure(node, item_indexes, error)
 
     def _failure(
-        self, node: BlueprintFunctionNode, item_indexes: ItemIndexes, error: BaseException | Problem
+        self,
+        node: BlueprintFunctionNode,
+        item_indexes: ItemIndexes,
+        error: BaseException | Problem,
+        retry_in: float | None = None,
     ) -> Problem:
         """Returns the problem a call failed with, with the call's loc.
 
@@ -1053,15 +1057,30 @@ class Scheduler:
         is written to the log, with its traceback. That includes an ``InvalidCallError`` the function let escape.
         The problem then only names the exception's class, since its text may quote values. It is
         ``external_failed`` for a class in the node's ``retry_on``, and ``execution_failed`` for anything else.
+
+        Args:
+            node: The node whose call failed.
+            item_indexes: The call's item indexes.
+            error: What the call raised, or the problem it failed with.
+            retry_in: The seconds until the call is made again, for an attempt that is retried. Its exception is
+                logged as a warning that says so, since the call may still succeed; else as an error.
         """
         loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
             error = error.problems[0]
         if isinstance(error, Problem):
             return error.model_copy(update={"loc": loc})
-        _logger.error(
-            "node %r failed for item %r", place_text(node.node_path), item_indexes, exc_info=error
-        )
+        where = place_text(node.node_path)
+        if retry_in is None:
+            _logger.error("node %r failed for item %r", where, item_indexes, exc_info=error)
+        else:
+            _logger.warning(
+                "node %r failed for item %r, and will be retried in %s seconds",
+                where,
+                item_indexes,
+                retry_in,
+                exc_info=error,
+            )
         if isinstance(error, node.policy.retry_on):
             return run_problems.external_failed(*loc, error=type(error).__name__)
         return run_problems.execution_failed(*loc, error=type(error).__name__)

@@ -134,7 +134,8 @@ def test_a_foreign_exception_runs_once_and_is_execution_failed_and_quotes_nothin
     (failed,) = [e for e in events if e.type == "node_failed"]
     assert (failed.cause.type, failed.cause.msg, failed.cause.loc, failed.cause.ctx) == (
         "execution_failed",
-        "The node raised KeyError. Its developer can find the details in the conductor log.",
+        "The node raised KeyError, which isn't retried: only an ExternalError, or a class in"
+        " Policy(retry_on=), is. Its developer can find the details in the conductor log.",
         ("n",),
         {"error": "KeyError"},
     )
@@ -416,7 +417,8 @@ def test_a_keyword_a_policy_does_not_have_is_refused():
 
 @pytest.mark.parametrize("listened", [False, True])
 def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened: bool, caplog):
-    """One scheduler, with or without a listener: the failure a retry follows goes to the log either way."""
+    """One scheduler, with or without a listener: the failure a retry follows goes to the log either way, as a
+    warning that says the call will be retried."""
     tries: list[int] = []
 
     @node(
@@ -436,10 +438,13 @@ def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened
     async def streamed() -> Any:
         return [event async for event in prepared.stream()][-1].run
 
-    with caplog.at_level(logging.ERROR, logger="conductor"):
+    with caplog.at_level(logging.WARNING, logger="conductor"):
         run = asyncio.run(streamed()) if listened else prepared.resume()
 
+    (record,) = caplog.records
     assert run.status == "complete" and "the bank is down" in caplog.text
+    # the attempt that is retried reads as a warning that says so, not as the call's end
+    assert record.levelname == "WARNING" and "will be retried in 0.0 seconds" in record.getMessage()
 
 
 def test_more_than_a_thousand_retries_with_no_delay_keep_retrying_until_the_call_succeeds():

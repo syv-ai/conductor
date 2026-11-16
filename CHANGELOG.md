@@ -471,6 +471,7 @@ What changes in how you work, before the name-by-name tables:
   fingerprint, then an outcome per call with its `item_indexes`, so an outcome may be written twice. A run read
   back reuses what the same run in memory does.
 - **`Policy` refuses a keyword it doesn't have.** `Policy(retries=3, timeout=0.2)` raises pydantic's `ValidationError` (`unexpected_keyword_argument`), as a value of the wrong type does; it made a policy with no timeout, and a node that ran without one.
+- **A failure says why it wasn't retried.** `execution_failed`'s message says the exception isn't retried, since only an `ExternalError` or a class in `Policy(retry_on=)` is, and `timeout`'s that a timed-out call isn't retried, so a node with `Policy(retries=3)` that failed once says why at the failure. An attempt that is retried logs its exception to the `conductor` logger as a warning that says when the call is made again (it was an error, so a call that then succeeded read as two failures); a call's last failure is still an error.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

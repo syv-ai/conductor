@@ -571,6 +571,8 @@ def test_attempt_timeout_is_final():
         and calls == ["x"]
         and t.monotonic() - start < 0.25
     ), (run.cause, calls)
+    # the failure says why the retries=2 the policy sets weren't made
+    assert "a timed-out call isn't retried" in run.cause.msg
 
 
 def test_reuse_when_inputs_match_false_calls_again():

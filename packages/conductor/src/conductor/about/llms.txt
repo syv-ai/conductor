@@ -830,6 +830,7 @@ Retries live on the node's `Policy`, and are counted per call.
 - Anything else is `execution_failed`, or the node's own `NodeError` code, and runs once.
 - A `NodeError` other than `ExternalError`, an `invalid_output` and an `Ask` are never retried, even when `retry_on` names a class they derive from, such as `Exception`.
 - Retry `n` waits `retry_delay * 2 ** (n - 1)`, and emits `node_retry`.
+- An exception other than a `NodeError` goes to the `conductor` logger with its traceback: as a warning that says when it will be retried, for an attempt that is retried, and else as an error.
 
 **A timeout per attempt.** `Policy.attempt_timeout` limits one attempt. Past it, the call fails with the code `timeout`, and isn't retried. The run ends `failed` even when a cancel was asked, since the timeout isn't the cancel's doing. The thread is not interrupted, so the call runs on, and the process waits for it at exit.
 
