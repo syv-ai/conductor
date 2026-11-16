@@ -627,6 +627,24 @@ def test_a_branch_inside_a_subgraph_is_a_branch_of_the_subgraph_node_named_by_it
     assert joined.is_runnable
 
 
+def test_a_branch_two_subgraphs_deep_is_named_by_the_path_of_its_node_from_the_outer_subgraph():
+    """Each subgraph level puts its node's id in front of the group's name, so two uses never share a group."""
+    if "wrapped-decide" not in REGISTRY:
+        record = chain(("in", subgraph_of("decide")), outputs=("short", "long"))
+        REGISTRY.add(
+            subgraph(
+                "wrapped-decide", title="Wrapped decide", description="The decide node, wrapped."
+            )(GraphRecord.model_validate(record))
+        )
+    graph = compile_graph(
+        {"e": "wrapped-decide", "j": "exclaim"}, [("e.short", "j.text"), ("e.long", "j.text")]
+    )
+    assert {
+        output.name: output.exclusive_group for output in graph.describe().nodes["e"].outputs
+    } == {"long": "in/d.way", "short": "in/d.way"}
+    assert graph.is_runnable
+
+
 def test_two_outputs_on_opposite_branches_inside_a_subgraph_may_share_one_input_as_in_one_graph():
     inside = compile_graph(
         {"w": "words", "e": "deciding-inner", "j": "exclaim", "n": "count"},
@@ -1538,6 +1556,19 @@ def test_answers_given_at_once_to_subgraphs_side_by_side_inside_another_complete
     assert reads_the_same_saved_and_read_back(some) and reads_the_same_saved_and_read_back(
         some.answer(run.waiting[0], "yes")
     )
+
+
+def test_a_subgraph_used_twice_runs_one_node_with_one_code_fingerprint_asking_one_question_in_two_places():
+    """Two uses of one subgraph, neither inside a loop, call the same nodes with the same code.
+
+    So a saved run gives the node inside each one code fingerprint, and the waiting ids of two calls given the same
+    inputs differ only by where the call is.
+    """
+    run = Graph.compile(INNER["two-asks-inner"], REGISTRY).run(text="ab")
+    code = json.loads(run.to_json())["code"]
+    assert code["f/up"] == code["g/up"] and code["f/q"] == code["g/q"]
+    first, second = (waiting_call.id.split("~") for waiting_call in run.waiting)
+    assert (first[0], second[0]) == ("f/q", "g/q") and first[1] == second[1]
 
 
 def test_three_hundred_answers_given_at_once_inside_one_subgraph_complete_it():
