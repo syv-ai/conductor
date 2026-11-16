@@ -738,7 +738,10 @@ class Worker(Generic[M, X]):
             try:
                 await held.run()
             finally:
-                del self._held[row.id]
+                # The run may have been taken again while this task wrote that it lets the run go. Then the entry
+                # is the newer task's, and that task removes it.
+                if self._held.get(row.id, (None,))[0] is held:
+                    del self._held[row.id]
 
         self._held[row.id] = (held, asyncio.get_running_loop().create_task(hold()))
 

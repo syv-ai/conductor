@@ -2310,6 +2310,43 @@ async def test_a_run_begun_as_a_worker_shuts_down_is_handed_back_before_the_work
     assert (late.status, late.owner, late.lease_until) == ("running", None, 0.0)
 
 
+async def test_a_run_answered_while_its_last_resume_call_still_writes_its_end_is_handed_back_at_shutdown() -> (
+    None
+):
+    registry, graph, gates, _ = gated()
+
+    class AnswersItsEndLate(MemoryStore):
+        """Writes a row at once, but returns from the write that ends the first resume call only when told to."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.end_written, self.answer_end = AsyncioEvent(), AsyncioEvent()
+
+        async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+            written = await super().update(run_id, rev, changes)
+            if written and changes.get("owner", "kept") is None and not self.end_written.is_set():
+                self.end_written.set()
+                await self.answer_end.wait()
+            return written
+
+    store, errors = AnswersItsEndLate(), []
+    asyncio.get_running_loop().set_exception_handler(lambda _, context: errors.append(context))
+    worker = _worker(store, registry)
+    gates["first"].set()
+    async with worker.serving():
+        run_id = await _started(worker, graph, {"csv": "a,b", "text": "x", "question": "y"})
+        await store.end_written.wait()
+        (waiting,) = (await worker.read(run_id, allows=EVERY_RUN)).waiting
+        await worker.answer(run_id, {waiting.id: True}, allows=EVERY_RUN)
+        store.answer_end.set()
+        await asyncio.to_thread(gates["per_item_called"].wait, 5)
+    row = store.rows[run_id]
+    gates["second"].set()
+    # The answered resume call is handed back like any other, though the first one's end came back after it began.
+    assert (row.status, row.owner, row.lease_until) == ("running", None, 0.0)
+    assert errors == []
+
+
 @pytest.mark.parametrize(
     "fails", ["the read of the expired runs", "the claim of a run", "a row that can't be read"]
 )
