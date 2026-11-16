@@ -70,14 +70,13 @@ def answer_declined(*loc: str | int, reason: str | None = None) -> str:
 def execution_failed(*loc: str | int, error: str) -> str:
     """A node raised an exception that isn't a ``NodeError``.
 
-    The call isn't retried, whatever its ``Policy(retries=)`` says. Only an ``ExternalError``, or an exception class
-    named in ``Policy(retry_on=)``, is: running the same computation again fails the same way.
+    The call isn't retried. Which failures are is written in ``Policy``'s docstring and in the reference
+    (``python -m conductor.about retries-and-timeouts``).
 
     A problem may be shown to anyone, and the exception's text might quote a value. So the text and the traceback go to
     the ``conductor`` logger, and ``ctx.error`` only has the exception's class name.
 
-    To fix it, fix the node, then call ``resume()``. If the exception comes from an outside service, name its class in
-    ``Policy(retry_on=)``, or raise ``ExternalError``.
+    To fix it, fix the node, then call ``resume()``.
 
     Args:
         loc: The call that failed.
@@ -230,7 +229,8 @@ def invalid_output(
     """A node returned a value that its return type doesn't allow.
 
     The value may be of the wrong type or the wrong shape, or miss an output. For a value an output's type refuses,
-    ``ctx.errors`` says where in the output it is.
+    ``ctx.name`` names the output, and ``ctx.errors`` says where inside it the value is: a refused field of a returned
+    dataclass is its own output, so its ``ctx.errors[0].loc`` is ``[]``.
 
     Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
     branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. The reference has
@@ -243,7 +243,7 @@ def invalid_output(
     Args:
         loc: The call that returned it.
         reason: Why the value is refused, without quoting it.
-        name: The output, if the node has several.
+        name: The output the fault is about, when there is one to name; ``result`` for a node of one output.
         errors: pydantic's list of what it refused, without the value.
         column: For a table, the column of the first value refused.
 
