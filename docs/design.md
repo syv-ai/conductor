@@ -84,7 +84,8 @@ only when asked.
 
 Each input gets exactly one thing: a `constant`, a `graph_input` (the caller's value, maybe with a `default`), or the
 `sources` of its edges. That was chosen over a map per kind of value or a `locked` flag. An input can't be given two
-things, so no rule has to say which one wins.
+things, so no rule has to say which one wins. A graph input ignores the default the node declares: only the record's
+`default` counts, and a graph input without one is required.
 
 Constants, defaults and `display` are stored as JSON: a date as its ISO text, a float that isn't finite as `"NaN"`.
 So a record always equals its own JSON, and its fingerprint survives a store. The cost is that a value with no JSON
@@ -105,7 +106,7 @@ from the first and last nodes was rejected: adding a node at the end would chang
 inputs and outputs, and writes a record without compiling it. Every fault it can't see while writing shows up in
 `Graph.compile(...).problems`, so compiling stays the one place a graph's faults are found. The cost: a script that
 only saves the record hears about them only when it's compiled. The rules are in
-`python -m conductor.about quick-start`.
+`python -m conductor.about writing-a-graph-in-python`.
 
 ```python
 record = make_graph(words, upper, join)
@@ -144,8 +145,9 @@ item order instead, so inserting an item keeps everyone's answer. The rules, wit
 `with_inputs(previous=)`, are in `python -m conductor.about running-again`.
 
 Errors are data. There's one `Problem` record everywhere, with stable codes in `PROBLEMS.codes` for a host to
-translate. A message says how to fix the fault and never quotes a value, and a node's own exception text goes to the
-log.
+translate. A message says how to fix the fault, and a failed call's problem never quotes a value: a node's own
+exception text goes to the log. A few kinds do quote an exception's text, such as `compute_hook_failed`, which
+quotes the hook's; `python -m conductor.about errors` lists them.
 
 ```python
 graph = Graph.compile(record, registry)
@@ -269,8 +271,9 @@ A question is the same record as a field: the `FieldDescription` a palette reads
 answer was rejected: it loses a host type's id and exclusive groups, and has no place for a widget.
 
 An answer is read strictly from its JSON form (`true`, never `"yes"`), and every fault is refused at once. A waiting
-id like `approve@1~3fa2c0d1` names the call and a fingerprint of what it was given, so an answer meant for a question
-that has changed is refused as `answer_stale`. The rules are in `python -m conductor.about asking-a-person`.
+id like `approve@1~3fa2c0d1` names the call and a fingerprint of the node's id, its code and the call's inputs. So an
+answer to a place that waits with another fingerprint is refused as `answer_stale`, and one to a place that waits on
+nothing as `not_waiting`. The rules are in `python -m conductor.about asking-a-person`.
 
 ```python
 from typing import Literal
@@ -304,14 +307,15 @@ Nodes run on the run's own thread by default. An author asks for threads by sett
 its calls across the whole process, every graph and every run, so it can keep to an outside service's quota. Left at
 `None`, runs don't wait for each other, since a lock on every call would slow every run for a quota no node asked for.
 
-A node's return is read strictly against its type. A value on an edge is checked again only where the source's type
-doesn't already guarantee it fits, which is decided when compiling, so a plain chain checks nothing at run time.
+A node's return is read strictly against its type. Compiling checks that each edge's types fit. A value on an edge
+is checked again only where the source's type doesn't already guarantee it fits the input. Which edges those are is
+worked out once, when the graph's first run is made or read, so a plain chain checks nothing at run time.
 
 Only an `ExternalError`, or a class the node's `retry_on` names, is retried. A `NodeError`, a refused output and an
 `Ask` never are, because calling again would give the same result. The rules are in
 `python -m conductor.about retries-and-timeouts`.
 
-A subgraph is compiled once, on its own, and stays one node of the outer graph, but a run only ever calls its inner
+A subgraph is compiled on its own, and stays one node of the outer graph, but a run only ever calls its inner
 function nodes (`shout/upper` in a saved run). They have one call per item of every loop they're inside, so they
 behave exactly as if drawn in the outer graph. A separate run per item was rejected. Measured on 2,000 items through
 a two-node subgraph, a run per item saved about 8 times the bytes of one run (691 KB against 86 KB). [A graph inside a
@@ -346,9 +350,10 @@ A float that isn't finite is saved as its text, and its declared type reads it b
 `Any` gives the text. Marking each such float in the saved run would state its type a second time.
 
 Checkpoints come from the stream. `run.stream(checkpoint_every=seconds)` sends `run_checkpoint` events with a copy of
-the run, so a process that dies repeats at most the calls in flight. A host that shuts down passes `hand_back=` and
-gets the run back still `running`, for another process to go on with. A callback was rejected as a second channel,
-and cancelling and handing back stay two acts so nobody's run is saved as `cancelled` by mistake.
+the run. A process that dies repeats the calls in flight, and the calls recorded since the last checkpoint. A host
+that shuts down passes `hand_back=` and gets the run back still `running`, for another process to go on with. A
+callback was rejected as a second channel, and cancelling and handing back stay two acts so nobody's run is saved as
+`cancelled` by mistake.
 
 Events carry counts, not results, so they stay small however big a table is. The exceptions are what a host needs to
 act on: `node_failed` and `node_retry` carry a `Problem`, `run_end` the run's `cause`, and `node_waiting` the
@@ -418,8 +423,8 @@ class Settings(BaseModel):
 print(Settings.model_json_schema()["properties"]["temperature"])  # {'default': 1.0, 'maximum': 2, 'minimum': 0, 'title': 'Temperature', 'type': 'number'}
 ```
 
-**Worth questioning:** `@host_type` is a decorator, not a base class. A base class runs before the class is finished,
-which breaks pydantic's `Box[int]`, `@dataclass(slots=True)` and enums, and a library's class can't be given one.
+**Worth questioning:** `@host_type` is a decorator, not a base class. A base class's hook runs before `@dataclass`
+has made the class, so it can't check a dataclass, and a library's class can't be given a base class at all.
 
 **Worth questioning:** `@host_type(..., accepts=[...])` takes a list of classes whose values may be wired into the
 type, so a rule that isn't a list can't be said. But a list is data an editor can show before anything runs.
@@ -467,8 +472,9 @@ them. It has no types of its own. A graph record names a node by its id, so an i
 
 `syv-conductor-providers` has `run_router(worker, metadata=, run_filter=)`, a FastAPI router over a
 `Worker(store, nodes_for=)`. Compiling, starting, estimating, reading, following, answering, resuming,
-running again and cancelling are routes by run id, and any worker can serve them. The routes are a thin layer over
-`Worker`, which holds the leases, checkpoints and takeovers, so a host with its own routes calls it directly.
+running again and cancelling are routes, and any worker can serve them. Every route but `/compile`, `POST /runs`,
+`/estimate` and `/nodes` has a run id in its path. The routes are a thin layer over `Worker`, which holds the
+leases, checkpoints and takeovers, so a host with its own routes calls it directly.
 
 The host owns storage and login. `RunStore` is six async methods over one row per run, each change a compare-and-set
 on a revision. Each run keeps the host's metadata, and which runs a request may see is the host's `run_filter`, a test of that

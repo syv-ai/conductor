@@ -153,7 +153,7 @@ An editor then offers no edge for `keep`. A graph that wires an edge to it, or m
 
 ### Widgets
 
-No type has a default widget. A `str` might be one line, a text box or a dropdown, so you choose one per input. An input with no widget gets no control in the editor. It gets its value from an edge, or from a constant in the graph.
+No type has a default widget. A `str` might be one line, a text box or a dropdown, so you choose one per input. An input with no widget has none in `describe()`, and its control is left to the host's editor. Many such inputs get their value from an edge, or from a constant in the graph.
 
 These widgets ship in `conductor.widgets`: `TextInput`, `Textarea`, `Dropdown`, `NumberInput`, `Slider`, `Switch`, `DatePicker`, `FileUpload` and `ListInput`. Pass an instance, `widget=Textarea()`, not the class. A `Dropdown` has no choices of its own. It shows the input's choices: the values of a `Literal`, or `Param(choices=[...])`.
 
