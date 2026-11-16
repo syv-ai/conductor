@@ -1567,6 +1567,45 @@ def test_the_arguments_of_a_call_that_returned_arent_kept_until_its_attempt_time
     assert graph.run(text=",".join(given)).outputs == {"result": 0}
 
 
+def test_a_call_that_times_out_after_a_cancel_ends_the_run_failed_with_timeout():
+    """A failure after a cancel is the cancel's doing, but a timeout never is: the attempt's thread is abandoned,
+    not stopped. So the run ends ``failed`` with ``timeout``, as it would without the cancel, and the call isn't
+    made again in that ``resume()``."""
+    calls, release = [], ThreadEvent()
+
+    @node("charge", title="Charge", description="For a test.", policy=Policy(attempt_timeout=0.1))
+    def charge(x: int) -> int:
+        calls.append(x)
+        release.wait(BOUND)
+        return x
+
+    prepared = Graph.compile(make_graph(charge), registry_of(charge)).with_inputs(x=1)
+
+    async def cancelled_at_once() -> Any:
+        cancel = AsyncioEvent()
+        cancel.set()
+        return [event async for event in prepared.stream(cancel=cancel)][-1]
+
+    async def cancelled_once_it_runs() -> Any:
+        cancel, last = AsyncioEvent(), None
+        async for event in prepared.stream(cancel=cancel):
+            if event.type == "node_start":
+                cancel.set()
+            last = event
+        return last
+
+    try:
+        ended = _bounded(cancelled_once_it_runs())
+    finally:
+        release.set()
+
+    assert (ended.status, ended.cause.type, ended.cause.loc) == ("failed", "timeout", ("charge",))
+    assert calls == [1]
+    assert (
+        _bounded(cancelled_at_once()).status == "cancelled"
+    )  # a cancel before the call still cancels
+
+
 def test_a_failed_run_waits_for_a_call_still_running_no_longer_than_its_attempt_timeout():
     release, both_started = ThreadEvent(), Barrier(2)
 

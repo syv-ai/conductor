@@ -777,9 +777,7 @@ async def test_an_attempt_that_timed_out_keeps_seeing_the_stop_event_of_its_resu
     try:
         async with worker.serving():
             run_id = await _started(worker, graph, inputs)
-            await (
-                store.ending.wait()
-            )  # the attempt timed out, and the first resume call ended cancelled
+            await store.ending.wait()  # the attempt timed out, so the first resume call ended failed, though cancelled first
             assert (
                 await worker.answer(run_id, {waiting.id: True}, allows=EVERY_RUN)
             ).status == "running"
@@ -791,7 +789,7 @@ async def test_an_attempt_that_timed_out_keeps_seeing_the_stop_event_of_its_resu
                 for event in await store.stored_events(run_id)
                 if event["type"] == "run_end"
             ]
-            assert (completed.status, ends) == ("complete", ["cancelled", "complete"])
+            assert (completed.status, ends) == ("complete", ["failed", "complete"])
     finally:
         release.set()
     first, second = events

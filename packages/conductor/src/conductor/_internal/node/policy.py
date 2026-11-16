@@ -57,7 +57,10 @@ class Policy:
         retry_delay: How many seconds the first retry waits. Each later retry waits twice as long, up to
             ``LONGEST_WAIT``.
         attempt_timeout: How many seconds one attempt may take, or ``None`` for no limit. An attempt that runs over
-            fails the call for good. Its thread can't be stopped, so trying again could repeat what it does.
+            fails the call, and the run, even after a cancel, and isn't retried. Python can't stop a thread, so the
+            attempt is abandoned, not killed: it runs on until its function returns, and a later ``resume()`` may
+            make the call again beside it. A node with side effects guards against that itself, or sets
+            ``concurrency``, which counts the abandoned attempt until it returns.
         retry_on: Exception classes of the node's own client to try again, like an ``ExternalError``.
         reuse_when_inputs_match: Whether a run made from a previous one reuses a result when a call gets the same
             inputs as before. It is checked when the new run is made, and again by ``Run.from_json``, which drops

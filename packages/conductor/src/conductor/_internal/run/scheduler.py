@@ -984,20 +984,29 @@ class Scheduler:
 
     def _time_out(self, attempt: _Attempt) -> None:
         """The ``attempt_timeout`` of ``attempt`` has run out. If the attempt is still the call's, the call fails
-        with the problem ``timeout``, which ends the run."""
+        with the problem ``timeout``, which ends the run ``failed``.
+
+        It does so even when a cancel is asked, or ended the run already. A failure after a cancel is usually the
+        cancel's doing (see ``_fail``), but a timeout never is: the attempt's thread is abandoned, not stopped.
+        """
         node, item_indexes = attempt.node, attempt.item_indexes
-        if self.running.get((node, item_indexes)) is attempt:
-            del self.running[(node, item_indexes)]
-            self._cancel_queued(attempt)
-            seconds = node.policy.attempt_timeout
-            assert seconds is not None, (
-                "only an attempt whose node has an attempt_timeout has a deadline"
-            )
-            self._record(
-                node,
-                item_indexes,
-                run_problems.timeout(*outcome_loc(node, item_indexes), seconds=seconds),
-            )
+        if self.running.get((node, item_indexes)) is not attempt:
+            return
+        del self.running[(node, item_indexes)]
+        self._cancel_queued(attempt)
+        seconds = node.policy.attempt_timeout
+        assert seconds is not None, (
+            "only an attempt whose node has an attempt_timeout has a deadline"
+        )
+        cause = run_problems.timeout(*outcome_loc(node, item_indexes), seconds=seconds)
+        if self.going:
+            self.end(EndedEarly("failed", cause))
+        elif isinstance(self.stopped, EndedEarly) and self.stopped.status == "cancelled":
+            self.stopped = EndedEarly("failed", cause)
+        else:  # the run ended for another reason first, and that stands
+            return
+        if self.node_events is not None:
+            self.node_events.call_failed(node, cause)
 
     def _outcome(
         self,
