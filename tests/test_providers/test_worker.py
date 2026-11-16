@@ -948,6 +948,58 @@ async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_fails_the_r
     assert await _resume_calls(store, run_id) == 1
 
 
+@pytest.mark.parametrize("cancel", [False, True], ids=["alone", "with-a-cancel"])
+async def test_a_decline_sent_while_another_call_runs_ends_the_runs_events_with_its_failure(
+    cancel: bool,
+) -> None:
+    """The last ``run_end`` stored says what the row says: ``failed`` with ``answer_declined``.
+
+    ``approve`` asks, then ``busy`` waits on the gate, so the decline is queued while the question waits. The resume
+    call's own ``run_end`` says ``waiting``, or ``cancelled`` with a cancel asked too, and a host that follows the
+    events would never learn that the run failed if it were the last.
+    """
+    registry, gate = NodeRegistry(), ThreadEvent()
+
+    @registry.node("approve", title="Approve", description="For a test.", asks=True)
+    def approve(amount: int) -> bool:
+        raise Ask("Approve?")
+
+    @registry.node("busy", title="Busy", description="For a test.")
+    def busy(text: str) -> str:
+        gate.wait(5)
+        return text
+
+    graph = make_graph(
+        approve, busy, edges=[], outputs={"ok": "approve.result", "text": "busy.result"}
+    )
+    inputs = {"amount": 5, "text": "x"}
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        while not (
+            asked := [
+                event["waiting"]["id"]
+                for event in await store.stored_events(run_id)
+                if event["type"] == "node_waiting"
+            ]
+        ):
+            await asyncio.sleep(0.01)
+        await worker.decline(run_id, asked[0], allows=EVERY_RUN)
+        if cancel:
+            await worker.cancel(run_id, allows=EVERY_RUN)
+        gate.set()
+        ended = await store.ended(run_id)
+
+    last = (await store.stored_events(run_id))[-1]
+    assert (ended.status, ended.cause.type) == ("failed", "answer_declined")
+    assert (last["type"], last["status"], last["cause"]["type"]) == (
+        "run_end",
+        "failed",
+        "answer_declined",
+    )
+
+
 async def test_a_decline_to_a_complete_run_is_not_waiting_and_to_a_stale_id_answer_stale() -> None:
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()

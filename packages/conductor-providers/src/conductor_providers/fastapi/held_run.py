@@ -145,13 +145,13 @@ class HeldRun:
 
     async def _resume_call(
         self,
-    ) -> tuple[str | None, Callable[[RunState], tuple[RunState, RunChanges]]]:
+    ) -> tuple[RunEnd | None, Callable[[RunState], tuple[RunState, RunChanges]]]:
         """Make one resume call and store its events and checkpoints.
 
         Returns:
-            The call's ``run_end`` event to store, as JSON, and how the row's state changes with it, as a function of
-            the state as it is when it is written (one of ``RunState.ended_with`` and ``RunState.failed``). A run
-            handed back, as the worker shuts down, stores no ``run_end`` and keeps its state.
+            The call's own ``run_end``, and how the row's state changes with it, as a function of the state as it is
+            when it is written (one of ``RunState.ended_with`` and ``RunState.failed``). A run handed back, as the
+            worker shuts down, has no ``run_end`` and keeps its state.
 
         Raises:
             StoreFailedError: The store failed. Anything else that raises fails the run: conductor's refusal with
@@ -189,9 +189,7 @@ class HeldRun:
                         saved, written = await asyncio.to_thread(
                             lambda: (ended.to_json(), RunOutcome.of(ended).model_dump_json())
                         )
-                        return event.model_dump_json(), lambda state: state.ended_with(
-                            ended, saved, written
-                        )
+                        return event, lambda state: state.ended_with(ended, saved, written)
                     elif not await self._store.add_event(
                         self.run_id, settings.worker_id, event.model_dump_json()
                     ):
@@ -210,13 +208,11 @@ class HeldRun:
             log.exception("resuming run %s failed", self.run_id)
             cause = raised_outside_a_node(error=type(error).__name__)
         outcome_json = held.model_dump_json()
-        return RunEnd(status="failed", cause=cause).model_dump_json(), lambda state: state.failed(
-            cause, outcome_json
-        )
+        return RunEnd(status="failed", cause=cause), lambda state: state.failed(cause, outcome_json)
 
     async def _declined(
         self, run: Run[Any], held: RunOutcome
-    ) -> tuple[str, Callable[[RunState], tuple[RunState, RunChanges]]]:
+    ) -> tuple[RunEnd, Callable[[RunState], tuple[RunState, RunChanges]]]:
         """Give the run what is queued with no resume call, since it takes a decline from the queue and fails.
 
         A worker claims a run that isn't running with the decline queued, so the worker that holds the run applies
@@ -228,45 +224,50 @@ class HeldRun:
             held: Its outcome.
 
         Returns:
-            The ``run_end`` to store, as JSON, and how the row's state changes, as ``_resume_call`` returns them.
+            The run as the row has it as the call's own ``run_end``, and how the row's state changes, as
+            ``_resume_call`` returns them.
         """
         saved, written = await asyncio.to_thread(lambda: (run.to_json(), held.model_dump_json()))
-
-        def after(state: RunState) -> tuple[RunState, RunChanges]:
-            return state.ended_with(run, saved, written)
-
-        ended, _ = await asyncio.to_thread(after, self._state)
-        return RunEnd(status=ended.status, cause=ended.cause).model_dump_json(), after
+        return RunEnd(status=run.status, cause=run.cause), lambda state: state.ended_with(
+            run, saved, written
+        )
 
     async def _finish(
-        self, run_end: str | None, after: Callable[[RunState], tuple[RunState, RunChanges]]
+        self, run_end: RunEnd | None, after: Callable[[RunState], tuple[RunState, RunChanges]]
     ) -> None:
         """Write how a resume call ended.
 
         What is written is worked out again from the row's state as it is on each try of the write, so a cancel or
-        an answer written meanwhile is never written over. The ``run_end`` is stored once, before the row says the
-        run stopped running, so a follower that reads that it stopped has the event to read. A run another worker
-        took is left as it is. A run that is to go on as the worker shuts down is handed back for another worker.
+        an answer written meanwhile is never written over. A ``run_end`` is stored before the row is written, so a
+        follower that reads that the run stopped has the event to read. When the run stops, it says what the row
+        says: a decline queued meanwhile fails the run, though the call's own ``run_end`` said ``waiting``. When the
+        run goes on, it is the call's own. It is stored again only if a later try works out a different one, so the
+        last ``run_end`` stored is always the row's. A run another worker took is left as it is. A run that is to go
+        on as the worker shuts down is handed back for another worker.
 
         Args:
-            run_end: The ``run_end`` event to store, as JSON; ``None`` for a run handed back.
+            run_end: The call's own ``run_end``; ``None`` for a run handed back.
             after: The row's new state and the columns that change with it, from the state as it is.
         """
         settings = self._settings
-        if run_end is not None and not await self._store.add_event(
-            self.run_id, settings.worker_id, run_end
-        ):
-            self._released = (
-                True  # another worker holds the run, so the write of the row would lose too
-            )
-            return
         async with (
             self._lock
         ):  # so no renewal moves the rev between this read and what is worked out from it
             await self._read_again()
+        stored = None
         while not self._released:
             reads = self._reads
             state, changes = await asyncio.to_thread(after, self._state)
+            if run_end is not None:
+                ended = (
+                    run_end if state.is_running else RunEnd(status=state.status, cause=state.cause)
+                ).model_dump_json()
+                if ended != stored:
+                    if not await self._store.add_event(self.run_id, settings.worker_id, ended):
+                        # another worker holds the run, so the write of the row would lose too
+                        self._released = True
+                        return
+                    stored = ended
             goes_on = state.is_running and not settings.handing_back.is_set()
             if goes_on:
                 holder = settings.holder()
