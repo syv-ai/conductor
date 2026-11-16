@@ -418,7 +418,7 @@ def test_a_keyword_a_policy_does_not_have_is_refused():
 @pytest.mark.parametrize("listened", [False, True])
 def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened: bool, caplog):
     """One scheduler, with or without a listener: the failure a retry follows goes to the log either way, as a
-    warning that says the call will be retried."""
+    warning that counts the attempts and says when the next is due."""
     tries: list[int] = []
 
     @node(
@@ -444,7 +444,9 @@ def test_a_retried_failure_is_logged_whether_or_not_the_run_is_streamed(listened
     (record,) = caplog.records
     assert run.status == "complete" and "the bank is down" in caplog.text
     # the attempt that is retried reads as a warning that says so, not as the call's end
-    assert record.levelname == "WARNING" and "will be retried in 0.0 seconds" in record.getMessage()
+    assert record.levelname == "WARNING" and record.getMessage().endswith(
+        "on attempt 1 of 2; the next attempt is due in 0.0 seconds"
+    )
 
 
 def test_more_than_a_thousand_retries_with_no_delay_keep_retrying_until_the_call_succeeds():

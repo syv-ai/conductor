@@ -951,7 +951,7 @@ class Scheduler:
         self.running[(node, item_indexes)] = retry
         self._set_timer(delay, "retry", retry)
         # Made with or without a listener, since making it logs the error.
-        failure = self._failure(node, item_indexes, error, retry_in=delay)
+        failure = self._failure(node, item_indexes, error, retry=(retry, delay))
         if self.node_events is not None:
             self.node_events.call_retries(node, attempt.number + 1, delay, failure)
         return True
@@ -1049,7 +1049,7 @@ class Scheduler:
         node: BlueprintFunctionNode,
         item_indexes: ItemIndexes,
         error: BaseException | Problem,
-        retry_in: float | None = None,
+        retry: tuple[_Attempt, float] | None = None,
     ) -> Problem:
         """Returns the problem a call failed with, with the call's loc.
 
@@ -1062,8 +1062,10 @@ class Scheduler:
             node: The node whose call failed.
             item_indexes: The call's item indexes.
             error: What the call raised, or the problem it failed with.
-            retry_in: The seconds until the call is made again, for an attempt that is retried. Its exception is
-                logged as a warning that says so, since the call may still succeed; else as an error.
+            retry: For an attempt that is retried, the attempt made next and the seconds until it is due. The
+                exception is then logged as a warning that counts the attempts, since the call may still succeed;
+                else as an error. The warning says only what is known when it is written: the run may end before
+                the next attempt is due.
         """
         loc = outcome_loc(node, item_indexes)
         if isinstance(error, NodeError):
@@ -1071,14 +1073,17 @@ class Scheduler:
         if isinstance(error, Problem):
             return error.model_copy(update={"loc": loc})
         where = place_text(node.node_path)
-        if retry_in is None:
+        if retry is None:
             _logger.error("node %r failed for item %r", where, item_indexes, exc_info=error)
         else:
+            next_attempt, due_in = retry
             _logger.warning(
-                "node %r failed for item %r, and will be retried in %s seconds",
+                "node %r failed for item %r on attempt %d of %d; the next attempt is due in %s seconds",
                 where,
                 item_indexes,
-                retry_in,
+                next_attempt.number,
+                node.policy.retries + 1,
+                due_in,
                 exc_info=error,
             )
         if isinstance(error, node.policy.retry_on):
