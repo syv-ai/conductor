@@ -7,8 +7,9 @@ reason it stands.
 It assumes you've read the [first page](index.md) and [writing nodes](writing-nodes.md). The exact rules are in the
 reference, `python -m conductor.about`, so this page points there instead of repeating them. Three words come up a
 lot. A *hook* is a plain function passed to `@node` (`compute_outputs=`, `compute_added_inputs=`) that works out a
-node's inputs or outputs when the graph is compiled. *Branches* are outputs of one node that share an
-`exclusive_group`: each call returns one, and the others are `SKIPPED`. An *outcome* is what a run keeps of one call.
+node's inputs or outputs when the graph is compiled. A *branch* is an output whose default is `SKIPPED`: each call
+gives a value to at most one branch of a node, and the others stay `SKIPPED`. An *outcome* is what a run keeps of one
+call.
 
 The code blocks run in order, as one module. The comment after each `print` is what it prints.
 
@@ -96,8 +97,8 @@ Whether an input is a constant is decided per graph, because a node can't know e
 whose input must be fixed when the graph is drawn says so with `Param(constant_only=True)`, and compiling holds every
 graph to it.
 
-An edge is stored on the input it leads into, as a source. Several sources on one input are alternatives, opposite
-branches of one decision, never a list to join. So nothing a run does depends on their order.
+An edge is stored on the input it leads into, as a source. Several sources on one input come from different
+branches of one node, never a list to join. So nothing a run does depends on their order.
 
 A graph declares its inputs and outputs, as a function declares its parameters and return value. Working them out
 from the first and last nodes was rejected: adding a node at the end would change what the graph returns.
@@ -224,8 +225,15 @@ effects, would be worse.
 Each spelling says one thing: `Series[X]` leaves `None` items out, `Series[X | None]` keeps them, and `Series[X] | None`
 is a list that may itself be `None`.
 
-`SKIPPED` is a branch not chosen, not a `None`. It skips the nodes downstream, for one item inside a loop or
-altogether outside one. A skip wins over a `None` or a fault on another input.
+`SKIPPED` is a skipped branch, not a `None`: a way not taken, where `None` is no value. It skips the nodes
+downstream, for one item inside a loop or altogether outside one. A skip wins over a `None` or a fault on another
+input.
+
+A branch is declared by its default alone. A call gives a value to at most one branch of a node, which is what lets
+branches of one node share an input. A named group of outputs was rejected: its name meant nothing outside the
+node, and an output with a `SKIPPED` default and no group looked like a branch but couldn't share an input. **Worth
+questioning:** an output that may be missing beside another one can't default to `SKIPPED`. It is `X | None`, and a
+node with two independent ways to go is two nodes.
 
 A value from outside a loop is the same on every call. Nothing is copied, and it starts no loop of its own.
 
@@ -270,7 +278,7 @@ rejected. **Worth questioning:** the question shows on `approval`, not on the st
 
 A question is the same record as a field: the `FieldDescription` a palette reads, with the `Ask`'s `choices` and
 `default`. How it looks comes from the type's `Param`, so `Ask` takes no `widget=`. One JSON Schema for the whole
-answer was rejected: it loses a host type's id and exclusive groups, and has no place for a widget.
+answer was rejected: it loses a host type's id, and has no place for a widget.
 
 An answer is read strictly from its JSON form (`true`, never `"yes"`), and every fault is refused at once. A waiting
 id like `approve@1~3fa2c0d1` names the call and a fingerprint of the node, the call's inputs and its items;
@@ -403,9 +411,9 @@ edge, settled when compiling. `series-split`, `series-stack` and `control-decide
 is only for inputs or outputs named by a constant.
 
 A `FieldDescription` is one flat record per input or output. `null` in `default` means `None` and nothing else, and
-"no default" and "a branch not chosen" are told apart by `required`, so the record needs no marker JSON lacks. A
+"no default" and "a skipped branch" are told apart by `required`, so the record needs no marker JSON lacks. A
 `default` on a `required` field is where an editor starts: the one question of a node with one output is answered
-with its value, so it is required, unless the output is in an exclusive group, whose outputs never are. In
+with its value, so it is required, a branch too. In
 `graph.describe()`, a node's input is `{field, source}`, and a graph input is a plain `FieldDescription`.
 
 What a person sees for a type is declared. Conductor's own types take their id and title from one fixed table, and a

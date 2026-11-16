@@ -69,39 +69,34 @@ What changes in how you work, before the name-by-name tables:
   as JSON raises `NodeDeclarationError` where the node is declared, with the code `widget_without_json_form`,
   `ctx.widget` the widget's class and the field's name in front of the message (it raised pydantic's
   `PydanticSerializationError`, which named no field).
-- **An input added by `compute_added_inputs` is held to what `@node` holds a parameter to.** An `exclusive_group`
-  on it, or the default `SKIPPED`, is the hook's failure, `compute_hook_failed` with `ctx.error`
-  `exclusive_group_on_input` or `default_invalid` (it was accepted, and a `SKIPPED` default reached the function as
-  the sentinel). A parameter whose default is `SKIPPED` raises `NodeDeclarationError` with `default_invalid`,
-  variant `skipped_on_input`: only an output on a branch not chosen is `SKIPPED`.
-- **An output of an `exclusive_group` has no default but `SKIPPED`.** A field of a returned dataclass in a group
-  with any other default raises `NodeDeclarationError` with `default_invalid`, variant `on_exclusive_group`, and a
-  `compute_outputs` hook that gives one is the hook's failure, `compute_hook_failed` with `ctx.error`
-  `default_invalid`. It was accepted and shown as the output's default, while leaving the output out gave a branch
-  not chosen, and returning the other branch failed with `invalid_output`.
-- **A node returns a value on exactly one output of an `exclusive_group`.** A returned dataclass or mapping that
-  gives none of a group a value fails the call with `invalid_output` ("none of the exclusive group 'length' (long,
-  short) holds a value; ..."), as one that gives two already did; it was accepted, every branch of the group not
-  chosen. `return SKIPPED` chooses no branch, and skips every output of the node with it. A node that has other
-  outputs beside a group, or two groups, and may choose none in a group while giving the rest values, makes "none"
-  a branch of that group (an output such as `neither`), or is split in two. An answer was already held to exactly
-  one.
-- **An output whose default is `SKIPPED` is a branch wherever conductor asks.** Where its node is not called (an
-  argument `None` its input does not take), it is `SKIPPED`, a branch not chosen, as an output of an
-  `exclusive_group` is, and the nodes wired to it are skipped; it was `None`, and they were called with `None`. Its
-  description already said leaving it out gives a branch not chosen. A run saved before this reads back with a
-  downstream call that was made with `None` kept, though the current code would skip it; no value in `run.results`
-  changes.
+- **An input added by `compute_added_inputs` is held to what `@node` holds a parameter to.** The default `SKIPPED`
+  on it is the hook's failure, `compute_hook_failed` with `ctx.error` `default_invalid` (it was accepted, and the
+  sentinel reached the function). A parameter whose default is `SKIPPED` raises `NodeDeclarationError` with
+  `default_invalid`, variant `skipped_on_input`: only an output, on a skipped branch, is `SKIPPED`.
+- **Breaking: a branch is an output whose default is `SKIPPED`, and a call gives a value to at most one branch of
+  a node.** `Param(exclusive_group=)` is gone, and with it `FieldDescription.exclusive_group`, the declaration code
+  `exclusive_group_on_input`, the `default_invalid` variant `on_exclusive_group` and the record errors
+  `required_in_exclusive_group` and `default_in_exclusive_group`. Write `large: int = SKIPPED` on a returned
+  dataclass, or `(int, SKIPPED)` from a `compute_outputs` hook. Branches of one node may be wired into one input, as
+  outputs of one group could. A return that gives two branches a value fails the call with `invalid_output`, and its
+  reason says why the outputs are branches; a return that gives none skips them all, so the `neither` output a node
+  needed for "none of them" is gone. `SKIPPED` on an output that isn't a branch fails the call with `invalid_output`
+  too: `SKIPPED` means a way not taken, and an output that may be missing beside other outputs is typed `X | None`
+  and returned as `None`. A node has one set of branches, so a node with two independent ways to go is two nodes.
+  An answer gives a value to at most one branch, and an answer that leaves every branch out skips them all. A
+  subgraph node's outputs read from branches inside are branches of it; the compiler looks inside to tell whose
+  branches they are, and `describe()` no longer names a group. `several_edges_into_one_input` says how to make
+  outputs branches. Where its node is not called (an argument `None` its input does not take), a branch is
+  `SKIPPED`, and the nodes wired to it are skipped.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
-  `"required": false` it is a branch not chosen (an output in an `exclusive_group`, or a form field whose default
-  is `SKIPPED`). `"default": null` is a default of `None`. A `default` with `"required": true` is the value an
-  editor starts with: the one question of a node with one output is required, since it is answered with a
-  value, and keeps the `Ask`'s default, unless the output is in an `exclusive_group`, whose outputs never are. An output of an `exclusive_group` that is `required` or has a `default` is
-  refused (`required_in_exclusive_group`, `default_in_exclusive_group`), and so is `loops` without `is_series`
+  `"required": false` it is a branch, an output whose default is `SKIPPED`, skipped when left out.
+  `"default": null` is a default of `None`. A `default` with `"required": true` is the value an
+  editor starts with: the one question of a node with one output is required, a branch too, since it is answered
+  with a value, and keeps the `Ask`'s default. `loops` without `is_series` is refused
   (`loops_without_series`). A host that writes these records with `exclude_none` turns `"default": null` into a
-  branch not chosen. An output in `describe()`, `registry.describe()` and
+  skipped branch. An output in `describe()`, `registry.describe()` and
   `graph.describe()` is the question its type sets, the same record a waiting call shows without an `Ask` on a
   node of several outputs: `-> str | None` is `"required": false, "default": null` (it was `"required": true` in
   the palette and `false` in the question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `json_schema` and
@@ -110,8 +105,8 @@ What changes in how you work, before the name-by-name tables:
   has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
   `Outcome`), written before this change no longer loads: a required question there has `"default": null`.
   There is no migration.
-  An `Ask` that proposes a default for an output of an `exclusive_group` fails the node (`invalid_ask`): an answer
-  that left that output out would give it the default, so no other output of the group could be answered.
+  An `Ask` that proposes a default for a branch fails the node (`invalid_ask`), even for a node's only branch: an
+  answer that left that branch out would give it the default, so no other branch could be answered.
 
 - **The run's context is one object of the host's class.** Name the class once,
   `NodeRegistry(context_type=AppContext)`, and pass an instance to each run,
@@ -190,7 +185,7 @@ What changes in how you work, before the name-by-name tables:
   (`series_not_nested`) until one is returned by a node inside the other's loop. `graph.describe()` says how often each node
   runs, before any run. A `None` keeps the node from being called for that item unless its input
   says `| None`. A node that collects a loop leaves out only what was decided per item: when no item
-  could have a value, for a branch not chosen or a `None` outside the loop, it is skipped or not
+  could have a value, for a skipped branch or a `None` outside the loop, it is skipped or not
   called, with two items as with none, and `Series[X | None]` receives a `None` in each item's place. Each item
   of a list given there is held to the input's limits and choices, as one value is. A choice is
   read as its answer would be: strictly from its JSON form, held to the field's limits, so an enum's
@@ -329,7 +324,7 @@ What changes in how you work, before the name-by-name tables:
 - **A list refused by an input whose type takes a list says why.** `Annotated[list[str], Param(min_length=1)]` given `[]` is `invalid_input` with the `min_length` reason ("List should have at least 1 item"), not the variant `make_a_series`, which is kept for a list given to an input whose type takes no list; so is `int | list[int]` given `["x"]`, refused for its item.
 - **A table answer and a caller's records have one reader.** Extra columns are dropped for every table from outside, and a missing column is refused. An answer's cells are read strictly from their JSON form; a caller's records are read cell by cell, laxly, never from polars' dtype, so a bool among ints or a number among texts is `invalid_input`. A value that is neither a frame nor a list of records is refused as `invalid_answer` or `invalid_input` with the reason "a table is a frame or a list of records, one object per row".
 - **An input can take only a constant: `Param(constant_only=True)`**, a setting fixed when the graph is drawn (1.x's `disable_handle=True` on its widget). Every input a `compute_...` hook reads is one too, and the one rule holds for both: its `FieldDescription` has `constant_only: true`, `make_graph` by itself never wires it or makes it a graph input (`not_a_chain` variant `constant_only`, `ctx.inputs`), a record that gives it `sources` or a `graph_input` is `input_takes_only_a_constant` (`ctx.given`) when compiled, and one with no constant and no default is `input_has_no_value` (variant `constant_only`). An edge into an input a hook reads, which was taken while the hook read the input's default, is that problem too. On an output it is `constant_only_on_output`.
-- **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_to_json` are `null` where the Series was never returned because of a `None` outside the loop, or a branch there wasn't chosen (they were `[]`, the same as for a Series returned with no items), and `null` where every item is skipped from outside (they were a list of `null`s). A `None` outside still shows a `None` in each place. The same nodes inside a subgraph show the same.
+- **A run's results are what a node reading them would be given.** For an output made per item, `run.results`, `run.outputs` and `outputs_to_json` are `null` where the Series was never returned because of a `None` outside the loop, or a skipped branch there (they were `[]`, the same as for a Series returned with no items), and `null` where every item is skipped from outside (they were a list of `null`s). A `None` outside still shows a `None` in each place. The same nodes inside a subgraph show the same.
 - **An output made inside two loops is shown as a list of lists.** `run.results`, `run.outputs` and `outputs_to_json` show the output of a node called per item of a list that is itself returned per item as one list per outer item, `null` for an outer item whose inner list was never returned (it was one flat list over every item): three documents split into lines, the second empty, show `[["A", "B"], null, ["C"]]`. The same nodes inside a subgraph show the same.
 - **A node outside a subgraph reads its outputs as it would read the same nodes drawn in its own graph.** For the subgraph `documents -> lines -> shout`, a `Series[str]` input wired to `shout.result` is called once per document with that document's lines (it was called once, with one flat list over every document), and an input of one `str` once per line; a node outside and `run.results` see the same list per document. A loop outside is named by the list inside that is looped over (`describe()` gives `per_item_of` as `e/documents.result`; it named the offered output), so outputs returned in the same loop inside are paired item by item: one item of each of two of them reaches one call (it was `series_not_nested`), also when one of them is the list looped over itself (`e.parts`, and `e.loud` returned once per item of it), and a `Series` input beside an input of one value wired to the same per-item output receives that item's one value, as drawn flat (it received every item). The output is described with `is_series` and one `Series` per loop (`type` `Series[str]` for a list per document) and lists its `loops`; every field description gains `loops`, empty but here. A `Series` returned once per document is `Series[Series[T]]` too (it was a `Series` of whole lists). `series_not_nested` for a list inside a subgraph has `ctx.variant` `inside_subgraph` and tells the author what they can do.
 - **`json-parse` fails with `not_json` on a number of more than 4,300 digits.** Python refuses it with a `ValueError`, which escaped the node as it was.
@@ -348,7 +343,7 @@ What changes in how you work, before the name-by-name tables:
 - **A whole table or list wired where one value is taken says to make a series.** `type_mismatch` and `unknown_output` have the variant `make_a_series` for it, as `invalid_input` has for a list given to an input of one value: put a node between that returns the rows or items as a `Series`.
 - **A row type's fields are all required.** A `Table[R]` or a `Series[R]` of records whose `R` has a `NotRequired` field, or is declared `total=False`, is refused when the node is declared (`row_field_optional`, a new declaration code); a node returning such a `Series` failed its run with pydantic's own schema error. Declare the field `X | None`.
 - **Faults say more.** `invalid_edge_value` carries `ctx.record_field` when an edge names a field its record lacks. A hook that returns no mapping is `compute_hook_failed` with `error: not_a_mapping`, and one that gives a field a name a graph cannot have is `compute_hook_failed` at that name with `error: not_a_name`; an `AttributeError` in a hook's hint is the host's own bug and raises out of `Graph.compile`. `table-collect` fails with `columns_not_aligned` (`column`, `records`, `values`) when a column doesn't hold one value per record.
-- **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. A node's `CallCount` counts its skipped calls in `skipped`: a call downstream of a branch not chosen, or one whose every output is `SKIPPED`; a node with no output that returns `SKIPPED` is not counted. A node was skipped when `finished > 0` and `skipped` equals `finished`.
+- **`SKIPPED` returned is a result.** A function that returns `SKIPPED` was called: `again` reuses it and a save writes its call as `done`. A node's `CallCount` counts its skipped calls in `skipped`: a call downstream of a skipped branch, or one whose every output is `SKIPPED`; a node with no output that returns `SKIPPED` is not counted. A node was skipped when `finished > 0` and `skipped` equals `finished`.
 - **A run handed back at shutdown has no `cause`.** The row's `cause` is null and its status `running`: the run did not end early. The run saved in the row is its last checkpoint, which reads back as its outcomes say: the router hands the run back with `run.stream(hand_back=)`, where it cancelled the run and stored a run that said `cancelled`.
 - **A person can decline a question.** `run.decline(waiting, reason=None)` takes a waiting call as `run.answer`
   does and returns a new run: the call fails as a node that raised does, and the run is `failed` with the new
@@ -475,7 +470,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.widgets.EntityDropdown` | gone: a host subclasses `Widget` |
 | `conductor.widgets.FileUpload` | `FileUpload`, without `multiple`: a `Series` field takes several files |
 | `conductor.widgets.HumanReview` | `raise Ask(...)` in the node; its return type says what is asked |
-| `conductor.widgets.IfElseBuilder` | gone with the if-else node: outputs of one `Param(exclusive_group=)` are the branches |
+| `conductor.widgets.IfElseBuilder` | gone with the if-else node: outputs whose default is `SKIPPED` are the branches |
 | `conductor.widgets.List` | `ListInput` |
 | `conductor.widgets.Multiselect` | an input typed `Series[Literal[...]]`, or `Dropdown` on a `Series` |
 | `conductor.widgets.Number` | `NumberInput`, without `integer_only`: an `int` field takes whole numbers |
@@ -503,7 +498,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `conductor.flow_format.load_flow_from_path` | gone: read the file and `Graph.compile` its text |
 | `conductor.flow_format.load_flow` | `Graph.compile(json_text, registry)` or `GraphRecord.model_validate_json` |
 | `conductor.flow_format.yaml_to_flow` | gone: YAML isn't read |
-| `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs of one `exclusive_group` are the branches |
+| `conductor.graph.compiler.DecisionGuard` | gone with CEL guards: outputs whose default is `SKIPPED` are the branches |
 | `conductor.graph.compiler.ExtensionResolver` | gone: a graph record is a node, `subgraph("id", title=, description=)(record)`, added to a registry |
 | `conductor.graph.dynamic_inputs.resolve_node_inputs` | `Graph.compile(record, registry).describe()`, a `GraphDescription` with each node's fields as its hooks made them |
 | `DefinitionSource` | gone with `RegistryView` |
@@ -630,7 +625,7 @@ Every public name of 1.12.2, by the module it was imported from. A name not list
 | `timeout` | `Policy(attempt_timeout=)` |
 | `idempotency_key` | gone: `again` reuses a call whose arguments match, `Policy(reuse_when_inputs_match=)` |
 | `uses` | gone: a first parameter typed `Context[...]` says what the node needs from the run |
-| `is_decision` | `Param(exclusive_group=)` on the outputs that are branches |
+| `is_decision` | the default `SKIPPED` on the outputs that are branches |
 | `is_signal` | gone: `raise Ask(...)` |
 | `dynamic_handles` | gone: `compute_added_inputs=` and `compute_outputs=` |
 | `compute_outputs` | `compute_outputs=`, a plain function returning `{name: type hint}` |
@@ -656,8 +651,8 @@ A 1.x `Flow` becomes a `GraphRecord`, `{"nodes": {id: node, ...}, "outputs": {..
 | `GraphEdge.target` | the node whose input lists the source |
 | `GraphEdge.source_handle` | the source's `output`, with `field` for one field of a record of a `Series` (a table's column is no field: `series-split` gives its records one at a time) |
 | `GraphEdge.target_handle` | the input the source is listed on |
-| `GraphEdge.when` | gone: a branch is an output of one `exclusive_group`; wire from that output |
-| `GraphEdge.priority` | gone: several sources of one input are alternatives, opposite branches of one decision |
+| `GraphEdge.when` | gone: a branch is an output whose default is `SKIPPED`; wire from that output |
+| `GraphEdge.priority` | gone: several sources of one input come from different branches of one node |
 | `Flow.nodes` | `nodes`, by id |
 | `Flow.edges` | the `sources` of each input |
 | `Flow.id` | not stored in the record: the host keys its rows |

@@ -189,13 +189,15 @@ empty `loops`, and it's just one list.
 
 ### Branches
 
-Some nodes choose between outputs: they return one and skip the others. Those outputs share an `exclusive_group`.
-They stay branches when the node is inside a subgraph, and their group is named after that inner node. So the group
-`answer` of an inner node `decide` is `decide.answer` in the subgraph's description.
+A branch is an output whose default is `SKIPPED`, and a call gives a value to at most one branch of a node. A graph
+output read from a branch inside is a branch of the subgraph node too.
 
-Two outputs that come from opposite branches can be wired into one input outside. Each call gets the value of the
-branch that was chosen, as it would if the nodes were drawn in the outer graph. Wired into two `Series` inputs of one
-node, they're refused with `lists_from_different_loops`, because one of the two lists would always be empty.
+Two outputs that come from different branches of one node inside can be wired into one input outside. Each call gets
+the value of the branch that has one, as it would if the nodes were drawn in the outer graph. Outputs from the
+branches of two different nodes inside can both have a value, so wiring them into one input is
+`several_edges_into_one_input`. The compiler looks inside the subgraph to tell them apart. Wired into two `Series`
+inputs of one node, two outputs from different branches of one node are refused with `lists_from_different_loops`,
+because one of the two lists would always be empty.
 
 ## A `None` or a skip coming in
 
@@ -227,7 +229,7 @@ call is: the subgraph node, the item index, then the inner node.
 
 `shout` itself is never listed. A subgraph node is never called, so it's never "not called" or skipped either.
 
-A branch that wasn't chosen works the same way: it skips the inner nodes wired to it.
+A skipped branch works the same way: it skips the inner nodes wired to it.
 
 Inner nodes that don't get the `None` still run. Here only `upper` inside `both` gets it:
 
