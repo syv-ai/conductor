@@ -16,12 +16,20 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from enum import Enum
 from types import FunctionType, MethodType, UnionType
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, Union, get_args, get_origin
 from weakref import WeakValueDictionary
 
-from pydantic import ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import (
+    BeforeValidator,
+    ConfigDict,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+)
 from pydantic.errors import PydanticInvalidForJsonSchema, PydanticSchemaGenerationError
 from pydantic.fields import FieldInfo
 from pydantic_core import (
@@ -107,6 +115,23 @@ def _written_metadata(metadata: Any) -> str:
     if type(metadata).__repr__ is object.__repr__:
         return qualified_name(type(metadata))
     return repr(metadata)
+
+
+def _members_from_json(values: tuple[Any, ...]) -> Callable[[Any, ValidationInfo], Any]:
+    """Returns a check that reads a JSON value as the enum member among ``values`` it is the JSON form of.
+
+    Pydantic writes ``Literal[Color.RED]``'s value as ``"red"``, but reads ``"red"`` from JSON as no value of it,
+    so a saved run, an answer and the type's own choices couldn't be read back. With this check before it,
+    ``"red"`` from JSON is ``Color.RED``, as it is for the enum ``Color`` itself. A Python value is left as it is.
+    """
+    members = {
+        canonical_json(plain_json(value)): value for value in values if isinstance(value, Enum)
+    }
+
+    def read(value: Any, info: ValidationInfo) -> Any:
+        return members.get(canonical_json(value), value) if info.mode == "json" else value
+
+    return read
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -226,6 +251,9 @@ class Type:
         This is the check a value gets wherever it enters, so a question asked of a type's values is answered by it,
         never by a second rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is taken by
         ``Annotated[float, Param(choices=[1.0])]``, and ``None`` by any type that takes ``None`` beside its choices.
+
+        A type reads back the JSON it writes, a ``Literal`` of an enum's members too (``_members_from_json``), so for
+        a value of the right class this takes what the run's check of the value itself takes.
         """
         try:
             validate_as_json(self._built[1], value)
@@ -372,6 +400,10 @@ class Type:
                 option = get_origin(option)[
                     tuple(arg if arg is Ellipsis else Type(arg).carried for arg in get_args(option))
                 ]
+            elif get_origin(option) is Literal and any(
+                isinstance(value, Enum) for value in get_args(option)
+            ):
+                option = Annotated[option, BeforeValidator(_members_from_json(get_args(option)))]
             options.append(option)
         read: Any = union_of(options)
         if metadata := (*others, *([param] if param.limits or param.choices is not None else [])):

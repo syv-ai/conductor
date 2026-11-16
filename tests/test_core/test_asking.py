@@ -16,6 +16,7 @@ import json
 import re
 import time
 from dataclasses import FrozenInstanceError, dataclass, fields
+from enum import Enum
 from typing import Annotated, Any, Literal, TypedDict
 
 import polars as pl
@@ -38,6 +39,7 @@ from conductor import (
     Series,
     Table,
     Waiting,
+    host_type,
     make_graph,
     node,
     subgraph,
@@ -1986,6 +1988,31 @@ def test_choices_below_the_top_are_their_schemas_enum_too(hint: Any, enum_of: An
 
     (output,) = assign.describe().outputs
     assert enum_of(output.json_schema) == ["ida", "bo"]
+
+
+@host_type("shade", title="Shade")
+class _Shade(Enum):
+    RED = "red"
+    BLUE = "blue"
+
+
+def test_a_literal_of_enum_members_is_described_asked_and_answered_by_each_members_json():
+    """The choices of ``Literal[Shade.RED, Shade.BLUE]`` are ``"red"`` and ``"blue"``, and an answer ``"red"`` is
+    ``Shade.RED``."""
+
+    @node("shade", title="Shade", description="For a test.", asks=True)
+    def shade(ticket: str) -> Literal[_Shade.RED, _Shade.BLUE]:
+        raise Ask(f"Shade {ticket}?")
+
+    (output,) = shade.describe().outputs
+    _, run = _once(shade, ticket="T-1")
+    (question,) = run.waiting[0].questions
+    answered = run.answer(run.waiting[0], "red")
+    answered.resume()
+
+    assert [choice.id for choice in output.choices] == ["red", "blue"]
+    assert question.json_schema["enum"] == ["red", "blue"]
+    assert answered.outputs == {"result": _Shade.RED}
 
 
 def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():

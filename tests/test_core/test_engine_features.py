@@ -12,6 +12,7 @@ import time as t
 from asyncio import Event
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from threading import Barrier
 from threading import Event as ThreadEvent
 from typing import Annotated, Any, Literal, TypeAliasType, TypedDict
@@ -1200,6 +1201,25 @@ def test_a_value_an_inputs_check_converts_below_the_top_reaches_the_node_convert
     run = _wired(list[str], ["ABC"], list[Annotated[str, AfterValidator(str.lower)]]).run(text="x")
 
     assert run.outputs == {"result": "['abc']"}
+
+
+@host_type("tint", title="Tint")
+class _Tint(Enum):
+    RED = "red"
+    BLUE = "blue"
+
+
+def test_a_literal_of_enum_members_into_a_literal_of_more_of_them_compiles_runs_and_reads_back():
+    """A ``Literal`` of an enum's members reads its own JSON, ``"red"``, as the member, as the enum itself does.
+
+    So the edge's values are taken by the input's own check, and a saved run of them is read back.
+    """
+    graph = _wired(Literal[_Tint.RED], _Tint.RED, Literal[_Tint.RED, _Tint.BLUE])
+    run = graph.run(text="x")
+
+    assert graph.problems == []
+    assert run.outputs == {"result": "<_Tint.RED: 'red'>"}
+    assert Run.from_json(run.to_json(), graph).results == run.results
 
 
 def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():
