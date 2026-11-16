@@ -1,8 +1,10 @@
-"""Every Python example a reader copies passes mypy (default settings) and pyright (standard mode).
+"""Every Python example in the docs passes mypy and pyright.
 
-The examples are every document's, as ``tests.test_core.doc_examples`` reads them: each one module.
+A reader copies these examples into their own code, so they should type-check there too. mypy runs with its
+default settings, and pyright in standard mode. ``tests.test_core.doc_examples`` collects the examples, one module
+per document.
 
-pyright is a development dependency; where it is not installed the pyright test is skipped, saying so.
+pyright is a development dependency. Where it isn't installed, the pyright test is skipped with a warning.
 """
 
 from __future__ import annotations

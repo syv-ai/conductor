@@ -1,4 +1,8 @@
-"""``compute_outputs`` reads the types arriving on the inputs ``compute_added_inputs`` added, as ``**added: type``."""
+"""``compute_outputs`` can ask for the types that arrive on the inputs ``compute_added_inputs`` added.
+
+A node's ``compute_added_inputs`` hook may add inputs, such as one per column name. Its ``compute_outputs`` hook can
+then take ``**added: type``. It gets the type on the edge into each added input, or ``Any`` where nothing is wired.
+"""
 
 from typing import Any
 
@@ -41,7 +45,14 @@ for _definition in (pass_on, number, words):
 
 
 def _compiled(source: tuple[str, str], target: str, names: list[str], **constants: Any):
-    """The nodes ``n``, ``w`` and ``p``, with an edge from ``source``, ``(node, output)``, into ``p``'s input ``target``."""
+    """Compiles a graph of the nodes ``n``, ``w`` and ``p``, with one edge into ``p``.
+
+    Args:
+        source: The ``(node, output)`` the edge comes from.
+        target: The input of ``p`` the edge goes into.
+        names: The inputs ``p`` adds.
+        **constants: Constants for other inputs of ``p``.
+    """
     inputs = {
         "names": {"constant": names},
         **{name: {"constant": value} for name, value in constants.items()},

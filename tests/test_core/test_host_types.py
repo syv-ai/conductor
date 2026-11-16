@@ -1,4 +1,8 @@
-"""``@host_type``: how a host declares a class of its own, and that a wrong declaration fails at the class statement."""
+"""``@host_type``, the decorator a host uses to declare a class of its own.
+
+A host can pass its own classes along edges. ``@host_type`` gives such a class an id and a title. A wrong
+declaration fails right away, at the class statement, rather than later when a graph is compiled.
+"""
 
 import dataclasses
 from enum import Enum

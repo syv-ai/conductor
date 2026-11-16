@@ -1,4 +1,10 @@
-"""A kind of problem is declared by one function, and a signature the three parameter rules don't cover is refused there."""
+"""Declaring a kind of problem with a function.
+
+Each kind of problem is one function under ``@catalogue.problem()``. Its parameters say where the problem is and
+what it carries. A positional-only parameter is a part of ``loc``, and a keyword-only one is a key of ``ctx``. The
+string the function returns is the message. A function whose signature doesn't fit these rules is refused as soon
+as it is declared.
+"""
 
 from __future__ import annotations
 
@@ -79,7 +85,10 @@ def test_a_variant_is_a_second_sentence_under_the_code_and_says_so_in_ctx() -> N
 
 
 def test_a_part_of_loc_is_given_by_position_only_so_loc_and_ctx_always_agree() -> None:
-    """A part of ``loc`` given by name would be in ``ctx`` and missing from ``loc``; the signature refuses it."""
+    """A part of ``loc`` can't be passed by name.
+
+    If it could, it would land in ``ctx`` and be missing from ``loc``.
+    """
     with pytest.raises(TypeError, match="positional-only"):
         unknown_shelf(room="study", shelf="top", shelves=[])  # type: ignore[call-arg]
 
@@ -185,7 +194,10 @@ def test_a_variant_for_a_code_the_catalogue_has_not_declared_is_refused() -> Non
 def test_a_second_kind_under_a_code_without_a_variant_of_its_own_is_refused_where_it_is_declared(
     variant: str | None,
 ) -> None:
-    """The module that declares it fails to import, so no page or host meets two kinds it cannot tell apart."""
+    """The second kind raises right away, so the module that declares it fails to import.
+
+    That way no problems page and no host ever sees two kinds it can't tell apart.
+    """
 
     def shelf_missing(*loc: str | int) -> str:
         return ""
@@ -214,7 +226,10 @@ def test_every_kinds_sentence_fills_from_its_ctx_keys_and_leaves_no_brace() -> N
 def test_joined_sections_keep_their_order_titles_and_texts_and_refuse_a_kind_two_of_them_declare() -> (
     None
 ):
-    """Each kind keeps the title of the section it is declared in, so it cannot be printed under another."""
+    """Joining two catalogues keeps each kind under the section it was declared in.
+
+    So a kind is never printed under another section's title.
+    """
     hall, study = (
         ProblemCatalogue("Hall", "Met in the hall."),
         ProblemCatalogue("Study", "Met in the study."),

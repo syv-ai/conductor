@@ -1,8 +1,11 @@
-"""One value or many: the declared type decides, and a node written for one value never sees the difference.
+"""Tests for one value or many: the declared type decides which a node gets.
 
-The scenarios are an editor's: a user uploads contracts and appendices, one or many, to a graph whose author picked
-a node that reads one file or one that reads them all. The upload gives a ``Series`` of files, so one file and
-eleven run the same graph; a list handed to an input of one value is refused.
+A node written for one value never has to care whether there are many. The tests follow a user of an editor. They
+upload contracts and appendices, one file or many, to a graph. The graph's author picked either a node that reads
+one file or one that reads them all.
+
+The upload gives a ``Series`` of files. So one file and eleven files run the same graph. A list given to an input
+that takes one value is refused.
 """
 
 from __future__ import annotations
@@ -97,8 +100,15 @@ def record_of(
     outputs: dict[str, str] | None = None,
     reg: NodeRegistry = registry,
 ) -> GraphRecord:
-    """``make_graph`` of each node ``(id, node)`` or ``(id, node, constants)``, its definition from ``reg``, the edges
-    ``(source, target)``, and the graph's inputs and outputs, each a name mapped to its place ``"node.name"``."""
+    """Builds a graph record with ``make_graph``.
+
+    Args:
+        nodes: Each node as ``(id, node)`` or ``(id, node, constants)``. ``node`` is a definition id in ``reg``.
+        edges: Each edge as ``(source, target)``, such as ``("read.result", "review.text")``.
+        inputs: The graph's inputs, each a name mapped to the input it feeds, such as ``"read.file"``.
+        outputs: The graph's outputs, each a name mapped to the output it returns, such as ``"review.result"``.
+        reg: The registry the definitions come from.
+    """
     return make_graph(
         *((n[0], reg[n[1]]) for n in nodes),
         edges=list(edges),
@@ -115,7 +125,10 @@ def record_of(
 def ran(
     record: GraphRecord, reg: NodeRegistry = registry, max_items: int | None = None, **inputs: Any
 ) -> Any:
-    """The run of a graph record that compiles with no problems, its calls counted afresh in ``CALLS``."""
+    """Compiles a graph record, checks it has no problems, and runs it.
+
+    ``CALLS`` is cleared first, so it counts only this run's calls.
+    """
     CALLS.clear()
     graph = Graph.compile(record, reg)
     assert graph.problems == [], graph.problems
@@ -164,7 +177,7 @@ def test_eleven_contracts_reviewed_one_by_one_make_eleven_reviews_and_one_file_m
     run = ran(PER, files=FILES[:1])
     assert CALLS == {"read": 1, "review": 1} and run.outputs == {
         "result": ["rev(K0)"]
-    }  # a list of one
+    }  # still a list, of one
     assert run.graph.describe().nodes["review"].per_item_of == "upload.result"
     assert ran(PER, files=[]).outputs == {"result": []} and CALLS == {}
 
@@ -224,7 +237,10 @@ COLLECTED = record_of(
 
 
 def test_two_uploads_meeting_at_a_node_are_a_problem_and_one_contract_meets_each_appendix():
-    """Which contract goes with which appendix is for the graph's author to wire, never guessed."""
+    """Conductor never guesses which contract goes with which appendix.
+
+    Two uploads that meet at one node are a problem. The graph's author has to wire which goes with which.
+    """
     (problem,) = Graph.compile(TWO, registry).problems
     assert (problem.type, problem.loc, problem.ctx["series"]) == (
         "series_not_nested",
@@ -361,11 +377,14 @@ def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_revie
     ).outputs == {"result": "rev(A)"}
 
 
-# -- what a yes or no, and a limit, land on ------------------------------------------------------------------------
+# -- a yes or no is never taken as a number, and a limit stays on its value --------------------------------------
 
 
 def _one(node: str, graph_input: str, reg: NodeRegistry) -> GraphRecord:
-    """A graph of one node ``x``, its input ``graph_input`` given by the caller and its output ``result`` returned."""
+    """Builds a graph of one node, ``x``.
+
+    The caller gives its input ``graph_input``, and the graph returns its output ``result``.
+    """
     return record_of(
         ("x", node),
         inputs={graph_input: f"x.{graph_input}"},
@@ -461,7 +480,11 @@ def test_a_list_given_to_a_type_alias_whose_values_may_be_lists_is_one_value():
 
 
 def _taking(hint: Any) -> tuple[Graph[None], NodeRegistry]:
-    """A graph of one node that takes ``hint`` as its graph input ``value`` and returns it, and its registry."""
+    """Compiles a graph of one node that takes a graph input ``value`` of type ``hint`` and returns it.
+
+    Returns:
+        The graph, and the registry it was compiled with.
+    """
 
     def take(value: Any) -> Any:
         return value
@@ -474,7 +497,11 @@ def _taking(hint: Any) -> tuple[Graph[None], NodeRegistry]:
 
 
 def _refused_reasons(hint: Any, value: Any) -> list[str]:
-    """The types of pydantic's errors in the problem a graph input of ``hint`` given ``value`` is refused with."""
+    """Runs a graph whose input of type ``hint`` is given ``value``, and returns why it was refused.
+
+    Returns:
+        The type of each pydantic error in the ``invalid_input`` problem.
+    """
     graph, _ = _taking(hint)
     with pytest.raises(InvalidCallError) as refused:
         graph.run(value=value)
@@ -484,14 +511,17 @@ def _refused_reasons(hint: Any, value: Any) -> list[str]:
 
 
 def _taken(hint: Any, value: Any) -> Any:
-    """``value`` as a graph input of ``hint`` takes it."""
+    """Gives ``value`` to a graph input of type ``hint``, and returns the value the node got."""
     graph, _ = _taking(hint)
     return graph.run(value=value).outputs["result"]
 
 
 def test_true_is_refused_for_a_number_alike_in_a_record_a_list_of_records_and_a_table():
-    """``True`` for an ``int`` field is refused alike in a ``TypedDict``, a list or dict of them, and a ``Table``:
-    given to a graph input and as a constant of a record read from JSON."""
+    """``True`` is refused for an ``int`` field, wherever the field is.
+
+    The field can be in a ``TypedDict``, a list or dict of them, or a ``Table``. ``True`` is refused the same way when
+    it's given to a graph input and when it's a constant in a graph record read from JSON.
+    """
     from typing import TypedDict
 
     from conductor import Table

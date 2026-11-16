@@ -1,5 +1,9 @@
-"""What a node author declares with ``@node``, and what a host reads back from it: inputs and outputs, hooks, versions,
-widgets."""
+"""Tests for ``@node``: what a node author declares, and what a host sees of it.
+
+A node is a function under ``@node``. Its signature says the node's inputs and outputs. The tests cover those, along
+with types, ``Series`` and ``Table``, ``Param`` and widgets, versions, and the hooks that work out inputs and outputs
+when a graph is compiled.
+"""
 
 import dataclasses
 import datetime
@@ -50,7 +54,10 @@ def registry_of(*definitions):
 
 
 def compiled_graph(*definitions, record=None, constants=None):
-    """The graph of ``record``, or of ``definitions`` chained, compiled with a registry of exactly ``definitions``."""
+    """Compiles a graph against a registry that has only ``definitions``.
+
+    The graph is ``record`` when it's given. Otherwise it's ``definitions`` joined in a chain.
+    """
     return Graph.compile(
         record if record is not None else make_graph(*definitions, constants=constants or {}),
         registry_of(*definitions),
@@ -58,8 +65,15 @@ def compiled_graph(*definitions, record=None, constants=None):
 
 
 def node_record(definition_id, *, version=1, constants=None, graph_inputs=(), sources=None):
-    """One node of a graph record: ``constants`` by input, each of ``graph_inputs`` a graph input of its own name, and
-    ``sources`` mapping an input to the ``(node, output)`` its edge comes from."""
+    """Builds one node of a graph record.
+
+    Args:
+        definition_id: The id of the node's definition.
+        version: The definition's version.
+        constants: A constant value for each input that gets one, by input name.
+        graph_inputs: Inputs that each get a graph input of the same name.
+        sources: For each input wired to an edge, the ``(node, output)`` the edge starts from.
+    """
     inputs: dict[str, Any] = {
         name: InputEntry(constant=value) for name, value in (constants or {}).items()
     }
@@ -75,7 +89,10 @@ def codes(graph):
 
 
 def declared(function, **options):
-    """``function`` declared as the node definition ``x``; a declaration error raises here."""
+    """Declares ``function`` as a node with the id ``x``.
+
+    A fault in the declaration raises here, so a test can catch it.
+    """
     title = function.__name__.replace("_", " ").strip().capitalize()
     return node("x", **{"title": title, "description": "For a test.", **options})(function)
 
@@ -384,7 +401,7 @@ def test_each_of_several_outputs_carries_its_own_type_and_title():
         "case_sensitive": None,
         "renamed": "Score",
     }
-    # the output typed `| None` may be None, the one beside it may not
+    # The output typed `| None` may be None. The one next to it may not.
     assert {"type": "null"} in outputs["count"].json_schema["anyOf"] and "anyOf" not in outputs[
         "name"
     ].json_schema
@@ -740,7 +757,7 @@ def test_a_hosts_own_widget_compiles_runs_and_is_described_with_its_config():
 
 
 class Client:
-    """A host's class that pydantic checks only with ``isinstance``: it has no JSON form."""
+    """A host's class with no JSON form. Pydantic can only check it with ``isinstance``."""
 
 
 @pytest.mark.parametrize(
@@ -820,7 +837,7 @@ def test_a_version_number_is_its_place_in_the_chain_and_each_keeps_its_own_setti
         and v3.describe().deprecation is None
     )
     assert 4 not in v3.versions
-    with pytest.raises(TypeError):  # a frozen definition's versions can't be written
+    with pytest.raises(TypeError):  # a definition is frozen, so its versions can't be changed
         v3.versions[4] = v3  # type: ignore[index]
     for saved, body in ((1, "one"), (3, "three")):
         graph = compiled_graph(
@@ -1183,14 +1200,17 @@ def test_a_hook_that_raises_is_its_nodes_one_problem_never_an_exception():
                 }
             ),
         )
-        # the node downstream has no problem of its own
+        # The node after it has no problem of its own.
         assert [(p.type, p.loc) for p in graph.problems] == [("compute_hook_failed", ("n",))], kind
         assert graph.problems[0].ctx["error"] == "ValueError"
 
 
 def test_a_hook_is_given_any_for_an_input_whose_edge_is_refused_as_for_one_nothing_is_wired_to():
-    """A refused edge gives no type, so the hook gets ``Any`` as for an unwired input, and the node keeps its inputs and
-    outputs."""
+    """A hook gets ``Any`` for an input whose edge is refused.
+
+    A refused edge has no type to pass on, so the hook sees the input as if nothing were wired to it. The node still
+    gets its inputs and outputs.
+    """
     arrived: list[Any] = []
 
     def of_what_arrives(x: type) -> dict[str, Any]:
@@ -1253,7 +1273,7 @@ def test_a_hint_from_a_hook_naming_a_class_that_is_not_declared_is_the_hooks_pro
 
 
 def _computing(hook: Any) -> Any:
-    """A graph of one node, ``h``, whose outputs ``hook`` computes."""
+    """Compiles a graph of one node, ``h``, whose outputs come from ``hook``."""
 
     def h(x: str = "a") -> dict:
         return {}
@@ -1281,7 +1301,11 @@ def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
 
 
 def test_a_bug_in_a_host_types_own_schema_hook_raises_as_itself_where_the_class_is_declared():
-    """Only a class with no ``@host_type`` is a hook's failure; an ``AttributeError`` in a host's own code is the host's bug."""
+    """A bug in a host type's own schema code raises right away, where the class is declared.
+
+    A hook fails with a problem only when it names a class with no ``@host_type``. An ``AttributeError`` in the host's
+    own code is the host's bug, so it isn't turned into a problem.
+    """
     with pytest.raises(AttributeError, match="no_such_method"):
 
         @host_type("buggy", title="Buggy")
@@ -1298,7 +1322,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
     with caplog.at_level(logging.ERROR, logger="conductor"):
         [problem] = _computing(boom).problems
     assert (problem.type, problem.ctx["error"]) == ("compute_hook_failed", "KeyError")
-    logged = caplog.records[0]  # once for each time the graph is compiled
+    logged = caplog.records[0]  # logged once each time the graph is compiled
     assert (
         logged.exc_info is not None
         and logged.exc_info[0] is KeyError
@@ -1320,7 +1344,7 @@ def test_a_hook_adding_an_input_whose_name_a_source_cannot_carry_is_refused():
     ]
 
 
-# -- what a signature says that conductor refuses or reads as written ------------------------
+# -- signatures conductor refuses, and signatures it takes as written ------------------------
 
 
 def test_a_none_default_on_an_input_that_takes_no_none_is_refused():
@@ -1551,7 +1575,7 @@ def test_a_hook_reads_a_whole_table_arriving_with_its_columns():
     graph = compiled_graph(read, look)
     row_type = typing.get_args(seen[0])[
         0
-    ]  # Table[R]'s R is a TypedDict of the columns the input gets
+    ]  # in Table[R], R is a TypedDict of the columns the input gets
     assert graph.problems == [] and typing.get_type_hints(row_type) == {"name": str, "amount": int}
     assert graph.run(text="Bo").results["look"]["result"] == "name,amount"
 

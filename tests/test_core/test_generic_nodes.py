@@ -1,7 +1,8 @@
-"""A generic node: a type variable in its signature is bound to the type that arrives on the edge.
+"""Generic nodes, whose signature uses a type variable.
 
-Only an edge binds a variable, when the graph is compiled; in the compiled graph the node's inputs and outputs have
-ordinary types.
+Take ``def keep[T](value: T) -> T``. When the graph is compiled, ``T`` becomes the type that arrives on the edge
+into ``value``. Wire a ``str`` output into it, and the node's input and output are both ``str``. Only an edge sets
+a type variable. Once the graph is compiled, the node's inputs and outputs have ordinary types.
 """
 
 import asyncio
@@ -99,7 +100,13 @@ def upper(text: str) -> str:
 def _compiled(
     *definitions: Any, edges: list[list[str]], constants: dict[str, dict[str, Any]] | None = None
 ) -> Any:
-    """Each definition as a node named by its id, wired by ``edges``; ``constants`` are given per node id."""
+    """Compiles a graph with one node per definition, named by the definition's id.
+
+    Args:
+        *definitions: The nodes of the graph.
+        edges: The edges, each a ``[source, target]`` pair such as ``["keep.result", "upper.text"]``.
+        constants: Constants by node id, then by input name.
+    """
     given = {
         f"{node_id}.{name}": value
         for node_id, named in (constants or {}).items()
@@ -203,7 +210,11 @@ def test_a_variable_beside_none_binds_the_arriving_type_without_its_none() -> No
 
 
 def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called() -> None:
-    """An input gets ``None`` only if its hint says so: ``value: T`` wired to a ``str | None`` output is a ``str`` input."""
+    """A type variable on its own never takes ``None``.
+
+    Wire a ``str | None`` output into ``value: T``, and the input is a ``str``. A run that gives it ``None`` leaves
+    the node not called. An input takes ``None`` only when its hint says so.
+    """
     calls: list[Any] = []
 
     @node("seen", title="Seen", description="For a test.")
@@ -222,7 +233,7 @@ def test_a_bare_variable_binds_without_none_so_a_none_leaves_the_node_not_called
     inside_a_list = _compiled(
         keep, seen, edges=[["keep.result", "seen.value"]], constants={"keep": {"value": 1}}
     )
-    assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any takes None, and says so
+    assert _types(inside_a_list, "seen")["value"] == (False, "Any")  # Any allows None already
 
 
 def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -> None:
@@ -248,7 +259,7 @@ def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -
     assert asyncio.run(said())[-2:] == [
         (("decision",), 0, 1),
         (("maybe",), 1, 0),
-    ]  # skipped, where a None would leave it not called
+    ]  # maybe is skipped, not "not called". Only a None input makes a node not called
 
 
 def test_one_variable_on_two_inputs_binds_the_union_of_what_arrives() -> None:

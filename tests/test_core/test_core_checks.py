@@ -1,8 +1,11 @@
-"""The core's rules through the public API: registry, ids, reuse, answers, graph records, items, subgraphs, upgrades.
+"""The core's rules, checked through the public API.
 
-The invoice graph reads a CSV, asks a person to approve each big amount, and
-sums the decisions; ``calls`` records which nodes were called, so a test can
-say what ran again and what was reused.
+The tests cover the registry, node ids, reusing earlier calls, answers, graph records, items, subgraphs and
+upgrades.
+
+Most tests use an invoice graph. It reads a CSV, asks a person to approve each big amount, and sums the
+decisions. The ``calls`` helper records which nodes were called, so a test can tell what ran again and what was
+reused.
 """
 
 import os
@@ -72,12 +75,12 @@ def route(text: str) -> Length:
     return Length(long=text) if len(text) > 3 else Length(short=text)
 
 
-#: The shared nodes and the one that makes an item of each invoice.
+#: The shared test nodes, plus the node that turns each invoice into an item.
 invoicing = NodeRegistry()
 invoicing.add_subregistry(registry)
 invoicing.add(each_invoice)
 
-#: The invoices read from a CSV, then one item per invoice.
+#: A graph record that reads invoices from a CSV, then makes one item per invoice.
 INVOICES = {
     "nodes": {
         "read": {"node": "read-csv", "inputs": {"text": {"graph_input": "text"}}},
@@ -90,22 +93,25 @@ INVOICES = {
 
 
 def invoices_then(nodes: dict) -> dict:
-    """The record of ``INVOICES`` with ``nodes`` added, each keyed by its id."""
+    """Returns the ``INVOICES`` record with ``nodes`` added, keyed by node id."""
     return {"nodes": {**INVOICES["nodes"], **nodes}}
 
 
 def each_field(field: str) -> dict:
-    """The entry of an input wired to one field of the invoice of each item."""
+    """Returns an input entry wired to one field of each item's invoice."""
     return {"sources": [{"node": "each", "output": "result", "field": field}]}
 
 
 def edge_from(node_id: str, output: str = "result") -> dict:
-    """The entry of an input wired to the output ``output`` of ``node_id``."""
+    """Returns an input entry wired to the output ``output`` of the node ``node_id``."""
     return {"sources": [{"node": node_id, "output": output}]}
 
 
 def calls(fn):
-    """What ``fn`` returns, and the calls the nodes noted while it ran."""
+    """Runs ``fn`` and returns what it returns, with the calls the nodes wrote down while it ran.
+
+    The test nodes append a line to the file named by ``CALLS`` each time they are called.
+    """
     with (
         TemporaryDirectory() as work,
         mock.patch.dict(os.environ, {"CALLS": str(Path(work) / "calls")}),
@@ -138,7 +144,7 @@ def test_registry():
 
 
 def test_node_used_twice():
-    record = make_graph(upper, tail, upper)  # a chain; upper repeats
+    record = make_graph(upper, tail, upper)  # a chain in which upper is used twice
     assert list(record.nodes) == ["upper-1", "tail", "upper-2"]
     graph = Graph.compile(record.model_dump_json(), registry)
     assert graph.run(text="hi").outputs == {"result": "HI."}
@@ -182,7 +188,8 @@ def test_answer_stays_with_its_item_on_again():
         "Al,al@c.dk,7000", "Al,al@c.dk,8000"
     )
     again, called = calls(lambda: run.again(text=edited))
-    assert called == ["approve Ida", "approve Al"], called  # Bo's answer stays with Bo
+    # Bo's row is unchanged, so his answer is reused and he isn't asked again
+    assert called == ["approve Ida", "approve Al"], called
     assert again.status == "waiting" and [w.inputs["name"] for w in again.waiting] == ["Al"]
     try:
         again.answer(again.waiting[0], "maybe")
@@ -277,7 +284,8 @@ def test_every_problem_of_one_node_is_reported_at_once():
 
 
 def test_nested_loops_are_collected_one_level_at_a_time():
-    # documents -> lines -> per-line upper -> per-document join; the lines read whole are a list per document too.
+    # Documents are split into lines, each line is upper-cased, and the lines of each document are joined.
+    # ``all`` joins the lines without upper-casing them, also once per document.
     record = {
         "nodes": {
             "docs": {
@@ -320,7 +328,7 @@ def test_nested_loops_are_collected_one_level_at_a_time():
         "a+b",
         "c",
         "",
-    ]  # a node collecting lines is inside the loop over docs, as lines is
+    ]  # ``all`` collects the lines, so it runs once per document, like ``lines``
 
 
 def test_items_of_two_series_at_one_node_are_refused():
@@ -411,7 +419,7 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     run = graph.run(text="abcd,ab,xyzzy")
     assert run.results["L"]["result"] == ["ABCD", None, "XYZZY"]
     assert run.results["J"]["result"] == "ABCD+XYZZY"
-    # the two branches of one node are collected in item order
+    # the values from both branches of one node are joined in item order
     assert run.results["both"]["result"] == "ABCD+ab+XYZZY"
     with_none = Graph.compile(
         GraphRecord.model_validate(
@@ -481,7 +489,10 @@ def test_max_items():
 
 
 def test_an_upgraded_subgraph_keeps_the_name_of_its_output():
-    """The second version declares the same graph output, so what read ``e.result`` still does."""
+    """After the upgrade, an edge from ``e.result`` still works.
+
+    The second version declares the same graph output, ``result``, as the first.
+    """
     enrich_v1 = make_graph(upper, tail)
     enrich_v2 = {
         "nodes": {
@@ -736,5 +747,5 @@ def test_again_waiting_read_back_and_answered_alike_sends_no_mail_again():
     resumed, called = calls(
         lambda: Run.from_json(paused.to_json(), graph).answer("g@1", "bo@b.dk").resume()
     )
-    # the mail to Bo's address went out once
+    # the mail to Bo's address was sent on the first run, and isn't sent again
     assert resumed.status == "complete" and called == [], called

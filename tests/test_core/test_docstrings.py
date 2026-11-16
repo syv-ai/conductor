@@ -1,7 +1,8 @@
-"""Every public class and module-level function of the three packages has a docstring.
+"""Every public class and top-level function in the three packages has a docstring.
 
-A name with a leading underscore, an `@overload` and a body of `...` need none, and neither does a method or a
-function defined inside another function. What a docstring says, and that it is in Google style, is read in review.
+Some definitions need none: a name with a leading underscore, an `@overload`, a body of just `...`, a method, and
+a function defined inside another function. This test only checks that a docstring is there. Whether it says the
+right thing, in Google style, is up to review.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _is_overload(definition: FunctionDef | AsyncFunctionDef | ClassDef) -> bool:
-    """Whether the definition is decorated with `overload` or `typing.overload`."""
+    """Returns whether the definition is decorated with `overload` or `typing.overload`."""
     return any(
         ast.unparse(decorator).split(".")[-1] == "overload"
         for decorator in definition.decorator_list
@@ -22,7 +23,7 @@ def _is_overload(definition: FunctionDef | AsyncFunctionDef | ClassDef) -> bool:
 
 
 def _is_stub(definition: FunctionDef | AsyncFunctionDef | ClassDef) -> bool:
-    """Whether the definition's whole body is `...`."""
+    """Returns whether the definition's whole body is `...`."""
     body = definition.body
     return (
         len(body) == 1
@@ -33,14 +34,16 @@ def _is_stub(definition: FunctionDef | AsyncFunctionDef | ClassDef) -> bool:
 
 
 def missing_docstrings(path: Path) -> list[str]:
-    """The definitions in one file that need a docstring and have none, as `path:line: name`.
+    """Lists the definitions in one file that need a docstring and have none.
+
+    A definition needs one if it is public and isn't an overload or a stub. That covers every class outside a
+    function, however deeply nested, and every function at the top of the module.
 
     Args:
         path: A Python file.
 
     Returns:
-        One line for each class at any depth outside a function, and each function at the module's top level, that is
-        public, not an overload or a stub, and has no docstring.
+        One line per missing docstring, as `path:line: name`.
     """
     found: list[str] = []
 

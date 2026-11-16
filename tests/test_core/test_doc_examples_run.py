@@ -1,8 +1,13 @@
-"""Every page's Python runs, and each line ``print(...)  # shown`` prints what the page shows.
+"""The Python on every docs page runs, and its printed output matches what the page shows.
 
-Each page's blocks run in order as one module, in an empty directory. The comment may go on after what is printed
-(``# {...}: it still runs version 1``), so it begins with the printed text, quotes read alike. Notebooks are run by
-their own check.
+A page shows output with a comment after a print, like ``print(run.outputs)  # {'result': 'HI'}``. This test runs
+each page's blocks in order, as one module, in an empty directory. It then checks that each such print printed
+what its comment says.
+
+The comment may carry on after the output, as in ``# {...}: it still runs version 1``. So the test only checks
+that the comment starts with what was printed. Single and double quotes count as the same.
+
+The notebooks have a check of their own.
 """
 
 from __future__ import annotations
@@ -26,7 +31,11 @@ _PAGES = pages()
 
 
 def _checked_source(source: str) -> str:
-    """``source`` with each shown print calling ``__shown`` with what it would print and what the page shows."""
+    """Returns ``source`` with each commented print turned into a call to ``__shown``.
+
+    The call gets the line number, the comment, and what the print would have printed. That way the test can
+    compare the two after the page has run.
+    """
     lines = []
     for number, line in enumerate(source.splitlines(), start=1):
         hit = _SHOWN.match(line)

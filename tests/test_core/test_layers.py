@@ -1,5 +1,8 @@
-"""The layers contract ``pyproject.toml`` declares holds: each package of ``conductor._internal`` imports only the
-packages below it. The contract names the one import it allows."""
+"""The packages inside ``conductor._internal`` import only the packages below them.
+
+The layers are written down once, as an import-linter contract in ``pyproject.toml``. This test runs import-linter
+on it. The contract also lists the one upward import it allows.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_layers_contract_holds() -> None:
-    # in a process of its own: import-linter sets up logging for its output, which the other tests read
+    # Run it in its own process. import-linter sets up logging for its output, and other tests read the logs.
     found = subprocess.run(
         [Path(sys.executable).with_name("lint-imports"), "--no-cache"],
         cwd=ROOT,

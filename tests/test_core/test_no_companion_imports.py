@@ -1,5 +1,8 @@
-"""The core's tests ship with the core alone, so no file of them imports conductor-nodes or conductor-providers,
-at the top of the file or inside a function."""
+"""No core test imports conductor-nodes or conductor-providers.
+
+The core's tests have to run with the core installed on its own. So no file under ``tests/test_core`` may import a
+companion package, whether at the top of the file or inside a function.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +15,10 @@ COMPANIONS = {"conductor_nodes", "conductor_providers"}
 
 
 def _imported(found: AST) -> list[str]:
-    """The modules an import statement names; an ``import`` or a ``from`` that is not relative."""
+    """Returns the modules an import statement names.
+
+    A relative ``from`` import names none, since it can't reach another package.
+    """
     if isinstance(found, Import):
         return [alias.name for alias in found.names]
     if isinstance(found, ImportFrom) and found.level == 0 and found.module:

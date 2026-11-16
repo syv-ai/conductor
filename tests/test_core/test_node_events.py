@@ -1,8 +1,10 @@
-"""The events a stream says about each node, in the order it says them.
+"""The events ``run.stream()`` sends about each node, and the order they come in.
 
-Each test streams a small graph and reads the events about its nodes. A node on the stream's own thread is called
-in a fixed order, so the events come in a fixed order; where a test needs a call still running while others return,
-that call runs on a thread of its own and waits for the test to let it return.
+Each test streams a small graph and checks the events about its nodes. Nodes called on the stream's own thread
+are called in a fixed order, so their events come in a fixed order too.
+
+Some tests need one call to keep running while the others finish. That call runs on a thread of its own, and it
+waits until the test lets it return.
 """
 
 import asyncio
@@ -83,16 +85,17 @@ def both(first: str, second: str) -> str:
 loud = subgraph("loud", title="Loud", description="For a test.")(make_graph(shout))
 
 
-#: Set by the test once it has seen what it waits for; a gated call returns only after it.
+#: Set by the test when it has seen the events it waits for. A gated call can't return before this is set.
 GATE = ThreadEvent()
-#: Set by a gated call when the call it holds has started.
+#: Set by a gated node when its held call has started.
 HELD = ThreadEvent()
 
 
 def _gated(node_id: str, held: str, *, threaded: bool) -> Any:
-    """A node ``node_id`` that returns its text, holding the call given ``held`` until ``GATE`` is set.
+    """Returns a node with id ``node_id`` that shouts its text, and holds back one call.
 
-    With ``threaded`` the node is called on threads, so the other calls go on while the held one waits.
+    The call whose text is ``held`` waits until ``GATE`` is set before it returns. With ``threaded``, the node is
+    called on threads, so its other calls go on while the held one waits.
     """
     policy = Policy(concurrency=4) if threaded else Policy()
 
@@ -107,10 +110,11 @@ def _gated(node_id: str, held: str, *, threaded: bool) -> Any:
 
 
 def _one_line(event: Event) -> str:
-    """An event as its type, its loc, and every field that is not at its default; a problem as its type and loc, a
-    waiting call as its loc, and a count as its four numbers.
+    """Writes an event as one short line, so a test can compare events as text.
 
-    Example: ``NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=3, total=3))`` is
+    The line has the event's type, its loc, and each field that isn't at its default. A problem is shortened to
+    its type and loc, a waiting call to its loc, and a count to its four numbers. For example,
+    ``NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=3, total=3))`` becomes
     ``"node_progress shout finished=1 waiting=0 known=3 total=3"``.
     """
     fields = event.model_dump(exclude={"type", "loc"}, exclude_defaults=True)
@@ -132,13 +136,13 @@ def _streamed(
     run: Run[Any],
     on: Callable[[list[str], AsyncioEvent], None] = lambda said, cancel: None,
 ) -> tuple[list[str], Run[Any]]:
-    """The events ``run.stream()`` says about its nodes, one line each (``_one_line``), and the run it ends with.
+    """Streams ``run`` and returns its node events, one line each, with the run the stream ends with.
 
-    ``on`` is handed the lines said so far each time one is said, with the stream's ``cancel``; it may set ``GATE``
-    or ``cancel``, and add a line of its own to mark when it did.
+    Each event is written by ``_one_line``. After each one, ``on`` is called with the lines so far and the
+    stream's ``cancel``. It may set ``GATE`` or ``cancel``, and it may add a line of its own to mark when it did.
 
-    A node's first ``node_progress`` and its last are always said; one in between is said only when a quarter of a
-    second has passed since the one before, so it depends on the clock and is left out.
+    A node's first and last ``node_progress`` are always sent. One in between is sent only when a quarter of a
+    second has passed since the last, so it depends on the clock. Those are left out.
     """
 
     async def collect() -> tuple[list[str], Run[Any]]:
@@ -169,7 +173,7 @@ def _streamed(
 def _said(
     run: Run[Any], on: Callable[[list[str], AsyncioEvent], None] = lambda said, cancel: None
 ) -> list[str]:
-    """The lines of ``_streamed``, without the run."""
+    """The lines ``_streamed`` returns, without the run."""
     return _streamed(run, on)[0]
 
 

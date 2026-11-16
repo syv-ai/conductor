@@ -1,4 +1,8 @@
-"""Events and pipelining, ``Policy``, hooks, a host's own types, branches (``exclusive_group``) and ``describe()``."""
+"""The engine's larger features, each in a section of its own.
+
+The sections are: events and pipelining, ``Policy``, hooks, a host's own types, branches (``exclusive_group``),
+``describe()``, and reuse inside a subgraph.
+"""
 
 import asyncio
 import base64
@@ -33,7 +37,7 @@ from pydantic_core import core_schema
 
 from tests.test_core.nodes import place, registry_of
 
-#: How long a test waits for another thread before it fails, rather than hangs.
+#: How many seconds a test waits for another thread. Past this it fails instead of hanging.
 _BOUND = 10.0
 
 
@@ -92,7 +96,10 @@ reg = registry_of(split, upper, join, slow, gate, never, boom)
 
 
 def chain(*ids, then_join=None):
-    """A graph record of these nodes, each wired to the next one's ``text``; with ``then_join``, a ``join`` collects the last."""
+    """Returns a graph record that chains the nodes ``ids``, each one's output wired to the next one's ``text``.
+
+    With ``then_join``, a ``join`` node is added at the end to collect the last node's results.
+    """
     nodes: dict[str, Any] = {ids[0]: {"node": ids[0], "inputs": {"text": {"graph_input": "text"}}}}
     nodes |= {
         b: {"node": b, "inputs": {"text": {"sources": [{"node": a, "output": "result"}]}}}
@@ -124,12 +131,15 @@ def test_events_in_order():
 
 
 def test_concurrency_eight_calls_of_a_node_run_at_once():
-    """A node of ``concurrency=8`` has eight calls running at once: each waits until all eight have started."""
+    """A node with ``concurrency=8`` runs eight calls at once.
+
+    Each call waits until all eight have started, so the test fails if fewer run together.
+    """
     eight = Barrier(8)
 
     @node("together", title="Together", description="For a test.", policy=Policy(concurrency=8))
     def together(text: str) -> str:
-        eight.wait(_BOUND)  # breaks, failing the call, when fewer than eight run at once
+        eight.wait(_BOUND)  # times out and fails the call if fewer than eight run at once
         return text * 2
 
     graph = Graph.compile(
@@ -141,8 +151,11 @@ def test_concurrency_eight_calls_of_a_node_run_at_once():
 
 
 def test_pipelining_two_nodes():
-    """An item goes on to the second node as soon as the first is done with it, while the first still has items
-    to call: the first node's last item waits until the second node has been called."""
+    """An item goes on to the second node as soon as the first node is done with it.
+
+    The second node doesn't wait for the first to finish every item. The test proves it: the first node's last
+    item waits until the second node has been called.
+    """
     second_called = ThreadEvent()
     seen_before_the_last: list[bool] = []
 
@@ -223,7 +236,7 @@ def test_failure_keeps_calls_already_made():
     graph = Graph.compile(GraphRecord.model_validate(chain("split", "boom")), reg)
     run = graph.run(text="a,b,c,d")
     assert run.status == "failed" and run.cause.loc == ("boom", 2), run.cause
-    # d finished on its thread after c failed
+    # d was already running on its thread when c failed, and it finished
     assert run.results["boom"]["result"] == ["a", "b", None, "d"]
     seen = []
 
@@ -238,7 +251,7 @@ def test_failure_keeps_calls_already_made():
             GraphRecord.model_validate(chain("split", "boom")), registry_of(split, fixed)
         ),
     ).resume()
-    assert again.status == "complete" and seen == ["c"], seen  # nothing finished runs twice
+    assert again.status == "complete" and seen == ["c"], seen  # only the failed call runs again
 
 
 def test_cancel_and_timeout():
@@ -263,7 +276,10 @@ def test_cancel_and_timeout():
 
 
 def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
-    """documents -> lines -> slow per line -> per-document join: each document gets its own lines."""
+    """Documents are split into lines, and each document's lines are joined on their own.
+
+    The graph goes documents, then lines, then ``slow`` per line, then a ``join`` per document.
+    """
 
     @node("docs", title="Docs", description="For a test.")
     def docs(text: str) -> Series[str]:
@@ -375,7 +391,7 @@ def test_retries_external_failures_then_succeeds():
     assert {e.loc for e in retries} == {
         ("client",),
         ("fetch",),
-    }  # the node; its cause names the call
+    }  # the event names the node, and its cause names the call
     assert sorted((e.cause.loc[0], e.cause.loc[1:], e.attempt) for e in retries) == [
         ("client", (0,), 1),
         ("client", (1,), 1),
@@ -491,7 +507,7 @@ def _formula_inputs(formula: str) -> dict[str, Any]:
 
 @node("formula", title="Formula", description="For a test.", compute_added_inputs=_formula_inputs)
 def formula(formula: str = "", **values: float) -> float:
-    return eval(formula.format(**values))  # a check, not a calculator
+    return eval(formula.format(**values))  # just enough to test the hook; not a real calculator
 
 
 def _branch_outputs(cases: list[str], value: type) -> dict[str, Any]:
@@ -635,7 +651,7 @@ class Integer(int):
 
 @host_type("number", title="Number", accepts=[Integer])
 class Number(float):
-    """Reads the Danish decimal comma; takes an Integer."""
+    """A number that may be written with a decimal comma, as in ``"2,5"``. It also accepts an ``Integer``."""
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -829,7 +845,7 @@ def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():
     assert run.outputs == {"result": "null"} and run.not_called == []
 
 
-# -- 6. exclusive_group -----------------------------------------------------------------------------
+# -- 5. exclusive_group -----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -895,7 +911,7 @@ def test_two_series_on_opposite_branches_refused():
         pass
 
 
-# -- 7. describe -----------------------------------------------------------------------------------
+# -- 6. describe -----------------------------------------------------------------------------------
 
 
 def test_a_registrys_description_has_each_nodes_hooks_branches_and_the_types_each_type_accepts():
@@ -963,8 +979,10 @@ def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its
 
 @pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
 def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_node_id_is(name: str):
-    """An output name follows the node id rule: not empty, and none of the characters that sources, locs and
-    waiting ids use."""
+    """An output name a hook returns follows the same rule as a node id.
+
+    It can't be empty, and it can't use the characters that sources, locs and waiting ids are written with.
+    """
 
     @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {name: str})
     def dotted() -> Mapping[str, Any]:
@@ -997,7 +1015,7 @@ def test_a_timed_out_run_keeps_the_calls_already_on_threads():
     graph = Graph.compile(
         GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4)
     )
-    # four on threads, four never started
+    # four calls are running on threads when time runs out, and four never start
     stopped = graph.with_inputs(text="a,b,c,d,e,f,g,h").resume(timeout=0.05)
     assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
 
@@ -1038,7 +1056,10 @@ def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
 
 
 def _fn(parameter: str, **names: Any) -> Any:
-    """A node function taking ``parameter``, written from source so its annotation is read as written."""
+    """Returns a function ``f`` that takes ``parameter``, built from source text.
+
+    Building it from text lets a test give an annotation exactly as written, even one a type checker refuses.
+    """
     namespace: dict[str, Any] = {"Annotated": Annotated, "Param": Param, "Series": Series, **names}
     exec(f"def f({parameter}) -> str:\n    return repr(x)", namespace)
     return namespace["f"]
@@ -1124,7 +1145,7 @@ def test_the_last_progress_of_a_node_is_always_said():
     assert progress[-1] == (3000, 3000)
 
 
-# -- a subgraph's inner nodes are reused as they would be in the outer graph itself --------------
+# -- 7. a subgraph's inner nodes are reused just as the outer graph's own nodes are ------------
 
 
 def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():

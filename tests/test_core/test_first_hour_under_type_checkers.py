@@ -1,7 +1,8 @@
-"""The README's program and the other first-hour programs pass pyright and mypy strict, and run.
+"""The programs a new user writes in their first hour run, and pass mypy and pyright in strict mode.
 
-The first hour includes the custom widget ``docs/writing-nodes.md`` shows, and a ``Table[R]`` whose row type a
-checker keeps.
+These are the README's program, the custom widget from ``docs/writing-nodes.md``, and a few small programs below.
+A new user's editor runs a type checker, so a red squiggle on the first example would be a bad start. One of the
+programs checks that a ``Table[R]`` keeps its row type ``R`` for the checker.
 """
 
 from __future__ import annotations
@@ -104,7 +105,8 @@ def first_row(table: Table[Sale]) -> Table[Sale]:
 assert first_row(sales()).height == 1
 """
 
-#: Two row types a checker tells apart: pyright refuses the ``assert_type``, mypy shows ``Sale`` on ``reveal_type``.
+#: A table of one row type, asserted to be a table of another. pyright refuses the ``assert_type``, and mypy shows
+#: ``Sale`` for ``reveal_type``.
 _TWO_ROW_TYPES = """
 from typing import TypedDict, assert_type, reveal_type
 
@@ -250,8 +252,11 @@ called = subgraph("inner", title="Inner", description="A subgraph.")(GraphRecord
 def test_a_checker_refuses_an_unknown_limit_a_widget_class_passed_bare_choices_spelt_as_text_and_a_graph_called(
     tmp_path: Path,
 ) -> None:
-    """mypy reads a ``Param`` written outside ``Annotated``, an ``Ask``'s keywords, and a call of a node that is a stored
-    graph, which has no function: what conductor doesn't check when they run."""
+    """mypy catches four mistakes that conductor doesn't check when the code runs.
+
+    They are an unknown keyword on ``Param``, a widget class passed where an instance goes, an ``Ask`` with its
+    choices written as one string, and a call of a subgraph, which has no function to call.
+    """
     program = tmp_path / "wrong_keywords.py"
     program.write_text(_WRONG_KEYWORDS)
     done = subprocess.run(

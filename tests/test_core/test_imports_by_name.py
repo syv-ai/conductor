@@ -1,9 +1,10 @@
-"""A class or an exception is imported by name; a module name stands before a dot only for its functions and constants.
+"""Classes and exceptions are imported by name, not written through their module.
 
-`pydantic_core.PydanticSerializationError` is written `PydanticSerializationError`
-with `from pydantic_core import PydanticSerializationError`; `json.dumps`,
-`time.monotonic()` and `re.MULTILINE` stay as they are. The tables below are the
-rule's exceptions.
+So the code says `PydanticSerializationError`, after `from pydantic_core import PydanticSerializationError`,
+rather than `pydantic_core.PydanticSerializationError`. Functions and constants may still be written through their
+module: `json.dumps`, `time.monotonic()` and `re.MULTILINE` are fine.
+
+The tables below list the exceptions to the rule.
 """
 
 from __future__ import annotations
@@ -17,37 +18,47 @@ from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Modules whose classes stay written through the module: polars is `pl` everywhere
-# (a bare `Series` is conductor's own class), and a bare `time` or `datetime` is a module.
+# Modules whose classes are still written through the module. polars is `pl.` everywhere, since a bare `Series`
+# is conductor's own class. And a bare `time` or `datetime` looks like the module.
 CLASSES_THAT_STAY_THROUGH = {
     "polars": "*",
     "pandas": "*",
     "datetime": {"date", "time", "datetime"},
 }
 
-# A class in lower case reads as a function (`functools.partial`, `weakref.ref`), so it
-# stays unless it is named here with the name it is imported under.
+# A class with a lower-case name looks like a function (`functools.partial`, `weakref.ref`). So it may be written
+# through its module, unless it is listed here with the name to import it under.
 LOWER_CASE_CLASSES_IMPORTED_AS = {
     ("regex", "error"): "RegexError",
 }
 
-# Where the bare name is already taken in the file, or two modules want it, the class is
-# imported under this name, which says where it is from.
+# Classes whose bare name clashes, in a file or between two modules. Each is imported under the name given here,
+# which says where it comes from.
 NAME_WHEN_BARE_IS_TAKEN = {
     ("asyncio", "Event"): "AsyncioEvent",
     ("threading", "Event"): "ThreadEvent",
     ("dataclasses", "Field"): "DataclassField",
 }
 
-# `typing` constructs are not always `type` objects (`Optional`, `Callable`), so for these
-# modules a name in capitals-then-lower-case is a class.
+# Not every `typing` construct is a `type` object (`Optional`, `Callable`). So in these modules, a name that starts
+# with a capital and isn't all capitals counts as a class.
 MODULES_OF_TYPING_CONSTRUCTS = {"typing", "typing_extensions", "collections.abc"}
 
 SOURCE_AND_TESTS = ("packages/*/src", "tests")
 
 
 class Site(NamedTuple):
-    """One class written through its module: where it stands and what it should read."""
+    """One place where a class is written through its module, such as `pydantic_core.PydanticSerializationError`.
+
+    Attributes:
+        line: The line it is on.
+        start: The byte offset where it starts in the file.
+        end: The byte offset where it ends.
+        written: The text as written, such as `pydantic_core.PydanticSerializationError`.
+        binding: The name the module is bound to in the file, such as `pydantic_core`.
+        module: The module the class is defined in.
+        name: The class's name, such as `PydanticSerializationError`.
+    """
 
     line: int
     start: int
@@ -59,7 +70,10 @@ class Site(NamedTuple):
 
 
 def _bindings(tree: AST) -> dict[str, str]:
-    """Each name an `import` or `from x import module` gives a module, with that module's path."""
+    """Returns each name in the file that is bound to a module, with the module's full name.
+
+    A name is bound to a module by `import x`, `import x as y`, or `from x import module`.
+    """
     bound: dict[str, str] = {}
     for found in ast.walk(tree):
         if isinstance(found, Import):
@@ -95,9 +109,14 @@ def _stays(module: str, name: str) -> bool:
 
 
 def sites_in(source: str, line_starts: list[int]) -> list[Site]:
-    """Every class or exception in `source` written as `module.Name`, with its byte span.
+    """Finds every class or exception in `source` written as `module.Name`.
 
-    `line_starts` are the byte offsets at which each line of `source` begins.
+    Args:
+        source: The text of one Python file.
+        line_starts: The byte offset where each line of `source` starts.
+
+    Returns:
+        One `Site` per place, sorted.
     """
     tree = ast.parse(source)
     bound = _bindings(tree)
@@ -143,7 +162,7 @@ def sites_in(source: str, line_starts: list[int]) -> list[Site]:
 
 
 def line_starts_of(data: bytes) -> list[int]:
-    """Byte offsets at which each line of `data` begins."""
+    """Returns the byte offset where each line of `data` starts."""
     starts = [0]
     for index, byte in enumerate(data):
         if byte == 0x0A:
@@ -152,12 +171,12 @@ def line_starts_of(data: bytes) -> list[int]:
 
 
 def python_files(root: Path = ROOT) -> list[Path]:
-    """Every library source file and every test file under `root`."""
+    """Returns every Python file of the packages' source and the tests under `root`."""
     return sorted(path for pattern in SOURCE_AND_TESTS for path in root.glob(f"{pattern}/**/*.py"))
 
 
 def classes_through_a_module(root: Path = ROOT) -> list[str]:
-    """`file:line: written` for every class or exception written through its module."""
+    """Lists every class or exception written through its module, as `file:line: written`."""
     found: list[str] = []
     for path in python_files(root):
         data = path.read_bytes()
