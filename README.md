@@ -124,7 +124,7 @@ record = """{
 
 graph = Graph.compile(record, registry)
 print(list(graph.inputs))  # ['csv']
-print(graph.outputs)       # ['summary']
+print({name: output.type for name, output in graph.outputs.items()})  # {'summary': 'str'}
 print(graph.describe().nodes["approve"].per_item_of)  # read.result
 ```
 

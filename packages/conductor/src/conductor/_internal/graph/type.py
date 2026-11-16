@@ -31,7 +31,9 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol
 
-from conductor._internal.base import REQUIRED, Loc, json_hash
+from pydantic import MISSING
+
+from conductor._internal.base import Loc, json_hash, place_text
 from conductor._internal.context import ContextValidator
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import NodeDefinition
@@ -91,6 +93,8 @@ class Graph[C]:
         record: The graph record it was compiled from.
         problems: Everything wrong with the graph. Empty when it can run.
         inputs: The graph inputs the record declares, by name. These are what a caller gives.
+        outputs: The graph outputs the record declares, by name. These are what a complete run gives.
+        asks: Whether a node of the graph, or of a subgraph in it at any depth, may stop to ask a person.
     """
 
     record: GraphRecord
@@ -101,6 +105,9 @@ class Graph[C]:
     #: Each graph input, by name, as a field: its type, and the value used when the caller gives none
     #: (``REQUIRED`` when the caller must give one).
     _inputs: dict[str, Field]
+    #: Each graph output whose node compiled, by name, sorted: the field of the node output behind it, under the
+    #: graph output's name, with no default.
+    _outputs: dict[str, Field]
     #: The ``context_type`` the registry names, or ``None``. Every node's ``Context[X]`` was checked against it,
     #: and a run's ``context=`` is an instance of it.
     _context_type: type[C] | None
@@ -147,9 +154,47 @@ class Graph[C]:
         return {name: field.description for name, field in self._inputs.items()}
 
     @property
-    def outputs(self) -> list[str]:
-        """The names of the graph outputs the record declares, sorted. In the example, ``["result"]``."""
-        return sorted(self.record.outputs)
+    def outputs(self) -> dict[str, FieldDescription]:
+        """The graph outputs, by name, sorted: what a complete run gives (``run.outputs``).
+
+        Each is described as the output of the node behind it, under the graph output's name. In the example,
+        ``result`` is ``join``'s ``result``, a ``str``.
+
+        An output that needs a branch may be skipped on a run, so it is described as one that may be skipped:
+        ``"required": false``, with no ``default``.
+
+        An output whose node is inside loops is described as a list (``is_series``), with one level per entry of
+        ``loops``. If ``join`` were called once per document, ``result`` would have ``is_series`` true and the
+        ``loops`` ``["documents.result"]``, a ``str`` per document. An output that's a ``Series`` itself adds one
+        more, innermost level: the list it returns.
+
+        A graph output whose node didn't compile isn't here. The graph's problems say why.
+        """
+        described: dict[str, FieldDescription] = {}
+        for name, field in self._outputs.items():
+            node, output = self._node_returning(name)
+            description = field.description
+            if node.branches_required_for(output):
+                description = description.model_copy(update={"required": False, "default": MISSING})
+            edge = node.edge_reading(output)
+            loops = [place_text(*loop) for loop in edge.loops]
+            if loops and field.is_series:
+                loops.append(place_text(edge.node, edge.output))
+            if loops:
+                description = description.model_copy(update={"is_series": True, "loops": loops})
+            described[name] = description
+        return described
+
+    @functools.cached_property
+    def asks(self) -> bool:
+        """Whether any function node may stop to ask a person, in this graph or in a subgraph at any depth.
+
+        A node says it may with ``asks=True``.
+        """
+        return any(
+            node.inner.asks if isinstance(node, CompiledSubgraphNode) else node.definition.asks
+            for node in self._nodes.values()
+        )
 
     def describe(self) -> GraphDescription:
         """Returns the graph as an editor draws it.
@@ -222,15 +267,6 @@ class Graph[C]:
         node, name = self._node_returning(output)
         return node.edge_reading(name)
 
-    def _output_field(self, output: str) -> Field:
-        """Returns the graph output ``output`` as a field, for a subgraph node that uses this graph.
-
-        It's the field of the node output behind it, under the graph output's name, with no default. So a graph
-        output read from a branch is never a branch of the subgraph node: a branch is a function node's output.
-        """
-        node, name = self._node_returning(output)
-        return Field(output, node.outputs[name].hint, REQUIRED, is_output=True)
-
     # -- what a run uses --------------------------------------------------------
 
     @functools.cached_property
@@ -268,16 +304,6 @@ class Graph[C]:
         return ContextValidator(
             self._context_type,
             [(path, context) for path, context in contexts.items() if context is not None],
-        )
-
-    def _asks(self) -> bool:
-        """Whether any function node may stop to ask a person, in this graph or in a subgraph at any depth.
-
-        A node says it may with ``asks=True``.
-        """
-        return any(
-            node.inner._asks() if isinstance(node, CompiledSubgraphNode) else node.definition.asks
-            for node in self._nodes.values()
         )
 
     @functools.cached_property

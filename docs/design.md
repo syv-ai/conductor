@@ -339,7 +339,7 @@ from conductor import subgraph
 shout = subgraph("shout", title="Shout", description="Turns a text into capital letters.")(make_graph(upper))
 registry.add(shout)
 shouted = Graph.compile(make_graph(shout, join, edges=[("shout.result", "join.texts")]), registry)
-print(list(shouted.inputs), shouted.outputs)  # ['text'] ['result']
+print(list(shouted.inputs), list(shouted.outputs))  # ['text'] ['result']
 ```
 
 **Worth questioning:** a host whose slow nodes forget `concurrency` runs them one at a time within a run. It stands

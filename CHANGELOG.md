@@ -113,7 +113,11 @@ What changes in how you work, before the name-by-name tables:
   leaves a choice, and a node's own in the order it declares them. The record keeps no order, so
   `GraphRecord.input_names` and `required_inputs`, and a `SubgraphDefinition`'s `input_names`, `required_inputs`
   and `output_names`, are sorted; they followed the order the record's JSON listed its nodes in, which
-  `graph.inputs` and the palette didn't.
+  `graph.inputs` and the palette didn't. `graph.outputs`, and `graph.describe().outputs`, are the graph outputs by
+  name, sorted, each the `FieldDescription` of what a complete run gives, where they were a list of names: as a
+  subgraph node's output is described, one that needs a branch is `"required": false` with no `default`, and one
+  whose node is inside loops is a list with its `loops`. `graph.asks` says whether a node of the graph, or of a
+  subgraph in it, may stop to ask a person.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with

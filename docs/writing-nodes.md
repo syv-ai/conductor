@@ -511,7 +511,7 @@ graph = Graph.compile(
     make_graph(cells, constants={"cells.names": ["name", "city"]}, outputs={"name": "cells.name", "city": "cells.city"}),
     registry,
 )
-print(graph.outputs)                         # ['city', 'name']
+print(list(graph.outputs))                   # ['city', 'name']
 print(graph.run(line="Ida,Aarhus").outputs)  # {'city': 'Aarhus', 'name': 'Ida'}
 ```
 

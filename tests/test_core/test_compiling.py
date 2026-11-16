@@ -616,7 +616,7 @@ def test_the_graph_outputs_are_the_outputs_the_record_declares_and_no_other():
         ),
         REGISTRY,
     )
-    assert graph.outputs == ["result"] and graph.run(text="a").outputs == {"result": "ZED A"}
+    assert list(graph.outputs) == ["result"] and graph.run(text="a").outputs == {"result": "ZED A"}
 
 
 def test_an_output_a_hook_computed_is_a_graph_output_with_its_title():
@@ -640,7 +640,7 @@ def test_an_output_a_hook_computed_is_a_graph_output_with_its_title():
         ),
         REGISTRY,
     )
-    assert graph.problems == [] and graph.outputs == ["net", "vat"]
+    assert graph.problems == [] and list(graph.outputs) == ["net", "vat"]
     assert [o.title for o in graph.describe().nodes["c"].outputs] == ["Net", "Vat"]
     assert graph.run(text="9").outputs == {"net": "9", "vat": "9"}
 
@@ -748,7 +748,7 @@ def test_an_unknown_node_is_one_problem_naming_the_nodes_there_are_and_adds_no_i
     [problem] = graph.problems
     assert (problem.type, problem.loc) == ("unknown_node", ("x",))
     assert problem.ctx == {"node": "uper", "choices": ["tail", "upper"]}
-    assert list(graph.inputs) == ["text"] and graph.outputs == ["result"]
+    assert list(graph.inputs) == ["text"] and list(graph.outputs) == ["result"]
 
 
 def test_a_version_the_node_does_not_have_is_a_problem_never_the_nearest_version():
@@ -1242,7 +1242,7 @@ def test_a_subgraph_node_offers_its_inner_graph_input_and_output_as_its_own():
     )
     run = graph.run(text="hi")
     assert (
-        graph.outputs == ["result"]
+        list(graph.outputs) == ["result"]
         and run.outputs == {"result": "HI."}
         and run.results["e"] == {"result": "HI."}
     )
@@ -2678,4 +2678,7 @@ def test_a_subgraph_offers_the_inputs_and_outputs_its_inner_hooks_add():
         ),
         registry,
     )
-    assert graph.outputs == ["x", "y"] and graph.run(text="hi").outputs == {"x": "hi", "y": "hi"}
+    assert list(graph.outputs) == ["x", "y"] and graph.run(text="hi").outputs == {
+        "x": "hi",
+        "y": "hi",
+    }

@@ -518,7 +518,7 @@ def test_a_subgraph_node_offers_the_inputs_and_outputs_its_record_declares():
 
 def test_an_edge_reads_a_subgraph_output_by_its_declared_name():
     graph = compile_graph({"e": "columns-inner", "u": "upper"}, [("e.a", "u.text")])
-    assert graph.is_runnable and graph.outputs == ["result"]
+    assert graph.is_runnable and list(graph.outputs) == ["result"]
     assert problems(compile_graph({"e": "shout-inner", "u": "upper"}, [("e.ex", "u.text")])) == [
         ("unknown_output", ("u", "text"))
     ]
@@ -1227,7 +1227,7 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
 
 def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():
     graph = inside_a_loop("wrapping")
-    assert graph.outputs == ["result"]
+    assert list(graph.outputs) == ["result"]
     run = graph.run(text="ab cd")
     ids = [w.id for w in run.waiting]
     assert (

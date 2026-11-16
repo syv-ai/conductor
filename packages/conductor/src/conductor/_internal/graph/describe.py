@@ -108,13 +108,13 @@ class GraphDescription(ConductorModel):
         nodes: Every node of the graph record, by id.
         inputs: The graph inputs, by name. Each is the field a caller gives a value for. Its ``default`` is the
             record's default, as JSON, and it's ``required`` when the record gives none.
-        outputs: The names of the graph outputs, like ``["result"]``.
+        outputs: The graph outputs, by name, sorted. Each is the field a complete run gives (see ``graph.outputs``).
         problems: Every problem of the graph, including those on nodes.
     """
 
     nodes: dict[str, GraphNodeDescription]
     inputs: dict[str, FieldDescription]
-    outputs: list[str]
+    outputs: dict[str, FieldDescription]
     problems: list[Problem]
 
 

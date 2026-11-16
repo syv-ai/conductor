@@ -24,8 +24,6 @@ import typing
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from pydantic import MISSING
-
 from conductor._internal.ask import AskValidator
 from conductor._internal.base import SKIPPED, NodePath, Source, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
@@ -320,35 +318,13 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         }
 
     def described_outputs(self) -> list[FieldDescription]:
-        """Returns each output as an editor shows it.
-
-        An output that needs a branch inside the subgraph may be skipped on a call, so it is described as one that
-        may be skipped: ``"required": false``, with no ``default``.
-
-        An output is described as the output of the node inside that returns it. If that node is inside loops in
-        the subgraph, the output is described as a list (``is_series``), with one level per entry of ``loops``.
+        """Returns each output as an editor shows it: as its subgraph's graph describes its outputs (``inner.outputs``).
 
         For ``e`` above, ``shouted`` is described as ``shout``'s ``result``: the type ``str``, ``is_series`` true,
         and the ``loops`` ``["documents.result", "lines.result"]``. That's a list per document of a list per line
-        of ``str``. If ``shout`` returned a ``Series[str]``, ``loops`` would end with ``"shout.result"`` too, a
-        third level.
+        of ``str``.
         """
-        described = []
-        for name, field in self.outputs.items():
-            description = field.description
-            if self.branches_required_for(name) - self.required_branches:
-                description = description.model_copy(update={"required": False, "default": MISSING})
-            # The edge as the subgraph's own graph names it, since the description names the loops that way.
-            inner_edge = self.inner._edge_reading(name)
-            loops = [place_text(*loop) for loop in inner_edge.loops]
-            if not loops:
-                described.append(description)
-                continue
-            # an output that's a Series itself adds one more, innermost level: the list it returns
-            if field.is_series:
-                loops.append(place_text(inner_edge.node, inner_edge.output))
-            described.append(description.model_copy(update={"is_series": True, "loops": loops}))
-        return described
+        return list(self.inner.outputs.values())
 
 
 #: One node of a compiled graph: a function, or a subgraph.

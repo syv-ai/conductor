@@ -390,7 +390,7 @@ Loops inside a subgraph are named by the list inside that is looped over.
 The description of such an output says `is_series`. Its `type`, `json_schema` and `choices` are those of the value the node inside returns (`str`). It lists its `loops` as their sources inside are written, outermost first: `["documents.result", "lines.result"]`. So this one is a list per document of a list per line.
 
 - A field's value has one level of list per entry of `loops`, when it has any. Otherwise it has one level when it `is_series`, and none when it isn't. A `Series` the subgraph returns outside every loop has `loops` `[]`, and is one list.
-- `loops` is empty for every field but a subgraph's output that is returned inside loops.
+- `loops` is empty for every field but an output returned inside loops, of a subgraph node or of a graph (`graph.outputs`).
 - A `Series` returned once per document is a `Series[Series[T]]` the same way, and a table returned once per document is a `Series` of tables.
 
 Branches and a subgraph.
@@ -497,7 +497,8 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - `graph.inputs` is the graph inputs the record declares, by name. Each is the `FieldDescription` a caller gives a value for. Its `default` is the record's default as JSON, and is absent when it is `required`.
 - They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that leaves a choice, and a node's own in the order it declares them. The record keeps no order, so `record.input_names` and `record.required_inputs` are sorted.
 - A graph input with no value yet is not a problem. A required input that gets nothing is `input_has_no_value`.
-- `graph.outputs` is the names of the graph outputs the record declares.
+- `graph.outputs` is the graph outputs the record declares, by name, sorted. Each is the `FieldDescription` of what a complete run gives for it: the output of the node behind it, under the graph output's name. It is described as a subgraph node's output is: one that needs a branch is `"required": false` with no `default`, and one whose node is inside loops is a list with its `loops`. A graph output whose node didn't compile isn't in it.
+- `graph.asks` is whether a node of the graph, or of a subgraph in it at any depth, may stop to ask a person.
 
 **`graph.describe()`** is the graph as an editor draws it, a `GraphDescription`. It has each node's fields as its hooks made them, how often each node runs, the inputs, the outputs and the problems.
 
@@ -669,7 +670,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 **Declaring it.**
 
 - A node that raises `Ask` says `asks=True`. It is answered with a value of its return type. The answer is its outputs, and the node is not called again for that call.
-- A node that raises `Ask` without `asks=True` fails the call as `ask_not_declared`. So `describe().asks` is certain for every node. A host needs to know before it runs a graph unattended whether a call may wait for a person.
+- A node that raises `Ask` without `asks=True` fails the call as `ask_not_declared`. So `describe().asks` is certain for every node, and `graph.asks` for a graph. A host needs to know before it runs a graph unattended whether a call may wait for a person.
 - A node that needs a person's answer reads it from an edge, as it reads any value. "Approve, then pay" is two nodes. `approval(invoice: str) -> bool`, declared `asks=True`, returns `True` for a small invoice and raises `Ask` for a large one. `pay(invoice: str, ok: bool) -> str` reads `approval.result`. `pay` is called once, with a real `bool`.
 - A host that offers the two as one palette entry makes them a `subgraph`. Its waiting call is then `approve_and_pay/approval~...`.
 
@@ -959,7 +960,7 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - `"default": v` gives that value. `null` is the value `None`, and nothing else.
 - `"default": v` with `"required": true` can't be left out, and `v` is only where an editor starts. That is the one question of a node of one output.
 - No `default` key, with `"required": true`, is refused. That is an input with no default, or an output an answer must give.
-- No `default` key, with `"required": false`, is an output that may be skipped on a call. On a function node, that is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`; left out of an answer, it is skipped. On a subgraph node, it is an output that needs a branch inside.
+- No `default` key, with `"required": false`, is an output that may be skipped on a call. On a function node, that is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`; left out of an answer, it is skipped. On a subgraph node, and in `graph.outputs`, it is an output that needs a branch.
 - A missing `default` key means no value. So a host that writes these records with `exclude_none` turns `"default": null` into a skipped branch. Write them as pydantic writes them.
 - An output is described as the question its type sets, the same as a waiting call's question without an `Ask` on a node of several outputs. So `-> str | None` is `"required": false, "default": null`.
 

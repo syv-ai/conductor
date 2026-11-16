@@ -375,7 +375,7 @@ def test_a_sink_node_declares_no_outputs_and_runs():
         seen.append(text)
 
     graph = compiled_graph(log)
-    assert log.outputs == {} and graph.problems == [] and graph.outputs == []
+    assert log.outputs == {} and graph.problems == [] and list(graph.outputs) == []
     assert graph.run(text="hi").status == "complete" and seen == ["hi"]
 
 
@@ -1146,7 +1146,7 @@ def test_a_node_whose_hook_gives_no_outputs_leaves_the_graph_runnable():
             {"nodes": {"empty": {"node": "empty", "inputs": {"x": {"graph_input": "x"}}}}}
         ),
     )
-    assert graph.problems == [] and graph.outputs == [] and graph.run(x="a").status == "complete"
+    assert graph.problems == [] and graph.outputs == {} and graph.run(x="a").status == "complete"
 
 
 def _refuses():

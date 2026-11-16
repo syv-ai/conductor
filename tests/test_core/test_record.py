@@ -666,7 +666,7 @@ def test_graph_inputs_and_graph_outputs_are_the_ones_the_record_declares():
 
     assert graph.problems == []
     assert {name: i.required for name, i in graph.inputs.items()} == {"value": True, "yes": True}
-    assert graph.outputs == ["b_result", "c_result"]
+    assert list(graph.outputs) == ["b_result", "c_result"]
     assert graph.run(value="v", yes="y").outputs == {"b_result": "V", "c_result": "y!"}
 
 
@@ -1211,6 +1211,47 @@ def test_graph_inputs_come_in_the_order_the_nodes_run_whatever_order_the_record_
     ] == [["first", "second"]] * 2
 
 
+@node("words", title="Words", description="For a test.")
+def _words(text: str) -> Series[str]:
+    return text.split()
+
+
+def test_graph_outputs_are_fields_described_as_a_complete_run_gives_them():
+    record = GraphRecord.model_validate(
+        {
+            "nodes": {
+                "w": {"node": "words", "inputs": {"text": {"graph_input": "text"}}},
+                "u": {
+                    "node": "upper",
+                    "inputs": {"text": {"sources": [{"node": "w", "output": "result"}]}},
+                },
+                "d": {"node": "decide", "inputs": {"text": {"graph_input": "text"}}},
+            },
+            "outputs": {
+                "words": {"node": "w", "output": "result"},
+                "loud": {"node": "u", "output": "result"},
+                "kept": {"node": "d", "output": "yes"},
+            },
+        }
+    )
+    graph = Graph.compile(record, registry_of(_words, upper, decide))
+
+    assert {
+        name: (output.type, output.is_series, list(output.loops), output.required)
+        for name, output in graph.outputs.items()
+    } == {
+        "kept": ("str", False, [], False),  # a branch, which may be skipped
+        "loud": ("str", True, ["w.result"], True),  # one per word
+        "words": ("str", True, [], True),
+    }
+    assert graph.describe().outputs == graph.outputs
+    assert graph.run(text="yes no").outputs == {
+        "kept": "yes no",
+        "loud": ["YES", "NO"],
+        "words": ["yes", "no"],
+    }
+
+
 def test_make_graph_names_the_graph_inputs_and_outputs_it_is_given():
     record = make_graph(
         upper,
@@ -1221,7 +1262,7 @@ def test_make_graph_names_the_graph_inputs_and_outputs_it_is_given():
     )
     graph = Graph.compile(record, REGISTRY)
 
-    assert list(graph.inputs) == ["a", "b"] and graph.outputs == ["x", "y"]
+    assert list(graph.inputs) == ["a", "b"] and list(graph.outputs) == ["x", "y"]
     assert graph.run(a="p", b="q").outputs == {"x": "P", "y": "Q"}
 
 

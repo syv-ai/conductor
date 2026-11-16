@@ -378,7 +378,7 @@ class NodeRegistry[C]:
             self._graph_descriptions[definition.id] = definition.described_as(
                 inputs=[described_input.field for described_input in described.inputs],
                 outputs=described.outputs,
-                asks=compiled._asks(),
+                asks=compiled.asks,
                 takes_added_inputs=False,
                 computes_outputs=False,
             )

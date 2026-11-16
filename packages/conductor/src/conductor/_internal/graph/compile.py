@@ -169,32 +169,42 @@ class Compiler:
                     self._compile_subgraph_node(node_id, node_record, subgraph, edges_into[node_id])
                 case None:
                     pass
-        self._check_graph_outputs()
         return Graph(
-            self.record, self.problems, self.nodes, self.graph_inputs, self.definitions.context_type
+            self.record,
+            self.problems,
+            self.nodes,
+            self.graph_inputs,
+            self._graph_outputs(),
+            self.definitions.context_type,
         )
 
-    def _check_graph_outputs(self) -> None:
-        """Checks that every graph output names a node and an output that exist.
+    def _graph_outputs(self) -> dict[str, Field]:
+        """Returns each graph output whose node compiled, by name, sorted, as the field of the node output behind it.
 
-        One that doesn't gets the problem ``graph_output_not_found``, which isn't on any node. A graph output whose
-        node didn't compile is skipped here, since that node already has a problem saying why.
+        The field is the node output's, under the graph output's name, with no default. So a graph output read from
+        a branch is never a branch of a subgraph node that uses this graph: a branch is a function node's output.
+
+        A graph output that doesn't name a node and an output that exist gets the problem
+        ``graph_output_not_found``, which isn't on any node. One whose node didn't compile is left out with no
+        problem of its own, since that node already has a problem saying why.
         """
+        fields: dict[str, Field] = {}
         for name, source in sorted(self.record.outputs.items()):
             node = self.nodes.get(source.node)
-            if source.node not in self.record.nodes or (
-                node is not None and source.output not in node.outputs
-            ):
-                found = (
-                    [place_text((source.node,), output) for output in node.outputs]
-                    if node is not None
-                    else []
+            if node is not None and source.output in node.outputs:
+                fields[name] = Field(
+                    name, node.outputs[source.output].hint, REQUIRED, is_output=True
                 )
-                self.problems.append(
-                    compile_problems.graph_output_not_found(
-                        output=name, source=place_text((source.node,), source.output), outputs=found
-                    )
+                continue
+            if node is None and source.node in self.record.nodes:
+                continue  # the node didn't compile, and has a problem saying why
+            found = [place_text((source.node,), output) for output in node.outputs] if node else []
+            self.problems.append(
+                compile_problems.graph_output_not_found(
+                    output=name, source=place_text((source.node,), source.output), outputs=found
                 )
+            )
+        return fields
 
     def _resolve(self, node_id: str, record: NodeRecord) -> NodeDefinition | None:
         """Returns the node definition that a node of the record names, at the record's version.
@@ -406,7 +416,7 @@ class Compiler:
             id=node_id,
             loops=planned.loops,
             inputs=planned.inputs,
-            outputs={output: inner._output_field(output) for output in inner.outputs},
+            outputs=inner._outputs,
             required_branches=planned.required_branches,
             definition=definition,
             inner=inner,
