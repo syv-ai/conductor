@@ -705,6 +705,48 @@ def test_a_rename_of_a_field_a_hook_may_give_is_not_checked():
     )
 
 
+def test_a_rename_into_inputs_the_new_versions_hook_adds_is_not_checked():
+    """A new version that adds inputs with a hook may get the input a rename ends at, so ``@node`` lets it pass."""
+
+    def newer(**added: str) -> Annotated[Txt, Param(title="R")]:
+        return ""
+
+    assert (
+        node(
+            "two",
+            title="Newer added",
+            description="For a test.",
+            compute_added_inputs=lambda: {"extra": str},
+            replaces=node("two", title="Older x", description="For a test.")(_older_x),
+            upgrade=Upgrade(renamed_inputs={"x": "extra"}),
+        )(newer).version
+        == 2
+    )
+
+
+def test_a_rename_from_outputs_the_old_versions_hook_computes_is_not_checked():
+    """An old version whose hook computes its outputs may have had the output a rename starts at."""
+
+    def older(x: Annotated[Txt, _param("X")]) -> Mapping[str, str]:
+        return {}
+
+    assert (
+        node(
+            "two",
+            title="Newer x",
+            description="For a test.",
+            replaces=node(
+                "two",
+                title="Older computed",
+                description="For a test.",
+                compute_outputs=lambda: {"first": str},
+            )(older),
+            upgrade=Upgrade(renamed_outputs={"first": "result"}),
+        )(_older_x).version
+        == 2
+    )
+
+
 def test_a_rewrite_returning_a_set_is_refused_as_set_has_no_order_at_the_node():
     def tagged_v1(tag: str) -> str:
         return tag
