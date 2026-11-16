@@ -1,9 +1,9 @@
 """The run blueprint: the plan every run of one graph follows.
 
 A compiled graph can have subgraph nodes, but a subgraph is never called. Only the functions inside it are. So
-before a graph's first run, conductor flattens it into a blueprint: every function node of the graph and of its
-subgraphs, in the order a run tries them, with what each call reads. The ``Graph`` keeps the blueprint, and
-every run of the graph shares it. Nothing in it belongs to one run.
+when a graph's first run is made or read, conductor flattens it into a blueprint: every function node of the graph
+and of its subgraphs, in the order a run tries them, with what each call reads. The ``Graph`` keeps the blueprint,
+and every run of the graph shares it. Nothing in it belongs to one run.
 
 The example in this file. ``loud`` is the subgraph ``strip -> shout``, used as one node of an outer graph::
 
@@ -67,8 +67,8 @@ class _BlueprintNodeBase:
     """What both kinds of blueprint node have.
 
     It is never made on its own: every blueprint node is a ``BlueprintFunctionNode`` or a ``BlueprintSubgraphNode``.
-    A subgraph is compiled once but may be used as a node in many places. A blueprint node is one node in one of
-    those places. In the example, ``loud/shout`` is ``shout`` inside ``loud``.
+    A subgraph may be used as a node in many places. A blueprint node is one node in one of those places. In the
+    example, ``loud/shout`` is ``shout`` inside ``loud``.
 
     Attributes:
         parent: The subgraph node this node is directly inside. ``None`` for a node of the outer graph.
@@ -216,8 +216,9 @@ def outcome_loc(node: BlueprintNode, item_indexes: ItemIndexes) -> Loc:
 class RunBlueprint:
     """The blueprint of one compiled graph, which every run of the graph follows.
 
-    ``RunBlueprint.of(graph)`` builds it on the graph's first run, and the ``Graph`` keeps it. If two threads start
-    the first run at once, each may build one. They are equal, and one is kept.
+    ``RunBlueprint.of(graph)`` builds it when the graph's first run is made (``graph.with_inputs``) or read
+    (``Run.from_json``), and the ``Graph`` keeps it. If two threads do that at once, each may build one. They are
+    equal, and one is kept.
 
     Attributes:
         function_nodes: Every function node of the graph and of its subgraphs, at any depth, by node path

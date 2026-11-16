@@ -31,7 +31,8 @@ class Policy:
     ``ExternalError``, an output its type refuses and an ``Ask`` are never tried again, even with
     ``retry_on=(Exception,)``.
 
-    ``reuse_when_inputs_match=False`` is for a node that reads the outside world, not only its inputs. ``run.again``
+    ``reuse_when_inputs_match=False`` is for a node that reads the outside world, not only its inputs. A run made
+    from a previous one (``run.again``, ``run.with_inputs``, ``graph.with_inputs(previous=)`` or ``run.forget``)
     then calls it again for every item. ``costs_nothing=True`` is for a cheap node that touches nothing outside the
     run, like one that splits a table. ``run.resume(only_costs_nothing=True)`` calls only such nodes, so a host can
     see how many calls the costly nodes will make before any of them runs.
@@ -51,7 +52,9 @@ class Policy:
         attempt_timeout: How many seconds one attempt may take, or ``None`` for no limit. An attempt that runs over
             fails the call for good. Its thread can't be stopped, so trying again could repeat what it does.
         retry_on: Exception classes of the node's own client to try again, like an ``ExternalError``.
-        reuse_when_inputs_match: Whether ``run.again`` reuses a result when a call gets the same inputs as before.
+        reuse_when_inputs_match: Whether a run made from a previous one reuses a result when a call gets the same
+            inputs as before. It is checked when the new run is made. ``Run.from_json`` takes a saved run's reusable
+            outcomes as they were saved.
         costs_nothing: Whether a call is cheap enough for ``run.resume(only_costs_nothing=True)`` to make. A node
             that takes the run's context can't set it.
     """

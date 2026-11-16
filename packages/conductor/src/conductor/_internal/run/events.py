@@ -110,9 +110,10 @@ class NodeStart(_NodeEvent):
     A node inside a subgraph starts right after the subgraph node does: ``NodeStart(loc=("loud",))``, then
     ``NodeStart(loc=("loud", "shout"))``.
 
-    A node gets at most one ``NodeStart`` in a run, however many streams the run takes. So a node that already had
-    an outcome when a stream started gets none in that stream. For example, after a person answers, the next stream
-    has ``NodeComplete`` for the node that asked, with no ``NodeStart`` before it.
+    A node gets at most one ``NodeStart`` in a stream. A node that already had an outcome when a stream started gets
+    none in that stream. For example, after a person answers, the next stream has ``NodeComplete`` for the node that
+    asked, with no ``NodeStart`` before it. A node with no outcome yet, such as one whose only call failed, starts
+    again in the next stream.
     """
 
     type: Literal["node_start"] = "node_start"

@@ -295,9 +295,10 @@ class Graph[C]:
 
     @functools.cached_property
     def _blueprint(self) -> RunBlueprint:
-        """The run blueprint every run of this graph works from. Built on the first run, and kept.
+        """The run blueprint every run of this graph works from. Built and kept when the first run is made or read.
 
-        If two first runs start on two threads at once, each may build one. They're equal, and one is kept.
+        ``graph.with_inputs`` makes a run, and ``Run.from_json`` reads one. If two threads do that at once, each may
+        build a blueprint. They're equal, and one is kept.
         """
         from conductor._internal.run import RunBlueprint
 

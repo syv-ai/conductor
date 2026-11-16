@@ -235,8 +235,8 @@ class Run[C]:
           another process go on. The calls on threads are waited for and kept. The last event is then a
           ``RunCheckpoint`` whose run is ``running``, and there is no ``RunEnd``. If ``cancel`` is set as well, it wins.
         - Pass ``checkpoint_every`` (seconds) to get a ``RunCheckpoint`` at most that often while calls return, and one
-          more when the stream stops with calls still on threads. A host that saves each checkpoint loses only the calls
-          in flight if the process dies.
+          more when the stream stops with calls still on threads. If the process dies, a host that saves each
+          checkpoint loses the calls in flight, and the outcomes recorded since the last checkpoint.
 
         Raises:
             InvalidCallError: Whatever ``resume`` raises, and ``invalid_limit`` if ``checkpoint_every`` isn't a number

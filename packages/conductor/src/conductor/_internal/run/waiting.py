@@ -37,7 +37,8 @@ class Waiting(ConductorModel):
 
     Attributes:
         id: What ``run.answer`` takes, such as ``"approve@1~3fa2c0d1"``. It is the node's id, then ``@`` and the
-            index of each item the call is for, then ``~`` and a short fingerprint of the question. Inside a
+            index of each item the call is for, then ``~`` and a short fingerprint. The fingerprint is a hash of the
+            node's id, its code and the call's inputs, not of the ``Ask``'s prompt, choices or default. Inside a
             subgraph, the subgraph node and its item come first: ``"review@0/approve@1~3fa2c0d1"``. If the call's
             inputs or the node's code change, it may ask something else, so the old id stops matching. An answer
             to it is refused with ``answer_stale``.
@@ -94,7 +95,7 @@ def received(
     """Returns the arguments a waiting call was given, as JSON.
 
     The arguments aren't stored with the call. They are worked out again from the upstream outcomes, which is safe
-    because an outcome never changes once it is written. For example, ``received(approve, (1,), reader)`` is
+    because those outcomes don't change while the call waits. For example, ``received(approve, (1,), reader)`` is
     ``{"line": "b"}``.
 
     Args:

@@ -11,8 +11,11 @@ imported. ``@node``, ``subgraph``, ``@host_type``, ``Param`` and ``NodeRegistry`
     # error.problems == [async_run()], whose type is "async_run"
 
 A kind is declared the same way as the other kinds of problem (see ``ProblemCatalogue.problem``). The difference is
-that a declaration problem has no ``loc``. The error's ``where`` says where the fault is instead, like
-``@node('fetch') on fetch`` and then the input's name, and the error's text puts that in front of the message.
+that a declaration problem has no ``loc``. Instead, the error's ``where`` says where the fault is when ``@node`` or
+``subgraph`` finds it while building the node: in the function or its signature, a hook, or a missing ``Upgrade``.
+It is like ``@node('fetch') on fetch`` and then the input's name, and the error's text puts it in front of the
+message. Other faults, such as an empty title or a node id used twice, have no ``where``; their message names the
+node, or nothing.
 
 Each kind's docstring is its entry on the problems page (``python -m conductor.about problems``). Its example runs
 after the setup at the top of that page. The example's last line, ``declaration_refused(lambda: ...)``, returns the

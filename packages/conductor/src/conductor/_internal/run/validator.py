@@ -10,8 +10,9 @@ checks ``n`` against its type. If ``letters`` returns 12, that call of ``small``
 An edge from ``shout.result: str`` into ``join.texts: Series[str]`` needs no such check. A node none of whose inputs
 needs one has no edge validator at all.
 
-Which inputs to check is worked out once, when the run blueprint is built, by ``EdgeValidator.of``. The validator
-is built then, and called before each call of the node.
+Compiling checks that each edge's types fit. Which inputs still need a check at run time is worked out once, when
+the run blueprint is built, by ``EdgeValidator.of``. The validator is built then, and called before each call of the
+node.
 """
 
 from __future__ import annotations
@@ -62,8 +63,8 @@ class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):
     It checks each of those inputs against the input's type, and returns the arguments with the checked values. A
     value whose class is exactly one of the type's plain classes is kept as it is, and so is ``SKIPPED``.
 
-    ``EdgeValidator.of`` builds one for each node that needs it. That happens once, with the run blueprint, on a
-    graph's first run.
+    ``EdgeValidator.of`` builds one for each node that needs it. That happens once, with the run blueprint, when the
+    graph's first run is made or read.
 
     Raises (when called):
         InvalidCallError: ``invalid_edge_value`` for the first input whose type refuses its value. The problem

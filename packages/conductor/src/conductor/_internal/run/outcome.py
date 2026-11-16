@@ -17,8 +17,8 @@ indexes::
      ("shout",): {(0,): Done({"result": "A!"}), (1,): Done({"result": "B!"}), (2,): Done({"result": "C!"})},
      ("join",):  {():   Done({"result": "A!+B!+C!"})}}
 
-A call has at most one outcome, and an outcome never changes once it is stored. There are four kinds, one class
-each:
+A call has at most one outcome. Once stored, it changes only when a person answers: the answer replaces
+``Unanswered`` with ``Done``. There are four kinds, one class each:
 
 - ``Done``: the call has its outputs. Either the function returned them, or it asked a person and the person
   answered.

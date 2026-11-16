@@ -30,8 +30,9 @@ The scheduler has five jobs, described below. Its methods come in the same order
    node that comes first in topological order first (``_start_if_ready``). From then on, each new outcome says what
    to try next: the downstream calls that read it go on ``ready`` (``_make_downstream_ready``).
 
-   A call that collects a loop, as ``join ()`` does, isn't tried after every ``shout``. It is tried once, when no
-   call upstream of it is running any more (``_release_collectors``).
+   A call that collects a loop, as ``join ()`` does, isn't tried after every ``shout``. It is tried at the start,
+   like every call. After that, ``_release_collectors`` puts it back on ``ready`` when no call upstream of it in its
+   loop is running.
 
 2. **Threads, retries and timeouts.** Every call is made as an ``_Attempt``. An attempt waits in
    ``waiting_to_start`` until fewer than ``most_at_once`` calls of its node are running (``_count_of``).
@@ -55,7 +56,9 @@ The scheduler has five jobs, described below. Its methods come in the same order
    doubled for each attempt before it. It doesn't count as running while it waits.
 
    An attempt that is still on its thread after ``attempt_timeout`` seconds fails the run. Python can't stop a
-   thread, so the call counts as running until its function returns. That way no run calls the node beside it.
+   thread, so the call keeps its place in the count until its function returns. With ``concurrency`` set, every run
+   in the process counts it against that limit. Without it, only this ``resume()`` counts it, at that place in the
+   graph.
 
    Only node functions run on pool threads. Outcomes are always written on the scheduler's thread.
 

@@ -25,11 +25,15 @@ def as_asked(
 
     It starts from the output's own description, the one ``describe()`` shows. Then it adds what the call's ``Ask``
     set for this output. The ``Ask``'s choices replace the output's own. The ``Ask``'s default is filled in, and the
-    question is then not required, since an answer may leave it out and get the default.
+    question is then not required.
 
     For example, ``assign(ticket: str) -> str`` asks one question, ``result``. On its own it is required and has no
     default. If the node raises ``Ask("Who?", default="bo")``, the question has ``default="bo"`` and
     ``required=False``.
+
+    A default is applied only to a question left out of a mapping answer, so only a node with several outputs gets
+    it. A node with one output is answered with its one value, and an answer of ``{}``, or ``None`` where the output
+    doesn't take ``None``, is refused as ``invalid_answer``.
 
     What a host is shown and what the answer is checked against both come from here.
 

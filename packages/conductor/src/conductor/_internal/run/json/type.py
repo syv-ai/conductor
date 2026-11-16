@@ -120,8 +120,8 @@ class SavedRun(BaseModel):
          "complete": ["lines", "shout", "join"]}
 
     ``graph`` is the graph's fingerprint, a hash of the graph record and of the subgraphs it uses. Each value under
-    ``code`` is a node's code fingerprint, a hash of its version, its function's code, its inputs and outputs, and
-    the loops it is inside.
+    ``code`` is a node's code fingerprint, a hash of its ``@node`` id and version, its function's code, its inputs
+    and outputs, the loops it is inside, and whether it may ask.
 
     A node is named by its node path joined with ``/``: ``shout`` in the graph itself, ``loud/shout`` inside the
     subgraph node ``loud``. A subgraph node is never called, so it has no key of its own.

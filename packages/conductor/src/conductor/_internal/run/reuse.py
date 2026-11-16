@@ -9,8 +9,8 @@ In the second run, the calls of ``shout`` for ``"a"`` and ``"b"`` get the same a
 ``Done`` outcomes are reused, and the function isn't called for them.
 
 Two calls are matched by their arguments fingerprint: a short hash of the arguments and of the node's code
-fingerprint. The code fingerprint covers the node's version, its code, the types of its inputs and outputs, and
-its loops. So when a function changes, it is called again.
+fingerprint. The code fingerprint covers the node's ``@node`` id and version, its code, the types of its inputs and
+outputs, its loops, and whether it may ask. So when a function changes, it is called again.
 
 A node that may ask a person (``@node(asks=True)``) is reused another way. Two of its calls with the same
 arguments may have been answered differently. So each of its old outcomes is reused once, by the calls with

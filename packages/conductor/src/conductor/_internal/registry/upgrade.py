@@ -5,7 +5,8 @@ Say ``split`` at version 1 takes an input ``sep``. Version 2 calls it ``separato
 ``sep`` got, a constant, a graph input or edges, over to ``separator``, and sets the version to 2.
 
 An input the newer version neither has nor renames is dropped. Its ``rewrite`` still sees its constant or default
-first, so it can carry the value over to another input.
+first, so it can carry the value over to another input. A key the rewrite returns is kept, so a rewrite that returns
+the dropped input's key keeps it in the record, as a constant.
 """
 
 from __future__ import annotations

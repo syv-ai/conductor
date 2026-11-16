@@ -398,7 +398,7 @@ class NodeRegistry[C]:
         - The ``rewrite``, if there is one, gets the node's constants and graph-input defaults as one dict. A key that
           was a default stays a default. Every other key it returns becomes a constant.
         - An input the newer version neither has nor renames is dropped, with whatever it got. The rewrite still
-          sees its value first.
+          sees its value first. If the rewrite returns its key, it stays in the record as a constant.
         - Every edge and graph output from a renamed output, or from a field of it, moves to the new name.
 
         A node already at ``to`` gives back the record as it is. The record returned isn't compiled. Compile it to

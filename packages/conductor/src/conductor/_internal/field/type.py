@@ -215,7 +215,7 @@ def _field_parts(hint: Any) -> tuple[Param, Type, Type]:
         param = merged_param(of_item, param)  # the field's own Param wins over its item's
     if any(
         isinstance(metadata, Widget) for metadata in beside_param
-    ):  # pydantic would ignore it, and the editor would show no control for the field
+    ):  # pydantic would ignore it, and describe() would show no widget for the field
         raise NodeDeclarationError(declaration_problems.widget_outside_param())
     if param.widget is not None:
         try:
