@@ -146,11 +146,6 @@ def with_all(a: str, values: Series[str]) -> str:
     return a + "".join(values)
 
 
-@_node("with-all-taking-none")
-def with_all_taking_none(a: str, values: Series[str | None]) -> str:
-    return a + "".join("-" if value is None else value for value in values)
-
-
 @dataclass(frozen=True)
 class Listed:
     items: Series[str]
@@ -628,48 +623,6 @@ def test_a_series_never_returned_is_none_for_the_collect_even_where_the_loop_bod
     assert (outcome_of(run, "n"), outcome_of(run, "o")) == ("not called", "none")
 
 
-def test_one_none_wired_to_a_series_input_is_a_list_of_one_none_where_its_items_take_none() -> None:
-    nodes = {"t": "outside-value", "n": "count", "o": "count-or-none", "k": "dashes-for-none"}
-    run = ran(
-        nodes,
-        [("t.result", "n.values"), ("t.result", "o.values"), ("t.result", "k.values")],
-        outputs={"n": "n.result", "o": "o.result", "k": "k.result"},
-        kind="no-value",
-    )
-    assert (outcome_of(run, "n"), outcome_of(run, "o"), outcome_of(run, "k")) == (
-        "not called",
-        "none",
-        "-",
-    )
-    assert (
-        outcome_of(
-            ran(
-                {"t": "outside-value", "k": "dashes-for-none"},
-                [("t.result", "k.values")],
-                kind="skip",
-            ),
-            "k",
-        )
-        == "skipped"
-    )
-
-
-def test_a_list_of_one_none_from_outside_the_loop_is_taken_only_where_its_items_take_none() -> None:
-    nodes, edges = (
-        {"s": "items", "t": "outside-value", "x": "with-all", "n": "count"},
-        [("s.result", "x.a"), ("t.result", "x.values"), ("x.result", "n.values")],
-    )
-    assert (
-        outcome_of(ran(nodes, edges, kind="no-value", text="a b"), "n") == "not called"
-    )  # with-all gets a list of one None, and its items don't take None.
-    assert (
-        outcome_of(
-            ran({**nodes, "x": "with-all-taking-none"}, edges, kind="no-value", text="a b"), "n"
-        )
-        == 2
-    )
-
-
 @pytest.mark.parametrize(
     ("kind", "counter", "n"),
     [
@@ -779,8 +732,8 @@ def test_a_subgraph_in_the_loop_whose_series_depends_on_outside_decides_the_oute
 
 
 @_node("both")
-def both(a: Series[str], b: Series[str]) -> str:
-    return f"{'|'.join(a)}:{''.join(b)}"
+def both(a: str, b: Series[str]) -> str:
+    return f"{a}:{''.join(b)}"
 
 
 REGISTRY.subgraph(
@@ -799,13 +752,13 @@ REGISTRY.subgraph(
 )
 
 
-def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_in_a_subgraph() -> (
+def test_an_input_of_one_value_beside_a_collecting_input_gets_its_items_value_flat_or_in_a_subgraph() -> (
     None
 ):
     """A node that collects each document's letters gets that document's summary beside them.
 
     The node is called once per document, since it collects the letters of one document at a time. So its other
-    ``Series`` input, wired to the summary, gets only that document's summary, never all of them.
+    input, wired to the summary, gets only that document's summary, never all of them.
     """
     flat = Graph.compile(
         GraphRecord.model_validate(
@@ -855,7 +808,7 @@ def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_
         field.field.name: (field.source.mode, field.source.series)
         for field in flat.describe().nodes["j"].inputs
     }
-    assert feed == {"a": ("collected", None), "b": ("collected", "c.result")}
+    assert feed == {"a": ("item", "s.result"), "b": ("collected", "c.result")}
     assert (
         flat.run(text="ab c").results["j"]["result"]
         == in_subgraph.run(text="ab c").results["e"]["result"]
@@ -1004,12 +957,10 @@ REGISTRY.subgraph(
 )
 
 
-def test_two_series_inputs_wired_to_a_subgraphs_per_word_and_per_letter_outputs_are_called_per_word() -> (
-    None
-):
+def test_a_node_wired_to_a_subgraphs_per_word_and_per_letter_outputs_is_called_per_word() -> None:
     """The letters come as one list per word, so the node is called once per word.
 
-    Each call gets that word's letters. Its other input gets that word's one value, as a list of one.
+    Each call gets that word's letters. Its other input, which takes one value, gets that word's.
     """
     graph = Graph.compile(
         GraphRecord.model_validate(

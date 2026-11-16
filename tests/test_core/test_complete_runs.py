@@ -154,9 +154,10 @@ GRAPHS: dict[str, Case] = {
         {"text": ["d.text", "l.text"]},
     ),
     "every item's value collected and given to each item": Case(
-        {"w": "words", "u": "upper", "b": "beside"},
-        [("w.result", "u.text"), ("w.result", "b.text"), ("u.result", "b.items")],
+        {"w": "words", "e": "shout-words", "b": "beside"},
+        [("w.result", "b.text"), ("e.result", "b.items")],
         "a b c",
+        {"text": ["w.text", "e.text"]},
     ),
     "a subgraph whose inner Series has no items, per line": Case(
         {"l": "lines", "e": "shout-words"}, [("l.result", "e.text")], "a b;;c"

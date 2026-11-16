@@ -37,24 +37,20 @@ def _demands_more(node_input: EdgeInput | CollectingInput) -> bool:
     Every ``str`` is already a valid ``str | None``, so an edge from ``-> str`` into ``line: str | None`` needs no
     check. An edge from ``-> int`` into ``Annotated[int, Param(le=3)]`` does, and so does an edge from ``-> Any``.
 
-    Sometimes each edge brings one item of the input's value, not the whole value. That's the case for an input
-    that collects a loop, or for a list input wired to outputs of one value each. Then each output is compared with
-    the input's item type. An input that takes a table is always checked, since each row has to be checked against
-    the table's columns.
+    An input that collects a loop gets one item of its value from each edge, not the whole value. Then each output
+    is compared with the input's item type. An input that collects records into a table is always checked, since
+    each row has to be checked against the table's columns.
     """
+    field, sources = node_input.field, [edge.type for edge in node_input.sources]
     match node_input:
-        case EdgeInput(field=field, sources=edges, as_list=as_list):
-            sources_are_items = as_list
-        case CollectingInput(field=field, sources=edges):
-            sources_are_items = True
+        case EdgeInput():
+            return not all(field.whole.holds(source) for source in sources)
+        case CollectingInput():
+            return field.whole.record is not None or not all(
+                field.type.holds(source) for source in sources
+            )
         case _:
             assert_never(node_input)
-    sources = [edge.type for edge in edges]
-    if sources_are_items:
-        return field.whole.record is not None or not all(
-            field.type.holds(source) for source in sources
-        )
-    return not all(field.whole.holds(source) for source in sources)
 
 
 class EdgeValidator(Validator[dict[str, Any], dict[str, Any]]):

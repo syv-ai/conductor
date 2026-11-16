@@ -1140,14 +1140,277 @@ def test_a_document_is_the_outer_value_of_each_call_for_one_of_its_lines():
     assert run.results["p"]["result"] == [["a:a/b", "b:a/b"], ["c:c"]]
 
 
-def test_one_value_into_a_series_input_is_a_series_of_one():
-    run = ran(
-        {"id": "a", "node": "upper"},
-        {"id": "j", "node": "join"},
-        edges=(("a.result", "j.texts"),),
-        text="a",
+@node("words", title="Words", description="For a test.")
+def _words(text: str) -> Series[str]:
+    return text.split()
+
+
+@node("letters", title="Letters", description="For a test.")
+def _letters(text: str) -> Series[str]:
+    return list(text)
+
+
+@node("gather", title="Gather", description="For a test.")
+def _gather(texts: Series[str]) -> Series[str]:
+    return list(texts)
+
+
+@node("rank", title="Rank", description="For a test.")
+def _rank(word: str, everyone: Series[str]) -> int:
+    return sorted(everyone).index(word.upper())
+
+
+def _one_value_problems(graph: Graph[Any]) -> list[tuple[Any, ...]]:
+    """Returns each problem's code, variant, ``loc`` and message, the ``loc`` without the subgraph nodes before it."""
+    return [(p.type, p.ctx.get("variant"), p.loc[-2:], p.msg) for p in graph.problems]
+
+
+def test_one_value_per_word_into_a_series_input_is_a_type_mismatch_and_collecting_first_runs():
+    registry = registry_of(_words, upper, _gather, _rank)
+    ranked = make_graph(
+        _words,
+        upper,
+        _rank,
+        edges=[
+            ("words.result", "upper.text"),
+            ("words.result", "rank.word"),
+            ("upper.result", "rank.everyone"),
+        ],
     )
-    assert run.graph.describe().nodes["j"].per_item_of is None and run.results["j"]["result"] == "A"
+    assert _one_value_problems(Graph.compile(ranked, registry)) == [
+        (
+            "type_mismatch",
+            "one_value",
+            ("rank", "everyone"),
+            "'upper.result' gives each call of 'rank' one str, but 'rank.everyone' takes a Series of str. "
+            "Wire a Series of str to it.",
+        )
+    ]
+    collected_first = make_graph(
+        _words,
+        upper,
+        _gather,
+        _rank,
+        edges=[
+            ("words.result", "upper.text"),
+            ("upper.result", "gather.texts"),
+            ("words.result", "rank.word"),
+            ("gather.result", "rank.everyone"),
+        ],
+    )
+    assert Graph.compile(collected_first, registry).run(text="c a b").outputs == {
+        "result": [2, 0, 1]
+    }
+
+
+def test_a_series_input_given_one_value_per_word_by_another_input_is_refused_flat_and_inside_a_subgraph_alike():
+    @node("both", title="Both", description="For a test.")
+    def both(a: Series[str], b: Series[str]) -> str:
+        return f"{'|'.join(a)}:{''.join(b)}"
+
+    @node("both", title="Both", description="For a test.")
+    def both_declared_one(a: str, b: Series[str]) -> str:
+        return f"{a}:{''.join(b)}"
+
+    def drawn(both_node: Any) -> tuple[Any, Any]:
+        flat = make_graph(
+            _words,
+            upper,
+            _letters,
+            both_node,
+            edges=[
+                ("words.result", "upper.text"),
+                ("words.result", "letters.text"),
+                ("upper.result", "both.a"),
+                ("letters.result", "both.b"),
+            ],
+        )
+        per_word = subgraph("per-word", title="Per word", description="For a test.")(
+            make_graph(
+                upper,
+                _letters,
+                both_node,
+                edges=[("upper.result", "both.a"), ("letters.result", "both.b")],
+                inputs={"text": ["upper.text", "letters.text"]},
+            )
+        )
+        in_subgraph = make_graph(_words, per_word, edges=[("words.result", "per-word.text")])
+        return registry_of(_words, upper, _letters, both_node, per_word), (flat, in_subgraph)
+
+    registry, (flat, in_subgraph) = drawn(both)
+    refused = _one_value_problems(Graph.compile(flat, registry))
+    assert [problem[:3] for problem in refused] == [("type_mismatch", "one_value", ("both", "a"))]
+    assert _one_value_problems(Graph.compile(in_subgraph, registry)) == refused
+    registry, (flat, in_subgraph) = drawn(both_declared_one)
+    for record in (flat, in_subgraph):
+        assert Graph.compile(record, registry).run(text="ab c").outputs == {
+            "result": ["AB:ab", "C:c"]
+        }
+
+
+def test_a_subgraph_called_per_word_that_collects_a_value_it_makes_once_is_refused_and_taking_the_series_runs():
+    rank_one = subgraph("rank-one", title="Rank one", description="For a test.")(
+        make_graph(
+            upper,
+            _rank,
+            edges=[("upper.result", "rank.everyone")],
+            inputs={"word": ["upper.text", "rank.word"]},
+        )
+    )
+    rank_among = subgraph("rank-among", title="Rank among", description="For a test.")(
+        make_graph(_rank)
+    )  # its graph inputs are rank's: word, and everyone as a Series
+    registry = registry_of(_words, upper, _gather, _rank, rank_one, rank_among)
+    per_word = make_graph(_words, rank_one, edges=[("words.result", "rank-one.word")])
+    refused = Graph.compile(per_word, registry).problems
+    assert [(p.type, p.ctx["variant"], p.loc) for p in refused] == [
+        ("type_mismatch", "one_value", ("rank-one", "rank", "everyone"))
+    ]
+    takes_the_series = make_graph(
+        _words,
+        upper,
+        _gather,
+        rank_among,
+        edges=[
+            ("words.result", "upper.text"),
+            ("upper.result", "gather.texts"),
+            ("words.result", "rank-among.word"),
+            ("gather.result", "rank-among.everyone"),
+        ],
+    )
+    assert Graph.compile(takes_the_series, registry).run(text="c a b").outputs == {
+        "result": [2, 0, 1]
+    }
+
+
+def test_every_edge_that_gives_a_series_input_one_value_is_a_problem_a_script_can_list_by_its_source():
+    @node("title", title="Title", description="For a test.")
+    def title(text: str) -> str:
+        return text.title()
+
+    registry = registry_of(upper, title, join)
+    graph = Graph.compile(
+        make_graph(
+            upper,
+            title,
+            ("join-upper", join),
+            ("join-title", join),
+            edges=[("upper.result", "join-upper.texts"), ("title.result", "join-title.texts")],
+            inputs={"text": ["upper.text", "title.text"]},
+            outputs={"upper": "join-upper.result", "title": "join-title.result"},
+        ),
+        registry,
+    )  # compiling reports them, it doesn't raise
+    one_value = sorted(
+        (problem.ctx["source"], problem.loc)
+        for problem in graph.problems
+        if problem.type == "type_mismatch" and problem.ctx.get("variant") == "one_value"
+    )
+    assert one_value == [
+        ("title.result", ("join-title", "texts")),
+        ("upper.result", ("join-upper", "texts")),
+    ]
+
+
+def test_a_series_input_downstream_of_an_input_not_wired_yet_gets_the_problem_it_has_as_drawn():
+    half_drawn = GraphRecord(
+        nodes={
+            "upper": NodeRecord(node="upper"),
+            "join": NodeRecord(
+                node="join",
+                inputs={"texts": InputEntry(sources=[Source(node="upper", output="result")])},
+            ),
+        }
+    )  # upper.text may yet be wired to a loop, which would make join collect
+    problems = Graph.compile(half_drawn, registry_of(upper, join)).problems
+    assert sorted((p.type, p.ctx.get("variant"), p.loc) for p in problems) == [
+        ("input_has_no_value", None, ("upper", "text")),
+        ("type_mismatch", "one_value", ("join", "texts")),
+    ]
+
+
+def test_an_invalid_constant_upstream_does_not_hide_a_one_value_downstream():
+    @node("repeat", title="Repeat", description="For a test.")
+    def repeat(text: str, times: int) -> str:
+        return text * times
+
+    record = make_graph(
+        repeat,
+        join,
+        edges=[("repeat.result", "join.texts")],
+        constants={"repeat.text": "a", "repeat.times": "many"},
+    )
+    problems = Graph.compile(record, registry_of(repeat, join)).problems
+    assert sorted((p.type, p.ctx.get("variant"), p.loc) for p in problems) == [
+        ("invalid_value", None, ("repeat", "times")),
+        ("type_mismatch", "one_value", ("join", "texts")),
+    ]
+
+
+def test_a_subgraph_collecting_a_node_it_calls_once_is_refused_on_its_own_and_per_word_while_flat_the_loop_is_collected():
+    shout_all = subgraph("shout-all", title="Shout all", description="For a test.")(
+        make_graph(
+            upper, join, edges=[("upper.result", "join.texts")], inputs={"text": "upper.text"}
+        )
+    )
+    registry = registry_of(_words, upper, join, shout_all)
+    own_record = make_graph(
+        upper, join, edges=[("upper.result", "join.texts")], inputs={"text": "upper.text"}
+    )
+    per_word = make_graph(_words, shout_all, edges=[("words.result", "shout-all.text")])
+    flat = make_graph(
+        _words, upper, join, edges=[("words.result", "upper.text"), ("upper.result", "join.texts")]
+    )
+
+    def refused(record: Any) -> list[tuple[Any, ...]]:
+        return [
+            (p.type, p.ctx["variant"], p.loc[-2:]) for p in Graph.compile(record, registry).problems
+        ]
+
+    assert (
+        refused(own_record)
+        == refused(per_word)
+        == [("type_mismatch", "one_value", ("join", "texts"))]
+    )
+    assert Graph.compile(flat, registry).run(text="a b").outputs == {"result": "A+B"}
+
+
+def test_a_table_input_wired_to_any_made_once_per_call_takes_it_as_a_whole_table_flat_and_inside_a_subgraph():
+    class Name(TypedDict):
+        name: str
+
+    @node("as-any", title="As any", description="For a test.")
+    def as_any(text: str) -> Any:
+        return [{"name": letter} for letter in text]
+
+    @node("count", title="Count", description="For a test.")
+    def count(word: str, names: Table[Name]) -> str:
+        return f"{word}:{names.height}"
+
+    count_letters = subgraph("count-letters", title="Count letters", description="For a test.")(
+        make_graph(
+            as_any,
+            count,
+            edges=[("as-any.result", "count.names")],
+            inputs={"word": ["as-any.text", "count.word"]},
+        )
+    )
+    registry = registry_of(_words, as_any, count, count_letters)
+    flat = make_graph(
+        _words,
+        as_any,
+        count,
+        edges=[
+            ("words.result", "as-any.text"),
+            ("words.result", "count.word"),
+            ("as-any.result", "count.names"),
+        ],
+    )
+    in_subgraph = make_graph(_words, count_letters, edges=[("words.result", "count-letters.word")])
+    for record in (flat, in_subgraph):
+        assert Graph.compile(record, registry).run(text="ab c").outputs == {
+            "result": ["ab:2", "c:1"]
+        }
 
 
 def test_a_series_input_given_a_constant_list_or_its_default_gets_it_whole_in_one_call():
@@ -1513,8 +1776,9 @@ def test_a_skipped_branch_outside_the_loop_skips_collecting_but_per_item_collect
     CALLED.clear()
     outside = ran(
         {"id": "b", "node": "decide"},
+        {"id": "s", "node": "split"},
         {"id": "j", "node": "join"},
-        edges=(("b.no", "j.texts"),),
+        edges=(("b.no", "s.text"), ("s.result", "j.texts")),
         text="yes",
     )
     assert outside.results["j"]["result"] is None and CALLED == []
@@ -3070,36 +3334,13 @@ def test_a_subgraph_in_a_loop_gives_what_its_nodes_give_in_the_outer_graph_itsel
     )  # the loop the subgraph node is wired into; its own loops stay inside it
 
 
-def test_an_inner_node_collecting_the_subgraphs_input_gets_a_series_of_one_per_outer_item():
-    inner = as_subgraph(
-        "inner",
-        {"id": "entering", "node": "upper"},
-        {"id": "collect", "node": "join"},
-        edges=(("entering.result", "collect.texts"),),
-    )
-    run = ran(
-        {"id": "docs", "node": "split"},
-        {"id": "sub", "node": "inner"},
-        {"id": "after", "node": "join"},
-        edges=(("docs.result", "sub.text"), ("sub.result", "after.texts")),
-        registry=registry_of(split, upper, join, inner),
-        text="a,b,c",
-    )
-    assert run.graph.describe().nodes["sub"].per_item_of == "docs.result"
-    assert run.results["sub"]["result"] == [
-        "A",
-        "B",
-        "C",
-    ]  # each call collects one item, not all three
-    assert run.results["after"]["result"] == "A+B+C"
-
-
 def test_a_skipped_branch_inside_a_subgraph_skips_its_inner_collecting_node_per_outer_item():
     inner = as_subgraph(
         "skips",
         {"id": "b", "node": "decide"},
+        {"id": "sp", "node": "split"},
         {"id": "j", "node": "join"},
-        edges=(("b.no", "j.texts"),),
+        edges=(("b.no", "sp.text"), ("sp.result", "j.texts")),
     )
     run = ran(
         {"id": "s", "node": "split"},

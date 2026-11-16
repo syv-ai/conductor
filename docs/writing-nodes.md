@@ -370,7 +370,7 @@ A table never starts a loop by itself. To go through a table one row at a time, 
 
 ### A Series input collects only the loops it is outside
 
-`count` collected the lines because it sits outside the loop over them. A node that is inside the loop can't collect it. Below, `compare` takes one `line`, so it runs once per line. Its `others` input is wired to `shout`, which also runs once per line, in the same loop. So each call of `compare` gets only the shouted version of its own line, a list of one.
+`count` collected the lines because it sits outside the loop over them. A node that is inside the loop can't collect it. Below, `compare` takes one `line`, so it runs once per line. Its `others` input is wired to `shout`, which also runs once per line, in the same loop. So each call of `compare` could only get the shouted version of its own line: one value, never a list. Compiling refuses it, with `type_mismatch` (`one_value`). If `compare` needs only its own line's shout, declare `others: str`.
 
 To give every call all the lines, collect them first, in a node that sits outside the loop, and wire that list in. The Collect node of the companion package `syv-conductor-nodes` does exactly that:
 
@@ -386,7 +386,7 @@ def compare(line: str, others: Series[str]) -> str:
 
 
 own = make_graph(open_letter, shout, compare, edges=[("open.lines", "shout.text"), ("open.lines", "compare.line"), ("shout.result", "compare.others")])
-print(Graph.compile(own, registry).run(text="Ida\nhello\nsee you").results["compare"]["result"])  # ['hello against 1', 'see you against 1']
+print([(problem.type, problem.ctx["variant"]) for problem in Graph.compile(own, registry).problems])  # [('type_mismatch', 'one_value')]
 
 every = make_graph(
     open_letter, shout, collect, compare,
@@ -398,6 +398,8 @@ print(Graph.compile(every, registry).run(text="Ida\nhello\nsee you").results["co
 `series-collect` takes nothing but a `Series`, so it is outside the loop. It runs once and returns every shouted line as one list, and each call of `compare` gets that same list.
 
 This is what lets a graph mean the same for one letter as for many. Put a node in front that returns a `Series` of letters, or use the whole graph inside another graph (a [subgraph](subgraphs.md)), and each loop in it still collects only its own items.
+
+A subgraph puts every node inside it inside its node's loops. So a `Series` input inside a subgraph wired to a node the subgraph calls once gets one value per call, and is refused: when the subgraph's own record is compiled, and wherever the subgraph is used.
 
 An item that is `None` is left out of a `Series[X]` input, and `Series[X | None]` keeps it. With no items at all, the input is an empty list and your node is still called. The full rules for loops and collecting are in `python -m conductor.about one-or-many`.
 

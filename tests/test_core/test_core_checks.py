@@ -431,18 +431,14 @@ def test_branches_are_collected_in_item_order_and_a_none_email_is_not_mailed():
     assert run.not_called == [NotCalled(loc=("mail", 1), input="email")]
 
 
-def test_one_value_is_collected_as_a_series_of_one_and_a_list_given_for_one_value_is_refused():
+def test_a_list_given_for_one_value_is_refused():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
                 "nodes": {
                     "up": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "j": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "up", "output": "result"}]}},
-                    },
                 },
-                "outputs": {"result": {"node": "j", "output": "result"}},
+                "outputs": {"result": {"node": "up", "output": "result"}},
             }
         ),
         registry,

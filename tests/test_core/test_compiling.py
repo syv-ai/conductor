@@ -1730,7 +1730,8 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
     """A refused edge doesn't stop the rest of the graph from being described.
 
     The node with the problem keeps its inputs and outputs, with the refused input marked missing. The nodes after
-    it are compiled just as in a graph with no problem.
+    it are compiled as drawn: with ``u.text`` refused, ``u`` and ``t`` are in no loop, so ``j.texts`` is given one
+    value and has a problem of its own.
     """
     graph = Graph.compile(
         GraphRecord.model_validate(
@@ -1755,7 +1756,10 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
         ),
         REGISTRY,
     )
-    assert [(p.type, p.loc) for p in graph.problems] == [("type_mismatch", ("u", "text"))]
+    assert [(p.type, p.loc) for p in graph.problems] == [
+        ("type_mismatch", ("u", "text")),
+        ("type_mismatch", ("j", "texts")),
+    ]  # u falls out of fan's loop, so as drawn j is given one value
     assert _described(graph, "u") == (
         True,
         None,
@@ -1764,11 +1768,11 @@ def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_
         ["type_mismatch"],
     )
     assert _described(graph, "t") == (True, None, {"text": "one_value"}, ["result"], [])
-    assert _described(graph, "j") == (True, None, {"texts": "collected"}, ["result"], [])
+    assert _described(graph, "j") == (True, None, {"texts": "missing"}, ["result"], ["type_mismatch"])
     assert graph.describe().nodes["f"].found and not graph.is_runnable
     with pytest.raises(InvalidCallError) as refused:
         graph.run()
-    assert [p.type for p in refused.value.problems] == ["type_mismatch"]
+    assert [p.type for p in refused.value.problems] == ["type_mismatch", "type_mismatch"]
 
 
 def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inputs():
@@ -2544,7 +2548,7 @@ def test_a_run_keeps_its_graph_and_both_are_freed_without_the_cycle_collector(ra
     gc.disable()
     try:
         if ran == "once":
-            graph = Graph.compile(make_graph(upper, join), registry)
+            graph = Graph.compile(make_graph(upper), registry)
             run = graph.run(text="a")
         else:
             graph = Graph.compile(make_graph(words, upper, join), registry)

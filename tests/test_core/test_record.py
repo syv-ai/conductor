@@ -1261,12 +1261,8 @@ def test_the_type_decides_one_or_many_so_a_list_given_for_an_input_of_one_value_
             {
                 "nodes": {
                     "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
-                    "j": {
-                        "node": "join",
-                        "inputs": {"texts": {"sources": [{"node": "u", "output": "result"}]}},
-                    },
                 },
-                "outputs": {"result": {"node": "j", "output": "result"}},
+                "outputs": {"result": {"node": "u", "output": "result"}},
             }
         ),
         REGISTRY,

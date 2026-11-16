@@ -219,24 +219,17 @@ class EdgeInput:
     In the example, ``shout.line`` gets one item of ``lines.result`` per call, so its ``loops`` is the loop over
     ``lines.result``.
 
-    An ``EdgeInput`` with ``as_list`` is a ``Series`` input whose edges give one value per call, so there's no loop
-    to collect. The call gets that one value as a list of one. For example, if ``join.texts`` is wired straight to
-    a ``str`` output ``title.result``, ``join`` is called with ``["Title"]``. A ``Table`` input wired to records
-    works the same way.
-
     Attributes:
         field: The input, as its node declares it.
         sources: What each edge into the input carries. With several edges, each comes from a different branch of
             one node, and a call gets the value from the branch that has one.
         loops: The loops the node must be in to get the value, outermost first. These come from the edges, which
             all have the same ones.
-        as_list: Whether a call gets the value as a list of one.
     """
 
     field: Field
     sources: tuple[Edge, ...]
     loops: tuple[tuple[NodePath, str], ...]
-    as_list: bool = False
 
     def in_outer_graph(
         self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]

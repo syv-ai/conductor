@@ -155,28 +155,11 @@ class ResultReader:
         """
         match node_input:
             case EdgeInput():
-                return (
-                    self.read_as_list(node_input, item_indexes)
-                    if node_input.as_list
-                    else self.read_edges(node_input.sources, item_indexes)
-                )
+                return self.read_edges(node_input.sources, item_indexes)
             case CollectingInput():
                 return self.collect(node_input, item_indexes)
             case _:
                 assert_never(node_input)
-
-    def read_as_list(self, node_input: EdgeInput, item_indexes: ItemIndexes) -> Any:
-        """Returns the value a ``Series`` input gets when it is wired to an output made once per call.
-
-        That value is given as a list of one. ``SKIPPED``, ``NOT_READY``, and a ``None`` the input's items don't take,
-        are returned as they are.
-        """
-        value = self.read_edges(node_input.sources, item_indexes)
-        return (
-            [value]
-            if _may_have_value(value, node_input.field.keeps_none_items) is MAY_HAVE_VALUE
-            else value
-        )
 
     def read_edges(self, edges: tuple[Edge, ...], item_indexes: ItemIndexes) -> Any:
         """Returns what the edges into one input give for the call at ``item_indexes``.

@@ -46,8 +46,7 @@ class InputSource(ConductorModel):
             ``collected``: every item of ``series``, as one list.
             ``missing``: no value. One of the graph's problems says why.
         series: A ``Series`` output, written like ``"lines.result"`` (see ``innermost_series``).
-            For ``item`` and ``collected``, it's the list the items come from. For ``collected``, it's ``None``
-            when the input is wired to a single value, which it gets as a list of one.
+            For ``item`` and ``collected``, it's the list the items come from.
             For ``outer_value``, it's the list of the loop the value's own node is in, or ``None`` when that node
             is in no loop, so the value is the same for every call.
             For every other mode, it's ``None``.
@@ -145,8 +144,6 @@ def input_source_of(loops: tuple[tuple[NodePath, str], ...], node_input: Input) 
             return InputSource(mode="missing")
         case CollectingInput(series=series):
             return InputSource(mode="collected", series=innermost_series((series,)))
-        case EdgeInput(as_list=True):
-            return InputSource(mode="collected")
         case EdgeInput(loops=value_loops):
             # the value's node is in fewer loops than this node, so every item gets the same value
             if value_loops != loops:

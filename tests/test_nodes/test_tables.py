@@ -553,7 +553,7 @@ def test_collect_refuses_a_column_wired_from_another_series_than_its_records_nam
     )
 
 
-def test_collect_says_where_a_value_returned_once_goes_when_it_is_wired_as_a_column_per_record():
+def test_collect_refuses_a_column_wired_from_a_value_returned_once_and_takes_it_as_a_constant_column():
     @_node("two-people")
     def two_people() -> Table[Contact]:
         return pl.DataFrame(
@@ -564,28 +564,40 @@ def test_collect_says_where_a_value_returned_once_goes_when_it_is_wired_as_a_col
     held = NodeRegistry()
     held.add_subregistry(REGISTRY)
     held.add(two_people)
-    graph = Graph.compile(
-        make_graph(
-            two_people,
-            series.split,
-            sentence,
-            tables.collect,
-            edges=[
-                ("two-people.result", "series-split.value"),
-                ("series-split.result", "table-collect.records"),
-                ("sentence.result", "table-collect.team"),
-            ],
-            constants={"table-collect.columns": ["team"]},
-        ),
-        held,
+
+    def team_column(kind: str) -> Graph[Any]:
+        return Graph.compile(
+            make_graph(
+                two_people,
+                series.split,
+                sentence,
+                tables.collect,
+                edges=[
+                    ("two-people.result", "series-split.value"),
+                    ("series-split.result", "table-collect.records"),
+                    ("sentence.result", "table-collect.team"),
+                ],
+                constants={f"table-collect.{kind}": ["team"]},
+            ),
+            held,
+        )
+
+    (refused,) = team_column("columns").problems
+    assert (refused.type, refused.ctx["variant"], refused.ctx["source"], refused.loc) == (
+        "type_mismatch",
+        "one_value",
+        "sentence.result",
+        ("table-collect", "team"),
     )
-    assert graph.problems == []
-    cause = graph.run().cause
-    assert (cause.type, cause.ctx["values"]) == ("columns_not_aligned", 1)
-    assert (
-        "has 1 value for" in cause.msg
-        and "If it is one value for every record, name it in 'constant_columns'" in cause.msg
+    assert refused.msg == (
+        "'sentence.result' gives each call of 'table-collect' one str, but 'table-collect.team' takes a Series "
+        "of Any. Wire a Series of Any to it."
     )
+    assert "constant_columns" in (tables.collect.function.__doc__ or "")
+    assert team_column("constant_columns").run().results["table-collect"]["result"].to_dicts() == [
+        {"name": "Ida", "email": None, "team": "one two"},
+        {"name": "Bo", "email": None, "team": "one two"},
+    ]
 
 
 def test_collect_of_no_records_is_a_table_with_every_column_and_no_lines():

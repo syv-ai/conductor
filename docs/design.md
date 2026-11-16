@@ -173,8 +173,9 @@ runs once per item, and so does everything downstream. A `Series` or `Table` inp
 never knows. A "loop over this" flag would say what the types already say: `contract: File` runs per item,
 `contracts: Series[File]` once.
 
-The type decides, never the value. A list given to an input of one value is refused. If a caller's list could start a
-loop, how often a node runs would depend on each run's inputs, and an editor couldn't show it in advance.
+The type decides, never the value. A list given to an input of one value is refused, and so is one value wired to a
+`Series` input: it is never made a list of one. If a caller's list could start a loop, how often a node runs would
+depend on each run's inputs, and an editor couldn't show it in advance.
 
 A table is one value. It never starts a loop, and an edge can't name one of its columns. To run per record, you draw
 a Split node. If tables started loops by themselves, how often a node runs would depend on which columns happened to

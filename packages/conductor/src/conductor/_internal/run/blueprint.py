@@ -358,7 +358,7 @@ def _function_node(
                 read = [(source, len(source.loops)) for source in sources]
                 depth = len(node_input.loops)
                 for edge in node_input.sources:
-                    if edge.per_item and not node_input.as_list:
+                    if edge.per_item:
                         functions[edge.node].looped_outputs.setdefault(edge.output, edge.wired_to)
             case CollectingInput(field=field):
                 node_input = node_input.in_outer_graph(*around)

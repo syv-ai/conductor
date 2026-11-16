@@ -348,10 +348,13 @@ def test_two_nodes_wired_to_one_series_are_inside_the_same_loop():
     assert graph.is_runnable and graph.describe().nodes["p"].per_item_of == "d.result"
 
 
-def test_a_series_input_gets_the_one_value_of_a_source_that_runs_once_as_a_series_of_one():
+def test_a_series_input_wired_to_a_source_that_runs_once_is_refused_and_described_as_missing():
     graph = compile_graph({"u": "upper", "c": "count"}, [("u.result", "c.items")])
-    assert graph.is_runnable and graph.describe().nodes["c"].per_item_of is None
-    assert input_sources(graph, "c") == {"items": ("collected", None)}
+    assert [(p.type, p.ctx["variant"], p.loc) for p in graph.problems] == [
+        ("type_mismatch", "one_value", ("c", "items"))
+    ]
+    assert graph.describe().nodes["c"].per_item_of is None
+    assert input_sources(graph, "c") == {"items": ("missing", None)}
 
 
 def test_a_list_constant_on_an_input_of_one_value_is_an_invalid_value():

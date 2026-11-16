@@ -24,9 +24,10 @@ Only the declared types decide the loops, never the values:
   inside the loop over that output. A ``Table`` input wired to a ``Series`` of tables gets one table per call.
 - An input wired to an output of a node outside the loop gets the same value on every call inside it. That's an
   outer value.
-- An input declared ``Series[T]``, or a ``Table[R]`` wired to records, collects. If what it's wired to is inside a
-  loop, it gets one value per item of the innermost of those loops, as a list, and its node is outside that loop.
-  If what it's wired to is in no loop, it gets that one value as a list of one.
+- An input declared ``Series[T]``, or a ``Table[R]`` wired to records, collects. What it's wired to must be inside
+  a loop. It gets one value per item of the innermost of those loops, as a list, and its node is outside that loop.
+  Wired to one value per call, because what it's wired to is in no loop or its node is inside that loop too, it gets
+  the problem ``type_mismatch`` (``one_value``). A ``Series`` output wired to it is passed whole.
 - A node is inside the loops of the input that has the most. Every other input's loops must be the outermost of
   those, since the items of two different lists are never paired. An input whose loops aren't gets the problem
   ``series_not_nested``.
@@ -429,21 +430,14 @@ class Compiler:
 
         1. Each input gets its compiled input from what the record gives it (``_plan_input``).
         2. Inputs whose edges can't be used together are refused (``_inputs_with_conflicting_edges``).
-        3. The node's loops are worked out from the inputs, and each collecting input is fitted to them
-           (``_input_inside``).
+        3. The node's loops are worked out from the inputs. A ``Series`` or ``Table`` input that an edge gives one
+           value per call is refused (``_inputs_given_one_value``).
         4. Inputs whose loops don't fit inside the node's are refused (``_inputs_not_nested``).
 
         A refused input gets ``MissingInput``, and the graph gets a problem saying why. The node is still kept, so
         an editor can draw it, but the graph won't run.
 
-        Step 3 is a step of its own because a collecting input can turn out to get just one value per call, as a
-        list of one. ``_edge_input`` already decides that for an input whose edges are in no loop. For the rest, it
-        depends on the node's loops, which are known only once step 2 has left out the refused inputs.
-
-        Step 2 has to come before step 3. It refuses two lists on different branches inside a loop
-        (``lists_from_different_loops``), even when another input puts the node inside that loop. It finds those
-        lists among the collecting inputs. After step 3 they'd no longer collect: each would be one value per call,
-        ``None`` on the skipped branch.
+        Step 3 needs the node's loops, which are known only once step 2 has left out the refused inputs.
 
         Args:
             node_id: The node's id.
@@ -488,9 +482,7 @@ class Compiler:
         loops = max(
             (node_input.loops for node_input in inputs.values()), key=len, default=()
         )  # only an edge puts a node inside a loop
-        inputs = {
-            name: _input_inside(node_input, loops) for name, node_input in inputs.items()
-        }  # after the conflicting-edges check, which looks at which inputs collect
+        inputs |= self._inputs_given_one_value(node_id, inputs, loops)
         for name in self._inputs_not_nested(node_id, inputs, loops):
             inputs[name] = MissingInput(inputs[name].field)
         return _InputPlans(inputs, loops, self._required_branches(inputs), bound)
@@ -505,8 +497,8 @@ class Compiler:
     ) -> Input:
         """Returns the compiled input of ``field``, from what the record gives it.
 
-        This runs before the node's loops are known. A collecting input whose node turns out to be inside the loop
-        it collects is changed later, by ``_input_inside``.
+        This runs before the node's loops are known. A ``Series`` or ``Table`` input that turns out to get one value
+        per call is refused later, by ``_inputs_given_one_value``.
 
         Args:
             node_id: The node.
@@ -531,16 +523,70 @@ class Compiler:
             if sources is None:
                 return MissingInput(field)
             collects, expected = _collects_and_expected_type(field, sources)
-            return (
-                _edge_input(field, sources, collects=collects)
-                if self._edges_fit(node_id, field, expected, sources)
-                else MissingInput(field)
-            )
+            if not self._edges_fit(node_id, field, expected, sources):
+                return MissingInput(field)
+            loops = sources[0].loops_of_value  # a kept input's edges are all in the same loops
+            if collects and loops:
+                return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
+            return EdgeInput(
+                field, tuple(sources), loops
+            )  # one that collects gets one value per call, and is refused (_inputs_given_one_value)
         if entry.graph_input is not MISSING:
             return self._graph_input(
                 node_id, field, entry.graph_input, value
             )  # a REQUIRED default means the caller must give a value
         return _constant_input(field, value)
+
+    def _inputs_given_one_value(
+        self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]
+    ) -> dict[str, Input]:
+        """Finds the ``Series`` and ``Table`` inputs that an edge gives one value per call, and returns what each becomes.
+
+        An edge gives each call one value when its value is made in no loop, or in no loop the node is outside.
+        Say ``rank(line: str, everyone: Series[str])`` has ``line`` wired to ``lines.result`` and ``everyone`` to
+        ``shout.result``, where ``shout`` is called once per line. ``line`` puts ``rank`` inside the loop over
+        ``lines.result``, so a call of ``rank`` is for one line, and ``shout`` has one value for it. Wired to
+        ``title.result``, made once, ``everyone`` would get one value too. Either way it gets ``type_mismatch``
+        (``one_value``) and becomes ``MissingInput``.
+
+        An edge from a ``Series`` output gives the whole list, and never one value. A ``Table`` input whose edges
+        are all declared ``Any`` (``_only_any``) takes their one value as a whole table.
+
+        Returns:
+            Each such input's new compiled input, by name.
+        """
+        changed: dict[str, Input] = {}
+        for name, node_input in inputs.items():
+            sources = list(node_input.sources)
+            if not sources:
+                continue
+            collects, item = _collects_and_expected_type(node_input.field, sources)
+            if not collects:
+                continue
+            one_value = [
+                edge
+                for edge in sources
+                if not edge.per_item
+                and loops[: len(edge.loops_of_value)] == edge.loops_of_value
+            ]
+            if not one_value:
+                continue
+            field = node_input.field
+            if field.whole.record is not None and _only_any(sources):
+                changed[name] = EdgeInput(field, tuple(sources), sources[0].loops_of_value)
+                continue
+            self.problems.append(
+                compile_problems.type_mismatch_one_value(
+                    node_id,
+                    name,
+                    source=str(one_value[0].wired_to),
+                    got=one_value[0].type.text,
+                    expected=field.whole.text,
+                    item=item.text,
+                )
+            )
+            changed[name] = MissingInput(field)
+        return changed
 
     def _inputs_not_nested(
         self, node_id: str, inputs: Mapping[str, Input], loops: tuple[tuple[NodePath, str], ...]
@@ -980,17 +1026,15 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     ``Series``, or of one record of the table.
 
     A ``Table`` input takes a whole table when every edge carries one, either as one value or as each item of a
-    ``Series`` of tables. An output declared ``Any`` could be a table or a record. It counts as a table where it has
-    one value in the run, and as a record where it has one value per item of a loop.
+    ``Series`` of tables. An edge declared ``Any`` could carry a table or a record, so it doesn't decide. A ``Table``
+    input whose edges are all ``Any`` (``_only_any``) collects records from a loop it is outside, and takes a whole
+    table where they give each call one value (``Compiler._inputs_given_one_value``).
     """
     record = field.whole.record
+    typed = [s for s in sources if s.type.bare is not Any]
     collects = field.is_series or (
         record is not None
-        and not all(
-            field.whole.fits(s.type) is not None
-            and (s.type.bare is not Any or not s.loops_of_value)
-            for s in sources
-        )
+        and (_only_any(sources) or not all(field.whole.fits(s.type) is not None for s in typed))
     )
     if not collects:
         return False, field.whole
@@ -999,49 +1043,13 @@ def _collects_and_expected_type(field: Field, sources: list[Edge]) -> tuple[bool
     return True, record
 
 
-def _edge_input(
-    field: Field, sources: list[Edge], *, collects: bool
-) -> EdgeInput | CollectingInput:
-    """Returns the compiled input of an input whose edges carry ``sources``.
+def _only_any(sources: list[Edge]) -> bool:
+    """Returns whether every edge into an input is declared ``Any``, so none says whether it carries a table or a record.
 
-    It assumes the node is in no loops but those its edges put it in. ``_input_inside`` later adjusts the input of
-    a node that's in more.
-
-    In the example, ``shout.line`` gets one item of ``lines.result`` per call. ``join.texts`` collects what
-    ``shout`` returned per line, so ``join`` is outside the loop over ``lines.result``. Wired to an output of a node
-    in no loop, ``join.texts`` would get that one value as a list of one.
-
-    Args:
-        field: The input.
-        sources: What its edges carry. If the input is kept, its edges are all in the same loops, since one whose
-            edges aren't gets ``branches_from_different_loops``. So the first edge's loops stand for all of
-            them.
-        collects: Whether the input's type takes a list of what the edges carry (a ``Series``, or a ``Table`` of
-            records), rather than one value.
+    Into a ``Table`` input, such edges are records where the input collects a loop, and a whole table where they
+    give each call one value.
     """
-    loops = sources[0].loops_of_value  # the loops a node must be in to get one value
-    if not collects:
-        return EdgeInput(field, tuple(sources), loops)
-    if not loops:
-        return EdgeInput(field, tuple(sources), loops, as_list=True)
-    return CollectingInput(field, loops[-1], loops[:-1], tuple(sources))
-
-
-def _input_inside(node_input: Input, loops: tuple[tuple[NodePath, str], ...]) -> Input:
-    """Returns ``node_input`` as the input of a node inside ``loops``.
-
-    Sometimes a collecting input's node is already inside the loop it would collect, because another input put it
-    there. Then each call gets only its own item's value from that loop, as a list of one. Every other input is
-    returned as it is.
-    """
-    if not isinstance(node_input, CollectingInput):
-        return node_input
-    loops_of_value = (*node_input.loops, node_input.series)
-    if loops_of_value != loops[: len(loops_of_value)] or any(
-        source.per_item for source in node_input.sources
-    ):
-        return node_input
-    return EdgeInput(node_input.field, node_input.sources, loops_of_value, as_list=True)
+    return all(source.type.bare is Any for source in sources)
 
 
 def _bound(

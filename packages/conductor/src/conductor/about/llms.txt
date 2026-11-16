@@ -404,7 +404,7 @@ A subgraph is compiled on its own, apart from the graph it is used in. So a type
 
 - A subgraph whose first node is `series-split` offers `Table | list`, and gives records of unknown fields. The same nodes drawn in the outer graph would have the arriving table's fields.
 - A first node whose input has a precise type (`Table[R]`, `R` a `TypedDict`) gives the subgraph that type.
-- A `Series` input inside a subgraph collects only the loops inside that graph. Wired to a value returned once inside, it is a list of one, whatever loop the subgraph node is inside outside.
+- A subgraph puts every node inside it inside its node's loops. So a `Series` input inside a subgraph collects only the loops inside that graph. Wired to a node the subgraph calls once, it is `type_mismatch` (`one_value`): when the subgraph's own record is compiled, and wherever the subgraph is used. Drawn flat in the graph that uses the subgraph, the same nodes may collect a loop of that graph instead.
 
 Using a graph as a subgraph changes nothing about how its nodes behave.
 
@@ -566,9 +566,10 @@ In the quick start, `lines` returns a `Series[str]`, `upper` takes one text, and
 
 **Collecting.** A `Series[T]` input wired to a node inside a loop collects the loop. It gets every `T` that node returned, in item order, and its own node is called once for all of them.
 
-- Wired to a node that is called once, it gets that one value as a list of one.
-- Another input may put the collecting node inside a loop itself. Say it also collects what was returned per line, and so runs per document. Then each call gets only what was returned for its own document, never every document's.
 - A `Series` output wired to a `Series` input is passed whole.
+- One value is never a list of one. An edge that gives each call one value is `type_mismatch`, with `ctx.variant` `one_value`, at the node's input, with the edge's source in `ctx.source`. An edge gives each call one value when its source is in no loop, or inside a loop the node is inside too, because another input put it there.
+- To fix it, give the input a series. Declare the input as one `T` if the node takes one value per call; or collect first: wire it the result of a node outside the loop that collects it, such as `series-collect`; or use the node's own option for one value, such as `table-collect`'s `constant_columns`.
+- So a node that runs per document and collects each document's lines takes the document's own summary as one `str`, never as a `Series`.
 
 A `Table` input collects records the same way.
 
@@ -576,7 +577,7 @@ A `Table` input collects records the same way.
 - Wired to a table, it takes that table.
 - Wired to a `Series` of tables (a `Series[Table[R]]` output, or a table returned per item inside a subgraph), it takes one table per item, so its node runs once per item. A `Series[Table[R]]` input collects the tables.
 - A bare `Table` input collects records of any columns: items that are a `dict`, a `TypedDict` or `Any`.
-- A value declared `Any` is read as a table only where it is returned once in the graph, with no loop to collect. Returned per item, it is a record, so declare a table as one.
+- A value declared `Any` is read as a table where it gives each call one value: returned once in the graph, or per item of a loop the node is inside too. Where the input collects its loop, it is a record, so declare a table as one.
 - A text, a number or any other value that is no record is `type_mismatch`, as it is into `Table[R]`.
 
 **Loops inside loops.** A node inside a loop may itself return a `Series`. Each document has lines of its own, so the loop over the lines is inside the loop over the documents.
@@ -626,7 +627,6 @@ A `Table` input collects records the same way.
    - A node inside the loop is the worst of its inputs, where an input that takes `None` receives it. An input is the best of its edges. A branch of a node that isn't called is skipped.
    - When no item could have a value, the collecting node is treated like any node wired there, with two items as with none. It is skipped when the cause is a skipped branch, and not called when the cause is a `None`. `Series[T] | None` then receives `None`. `Series[T | None]`, which takes `None` per item, is called with a `None` in each item's place.
    - A series that was never returned has no items, so it is the input's own `None`. A node that would take a branch for an item of it takes none, which skips what collects that branch. But downstream of a node that takes `None`, the branching node could be called, so what collects its branch isn't called, as for any `None`.
-   - A list of one is read the same way: its one value, `None` or not, is its one item.
    - When an item could have a value, each item answers for itself by rule 1. A branch taken per item, or a `None` item, leaves only that item out.
 3. A collecting node waits until every item has an outcome.
 

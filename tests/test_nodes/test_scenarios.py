@@ -785,9 +785,8 @@ def test_scenario_14_without_the_for_each_wire_the_two_series_do_not_nest_and_th
     assert set(problem.ctx["series"]) == {"text-list.result", "upload.result"}
 
 
-def test_scenario_14b_the_summary_of_several_takes_one_document_as_a_series_of_one():
-    ASKED.clear()
-    graph = Graph.compile(
+def test_scenario_14b_the_summary_of_several_refuses_one_document_and_takes_an_upload_of_one():
+    one_document = Graph.compile(
         make_graph(
             read_pdf,
             llm_all,
@@ -796,6 +795,20 @@ def test_scenario_14b_the_summary_of_several_takes_one_document_as_a_series_of_o
         ),
         REGISTRY,
     )
-    assert graph.run(file=A_PDF).outputs == {"result": "Summarise 1 texts"} and ASKED == [
+    assert [(p.type, p.ctx["variant"], p.loc) for p in one_document.problems] == [
+        ("type_mismatch", "one_value", ("llm-all", "texts"))
+    ]
+    ASKED.clear()
+    an_upload = Graph.compile(
+        make_graph(
+            upload,
+            read_pdf,
+            llm_all,
+            edges=[("upload.result", "read-pdf.file"), ("read-pdf.result", "llm-all.texts")],
+            constants={"llm-all.prompt": "Summarise"},
+        ),
+        REGISTRY,
+    )
+    assert an_upload.run(files=[A_PDF]).outputs == {"result": "Summarise 1 texts"} and ASKED == [
         A_PDF.text
     ]

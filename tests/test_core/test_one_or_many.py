@@ -336,7 +336,7 @@ def test_a_run_waiting_per_item_is_read_back_onto_the_same_items():
 # -- a subgraph, per outer item -----------------------------------------------------------------------------
 
 
-def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_reviews_each_or_all():
+def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_and_one_that_collects_its_one_text_is_refused():
     reg = NodeRegistry()
     reg.add_subregistry(registry)
     per = record_of(
@@ -357,11 +357,8 @@ def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_revie
         subgraph("per", title="Per", description="For a test.")(per),
         subgraph("together", title="Together", description="For a test.")(together),
     )
-    for inner, results in (
-        ("per", ["rev(X)", "rev(Y)", "rev(Z)"]),
-        ("together", ["overall(1)", "overall(1)", "overall(1)"]),
-    ):
-        outer = record_of(
+    outer = {
+        inner: record_of(
             ("s", "split"),
             ("e", inner),
             edges=(("s.result", "e.file"),),
@@ -369,7 +366,16 @@ def test_a_subgraph_given_one_file_per_outer_item_runs_per_item_whether_it_revie
             outputs={"result": "e.result"},
             reg=reg,
         )
-        assert list(ran(outer, reg, text="x,y,z").outputs.values()) == [results]
+        for inner in ("per", "together")
+    }
+    assert list(ran(outer["per"], reg, text="x,y,z").outputs.values()) == [
+        ["rev(X)", "rev(Y)", "rev(Z)"]
+    ]
+    assert [
+        (p.type, p.ctx["variant"], p.loc) for p in Graph.compile(outer["together"], reg).problems
+    ] == [
+        ("type_mismatch", "one_value", ("e", "overall", "texts"))
+    ]  # read runs once per call of the subgraph, so overall would get one text
     assert ran(
         record_of(("e", "per"), inputs={"file": "e.file"}, outputs={"result": "e.result"}, reg=reg),
         reg,

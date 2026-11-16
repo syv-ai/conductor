@@ -614,6 +614,58 @@ def type_mismatch_add_column(
     )
 
 
+@COMPILE_PROBLEMS.problem("type_mismatch", variant="one_value")
+def type_mismatch_one_value(
+    node_id: str, field: str, /, *, source: str, got: str, expected: str, item: str
+) -> str:
+    """A ``Series`` or ``Table`` input is wired to an output that gives each call of its node one value.
+
+    A ``Series[T]`` input takes a list: a ``Series`` output passed whole, or the values of a loop its node is outside,
+    collected. A ``Table[R]`` input takes a table, or collects records the same way. One value is never made into a
+    list of one. An edge gives each call one value in two cases:
+
+    - Its source is in no loop, so it has one value in the run. Inside a subgraph, that's a node the subgraph calls
+      once each time it is called.
+    - Its source is inside a loop that the input's node is inside too, because another input put it there. Each call
+      is for one item, and the source has one value for that item. In the example, ``word`` puts ``rank`` inside the
+      loop over ``words.result``, and ``loud`` is called once per word too.
+
+    A subgraph puts every node inside it inside its own node's loops. So a ``Series`` input inside a subgraph wired
+    to a node the subgraph calls once gets this problem when the subgraph's own record is compiled, and wherever the
+    subgraph is used.
+
+    To fix it, give the input a ``Series``. There are three ways:
+
+    - If the node takes one value per call, declare the input as one ``T``.
+    - If it should get every item of the loop, collect them first in a node outside the loop, one that takes only
+      that ``Series``, such as ``series-collect`` in ``syv-conductor-nodes``, and wire that node's result in.
+    - If the node has an option for one value, use it. ``table-collect`` in ``syv-conductor-nodes`` takes a column
+      that is the same for every record in ``constant_columns``.
+
+    Args:
+        node_id: The node the edge leads into.
+        field: The input.
+        source: The edge's source, as text, like ``"a.result"``.
+        got: The type the source gives.
+        expected: The type the input takes.
+        item: The type of one item of the list the input takes, like ``str`` or ``Any``. ``record`` for a table.
+
+    Example:
+        @registry.node("rank", title="Rank", description="Ranks a word among all the words.")
+        def rank(word: str, everyone: Series[str]) -> int:
+            return sorted(everyone).index(word.upper())
+
+
+        problems(make_graph(words, ("loud", upper), rank, edges=[
+            ("words.result", "loud.text"), ("words.result", "rank.word"), ("loud.result", "rank.everyone"),
+        ]))
+    """
+    return (
+        f"'{source}' gives each call of '{node_id}' one {got}, but '{node_id}.{field}' takes a Series of {item}. "
+        f"Wire a Series of {item} to it."
+    )
+
+
 @COMPILE_PROBLEMS.problem()
 def input_has_no_value(node_id: str, field: str, /) -> str:
     """An input with no default gets no value from the graph record: no edge, no constant and no graph input.
