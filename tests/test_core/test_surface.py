@@ -504,7 +504,7 @@ def _every_event() -> list[Any]:
                 "title": "Result",
                 "is_series": False,
                 "type": "float",
-                "schema": {"type": "number"},
+                "json_schema": {"type": "number"},
                 "required": False,
                 "default": 1.5,
             }
@@ -846,5 +846,5 @@ def test_every_description_is_a_typed_record_a_host_publishes_as_its_schema():
         GraphDescription,
     )
     for record in (RegistryDescription, GraphDescription):
-        assert "schema" in json.dumps(record.model_json_schema(mode="serialization"))
+        assert "json_schema" in json.dumps(record.model_json_schema(mode="serialization"))
     assert RegistryDescription.model_validate_json(described.model_dump_json()) == described

@@ -699,14 +699,14 @@ def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node
     ],
 )
 def test_a_field_whose_parts_contradict_each_other_is_refused(written, error):
-    one = {"name": "x", "is_series": False, "type": "str", "schema": {"type": "string"}}
+    one = {"name": "x", "is_series": False, "type": "str", "json_schema": {"type": "string"}}
     with pytest.raises(ValidationError) as refused:
         FieldDescription.model_validate({**one, **written})
     assert refused.value.errors()[0]["type"] == error
 
 
 def test_a_field_whose_parts_agree_reads_back():
-    one = {"name": "x", "is_series": False, "type": "str", "schema": {"type": "string"}}
+    one = {"name": "x", "is_series": False, "type": "str", "json_schema": {"type": "string"}}
     assert (
         FieldDescription.model_validate({**one, "required": False, "default": None}).default is None
     )
@@ -1795,7 +1795,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
                 "required": True,
                 "type": "str",
                 "type_variables": [],
-                "schema": {"type": "string"},
+                "json_schema": {"type": "string"},
                 "loops": [],
                 "choices": [{"id": "ida", "title": "Ida B."}],
                 "default": "ida",

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Self
 
-from pydantic import MISSING, ConfigDict, JsonValue, SerializeAsAny, model_validator
-from pydantic import Field as PydanticField
+from pydantic import MISSING, JsonValue, SerializeAsAny, model_validator
 
 from conductor._internal.base import ConductorModel
 from conductor._internal.problem import conductor_error
@@ -45,8 +44,8 @@ class FieldDescription(ConductorModel):
             columns.
         type_variables: The names of the type variables the hint leaves open, for an edge to fill in. Two fields
             that share a name have the same type once it is filled in.
-        json_schema: The JSON schema of one value, the same value ``type`` names. In the JSON it is ``schema``. A
-            table's schema lists its columns.
+        json_schema: The JSON schema of one value, the same value ``type`` names. A table's schema lists its
+            columns.
         required: Whether the field can't be left out. An input with no default is required. So is an output an
             answer must give: ``-> str`` is required, while ``-> str | None`` may be left out and is then ``None``.
         default: The value an editor starts the field with, as JSON, which the field also gets when it is left out
@@ -70,17 +69,13 @@ class FieldDescription(ConductorModel):
             once per item, with the two values for that item.
     """
 
-    model_config = ConfigDict(
-        validate_by_name=True, validate_by_alias=True, serialize_by_alias=True
-    )
-
     name: str
     title: str | None = None
     description: str | None = None
     is_series: bool
     type: str
     type_variables: list[str] = []
-    json_schema: dict[str, Any] = PydanticField(alias="schema")
+    json_schema: dict[str, Any]
     required: bool
     default: JsonValue | MISSING = MISSING
     choices: tuple[SerializeAsAny[Choice], ...] | None = None

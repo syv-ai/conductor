@@ -177,7 +177,7 @@ class Field:
             is_series=self.is_series,
             type=self.type.id,
             type_variables=[variable.__name__ for variable in self.whole.variables],
-            schema=self.type.json_schema,
+            json_schema=self.type.json_schema,
             required=default is MISSING and not branch,
             default=default,
             choices=choices,

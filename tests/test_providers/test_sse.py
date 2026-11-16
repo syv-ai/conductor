@@ -83,7 +83,7 @@ def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
         question["title"],
         question["default"],
         question["widget"]["type"],
-        question["schema"]["type"],
+        question["json_schema"]["type"],
     ) == ("ask", "Hvad?", "Svar", "forslag", "textarea", "string")
     assert waiting_record["inputs"] == {"text": "x"}
     assert failed["cause"] == {"type": "boom", "msg": "Boom.", "loc": ["n", 2], "ctx": {}}

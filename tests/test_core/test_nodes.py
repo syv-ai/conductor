@@ -613,10 +613,26 @@ def test_an_any_input_has_a_json_form_before_anything_is_wired():
         "required": True,
         "type": "Any",
         "type_variables": [],
-        "schema": {},
+        "json_schema": {},
         "constant_only": False,
         "loops": [],
     }
+
+
+def test_each_key_a_field_description_writes_is_its_python_name():
+    """A field's JSON names each part as Python does, so ``json_schema`` is ``"json_schema"`` in both.
+
+    A host moves between the Python objects and the served JSON, and one concept should have one name.
+    """
+
+    @node("f", title="F", description="For a test.")
+    def f(x: int) -> str:
+        return ""
+
+    field = f.describe().inputs[0]
+    written = json.loads(field.model_dump_json())
+    assert set(written) <= set(type(field).model_fields)
+    assert written["json_schema"] == field.json_schema == {"type": "integer"}
 
 
 def test_describe_writes_each_default_as_its_type_writes_it_as_json():

@@ -53,7 +53,8 @@ What changes in how you work, before the name-by-name tables:
   `{"columns": [{"name", "type", "values"}]}`. `syv-conductor-nodes` gains `series-stack`.
 
 - **A `Run` can't be changed after it is made.** `answer`, `decline`, `resume`, `again`, `with_inputs`, `forget` and `with_max_items` each return a new run, as before; the run they are called on is left as it was, so `run.answer(w, True); run.resume()` leaves `run` waiting. A run is now a frozen dataclass, so setting an attribute (`run.max_items = 5`) raises `dataclasses.FrozenInstanceError` (it was taken unchecked), and `run.inputs` is a read-only mapping (changing one run's inputs changed every run made from it).
-- **A field's description is one flat record.** It has `is_series`, `type`, `schema` (always set),
+- **A field's JSON schema is `json_schema` in Python and in JSON** [provisional]. `FieldDescription` had the attribute `json_schema` and wrote it as `"schema"`, an alias kept because a pydantic field named `schema` shadows `BaseModel.schema`. It is now `"json_schema"` in the JSON too, in `describe()`, a waiting call's `questions`, the events and the runs router, and a description is read back by that key only.
+- **A field's description is one flat record.** It has `is_series`, `type`, `json_schema` (always set),
   `type_variables` and `loops`; there is no `shape` and no `columns`, a table's columns are in its type and its
   schema. An input of a node in `graph.describe()` and a graph input have the field as `field`. A node's description is
   one `NodeDescription` for a function and a subgraph alike, with no `kind`: a subgraph's `takes_added_inputs` and
@@ -103,7 +104,7 @@ What changes in how you work, before the name-by-name tables:
   branch not chosen. An output in `describe()`, `registry.describe()` and
   `graph.describe()` is the question its type sets, the same record a waiting call shows without an `Ask` on a
   node of several outputs: `-> str | None` is `"required": false, "default": null` (it was `"required": true` in
-  the palette and `false` in the question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `schema` and
+  the palette and `false` in the question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `json_schema` and
   `choices` are the value the node inside returns (`"type": "str"`, where it was `"Series[str]"` for an output
   inside two loops); its `loops` give one level of list per entry, and a `Series` it returns outside every loop
   has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
@@ -157,7 +158,7 @@ What changes in how you work, before the name-by-name tables:
   required, and the docstring never reaches a person. The signature is the interface:
   `Annotated[str, Param(title=, widget=, ge=, ...)]` for what a person sees and the limits a value
   keeps (pydantic metadata, so its limits and choices apply inside your own `BaseModel` or dataclass
-  too, and a field's `schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
+  too, and a field's `json_schema` carries the limits but not its title or description; `Param`s stacked in one `Annotated`, an alias wrapped again, merge, the later
   winning, and a `Param` on a `Series` item is the field's; a table's column
   typed `Annotated[...]` is refused, since its limits would go unread), `-> X` for one output named `result`, a frozen dataclass for several (kept as the definition's `outputs_dataclass`). A
   `bool` never lands on a number, a `Literal` of numbers or a union holding a number and no

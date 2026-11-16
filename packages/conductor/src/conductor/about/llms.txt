@@ -383,7 +383,7 @@ Loops inside a subgraph are named by the list inside that is looped over.
 - Two outputs returned in the same loop inside line up. A node that takes one item of each is called once per item, with both values. A node that takes one value per document, beside a `Series` of that document's lines, is called once per document.
 - Outputs returned in different loops inside don't line up: `series_not_nested`, with `ctx.variant` `inside_subgraph`. Its message says to give one whole to a `Series` input, or to return both from the same loop inside.
 
-The description of such an output says `is_series`. Its `type`, `schema` and `choices` are those of the value the node inside returns (`str`). It lists its `loops` as their sources inside are written, outermost first: `["documents.result", "lines.result"]`. So this one is a list per document of a list per line.
+The description of such an output says `is_series`. Its `type`, `json_schema` and `choices` are those of the value the node inside returns (`str`). It lists its `loops` as their sources inside are written, outermost first: `["documents.result", "lines.result"]`. So this one is a list per document of a list per line.
 
 - A field's value has one level of list per entry of `loops`, when it has any. Otherwise it has one level when it `is_series`, and none when it isn't. A `Series` the subgraph returns outside every loop has `loops` `[]`, and is one list.
 - `loops` is empty for every field but a subgraph's output that is returned inside loops.
@@ -695,7 +695,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - `loc`: the node, then its item, as a problem's `loc`.
 - `prompt`.
 - `inputs`: what the call received, as JSON.
-- `questions`, one per output. Each is the field record `describe()` writes for the output (`name`, `title`, `is_series`, `type`, `schema`, `required`, ...). A question is titled as `describe()` titles its output: `Param(title=)` on the return type, else `None`.
+- `questions`, one per output. Each is the field record `describe()` writes for the output (`name`, `title`, `is_series`, `type`, `json_schema`, `required`, ...). A question is titled as `describe()` titles its output: `Param(title=)` on the return type, else `None`.
 - A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)` or `Literal`.
 - A question's `default` comes from the `Ask`, else from the output's own.
 - `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a branch not chosen.
@@ -936,11 +936,11 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - A subgraph's `takes_added_inputs` and `computes_outputs` are false. Its `asks` is true when a node inside it asks, inside a subgraph of it too.
 - A node's `Policy` is not in it. A subgraph is never called, and a host that wants a function's policy reads it from the definition.
 
-**`FieldDescription`.** Each field of a node is a `FieldDescription`, one flat record: `name`, `title`, `description`, `is_series`, `loops`, `type`, `type_variables`, `json_schema` (written as `schema`), `required`, `default`, `choices`, `widget`, `exclusive_group` and `constant_only`.
+**`FieldDescription`.** Each field of a node is a `FieldDescription`, one flat record: `name`, `title`, `description`, `is_series`, `loops`, `type`, `type_variables`, `json_schema`, `required`, `default`, `choices`, `widget`, `exclusive_group` and `constant_only`.
 
-- `type` and `schema` are always set. A table's columns are in both: as `Table[name: str]`, and as a `columns` array in the schema.
+- `type` and `json_schema` are always set. A table's columns are in both: as `Table[name: str]`, and as a `columns` array in the schema.
 - `title`, `description`, `choices`, `widget` and `exclusive_group` are `None` when the field has none.
-- A `Param`'s limits are in `schema`, as `minimum`, `maxLength` and the like. Its title and description are the field's own, and are never repeated there.
+- A `Param`'s limits are in `json_schema`, as `minimum`, `maxLength` and the like. Its title and description are the field's own, and are never repeated there.
 - `loops` is described under "The graph record".
 
 **`required` and `default`** say what leaving the field out gives. `default` is also the value an editor starts the field with.
