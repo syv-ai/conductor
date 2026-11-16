@@ -1,6 +1,12 @@
-"""An input that takes only a constant: ``Param(constant_only=True)``, and every input a ``compute_...`` hook reads.
-Neither an edge nor a graph input gives it a value, an editor reads so in ``describe()``, and ``make_graph`` never
-makes it a graph input."""
+"""Tests inputs that take only a constant.
+
+Some inputs must be fixed when the graph is built, not fed while it runs. An input declared with
+``Param(constant_only=True)`` is one. So is every input a ``compute_...`` hook reads, since the hook runs when the
+graph is compiled.
+
+Such an input refuses an edge and a graph input. ``describe()`` tells an editor which inputs these are, and
+``make_graph`` never turns one into a graph input.
+"""
 
 from typing import Annotated, Any
 

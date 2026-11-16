@@ -1,4 +1,4 @@
-"""Nodes the programs share: what a node author writes."""
+"""Sample nodes that several test files share, written the way a node author would write them."""
 
 import os
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ def note_call(name: str) -> None:
 
 
 def registry_of(*definitions):
-    """A registry of exactly these node definitions."""
+    """Returns a new registry with just these node definitions in it."""
     registry = NodeRegistry()
     registry.add(*definitions)
     return registry
@@ -105,13 +105,21 @@ registry.add_subregistry(text)
 
 
 def place(waiting):
-    """Where a waiting call is, ``node@item``: its id without the fingerprint of its question."""
+    """Returns where a waiting call is, like ``node@item``.
+
+    A waiting call's id ends with ``~`` and a fingerprint of its question. This drops that part, so a test can
+    compare places without caring about the question.
+    """
     return waiting.id.partition("~")[0]
 
 
 def calls_without_outcome(run):
-    """The nodes of ``run`` with a call that has no outcome yet, or whose calls are not all known, as ``run.progress``
-    counts them: ``["t"]``. A call waiting for a person has an outcome. A complete run has none."""
+    """Returns the nodes of ``run`` that still have work left, such as ``["t"]``.
+
+    A node has work left when one of its calls has no outcome yet, or when it isn't known yet how many calls it will
+    have. The counts come from ``run.progress``. A call waiting for a person counts as having an outcome. So a
+    complete run returns an empty list.
+    """
     return [
         name
         for name, count in run.progress.nodes.items()

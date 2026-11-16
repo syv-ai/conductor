@@ -1,4 +1,8 @@
-"""Tests for the conductor.about runnable reference module."""
+"""Tests ``conductor.about``, the reference a reader or an agent prints with ``python -m conductor.about``.
+
+The reference is ``llms.txt`` and the problems page. These tests check that its sections can be found by name, that
+the command line prints what it should, and that the lists of public names and problems written into it are right.
+"""
 
 from __future__ import annotations
 
@@ -20,17 +24,17 @@ from tests.test_core.test_public_modules import PUBLIC_MODULES
 def test_get_content_returns_non_empty_text():
     text = about.get_content()
     assert isinstance(text, str)
-    assert len(text) > 1000  # llms.txt is substantial
+    assert len(text) > 1000  # llms.txt is long
     assert "# Conductor" in text
 
 
 def test_list_sections_includes_core_stanzas():
     slugs = about.list_sections()
-    # H2 — high-level stanzas
+    # Top-level sections, under a ##.
     assert "quick-start" in slugs
     assert "core-concepts" in slugs
     assert "api-reference" in slugs
-    # H3 — nested concept sections must also be addressable directly
+    # Sections under a ### can be asked for by name too.
     assert "retries-and-timeouts" in slugs
     assert "asking-a-person" in slugs
 
@@ -55,8 +59,8 @@ def test_get_section_unknown_returns_none():
 def test_sections_do_not_bleed_past_same_or_higher_heading():
     retries_body = about.get_section("retries-and-timeouts")
     assert retries_body is not None
-    # Retries and Timeouts is H3 inside Core Concepts, followed by H3
-    # Errors. It must end at the next heading of the same or higher level.
+    # "Retries and Timeouts" is a ### section, and "Errors" is the ### after it.
+    # A section ends at the next heading of the same level or higher.
     assert "### Errors" not in retries_body
 
 
@@ -102,7 +106,7 @@ def test_cli_unknown_section_nonzero_exit_with_help():
     )
     assert result.returncode == 1
     assert "No section matching" in result.stderr
-    # Must list what's available so the caller can correct themselves
+    # It lists the sections there are, so the caller can pick the right one.
     assert "quick-start" in result.stderr
 
 
@@ -116,7 +120,7 @@ def test_cli_help_flag():
     assert "python -m conductor.about" in result.stdout
 
 
-#: The public modules that list names; ``conductor.about`` has none, so it has no section of them.
+#: The public modules that export names. ``conductor.about`` exports none, so the reference has no section for it.
 NAMED_MODULES = [name for name in PUBLIC_MODULES if importlib.import_module(name).__all__]
 
 
@@ -133,7 +137,11 @@ def test_a_public_modules_section_lists_every_name_it_exports_in_the_order_it_ex
 
 
 def _names_written(module: ModuleType, monkeypatch: MonkeyPatch) -> str:
-    """A page's ``names`` placeholder for ``module`` with its names written in, as the reference writes its own."""
+    """Returns the list the reference writes for ``module``'s names.
+
+    The reference marks where a module's names go with ``<!-- names: ... -->``. This fills in that marker for
+    ``module``, the same way the reference fills in its own.
+    """
     monkeypatch.setitem(sys.modules, module.__name__, module)
     return about.fill_placeholders(f"<!-- names: {module.__name__} -->")
 
@@ -156,7 +164,7 @@ def test_a_listed_class_or_function_is_followed_by_the_first_paragraph_of_its_do
     module.open_door = open_door  # type: ignore[attr-defined]
     module.__all__ = ["Room", "open_door"]  # type: ignore[attr-defined]
 
-    # a paragraph over several lines is one line, and its code is in Markdown's single backticks
+    # A paragraph over several lines becomes one line, and its ``code`` becomes Markdown's `code`.
     assert _names_written(module, monkeypatch) == (
         "- `Room`: A room in a house, with `doors` and windows.\n- `open_door`: Opens a door."
     )
@@ -196,7 +204,7 @@ def test_the_cli_prints_a_modules_names():
 
 
 def _library_names() -> set[str]:
-    """Every name a reader can import: what the public modules list, typing's and the builtins."""
+    """Returns every name a reader can import: the public modules' names, ``typing``'s and the builtins."""
     names = set(dir(typing)) | set(dir(builtins))
     for module_name in PUBLIC_MODULES:
         names.update(importlib.import_module(module_name).__all__)
@@ -204,10 +212,12 @@ def _library_names() -> set[str]:
 
 
 def test_every_name_the_reference_puts_in_backticks_exists():
-    """A stale name here is broken code on an agent's next task. Every
-    class-like name in backticks is one a reader can import (a one-letter
-    name like ``X``, which stands for any class, aside), and every dotted ``conductor…`` path
-    imports."""
+    """Every name the reference writes in backticks can be imported.
+
+    An agent copies these names into code, so a stale one breaks its next task. The test checks two kinds: every
+    name that starts with a capital letter, and every dotted path that starts with ``conductor``. A one-letter name
+    like ``X`` stands for any class, so it is left out.
+    """
     known = _library_names()
     missing: set[str] = set()
     for span in re.findall(r"`([^`\n]+)`", about.get_content()):
@@ -263,7 +273,11 @@ def test_the_cli_prints_the_problems_page():
 
 
 def _written(catalogue: ProblemCatalogue, monkeypatch: MonkeyPatch) -> str:
-    """A page's placeholder for ``catalogue`` with the catalogue written in, as the reference writes its own."""
+    """Returns the problems page's entries for ``catalogue``.
+
+    The problems page marks where a catalogue goes with ``<!-- problems: ... -->``. This fills in that marker for
+    ``catalogue``, the same way the page fills in its own.
+    """
     module = ModuleType("rooms")
     module.CATALOGUE = catalogue  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, module.__name__, module)

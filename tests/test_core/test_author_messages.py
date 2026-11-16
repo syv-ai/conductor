@@ -1,4 +1,9 @@
-"""What an author is told for the first mistakes with a table, a list or two Series: the problem, where, and the fix."""
+"""Tests what a graph's author is told about the first mistakes people make with tables, lists and Series.
+
+Each mistake should come back as one problem that says what is wrong, on which node, and how to fix it. The mistakes
+are wiring a whole table or list into an input that takes one value, a table missing a column, and two Series that
+reach one node with nothing saying which items go together.
+"""
 
 import typing
 from typing import Any, TypedDict
@@ -82,8 +87,12 @@ for _definition in (
 
 
 def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
-    """The one problem of ``make_graph`` of ``nodes`` (id to node) wired by ``edges`` (``"node.output[.field]"``,
-    ``"node.input"``), with no graph outputs."""
+    """Builds a graph with ``make_graph`` and returns its one problem.
+
+    Args:
+        nodes: The definition id in ``REGISTRY``, by node id.
+        edges: Pairs like ``("read.result", "send.to")``. The source may name a field, as in ``"read.result.name"``.
+    """
     graph = Graph.compile(
         make_graph(
             *((node_id, REGISTRY[name]) for node_id, name in nodes.items()), edges=edges, outputs={}
@@ -94,7 +103,7 @@ def problem(nodes: dict[str, str], edges: list[tuple[str, str]]):
     return found
 
 
-# -- a table or list not taken apart --------------------------------------------------------------------------------
+# -- a whole table or list where one value is expected -----------------------------------------------------
 
 
 def test_a_whole_table_into_an_input_of_one_value_says_to_make_a_series_and_lists_the_fields():
@@ -205,7 +214,7 @@ def test_a_field_of_a_record_of_unknown_columns_is_any_value_read_when_it_arrive
     assert graph.is_runnable and graph.describe().nodes["send"].per_item_of == "lines.result"
 
 
-# -- a column is missing ---------------------------------------------------------------------------------
+# -- a column is missing -----------------------------------------------------------------------------------
 
 
 def test_a_table_without_a_column_the_input_names_says_which_and_what_the_table_has():
@@ -270,11 +279,11 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
     )
 
 
-# -- two Series that don't nest ---------------------------------------------------------------------------
+# -- two Series with nothing to pair their items -----------------------------------------------------------
 
 
 def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
-    """The wire suggested is from the list of the node compiled first, by id, so it makes no cycle."""
+    """Two Series that reach one node unpaired are refused, and the message says how to pair them."""
     found = problem(
         {"docs": "documents", "list": "questions", "ask": "ask"},
         [("list.result", "ask.question"), ("docs.result", "ask.document")],
@@ -321,7 +330,7 @@ def test_the_wire_it_names_nests_them():
     )
 
 
-# -- the row type of a table type ---------------------------------------------------------------------------
+# -- the row type of a table -------------------------------------------------------------------------------
 
 
 def test_a_hook_reads_the_row_type_of_the_table_arriving():

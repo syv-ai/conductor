@@ -1,5 +1,9 @@
-"""A complete run has an outcome for every call of every node, whichever nodes ran on threads, and resuming it
-calls nothing and changes nothing."""
+"""Tests that a run that finishes really is finished.
+
+When a run is complete, every call of every node has an outcome. That must hold whichever nodes ran on threads of
+their own, so each graph here is run with several choices of threaded nodes. Resuming a complete run must then call
+nothing and change nothing.
+"""
 
 from __future__ import annotations
 
@@ -65,7 +69,7 @@ class Way:
 
 def decide(text: str) -> Way:
     _called("decide")
-    time.sleep(0.02)  # on a thread it returns after the other nodes' series
+    time.sleep(0.02)  # Slow, so on a thread it returns after the other nodes' Series.
     return Way(no=text) if text.startswith("no") else Way(yes=text)
 
 
@@ -81,7 +85,7 @@ def beside(text: str, items: Series[str]) -> str:
 
 def pieces(text: str) -> Series[str]:
     _called("pieces")
-    time.sleep(0.05)  # on a thread it returns after decide
+    time.sleep(0.05)  # Slower still, so on a thread it returns after decide.
     return text.split()
 
 
@@ -94,8 +98,15 @@ FUNCTIONS = (lines, words, upper, join, decide, tag, beside, pieces, ask)
 
 
 class Case(NamedTuple):
-    """A graph: its nodes by id, its edges, the text every graph input of it is given, and the graph inputs where
-    two first nodes have an input of one name."""
+    """One graph to run, and the text to run it with.
+
+    Attributes:
+        nodes: Each node's definition id, by node id.
+        edges: The edges, as ``("node.output", "node.input")`` pairs.
+        text: The value given to every graph input.
+        inputs: Graph inputs that feed two nodes at once, for when two nodes at the start both have an input called
+            ``text``.
+    """
 
     nodes: dict[str, str]
     edges: list[tuple[str, str]]
@@ -103,7 +114,7 @@ class Case(NamedTuple):
     inputs: Mapping[str, list[str]] = MappingProxyType({})
 
 
-#: Each graph by what it is.
+#: The graphs under test, by a name that says what each one is.
 GRAPHS: dict[str, Case] = {
     "a chain": Case({"a": "upper", "b": "upper"}, [("a.result", "b.text")], "x"),
     "collecting an empty series": Case(
@@ -159,7 +170,7 @@ GRAPHS: dict[str, Case] = {
     ),
 }
 
-#: The nodes called on threads; every other is called on the thread that called the run.
+#: The sets of nodes to call on threads. A node not in the set is called on the thread that started the run.
 THREADED: list[frozenset[str]] = [
     frozenset(),
     frozenset({"lines"}),
@@ -243,8 +254,11 @@ def _record(
     registry: NodeRegistry,
     inputs: Mapping[str, list[str]] = MappingProxyType({}),
 ) -> GraphRecord:
-    """``make_graph`` of ``nodes`` (each a definition id in ``registry``, by node id) and ``edges``; every node's
-    result is read from the run's results."""
+    """Returns a graph record of ``nodes`` and ``edges``, made with ``make_graph``.
+
+    ``nodes`` maps each node id to a definition id in ``registry``. The tests read each node's result from
+    ``run.results``.
+    """
     return make_graph(
         *((node_id, registry[name]) for node_id, name in nodes.items()), edges=edges, inputs=inputs
     )
@@ -314,4 +328,4 @@ def test_a_node_in_a_loop_downstream_of_a_branch_not_chosen_outside_it_is_skippe
         {"text": ["d.text", "w.text"]},
     )
     assert run.status == "waiting" and len(run.waiting) == 3
-    assert "t" not in calls_without_outcome(run)  # skipped, whichever node returned first
+    assert "t" not in calls_without_outcome(run)  # Skipped, whichever node returned first.

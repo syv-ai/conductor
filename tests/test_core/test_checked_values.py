@@ -1,11 +1,14 @@
-"""What a node returns is checked against what it declares, and so is a value on an edge whose source's type does
-not say whether the target's input takes it.
+"""Tests that the values a run passes around are checked against their types.
 
-A value that isn't what the node declares fails the node that returned it as
-``invalid_output``, or the edge's target node as ``invalid_edge_value``, for that item,
-quoting nothing of the value. A value already of its declared class is taken
-as it is; anything else is read strictly by the type, so a model may be
-returned as a dict, but ``"12"`` is never an ``int`` nor ``12.0`` an ``int`` column.
+Two kinds of value are checked. The first is what a node returns, which must match its declared return type. The
+second is a value on an edge, when the source's type is too loose to say whether the target's input takes it.
+
+A value that doesn't fit fails a node for that item. A bad return fails the node that returned it, with
+``invalid_output``. A bad value on an edge fails the node it goes into, with ``invalid_edge_value``. Neither message
+quotes the value, since it may be private.
+
+A value that is already of its declared class is kept as it is. Anything else is read strictly by its type. So a
+model may be returned as a dict, but ``"12"`` is never an ``int``, and ``12.0`` never goes in an ``int`` column.
 """
 
 import asyncio
@@ -45,7 +48,7 @@ SECRET = "cpr-1234567890"
 
 
 def _returning(returned: Any, return_type: Any) -> Any:
-    """The run of a graph of one node, ``g``, returning ``returned`` from ``-> return_type``."""
+    """Runs a graph of one node, ``g``, that returns ``returned`` and is declared ``-> return_type``."""
 
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
@@ -58,7 +61,7 @@ def _returning(returned: Any, return_type: Any) -> Any:
 
 
 def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
-    """The run of ``a`` returning ``returned`` into ``sink``'s one input, as node ``b``."""
+    """Runs node ``a``, which returns ``returned``, wired into the one input of ``sink`` as node ``b``."""
 
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
@@ -96,7 +99,10 @@ def _feeding(returned: Any, return_type: Any, sink: Any) -> Any:
 def test_a_return_that_is_not_the_declared_type_fails_the_node_that_returned_it(
     returned, return_type
 ):
-    """``-> str`` returning ``42`` fails at ``g``, never downstream; ``"abc"`` for a ``Series`` is never three rows."""
+    """A wrong return fails at ``g`` itself, never further on.
+
+    So ``-> str`` returning ``42`` fails at ``g``, and ``"abc"`` for a ``Series`` is refused, not read as three items.
+    """
     run = _returning(returned, return_type)
 
     assert (run.status, run.cause.type, run.cause.loc) == ("failed", "invalid_output", ("g",))
@@ -116,7 +122,10 @@ def test_returning_none_needs_the_hint():
 def test_an_optional_output_of_a_type_that_is_not_a_class_is_read_by_its_type(
     returned, return_type
 ):
-    """``-> list[int] | None`` returning ``[1]`` is read by its type as ``-> list[int]`` is, not checked against the class ``NoneType``."""
+    """``-> list[int] | None`` returning ``[1]`` is read just as ``-> list[int]`` reads it.
+
+    It isn't compared against the class ``NoneType`` and refused.
+    """
     run = _returning(returned, return_type)
 
     assert run.status == "complete"
@@ -124,7 +133,11 @@ def test_an_optional_output_of_a_type_that_is_not_a_class_is_read_by_its_type(
 
 
 def test_a_value_read_as_its_type_is_kept_as_the_type():
-    """A model returned as a dict, an int for a float, a str for a ``class Text(str)``: each lands as its declared type."""
+    """A value is converted to the type its node declares.
+
+    A model returned as a dict becomes the model. An int returned for a ``float`` becomes a float. A ``str`` returned
+    for ``class Text(str)`` becomes a ``Text``.
+    """
 
     @host_type("Point", title="Point")
     class Point(BaseModel):
@@ -145,7 +158,7 @@ class Shape(dict):  # type: ignore[type-arg]
 
 @host_type("Square", title="Square")
 class Square(Shape):
-    """A type whose own check lets any ``Shape`` through as it is: in memory it accepts what it would never build."""
+    """A type whose own check lets any ``Shape`` through unchanged, so it accepts values that aren't a ``Square``."""
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -236,7 +249,10 @@ class NoFields:
 
 
 def test_a_dataclass_with_no_fields_is_returned_as_itself_and_none_is_refused():
-    """It declares no outputs, as ``-> None`` does, but the node returns the dataclass, never ``None``."""
+    """A dataclass with no fields declares no outputs, like ``-> None``.
+
+    But the node must still return the dataclass, never ``None``.
+    """
     assert _returning(NoFields(), NoFields).results["g"] == {}
 
     run = _returning(None, NoFields)
@@ -330,8 +346,11 @@ class Routed:
 
 
 def test_a_return_that_gives_no_output_of_a_group_a_value_is_refused():
-    """A call gives a value on exactly one output of an exclusive group, so ``count`` alone is refused; returning
-    ``SKIPPED`` chooses no branch, and skips ``count`` with it."""
+    """A return must give exactly one output of an exclusive group a value.
+
+    So a return with only ``count`` is refused. Returning ``SKIPPED`` is fine: it chooses no branch, and skips
+    ``count`` too.
+    """
     neither = _returning(Routed(count=2), Routed).cause
 
     assert (neither.type, neither.ctx.get("name"), neither.ctx["reason"]) == (
@@ -343,7 +362,10 @@ def test_a_return_that_gives_no_output_of_a_group_a_value_is_refused():
 
 
 def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values():
-    """Both branches given a value is the problem reported, though ``count``, declared first, is refused too."""
+    """When both branches have a value, that is the problem reported.
+
+    ``count`` is wrong too, and it is declared first, but the shape of the return is checked before its values.
+    """
     run = _returning(Routed(long="a", short="b", count="many"), Routed)  # type: ignore[arg-type]
 
     assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
@@ -427,7 +449,10 @@ def test_a_fraction_in_an_int_column_fails_the_node_rather_than_being_cut_off():
 
 
 def test_a_float_column_for_an_int_one_fails_even_when_whole():
-    """Outputs are read strictly: ``12.0`` is a float, so an ``int`` column refuses it, as ``-> int`` refuses ``"12"``."""
+    """Outputs are read strictly. ``12.0`` is a float, so an ``int`` column refuses it.
+
+    It's the same rule by which ``-> int`` refuses ``"12"``.
+    """
     assert (
         _returning(pl.DataFrame({"item": ["a"], "amount": [12.0]}), Table[Line]).cause.type
         == "invalid_output"
@@ -435,8 +460,10 @@ def test_a_float_column_for_an_int_one_fails_even_when_whole():
 
 
 def test_a_column_may_have_none_only_where_its_type_takes_none():
-    """A type means what it says: ``None`` in an ``int`` column is refused where the table is returned, naming the
-    column; a column that may have ``None`` is declared ``int | None``."""
+    """``None`` in an ``int`` column is refused when the table is returned, and the problem names the column.
+
+    A column that may have ``None`` is declared ``int | None``.
+    """
 
     class Loose(TypedDict):
         item: str
@@ -450,7 +477,11 @@ def test_a_column_may_have_none_only_where_its_type_takes_none():
 
 
 def test_a_column_of_yes_or_no_is_never_an_int_column_returned_on_an_edge_or_given():
-    """A yes or no never lands on a number, though Python counts ``True`` as 1: a column is checked as a single value is."""
+    """A column of yes or no is refused where an ``int`` column is expected, though Python counts ``True`` as 1.
+
+    A column is checked the same way as a single value. That holds for a returned table, a table on an edge and a
+    table given as a graph input.
+    """
     yes_no = pl.DataFrame({"item": ["a", "b"], "amount": [True, False]})
     assert (
         _returning(yes_no, Table[Line]).cause.type,
@@ -484,8 +515,11 @@ class Graded(TypedDict):
 
 @pytest.mark.parametrize("column", ["level", "score"])
 def test_a_column_refuses_a_yes_or_no_wherever_a_field_of_its_type_does(column):
-    """A column of a ``Literal`` of numbers or of a union with a number and no ``bool`` refuses ``True``, as a field
-    of that type does: Python counts ``True`` as 1, and both the field and the column read one rule."""
+    """A column refuses ``True`` wherever a single value of its type would.
+
+    That covers a ``Literal`` of numbers, and a union that has a number but no ``bool``. Python counts ``True`` as
+    1, but a yes or no is not a number. The column and the single value follow the same rule.
+    """
 
     @node("count_rows", title="Count rows", description="For a test.")
     def count_rows(rows: Table[Graded]) -> int:
@@ -530,7 +564,7 @@ def test_a_node_may_return_a_table_as_records_and_anything_else_fails_it():
 
 @host_type("PickyId", title="Picky id", accepts=[object])
 class PickyId(str):
-    """A type whose own check quotes what it refuses, which is ordinary Python."""
+    """A type whose own check quotes the value it refuses, as ordinary Python code often does."""
 
     @classmethod
     def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:
@@ -629,12 +663,12 @@ def test_a_callers_records_are_read_cell_by_cell_as_they_came_not_as_polars_made
     with pytest.raises(InvalidCallError) as refused:
         graph.run(
             contacts=[{"name": "Ida", "email": "i@x"}, {"name": 5, "email": "b@x"}]
-        )  # polars would read the 5 as text
+        )  # Polars would turn the 5 into text.
     assert refused.value.problems[0].ctx["column"] == "name"
 
 
 def test_a_table_whose_column_is_of_a_type_its_input_wont_take_is_a_type_mismatch_at_compile():
-    """Two tables are compared by their columns when the graph is compiled: a text column is never an ``int`` column."""
+    """Compiling compares two tables by their columns, so a text column never fits an ``int`` column."""
 
     class Amounts(TypedDict):
         result: int
@@ -800,7 +834,7 @@ def test_a_key_of_a_dict_given_is_never_in_the_errors_and_a_declared_field_or_an
 
 @host_type("_SlowOutput", title="Slow output")
 class _SlowOutput(str):
-    """An output type whose check waits until the other node's completion has been streamed."""
+    """An output type whose check waits until the stream has reported that the other node finished."""
 
     check_began = Event()
     other_reported = Event()
@@ -816,11 +850,15 @@ class _SlowOutput(str):
 
 
 def test_a_slow_output_check_runs_on_its_nodes_thread_and_delays_no_other_call():
-    """The other node finishes only after the check began, and the check passes only once the stream reported it."""
+    """A slow check on one node's output doesn't hold up another node.
+
+    The other node finishes only after the check has started. The check passes only once the stream has reported the
+    other node done.
+    """
 
     @node("slow", title="Slow", description="For a test.", policy=Policy(concurrency=2))
     def slow() -> _SlowOutput:
-        return "x"  # type: ignore[return-value]  # not yet the type, so its check runs
+        return "x"  # type: ignore[return-value]  # a plain str, so its check runs
 
     @node("other", title="Other", description="For a test.", policy=Policy(concurrency=2))
     def other() -> int:
@@ -852,7 +890,7 @@ def test_a_slow_output_check_runs_on_its_nodes_thread_and_delays_no_other_call()
 
 
 def test_a_value_already_of_its_type_is_kept_as_returned():
-    """The fast path: an exact ``float`` that isn't finite stays the float it was."""
+    """A value that is already its type is kept as it is, so an infinite ``float`` stays infinite."""
     assert math.isinf(_returning(math.inf, float).results["g"]["result"])
 
 
@@ -887,7 +925,7 @@ def _all_of(values: Series[Any]) -> int:
 
 
 def _giving(returned: Any, return_type: Any) -> Any:
-    """A node ``give`` returning ``returned`` from ``-> return_type``."""
+    """Returns a node ``give`` that returns ``returned`` and is declared ``-> return_type``."""
 
     def give() -> return_type:  # type: ignore[valid-type]
         return returned
@@ -896,7 +934,7 @@ def _giving(returned: Any, return_type: Any) -> Any:
 
 
 def _fails_with(graph: Any) -> tuple[Any, ...]:
-    """How a run of ``graph`` ended: its status, and its cause's code, place, input and field."""
+    """Runs ``graph`` and returns how it ended: its status, and its cause's code, place, input and field."""
     run = graph.run()
     cause = run.cause
     return run.status, cause.type, cause.loc, cause.ctx["name"], cause.ctx["record_field"]
@@ -908,7 +946,10 @@ def _fails_with(graph: Any) -> tuple[Any, ...]:
 def test_a_field_named_on_an_edge_that_the_value_at_run_time_lacks_fails_the_reader_naming_the_field(
     declared: Any, returned: Any
 ):
-    """A record whose type declares no fields is wired by field on trust, so a missing one is ``invalid_edge_value`` of the edge's target."""
+    """An edge may read a field of a record whose type declares no fields. The field is only checked at run time.
+
+    When the field is missing, the node the edge goes into fails with ``invalid_edge_value``.
+    """
     give = _giving(returned, declared)
     graph = Graph.compile(
         make_graph(give, _anything_in, edges=[("give.result.name", "anything-in.x")]),
@@ -977,9 +1018,12 @@ def _decide(text: str) -> _YesNo:
 def test_a_skipped_input_skips_the_call_also_when_an_input_before_it_names_a_field_a_record_lacks(
     values_first: bool,
 ):
-    """``both`` collects ``give.result.name`` from records one of which has no ``name``, and takes ``one`` from a
-    branch not chosen. A skip wins over a fault whichever input comes first in the signature: the call is skipped,
-    and the missing field fails nothing."""
+    """A skipped input skips the call, even when another input has a fault.
+
+    ``both`` collects ``give.result.name``, and one of the records has no ``name``. Its other input, ``one``, is on
+    a branch not chosen. The skip wins over the fault, whichever input comes first in the signature. So the call is
+    skipped, and the missing field fails nothing.
+    """
     items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
     if values_first:
 
@@ -1004,7 +1048,7 @@ def test_a_skipped_input_skips_the_call_also_when_an_input_before_it_names_a_fie
 
 
 def test_the_first_fault_in_the_signature_fails_a_call_that_no_skip_settles():
-    """Two inputs name fields their records lack: the call fails on the first in the signature, ``first``."""
+    """When two inputs read fields their records lack, the call fails on the first in the signature, ``first``."""
     items = _giving([{"name": "a"}, {"other": "b"}], Series[dict])
 
     @node("two", title="Two", description="For a test.")
@@ -1051,7 +1095,10 @@ def test_a_run_failed_on_a_field_a_record_lacks_shows_none_for_each_item_never_c
     reader: Any,
     input_name: str,
 ):
-    """The failure is the run's cause; a host that reads the run afterwards sees ``None`` for each call that read the field."""
+    """The failure becomes the run's cause.
+
+    Reading the run afterwards shows ``None`` for each call that read the field.
+    """
     give = _giving(returned, declared)
     edges = [
         ("words.result", f"{reader.id}.word"),
@@ -1084,7 +1131,7 @@ def _text_a() -> str:
 
 
 @node("same", title="Same", description="For a test.")
-def _same(value: T = 3) -> T:  # type: ignore[assignment]  # a default the type an edge binds may refuse
+def _same(value: T = 3) -> T:  # type: ignore[assignment]  # the type an edge binds may refuse this default
     return value
 
 
@@ -1094,15 +1141,17 @@ def _first_of(first: T, second: T = 3) -> T:  # type: ignore[assignment]
 
 
 def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuses_is_a_problem_not_an_exception():
-    """Binding a type variable checks the default against the bound type, as a problem of the graph, not as a
-    ``NodeDeclarationError``."""
+    """An edge that binds a type variable checks the default against the bound type.
+
+    A default the bound type refuses is a problem of the graph. It isn't a ``NodeDeclarationError``.
+    """
     registry = registry_of(_text_a, _same, _first_of)
     wired = Graph.compile(
         make_graph(_text_a, _same, edges=[("text-a.result", "same.value")]), registry
     )
     assert wired.problems == [] and wired.run().outputs == {
         "result": "a"
-    }  # an edge gives the value, so the default is never used
+    }  # An edge gives the value, so the default is never used.
     unwired = Graph.compile(
         make_graph(_text_a, _first_of, edges=[("text-a.result", "first-of.first")]), registry
     )
@@ -1115,7 +1164,7 @@ def test_a_declared_default_is_read_by_the_type_the_edges_bind_and_one_it_refuse
 
 
 @node("same-or-blank", title="Same or blank", description="For a test.")
-def _same_or_blank(value: T = None) -> T:  # type: ignore[assignment]  # None is a value of T until an edge binds it
+def _same_or_blank(value: T = None) -> T:  # type: ignore[assignment]  # None fits T until an edge binds T
     return value
 
 
@@ -1136,7 +1185,7 @@ def _kept(value: T) -> _Kept[T]:
 
 
 def test_a_declared_default_of_none_the_bound_type_does_not_take_is_a_problem_of_the_graph_not_an_exception():
-    """``None`` is read by the bound type like any other default: compiling never raises for it."""
+    """A default of ``None`` is checked by the bound type like any other default, and compiling never raises for it."""
     registry = registry_of(_text_a, _same_or_blank, _first_or_blank, _kept)
     wired = Graph.compile(
         make_graph(_text_a, _same_or_blank, edges=[("text-a.result", "same-or-blank.value")]),

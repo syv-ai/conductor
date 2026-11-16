@@ -1,10 +1,14 @@
-"""The run's context: one object the host passes for a run, which a node takes as its first parameter.
+"""Tests the run's context, one object the host hands to every node in a run.
 
-The host names the class once, on the registry (``NodeRegistry(context_type=AppContext)``), and passes an instance
-of it for each run (``graph.run(context=AppContext(...))``). A node asks for it by its first parameter,
-``def sign(ctx: Context[AppContext], text: str)``. Compiling checks that the registry's class has what each node
-asks for; starting a run checks that the object is of that class. The context is never saved with a run, and it
-plays no part in which outcomes of the previous run a run reuses.
+A context carries things like who is running the graph, or an HTTP client. The host names its class once, on the
+registry: ``NodeRegistry(context_type=AppContext)``. It passes an object of that class for each run:
+``graph.run(context=AppContext(...))``. A node that wants it takes it as its first parameter:
+``def sign(ctx: Context[AppContext], text: str)``.
+
+Conductor checks the context twice. Compiling checks that the registry's class has what each node asks for.
+Starting a run checks that the object given is of that class.
+
+The context is never saved with a run. It also has no say in which outcomes a run reuses from the run before it.
 """
 
 import asyncio
@@ -199,7 +203,7 @@ def test_a_subregistry_naming_another_class_or_one_a_registry_with_none_lacks_is
     assert raised.value.problems[0].type == "context_type_differs"
 
 
-# -- compiling checks the class against what each node asks for ---------------------------------
+# -- compiling checks that the class has what each node asks for ---------------------------------
 
 
 def test_a_node_may_ask_for_the_class_a_base_of_it_or_a_protocol_it_satisfies():
@@ -253,7 +257,10 @@ def test_a_node_asking_for_what_the_class_lacks_is_a_problem_at_the_node_and_par
 
 
 def test_a_protocol_is_checked_by_its_members_names_only_so_a_member_of_another_type_fits():
-    """Whether the member's type fits is the host's type checker's job, not compiling's."""
+    """Compiling checks only the names of a protocol's members, not their types.
+
+    Whether a member's type fits is left to the host's type checker.
+    """
 
     @dataclass(frozen=True)
     class TextContext:
@@ -309,7 +316,7 @@ def test_a_node_inside_a_subgraph_is_checked_with_the_rest_and_its_problem_is_at
     ]
 
 
-# -- starting a run checks the object -----------------------------------------------------------
+# -- starting a run checks the object it is given ------------------------------------------------
 
 
 def test_every_node_that_takes_the_context_gets_the_one_object_inside_a_subgraph_too():
@@ -390,7 +397,7 @@ def test_resume_and_stream_are_checked_as_run_is():
     )
 
 
-# -- never saved, and no part of reuse ---------------------------------------------------------
+# -- never saved, and no say in reuse ----------------------------------------------------------
 
 
 def test_the_context_is_never_saved_and_is_passed_again_on_each_resume():

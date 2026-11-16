@@ -1,8 +1,10 @@
-"""Compiling a graph record: what ``Graph.compile`` checks, what the graph offers a caller, and subgraphs.
+"""Tests compiling a graph record with ``Graph.compile``.
 
-A record that says something impossible compiles into a graph whose ``problems`` say what and where, never an
-exception; a graph with problems refuses to run. A caller gives the graph inputs, and ``with_inputs`` checks them all
-at once.
+The tests cover what compiling checks, what the compiled graph offers a caller, and subgraphs.
+
+A record that asks for something impossible doesn't raise. It compiles into a graph whose ``problems`` say what is
+wrong and where. A graph with problems refuses to run. A caller gives the graph its inputs, and ``with_inputs``
+checks them all at once.
 """
 
 import json
@@ -98,7 +100,7 @@ def styled(
 
 @host_type("Name", title="Name")
 class Name(str):
-    """A subclass of ``str``: it fits any input that takes a ``str``."""
+    """A subclass of ``str``, so it fits any input that takes a ``str``."""
 
 
 @node("name", title="Name of", description="For a test.")
@@ -521,7 +523,7 @@ def test_a_constant_its_types_own_validator_refuses_is_a_problem_on_its_input():
     )
     [problem] = graph.problems
     assert (problem.type, problem.loc) == ("invalid_value", ("n", "text"))
-    # the type's own error text is left out of the message: it may quote the value
+    # The message leaves out the type's own error text, since that may quote the value.
     assert "empty" not in problem.msg
 
 
@@ -775,7 +777,7 @@ def test_a_hook_that_raises_is_a_problem_on_its_node_never_an_exception():
 
 
 def test_a_constant_its_type_refuses_never_reaches_a_hook_and_is_one_problem():
-    # "refuses" reads its mode in a hook, which a list given as the constant of a str input would otherwise reach
+    # "refuses" reads its mode in a hook. Without the type check first, the hook would get a list for a str input.
     problems = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -966,7 +968,7 @@ def test_an_edge_from_a_node_that_did_not_compile_is_not_reported_again():
 
 
 def test_a_node_id_or_a_source_that_is_no_name_is_refused_by_the_record_validator():
-    """``a@b`` and ``a/b`` can be no node's id, so a node under either and an edge from either are refused."""
+    """``a@b`` and ``a/b`` can't be node ids, so a node with either id is refused, and so is an edge from one."""
     for bad in ("a@b", "a/b"):
         with pytest.raises(InvalidCallError) as refused:
             Graph.compile(
@@ -1078,7 +1080,7 @@ def test_two_inputs_naming_one_graph_input_with_different_types_or_defaults_is_g
 
 
 def _taking(node_id, hint):
-    """A node whose one input ``n`` is declared ``hint``."""
+    """Returns a node with one input, ``n``, whose type hint is ``hint``."""
 
     def count(n):
         return n
@@ -1088,8 +1090,11 @@ def _taking(node_id, hint):
 
 
 def _one_graph_input_feeding(a_hint, b_hint, defaults=None):
-    """The graph whose graph input ``x`` feeds ``a.n``, declared ``a_hint``, and ``b.n``, declared ``b_hint``, with
-    the record's ``defaults``, keyed ``"a.n"`` or ``"b.n"``."""
+    """Returns a graph where one graph input, ``x``, feeds two nodes.
+
+    It feeds ``a.n``, whose type hint is ``a_hint``, and ``b.n``, whose type hint is ``b_hint``. ``defaults`` are
+    the record's defaults, keyed ``"a.n"`` or ``"b.n"``.
+    """
     a, b = _taking("a", a_hint), _taking("b", b_hint)
     record = make_graph(
         a,
@@ -1138,7 +1143,7 @@ def test_the_record_default_on_one_of_two_inputs_written_differently_is_the_grap
         (Annotated[int, Param(title="Count")], Annotated[int, Param(title="Total")]),
         (int, Annotated[int, Param(description="How many.")]),
         (int, Annotated[int, Param(widget=Textarea())]),
-        # Two functions of one qualified name are written alike in the description, so only the type tells them apart.
+        # Both lambdas have one qualified name, so a description writes them alike. Only the type tells them apart.
         (
             Annotated[int, AfterValidator(lambda v: v)],
             Annotated[int, AfterValidator(lambda v: -v)],
@@ -1247,7 +1252,10 @@ def test_a_subgraph_node_given_nothing_keeps_its_inner_defaults_and_runs_once():
 
 
 def test_a_graph_input_on_a_subgraph_node_is_required_unless_the_record_gives_it_a_default():
-    """The subgraph's own default for the input plays no part: the graph input's default is the outer record's."""
+    """The subgraph's own default for the input doesn't count.
+
+    Only the outer record can give the graph input a default.
+    """
     assert (
         Graph.compile(
             GraphRecord.model_validate(
@@ -1495,8 +1503,10 @@ def test_a_hook_is_not_called_without_a_required_input_and_the_problem_says_it_n
 
 
 def test_an_input_a_hook_reads_is_a_constant_of_the_graph_never_a_graph_input():
-    """The outputs a hook works out are the same for every run, so the input it reads comes from the graph record,
-    never from the caller."""
+    """A hook works out the outputs once, for every run of the graph.
+
+    So the input it reads has to come from the graph record, never from the caller.
+    """
 
     def outputs(mode: str) -> dict[str, Any]:
         return {"a": int} if mode == "a" else {"b": str}
@@ -1701,8 +1711,11 @@ def test_describe_lists_every_node_of_a_half_broken_graph_and_which_definitions_
 def _described(
     graph: Any, node_id: str
 ) -> tuple[bool, str | None, dict[str, str], list[str], list[str]]:
-    """A node as ``describe()`` gives it to an editor: whether its definition was found, which loop it is inside,
-    where each input gets its value, its outputs, and its problems."""
+    """Returns what ``describe()`` tells an editor about one node.
+
+    That is five things: whether its definition was found, which loop it is in, where each input gets its value,
+    its outputs, and its problems.
+    """
     described = graph.describe().nodes[node_id]
     return (
         described.found,
@@ -1714,8 +1727,11 @@ def _described(
 
 
 def test_a_node_with_a_refused_edge_is_described_with_its_inputs_and_so_is_each_node_downstream():
-    """The node with the problem keeps its inputs and outputs, the refused input marked missing; the nodes downstream
-    are compiled as in a graph with no problem."""
+    """A refused edge doesn't stop the rest of the graph from being described.
+
+    The node with the problem keeps its inputs and outputs, with the refused input marked missing. The nodes after
+    it are compiled just as in a graph with no problem.
+    """
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -1785,7 +1801,7 @@ def test_the_nodes_on_a_cycle_and_a_node_downstream_are_described_with_their_inp
         {"text": "missing"},
         ["result"],
         ["cycle"],
-    )  # the edge that closes the cycle gives it no value
+    )  # The edge that closes the cycle gives it no value.
     assert _described(graph, "b") == (True, None, {"text": "one_value"}, ["result"], ["cycle"])
     assert _described(graph, "c") == (True, None, {"text": "one_value"}, ["result"], [])
 
@@ -2128,7 +2144,10 @@ def test_a_set_given_for_a_series_input_is_refused_as_it_has_no_order():
 
 
 def _nested_forty_deep() -> tuple[Any, str]:
-    """A registry of forty subgraphs, each with the one before it as its only node, and the id of the outermost."""
+    """Returns a registry of forty nested subgraphs, and the id of the outermost one.
+
+    Each subgraph has one node, the subgraph before it.
+    """
     from conductor import NodeRegistry
 
     registry = NodeRegistry()
@@ -2157,8 +2176,10 @@ def _nested_forty_deep() -> tuple[Any, str]:
 
 @pytest.mark.slow
 def test_subgraphs_nested_forty_deep_compile_in_under_two_seconds():
-    """Each subgraph is compiled once per ``Graph.compile``, however deep it is nested, so the time grows in proportion
-    to the depth."""
+    """Each subgraph is compiled once per ``Graph.compile``, however deep it sits.
+
+    So the time grows in step with the depth, not faster.
+    """
     import time
 
     registry, outermost = _nested_forty_deep()
@@ -2462,7 +2483,7 @@ def test_a_bool_is_refused_for_a_hosts_number_type_that_accepts_int():
 
 
 def test_a_graph_is_compiled_once_and_freed_without_the_cycle_collector() -> None:
-    """Compiling calls each node's hook once, and a graph no one holds is freed at once."""
+    """Compiling calls each node's hook once, and a graph nothing refers to any more is freed right away."""
     import gc
     import weakref
 

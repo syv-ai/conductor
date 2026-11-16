@@ -1,9 +1,15 @@
-"""Which loop each node of a compiled graph is inside, decided from the declared types alone.
+"""Tests which loop each node of a compiled graph runs in.
 
-An output declared ``Series[str]`` wired to an input that takes one ``str`` starts a loop: that node, and every node
-downstream of it, is called once per item. An input declared ``Series`` or ``Table`` collects the loop, and its node
-is called once. An output from outside a loop that a node inside it reads is an outer value, the same for every item.
-In ``documents -> upper -> count``, ``upper`` is called once per document and ``count`` once, with every result.
+Compiling works the loops out from the declared types alone. Take ``documents -> upper -> count``, where
+``documents`` returns ``Series[str]``, ``upper`` takes one ``str`` and ``count`` takes a ``Series``. Then ``upper``
+is called once per document, and ``count`` is called once, with every result.
+
+The rules are short:
+
+- An output of type ``Series[str]`` wired into an input that takes one ``str`` starts a loop. That node, and every
+  node after it, is called once per item.
+- An input of type ``Series`` or ``Table`` collects the loop. Its node is called once, with every item.
+- A node inside a loop may also read an output from outside it. That value is the same for every item.
 """
 
 from collections.abc import Mapping, Sequence
@@ -195,9 +201,15 @@ def record_of(
     registry: NodeRegistry = REGISTRY,
     **given: Any,
 ) -> GraphRecord:
-    """``make_graph`` of ``nodes`` (node id to node definition id in ``registry``) and ``edges``
-    (``("node.output", "node.input")``, or ``("node.output.field", "node.input")`` for one field of a record);
-    ``given`` are its ``constants``, ``inputs`` and ``outputs``."""
+    """Returns a graph record made with ``make_graph``.
+
+    Args:
+        nodes: The definition id in ``registry``, by node id.
+        edges: Pairs like ``("d.result", "u.text")``. The source may name one field of a record, as in
+            ``("d.result.name", "u.text")``.
+        registry: Where the definitions are found.
+        given: Passed on to ``make_graph``: ``constants``, ``inputs`` and ``outputs``.
+    """
     return make_graph(
         *((node_id, registry[name]) for node_id, name in nodes.items()), edges=list(edges), **given
     )
@@ -209,13 +221,16 @@ def compile_graph(
     registry: NodeRegistry = REGISTRY,
     **given: Any,
 ):
-    """The compiled graph of ``record_of(nodes, edges, registry, **given)``."""
+    """Returns the graph ``record_of`` makes, compiled."""
     return Graph.compile(record_of(nodes, edges, registry, **given), registry)
 
 
 def input_sources(graph, node_id: str) -> dict[str, tuple[str, str | None]]:
-    """Each input of ``node_id`` with where its value comes from, as ``graph.describe()`` says it: for example
-    ``{"text": ("item", "d.result")}`` for one item of ``d.result``, ``("collected", "d.result")`` for the whole loop."""
+    """Returns where each input of ``node_id`` gets its value, as ``graph.describe()`` says.
+
+    For example, ``{"text": ("item", "d.result")}`` means ``text`` gets one item of ``d.result`` per call.
+    ``("collected", "d.result")`` means it gets the whole loop at once.
+    """
     return {
         i.field.name: (i.source.mode, i.source.series)
         for i in graph.describe().nodes[node_id].inputs
@@ -226,7 +241,7 @@ def problems(graph) -> list[tuple[str, tuple]]:
     return [(p.type, p.loc) for p in graph.problems]
 
 
-# -- starting, reading into and collecting a loop --------------------------------------------------
+# -- starting a loop, reading into one, and collecting one --------------------------------------------------
 
 
 def test_a_series_wired_to_an_input_of_one_value_starts_a_loop_that_its_downstream_nodes_are_inside():
@@ -599,7 +614,10 @@ def test_a_list_given_to_a_graph_input_of_one_value_is_refused_saying_how_a_loop
 
 
 def _with_subgraph(inner_nodes: dict[str, str], inner_edges: list[tuple[str, str]]) -> NodeRegistry:
-    """A registry of this file's node definitions and the subgraph ``inner`` of ``inner_nodes`` and ``inner_edges``."""
+    """Returns a registry of this file's nodes, plus a subgraph ``inner``.
+
+    ``inner`` is built from ``inner_nodes`` and ``inner_edges``.
+    """
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
     registry.add(
@@ -653,7 +671,7 @@ def test_the_inputs_a_subgraph_declares_are_given_by_the_outer_graphs_inputs_as_
 def test_a_subgraphs_problems_are_the_outer_graphs_with_the_subgraph_nodes_id_in_front():
     registry = NodeRegistry()
     registry.add_subregistry(REGISTRY)
-    inner = {  # written out: make_graph would make the open p.b a graph input
+    inner = {  # Written by hand, since make_graph would turn the unwired p.b into a graph input.
         "nodes": {
             "u": {"node": "upper", "inputs": {"text": {"graph_input": "text"}}},
             "p": {

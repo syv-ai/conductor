@@ -1,10 +1,14 @@
-"""Asking a person: a node with ``asks=True`` raises ``Ask``, its return type says what the answer is, and the ``Ask``
-adds what only the run knows.
+"""Tests asking a person for a value while a graph runs.
 
-A waiting call is a ``Waiting`` whose ``questions`` are the field records of the node's outputs with what the ``Ask``
-set: ``approve(line: str) -> bool`` raising ``Ask("Approve b?")`` has one question, ``result``, a yes or no.
-``run.answer`` checks an answer against the questions and the node's types, refuses every fault at once, and calls
-nothing. A node that needs the answer reads it by an edge from the node that asks.
+A node that needs a person raises ``Ask``, and its ``@node`` says ``asks=True``. Its call stops and waits. The
+node's return type says what kind of answer it takes. The ``Ask`` can add what is only known as the node runs, such
+as choices to pick from or a proposed default.
+
+A host sees each call that waits as a ``Waiting``. Its ``questions`` are one per output of the node. For example,
+``approve(line: str) -> bool`` raising ``Ask("Approve b?")`` asks one question, ``result``, a yes or no.
+
+``run.answer`` checks an answer against those questions. It reports every fault at once, and it calls no node. A
+node that needs the answer gets it through an edge from the node that asked.
 """
 
 import datetime
@@ -60,8 +64,11 @@ def upper(text: str) -> str:
 
 
 def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
-    """A graph of ``split``, which splits ``text`` at commas, and ``definition`` as node ``q``, called once per piece;
-    the outputs of ``q`` are the graph's outputs. Returns the graph and its first run."""
+    """Runs ``definition`` once for each comma-separated piece of ``text``, and returns the graph and the run.
+
+    The graph has two nodes. ``split`` cuts ``text`` at the commas, and ``definition``, as node ``q``, is called
+    once per piece. The outputs of ``q`` are the graph's outputs.
+    """
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -85,8 +92,10 @@ def _waiting_outcomes(definition: Any, *more: Any, text: str = "a,b") -> Any:
 
 
 def _once(definition: Any, **values: Any) -> Any:
-    """A graph of ``definition`` alone as node ``q`` with ``values`` as its constants and its outputs as the graph's,
-    run once; returns the graph and the run."""
+    """Runs ``definition`` once, on its own, and returns the graph and the run.
+
+    The node is ``q``, ``values`` are its constants, and its outputs are the graph's outputs.
+    """
     inputs = {name: {"constant": value} for name, value in values.items()}
     graph = Graph.compile(
         GraphRecord.model_validate(
@@ -101,7 +110,7 @@ def _once(definition: Any, **values: Any) -> Any:
 
 
 def _outputs_of(definition: Any) -> dict[str, Any]:
-    """Each output of ``definition``, as node ``q``, as a graph output of its name."""
+    """Returns a graph output for each output of ``definition``, placed as node ``q``, under the same name."""
     return {name: {"node": "q", "output": name} for name in definition.outputs}
 
 
@@ -214,14 +223,17 @@ def test_choices_the_run_knows_limit_the_answer_and_a_choice_gives_a_title():
 
 
 def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_float_choice_1_0():
-    """Pins what an answer is compared by: the JSON form of the value its type reads, not of the value given."""
+    """An answer is compared with the choices after its type has read it.
+
+    The comparison is by JSON text, and it uses the value the type gives back, not the value as given.
+    """
 
     @node("rate", title="Rate", description="For a test.", asks=True)
     def rate(ticket: str) -> float:
         raise Ask(f"Rate {ticket}", choices=[1.0, 2.5])
 
     _, run = _once(rate, ticket="T-1")
-    # JSON from a browser writes 1.0 as 1
+    # A browser sends 1.0 in JSON as 1.
     assert run.answer("q", 1).resume().outputs == {"result": 1.0}
     assert (
         _refused(lambda: run.answer("q", 2))[0].msg
@@ -252,7 +264,7 @@ def test_an_input_is_held_to_its_choices_by_their_json_as_an_answer_is():
 
 
 def test_two_fields_whose_choices_python_takes_as_equal_each_hold_a_value_to_their_own():
-    """``True == 1`` in Python, but their JSON differs, so ``choices=[True]`` is never ``choices=[1]``."""
+    """``True == 1`` in Python, but their JSON differs, so ``choices=[True]`` and ``choices=[1]`` stay apart."""
 
     def taking(choice: Any) -> Any:
         @node(f"take_{choice}".lower(), title="Take", description="For a test.")
@@ -533,7 +545,7 @@ def test_a_frozen_dataclass_is_a_form_of_one_question_per_field():
         False,
         {"type": "textarea", "rows": 6},
     )
-    assert (due.default, due.required) == ("2026-12-01", False)  # a field's own default is proposed
+    assert (due.default, due.required) == ("2026-12-01", False)  # Its own default is proposed.
 
 
 def test_a_form_answered_in_part_gives_each_field_left_out_its_default_or_none_and_refuses_one_with_neither():
@@ -580,7 +592,7 @@ def test_a_form_field_whose_default_is_skipped_proposes_nothing_and_left_out_is_
         True,
         False,
         MISSING,
-    )  # no default: left out, a branch not taken
+    )  # No default, so leaving it out means the branch isn't taken.
     assert "default" not in escalate.model_dump(mode="json")
     run.to_json()
 
@@ -613,9 +625,9 @@ def test_default_in_json_is_what_leaving_the_question_out_gives_and_null_is_only
         for q in run.waiting[0].model_dump(mode="json")["questions"]
     }
     assert written == {
-        "note": (True, "no default"),  # must be answered
-        "comment": (False, None),  # left out, it is None
-        "escalate": (False, "no default"),  # left out, a branch not taken
+        "note": (True, "no default"),  # Must be answered.
+        "comment": (False, None),  # Left out, it is None.
+        "escalate": (False, "no default"),  # Left out, the branch isn't taken.
         "keep": (False, "no default"),
         "drop": (False, "no default"),
     }
@@ -707,7 +719,7 @@ def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_held_to():
     assert run.answer("q", {"note": "fine"}).resume().outputs == {
         "note": "fine",
         "escalate": "team",
-    }  # the Ask's default, not SKIPPED
+    }  # The Ask's default, not SKIPPED.
     assert run.answer("q", {"note": "fine", "escalate": "boss"}).resume().outputs == {
         "note": "fine",
         "escalate": "boss",
@@ -740,7 +752,10 @@ def line_items(table: Table[Line]) -> Series[Line]:
 
 
 def _lines_graph() -> Any:
-    """``lines`` asking for a table as node ``q``, split into one record per line, each read by ``each``."""
+    """Returns a graph where node ``q`` asks for a table of order lines.
+
+    ``q`` is the ``lines`` node. The table is then split into one record per line, and ``each`` reads each record.
+    """
     return Graph.compile(
         GraphRecord.model_validate(
             {
@@ -783,7 +798,7 @@ def test_a_table_is_answered_as_records_which_are_its_rows_and_keep_through_json
             {"name": "sku", "type": "str", "values": ["A"]},
             {"name": "qty", "type": "int", "values": [1]},
         ]
-    }  # a table as conductor writes one
+    }  # A table in the JSON form conductor writes.
     answered = Run.from_json(
         Run.from_json(run.to_json(), graph)
         .answer("q", [{"sku": "B", "qty": 2}, {"sku": "C", "qty": 3}])
@@ -816,7 +831,7 @@ def test_an_empty_list_answers_a_table_with_no_rows_and_a_wrong_record_is_refuse
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "two"}]))[0].msg.startswith(
         "That isn't a valid answer: column 'qty':"
     )
-    # read as a one-value answer is: strictly
+    # Read strictly, like an answer of one value, so "2" is not an int.
     assert _refused(lambda: run.answer("q", [{"sku": "B", "qty": "2"}]))[0].msg.startswith(
         "That isn't a valid answer: column 'qty':"
     )
@@ -848,7 +863,7 @@ def test_a_hooks_outputs_are_asked_by_their_types():
 
     outputs_declared = {
         name: {"node": "q", "output": name} for name in ("signed", "paid")
-    }  # a hook's outputs are given by name
+    }  # The graph outputs name the outputs the hook returns.
     record = GraphRecord.model_validate(
         {
             "nodes": {"q": {"node": "checks", "inputs": {"names": {"constant": "signed,paid"}}}},
@@ -999,7 +1014,7 @@ def test_a_series_of_a_literal_is_a_pick_of_several_run_end_to_end_through_json(
     assert answered.results["u"]["result"] == [
         [None, None],
         [],
-    ]  # the picks are items, a list for each name; nothing read them yet
+    ]  # One list of picks per item. u hasn't run on them yet, so its results are None.
     done = answered.resume()
     assert (
         done.status == "complete"
@@ -1077,7 +1092,7 @@ def test_a_node_per_item_of_a_list_answered_empty_shows_an_empty_list_before_and
     assert answered.resume().outputs == {"result": []}
 
 
-# -- asking wrongly fails the node --------------------------------------------------------------
+# -- a wrong Ask fails the node --------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -1209,7 +1224,7 @@ def test_a_default_obeys_what_an_answer_must_and_none_is_no_pick():
     def twice() -> Series[str]:
         raise Ask("?", choices=["t1", "t2"], default=["t1", "t1"])
 
-    # None is no pick: a type that takes None takes it beside its choices, as an input's Param does
+    # None counts as no pick. A type that takes None takes it on top of its choices, as an input's Param does.
     (question,) = _once(blank)[1].waiting[0].questions
     assert (question.default, question.required) == (None, False)
     assert (
@@ -1328,7 +1343,7 @@ def test_a_run_whose_every_question_is_answered_is_ready_while_a_node_has_calls_
 
 
 def _ask_or_wait_or_fail() -> Any:
-    """A node ``q`` that asks for ``ask``, sleeps 60 ms for ``slow`` and raises for ``boom``."""
+    """Returns a node ``q`` that asks when given ``"ask"``, sleeps 60 ms on ``"slow"`` and raises on ``"boom"``."""
 
     @node("q", title="Q", description="For a test.", asks=True)
     def q(text: str) -> str:
@@ -1393,7 +1408,7 @@ def test_a_waiting_id_has_one_spelling_and_any_other_names_nothing():
     assert [f.type for f in faults] == ["not_waiting"] * len(other_spellings)
     assert (
         run.answer({"q@1": "B", first: "A"}).waiting == []
-    )  # with or without its fingerprint, the id written is read
+    )  # An id is found with or without its fingerprint.
 
 
 def test_answer_takes_one_waiting_call_and_its_value_or_a_mapping_of_several():
@@ -1463,7 +1478,7 @@ def test_after_an_answer_resume_calls_only_what_waited_on_it_and_an_item_left_un
         and [place(w) for w in resumed.waiting] == ["q@2"]
     )
     assert resumed.results["u"]["result"] == ["A", "YES", None]
-    assert resumed.waiting[0] == run.waiting[1]  # the question is as it was asked
+    assert resumed.waiting[0] == run.waiting[1]  # The question is the same as when it was asked.
 
 
 def test_a_node_that_reads_the_world_is_not_called_again_when_a_run_goes_on_from_waiting():
@@ -1682,7 +1697,7 @@ def test_an_answer_names_its_item_by_index_so_one_for_an_item_that_no_longer_wai
         registry_of(split, gate),
     )
     run = graph.run(text="b1,a")
-    moved = run.again(text="a,b1")  # the same question, now on item 1
+    moved = run.again(text="a,b1")  # The same question, now on item 1.
     assert [place(w) for w in run.waiting] == ["q@0"] and [place(w) for w in moved.waiting] == [
         "q@1"
     ]
@@ -1702,8 +1717,11 @@ def test_a_saved_waiting_call_the_graph_has_no_call_for_is_refused_on_load():
 
 
 def test_a_saved_waiting_call_with_its_question_taken_out_reads_as_not_yet_made():
-    """A saved call waits because its question is saved with it, so with the question taken out the call reads as not
-    yet made."""
+    """A saved call without its question is loaded as a call not made yet.
+
+    A saved call counts as waiting only because its question is saved with it. Take the question out, and the run
+    calls the node again when it resumes.
+    """
     gate, _ = _counted()
     graph, run = _waiting_outcomes(gate, text="a,b")
     saved = json.loads(run.to_json())
@@ -1715,7 +1733,7 @@ def test_a_saved_waiting_call_with_its_question_taken_out_reads_as_not_yet_made(
     assert loaded.waiting == []
     assert [place(w) for w in loaded.resume().waiting] == [
         "q@1"
-    ]  # the node is called for it, and asks again
+    ]  # The node is called again, and asks again.
 
 
 def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
@@ -1727,7 +1745,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
     written = run.waiting[0].model_dump(mode="json")
     assert re.fullmatch(
         r"q~[0-9a-f]{8}", written.pop("id")
-    )  # the place, and a fingerprint of the question asked there
+    )  # Where the call is, then a fingerprint of its question.
     assert written == {
         "loc": ["q"],
         "prompt": "Who takes T-1?",
@@ -1788,7 +1806,7 @@ def test_an_id_whose_item_index_is_not_a_number_answers_nothing_not_even_a_node_
     ]
     assert run.answer("once", "y").outputs == {
         "result": "y"
-    }  # answered, and no call is left to make
+    }  # Answered, and there is no call left to make.
 
 
 async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_that_ended_early_does():
@@ -1810,7 +1828,7 @@ async def test_a_cancelled_run_takes_an_answer_to_what_waits_in_it_as_every_run_
     assert (answered.status, answered.cause) == (
         "waiting",
         None,
-    )  # the cancel was the stream's; q@1 still waits
+    )  # The cancel ended that stream only, so the answered run has no cause. q@1 still waits.
     resumed = answered.resume()
     assert resumed.status == "waiting" and [place(w) for w in resumed.waiting] == ["q@1"]
 
@@ -1973,7 +1991,7 @@ def test_an_asks_choice_of_a_yes_or_no_is_refused_on_a_literal_of_numbers_as_an_
 def test_a_model_that_isnt_a_choice_is_a_value_to_param_and_to_ask_alike() -> None:
     from pydantic import BaseModel
 
-    class Option(BaseModel):  # a host's own option record, not a Choice
+    class Option(BaseModel):  # A host's own option class, not a Choice.
         id: str
         title: str
 
@@ -2036,17 +2054,17 @@ def test_an_ask_pickled_as_another_process_raises_it_still_proposes_no_default()
     def who(ticket: str) -> str:
         raise pickle.loads(
             pickle.dumps(Ask("Who takes it?"))
-        )  # a node whose body ran in a process of its own
+        )  # As if the node's body ran in another process.
 
     _, run = _once(who, ticket="T-1")
     assert run.status == "waiting" and run.waiting[0].questions[0].required
 
 
-# -- a node that says asks=True, and a node that uses the answer by an edge ---------------------------
+# -- a node that asks, and a node that gets the answer through an edge -----------------------------------
 #
-# "Approve, then pay" is two nodes: ``approval(invoice) -> bool`` returns ``True`` for a small invoice and asks for a
-# large one, and ``pay(invoice, ok: bool)`` reads its ``result``. A host that offers them as one palette entry makes
-# them a ``subgraph``.
+# "Approve, then pay" is two nodes. ``approval(invoice) -> bool`` returns ``True`` for a small invoice and asks a
+# person about a large one. ``pay(invoice, ok: bool)`` reads its ``result``. A host that wants to offer the two as one
+# node in its palette puts them in a ``subgraph``.
 
 
 class Invoice(TypedDict):
@@ -2226,7 +2244,7 @@ def test_with_inputs_reuses_the_answer_and_asks_only_for_the_invoice_that_change
     calls_made.clear()
     again = graph.with_inputs(text="A:900,B:950", previous=run).resume()
     assert [waiting.prompt for waiting in again.waiting] == ["Pay B?"]
-    assert calls_made == [("approval", "B")]  # pay for A is reused too: its arguments are the same
+    assert calls_made == [("approval", "B")]  # pay for A is reused, its arguments unchanged.
     (problem,) = _refused(lambda: again.answer(old_b, True))
     assert problem.type == "answer_stale"
 

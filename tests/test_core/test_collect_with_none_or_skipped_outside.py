@@ -1,16 +1,25 @@
-"""A node that collects a loop, when a value from outside the loop is ``None`` or on a branch not chosen.
+"""Tests what happens to a node that collects a loop when a value from outside the loop is missing.
 
-The outside value decides the collecting node only when it decides every item alike. In the graph
-``items -> pair -> count``, ``items`` returns ``["a", "b"]``, ``pair`` is called per item with its input ``b`` wired
-to ``outside-value``, and ``count`` collects ``pair.result``. When ``outside-value`` returns ``None`` (``pair.b`` takes
-no ``None``), no call of ``pair`` can return a value, so ``count`` is not called, for two items as for none. When
-``outside-value`` is on a branch not chosen, ``count`` is skipped. Otherwise each item decides, and a loop of no items
-is collected as an empty list.
+A value can be missing in two ways. It can be ``None`` where the input doesn't take ``None``, or it can sit on a
+branch that wasn't chosen.
 
-``outside-value`` returns its input ``kind``: ``None`` for ``"no-value"``, ``SKIPPED`` for ``"skip"``. ``maybe`` does the
-same per item. A node named ``...-or-none`` takes ``None`` for its whole input; one named ``...-taking-none`` takes a
-list whose items may be ``None``. A series is "never returned" when the node that would return it was not called or
-was skipped.
+Take the graph ``items -> pair -> count``. ``items`` returns ``["a", "b"]``. ``pair`` is called once per item, and
+its input ``b`` is wired to ``outside-value``, a node outside the loop. ``count`` collects every ``pair.result``.
+
+- If ``outside-value`` returns ``None``, and ``pair.b`` doesn't take ``None``, no call of ``pair`` can return a
+  value. So ``count`` is not called. That holds for two items, and for none.
+- If ``outside-value`` is on a branch not chosen, ``count`` is skipped.
+- Otherwise each item has its own say, and a loop with no items is collected as an empty list.
+
+So the outside value decides the collecting node only when it decides every item the same way.
+
+The sample nodes follow a few patterns:
+
+- ``outside-value`` returns its input ``kind``, except ``None`` for ``"no-value"`` and ``SKIPPED`` for ``"skip"``.
+  ``maybe`` does the same for each item.
+- A node named ``...-or-none`` takes ``None`` for its whole input. A node named ``...-taking-none`` takes a list
+  whose items may be ``None``.
+- A Series is "never returned" when the node that would return it was not called or was skipped.
 """
 
 from __future__ import annotations
@@ -183,8 +192,15 @@ def ran(
     outputs: Mapping[str, str] | None = None,
     **values: str,
 ) -> Any:
-    """A complete run, given ``values``, of ``make_graph`` of ``nodes`` (registry id by node id) joined by exactly
-    ``edges``, with these graph ``inputs`` and ``outputs``."""
+    """Builds a graph with ``make_graph``, runs it with ``values``, and returns the run, which must be complete.
+
+    Args:
+        nodes: The definition id in ``REGISTRY``, by node id.
+        edges: Every edge of the graph. Given ``edges``, even an empty list, ``make_graph`` adds no chain.
+        inputs: Graph inputs to name, passed on to ``make_graph``.
+        outputs: Graph outputs to name, passed on to ``make_graph``.
+        values: The value of each graph input.
+    """
     record = make_graph(
         *((node_id, REGISTRY[registry_id]) for node_id, registry_id in nodes.items()),
         edges=edges,
@@ -199,8 +215,11 @@ def ran(
 
 
 def outcome_of(run: Any, node_id: str) -> Any:
-    """The outcome of a node inside no loop: its result, ``"not called"`` (an argument was ``None`` where its input
-    takes no ``None``), or ``"skipped"``."""
+    """Returns what happened to a node that isn't in a loop.
+
+    That is its result if it has one. Otherwise it is ``"not called"``, when an argument was ``None`` and its input
+    doesn't take ``None``, or ``"skipped"``.
+    """
     result = run.results[node_id]["result"]
     if result is not None:
         return result
@@ -303,8 +322,8 @@ def test_a_none_or_a_branch_not_chosen_outside_nested_loops_decides_the_inner_an
     assert (outcome_of(none_outside, "n"), outcome_of(skipped, "n")) == ("not called", "skipped")
     assert none_outside.results["j"]["result"] == [None] * len(
         text.split()
-    )  # each item's inner collect is not called: None in its place
-    # no item can get a value when a branch outside is not chosen: one None for all
+    )  # For each item, the inner collect is not called, so there is a None in its place.
+    # With the branch outside not chosen, no item can get a value, so there is one None for the whole loop.
     assert skipped.results["j"]["result"] is None
     assert [call.loc[0] for call in skipped.not_called] == []
     assert _nested_loops("join", "x", "ab cd").results["n"]["result"] == 2
@@ -417,7 +436,7 @@ def test_a_branch_not_chosen_outside_skips_an_inner_collect_also_for_an_item_who
     )
     assert [call.loc[0] for call in run.not_called] == [
         "c"
-    ]  # j is skipped for both items, also for the item whose list is None
+    ]  # j is skipped for both items, even the one whose list is None.
 
 
 OTHER_SERIES = (
@@ -484,7 +503,7 @@ def test_a_node_in_a_loop_collecting_a_series_never_returned_is_not_called_nor_i
 def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_branch_not_chosen(
     first: str, second: str, text: str, n: Any
 ) -> None:
-    # a needs e.yes and f.yes, b needs e.no and f.no; both are wired to p, which is called per item and collected
+    # a needs e.yes and f.yes, and b needs e.no and f.no. Both feed p, which is called per item and then collected.
     nodes = {
         "s": "items",
         "e": "decide",
@@ -532,8 +551,11 @@ def test_two_alternatives_in_the_loop_skip_the_collect_only_when_both_are_on_a_b
 def test_forty_stages_of_alternatives_in_the_loop_are_decided_node_by_node_not_path_by_path(
     ways: list[str], n: Any
 ) -> None:
-    """Forty stages, each of two nodes on opposite branches of a branch node outside the loop, each wired to both
-    nodes of the stage before: about a million million paths lead through, and eighty nodes are decided."""
+    """Forty stages of alternatives are worked out one node at a time, not one path at a time.
+
+    Each stage is two nodes, one on each branch of a branch node outside the loop. Each is wired to both nodes of
+    the stage before. That gives about a million million paths through the graph, but only eighty nodes to decide.
+    """
 
     def sources(*places: str) -> dict[str, Any]:
         return {
@@ -640,7 +662,7 @@ def test_a_list_of_one_none_from_outside_the_loop_is_taken_only_where_its_items_
     )
     assert (
         outcome_of(ran(nodes, edges, kind="no-value", text="a b"), "n") == "not called"
-    )  # with-all's list of one takes no None
+    )  # with-all gets a list of one None, and its items don't take None.
     assert (
         outcome_of(
             ran({**nodes, "x": "with-all-taking-none"}, edges, kind="no-value", text="a b"), "n"
@@ -680,9 +702,12 @@ def test_a_series_returned_or_not_inside_a_subgraph_is_collected_as_with_the_sam
 def test_a_collect_reading_only_the_series_counts_its_items_and_one_reading_a_none_beside_it_is_not_called(
     text: str,
 ) -> None:
-    """When the loop body reads nothing from outside the loop but the series, the collecting node's outcome is
-    decided by the series alone. A second output of the node that returns the series is another value: when it is
-    ``None``, the collecting node that reads it is not called."""
+    """A collect whose loop reads only the Series counts its items, whatever else is ``None``.
+
+    When the nodes in the loop read nothing from outside it but the Series, the Series alone decides the collecting
+    node. The node that returns the Series also returns a second output, ``note``. That is a separate value. When
+    it is ``None``, a collecting node whose loop reads it is not called.
+    """
     nodes = {
         "x": "say",
         "t": "outside-value",
@@ -778,8 +803,11 @@ REGISTRY.subgraph(
 def test_a_series_input_wired_to_a_per_item_value_gets_that_items_value_flat_or_in_a_subgraph() -> (
     None
 ):
-    """A document's summary beside the document's letters: the node is called once per document, for the letters it
-    collects, so its other ``Series`` input, wired to the summary, gets that document's summary, never every one."""
+    """A node that collects each document's letters gets that document's summary beside them.
+
+    The node is called once per document, since it collects the letters of one document at a time. So its other
+    ``Series`` input, wired to the summary, gets only that document's summary, never all of them.
+    """
     flat = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -843,7 +871,10 @@ def shown(
     output: str = "result",
     **inputs: str,
 ) -> tuple[Any, Any, Any]:
-    """An output in ``run.results``, in ``run.outputs``, and in the results of the run read back with ``Run.from_json``."""
+    """Returns one output three ways.
+
+    They are ``run.results``, ``run.outputs``, and the results of the run after it is saved and loaded again.
+    """
     run = ran(nodes, edges, outputs={"shown": f"{node_id}.{output}"}, **inputs)
     return (
         run.results[node_id][output],
@@ -940,7 +971,7 @@ def test_a_subgraph_in_a_loop_shows_a_list_per_item_and_none_where_its_series_wa
         ["AB"],
         None,
         ["CD"],
-    ]  # a list for each item and None for the item whose series was never returned
+    ]  # A list for each item, and None for the item whose Series was never returned.
     assert (
         in_subgraph.results["e"]["result"]
         == [["AB"], None, ["CD"]]
@@ -977,8 +1008,10 @@ REGISTRY.subgraph(
 def test_two_series_inputs_wired_to_a_subgraphs_per_word_and_per_letter_outputs_are_called_per_word() -> (
     None
 ):
-    """The letters are a list per word, so the node is called once per word with that word's letters, and the
-    other input gets that word's one value as a list of one."""
+    """The letters come as one list per word, so the node is called once per word.
+
+    Each call gets that word's letters. Its other input gets that word's one value, as a list of one.
+    """
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -1004,8 +1037,10 @@ def test_two_series_inputs_wired_to_a_subgraphs_per_word_and_per_letter_outputs_
 
 
 def test_a_chain_of_a_thousand_nodes_in_a_loop_is_collected() -> None:
-    """Whether any item of the loop can have a value is worked out node by node, in the order a run calls them, so
-    a long chain inside the loop needs no deep recursion."""
+    """A long chain inside a loop doesn't hit Python's recursion limit.
+
+    Whether any item of the loop can have a value is worked out one node at a time, in the order a run calls them.
+    """
     chain = [(f"u{i}", "up") for i in range(1000)]
     edges = [
         ("s.result", "u0.a"),
@@ -1027,8 +1062,11 @@ def settings() -> dict[str, str]:
 
 @pytest.mark.parametrize("text", ["", "a"])
 def test_the_order_of_a_nodes_parameters_does_not_change_a_collect_over_a_loop(text: str) -> None:
-    """Inside the loop, ``t`` reads a field ``settings`` does not return, and the other input of the pair is on a branch
-    not chosen. Swapping the pair's parameters changes nothing, for an empty list as for one item."""
+    """Swapping the order of a node's parameters doesn't change how a loop is collected.
+
+    Inside the loop, ``t`` reads a field that ``settings`` doesn't return. The pair's other input is on a branch not
+    chosen. The run ends the same way with either order, for an empty list and for one item.
+    """
     statuses = []
     for pair_id in ("pair", "pair-reversed"):
         nodes = {
@@ -1059,8 +1097,11 @@ def test_the_order_of_a_nodes_parameters_does_not_change_a_collect_over_a_loop(t
 
 
 def test_two_sibling_loops_joined_through_collecting_nodes() -> None:
-    """``x`` is called per letter of each word of ``first``, and reads ``inner``, which collects the words of
-    ``second`` per letter and then per word. Each collect asks about its own loop."""
+    """Two loops side by side, where one feeds the other only through collecting nodes.
+
+    ``x`` is called once per letter of each word of ``first``. It also reads ``wt``, which collects a loop over
+    ``second`` in two steps, first per word and then whole. Each collecting node works out only its own loop.
+    """
     nodes = {
         "o": "items",
         "op": "items",
