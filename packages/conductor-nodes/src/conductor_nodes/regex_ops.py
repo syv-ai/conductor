@@ -1,10 +1,11 @@
 """Nodes for regular expressions: ``regex-match``, ``regex-replace`` and ``regex-extract``.
 
 Some patterns make Python's ``re`` run practically forever. ``(a+)+$`` on a long run of a's is one. These nodes use
-the ``regex`` package instead, which handles those patterns fine.
+the ``regex`` package instead, which finishes many of those patterns. Not all: ``(a+)+$`` on 1,000 a's and a ``b``
+still takes about a second.
 
-Every search also has a timeout, as a second guard. It has to be inside the call: a search that holds the GIL
-can't be stopped from outside.
+So every search also has a timeout. It has to be inside the call: a search that holds the GIL can't be stopped
+from outside.
 
 A node fails with one of three codes:
 

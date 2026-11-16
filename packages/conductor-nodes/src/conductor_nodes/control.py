@@ -9,9 +9,9 @@ you don't need a node to join the branches again.
 the yes or no, and you wire it in: ``logic-equals``, ``logic-is-empty``, ``text-contains``, ``regex-match`` or
 ``logic-not``.
 
-All three nodes pass ``value`` on without looking at it, so it can be anything. Its type is a type variable, and the
-outputs take the type of whatever is wired to it. Wire in an ``int`` from ``text-length`` and the outputs are
-``int`` too.
+All three nodes pass ``value`` on, so it can be anything. ``control-default`` only checks whether it is ``None``.
+Its type is a type variable, and the outputs take the type of whatever is wired to it. Wire in an ``int`` from
+``text-length`` and the outputs are ``int`` too.
 """
 
 from dataclasses import dataclass
@@ -92,7 +92,8 @@ def switch[T](value: T, case: str, cases: list[str]) -> dict[str, Any]:
 def default[T](value: T | None, fallback: T) -> T:
     """Returns ``value``, or ``fallback`` when ``value`` is ``None``.
 
-    The nodes after it always get a value. ``fallback`` can be a constant. Wire it from another node instead, and
-    you get the first of two values that is there.
+    When ``value`` is ``None``, the nodes after it get ``fallback``. If ``value`` comes from a branch that wasn't
+    chosen, this node is skipped like any other, and so are the nodes after it. ``fallback`` can be a constant. Wire
+    it from another node instead, and you get the first of two values that isn't ``None``.
     """
     return fallback if value is None else value

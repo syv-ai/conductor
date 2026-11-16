@@ -361,9 +361,10 @@ class Worker(Generic[M, X]):
     async def cancel(self, run_id: str, *, allows: Callable[[M], bool]) -> RunView:
         """Ask a running or waiting run to stop before its next node call, so that it ends ``cancelled``.
 
-        A running run is asked to stop: at once when this worker resumes it, at the next renewal of its lease when
-        another does. The cancel is written to the row's state, and a resume call is stopped only by what its row
-        says: this worker reads the row again here, and another worker reads it at its next renewal.
+        A running run is asked to stop: at once when this worker resumes it, at its next checkpoint or lease renewal
+        when another does. The cancel is written to the row's state, and a resume call is stopped only by what its
+        row says: this worker reads the row again here, and another worker reads it when its next checkpoint or
+        renewal finds the row changed.
 
         A waiting run is claimed with the cancel already asked, as ``resume`` claims a run, and resumed: its resume
         call ends ``cancelled`` before it calls any node, as ``run.stream(cancel=...)`` ends a waiting run, and its

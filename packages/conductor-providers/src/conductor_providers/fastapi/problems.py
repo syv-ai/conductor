@@ -1,7 +1,9 @@
 """The four kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
 
-Everything else a run or a call can go wrong with is conductor's own, in ``conductor.PROBLEMS``. A kind is a
-function that writes the message, declared the way conductor declares its own. Calling it makes the ``Problem``::
+Everything else a run or a call can go wrong with is conductor's own, in ``conductor.PROBLEMS``. The exceptions are
+a request body of the wrong shape and a ``Last-Event-ID`` that isn't a whole number, which FastAPI refuses with its
+own errors. A kind is a function that writes the message, declared the way conductor declares its own. Calling it
+makes the ``Problem``::
 
     run_not_resumable(status="waiting")
     # Problem(type="run_not_resumable", loc=(), msg="The run is waiting, ...", ctx={"status": "waiting"})

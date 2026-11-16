@@ -123,7 +123,7 @@ print([field.type for field in graph.describe().nodes["control-decide"].outputs]
 
 ## Good to know
 
-- The regular-expression nodes use the `regex` package, and every search has a timeout. A pattern that would make Python's `re` hang fails the node with `pattern_timeout` instead.
+- The regular-expression nodes use the `regex` package, and every search has a timeout. The `regex` package finishes many patterns that would make Python's `re` hang, and one that still runs too long fails the node with `pattern_timeout`.
 - `math-round` rounds a half away from zero, the way people do: 2.5 becomes 3, and 0.125 becomes 0.13 at two decimals.
 - When a node can't do its job, it fails with a code you can act on, such as `division_by_zero`, `not_json` or `invalid_pattern`.
 

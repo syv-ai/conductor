@@ -1,9 +1,10 @@
 """The two JSON columns the worker keeps in a run's row, every way the first one changes, and what a reader is shown.
 
 A row's ``state`` is ``RunState``: where the run is, the answers queued while it runs, and a cancel asked of it. It
-is small however large the run is, so queuing an answer or asking a cancel reads and writes only it. A row's
-``outcome`` is ``RunOutcome``: what waits for a person, the outputs, and how far the run is. It can be megabytes,
-so it is written only when the run stops and with each checkpoint. A store keeps both as text and never reads them.
+is small however large the run is. So queuing an answer or asking a cancel writes only it and the row's
+``status``, though the read before the write fetches the whole row. A row's ``outcome`` is ``RunOutcome``: what
+waits for a person, the outputs, and how far the run is. It can be megabytes, so it is written only when the run
+stops and with each checkpoint. A store keeps both as text and never reads them.
 
 Every change of a state is a method here that returns a new state, so a test can call it on a ``Run`` with no store
 at all. ``RunView`` is what a reader sees of the two: the run's status and outcome, without the worker's own
@@ -209,8 +210,8 @@ class RunState(BaseModel):
 class RunView(RunOutcome):
     """A run as a reader sees it, as it was when it last stopped running, read without loading the run.
 
-    ``Worker.read`` gives it, and every route under ``/runs`` answers with it, so an action answers with the run as
-    it wrote it. It shows only what a reader needs: the answers a running run has queued, and a cancel asked of it,
+    ``Worker.read`` gives it, and every route under ``/runs`` but the events route answers with it, so an action
+    answers with the run as it wrote it. It shows only what a reader needs: the answers a running run has queued, and a cancel asked of it,
     are the worker's own business and aren't shown.
 
     Attributes:
