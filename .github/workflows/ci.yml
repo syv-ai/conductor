@@ -35,3 +35,32 @@ jobs:
         run: uv run mypy packages
       - name: Pytest
         run: uv run pytest tests/ -q -m "not slow"
+
+  notebooks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync
+      - name: Execute the example notebooks
+        run: |
+          failed=0
+          for nb in examples/*.ipynb; do
+            echo "::group::$nb"
+            uv run jupyter nbconvert --to notebook --execute --output-dir "$RUNNER_TEMP/notebooks" "$nb" || { echo "::error file=$nb::notebook failed"; failed=1; }
+            echo "::endgroup::"
+          done
+          exit $failed
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Build the docs
+        run: uv run --group docs mkdocs build --strict

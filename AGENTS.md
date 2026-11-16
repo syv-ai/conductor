@@ -21,6 +21,7 @@ uv run pytest tests/ -q      # the whole suite
 uvx ruff check --fix .       # lint, fixing what ruff can; CI runs `ruff check .`
 uvx ruff format .            # format, as the commit hook does; CI runs `ruff format --check .`
 uv run mypy packages         # type-check, as CI runs it
+uv run --group docs mkdocs build --strict  # the docs; CI also runs this, and executes every notebook in examples/
 ```
 
 CI runs ruff's check and format check, mypy and pytest on every PR. A test whose point is a wall-clock bound is marked `slow`, and CI deselects those (`-m "not slow"`), since a busy runner misses the bound.
