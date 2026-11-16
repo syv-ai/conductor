@@ -11,6 +11,7 @@ import json
 import logging
 import typing
 import warnings
+from collections.abc import Mapping
 from dataclasses import FrozenInstanceError, dataclass
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -1275,6 +1276,31 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
         "not_a_mapping",
     )
     assert f"returned a {type(returned).__name__}, not a mapping" in problem.msg
+
+
+@pytest.mark.parametrize("returns", [str, int | None, None, list[str]])
+def test_a_hooks_node_whose_return_type_cannot_be_a_mapping_is_refused_when_it_is_declared(
+    returns: Any,
+):
+    """The node returns the hook's outputs as a mapping, so ``-> str`` would fail on every call. It is refused at
+    import, where its developer meets it, not on the first run."""
+
+    def one(text: str) -> Any:
+        return text
+
+    one.__annotations__["return"] = returns
+    with pytest.raises(NodeDeclarationError) as refused:
+        node("one", title="One", description="For a test.", compute_outputs=lambda: {"a": int})(one)
+    assert [p.type for p in refused.value.problems] == ["outputs_not_a_mapping"]
+
+
+@pytest.mark.parametrize("returns", [dict, dict[str, Any], Mapping[str, int], Any, dict | None])
+def test_a_hooks_node_may_declare_any_return_type_a_mapping_fits(returns: Any):
+    def one(text: str) -> Any:
+        return {"a": 1}
+
+    one.__annotations__["return"] = returns
+    node("one", title="One", description="For a test.", compute_outputs=lambda: {"a": int})(one)
 
 
 @pytest.mark.parametrize(

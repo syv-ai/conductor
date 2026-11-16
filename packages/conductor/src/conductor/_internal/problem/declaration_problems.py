@@ -707,6 +707,35 @@ def outputs_not_frozen() -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
+def outputs_not_a_mapping(*, returns: str) -> str:
+    """A node whose ``compute_outputs`` hook gives its outputs declares a return type that can't be a mapping.
+
+    The hook says what the outputs are, so the function returns them as a mapping from each output's name to its
+    value. A return type like ``str`` says it returns one value, and every call would fail.
+
+    To fix it, write ``-> dict[str, Any]``.
+
+    Args:
+        returns: The return type, as its developer wrote it.
+
+    Example:
+        def text_outputs() -> dict[str, type]:
+            return {"result": str}
+
+
+        def one(text: str) -> str:
+            return text
+
+
+        declaration_refused(lambda: node("one", title="One", description="Passes the text on as it is.", compute_outputs=text_outputs)(one))
+    """
+    return (
+        f"the node's compute_outputs hook gives its outputs, so it returns them as a mapping by name, not as {returns}. "
+        "Write -> dict[str, Any]."
+    )
+
+
+@DECLARATION_PROBLEMS.problem()
 def parameter_not_by_name() -> str:
     """A node's function takes an input by position only, before a ``/``, or as ``*args``.
 

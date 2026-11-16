@@ -515,7 +515,7 @@ print(list(graph.outputs))                   # ['city', 'name']
 print(graph.run(line="Ida,Aarhus").outputs)  # {'city': 'Aarhus', 'name': 'Ida'}
 ```
 
-The hook is called when the graph is compiled, with the constant given to `names`. So `names` must be a constant: no edge or caller can give it. The node returns its outputs as a dict by name.
+The hook is called when the graph is compiled, with the constant given to `names`. So `names` must be a constant: no edge or caller can give it. The node returns its outputs as a dict by name, and its return type says so: `@registry.node` refuses `-> str` on it (`outputs_not_a_mapping`).
 
 The outputs are known only once the graph is compiled, so `make_graph` can't find them by itself. You name the ones the graph returns with `outputs=`, and without it `make_graph` raises `hook_outputs_not_named`. `compute_added_inputs=` adds inputs the same way, and the function takes them as `**values`. A hook that raises doesn't stop compiling: the node gets the problem `compute_hook_failed`, with your message if you raised a `NodeError`.
 

@@ -111,7 +111,7 @@ A field's title is what its `Param(title=)` says, and `None` without one. Nothin
 - `-> str` is one output, named `result`. `Annotated[str, Param(title=)]` says more about it.
 - A frozen dataclass is one output per field. The class is the definition's `outputs_dataclass`, which is `None` for any other return type.
 - Any other type is one value, a `dict[str, int]` included.
-- With `compute_outputs`, the function returns the outputs the hook gives, as a mapping by name.
+- With `compute_outputs`, the function returns the outputs the hook gives, as a mapping by name. Its return type is one a mapping fits (`dict[str, Any]`, `Mapping`, a `TypedDict`, `Any`, or a union with one of them), else the declaration raises `outputs_not_a_mapping`.
 - `-> None` declares no outputs.
 
 **Branches.** A node can send its value one way or another. Each way is a branch: an output whose default is `SKIPPED`, a field `large: int = SKIPPED` of a returned dataclass, or `(int, SKIPPED)` from a `compute_outputs` hook.
