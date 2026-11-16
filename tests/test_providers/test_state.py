@@ -146,20 +146,6 @@ def test_a_decline_the_run_takes_clears_a_cancel_asked_since_the_run_has_ended()
     assert (state.status, state.cancel_asked) == ("failed", False)
 
 
-def test_with_only_answers_queued_a_run_takes_no_decline_and_is_given_nothing(
-    caplog: LogCaptureFixture,
-) -> None:
-    """The answers are given to the run once, when it stops, so asking whether it takes a decline gives it none.
-
-    A run that would raise on any call stands in for one whose check of an answer raises, which is logged.
-    """
-    untouchable: Any = object()
-
-    taken = RunState.started().with_queued({"approval@0": True}).takes_a_decline(untouchable)
-
-    assert (taken, caplog.records) == (False, [])
-
-
 def test_of_an_answer_and_a_decline_to_one_question_the_first_queued_is_taken() -> None:
     """The second finds nothing waiting, so conductor refuses it as ``not_waiting``, as a second answer is."""
     run, waiting_id = _waiting()

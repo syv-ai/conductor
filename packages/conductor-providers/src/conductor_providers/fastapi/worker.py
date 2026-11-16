@@ -22,6 +22,7 @@ from threading import Event
 from typing import Any, Generic
 
 from conductor import Graph, InvalidCallError, NodeRegistry, Run, RunProgress
+from conductor.events import RunEnd
 from pydantic import TypeAdapter
 from pydantic_core import from_json
 from typing_extensions import TypeVar
@@ -323,13 +324,17 @@ class Worker(Generic[M, X]):
     ) -> RunView:
         """Decline to answer a question that waits in a run, so the run fails, as ``run.decline`` fails it.
 
-        A decline is queued as an answer is. While the run is running, it waits in the queue until the run's resume
-        call ends, and the run is given it then, in order with the answers queued with it. Otherwise the run is
-        checked first, so a decline the run refuses is refused here, and then claimed with the decline queued. The
-        worker that holds it gives it the queue without a resume call, so the declined call doesn't ask again. A run
-        that takes the decline ends ``failed``, with ``answer_declined`` as its cause, and isn't resumed. A running
-        run can still refuse it when it is given it, as ``not_waiting`` after an answer to the same question or as
-        ``answer_stale``. It is then in the run's ``refused``, and the run goes on as it would have.
+        A run that takes the decline ends ``failed``, with ``answer_declined`` as its cause, and isn't resumed: a
+        resume would ask the declined question again.
+
+        While the run is running, the decline is queued as an answer is. The run is given it when its resume call
+        ends, in order with the answers queued with it. The run can still refuse it then, as ``not_waiting`` after an
+        answer to the same question or as ``answer_stale``. It is then in the run's ``refused``, and the run goes on
+        as it would have.
+
+        A run that isn't running is given the decline here, after any replies still queued from a resume call that
+        raised, and written as it ends: ``failed``, with a ``run_end`` that says so in its events. Nothing resumes
+        it, so this needs no lease and no ``serving()``. A decline the run refuses is refused here.
 
         When another call takes the run between this call's read and its write, the run is read again, and the
         decline goes by what it is then: queued if it is running, refused as ``not_waiting`` if the question was
@@ -343,15 +348,13 @@ class Worker(Generic[M, X]):
                 ``no_such_run``, as one that isn't there. Pass ``lambda metadata: True`` to let every run through.
 
         Returns:
-            The run as written, ``running``.
+            The run as written: ``running`` when the decline was queued, ``failed`` when the run took it.
 
         Raises:
             InvalidCallError: No run has the id (``no_such_run``). Or ``reason`` is a ``str`` JSON can't write, such
                 as one with a lone surrogate (``invalid_answer``, variant ``reason``), whether the run is running or
-                not. Or the run isn't running, and refuses the decline: ``not_waiting`` or ``answer_stale``.
-            RuntimeError: The run is not running, so the decline would be claimed, and the worker has never served.
-
-            Nothing is written when any of these is raised.
+                not. Or the run isn't running, and refuses the decline: ``not_waiting`` or ``answer_stale``. Nothing
+                is written then.
         """
         declines = {waiting_id: reason}
         row = await self._row(run_id, allows)
@@ -363,10 +366,17 @@ class Worker(Generic[M, X]):
             if state.is_running:
                 return self._view(row)
             taken, nodes = row, self.nodes_for(self._metadata_in(row))
-            await asyncio.to_thread(lambda: loaded(taken, nodes).decline(waiting_id, reason=reason))
-            claimed = await self._claim(row, state.with_queued(declines=declines).running())
-            if claimed is not None:
-                return self._view(claimed)
+            ended, changes = await asyncio.to_thread(
+                lambda: state.with_queued(declines=declines).ended_with(
+                    loaded(taken, nodes), taken.run, taken.outcome
+                )
+            )
+            # the decline comes last in the queue, so the run refused it only if its question is in refused now
+            if waiting_id in ended.refused:
+                raise InvalidCallError(ended.refused[waiting_id])
+            written = await self._write_ended(row, ended, changes)
+            if written is not None:
+                return self._view(written)
             row = await self._row(run_id)
 
     async def resume(
@@ -721,6 +731,37 @@ class Worker(Generic[M, X]):
         claimed = replace(row, **written, rev=row.rev + 1)
         self._resume_in_background(claimed)
         return claimed
+
+    async def _write_ended(
+        self, row: StoredRun, state: RunState, changes: RunChanges
+    ) -> StoredRun | None:
+        """Write a run that ended with no resume call, if the row is still at the ``rev`` read, and store its
+        ``run_end``, which says what the row says.
+
+        A store takes an event only from the run's ``owner``. So the row is written with this worker as its owner,
+        and no lease, since no resume call runs. The ``run_end`` is stored then, and the owner cleared. Of two calls,
+        one wins: when another call writes the row in between, this worker is no longer its owner and stores nothing
+        more.
+
+        Args:
+            row: The run's row as read.
+            state: The state the run ended with.
+            changes: The row's ``run`` and ``outcome`` to write with it.
+
+        Returns:
+            The row as written; ``None`` when another call wrote it first.
+        """
+        owner = self._settings.worker_id
+        written: RunChanges = {**state.columns(), **changes, "owner": owner, "lease_until": None}
+        if not await self._store.update(row.id, row.rev, written):
+            return None
+        stored = replace(row, **written, rev=row.rev + 1)
+        ended = RunEnd(status=state.status, cause=state.cause).model_dump_json()
+        if await self._store.add_event(row.id, owner, ended) and await self._store.update(
+            row.id, stored.rev, {"owner": None}
+        ):
+            stored = replace(stored, owner=None, rev=stored.rev + 1)
+        return stored
 
     def _resume_in_background(self, row: StoredRun) -> None:
         """Start the task that resumes a run this worker has just taken.

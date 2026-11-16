@@ -894,30 +894,52 @@ async def test_an_answer_to_a_complete_run_is_refused_by_conductor_as_not_waitin
 # -- declines -------------------------------------------------------------------------------------
 
 
-async def test_a_decline_of_a_waiting_run_fails_it_with_no_resume_call_and_a_resume_asks_again() -> (
-    None
-):
+class _UpdatesKept(MemoryStore):
+    """A ``MemoryStore`` that keeps the changes of every ``update`` it took, in order."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.updates: list[RunChanges] = []
+
+    async def update(self, run_id: str, rev: int, changes: RunChanges) -> bool:
+        written = await super().update(run_id, rev, changes)
+        if written:
+            self.updates.append(changes)
+        return written
+
+
+async def test_a_decline_of_a_waiting_run_writes_it_failed_with_one_run_end_and_no_claim() -> None:
+    """The run is given the decline once and written as it ends: never ``running``, no lease, no resume call.
+
+    Its events get one ``run_end`` that says what the row says, so a host that follows them learns the run failed.
+    A resume then asks the declined question again.
+    """
     registry, graph, gate, inputs, waiting_id = asking()
     gate.set()
-    store = MemoryStore()
+    store = _UpdatesKept()
     worker = _worker(store, registry)
     async with worker.serving():
         run_id = await _started(worker, graph, inputs)
         await store.ended(run_id)
+        events, updates = len(await store.stored_events(run_id)), len(store.updates)
 
         written = await worker.decline(run_id, waiting_id, reason="Over budget", allows=EVERY_RUN)
-        ended = await store.ended(run_id)
 
-        assert written.status == "running"
-        assert (ended.status, ended.cause.type, ended.cause.ctx, ended.waiting) == (
+        row = store.rows[run_id]
+        assert written == await store.view(run_id)
+        assert (written.status, written.cause.type, written.cause.ctx, written.waiting) == (
             "failed",
             "answer_declined",
             {"reason": "Over budget"},
             [],
         )
-        events = await store.stored_events(run_id)
+        assert (row.status, row.owner, row.lease_until) == ("failed", None, None)
+        assert [changes.get("status") for changes in store.updates[updates:]] == ["failed", None]
+        assert [
+            (event["type"], event["status"], event["cause"]["type"])
+            for event in (await store.stored_events(run_id))[events:]
+        ] == [("run_end", "failed", "answer_declined")]
         assert await _resume_calls(store, run_id) == 1
-        assert (events[-1]["type"], events[-1]["status"]) == ("run_end", "failed")
 
         await worker.resume(run_id, allows=EVERY_RUN)
         again = await store.ended(run_id)
@@ -925,6 +947,56 @@ async def test_a_decline_of_a_waiting_run_fails_it_with_no_resume_call_and_a_res
             "waiting",
             [waiting_id],
         )
+
+
+async def test_a_worker_that_never_served_declines_a_waiting_run() -> None:
+    """A declined run is never resumed, so declining it needs no worker that hands runs back."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    served = _worker(store, registry)
+    async with served.serving():
+        run_id = await _started(served, graph, inputs)
+        await store.ended(run_id)
+
+    written = await _worker(store, registry).decline(run_id, waiting_id, allows=EVERY_RUN)
+
+    assert (written.status, written.cause.type) == ("failed", "answer_declined")
+
+
+async def test_a_decline_to_a_stopped_run_is_given_after_what_is_queued_so_an_answer_queued_first_wins() -> (
+    None
+):
+    """A resume call that raised leaves its queue. A decline that comes then is given after it, as it would be while
+    the run runs, so the queued answer to the same question is taken and the decline is ``not_waiting``. Nothing is
+    written."""
+    registry, graph, gate, inputs, waiting_id = asking()
+    gate.set()
+    store = MemoryStore()
+    worker = _worker(store, registry)
+    async with worker.serving():
+        run_id = await _started(worker, graph, inputs)
+        await store.ended(run_id)
+    store.rows[run_id] = dataclasses.replace(
+        store.rows[run_id],
+        state=json.dumps(
+            {
+                **store.state(run_id),
+                "status": "failed",
+                "cause": {"type": "raised_outside_a_node", "msg": "It raised.", "ctx": {}},
+                "queued": [
+                    {"waiting_id": waiting_id, "declined": False, "answer": True, "reason": None}
+                ],
+            }
+        ),
+    )
+    before = store.rows[run_id]
+
+    with pytest.raises(InvalidCallError) as refused:
+        await worker.decline(run_id, waiting_id, allows=EVERY_RUN)
+
+    assert [problem.type for problem in refused.value.problems] == ["not_waiting"]
+    assert store.rows[run_id] == before
 
 
 async def test_a_decline_sent_while_a_resume_call_runs_is_queued_and_fails_the_run_when_it_stops() -> (

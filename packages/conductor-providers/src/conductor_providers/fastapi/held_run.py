@@ -166,8 +166,6 @@ class HeldRun:
             metadata = settings.metadata.validate_json(self._row.metadata)
             run = await asyncio.to_thread(loaded, self._row, settings.nodes_for(metadata))
             held = await asyncio.to_thread(RunOutcome.of, run)
-            if await asyncio.to_thread(self._state.takes_a_decline, run):
-                return await self._declined(run, held)
             stream = run.stream(
                 context=settings.context_for(metadata, self._stop),
                 timeout=settings.resume_timeout,
@@ -209,28 +207,6 @@ class HeldRun:
             cause = raised_outside_a_node(error=type(error).__name__)
         outcome_json = held.model_dump_json()
         return RunEnd(status="failed", cause=cause), lambda state: state.failed(cause, outcome_json)
-
-    async def _declined(
-        self, run: Run[Any], held: RunOutcome
-    ) -> tuple[RunEnd, Callable[[RunState], tuple[RunState, RunChanges]]]:
-        """Give the run what is queued with no resume call, since it takes a decline from the queue and fails.
-
-        A worker claims a run that isn't running with the decline queued, so the worker that holds the run applies
-        it, as it applies a queued answer. The run isn't resumed: the call it declined would ask again. So no stream
-        runs, and the run's events get its ``run_end`` with no ``run_start`` before it.
-
-        Args:
-            run: The run as the row has it.
-            held: Its outcome.
-
-        Returns:
-            Two things, as ``_resume_call`` returns them. The call's own ``run_end``, which says how the run stood
-            in its row, since no stream ran. And how the row's state changes once the run takes the decline.
-        """
-        saved, written = await asyncio.to_thread(lambda: (run.to_json(), held.model_dump_json()))
-        return RunEnd(status=run.status, cause=run.cause), lambda state: state.ended_with(
-            run, saved, written
-        )
 
     async def _finish(
         self, run_end: RunEnd | None, after: Callable[[RunState], tuple[RunState, RunChanges]]

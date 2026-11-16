@@ -643,8 +643,8 @@ async def test_every_refusal_is_a_list_of_problems_with_the_status_of_its_code()
         declined = await client.post(
             f"/runs/{waits}/declines", json={"waiting_id": waiting_id, "reason": "No"}
         )
-        assert _status(declined) == (202, "running")
-        assert (await store.ended(waits)).cause.type == "answer_declined"
+        assert _status(declined) == (202, "failed")
+        assert declined.json()["cause"]["type"] == "answer_declined"
         assert refusal(
             await client.post(f"/runs/{waits}/declines", json={"waiting_id": waiting_id})
         ) == (422, [("not_waiting", {"waiting_id": waiting_id, "status": "failed"})])

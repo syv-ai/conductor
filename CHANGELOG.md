@@ -395,8 +395,10 @@ What changes in how you work, before the name-by-name tables:
   left out, and `Worker.decline` takes a reason as `run.decline` does. The decline is queued as an
   answer is, as one entry of the row's `queued`; the run takes what was queued in order, the first of an answer and a
   decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined` and isn't
-  resumed. A run that isn't running is checked first, so a refused decline is a 422 (`not_waiting`,
-  `answer_stale`). The last `run_end` the run's events store says what the row says: a decline sent while the run
+  resumed. A run that isn't running is given the decline at once, after any replies still queued, and written
+  `failed` with no lease and no resume call, so any worker takes it, served or not, and the route answers with the
+  run `failed`; its events get one `run_end` that says so. A decline it refuses is a 422 (`not_waiting`,
+  `answer_stale`), and nothing is written. The last `run_end` the run's events store says what the row says: a decline sent while the run
   runs, and taken when the resume call stops, makes that call's `run_end` `failed` with `answer_declined`, though
   its stream ended `waiting`, or `cancelled` with a cancel asked too.
 - **The runs router takes an answer whenever the run does.** `POST /runs/{id}/answers` on a run that `failed`, `stopped`, `timed_out` or was `cancelled` gives the answers to `run.answer` and resumes the run, so one item that keeps failing doesn't make the questions beside it unanswerable; what the run refuses is a 422 with its problems (`invalid_answer`, and `not_waiting`, also for an answer to a `complete` run). Answers queued while the run is running are given to the run it stopped as, whatever its status; a resume that raised keeps them queued. The code `run_not_waiting` is gone.

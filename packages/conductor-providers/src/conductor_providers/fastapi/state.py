@@ -124,24 +124,6 @@ class RunState(BaseModel):
         """This state with the run running again, for a worker to resume."""
         return self.model_copy(update={"status": "running", "cause": None})
 
-    def takes_a_decline(self, run: Run[Any]) -> bool:
-        """Whether ``run`` takes a decline when it is given what is queued, and so fails.
-
-        The worker that holds the run then gives it the queue without a resume call, since a resume would ask the
-        declined question again. A decline the run refuses as it is, such as one for a question it hasn't asked
-        yet, doesn't count: the run is resumed, and given the queue again when it stops.
-
-        With only answers queued, nothing is given to the run here, so they are given to it, and any failed check of
-        them logged, once, when it stops.
-
-        Args:
-            run: The run as the row has it.
-        """
-        if not any(reply.declined for reply in self.queued):
-            return False
-        _, _, declined, _ = self._given_to(run)
-        return declined
-
     def with_queued(
         self,
         answers: Mapping[str, Any] = MappingProxyType({}),
@@ -189,10 +171,14 @@ class RunState(BaseModel):
         return self.model_copy(update={"queued": queued, "refused": refused})
 
     def ended_with(self, run: Run[Any], saved: str, outcome: str) -> tuple[RunState, RunChanges]:
-        """This state once a resume call returned ``run``, after the run was given what was queued meanwhile.
+        """This state once the run stops and is given what was queued meanwhile.
 
-        The queued replies are given to the run in the order they came, with ``run.answer`` and ``run.decline``. So a wrong one is refused alone. One the run refuses goes to ``refused``
-        with its problems, and one it takes clears what ``refused`` had for its question. Of an answer and a decline
+        The run stops when a resume call returns it, or when a decline comes for a run that isn't running: the worker
+        queues the decline last and calls this with the run as the row has it.
+
+        The queued replies are given to the run in the order they came, with ``run.answer`` and ``run.decline``. So
+        a wrong one is refused alone. One the run refuses goes to ``refused`` with its problems, and one it takes
+        clears what ``refused`` had for its question. Of an answer and a decline
         to one question, the one that came first is taken: the second is refused by conductor as ``not_waiting``,
         as a second answer is. An answer whose check raises something other than a refusal (a fault in a host's
         type) is logged and refused as ``raised_outside_a_node``.
@@ -206,8 +192,7 @@ class RunState(BaseModel):
         cancel is cleared: a run that is complete or ended early has nothing to cancel.
 
         Args:
-            run: The run the resume call returned, or the run as the row has it when a decline is given to a run that
-                isn't running.
+            run: The run the resume call returned, or the run as the row has it.
             saved: ``run``, as JSON.
             outcome: The row's ``outcome`` for ``run``, as JSON.
 
