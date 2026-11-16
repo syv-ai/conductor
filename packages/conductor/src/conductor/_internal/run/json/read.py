@@ -41,6 +41,10 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
     in call-number order. The item indexes are then worked out node by node, in the order a run tries them. A
     node's item indexes follow from the lengths of the series upstream of it, and those are read by then.
 
+    The outcomes the saved run could still reuse are kept only for a node whose code is unchanged and whose
+    ``Policy`` says ``reuse_when_inputs_match`` now. So a node switched to ``reuse_when_inputs_match=False`` after the
+    save is called again for every item.
+
     Args:
         run_type: The class ``Run``. It is passed in because ``run/type.py`` imports this package.
         saved: The JSON text.
@@ -119,7 +123,14 @@ def run_from_json[R](run_type: Callable[..., R], saved: str | bytes, graph: Grap
                 for item_indexes, outcome in zip(every_item_indexes, of_node, strict=True)
                 if outcome is not None
             }
-    reusable.drop(code_changed)  # outcomes that other code produced are never reused
+    # Outcomes that other code produced are never reused, and neither are those of a node whose Policy says
+    # reuse_when_inputs_match=False now, whatever it said when the run was saved.
+    never_reused = [
+        path
+        for path, node in blueprint.function_nodes.items()
+        if not node.policy.reuse_when_inputs_match
+    ]
+    reusable.drop([*code_changed, *never_reused])
     return run_type(
         graph,
         read.inputs,

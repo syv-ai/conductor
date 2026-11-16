@@ -232,6 +232,9 @@ What changes in how you work, before the name-by-name tables:
   `renamed_outputs` isn't a field the replaced version declares, or its new name isn't one the new version declares;
   such a rename moved nothing, and the upgraded graph lost what the field got. A version with a `compute_added_inputs`
   or `compute_outputs` hook has its renames of that kind of field left unchecked.
+- **`Run.from_json` holds a node to its current `Policy`.** It drops the outcomes a saved run could still reuse for a
+  node whose `Policy` says `reuse_when_inputs_match=False` now; such a node is called again for every item, where a
+  run saved before the policy changed reused them. The next save writes no `reusable` entry for it.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
   ready, running, waiting, complete or ended early, and whose `cause` is the `Problem` that ended a run that failed,
   stopped, was cancelled or timed out (`None` otherwise). One rule reads it from the outcomes and from how the last

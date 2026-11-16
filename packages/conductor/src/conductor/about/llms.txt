@@ -798,7 +798,7 @@ second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added
 
 **Forgetting.** `run.forget("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
 
-**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `forget`) calls it for every item. The policy is checked when that run is made: `Run.from_json` takes a saved run's reusable outcomes as they were saved.
+**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `forget`) calls it for every item. The policy is checked when that run is made, and again when a saved run is read: `Run.from_json` drops the outcomes a saved run could still reuse for a node whose current `Policy` says `reuse_when_inputs_match=False`, so the rule holds however the run was made.
 
 `node_complete.reused` says how many calls were reused.
 

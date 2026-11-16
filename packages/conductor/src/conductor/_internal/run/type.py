@@ -658,6 +658,8 @@ class Run[C]:
 
         ``Run.from_json(run.to_json(), graph)`` has the inputs, the outcomes and the status of ``run``, in another
         process too. Each value is converted back by its type, so a date comes back from its text, for example.
+        What the saved run could still reuse is kept only for a node whose ``Policy`` says ``reuse_when_inputs_match``
+        in ``graph``.
 
         Raises:
             InvalidCallError: The graph's own problems, if it has any, before anything of ``saved`` is read.

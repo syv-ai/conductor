@@ -574,6 +574,36 @@ def test_reuse_when_inputs_match_false_calls_again():
     assert calls == ["a", "b"], calls
 
 
+def test_a_saved_run_is_held_to_the_reuse_policy_its_node_has_when_it_is_read():
+    """``Run.from_json`` drops what a saved run could reuse for a node whose ``Policy`` now says not to reuse.
+
+    The run is made from a previous one while ``rate`` reuses, and saved before it resumes. Read back where ``rate``
+    says ``reuse_when_inputs_match=False``, it calls ``rate`` for every item, as a run made there would.
+    """
+    calls = []
+
+    def rate(text: str) -> str:
+        calls.append(text)
+        return text
+
+    reuses = node("rate", title="Rate", description="For a test.")(rate)
+    never = node(
+        "rate",
+        title="Rate",
+        description="For a test.",
+        policy=Policy(reuse_when_inputs_match=False),
+    )(rate)
+    record = GraphRecord.model_validate(chain("split", "rate", "upper"))
+    reusing = Graph.compile(record, registry_of(split, reuses, upper))
+    saved = reusing.with_inputs(text="a,b", previous=reusing.run(text="a,b")).to_json()
+
+    calls.clear()
+    Run.from_json(saved, reusing).resume()
+    assert calls == []
+    Run.from_json(saved, Graph.compile(record, registry_of(split, never, upper))).resume()
+    assert calls == ["a", "b"]
+
+
 # -- 3. hooks ------------------------------------------------------------------------------------
 
 

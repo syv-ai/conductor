@@ -53,8 +53,8 @@ class Policy:
             fails the call for good. Its thread can't be stopped, so trying again could repeat what it does.
         retry_on: Exception classes of the node's own client to try again, like an ``ExternalError``.
         reuse_when_inputs_match: Whether a run made from a previous one reuses a result when a call gets the same
-            inputs as before. It is checked when the new run is made. ``Run.from_json`` takes a saved run's reusable
-            outcomes as they were saved.
+            inputs as before. It is checked when the new run is made, and again by ``Run.from_json``, which drops
+            the outcomes a saved run could still reuse for a node that says ``False`` now.
         costs_nothing: Whether a call is cheap enough for ``run.resume(only_costs_nothing=True)`` to make. A node
             that takes the run's context can't set it.
     """
