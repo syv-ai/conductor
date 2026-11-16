@@ -11,7 +11,7 @@ import functools
 import operator
 import typing
 from collections.abc import Iterable, Mapping
-from types import GenericAlias, UnionType
+from types import UnionType
 from typing import Any, TypeAliasType, TypeGuard, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, JsonValue
@@ -23,11 +23,6 @@ READ_AS: dict[type, Any] = {}
 def union_members(hint: Any) -> tuple[Any, ...]:
     """Returns the members of a union. Any other hint is returned as a union of one member."""
     return get_args(hint) if get_origin(hint) in (Union, UnionType) else (hint,)
-
-
-def list_of(item: Any) -> Any:
-    """Returns ``list[item]``, for an item type known only at run time."""
-    return GenericAlias(list, (item,))
 
 
 def union_of(options: Iterable[Any]) -> Any:

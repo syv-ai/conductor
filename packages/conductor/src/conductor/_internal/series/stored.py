@@ -169,7 +169,11 @@ class Records[T]:
         ]
 
     def as_table_input(self) -> pl.DataFrame:
-        """Returns the frame itself, the way a node with a ``Table`` input gets it."""
+        """Returns the frame itself, the way a node with a ``Table`` input gets it.
+
+        ``as_list`` would work too, since the table type reads a list of records. But then every call that collects
+        the frame would turn it into one dict per row and back into a frame.
+        """
         return self.frame
 
     def field_as_list(self, name: str) -> list[Any]:
