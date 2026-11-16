@@ -41,6 +41,7 @@ from conductor._internal.problem import (
     conductor_error,
     run_problems,
 )
+from conductor._internal.table import frame_as_json
 from conductor._internal.types import (
     Choice,
     Type,
@@ -48,7 +49,6 @@ from conductor._internal.types import (
     choice_texts,
     pick_texts,
     read_choices,
-    untyped_as_json,
 )
 from conductor._internal.utils import comma_separated
 from conductor._internal.validation import Validator, schema_output_validator_of
@@ -394,7 +394,7 @@ def _read_as_answer(value_type: Type, value: Any) -> Any:
     """
     try:
         return validate_as_json(
-            schema_output_validator_of(value_type), value, fallback=untyped_as_json
+            schema_output_validator_of(value_type), value, fallback=frame_as_json
         )
     except PydanticSerializationError:
         raise _no_json_form() from None
@@ -444,7 +444,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
             InvalidCallError: See the class.
         """
         try:
-            return validate_as_json(_ANY, answer, fallback=untyped_as_json)
+            return validate_as_json(_ANY, answer, fallback=frame_as_json)
         except (PydanticSerializationError, PydanticCustomError) as refused:
             reason = _why_unwritable(refused)
         # A mapping is answered by question name, so the problem names each question whose value can't be written.
@@ -472,7 +472,7 @@ class AnswerAsJsonValidator(Validator[Any, Any]):
 def _unwritable(value: Any) -> str | None:
     """Why ``value`` can't be written as JSON, or ``None`` when it can."""
     try:
-        validate_as_json(_ANY, value, fallback=untyped_as_json)
+        validate_as_json(_ANY, value, fallback=frame_as_json)
     except (PydanticSerializationError, PydanticCustomError) as refused:
         return _why_unwritable(refused)
     return None

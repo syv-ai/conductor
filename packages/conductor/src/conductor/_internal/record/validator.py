@@ -20,13 +20,13 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+import polars as pl
 from pydantic import JsonValue, ValidationError
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
 from conductor._internal.problem import InvalidCallError, call_problems, compile_problems
 from conductor._internal.series import set_has_no_order
-from conductor._internal.types import kind_of_value
 from conductor._internal.validation import Validator
 
 from .graph import GraphRecord
@@ -178,10 +178,9 @@ class WrittenValuesValidator(Validator[Mapping[str, Any], dict[str, JsonValue]])
             try:
                 written[name] = plain_json(value)
             except PydanticSerializationError:
-                reason = (
-                    "it can't be written as JSON, and a graph record is saved as JSON"
-                    + kind_of_value(value).typed_in_advice
-                )
+                reason = "it can't be written as JSON, and a graph record is saved as JSON"
+                if isinstance(value, pl.DataFrame):
+                    reason += " (in a graph record, a table is written as a list of records)"
                 problems.append(compile_problems.invalid_value(self._node_id, name, reason=reason))
         if problems:
             raise InvalidCallError(problems)

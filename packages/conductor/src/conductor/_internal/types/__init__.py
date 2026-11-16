@@ -15,13 +15,7 @@ from .hint import a_number, union_members, union_of
 from .host_type import NAMES, host_type
 from .param import Param, merged_param, split_hint
 from .record import NoSuchFieldError, field_of
-from .type import (
-    Type,
-    TypeRefusal,
-    kind_of_value,
-    untyped_as_json,
-    untyped_to_hash,
-)
+from .type import Type, TypeRefusal
 
 __all__ = [
     "NAMES",
@@ -35,13 +29,10 @@ __all__ = [
     "choice_texts",
     "field_of",
     "host_type",
-    "kind_of_value",
     "merged_param",
     "pick_texts",
     "read_choices",
     "split_hint",
     "union_members",
     "union_of",
-    "untyped_as_json",
-    "untyped_to_hash",
 ]

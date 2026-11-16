@@ -144,12 +144,9 @@ class Type:
 
     Attributes:
         hint: The hint, with its ``Annotated`` metadata and its type variables as written.
-        typed_in_advice: Text added to the error when a value of this type is typed into a graph record and can't
-            be written as JSON. It says what to give instead. Empty for most types.
     """
 
     hint: Any
-    typed_in_advice: ClassVar[str] = ""
     _made: ClassVar[WeakValueDictionary[Any, Type]] = WeakValueDictionary()
 
     def __init_subclass__(cls, *, of: Any, value_class: type | None = None) -> None:
@@ -158,8 +155,8 @@ class Type:
         Args:
             of: The generic class a node author writes in a hint, such as ``Series`` or ``Table``.
             value_class: The class of the values at run time, if an author may write that class as the hint too,
-                such as ``polars.DataFrame`` for ``Table``. A value of this class found where no type is declared,
-                such as inside an ``Any``, is written, hashed and compared by the subclass's ``untyped_`` methods.
+                such as ``polars.DataFrame`` for ``Table``. A hint written with it is read as one written with
+                ``of``.
         """
         _KINDS[of] = cls
         # the generic class's id is its name as a host imports it, so a host can't declare that id
@@ -592,40 +589,6 @@ class Type:
         """
         return msg
 
-    @staticmethod
-    def untyped_as_json(value: Any) -> Any:
-        """Converts ``value`` to JSON, for a value of this type's ``value_class`` found where no type is declared.
-
-        Pydantic's ``to_json`` calls it as its ``fallback``.
-
-        Raises:
-            TypeError: Always, unless a subclass overrides this. Pydantic's ``to_json`` expects ``fallback`` to
-                raise ``TypeError`` for a value it can't write.
-        """
-        raise TypeError(type(value).__name__)
-
-    @classmethod
-    def untyped_to_hash(cls, value: Any) -> Any:
-        """Returns what to hash in place of a value of this kind that a call received.
-
-        It is the value's JSON, unless a subclass has something shorter to hash.
-
-        Raises:
-            TypeError: The value can't be written as JSON.
-        """
-        return cls.untyped_as_json(value)
-
-    @staticmethod
-    def untyped_equal(one: Any, other: Any) -> bool:
-        """Returns whether two values found where no type is declared are equal.
-
-        If ``==`` raises for them, they are equal only when they are the same object.
-        """
-        try:
-            return bool(one == other)
-        except (ValueError, TypeError):
-            return one is other
-
 
 def _check_is_type(hint: Any) -> None:
     """Checks that a hint is a type, or a generic of one, and not some other value like ``5``, ``[int]`` or ``{}``.
@@ -674,35 +637,3 @@ def _kind_of(hint: Any) -> type[Type]:
         return Type
     origin = get_origin(options[0]) or options[0]
     return _KINDS.get(origin, Type) if isinstance(origin, type) else Type
-
-
-def kind_of_value(value: Any) -> type[Type]:
-    """Returns the ``Type`` subclass for the class of ``value``, or ``Type`` if none is registered.
-
-    It is ``TableType`` for a frame, and ``Type`` for ``5``. It is used for a value found where no type is
-    declared, such as inside an ``Any``.
-    """
-    return _KINDS.get(READ_AS.get(type(value)), Type)
-
-
-def untyped_as_json(value: Any) -> Any:
-    """Converts a value pydantic can't write itself to JSON, such as a frame inside an ``Any``.
-
-    It is passed to pydantic's ``to_json`` as ``fallback``.
-
-    Raises:
-        TypeError: No ``Type`` subclass is registered for the value's class.
-    """
-    return kind_of_value(value).untyped_as_json(value)
-
-
-def untyped_to_hash(value: Any) -> Any:
-    """Returns what to hash in place of a value pydantic can't write as JSON, found in a call's arguments.
-
-    It is passed to ``to_json`` as ``fallback`` when a call's arguments are hashed. A frame becomes
-    ``{"table": "<digest>"}``.
-
-    Raises:
-        TypeError: No ``Type`` subclass is registered for the value's class.
-    """
-    return kind_of_value(value).untyped_to_hash(value)

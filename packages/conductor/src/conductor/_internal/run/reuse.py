@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any, Literal, assert_never, cast
 from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import ItemIndexes, NodePath, json_hash
-from conductor._internal.types import untyped_to_hash
+from conductor._internal.table import frame_to_hash
 
 from .blueprint import BlueprintFunctionNode, RunBlueprint
 from .outcome import Done, NoneInput, NotReady, Outcome, Skipped, Unanswered
@@ -282,6 +282,6 @@ def call_fingerprint(
             ]
         )
     try:
-        return json_hash(hashed, 12, fallback=untyped_to_hash)
+        return json_hash(hashed, 12, fallback=frame_to_hash)
     except (TypeError, ValueError, PydanticSerializationError):
         return None

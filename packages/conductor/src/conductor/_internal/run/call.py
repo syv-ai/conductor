@@ -18,7 +18,7 @@ from pydantic_core import PydanticSerializationError
 
 from conductor._internal.base import plain_json
 from conductor._internal.problem import InvalidCallError, Problem, run_problems
-from conductor._internal.types import untyped_as_json
+from conductor._internal.table import frame_as_json
 
 from .blueprint import BlueprintFunctionNode
 
@@ -87,11 +87,11 @@ def jsonable(arguments: dict[str, Any]) -> Any:
             first input that can't, and the exception's class. Its text goes to the ``conductor`` logger.
     """
     try:
-        return plain_json(arguments, fallback=untyped_as_json)
+        return plain_json(arguments, fallback=frame_as_json)
     except (TypeError, ValueError, PydanticSerializationError) as error:
         for name, value in arguments.items():
             try:
-                plain_json(value, fallback=untyped_as_json)
+                plain_json(value, fallback=frame_as_json)
             except (TypeError, ValueError, PydanticSerializationError) as unwritable:
                 _logger.error(
                     "the input %r of a call that asks can't be written as JSON",

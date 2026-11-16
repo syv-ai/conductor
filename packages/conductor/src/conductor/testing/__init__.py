@@ -40,6 +40,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal
 
+import polars as pl
 from pydantic import ValidationError
 from typing_extensions import sentinel
 
@@ -54,7 +55,7 @@ from conductor._internal.node import (
 from conductor._internal.problem import InvalidCallError, Problem, compile_problems
 from conductor._internal.record import GraphRecord, InputEntry, NodeRecord, WrittenValuesValidator
 from conductor._internal.registry import NodeRegistry
-from conductor._internal.types import Param, kind_of_value
+from conductor._internal.types import Param
 from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
 from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
@@ -418,14 +419,23 @@ def _candidates(hint: Any, param: Param) -> list[Any]:
 
 
 def _same(one: Any, other: Any) -> bool:
-    """Whether two values are equal, comparing dicts and lists item by item, and other values by their type's rule."""
+    """Whether two values are equal, comparing dicts and lists item by item, and frames cell by cell.
+
+    ``==`` can't compare two frames: it returns a frame of results, not a ``bool``. For any other value where ``==``
+    raises, the two are equal only when they are the same object.
+    """
     if one is other:
         return True
     if isinstance(one, Mapping) and isinstance(other, Mapping):
         return one.keys() == other.keys() and all(_same(one[key], other[key]) for key in one)
     if isinstance(one, list) and isinstance(other, list):
         return len(one) == len(other) and all(_same(a, b) for a, b in zip(one, other, strict=True))
-    return kind_of_value(one).untyped_equal(one, other)
+    if isinstance(one, pl.DataFrame):
+        return isinstance(other, pl.DataFrame) and one.equals(other)
+    try:
+        return bool(one == other)
+    except (ValueError, TypeError):
+        return one is other
 
 
 __all__ = ["check_registry", "REGISTRY_CHECK_PROBLEMS"]

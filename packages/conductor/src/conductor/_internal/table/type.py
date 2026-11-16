@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 import typing
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, ClassVar, get_args
+from typing import TYPE_CHECKING, Any, get_args
 
 import polars as pl
 from pydantic import GetCoreSchemaHandler
@@ -64,8 +64,6 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
 
     A plain ``polars.DataFrame`` written as a hint is read as a bare ``Table``: a table with any columns.
     """
-
-    typed_in_advice: ClassVar[str] = " (in a graph record, a table is written as a list of records)"
 
     @functools.cached_property
     def _row(self) -> Any:
@@ -122,31 +120,33 @@ class TableType(Type, of=_Table, value_class=pl.DataFrame):
             else f"column '{part}': {msg}"
         )
 
-    @staticmethod
-    def untyped_as_json(value: Any) -> Any:
-        """Converts a frame to JSON when no type says it is a table.
 
-        That happens for a frame inside an ``Any``, or in a person's answer given from Python. The columns are first
-        converted the way a run stores them (``as_saved``).
+def frame_as_json(value: Any) -> Any:
+    """Converts a frame to JSON where no type says it is a table.
 
-        Raises:
-            PydanticCustomError: ``column_not_saved`` if a column would come back changed from a saved run.
-        """
-        return written_table(as_saved(value))
+    That happens for a frame inside an ``Any``, or in a person's answer given from Python. The columns are first
+    converted the way a run stores them (``as_saved``). Pydantic's ``to_json`` calls it as its ``fallback`` for a
+    value it can't write itself.
 
-    @staticmethod
-    def untyped_to_hash(value: Any) -> Any:
-        """Returns ``{"table": digest}`` to hash in place of a frame a call received.
+    Raises:
+        TypeError: ``value`` is not a frame. Pydantic's ``to_json`` expects ``fallback`` to raise it for a value it
+            can't write.
+        PydanticCustomError: ``column_not_saved`` if a column would come back changed from a saved run.
+    """
+    if not isinstance(value, pl.DataFrame):
+        raise TypeError(type(value).__name__)
+    return written_table(as_saved(value))
 
-        This keeps a large table from being written as JSON for every call that gets it. ``table_digest`` works out
-        each frame's digest once.
-        """
-        return {"table": table_digest(value)}
 
-    @staticmethod
-    def untyped_equal(one: Any, other: Any) -> bool:
-        """Returns whether two frames have equal cells.
+def frame_to_hash(value: Any) -> Any:
+    """Returns ``{"table": digest}`` to hash in place of a frame a call received.
 
-        ``==`` can't be used here: on two frames it returns a frame of results, not a ``bool``.
-        """
-        return isinstance(other, pl.DataFrame) and one.equals(other)
+    It is passed to ``to_json`` as ``fallback`` when a call's arguments are hashed. This keeps a large table from
+    being written as JSON for every call that gets it. ``table_digest`` works out each frame's digest once.
+
+    Raises:
+        TypeError: ``value`` is not a frame, so it can't be written as JSON.
+    """
+    if not isinstance(value, pl.DataFrame):
+        raise TypeError(type(value).__name__)
+    return {"table": table_digest(value)}
