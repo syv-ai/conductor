@@ -573,7 +573,7 @@ def test_every_streamed_event_equals_mock_any():
     assert streamed == [ANY] * len(streamed)
 
 
-def test_an_event_read_back_from_json_says_it_carries_no_run():
+def test_an_event_read_back_from_json_has_no_run():
     read_back = TypeAdapter(Event).validate_json(_streamed_events()[-1].model_dump_json())
 
     with pytest.raises(AttributeError, match="carries no run: it was read back from JSON"):

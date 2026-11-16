@@ -563,7 +563,7 @@ def test_a_single_value_as_the_constant_of_a_series_input_is_refused_not_wrapped
 # -- what the graph offers -------------------------------------------------------------------------
 
 
-def test_a_graph_input_carries_its_title_type_and_widget_for_a_form():
+def test_a_graph_input_has_the_title_type_and_choices_a_form_needs():
     described = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -675,7 +675,7 @@ def test_a_graph_input_and_a_graph_output_are_each_named_by_the_record():
     }
 
 
-def test_a_description_of_a_broken_graph_is_json_and_carries_its_problems():
+def test_a_description_of_a_broken_graph_is_json_and_includes_its_problems():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {
@@ -1410,7 +1410,7 @@ def test_a_table_returned_inside_a_subgraph_is_offered_whole_as_one_value():
     }
 
 
-def test_a_subgraph_offers_its_inner_inputs_and_carries_its_deprecation():
+def test_a_subgraph_offers_its_inner_inputs_and_the_registry_shows_its_deprecation():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {

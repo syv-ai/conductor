@@ -258,7 +258,7 @@ class Stoppable:
 
 
 @dataclasses.dataclass
-class Stopping:
+class StopEventGraph:
     """The graph that ``stopping`` builds, with the events a test waits on.
 
     The graph has three nodes:
@@ -290,8 +290,8 @@ def stoppable(metadata: object, stop: ThreadEvent) -> Stoppable:
     return Stoppable(stop)
 
 
-def stopping() -> Stopping:
-    """Builds a ``Stopping`` graph.
+def stopping() -> StopEventGraph:
+    """Builds a ``StopEventGraph`` graph.
 
     It runs the graph once on its own to learn the question's waiting id. Then it clears the events and ``seen``, so
     the test starts fresh.
@@ -338,4 +338,4 @@ def stopping() -> Stopping:
     started.clear()
     returned.clear()
     seen.clear()
-    return Stopping(registry, graph, waiting.id, started, returned, seen)
+    return StopEventGraph(registry, graph, waiting.id, started, returned, seen)

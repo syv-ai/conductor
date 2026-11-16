@@ -713,7 +713,9 @@ def test_records_given_for_a_table_are_read_as_polars_reads_rows_one_type_per_co
         pl.Series([[[]], [[5]]], dtype=pl.List(pl.List(pl.Int64))),
     ],
 )
-def test_a_nested_column_whose_first_cells_hold_less_reads_back_as_it_is(column: pl.Series):
+def test_a_nested_column_whose_first_cells_have_less_in_them_is_loaded_back_unchanged(
+    column: pl.Series,
+):
     @node("nested", title="Nested", description="For a test.")
     def nested(text: str) -> Table:
         return pl.DataFrame({"a": column})
@@ -731,7 +733,7 @@ def test_a_nested_column_whose_first_cells_hold_less_reads_back_as_it_is(column:
         ([{"x": 1}, {"y": 2}], [{"x": 1, "y": None}, {"x": None, "y": 2}]),
     ],
 )
-def test_a_table_given_in_its_json_form_reads_a_json_column_as_its_cells_say(
+def test_a_json_column_of_a_table_given_as_json_takes_a_type_that_fits_every_cell(
     values: list[Any], read: list[Any]
 ):
     @node("rows", title="Rows", description="For a test.")

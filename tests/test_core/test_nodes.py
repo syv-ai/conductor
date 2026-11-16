@@ -130,7 +130,7 @@ def test_a_wrong_declaration_is_a_type_error_with_a_code_naming_the_node_and_fun
     assert "@node('x') on bad" in str(raised.value)
 
 
-def test_a_node_id_must_have_something_in_it_and_no_mark_a_source_or_waiting_id_uses():
+def test_a_node_id_must_have_something_in_it_and_no_character_a_source_or_waiting_id_uses():
     for wrong in ("", "a.b", "a/b", "a@b", "a~b"):
         with pytest.raises(NodeDeclarationError) as raised:
             node(wrong, title="Wrong", description="For a test.")
@@ -376,7 +376,7 @@ def test_a_sink_node_declares_no_outputs_and_runs():
     assert graph.run(text="hi").status == "complete" and seen == ["hi"]
 
 
-def test_each_of_several_outputs_carries_its_own_type_and_title():
+def test_each_of_several_outputs_has_its_own_type_and_title():
     @dataclass(frozen=True)
     class Parts:
         name: str
@@ -551,7 +551,7 @@ def test_a_subclass_output_fits_an_input_of_its_parent_type_and_not_the_other_wa
     assert codes(compiled_graph(plain, on_text, record=mistyped)) == ["type_mismatch"]
 
 
-def test_each_plain_type_carries_its_own_value():
+def test_a_bool_and_a_date_reach_the_next_node_as_their_own_type():
     @node("flags", title="Flags", description="For a test.")
     def flags(on: bool, day: datetime.date) -> bool:
         return on
@@ -1331,7 +1331,7 @@ def test_a_hooks_own_exception_is_logged_with_its_traceback_as_a_nodes_own_failu
     )
 
 
-def test_a_hook_adding_an_input_whose_name_a_source_cannot_carry_is_refused():
+def test_a_hook_adding_an_input_whose_name_has_a_character_of_a_source_is_refused():
     @node(
         "adds", title="Adds", description="For a test.", compute_added_inputs=lambda: {"a.b": int}
     )
@@ -1395,7 +1395,7 @@ def test_params_stacked_on_an_alias_merge_as_pydantics_fields_do_the_later_one_w
     assert codes(compiled_graph(declared(f), constants={"x.separator": ""})) == ["invalid_value"]
 
 
-def test_a_param_on_a_series_item_is_the_fields_own_so_an_int_lands_and_a_bool_does_not():
+def test_a_param_on_a_series_item_is_the_fields_own_and_refuses_a_negative_int_or_a_bool():
     count = Annotated[int, Param(ge=0, title="Count")]
     registry = NodeRegistry()
 
@@ -1790,7 +1790,7 @@ def test_a_configuration_the_graphs_author_fixes_is_a_value_and_one_left_open_is
     ],
     ids=["a bool", "a number as text", "below the field's limit"],
 )
-def test_a_declared_choice_is_read_strictly_and_held_to_the_fields_limits(
+def test_a_declared_choice_is_read_strictly_and_checked_against_the_fields_limits(
     choices: list[object], limits: dict[str, int], reason: str
 ) -> None:
     with pytest.raises(NodeDeclarationError) as raised:

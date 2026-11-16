@@ -752,7 +752,7 @@ def test_a_subgraphs_input_rename_moves_only_the_edge_into_that_exact_input():
     assert Graph.compile(moved, reg).problems == []
 
 
-def test_a_rename_carries_a_constant_a_graph_input_and_edges_as_they_are():
+def test_a_rename_keeps_a_constant_a_graph_input_and_edges_as_they_are():
     def carry_v1(a: str, b: str, c: str) -> str:
         return a + b + c
 

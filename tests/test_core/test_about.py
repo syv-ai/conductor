@@ -284,7 +284,7 @@ def _written(catalogue: ProblemCatalogue, monkeypatch: MonkeyPatch) -> str:
     return about.fill_placeholders("<!-- problems: rooms.CATALOGUE -->")
 
 
-def test_a_key_that_may_be_left_out_and_a_variant_are_said_in_a_kinds_entry(
+def test_a_key_that_may_be_left_out_and_a_variant_are_shown_in_a_kinds_entry(
     monkeypatch: MonkeyPatch,
 ):
     catalogue = ProblemCatalogue()

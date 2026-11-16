@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_the_layers_contract_holds() -> None:
+def test_the_layers_contract_is_kept() -> None:
     # Run it in its own process. import-linter sets up logging for its output, and other tests read the logs.
     found = subprocess.run(
         [Path(sys.executable).with_name("lint-imports"), "--no-cache"],

@@ -409,7 +409,7 @@ def _refused_as(call: Any) -> list[tuple[str, str]]:
     return [(p.type, p.ctx["errors"][0]["type"]) for p in refused.value.problems]
 
 
-def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
+def test_a_yes_or_no_is_never_taken_as_a_number_of_a_literal():
     checked = _checked_registry()
     graph = Graph.compile(_one("level", "n", checked), checked)
 
@@ -417,7 +417,7 @@ def test_a_yes_or_no_never_lands_on_a_literal_of_numbers():
     assert graph.run(n=2).outputs == {"result": 2}
 
 
-def test_a_yes_or_no_never_lands_on_a_union_a_number_is_in_and_a_yes_or_no_is_not():
+def test_a_yes_or_no_is_never_taken_as_a_number_of_a_union_without_a_yes_or_no():
     local_registry = NodeRegistry()
 
     @local_registry.node("either", title="Either", description="For a test.")

@@ -1146,7 +1146,7 @@ def _x_then(x: Any, y: Any) -> Graph:
     )
 
 
-def test_a_run_woken_while_its_thread_is_busy_elsewhere_holds_up_no_run_that_asked_after_it():
+def test_a_run_woken_while_its_thread_is_busy_elsewhere_delays_no_run_that_asked_after_it():
     """A run woken while its thread is busy elsewhere doesn't hold up a run that asked after it.
 
     Run ``first`` waits for ``x``, and meanwhile calls ``y`` on its own thread. ``y`` waits for run ``last`` to be

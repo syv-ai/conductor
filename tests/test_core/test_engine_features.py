@@ -1,7 +1,7 @@
 """The engine's larger features, each in a section of its own.
 
 The sections are: events and pipelining, ``Policy``, hooks, a host's own types, branches (``exclusive_group``),
-``describe()``, and reuse inside a subgraph.
+``describe()``, what a node's signature declares, and reuse inside a subgraph.
 """
 
 import asyncio
@@ -311,6 +311,82 @@ def test_a_nested_loop_collects_each_documents_lines_into_its_own_join():
     )
     run = graph.run(text="a,b|c|d,e,f")
     assert run.results["join"]["result"] == ["aa+bb", "cc", "dd+ee+ff"], run.results
+
+
+def test_a_timed_out_run_keeps_the_calls_already_on_threads():
+    sent: list[str] = []
+
+    @node("mail4", title="Mail4", description="For a test.", policy=Policy(concurrency=4))
+    def mail4(text: str) -> str:
+        t.sleep(0.2)
+        sent.append(text)
+        return text
+
+    graph = Graph.compile(
+        GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4)
+    )
+    # four calls are running on threads when time runs out, and four never start
+    stopped = graph.with_inputs(text="a,b,c,d,e,f,g,h").resume(timeout=0.05)
+    assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
+
+    finished = Run.from_json(stopped.to_json(), graph).resume()
+    assert finished.status == "complete" and sorted(sent) == [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+        "h",
+    ]
+
+
+def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
+
+    @node("numbers", title="Numbers", description="For a test.")
+    def numbers(n: list[int]) -> Series[int]:
+        return n
+
+    @node("each", title="Each", description="For a test.")
+    def each(n: int) -> int:
+        if n == 1:
+            raise ValueError("no")
+        return n
+
+    run = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "n": {"node": "numbers", "inputs": {"n": {"graph_input": "n"}}},
+                    "e": {
+                        "node": "each",
+                        "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "e", "output": "result"}},
+            }
+        ),
+        registry_of(numbers, each),
+    ).run(n=[0, 1, 2])
+
+    assert run.status == "failed" and run.results["e"]["result"][0] == 0
+    try:
+        run.outputs
+    except InvalidCallError as error:
+        assert error.problems[0].type == "run_not_complete"
+    else:
+        raise AssertionError("outputs of a failed run")
+
+
+def test_the_last_progress_event_of_a_node_is_always_sent():
+    graph = Graph.compile(
+        GraphRecord.model_validate(chain("split", "upper")), registry_of(split, upper)
+    )
+    events = collect(graph.with_inputs(text=",".join(str(i) for i in range(3000))))
+
+    progress = [(e.count.finished, e.count.total) for e in events if e.type == "node_progress"]
+    assert progress[-1] == (3000, 3000)
 
 
 # -- 2. Policy ------------------------------------------------------------------------------------
@@ -641,6 +717,59 @@ def test_computed_outputs_take_the_type_that_arrives_on_their_input():
     assert [p.type for p in wrong.problems] == ["type_mismatch"], wrong.problems
 
 
+def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its_node():
+    def added(n: int) -> dict[str, Any]:
+        return {f"x{i}": str for i in range(n)}
+
+    @node("hooky", title="Hooky", description="For a test.", compute_added_inputs=added)
+    def hooky(n: int, **values: str) -> str:
+        return "called"
+
+    graph = Graph.compile(
+        GraphRecord.model_validate(
+            {
+                "nodes": {
+                    "h": {"node": "hooky"},
+                    "u": {
+                        "node": "upper",
+                        "inputs": {"text": {"sources": [{"node": "h", "output": "result"}]}},
+                    },
+                },
+                "outputs": {"result": {"node": "u", "output": "result"}},
+            }
+        ),
+        registry_of(hooky, upper),
+    )
+
+    assert [(p.type, p.loc) for p in graph.problems] == [("input_has_no_value", ("h", "n"))]
+
+
+@pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
+def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_node_id_is(name: str):
+    """An output name a hook returns follows the same rule as a node id.
+
+    It can't be empty, and it can't use the characters that sources, locs and waiting ids are written with.
+    """
+
+    @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {name: str})
+    def dotted() -> Mapping[str, Any]:
+        return {name: "x"}
+
+    graph = Graph.compile(
+        GraphRecord.model_validate({"nodes": {"d": {"node": "dotted"}}, "outputs": {}}),
+        registry_of(dotted),
+    )
+
+    assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [
+        ("compute_hook_failed", ("d", name), "not_a_name")
+    ]
+    with pytest.raises(InvalidCallError) as refused:
+        Graph.compile(json.dumps({"nodes": {name: {"node": "dotted"}}}), registry_of(dotted))
+    assert [(p.type, p.loc) for p in refused.value.problems] == [
+        ("invalid_record", ("record", "nodes", name, "[key]"))
+    ]
+
+
 # -- 4. a host's own types ------------------------------------------------------------------------
 
 
@@ -950,89 +1079,10 @@ def test_a_compiled_graph_describes_a_nodes_added_inputs_with_one_that_no_edge_r
     )
 
 
-def test_a_hook_reading_an_input_that_has_no_constant_is_the_only_problem_of_its_node():
-    def added(n: int) -> dict[str, Any]:
-        return {f"x{i}": str for i in range(n)}
-
-    @node("hooky", title="Hooky", description="For a test.", compute_added_inputs=added)
-    def hooky(n: int, **values: str) -> str:
-        return "called"
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "h": {"node": "hooky"},
-                    "u": {
-                        "node": "upper",
-                        "inputs": {"text": {"sources": [{"node": "h", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "u", "output": "result"}},
-            }
-        ),
-        registry_of(hooky, upper),
-    )
-
-    assert [(p.type, p.loc) for p in graph.problems] == [("input_has_no_value", ("h", "n"))]
+# -- 7. what a node's signature declares ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["a.b", "a/b", "a@b", "a~b", ""])
-def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_node_id_is(name: str):
-    """An output name a hook returns follows the same rule as a node id.
-
-    It can't be empty, and it can't use the characters that sources, locs and waiting ids are written with.
-    """
-
-    @node("dotted", title="Dotted", description="For a test.", compute_outputs=lambda: {name: str})
-    def dotted() -> Mapping[str, Any]:
-        return {name: "x"}
-
-    graph = Graph.compile(
-        GraphRecord.model_validate({"nodes": {"d": {"node": "dotted"}}, "outputs": {}}),
-        registry_of(dotted),
-    )
-
-    assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [
-        ("compute_hook_failed", ("d", name), "not_a_name")
-    ]
-    with pytest.raises(InvalidCallError) as refused:
-        Graph.compile(json.dumps({"nodes": {name: {"node": "dotted"}}}), registry_of(dotted))
-    assert [(p.type, p.loc) for p in refused.value.problems] == [
-        ("invalid_record", ("record", "nodes", name, "[key]"))
-    ]
-
-
-def test_a_timed_out_run_keeps_the_calls_already_on_threads():
-    sent: list[str] = []
-
-    @node("mail4", title="Mail4", description="For a test.", policy=Policy(concurrency=4))
-    def mail4(text: str) -> str:
-        t.sleep(0.2)
-        sent.append(text)
-        return text
-
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "mail4")), registry_of(split, mail4)
-    )
-    # four calls are running on threads when time runs out, and four never start
-    stopped = graph.with_inputs(text="a,b,c,d,e,f,g,h").resume(timeout=0.05)
-    assert stopped.status == "timed_out" and sorted(sent) == ["a", "b", "c", "d"]
-
-    finished = Run.from_json(stopped.to_json(), graph).resume()
-    assert finished.status == "complete" and sorted(sent) == [
-        "a",
-        "b",
-        "c",
-        "d",
-        "e",
-        "f",
-        "g",
-        "h",
-    ]
-
-
-def test_what_a_signature_says_wrong_is_refused_at_node_with_its_code():
+def test_a_fault_in_a_signature_is_refused_at_node_with_its_problem_type():
     from conductor import NodeDeclarationError
 
     cases = {
@@ -1065,7 +1115,7 @@ def _fn(parameter: str, **names: Any) -> Any:
     return namespace["f"]
 
 
-def test_a_field_reads_as_its_author_wrote_it():
+def test_an_input_hint_written_as_optional_annotated_any_or_bare_series_is_described_and_run_as_written():
     from conductor import Table
 
     @host_type("Whole", title="Whole")
@@ -1098,54 +1148,7 @@ def test_a_field_reads_as_its_author_wrote_it():
     assert Table is not None
 
 
-def test_a_failed_run_has_no_outputs_but_its_results_say_what_it_did():
-
-    @node("numbers", title="Numbers", description="For a test.")
-    def numbers(n: list[int]) -> Series[int]:
-        return n
-
-    @node("each", title="Each", description="For a test.")
-    def each(n: int) -> int:
-        if n == 1:
-            raise ValueError("no")
-        return n
-
-    run = Graph.compile(
-        GraphRecord.model_validate(
-            {
-                "nodes": {
-                    "n": {"node": "numbers", "inputs": {"n": {"graph_input": "n"}}},
-                    "e": {
-                        "node": "each",
-                        "inputs": {"n": {"sources": [{"node": "n", "output": "result"}]}},
-                    },
-                },
-                "outputs": {"result": {"node": "e", "output": "result"}},
-            }
-        ),
-        registry_of(numbers, each),
-    ).run(n=[0, 1, 2])
-
-    assert run.status == "failed" and run.results["e"]["result"][0] == 0
-    try:
-        run.outputs
-    except InvalidCallError as error:
-        assert error.problems[0].type == "run_not_complete"
-    else:
-        raise AssertionError("outputs of a failed run")
-
-
-def test_the_last_progress_of_a_node_is_always_said():
-    graph = Graph.compile(
-        GraphRecord.model_validate(chain("split", "upper")), registry_of(split, upper)
-    )
-    events = collect(graph.with_inputs(text=",".join(str(i) for i in range(3000))))
-
-    progress = [(e.count.finished, e.count.total) for e in events if e.type == "node_progress"]
-    assert progress[-1] == (3000, 3000)
-
-
-# -- 7. a subgraph's inner nodes are reused just as the outer graph's own nodes are ------------
+# -- 8. a subgraph's inner nodes are reused just as the outer graph's own nodes are ------------
 
 
 def test_again_with_one_subgraph_input_changed_calls_only_the_inner_node_that_reads_it_and_asks_nothing_again():

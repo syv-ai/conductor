@@ -282,7 +282,7 @@ def test_a_column_of_another_type_is_the_ordinary_mismatch_naming_both_tables_co
 # -- two Series with nothing to pair their items -----------------------------------------------------------
 
 
-def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
+def test_two_series_that_do_not_nest_are_refused_and_the_message_says_how_to_pair_them():
     """Two Series that reach one node unpaired are refused, and the message says how to pair them."""
     found = problem(
         {"docs": "documents", "list": "questions", "ask": "ask"},
@@ -300,7 +300,7 @@ def test_two_series_that_do_not_nest_name_the_wire_that_would_nest_them():
     )
 
 
-def test_the_wire_it_names_nests_them():
+def test_wiring_an_item_of_one_series_into_the_node_that_returns_the_other_pairs_them():
     graph = Graph.compile(
         GraphRecord.model_validate(
             {

@@ -134,7 +134,7 @@ def _one_line(event: Event) -> str:
 
 def _streamed(
     run: Run[Any],
-    on: Callable[[list[str], AsyncioEvent], None] = lambda said, cancel: None,
+    on: Callable[[list[str], AsyncioEvent], None] = lambda events, cancel: None,
 ) -> tuple[list[str], Run[Any]]:
     """Streams ``run`` and returns its node events, one line each, with the run the stream ends with.
 
@@ -147,31 +147,31 @@ def _streamed(
 
     async def collect() -> tuple[list[str], Run[Any]]:
         cancel = AsyncioEvent()
-        said: list[str] = []
+        events: list[str] = []
         async for event in run.stream(cancel=cancel):
             if event.type == "run_end":
-                return said, event.run
+                return events, event.run
             if event.type.startswith("node_"):
-                said.append(_one_line(event))
-                on(said, cancel)
+                events.append(_one_line(event))
+                on(events, cancel)
         raise AssertionError("the stream ended with no run_end")
 
     GATE.clear()
     HELD.clear()
     try:
-        said, ended = asyncio.run(collect())
+        events, ended = asyncio.run(collect())
     finally:
         GATE.set()
-    progress = [index for index, line in enumerate(said) if line.startswith("node_progress ")]
+    progress = [index for index, line in enumerate(events) if line.startswith("node_progress ")]
     by_node: dict[str, list[int]] = {}
     for index in progress:
-        by_node.setdefault(said[index].split()[1], []).append(index)
+        by_node.setdefault(events[index].split()[1], []).append(index)
     between = {index for indexes in by_node.values() for index in indexes[1:-1]}
-    return [line for index, line in enumerate(said) if index not in between], ended
+    return [line for index, line in enumerate(events) if index not in between], ended
 
 
-def _said(
-    run: Run[Any], on: Callable[[list[str], AsyncioEvent], None] = lambda said, cancel: None
+def _event_lines(
+    run: Run[Any], on: Callable[[list[str], AsyncioEvent], None] = lambda events, cancel: None
 ) -> list[str]:
     """The lines ``_streamed`` returns, without the run."""
     return _streamed(run, on)[0]
@@ -186,7 +186,7 @@ def _lines_shout_join(text: str = "a\nb\nc") -> Run[Any]:
 
 
 def test_the_three_node_graph_says_the_events_the_module_describes():
-    assert _said(_lines_shout_join()) == [
+    assert _event_lines(_lines_shout_join()) == [
         "node_start lines",
         "node_start shout",
         "node_progress shout finished=1 waiting=0 known=3 total=3",
@@ -202,19 +202,19 @@ def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
     gated = _gated("shout", "b", threaded=True)
     run = _started(make_graph(lines, gated, join), registry_of(lines, gated, join), text="a\nb\nc")
 
-    def let_b_return(said: list[str], cancel: AsyncioEvent) -> None:
-        if said[-1] == "node_complete lines outcomes=1":
-            said.append("b may return")
+    def let_b_return(events: list[str], cancel: AsyncioEvent) -> None:
+        if events[-1] == "node_complete lines outcomes=1":
+            events.append("b may return")
             GATE.set()
 
-    said = _said(run, let_b_return)
-    let_go = said.index("b may return")
-    assert "node_complete shout outcomes=3" in said[let_go:]
-    assert not [line for line in said[:let_go] if line.startswith("node_complete shout")]
-    assert said[-2:] == ["node_complete shout outcomes=3", "node_complete join outcomes=1"]
+    events = _event_lines(run, let_b_return)
+    let_go = events.index("b may return")
+    assert "node_complete shout outcomes=3" in events[let_go:]
+    assert not [line for line in events[:let_go] if line.startswith("node_complete shout")]
+    assert events[-2:] == ["node_complete shout outcomes=3", "node_complete join outcomes=1"]
 
 
-def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_it_is_running():
+def test_a_skipped_node_has_no_start_and_is_complete_only_when_no_call_upstream_of_it_is_running():
     other = _gated("other", "b", threaded=True)
     record = make_graph(
         decide,
@@ -225,13 +225,13 @@ def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_i
     )
     run = _started(record, registry_of(decide, other, both), choice="a", other="b")
 
-    def let_other_return(said: list[str], cancel: AsyncioEvent) -> None:
-        if said[-1] == "node_complete decide outcomes=1":
+    def let_other_return(events: list[str], cancel: AsyncioEvent) -> None:
+        if events[-1] == "node_complete decide outcomes=1":
             GATE.set()
 
-    said = _said(run, let_other_return)
-    assert "node_start both" not in said
-    assert said[-2:] == [
+    events = _event_lines(run, let_other_return)
+    assert "node_start both" not in events
+    assert events[-2:] == [
         "node_complete other outcomes=1",
         "node_complete both outcomes=1 skipped=1",
     ]
@@ -239,7 +239,7 @@ def test_a_skipped_node_has_no_start_and_is_said_only_when_no_call_upstream_of_i
 
 def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
     run = _started(make_graph(lines, approve), registry_of(lines, approve), text="a\nb")
-    assert _said(run) == [
+    assert _event_lines(run) == [
         "node_start lines",
         "node_start approve",
         "node_waiting approve waiting=approve/0",
@@ -254,23 +254,23 @@ def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_run_ends_and_
     gated = _gated("shout", "b", threaded=False)
     run = _started(make_graph(lines, gated, join), registry_of(lines, gated, join), text="a\nb\nc")
 
-    def cancel_during_b(said: list[str], cancel: AsyncioEvent) -> None:
-        if said[-1].startswith("node_progress shout finished=1 "):
+    def cancel_during_b(events: list[str], cancel: AsyncioEvent) -> None:
+        if events[-1].startswith("node_progress shout finished=1 "):
             assert HELD.wait(5), "the call for b never started"
             cancel.set()
             GATE.set()
 
-    said, ended = _streamed(run, cancel_during_b)
+    events, ended = _streamed(run, cancel_during_b)
     assert ended.status == "cancelled"
-    assert not [line for line in said if line.startswith("node_complete shout")]
+    assert not [line for line in events if line.startswith("node_complete shout")]
     assert ended.progress.nodes["shout"] == CallCount(finished=2, waiting=0, known=3, total=3)
-    assert said[-1] == "node_progress shout finished=2 waiting=0 known=3 total=3"
+    assert events[-1] == "node_progress shout finished=2 waiting=0 known=3 total=3"
 
 
 def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_as_reused():
     previous = _lines_shout_join().resume()
     run = previous.graph.with_inputs({"text": "a\nb\nc\n"}, previous=previous)
-    assert _said(run) == [
+    assert _event_lines(run) == [
         "node_start lines",
         "node_start shout",
         "node_progress shout finished=1 waiting=0 known=3 total=3",
@@ -282,9 +282,9 @@ def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_
     ]
 
 
-def test_a_node_complete_when_the_run_was_last_resumed_is_not_said_again():
+def test_a_node_completed_by_an_earlier_resume_sends_no_events_again():
     run = _lines_shout_join().resume(only_costs_nothing=True)
-    assert _said(run) == ["node_start join", "node_complete join outcomes=1"]
+    assert _event_lines(run) == ["node_start join", "node_complete join outcomes=1"]
 
 
 def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgraph_node_is_complete_after_it():
@@ -292,7 +292,7 @@ def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgrap
         lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.result", "join.texts")]
     )
     run = _started(record, registry_of(lines, shout, loud, join), text="a\nb")
-    assert _said(run) == [
+    assert _event_lines(run) == [
         "node_start lines",
         "node_start loud",
         "node_start loud/shout",
@@ -308,8 +308,8 @@ def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgrap
 
 def test_a_retry_and_a_failure_name_the_node_and_their_cause_names_the_call():
     run = _started(make_graph(lines, fetch), registry_of(lines, fetch), text="a\nb")
-    said = _said(run)
-    assert [line for line in said if line.startswith(("node_retry", "node_failed"))] == [
+    events = _event_lines(run)
+    assert [line for line in events if line.startswith(("node_retry", "node_failed"))] == [
         "node_retry fetch attempt=1 retries=2 delay=0.01 cause=external_failed@fetch/1",
         "node_retry fetch attempt=2 retries=2 delay=0.02 cause=external_failed@fetch/1",
         "node_failed fetch cause=external_failed@fetch/1",

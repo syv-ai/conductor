@@ -241,7 +241,7 @@ def test_an_answer_picks_a_choice_by_the_value_its_type_reads_so_1_picks_the_flo
     )
 
 
-def test_an_input_is_held_to_its_choices_by_their_json_as_an_answer_is():
+def test_an_input_is_checked_against_its_choices_by_their_json_as_an_answer_is():
     @node("take", title="Take", description="For a test.")
     def take(x: Annotated[Any, Param(choices=[1, {"a": 1, "b": 2}])]) -> str:
         return "taken"
@@ -263,7 +263,7 @@ def test_an_input_is_held_to_its_choices_by_their_json_as_an_answer_is():
         assert "the value is not one of the choices" in raised.value.problems[0].msg
 
 
-def test_two_fields_whose_choices_python_takes_as_equal_each_hold_a_value_to_their_own():
+def test_two_fields_whose_choices_python_takes_as_equal_each_accept_only_their_own():
     """``True == 1`` in Python, but their JSON differs, so ``choices=[True]`` and ``choices=[1]`` stay apart."""
 
     def taking(choice: Any) -> Any:
@@ -350,7 +350,7 @@ def test_a_field_whose_choices_are_a_hosts_own_keeps_their_class_beside_one_with
     assert [type(c) for c in own.describe().inputs[0].choices or ()] == [Person]
 
 
-def test_a_hosts_own_choice_carries_its_fields_to_the_question():
+def test_a_hosts_own_choice_keeps_its_fields_in_the_question():
     @node("assign", title="Assign", description="For a test.", asks=True)
     def assign(ticket: str) -> str:
         raise Ask(f"Who takes {ticket}?", choices=[Person("ida", "Ida B.", team="sales")])
@@ -706,7 +706,7 @@ def route_to(text: str) -> Routed:
     raise Ask(f"Route {text}", choices={"escalate": ["boss", "team"]}, default={"escalate": "team"})
 
 
-def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_held_to():
+def test_a_waiting_call_shows_the_choices_and_default_its_answer_is_checked_against():
     _, run = _once(route_to, text="a")
     note, escalate = run.waiting[0].questions
     assert (note.required, note.choices, note.default) == (True, None, MISSING)
@@ -1716,7 +1716,7 @@ def test_a_saved_waiting_call_the_graph_has_no_call_for_is_refused_on_load():
     assert (fault.type, fault.ctx["where"]) == ("saved_run_unreadable", "outcomes.q")
 
 
-def test_a_saved_waiting_call_with_its_question_taken_out_reads_as_not_yet_made():
+def test_a_saved_waiting_call_with_its_question_taken_out_is_loaded_as_a_call_not_made_yet():
     """A saved call without its question is loaded as a call not made yet.
 
     A saved call counts as waiting only because its question is saved with it. Take the question out, and the run
@@ -1943,7 +1943,7 @@ def test_a_form_inside_a_subgraph_is_answered_by_the_inner_nodes_own_field_names
     assert (wrong.type, wrong.loc, wrong.ctx["question"]) == ("invalid_answer", ("e", "z1"), "a")
 
 
-def test_an_answer_to_a_run_with_nothing_waiting_says_how_the_run_stands():
+def test_an_answer_to_a_run_with_nothing_waiting_says_the_runs_status():
     @node("plain", title="Plain", description="For a test.")
     def plain(text: str) -> str:
         return text

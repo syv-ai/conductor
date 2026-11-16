@@ -107,7 +107,7 @@ def test_a_list_of_a_hosts_text_is_a_type_like_any_other() -> None:
     assert _run(texts, items=["a", "b"]).outputs == {"result": 2}
 
 
-def test_a_model_does_not_land_on_a_json_value() -> None:
+def test_a_model_output_cannot_be_wired_into_a_json_value_input() -> None:
     @node("money", title="Money", description="For a test.")
     def money() -> Money:
         return Money()
@@ -219,7 +219,9 @@ def test_a_yes_or_no_is_no_number_inside_a_list_either() -> None:
     assert [problem.type for problem in graph.problems] == ["invalid_value"]
 
 
-def test_a_list_of_whole_numbers_lands_on_a_list_of_numbers_and_never_on_a_list_of_texts() -> None:
+def test_a_list_of_whole_numbers_can_be_wired_into_a_list_of_numbers_but_never_a_list_of_texts() -> (
+    None
+):
     @node("ints", title="Ints", description="For a test.")
     def ints() -> list[int]:
         return [1, 2]
@@ -250,7 +252,7 @@ def test_a_list_of_whole_numbers_lands_on_a_list_of_numbers_and_never_on_a_list_
     assert [problem.type for problem in graph.problems] == ["type_mismatch"]
 
 
-def test_a_pydantic_type_is_carried_with_the_limits_it_has() -> None:
+def test_a_pydantic_type_keeps_the_limits_it_has() -> None:
     from annotated_types import Gt
     from pydantic import PositiveInt, constr
 

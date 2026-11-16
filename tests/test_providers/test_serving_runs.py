@@ -634,7 +634,7 @@ def test_an_edited_input_runs_again_calling_only_the_items_that_changed(served: 
     _run(scenario)
 
 
-def test_a_stream_says_not_to_cache_it_and_the_schema_says_what_a_run_reads_as(
+def test_a_stream_says_not_to_cache_it_and_the_schema_lists_what_a_run_view_has(
     served: Served,
 ) -> None:
     async def scenario() -> None:

@@ -212,7 +212,7 @@ async def test_a_worker_that_never_served_refuses_to_make_a_run_running_and_one_
 # -- how a run's values are read back -------------------------------------------------------------
 
 
-async def test_an_output_that_isnt_finite_reads_as_its_text() -> None:
+async def test_an_output_that_isnt_finite_is_stored_as_its_text() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
     @registry.node("edges", title="Edges", description="For a test.")
@@ -281,7 +281,7 @@ class Part(TypedDict):
     text: str
 
 
-async def test_a_table_made_for_each_item_reads_as_its_columns_per_item() -> None:
+async def test_a_table_made_for_each_item_is_stored_as_its_columns_per_item() -> None:
     registry, store = NodeRegistry(), MemoryStore()
 
     @registry.node("split", title="Split", description="For a test.")
@@ -474,7 +474,7 @@ async def test_a_cancel_sent_while_a_dead_worker_held_the_run_is_kept_when_anoth
         assert (await store.ended("taken")).status == "complete" and calls == ["a", "b"]
 
 
-async def test_a_cancel_of_a_waiting_run_ends_it_cancelled_with_its_question_waiting_and_an_answer_carries_it_on() -> (
+async def test_a_cancel_of_a_waiting_run_ends_it_cancelled_with_its_question_waiting_and_an_answer_resumes_it() -> (
     None
 ):
     registry, graph, gate, inputs, waiting_id = asking()
@@ -1886,7 +1886,7 @@ async def test_a_checkpoint_writes_the_runs_progress_with_the_outcome_as_the_run
         )
 
 
-async def test_a_run_handed_back_by_a_worker_shutting_down_reads_as_running_with_no_cause_and_its_saved_run_as_its_outcomes_say() -> (
+async def test_a_run_handed_back_by_a_worker_shutting_down_is_running_with_no_cause_and_its_saved_run_is_ready() -> (
     None
 ):
     registry, graph, called, _ = _slow_items()
@@ -1928,7 +1928,7 @@ async def test_a_run_handed_back_at_shutdown_stores_no_run_end_and_the_worker_th
     assert sorted(calls) == list(range(40))
 
 
-async def test_a_cancel_from_another_worker_that_lands_as_a_worker_hands_the_run_back_is_kept_for_the_worker_that_takes_it() -> (
+async def test_a_cancel_from_another_worker_that_arrives_as_a_worker_hands_the_run_back_is_kept_for_the_worker_that_takes_it() -> (
     None
 ):
     registry, graph, gate, inputs, _ = asking()

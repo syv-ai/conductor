@@ -133,7 +133,7 @@ def test_a_bare_node_saves_as_its_node():
     }
 
 
-def test_each_kind_of_input_entry_is_its_own_class_and_a_dict_reads_as_the_same():
+def test_each_kind_of_input_entry_is_its_own_class_and_a_dict_validates_to_the_same():
     written = NodeRecord(
         node="both",
         inputs={
@@ -2131,7 +2131,7 @@ def test_a_constant_given_from_python_is_written_as_json_so_the_record_equals_it
     assert compiled.run().outputs == from_json.run().outputs == {"result": "2026-01-02 red 1"}
 
 
-def test_a_table_as_a_constant_is_refused_at_the_call_and_said_to_be_given_as_records():
+def test_a_table_as_a_constant_is_refused_at_the_call_and_the_reason_says_to_write_it_as_records():
     import polars as pl
 
     @node("count", title="Count", description="For a test.")
