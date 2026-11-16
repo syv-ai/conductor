@@ -1,5 +1,8 @@
-"""Fourteen things an author builds with tables, lists and documents, each a graph of this package's nodes and a
-host's own: how many nodes it takes, how often each node is called, and what comes out."""
+"""Fourteen graphs that someone might build with tables, lists and documents.
+
+Each graph mixes this package's nodes with nodes a host would write, such as a model call or an Excel export. Each
+test checks how many nodes the graph needs, how often each node is called, and what comes out.
+"""
 
 from dataclasses import dataclass
 from io import StringIO
@@ -47,11 +50,11 @@ class Contact(TypedDict):
     email: str | None
 
 
-#: Every call of a model stand-in, as the text it was asked about.
+#: The text each call of the fake model was given, in order. A test clears it, runs a graph and reads it.
 ASKED: list[str] = []
 
 
-# -- the host's palette ---------------------------------------------------------------------------------
+# -- nodes a host would write ---------------------------------------------------------------------------
 
 
 @node("upload", title="Upload", description="The files a person uploads.")
@@ -229,7 +232,10 @@ C_PDF = File(name="c.pdf", text="C1,Core,300\nC2,Dune,700\nC3,Echo,50")
 
 
 def answered(run: Any, yes: set[str]) -> Any:
-    """``run`` resumed with every waiting approval answered: yes for the invoice numbers in ``yes``."""
+    """Answers every waiting approval in ``run``, then resumes it.
+
+    An invoice whose number is in ``yes`` is approved. Every other one is rejected.
+    """
     return run.answer(
         {waiting.id: waiting.inputs["number"] in yes for waiting in run.waiting}
     ).resume()
@@ -327,7 +333,7 @@ def test_scenario_5_editing_one_record_calls_the_model_for_that_record_only():
             text=COMPLAINTS.replace("broken lid", "cracked lid").replace(",20", ",25"),
         )
     )
-    # only `text` reaches the model, so another amount calls nothing
+    # only `text` goes to the model, so a changed amount doesn't call it again
     assert ASKED == [] and third.outputs == second.outputs
 
 

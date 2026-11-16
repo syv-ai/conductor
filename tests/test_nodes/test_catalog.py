@@ -1,10 +1,10 @@
-"""What every node of ``conductor_nodes`` keeps, checked over the whole registry at once."""
+"""Checks that every node in ``conductor_nodes`` must pass, run over the whole registry at once."""
 
 import conductor_nodes
 from conductor.testing import check_registry
 
-#: Each node with the inputs of a call, checked by ``check_registry`` through the engine. Every node here only
-#: computes, so every one has one.
+#: Sample inputs for each node, one dict per call. ``check_registry`` runs the node on each of them. The nodes here
+#: only compute, with no outside service, so every one of them can have an example.
 EXAMPLES = {
     "text-uppercase": [{"text": "hi"}],
     "text-lowercase": [{"text": "HI"}],

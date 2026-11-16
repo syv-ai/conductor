@@ -1,4 +1,7 @@
-"""The nodes of ``conductor_nodes`` in graphs: what each gives, and how each fails."""
+"""Tests of the nodes in ``conductor_nodes``, each run inside a graph.
+
+They check what each node returns, and how it fails when it can't do its job.
+"""
 
 from typing import Any
 
@@ -11,7 +14,10 @@ from pytest import MonkeyPatch
 
 
 def _run(node_id: str, **values: Any) -> dict[str, Any]:
-    """One node of the registry in a graph, its inputs given as constants, run to the end."""
+    """Runs one node of the registry on its own and returns its results.
+
+    The node is put in a graph by itself, and each of ``values`` is given to it as a constant. The run must complete.
+    """
     record = make_graph(
         conductor_nodes.registry[node_id],
         constants={f"{node_id}.{name}": value for name, value in values.items()},

@@ -1,5 +1,8 @@
-"""``series-split``, ``series-stack``, ``series-collect``, ``table-collect``, ``text-list`` and ``text-split``: what each gives, how it is typed, and
-what it refuses."""
+"""Tests of the nodes that turn tables into lists and back again.
+
+The nodes are ``series-split``, ``series-stack``, ``series-collect``, ``table-collect``, ``text-list`` and
+``text-split``. The tests check what each one returns, the types it declares, and what it refuses.
+"""
 
 import json
 from typing import Any, TypedDict
@@ -121,7 +124,10 @@ def output(graph, node_id: str):
 
 
 def columns_of(field) -> dict[str, Any]:
-    """A table field's columns, each column's name to its cell's JSON schema, read from the field's schema."""
+    """Returns the columns of a table field, read from the field's JSON schema.
+
+    Each column's name maps to the JSON schema of its cells.
+    """
     return {
         c["properties"]["name"]["const"]: c["properties"]["values"]["items"]
         for c in field.json_schema["properties"]["columns"]["prefixItems"]
@@ -220,7 +226,7 @@ def test_what_is_neither_a_table_nor_a_list_is_a_type_mismatch_on_the_edge_into_
     )
 
 
-# -- split keeps a table it is given as that table --------------------------------------------------------
+# -- split hands on the table it was given, unchanged ----------------------------------------------------
 
 
 def _split_members():
@@ -247,7 +253,7 @@ def test_split_returns_the_table_it_was_given_and_the_run_keeps_it_as_a_table():
                 {"name": "email", "type": "str", "values": ["ida@x.dk", None]},
             ]
         }
-    ]  # kept as the table it was given, with only its declared columns
+    ]  # saved as the table it was given, with only the columns its row type declares
     assert run.results["series-split"]["result"] == [
         {"name": "ida", "email": "ida@x.dk"},
         {"name": "bo", "email": None},
@@ -274,7 +280,7 @@ def test_a_table_split_into_records_is_written_under_both_outputs_and_reads_back
 def test_a_saved_run_with_null_for_a_done_call_whose_output_takes_no_none_is_refused():
     graph = _split_members()
     saved = json.loads(graph.run().to_json())
-    saved["outcomes"]["series-split"]["outputs"]["result"] = [None]  # not listed under "skipped"
+    saved["outcomes"]["series-split"]["outputs"]["result"] = [None]  # null, not listed as skipped
 
     with pytest.raises(InvalidCallError) as refused:
         Run.from_json(json.dumps(saved), graph)
@@ -463,7 +469,11 @@ def test_collect_refuses_a_new_column_that_a_table_of_any_columns_already_has_wh
     edges: list[tuple[str, str]],
     constants: dict[str, Any],
 ):
-    """A bare ``Table``'s columns are known only when the node runs, so a new column with one of their names fails then."""
+    """A new column that reuses a name of a bare ``Table``'s columns fails when the node runs.
+
+    A bare ``Table`` declares no columns, so its column names are only known once the node runs. The graph compiles
+    without a problem, and the run fails.
+    """
     graph = compile_graph(*nodes, tables.collect, edges=edges, constants=constants)
     assert graph.problems == []
     cause = graph.run().cause
@@ -498,7 +508,11 @@ def test_collect_refuses_a_column_named_twice():
 def test_collect_refuses_a_column_wired_from_another_series_than_its_records_naming_it(
     people: int, expected: dict[str, Any]
 ):
-    """A column has one value per record only when a node called once for each record returns it: one from another Series fails, longer or shorter."""
+    """A column wired from a different Series than the records fails, whether it is longer or shorter.
+
+    A column needs exactly one value per record. That only holds when the column comes from a node called once for
+    each of those records.
+    """
 
     @_node("people")
     def people_table() -> Table[Contact]:
