@@ -291,9 +291,9 @@ def test_a_node_with_no_outputs_that_returns_skipped_is_complete_not_skipped():
     said = streamed(
         graph({"id": "l", "node": "log"}, registry=registry_of(log)).with_inputs(text="x")
     )
-    assert [(e.type, e.outcomes, e.skipped) for e in said if e.type == "node_complete"] == [
-        ("node_complete", 1, 0)
-    ]
+    assert [
+        (e.type, e.count.finished, e.count.skipped) for e in said if e.type == "node_complete"
+    ] == [("node_complete", 1, 0)]
 
 
 def test_an_optional_series_input_given_a_none_constant_is_called_as_if_left_out():
@@ -460,9 +460,9 @@ def test_a_node_not_called_for_none_is_complete_and_never_skipped():
     )
 
     said = streamed(compiled.with_inputs())
-    assert not [e for e in said if e.type == "node_complete" and e.skipped]
+    assert not [e for e in said if e.type == "node_complete" and e.count.skipped]
     (complete,) = [e for e in said if e.type == "node_complete" and e.loc[0] == "s"]
-    assert (complete.outcomes, complete.not_called) == (1, 1)
+    assert (complete.count.finished, complete.count.not_called) == (1, 1)
     assert said[-1].status == "complete" and said[-1].run.not_called == [
         NotCalled(loc=("s",), input="email")
     ]
@@ -683,9 +683,9 @@ def test_a_branching_node_outside_loops_not_called_skips_the_nodes_on_its_branch
         and run.results["y"]["result"] is None
         and run.not_called == [NotCalled(loc=("d",), input="text")]
     )
-    assert [(e.loc, e.outcomes) for e in said if e.type == "node_complete" and e.skipped] == [
-        (("y",), 1)
-    ]
+    assert [
+        (e.loc, e.count.finished) for e in said if e.type == "node_complete" and e.count.skipped
+    ] == [(("y",), 1)]
 
 
 @dataclass(frozen=True)

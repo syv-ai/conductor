@@ -307,7 +307,8 @@ the item index comes next. Then comes the inner node.
 - The events `run.stream()` yields for an inner node come once for all the words together, as for any node that
   runs per item. Their `loc` is `("shout", "upper")`.
 - The subgraph node has events too, with the `loc` `("shout",)`. Its `node_start` comes when its first inner node
-  starts, and its `node_complete` when the last one is done.
+  starts, and its `node_complete` when the last one is done. Its count, there and in `run.progress`, adds up the
+  calls of its inner nodes: `upper` and `exclaim` for two words make four.
 
 In `registry.describe()`, the list of nodes an editor offers, a subgraph's entry shows its inputs and outputs. The
 registry works them out from the nodes the subgraph uses. That's also why a `SubgraphDefinition` has no `describe()`

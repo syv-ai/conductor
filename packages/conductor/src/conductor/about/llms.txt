@@ -407,7 +407,7 @@ Using a graph as a subgraph changes nothing about how its nodes behave.
 - A cancel and the `timeout` of `resume()` stop the inner nodes as they stop any node.
 - `run.again` reuses the previous run's outcomes node by node.
 - `results` and `describe()` show the subgraph as one node. Its outputs are its graph's outputs, by name, each what the inner node behind it returned. It is never called itself, so a subgraph costs what its nodes cost.
-- It says `node_start` when the first node inside starts, and `node_complete` once every node inside has completed. Its `outcomes` is the number of items it runs for, and `skipped` the number of those whose every call inside was skipped. It has no `node_progress`.
+- It says `node_start` when the first node inside starts, and `node_complete` once every node inside has completed. Its count, there and in `run.progress`, is the sum of the counts of the nodes inside it. It has no `node_progress`.
 
 What is inside a subgraph is told with where it is.
 
@@ -884,7 +884,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 |---|---|
 | `node_start` | `loc`: the node's id, behind the id of each subgraph's node it is inside, `("emb", "upper")`; every event about a node has it, and names the node, never one call |
 | `node_progress` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it; at most four a second per node |
-| `node_complete` | `loc`, `outcomes` (how many calls it had), `skipped` (how many of them were skipped: a branch not chosen, or `SKIPPED` returned on every output; a node was skipped when `outcomes > 0` and `skipped` equals `outcomes`, and one skipped by a branch not chosen was never called, so it has no `node_start`), `not_called` (how many were not called for a `None`), `reused`; the values are in the run (`run.results`) |
+| `node_complete` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it, with every call finished; `reused` (how many calls this stream reused); the values are in the run (`run.results`). A node skipped by a branch not chosen was never called, so it has no `node_start` |
 | `node_retry` | `loc`, `attempt`, `retries`, `delay`, `cause` (a `Problem`, whose `loc` names the call: the node's id, then its item indexes; inside a subgraph the subgraph node and its index first, `("emb", 1, "upper")`) |
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the call) |
 | `node_waiting` | `loc`, `waiting` (a `Waiting`, whose `loc` names the call) |
@@ -1005,8 +1005,10 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 **How far a run is.** `run.progress` is a `RunProgress`. It is worked out from the run's outcomes each time it is read. So a run read back with `Run.from_json` in another process has the same progress, and none of it is saved.
 
-- It has a `CallCount` for the run, and one for each node by its node path as text: `nodes["shout"]`, `nodes["emb/upper"]`. A subgraph node's count is the sum of the nodes inside it.
+- It has a `CallCount` for the run, and one for each node by its node path as text: `nodes["shout"]`, `nodes["emb/upper"]`. A subgraph node is never called itself, so its count is the sum of the nodes inside it. The events carry the same counts (see "Events").
 - `finished` is the calls with an outcome that is not waiting: done, skipped or not called.
+- `skipped` is the finished calls that were skipped: a branch not chosen, or `SKIPPED` returned on every output. A node was skipped when `finished > 0` and `skipped` equals `finished`.
+- `not_called` is the finished calls not made because an input got `None`.
 - `waiting` is the calls waiting for a person.
 - `known` is the calls known so far: one per item of each series the node is looped over that exists. It only grows.
 - `total` is `None` while a series that decides it doesn't exist yet. The run's `total` is `None` while any node's is.

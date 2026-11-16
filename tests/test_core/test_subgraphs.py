@@ -830,7 +830,11 @@ def test_an_item_whose_branch_was_not_chosen_outside_skips_the_inner_nodes_for_t
     assert CALLS["upper"] == 2 and CALLS["exclaim"] == 2
 
 
-def test_a_subgraph_node_counts_as_skipped_each_item_whose_every_inner_call_was_skipped_as_a_node_counts_its_calls():
+def test_a_subgraph_nodes_count_adds_up_the_calls_and_skipped_calls_of_the_nodes_inside_it():
+    """A subgraph node is never called itself, so its ``NodeComplete`` count is its inner nodes' added up.
+
+    It was skipped when every call inside it was: ``skipped`` equals ``finished``.
+    """
     graph = compile_graph(
         {"w": "words", "d": "decide", "e": "shout-inner", "x": "exclaim"},
         [("w.result", "d.text"), ("d.short", "e.text"), ("d.short", "x.text")],
@@ -839,7 +843,7 @@ def test_a_subgraph_node_counts_as_skipped_each_item_whose_every_inner_call_was_
 
     def complete(text: str) -> dict[tuple, tuple[int, int]]:
         return {
-            e.loc: (e.outcomes, e.skipped)
+            e.loc: (e.count.finished, e.count.skipped)
             for e in stream(graph.with_inputs(text=text))
             if isinstance(e, NodeComplete) and e.loc not in {("w",), ("d",)}
         }
@@ -848,7 +852,7 @@ def test_a_subgraph_node_counts_as_skipped_each_item_whose_every_inner_call_was_
         ("x",): (3, 1),
         ("e", "up"): (3, 1),
         ("e", "ex"): (3, 1),
-        ("e",): (3, 1),
+        ("e",): (6, 2),
     }
     every_one_skipped = stream(graph.with_inputs(text="long longer"))
     assert [e.loc for e in every_one_skipped if isinstance(e, NodeStart)] == [
@@ -856,55 +860,59 @@ def test_a_subgraph_node_counts_as_skipped_each_item_whose_every_inner_call_was_
         ("d",),
     ]  # a skipped node is never started
     assert {
-        e.loc: (e.outcomes, e.skipped) for e in every_one_skipped if isinstance(e, NodeComplete)
+        e.loc: (e.count.finished, e.count.skipped)
+        for e in every_one_skipped
+        if isinstance(e, NodeComplete)
     } == {
         ("w",): (1, 0),
         ("d",): (2, 0),
         ("x",): (2, 2),
         ("e", "up"): (2, 2),
         ("e", "ex"): (2, 2),
-        ("e",): (2, 2),
+        ("e",): (4, 4),
     }
     once = compile_graph({"e": "words-deciding-inner"}, inputs={"text": "e.text"})
     assert [
-        (e.outcomes, e.skipped)
+        (e.count.finished, e.count.skipped)
         for e in stream(once.with_inputs(text="ab long"))
         if isinstance(e, NodeComplete) and e.loc == ("e",)
-    ] == [(1, 0)]  # its one call made some calls inside
+    ] == [
+        (7, 2)
+    ]  # words, two decisions, and four calls after them, one per branch not chosen skipped
     skipped_once = compile_graph(
         {"d": "decide", "e": "shout-inner"}, [("d.short", "e.text")], inputs={"text": "d.text"}
     )
     assert [
-        (e.outcomes, e.skipped)
+        (e.count.finished, e.count.skipped)
         for e in stream(skipped_once.with_inputs(text="long"))
         if isinstance(e, NodeComplete) and e.loc == ("e",)
-    ] == [(1, 1)]
+    ] == [(2, 2)]
     nested = compile_graph(
         {"w": "words", "d": "decide", "e": "shout-wrapping"},
         [("w.result", "d.text"), ("d.short", "e.text")],
     )
     nested_complete = {
-        e.loc: (e.outcomes, e.skipped)
+        e.loc: (e.count.finished, e.count.skipped)
         for e in stream(nested.with_inputs(text="ab long"))
         if isinstance(e, NodeComplete)
     }
     assert (nested_complete[("e", "in")], nested_complete[("e",)]) == (
-        (2, 1),
-        (2, 1),
+        (4, 2),
+        (4, 2),
     )  # the calls inside a subgraph inside count too
     greeted = compile_graph(
         {"s": "sentences", "d": "decide", "e": "greet-each-word-inner"},
         [("s.result", "d.text"), ("s.result", "e.text"), ("d.short", "e.greeting")],
     )
     greeted_complete = {
-        e.loc: (e.outcomes, e.skipped)
+        e.loc: (e.count.finished, e.count.skipped)
         for e in stream(greeted.with_inputs(text="hi;long one"))
         if isinstance(e, NodeComplete)
     }
     assert (greeted_complete[("e", "g")], greeted_complete[("e",)]) == (
         (3, 2),
-        (2, 0),
-    )  # "long one" split its words, so its call was not skipped, though both greetings were
+        (5, 2),
+    )  # two calls of words and three greetings, two of them skipped
 
 
 def test_a_series_input_inside_a_subgraph_collects_the_loop_its_subgraph_node_is_wired_to():
@@ -1180,7 +1188,7 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
         ("e", "up"),
         ("e", "q"),
     ]  # once per node, however many items: the subgraph node first
-    assert [(e.loc, e.outcomes) for e in events if isinstance(e, NodeComplete)] == [
+    assert [(e.loc, e.count.finished) for e in events if isinstance(e, NodeComplete)] == [
         (("w",), 1),
         (("e", "up"), 2),
     ]
@@ -1207,10 +1215,10 @@ def test_an_inner_node_sends_its_events_once_by_its_node_path_as_in_one_graph():
     assert not [
         e for e in later if isinstance(e, NodeStart)
     ]  # every node started in the first resume()
-    assert [(e.loc, e.outcomes) for e in later if isinstance(e, NodeComplete)] == [
+    assert [(e.loc, e.count.finished) for e in later if isinstance(e, NodeComplete)] == [
         (("e", "q"), 2),
-        (("e",), 2),
-    ]
+        (("e",), 4),
+    ]  # the subgraph node's count is its inner nodes' added up: up's two calls and q's two
 
 
 def test_a_subgraph_inside_a_subgraph_is_addressed_by_its_node_path():

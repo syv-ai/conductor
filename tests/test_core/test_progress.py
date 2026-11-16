@@ -78,9 +78,9 @@ def test_a_run_nothing_was_called_for_knows_only_its_first_node() -> None:
     progress = _invoices().with_inputs(files=["d2", "d1"]).progress
 
     assert progress.nodes == {
-        "upload": CallCount(finished=0, waiting=0, known=1, total=1),
-        "read": CallCount(finished=0, waiting=0, known=0, total=None),
-        "approve": CallCount(finished=0, waiting=0, known=0, total=None),
+        "upload": CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=1, total=1),
+        "read": CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=0, total=None),
+        "approve": CallCount(finished=0, waiting=0, skipped=0, not_called=0, known=0, total=None),
     }
     assert (progress.finished, progress.known, progress.total) == (0, 1, None)
 
@@ -91,7 +91,9 @@ def test_only_costs_nothing_calls_the_free_nodes_and_leaves_the_run_ready() -> N
 
     assert CALLS == ["upload"]
     assert run.status == "ready"
-    assert run.progress.nodes["read"] == CallCount(finished=0, waiting=0, known=2, total=2)
+    assert run.progress.nodes["read"] == CallCount(
+        finished=0, waiting=0, skipped=0, not_called=0, known=2, total=2
+    )
     assert run.progress.nodes["approve"].total is None
 
 
@@ -99,10 +101,14 @@ def test_the_total_is_a_floor_then_exact_with_the_waiting_calls_counted() -> Non
     run = _invoices().with_inputs(files=["d2", "d1"]).resume(only_costs_nothing=True).resume()
 
     assert run.status == "waiting"
-    assert run.progress.nodes["approve"] == CallCount(finished=0, waiting=3, known=3, total=3)
+    assert run.progress.nodes["approve"] == CallCount(
+        finished=0, waiting=3, skipped=0, not_called=0, known=3, total=3
+    )
     assert (run.progress.finished, run.progress.waiting, run.progress.total) == (3, 3, 6)
     answered = run.answer(run.waiting[0], True).resume()
-    assert answered.progress.nodes["approve"] == CallCount(finished=1, waiting=2, known=3, total=3)
+    assert answered.progress.nodes["approve"] == CallCount(
+        finished=1, waiting=2, skipped=0, not_called=0, known=3, total=3
+    )
 
 
 def test_known_grows_while_a_series_above_is_missing_somewhere() -> None:
@@ -122,7 +128,9 @@ def test_known_grows_while_a_series_above_is_missing_somewhere() -> None:
     run = graph.with_inputs(files=["d2", "d1"]).resume()
 
     assert run.cause is not None and run.cause.loc == ("read", 1)
-    assert run.progress.nodes["approve"] == CallCount(finished=0, waiting=0, known=2, total=None)
+    assert run.progress.nodes["approve"] == CallCount(
+        finished=0, waiting=0, skipped=0, not_called=0, known=2, total=None
+    )
 
 
 def test_a_run_read_back_has_the_same_progress_and_saves_none() -> None:
@@ -152,7 +160,7 @@ def test_a_stream_calls_only_the_free_nodes_as_a_resume_does() -> None:
     assert {e.loc for e in events if hasattr(e, "loc")} == {("upload",)}
     assert events[-1].run.status == "ready"
     assert events[-1].run.progress.nodes["read"] == CallCount(
-        finished=0, waiting=0, known=2, total=2
+        finished=0, waiting=0, skipped=0, not_called=0, known=2, total=2
     )
 
 
@@ -172,7 +180,7 @@ def test_a_free_node_that_asks_or_fails_does_so_with_only_costs_nothing_as_in_a_
 
     assert estimated.status == status
     assert estimated.progress.nodes["pick"] == CallCount(
-        finished=0, waiting=waiting, known=1, total=1
+        finished=0, waiting=waiting, skipped=0, not_called=0, known=1, total=1
     )
     assert estimated.resume().status == status
     full, free = (
@@ -218,7 +226,9 @@ def test_a_subgraph_node_counts_the_calls_of_the_nodes_inside_it() -> None:
     progress = graph.with_inputs(count=3).resume(only_costs_nothing=True).progress
 
     assert list(progress.nodes) == ["numbers", "twice/double-1", "twice/double-2", "twice"]
-    assert progress.nodes["twice"] == CallCount(finished=0, waiting=0, known=6, total=6)
+    assert progress.nodes["twice"] == CallCount(
+        finished=0, waiting=0, skipped=0, not_called=0, known=6, total=6
+    )
     assert (progress.known, progress.total) == (7, 7)
 
 

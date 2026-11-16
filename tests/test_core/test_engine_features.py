@@ -123,7 +123,7 @@ def test_events_in_order():
     assert kinds[0] == "run_start" and kinds[-1] == "run_end" and events[-1].status == "complete", (
         kinds
     )
-    complete = {e.loc[0]: e.outcomes for e in events if e.type == "node_complete"}
+    complete = {e.loc[0]: e.count.finished for e in events if e.type == "node_complete"}
     assert complete == {"split": 1, "upper": 3, "join": 1}, complete
     assert kinds.index("node_start") < kinds.index("node_complete")
     assert events[-1].run.outputs == {"result": "A+B+C"}
@@ -239,7 +239,9 @@ def test_waiting_and_skipped_events():
     kinds = [e.type for e in events]
     assert "node_waiting" in kinds and events[-1].status == "waiting", kinds
     assert [
-        (e.outcomes, e.skipped) for e in events if e.type == "node_complete" and e.loc == ("never",)
+        (e.count.finished, e.count.skipped)
+        for e in events
+        if e.type == "node_complete" and e.loc == ("never",)
     ] == [(3, 3)]
     waiting = [e.waiting for e in events if e.type == "node_waiting"]
     assert [place(w) for w in waiting] == ["gate@1"]

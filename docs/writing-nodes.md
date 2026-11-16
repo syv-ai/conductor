@@ -679,7 +679,7 @@ ready = Graph.compile(make_graph(files, summarize), registry).with_inputs(names=
 estimated = ready.resume(only_costs_nothing=True)
 
 print(estimated.status)                       # ready
-print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 known=3 total=3
+print(estimated.progress.nodes["summarize"])  # finished=0 waiting=0 skipped=0 not_called=0 known=3 total=3
 print(estimated.resume().progress.finished)   # 4
 ```
 

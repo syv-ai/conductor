@@ -661,7 +661,7 @@ def _went_on(run: Any) -> list[tuple[Any, ...]]:
         return [event async for event in run.stream()]
 
     return [
-        (event.loc, event.outcomes, event.reused)
+        (event.loc, event.count.finished, event.reused)
         for event in asyncio.run(streamed())
         if event.type == "node_complete"
     ]

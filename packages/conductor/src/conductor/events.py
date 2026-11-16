@@ -7,7 +7,7 @@ A host that shows a run as it happens, such as a web page fed by server-sent eve
 
 The first event is ``RunStart`` and the last is ``RunEnd``. Take the README graph, ``lines -> shout -> join``. Its
 events start with ``RunStart()`` and ``NodeStart(loc=("lines",))``. They end with
-``NodeComplete(loc=("join",), outcomes=1)`` and ``RunEnd(status="complete")``.
+``NodeComplete(loc=("join",), count=CallCount(finished=1, ...))`` and ``RunEnd(status="complete")``.
 
 Each event is a frozen pydantic model with a ``type``, such as ``"node_complete"``. Write one as JSON with
 ``model_dump(mode="json")``. ``Event`` is the union of them all, so it reads any of them back.

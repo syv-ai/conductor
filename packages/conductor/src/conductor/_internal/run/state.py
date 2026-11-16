@@ -21,14 +21,13 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, assert_never
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import ConfigDict
 
 from conductor._internal.problem import Problem, run_problems
 
-from .outcome import Done, NoneInput, Skipped, Unanswered
-from .progress import is_complete
+from .progress import call_count, is_complete
 
 if TYPE_CHECKING:
     from .type import Run
@@ -75,19 +74,13 @@ def status_of(run: Run[Any]) -> tuple[RunStatus, Problem | None]:
     last_resume, outcomes = run._last_resume, run._outcomes
     if last_resume == "running":
         return "running", None
-    if all(is_complete(outcomes, node) for node in run._blueprint.function_nodes.values()):
+    counts = [call_count(outcomes, node) for node in run._blueprint.function_nodes.values()]
+    if all(is_complete(count) for count in counts):
         return "complete", None
     if last_resume is not None:
         return last_resume.status, last_resume.cause
-    for of_node in outcomes.values():
-        for outcome in of_node.values():
-            match outcome:
-                case Done() | Skipped() | NoneInput():
-                    pass
-                case Unanswered():
-                    return "waiting", None
-                case _:
-                    assert_never(outcome)
+    if any(count.waiting for count in counts):
+        return "waiting", None
     return "ready", None
 
 

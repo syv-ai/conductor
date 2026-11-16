@@ -1286,12 +1286,14 @@ def test_a_call_that_returned_skipped_is_an_outcome_again_reuses_live_and_after_
 
     assert calls == ["a", "abc", "b"]
     assert [
-        (e.outcomes, e.reused) for e in events if e.type == "node_complete" and e.loc == ("o",)
+        (e.count.finished, e.reused)
+        for e in events
+        if e.type == "node_complete" and e.loc == ("o",)
     ] == [(3, 3)]
     assert again.results == first.results == read_back_again.results and first.not_called == []
     nothing_long = _events(graph.with_inputs(items=["a", "b"]))
     assert [
-        (e.loc, e.outcomes, e.skipped)
+        (e.loc, e.count.finished, e.count.skipped)
         for e in nothing_long
         if e.type == "node_complete" and e.loc != ("each",)
     ] == [

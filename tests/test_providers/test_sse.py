@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from conductor import SKIPPED, Ask, Graph, GraphRecord, Param, Problem, Waiting, node
+from conductor import SKIPPED, Ask, CallCount, Graph, GraphRecord, Param, Problem, Waiting, node
 from conductor.events import NodeComplete, NodeFailed, NodeWaiting, RunEnd
 from conductor.widgets import Textarea
 
@@ -90,12 +90,18 @@ def test_a_waiting_calls_question_and_a_failures_cause_are_written_as_records():
 
 
 def test_a_completion_is_counts_and_a_float_that_isnt_finite_in_a_question_is_text():
-    assert _payload(NodeComplete(loc=("n",), outcomes=3, not_called=1)) == {
+    count = CallCount(finished=3, waiting=0, skipped=0, not_called=1, known=3, total=3)
+    assert _payload(NodeComplete(loc=("n",), count=count)) == {
         "type": "node_complete",
         "loc": ["n"],
-        "outcomes": 3,
-        "skipped": 0,
-        "not_called": 1,
+        "count": {
+            "finished": 3,
+            "waiting": 0,
+            "skipped": 0,
+            "not_called": 1,
+            "known": 3,
+            "total": 3,
+        },
         "reused": 0,
     }
     waiting = NodeWaiting(
@@ -136,7 +142,7 @@ def test_a_branch_nodes_completion_streams_with_none_for_the_branch_not_chosen()
 
     (completed,) = [_payload(event) for event in events if event.type == "node_complete"]
 
-    assert completed["outcomes"] == 1 and events[-1].run.results["d"] == {
+    assert completed["count"]["finished"] == 1 and events[-1].run.results["d"] == {
         "not_empty": "x",
         "empty": None,
     }

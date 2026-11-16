@@ -147,7 +147,7 @@ def test_node_complete_counts_the_items_not_called_for_a_none_and_the_saved_run_
     events = _events(graph.with_inputs(text="ida@a.dk,,al@a.dk"))
 
     (mail,) = [e for e in events if e.type == "node_complete" and e.loc[0] == "send"]
-    assert (mail.outcomes, mail.not_called, mail.reused) == (3, 1, 0)
+    assert (mail.count.finished, mail.count.not_called, mail.reused) == (3, 1, 0)
     read_back = Run.from_json(events[-1].run.to_json(), graph)
     assert read_back.not_called == [NotCalled(loc=("send", 1), input="email")]
     assert read_back.results["send"]["result"] == ["sent ida@a.dk", None, "sent al@a.dk"]
@@ -2371,13 +2371,15 @@ def test_a_none_into_a_subgraph_node_leaves_its_inner_nodes_not_called_as_in_one
     )
     events = _events(graph.with_inputs(text="a _ b _"))
 
-    complete = {e.loc: (e.outcomes, e.not_called) for e in events if e.type == "node_complete"}
+    complete = {
+        e.loc: (e.count.finished, e.count.not_called) for e in events if e.type == "node_complete"
+    }
     assert complete == {
         ("w",): (1, 0),
         ("sub", "u"): (4, 2),
         ("sub", "v"): (4, 2),
-        ("sub",): (4, 0),
-    }  # the subgraph node is never called: its inner nodes are
+        ("sub",): (8, 4),
+    }  # the subgraph node is never called: its count is its inner nodes' added up
     assert events[-1].run.not_called == [
         NotCalled(loc=("sub", 1, "u"), input="text"),
         NotCalled(loc=("sub", 3, "u"), input="text"),

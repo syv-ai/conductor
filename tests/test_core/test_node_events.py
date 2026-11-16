@@ -113,14 +113,14 @@ def _one_line(event: Event) -> str:
     """Writes an event as one short line, so a test can compare events as text.
 
     The line has the event's type, its loc, and each field that isn't at its default. A problem is shortened to
-    its type and loc, a waiting call to its loc, and a count to its four numbers. For example,
-    ``NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=3, total=3))`` becomes
-    ``"node_progress shout finished=1 waiting=0 known=3 total=3"``.
+    its type and loc, a waiting call to its loc, and a count to its six numbers, which come first. For example,
+    ``NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=3,
+    total=3))`` becomes ``"node_progress shout finished=1 waiting=0 skipped=0 not_called=0 known=3 total=3"``.
     """
     fields = event.model_dump(exclude={"type", "loc"}, exclude_defaults=True)
     if "waiting" in fields:
         fields["waiting"] = "/".join(map(str, fields["waiting"]["loc"]))
-    fields.update(fields.pop("count", {}))
+    fields = {**fields.pop("count", {}), **fields}
     if "cause" in fields:
         fields["cause"] = f"{fields['cause']['type']}@{'/'.join(map(str, fields['cause']['loc']))}"
     return " ".join(
@@ -189,12 +189,12 @@ def test_the_three_node_graph_says_the_events_the_module_describes():
     assert _event_lines(_lines_shout_join()) == [
         "node_start lines",
         "node_start shout",
-        "node_progress shout finished=1 waiting=0 known=3 total=3",
+        "node_progress shout finished=1 waiting=0 skipped=0 not_called=0 known=3 total=3",
         "node_start join",
-        "node_complete lines outcomes=1",
-        "node_progress shout finished=3 waiting=0 known=3 total=3",
-        "node_complete shout outcomes=3",
-        "node_complete join outcomes=1",
+        "node_complete lines finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+        "node_progress shout finished=3 waiting=0 skipped=0 not_called=0 known=3 total=3",
+        "node_complete shout finished=3 waiting=0 skipped=0 not_called=0 known=3 total=3",
+        "node_complete join finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
     ]
 
 
@@ -203,15 +203,24 @@ def test_a_node_is_complete_once_every_call_of_it_has_an_outcome():
     run = _started(make_graph(lines, gated, join), registry_of(lines, gated, join), text="a\nb\nc")
 
     def let_b_return(events: list[str], cancel: AsyncioEvent) -> None:
-        if events[-1] == "node_complete lines outcomes=1":
+        if (
+            events[-1]
+            == "node_complete lines finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1"
+        ):
             events.append("b may return")
             GATE.set()
 
     events = _event_lines(run, let_b_return)
     let_go = events.index("b may return")
-    assert "node_complete shout outcomes=3" in events[let_go:]
+    assert (
+        "node_complete shout finished=3 waiting=0 skipped=0 not_called=0 known=3 total=3"
+        in events[let_go:]
+    )
     assert not [line for line in events[:let_go] if line.startswith("node_complete shout")]
-    assert events[-2:] == ["node_complete shout outcomes=3", "node_complete join outcomes=1"]
+    assert events[-2:] == [
+        "node_complete shout finished=3 waiting=0 skipped=0 not_called=0 known=3 total=3",
+        "node_complete join finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+    ]
 
 
 def test_a_skipped_node_has_no_start_and_is_complete_only_when_no_call_upstream_of_it_is_running():
@@ -226,14 +235,17 @@ def test_a_skipped_node_has_no_start_and_is_complete_only_when_no_call_upstream_
     run = _started(record, registry_of(decide, other, both), choice="a", other="b")
 
     def let_other_return(events: list[str], cancel: AsyncioEvent) -> None:
-        if events[-1] == "node_complete decide outcomes=1":
+        if (
+            events[-1]
+            == "node_complete decide finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1"
+        ):
             GATE.set()
 
     events = _event_lines(run, let_other_return)
     assert "node_start both" not in events
     assert events[-2:] == [
-        "node_complete other outcomes=1",
-        "node_complete both outcomes=1 skipped=1",
+        "node_complete other finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+        "node_complete both finished=1 waiting=0 skipped=1 not_called=0 known=1 total=1",
     ]
 
 
@@ -243,10 +255,10 @@ def test_a_node_with_a_call_waiting_for_a_person_says_so_and_is_not_complete():
         "node_start lines",
         "node_start approve",
         "node_waiting approve waiting=approve/0",
-        "node_progress approve finished=0 waiting=1 known=2 total=2",
+        "node_progress approve finished=0 waiting=1 skipped=0 not_called=0 known=2 total=2",
         "node_waiting approve waiting=approve/1",
-        "node_complete lines outcomes=1",
-        "node_progress approve finished=0 waiting=2 known=2 total=2",
+        "node_complete lines finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+        "node_progress approve finished=0 waiting=2 skipped=0 not_called=0 known=2 total=2",
     ]
 
 
@@ -263,8 +275,13 @@ def test_a_node_with_a_call_still_to_make_is_not_complete_when_the_run_ends_and_
     events, ended = _streamed(run, cancel_during_b)
     assert ended.status == "cancelled"
     assert not [line for line in events if line.startswith("node_complete shout")]
-    assert ended.progress.nodes["shout"] == CallCount(finished=2, waiting=0, known=3, total=3)
-    assert events[-1] == "node_progress shout finished=2 waiting=0 known=3 total=3"
+    assert ended.progress.nodes["shout"] == CallCount(
+        finished=2, waiting=0, skipped=0, not_called=0, known=3, total=3
+    )
+    assert (
+        events[-1]
+        == "node_progress shout finished=2 waiting=0 skipped=0 not_called=0 known=3 total=3"
+    )
 
 
 def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_as_reused():
@@ -273,18 +290,21 @@ def test_an_outcome_reused_from_the_previous_run_starts_its_node_and_is_counted_
     assert _event_lines(run) == [
         "node_start lines",
         "node_start shout",
-        "node_progress shout finished=1 waiting=0 known=3 total=3",
+        "node_progress shout finished=1 waiting=0 skipped=0 not_called=0 known=3 total=3",
         "node_start join",
-        "node_complete lines outcomes=1",
-        "node_progress shout finished=3 waiting=0 known=3 total=3",
-        "node_complete shout outcomes=3 reused=3",
-        "node_complete join outcomes=1 reused=1",
+        "node_complete lines finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+        "node_progress shout finished=3 waiting=0 skipped=0 not_called=0 known=3 total=3",
+        "node_complete shout finished=3 waiting=0 skipped=0 not_called=0 known=3 total=3 reused=3",
+        "node_complete join finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1 reused=1",
     ]
 
 
 def test_a_node_completed_by_an_earlier_resume_sends_no_events_again():
     run = _lines_shout_join().resume(only_costs_nothing=True)
-    assert _event_lines(run) == ["node_start join", "node_complete join outcomes=1"]
+    assert _event_lines(run) == [
+        "node_start join",
+        "node_complete join finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+    ]
 
 
 def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgraph_node_is_complete_after_it():
@@ -296,14 +316,40 @@ def test_a_node_inside_a_subgraph_starts_the_subgraph_node_first_and_the_subgrap
         "node_start lines",
         "node_start loud",
         "node_start loud/shout",
-        "node_progress loud/shout finished=1 waiting=0 known=2 total=2",
+        "node_progress loud/shout finished=1 waiting=0 skipped=0 not_called=0 known=2 total=2",
         "node_start join",
-        "node_complete lines outcomes=1",
-        "node_progress loud/shout finished=2 waiting=0 known=2 total=2",
-        "node_complete loud/shout outcomes=2",
-        "node_complete loud outcomes=2",
-        "node_complete join outcomes=1",
+        "node_complete lines finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
+        "node_progress loud/shout finished=2 waiting=0 skipped=0 not_called=0 known=2 total=2",
+        "node_complete loud/shout finished=2 waiting=0 skipped=0 not_called=0 known=2 total=2",
+        "node_complete loud finished=2 waiting=0 skipped=0 not_called=0 known=2 total=2",
+        "node_complete join finished=1 waiting=0 skipped=0 not_called=0 known=1 total=1",
     ]
+
+
+def test_a_node_complete_has_the_count_run_progress_has_for_the_node_a_subgraph_node_too():
+    """A host that reads ``run.progress`` and the events sees one count per node, never two.
+
+    A subgraph node is never called itself, so in both its count is the sum of the nodes inside it: ``loud`` runs
+    ``shout`` once per line, and has its two calls.
+    """
+    record = make_graph(
+        lines, loud, join, edges=[("lines.result", "loud.line"), ("loud.result", "join.texts")]
+    )
+    run = _started(record, registry_of(lines, shout, loud, join), text="a\nb")
+
+    async def collect() -> list[Any]:
+        return [event async for event in run.stream()]
+
+    events = asyncio.run(collect())
+    progress = events[-1].run.progress.nodes
+    complete = {
+        "/".join(event.loc): event.count for event in events if event.type == "node_complete"
+    }
+
+    assert complete == {path: progress[path] for path in ("lines", "loud/shout", "loud", "join")}
+    assert complete["loud"] == CallCount(
+        finished=2, waiting=0, skipped=0, not_called=0, known=2, total=2
+    )
 
 
 def test_a_retry_and_a_failure_name_the_node_and_their_cause_names_the_call():

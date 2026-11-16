@@ -14,13 +14,15 @@ Take the first graph in conductor's README. It has three nodes::
     RunStart(waiting=())
     NodeStart(loc=("lines",))
     NodeStart(loc=("shout",))
-    NodeProgress(loc=("shout",), count=CallCount(finished=1, waiting=0, known=2, total=2))
+    NodeProgress(loc=("shout",), count=CallCount(finished=1, known=2, total=2, ...))
     NodeStart(loc=("join",))
-    NodeComplete(loc=("lines",), outcomes=1)
-    NodeProgress(loc=("shout",), count=CallCount(finished=2, waiting=0, known=2, total=2))
-    NodeComplete(loc=("shout",), outcomes=2)
-    NodeComplete(loc=("join",), outcomes=1)
+    NodeComplete(loc=("lines",), count=CallCount(finished=1, known=1, total=1, ...))
+    NodeProgress(loc=("shout",), count=CallCount(finished=2, known=2, total=2, ...))
+    NodeComplete(loc=("shout",), count=CallCount(finished=2, known=2, total=2, ...))
+    NodeComplete(loc=("join",), count=CallCount(finished=1, known=1, total=1, ...))
     RunEnd(status="complete")
+
+The ``...`` stands for the count's ``waiting``, ``skipped`` and ``not_called``, all 0 here.
 
 ``RunStart`` always comes first and ``RunEnd`` last. The one exception is a stream stopped with ``hand_back``,
 which ends with ``RunCheckpoint`` instead. A node's ``NodeStart``, if it has one, comes before every other event
@@ -129,8 +131,9 @@ class NodeProgress(_NodeEvent):
     ``NodeComplete`` or at the end of the stream, unless the count hasn't changed. A node that isn't inside a loop
     has only one call, so it gets no ``NodeProgress``.
 
-    In the README example, ``shout`` first has ``count=CallCount(finished=1, waiting=0, known=2, total=2)``, and
-    then the same with ``finished=2``.
+    In the README example, ``shout`` first has
+    ``count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=2, total=2)``, and then the same with
+    ``finished=2``.
 
     Attributes:
         count: The node's ``CallCount``, the same as ``run.progress.nodes["shout"]`` at that moment.
@@ -150,29 +153,22 @@ class NodeComplete(_NodeEvent):
     The event doesn't carry the node's values. They are in the run, in ``run.results`` and ``run.not_called``, so
     the event stays small however large the values are.
 
-    Some examples. Run the README graph with ``text="a\\n \\nb"``, and put a node ``strip`` before ``shout`` that
-    returns ``None`` for the line ``" "``. Then ``shout`` gets ``NodeComplete(loc=("shout",), outcomes=3,
-    not_called=1)``. A node counts as skipped when it has outcomes and all of them are skipped, so ``outcomes > 0``
-    and ``skipped == outcomes``: ``NodeComplete(loc=("shout",), outcomes=3, skipped=3)``. A node inside a loop over
-    an empty list gets ``outcomes=0, skipped=0``, and wasn't skipped.
+    Its ``count`` is the node's ``CallCount``, the same as ``run.progress`` has for the node. Some examples. Run the
+    README graph with ``text="a\\n \\nb"``, and put a node ``strip`` before ``shout`` that returns ``None`` for
+    the line ``" "``. Then ``shout``'s count has ``finished=3, not_called=1``. A node was skipped when every one of
+    its calls was: ``finished > 0`` and ``skipped == finished``. A node inside a loop over an empty list has
+    ``finished=0, skipped=0``, and wasn't skipped. A subgraph node completes once every node inside it has, and its
+    count is the sum of theirs.
 
     Attributes:
-        outcomes: How many outcomes the node has. That's 1 for a node that isn't inside a loop, and one per call
-            for a node that is. For a subgraph node, it's one per call of the subgraph.
-        skipped: How many of the outcomes are skipped. A call is skipped when the node is downstream of a branch
-            that wasn't chosen, or when its function returned ``SKIPPED`` for every output. For a subgraph node,
-            it's how many calls of the subgraph had every call inside them skipped.
-        not_called: How many of the outcomes are "not called". The function wasn't called because an argument was
-            ``None`` and its input doesn't accept ``None``. It's always 0 for a subgraph node, since the nodes
-            inside it have their own counts.
-        reused: How many of the outcomes this stream reused from the previous run instead of making the call. It's
-            always 0 for a subgraph node, for the same reason.
+        count: The node's ``CallCount``, the same as ``run.progress.nodes["shout"]`` at that moment. Every call is
+            finished, so ``finished``, ``known`` and ``total`` are equal, and ``waiting`` is 0.
+        reused: How many of the finished calls this stream reused from the previous run instead of making the
+            call. For a subgraph node, it's the sum of the nodes inside it.
     """
 
     type: Literal["node_complete"] = "node_complete"
-    outcomes: int
-    skipped: int = 0
-    not_called: int = 0
+    count: CallCount
     reused: int = 0
 
 

@@ -56,7 +56,7 @@ from .outcome import (
     Skipped,
     Unanswered,
 )
-from .progress import RunProgress, is_complete, progress_of
+from .progress import RunProgress, call_count, is_complete, progress_of
 from .results import outputs_of, results_of
 from .reuse import ReusableOutcomes
 from .scheduler import Scheduler
@@ -333,7 +333,7 @@ class Run[C]:
         complete = frozenset(
             path
             for path, node in nodes.items()
-            if path in complete_before or is_complete(outcomes, node)
+            if path in complete_before or is_complete(call_count(outcomes, node))
         )
         # A complete node has no call left to reuse an outcome of the previous run.
         working._reusable.drop(complete)

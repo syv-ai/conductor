@@ -251,7 +251,7 @@ def test_a_branch_node_not_called_for_a_none_leaves_both_branches_not_chosen() -
 
     async def said() -> list[tuple[tuple[str, ...], int, int]]:
         return [
-            (event.loc, event.skipped, event.not_called)
+            (event.loc, event.count.skipped, event.count.not_called)
             async for event in graph.with_inputs().stream()
             if event.type == "node_complete"
         ]

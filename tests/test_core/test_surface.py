@@ -397,7 +397,7 @@ SHAPES = {
     "run_start": ["type", "waiting"],
     "node_start": ["loc", "type"],
     "node_progress": ["count", "loc", "type"],
-    "node_complete": ["loc", "not_called", "outcomes", "reused", "skipped", "type"],
+    "node_complete": ["count", "loc", "reused", "type"],
     "node_failed": ["cause", "loc", "type"],
     "node_retry": ["attempt", "cause", "delay", "loc", "retries", "type"],
     "node_waiting": ["loc", "type", "waiting"],
@@ -434,12 +434,20 @@ def test_the_union_reads_an_event_back_by_its_type():
         {
             "type": "node_progress",
             "loc": ["a"],
-            "count": {"finished": 1, "waiting": 0, "known": 1, "total": None},
+            "count": {
+                "finished": 1,
+                "waiting": 0,
+                "skipped": 0,
+                "not_called": 0,
+                "known": 1,
+                "total": None,
+            },
         }
     )
 
     assert progress == NodeProgress(
-        loc=("a",), count=CallCount(finished=1, waiting=0, known=1, total=None)
+        loc=("a",),
+        count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=1, total=None),
     )
 
 
@@ -514,7 +522,10 @@ def _every_event() -> list[Any]:
     cause = Problem(type="external_failed", msg="e", loc=("n",), ctx={"error": "OSError"})
     built = [
         RunStart(waiting=(waiting,)),
-        NodeProgress(loc=("n",), count=CallCount(finished=1, waiting=0, known=1, total=None)),
+        NodeProgress(
+            loc=("n",),
+            count=CallCount(finished=1, waiting=0, skipped=0, not_called=0, known=1, total=None),
+        ),
         NodeFailed(loc=("n",), cause=cause),
         NodeRetry(loc=("n",), attempt=1, retries=2, delay=0.5, cause=cause),
         NodeWaiting(loc=("n",), waiting=waiting),
@@ -536,9 +547,14 @@ def test_a_node_complete_of_a_frame_with_floats_that_are_not_finite_is_a_small_s
     assert _strict(by_node["f"].model_dump_json()) == {
         "type": "node_complete",
         "loc": ["f"],
-        "outcomes": 1,
-        "skipped": 0,
-        "not_called": 0,
+        "count": {
+            "finished": 1,
+            "waiting": 0,
+            "skipped": 0,
+            "not_called": 0,
+            "known": 1,
+            "total": 1,
+        },
         "reused": 0,
     }
 
