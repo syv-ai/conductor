@@ -43,7 +43,6 @@ from .choice import Choice, read_choices
 from .fit import fit
 from .hint import (
     READ_AS,
-    aliased,
     is_alias,
     is_record,
     substituted,
@@ -212,13 +211,20 @@ class Type:
 
     @functools.cached_property
     def optional(self) -> bool:
-        """Whether the type allows ``None``: ``X | None``, ``Any``, or a type alias that stands for either."""
-        options = union_members(self.bare)
-        return (
-            Any in options
-            or type(None) in options
-            or any(is_alias(option) and Type(aliased(option)).optional for option in options)
-        )
+        """Whether the type takes ``None``, as its own check says.
+
+        It asks pydantic, which checks every value of the type, so no second rule says it. ``str | None``, ``Any``,
+        ``object`` and ``Literal["a", None]`` take ``None``. ``str``, and ``Annotated[str | None, AfterValidator(f)]``
+        where ``f`` refuses ``None``, don't.
+
+        A host's own check may raise something else for ``None``, such as ``float(None)``'s ``TypeError``. That is a
+        refusal too: a node returning ``None`` there fails the same way.
+        """
+        try:
+            self._built[1].validate_python(None, strict=True)
+        except Exception:  # noqa: BLE001  # whatever the check raises, it doesn't take None
+            return False
+        return True
 
     @functools.cached_property
     def limited(self) -> bool:

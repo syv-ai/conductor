@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 from decimal import Decimal
-from typing import Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, Optional, TypedDict
 
 import polars as pl
 import pytest
@@ -31,6 +31,7 @@ from conductor import (
     InvalidCallError,
     NodeRecord,
     NotCalled,
+    Param,
     Run,
     Series,
     Source,
@@ -40,7 +41,7 @@ from conductor import (
     node,
     subgraph,
 )
-from pydantic import BaseModel, TypeAdapter
+from pydantic import AfterValidator, BaseModel, TypeAdapter
 from pytest import MonkeyPatch
 
 from tests.test_core.nodes import registry_of
@@ -1212,6 +1213,60 @@ def test_a_null_item_in_a_saved_series_whose_items_take_no_none_is_refused_unles
         None,
         "secret-c",
     ]
+
+
+def _not_none(value: Any) -> Any:
+    if value is None:
+        raise ValueError("no None here")
+    return value
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        Literal["a", None],
+        Annotated[Optional[str], Param(title="t")],  # noqa: UP045
+        Optional[Annotated[str, Param(title="t")]],  # noqa: UP045
+        Any,
+        object,
+    ],
+    ids=["literal-none", "annotated-optional", "optional-annotated", "any", "object"],
+)
+def test_a_null_item_a_node_may_return_reads_back(item: Any) -> None:
+    @node("make", title="Make", description="For a test.")
+    def make(text: str) -> Series[item]:  # type: ignore[valid-type]
+        return ["a", None]
+
+    graph = Graph.compile(make_graph(make), registry_of(make))
+    run = graph.run(text="x")
+
+    assert run.status == "complete"
+    assert Run.from_json(run.to_json(), graph).results["make"]["result"] == ["a", None]
+
+
+@pytest.mark.parametrize("whole", [Literal["a", None], object], ids=["literal-none", "object"])
+def test_a_null_output_a_node_may_return_reads_back(whole: Any) -> None:
+    @node("one", title="One", description="For a test.")
+    def one(text: str) -> whole:  # type: ignore[valid-type]
+        return None
+
+    graph = Graph.compile(make_graph(one), registry_of(one))
+    run = graph.run(text="x")
+
+    assert run.status == "complete"
+    assert Run.from_json(run.to_json(), graph).results["one"]["result"] is None
+
+
+def test_a_null_item_a_node_may_not_return_is_refused_on_reading_as_its_own_check_refuses_it():
+    @node("make", title="Make", description="For a test.")
+    def make(text: str) -> Series[Annotated[str | None, AfterValidator(_not_none)]]:
+        return ["a", "b"]
+
+    graph = Graph.compile(make_graph(make), registry_of(make))
+    saved = json.loads(graph.run(text="x").to_json())
+    saved["outcomes"]["make"]["outputs"]["result"][0][1] = None
+
+    assert _refused(graph, saved).ctx["where"] == "outcomes.make"
 
 
 def _saved_table() -> tuple[Any, dict[str, Any]]:

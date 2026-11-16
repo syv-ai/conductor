@@ -262,6 +262,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 - A `Literal` lands on a `Literal` that has all its values.
 - A generic is compared by its arguments too: `list[int]` lands on `list[float]`, and never on `list[str]`.
 - A type alias (`type X = ...`, or pydantic's JsonValue) is read as what it stands for. Text, a number, a yes or no, or a list or dict of them lands on a JsonValue; a model or a date does not. An alias takes `None` when what it stands for does.
+- Whether a type takes `None` is what its own check says, wherever conductor asks: `str | None`, `Any`, `object` and `Literal["a", None]` take it; a `str | None` annotated with a pydantic validator that refuses `None` does not. That decides a `None` argument, a collected `Series` keeping its `None` items, an output's default `null` in a description, and a saved `null`.
 
 **A yes or no is not a number.** A `bool` never lands on an `int` or `float` input. It doesn't land on a union that has a number and no `bool` (`int | float`, `int | str`) either, or on a host's subclass of a number, whatever its `accepts` says. Nor does it land as an item of a list, dict or `Series` of numbers.
 
@@ -927,7 +928,7 @@ assert GraphRecord.model_validate_json(text) == record
 - Then it reads the saved run back and checks it against the graph. A saved run that doesn't fit, or isn't a saved run at all, is `saved_run_unreadable`. `ctx.where` says where (`outcomes.upper.outputs.result.1`), and `ctx.reason` says why.
 - That can happen when the text was changed, when another version of conductor, or of a node or a type in it, wrote it, or when a value doesn't read back from its JSON. The remedy is a new run.
 - Every value is read back by its declared type. A float that isn't finite is written as its text (`"NaN"`, `"Infinity"`, `"-Infinity"`). A `float` reads the float back. `Any`, a `dict` or `float | str` reads the text, the way a date under `Any` comes back as its ISO text.
-- A saved value is held to its type as a node's return is. A `null` for an output, or for an item of a `Series`, whose type takes no `None` is refused, unless the save lists it as skipped.
+- A saved `null` for an output, or for an item of a `Series`, is refused where the type refuses `None` (see "Types"), unless the save lists it as skipped. So a save takes a `None` exactly where a node's return does.
 
 ### The Palette
 

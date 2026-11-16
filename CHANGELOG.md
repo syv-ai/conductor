@@ -405,6 +405,12 @@ What changes in how you work, before the name-by-name tables:
 - **A saved run is held to each output's type as a node's return is.** `Run.from_json` refuses a `null` item in a
   `Series[str]` that `skipped_items` doesn't list (`saved_run_unreadable` at `outcomes.<node>`). It read it back as a
   `None` item, though a node that returns such a list fails with `invalid_output`.
+- **Whether a type takes `None` is its own check's answer, everywhere.** `object` and `Literal["a", None]` take
+  `None`, and `Annotated[str | None, AfterValidator(f)]` with an `f` that refuses `None` does not, as when a node
+  returns one; a rule written beside the check said otherwise. So a saved `null` for such an output or item reads
+  back (`object`, `Literal["a", None]`) or is refused (the validator), a `Series[Literal["a", None]]` input keeps
+  its `None` items, a `None` argument to such an input calls the node, and such an output's description has the
+  default `null`.
 - **`run.results` shows a loop's items while a question outside it waits.** A node called per item of a returned
   series, with an input from a call outside the loop that waits for a person or hasn't returned, shows one `None`
   per item, as the reference says. An output of an `exclusive_group` there, and every node reading one, showed
