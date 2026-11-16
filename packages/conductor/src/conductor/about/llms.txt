@@ -890,7 +890,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 |---|---|
 | `node_start` | `loc`: the node's id, behind the id of each subgraph's node it is inside, `("emb", "upper")`; every event about a node has it, and names the node, never one call |
 | `node_progress` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it; at most four a second per node |
-| `node_complete` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it, with every call finished; `reused` (how many calls this stream reused); the values are in the run (`run.results`). A node skipped by a branch not chosen was never called, so it has no `node_start` |
+| `node_complete` | `loc`, `count`: the node's `CallCount`, as `run.progress.nodes` has it, with every call finished; `reused` (how many calls this stream reused); the values are in the run (`run.results`). A node skipped by a skipped branch was never called, so it has no `node_start` |
 | `node_retry` | `loc`, `attempt`, `retries`, `delay`, `cause` (a `Problem`, whose `loc` names the call: the node's id, then its item indexes; inside a subgraph the subgraph node and its index first, `("emb", 1, "upper")`) |
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the call) |
 | `node_waiting` | `loc`, `waiting` (a `Waiting`, whose `loc` names the call) |
