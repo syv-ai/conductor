@@ -180,22 +180,36 @@ def test_pipelining_two_nodes():
 
 
 def test_stream_leaves_the_event_loop_free():
-    graph = Graph.compile(GraphRecord.model_validate(chain("split", "slow")), reg)
-    ticks = []
+    """While ``stream()`` waits on a node's call, other tasks on the event loop run.
+
+    The node waits until a task on the loop releases it, and that task only does so once the node has started. If
+    the stream held the loop during the call, the task could never run, and the node would give up waiting. The
+    timeout is only there so that a stream that holds the loop fails the test instead of hanging it.
+    """
+    started, released = ThreadEvent(), ThreadEvent()
+
+    @node("held", title="Held", description="For a test.")
+    def held(text: str) -> bool:
+        started.set()
+        return released.wait(timeout=30)
+
+    graph = Graph.compile(
+        GraphRecord.model_validate(chain("split", "held")), registry_of(split, held)
+    )
 
     async def go():
-        async def tick():
-            while True:
-                ticks.append(1)
-                await asyncio.sleep(0.01)
+        async def release():
+            while not started.is_set():
+                await asyncio.sleep(0)
+            released.set()
 
-        ticker = asyncio.create_task(tick())
-        events = [e async for e in graph.with_inputs(text="a,b").stream()]
-        ticker.cancel()
-        return events
+        releaser = asyncio.create_task(release())
+        events = [e async for e in graph.with_inputs(text="a").stream()]
+        await releaser
+        return events[-1].run
 
-    events = asyncio.run(go())
-    assert len(ticks) >= 5 and events[-1].status == "complete", len(ticks)
+    run = asyncio.run(go())
+    assert (run.status, run.results["held"]["result"]) == ("complete", [True])
 
 
 def test_waiting_and_skipped_events():
