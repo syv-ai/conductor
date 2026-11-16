@@ -409,6 +409,9 @@ What changes in how you work, before the name-by-name tables:
   series, with an input from a call outside the loop that waits for a person or hasn't returned, shows one `None`
   per item, as the reference says. An output of an `exclusive_group` there, and every node reading one, showed
   `None` in place of the list, as if the branch were not chosen.
+- **`run.with_max_items(None)` removes a run's item limit.** Its signature says `int | None`; it said `int`, so a
+  type checker refused the one call that removes the limit, while `max_items=None` on `run.with_inputs` and
+  `run.again` keeps the run's own.
 
 A 1.x graph doesn't compile as saved. Convert each graph record with the table under
 "Converting a stored 1.x graph", then save the `GraphRecord`.

@@ -155,15 +155,15 @@ class Run[C]:
 
     # -- running ----------------------------------------------------------------
 
-    def with_max_items(self, max_items: int) -> Run[C]:
+    def with_max_items(self, max_items: int | None) -> Run[C]:
         """Returns a copy of this run with a new item limit. No node is called.
 
         A run stops as ``stopped`` when a series that a node is called per item of has more items than the limit. Say
-        a run started with ``max_items=30`` met 40 items. ``run.with_max_items(100).resume()`` goes on from there. The
-        limit is saved with the run.
+        a run started with ``max_items=30`` met 40 items. ``run.with_max_items(100).resume()`` goes on from there.
+        ``None`` removes the limit. The limit is saved with the run.
 
         Raises:
-            InvalidCallError: ``invalid_limit`` if ``max_items`` isn't a whole number of at least 1.
+            InvalidCallError: ``invalid_limit`` if ``max_items`` isn't a whole number of at least 1, or ``None``.
         """
         return dataclasses.replace(
             self, max_items=LimitsValidator()({"max_items": max_items})["max_items"]
@@ -571,6 +571,8 @@ class Run[C]:
         takes that call's outcome, and the node isn't called for it. That includes a person's answer, and a question
         still waiting. Inputs are given and checked as ``graph.with_inputs`` takes them. ``python -m conductor.about
         running-again`` has the rules for what is reused.
+
+        ``max_items`` left out, or ``None``, keeps this run's item limit. ``run.with_max_items(None)`` removes it.
         """
         return self.graph.with_inputs(
             {**self.inputs, **inputs, **by_name},

@@ -994,7 +994,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 - `run.resume(*, context=None, timeout=None, only_costs_nothing=False)` goes on from where the run stopped, the same way.
 - `run.stream(...)` takes the same arguments, plus `cancel=`, `hand_back=` and `checkpoint_every=`. It does the same, and yields its events.
-- `run.with_max_items(n)` is the same run under another item limit, not started. A run `stopped` at its item limit goes on with `run.with_max_items(100).resume()`.
+- `run.with_max_items(n)` is the same run under another item limit, not started. A run `stopped` at its item limit goes on with `run.with_max_items(100).resume()`. `run.with_max_items(None)` removes the limit; `max_items=None` on `run.with_inputs` and `run.again` keeps the run's own.
 - `run.answer(waiting, value)` or `run.answer({waiting_id: value})` answers waiting calls (see "Asking a person").
 - `run.with_inputs(inputs={}, /, *, max_items=None, **by_name)` is a run that reuses this one's outcomes, to resume or stream.
 - `run.forget(*node_ids)` is a run of the same inputs that calls these nodes again and reuses the rest, to resume or stream.

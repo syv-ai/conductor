@@ -2618,6 +2618,18 @@ def test_with_max_items_is_the_same_run_with_a_higher_item_limit_and_calls_nothi
             method(max_items=3)
 
 
+def test_with_max_items_none_removes_the_item_limit_and_with_inputs_none_keeps_it():
+    compiled = graph(
+        {"id": "s", "node": "split"}, {"id": "u", "node": "upper"}, edges=(("s.result", "u.text"),)
+    )
+    stopped = compiled.run(text="a,b,c", max_items=2)
+
+    assert stopped.with_inputs(max_items=None).max_items == 2
+    unlimited = stopped.with_max_items(None)
+    assert unlimited.max_items is None
+    assert unlimited.resume().results["u"]["result"] == ["A", "B", "C"]
+
+
 @pytest.mark.parametrize("max_items", [0, -1, True, False, 2.5, "5"])
 def test_max_items_is_a_whole_number_of_at_least_one_and_a_bool_is_not_one(max_items: Any) -> None:
     compiled = graph(
