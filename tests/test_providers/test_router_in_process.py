@@ -24,9 +24,11 @@ from conductor import (  # noqa: E402
     Context,
     Graph,
     GraphRecord,
+    InvalidCallError,
     NodeRegistry,
     Policy,
     Problem,
+    Run,
     Series,
     make_graph,
 )
@@ -135,6 +137,38 @@ async def test_again_by_another_user_who_may_see_the_run_is_checked_on_that_user
         mine = await client.post(f"/runs/{run_id}/again", json={"x": 2})
         assert mine.status_code == 202
         assert (await store.ended(mine.json()["id"])).outputs == {"result": 4}
+
+
+async def test_a_previous_run_whose_saved_form_conductor_refuses_is_refused_with_conductors_own_problems() -> (
+    None
+):
+    """A run named as ``previous`` is refused as ``Run.from_json`` refuses the same saved run: code, loc and ctx."""
+    full, _, graph = _doubling()
+    store = MemoryStore()
+
+    async with _serving(_app(store=store, registry=lambda _: full)) as client:
+        first = (await client.post("/runs", json={"graph": graph, "inputs": {"x": 2}})).json()["id"]
+        assert (await store.ended(first)).status == "complete"
+        edited = json.loads(store.rows[first].run)
+        edited["outcomes"]["d"]["outputs"]["result"] = ["four"]
+        store.rows[first] = dataclasses.replace(store.rows[first], run=json.dumps(edited))
+        answer = await client.post(
+            "/runs", json={"graph": graph, "inputs": {"x": 3}, "previous": first}
+        )
+
+    with pytest.raises(InvalidCallError) as in_python:
+        Run.from_json(json.dumps(edited), Graph.compile(graph, full))
+    assert answer.status_code == 422
+    assert answer.json()["detail"] == [
+        problem.model_dump(mode="json") for problem in in_python.value.problems
+    ]
+    (problem,) = answer.json()["detail"]
+    assert (problem["type"], problem["loc"], problem["ctx"]["where"]) == (
+        "saved_run_unreadable",
+        ["saved_run"],
+        "outcomes.d.outputs.result.0",
+    )
+    assert list(store.rows) == [first]
 
 
 class _Member(BaseModel):

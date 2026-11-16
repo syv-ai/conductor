@@ -1,4 +1,4 @@
-"""The four kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
+"""The three kinds of problem the worker reports itself, in ``SERVING_PROBLEMS``, and the HTTP status of each.
 
 Everything else a run or a call can go wrong with is conductor's own, in ``conductor.PROBLEMS``. The exceptions are
 a request body of the wrong shape and a ``Last-Event-ID`` that isn't a whole number, which FastAPI refuses with its
@@ -34,20 +34,6 @@ def run_not_resumable(*, status: RunStatus) -> str:
         status: The run's status.
     """
     return f"The run is {status}, and only a run that ended early can be resumed; read the run to see what it needs."
-
-
-@SERVING_PROBLEMS.problem()
-def previous_run_unloadable(*, run_id: str, reason: str) -> str:
-    """The run named in ``previous`` can't be loaded on the new run's nodes, so its work can't be reused.
-
-    Args:
-        run_id: The previous run's id.
-        reason: Why it can't be loaded, in conductor's words.
-    """
-    return (
-        f"The previous run '{run_id}' can't be loaded on these nodes, so its work can't be reused: "
-        f"{reason.rstrip('.')}. Start without it."
-    )
 
 
 @SERVING_PROBLEMS.problem()

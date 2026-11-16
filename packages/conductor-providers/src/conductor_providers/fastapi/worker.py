@@ -28,11 +28,7 @@ from typing_extensions import TypeVar
 
 from conductor_providers.fastapi.bodies import Decline
 from conductor_providers.fastapi.held_run import HeldRun, ResumeSettings, loaded
-from conductor_providers.fastapi.problems import (
-    no_such_run,
-    previous_run_unloadable,
-    run_not_resumable,
-)
+from conductor_providers.fastapi.problems import no_such_run, run_not_resumable
 from conductor_providers.fastapi.state import M, RunOutcome, RunState, RunView
 from conductor_providers.fastapi.store import GuardedStore, RunChanges, RunStore, StoredRun
 
@@ -182,8 +178,9 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs, each with
-                conductor's problems; else no run has the id ``previous`` (``no_such_run``), or it can't be loaded
-                on those nodes (``previous_run_unloadable``, which says why). Start without ``previous`` then.
+                conductor's problems. Else no run has the id ``previous`` (``no_such_run``). Or the previous run
+                can't be loaded on those nodes, with the problems ``Run.from_json`` gives for its saved run, such as
+                ``saved_run_unreadable``. Start without ``previous`` then.
             RuntimeError: The worker has never served.
         """
         metadata = self._checked(metadata)
@@ -594,7 +591,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: The graph or the inputs are refused, no run has the id ``previous``
-                (``no_such_run``), or it can't be loaded on these nodes (``previous_run_unloadable``).
+                (``no_such_run``), or it can't be loaded on these nodes (conductor's problems, as they are).
             TypeError: ``previous`` is given without ``allows``.
         """
         if previous is not None and allows is None:
@@ -610,14 +607,8 @@ class Worker(Generic[M, X]):
             run = compiled.with_inputs(inputs, max_items=self._max_items)
             if lends is None:
                 return run
-            try:
-                lent = loaded(lends, nodes)
-            except InvalidCallError as refusal:
-                reason = "; ".join(problem.msg for problem in refusal.problems)
-                raise InvalidCallError(
-                    [previous_run_unloadable(run_id=lends.id, reason=reason)]
-                ) from refusal
-            return compiled.with_inputs(inputs, max_items=self._max_items, previous=lent)
+            previous_run = loaded(lends, nodes)
+            return compiled.with_inputs(inputs, max_items=self._max_items, previous=previous_run)
 
         return await asyncio.to_thread(ready)
 

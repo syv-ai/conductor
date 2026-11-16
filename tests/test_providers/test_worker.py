@@ -134,7 +134,7 @@ def _registry_that_drops_old() -> tuple[
     return earlier, later, make_graph(split, square, old), make_graph(split, square)
 
 
-async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_callers_nodes_is_refused_saying_so() -> (
+async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_callers_nodes_is_refused_with_its_graphs_problems() -> (
     None
 ):
     earlier, later, uses_old, edited = _registry_that_drops_old()
@@ -148,9 +148,11 @@ async def test_a_run_begun_from_a_previous_run_that_cant_be_loaded_on_the_caller
         with pytest.raises(InvalidCallError) as refused:
             await worker.begin(edited, {"n": 2}, ANNA, previous=first, allows=EVERY_RUN)
 
-        (problem,) = refused.value.problems
-        assert (problem.type, problem.ctx["run_id"]) == ("previous_run_unloadable", first)
-        assert "'old'" in str(problem.ctx["reason"])
+        # the previous run's own graph, the one it was saved from, uses a node the caller's nodes don't have
+        assert refused.value.problems == Graph.compile(uses_old, later).problems
+        assert [(problem.type, problem.ctx["node"]) for problem in refused.value.problems] == [
+            ("unknown_node", "old")
+        ]
         assert list(store.rows) == [first]  # nothing is stored
         begun = await worker.begin(edited, {"n": 2}, ANNA)  # without previous=, it goes through
         assert (await store.ended(begun.id)).outputs == {"result": [0, 1]}
