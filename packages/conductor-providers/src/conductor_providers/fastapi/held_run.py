@@ -224,8 +224,8 @@ class HeldRun:
             held: Its outcome.
 
         Returns:
-            The run as the row has it as the call's own ``run_end``, and how the row's state changes, as
-            ``_resume_call`` returns them.
+            Two things, as ``_resume_call`` returns them. The call's own ``run_end``, which says how the run stood
+            in its row, since no stream ran. And how the row's state changes once the run takes the decline.
         """
         saved, written = await asyncio.to_thread(lambda: (run.to_json(), held.model_dump_json()))
         return RunEnd(status=run.status, cause=run.cause), lambda state: state.ended_with(

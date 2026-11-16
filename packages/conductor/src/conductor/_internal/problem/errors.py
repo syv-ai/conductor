@@ -30,12 +30,13 @@ problem never quotes a value a graph carries: a graph input or its default, a co
 value in a saved run. Where a fault is inside such a value, the problem says where by list indexes, record fields and
 positions, never by the value's own dict keys. A problem never quotes the text of an exception other than a
 ``NodeError`` either, since it might quote a value. Such an exception from a node or a hook goes to the ``conductor``
-logger with its traceback, and the problem names only the exception's class. ``value_free_errors`` does the same for pydantic's errors.
+logger with its traceback, and the problem names only the exception's class. ``value_free_errors`` does the same
+for pydantic's errors.
 
 A problem may name what a developer or a host wrote: node ids, input, output and field names, places, waiting ids,
 the limits a type declares and where a JSON text stops being JSON. A field name a ``compute_...`` hook returns is
-among them, even one it builds from a constant: it is in every ``loc``, in ``describe()`` and on edges. A ``NodeError`` keeps its message and its
-``ctx``, since the node's developer wrote them for people.
+among them, even one it builds from a constant: it is in every ``loc``, in ``describe()`` and on edges. A
+``NodeError`` keeps its message and its ``ctx``, since the node's developer wrote them for people.
 
 Asking a person isn't an error. A node raises ``Ask``, its call waits, and the run's status is ``waiting``.
 """
