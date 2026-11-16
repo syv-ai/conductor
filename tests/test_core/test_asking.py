@@ -1890,7 +1890,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
                 "required": True,
                 "type": "str",
                 "type_variables": [],
-                "json_schema": {"type": "string"},
+                "json_schema": {"type": "string", "enum": ["ida"]},
                 "loops": [],
                 "choices": [{"id": "ida", "title": "Ida B."}],
                 "default": "ida",
@@ -1918,6 +1918,109 @@ def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():
         "enum": ["low", "high"],
         "type": "string",
     }
+
+
+@pytest.mark.parametrize(
+    ("hint", "asked", "enum"),
+    [
+        (Annotated[str, Param(choices=["ida", "bo"])], None, ["ida", "bo"]),
+        (str, ["ida", "bo"], ["ida", "bo"]),
+        (Literal["ida", "bo"], ["ida"], ["ida"]),
+        (Literal["ida", "bo"] | None, ["ida"], ["ida", None]),
+        (Annotated[str | None, Param(choices=["ida", "bo"])], None, ["ida", "bo", None]),
+        (Series[Literal["ida", "bo"]], ["bo"], ["bo"]),
+    ],
+)
+def test_a_questions_schema_lists_its_choices_as_its_enum(hint: Any, asked: Any, enum: Any):
+    """A host that draws a form from a question's JSON schema offers the values its ``choices`` list.
+
+    The ``enum`` is written from the choices: the type's own, or the ``Ask``'s when it narrows them. ``None`` is in
+    it when the type takes ``None``.
+    """
+
+    @node("assign", title="Assign", description="For a test.", asks=True)
+    def assign(ticket: str) -> hint:  # type: ignore[valid-type]
+        raise Ask(f"Who takes {ticket}?", choices=asked)
+
+    _, run = _once(assign, ticket="T-1")
+    (question,) = run.waiting[0].questions
+    assert question.json_schema["enum"] == enum
+    assert [choice.id for choice in question.choices] == [i for i in enum if i is not None]
+    if asked is None:
+        assert assign.describe().outputs[0].json_schema == question.json_schema
+
+
+class _Chosen(TypedDict):
+    who: Annotated[str, Param(choices=["ida", "bo"])]
+
+
+def _column(schema: dict[str, Any], name: str) -> dict[str, Any]:
+    (column,) = [
+        c
+        for c in schema["properties"]["columns"]["prefixItems"]
+        if c["properties"]["name"]["const"] == name
+    ]
+    return column["properties"]["values"]["items"]
+
+
+@pytest.mark.parametrize(
+    ("hint", "enum_of"),
+    [
+        (
+            list[Annotated[str, Param(choices=["ida", "bo"])]],
+            lambda schema: schema["items"]["enum"],
+        ),
+        (_Chosen, lambda schema: schema["properties"]["who"]["enum"]),
+        (Table[_Chosen], lambda schema: _column(schema, "who")["enum"]),
+    ],
+)
+def test_choices_below_the_top_are_their_schemas_enum_too(hint: Any, enum_of: Any):
+    """A ``Param(choices=)`` on a list's item, a record's field or a table's column is that part's ``enum``.
+
+    So a form drawn from the schema offers only what the run takes, at any depth.
+    """
+
+    @node("assign", title="Assign", description="For a test.", asks=True)
+    def assign(ticket: str) -> hint:  # type: ignore[valid-type]
+        raise Ask(f"Who takes {ticket}?")
+
+    (output,) = assign.describe().outputs
+    assert enum_of(output.json_schema) == ["ida", "bo"]
+
+
+def test_a_choice_that_is_not_finite_leaves_the_schema_with_no_enum():
+    """JSON Schema would read ``inf``'s ``"Infinity"`` as text, which a number refuses, so there is no ``enum``.
+
+    A schema may say less than the run checks, but never list a value the run refuses.
+    """
+
+    @node("cap", title="Cap", description="For a test.", asks=True)
+    def cap(ticket: str) -> Annotated[float, Param(choices=[1.0, float("inf")])]:
+        raise Ask(f"Cap {ticket}")
+
+    asked_inf = node("cap-asked", title="Cap", description="For a test.", asks=True)(
+        _ask_cap_with_inf
+    )
+    for definition in (cap, asked_inf):
+        _, run = _once(definition, ticket="T-1")
+        assert run.waiting[0].questions[0].json_schema == {"type": "number"}
+
+
+def _ask_cap_with_inf(ticket: str) -> float:
+    raise Ask(f"Cap {ticket}", choices=[1.5, float("inf")])
+
+
+def test_an_ask_that_offers_some_of_a_types_titled_choices_by_id_keeps_their_titles():
+    @node("assign", title="Assign", description="For a test.", asks=True)
+    def assign(
+        ticket: str,
+    ) -> Annotated[
+        Literal["ida", "bo"], Param(choices=[Choice("ida", "Ida B."), Choice("bo", "Bo K.")])
+    ]:
+        raise Ask(f"Who takes {ticket}?", choices=["bo"])
+
+    _, run = _once(assign, ticket="T-1")
+    assert run.waiting[0].questions[0].choices == (Choice("bo", "Bo K."),)
 
 
 def test_one_item_answered_twice_in_one_call_is_refused_and_nothing_is_answered():

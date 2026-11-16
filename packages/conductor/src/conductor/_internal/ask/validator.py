@@ -106,7 +106,10 @@ class AskValidator(Validator[Ask, tuple[dict[str, tuple[Choice, ...]], dict[str,
                 value_type = outputs[name].type
                 try:
                     choices[name] = read_choices(
-                        given, schema_output_validator_of(value_type), value_type.to_json
+                        given,
+                        schema_output_validator_of(value_type),
+                        value_type.to_json,
+                        known=value_type.choices or (),
                     )
                 except PydanticCustomError as refused:
                     raise InvalidCallError(

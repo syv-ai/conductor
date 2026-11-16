@@ -440,12 +440,15 @@ def table_schema(source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
         return frame if frame.columns == list(columns) else frame.select(list(columns))
 
     def json_schema(_: CoreSchema, write: GetJsonSchemaHandler) -> JsonSchemaValue:
+        # pydantic's generator writes a cell as it writes any schema, with what a Param adds to it, like the enum
+        # of its choices; calling ``write`` itself would write only the bare type
+        generator = write.generate_json_schema  # type: ignore[attr-defined]
         column = [
             {
                 "type": "object",
                 "properties": {
                     "name": {"const": name},
-                    "values": {"type": "array", "items": write(cell)},
+                    "values": {"type": "array", "items": generator.generate_inner(cell)},
                 },
             }
             for name, cell in cells.items()

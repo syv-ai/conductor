@@ -43,7 +43,7 @@ class FieldDescription(ConductorModel):
         type_variables: The names of the type variables the hint leaves open, for an edge to fill in. Two fields
             that share a name have the same type once it is filled in.
         json_schema: The JSON schema of one value, the same value ``type`` names. A table's schema lists its
-            columns.
+            columns. A field with ``choices`` has their ids as its ``enum``.
         required: Whether the field can't be left out. An input with no default is required. So is an output an
             answer must give: ``-> str`` is required, while ``-> str | None`` may be left out and is then ``None``.
         default: The value an editor starts the field with, as JSON, which the field also gets when it is left out

@@ -60,12 +60,14 @@ def read_choices(
     given: Iterable[Any],
     reader: SchemaValidator | TypeAdapter[Any],
     write: Callable[[Any], JsonValue],
+    known: Iterable[Choice] = (),
 ) -> tuple[Choice, ...]:
     """Checks the choices of a type, and returns them with each id in its JSON form.
 
     Each id is checked by ``reader`` strictly, the way its JSON text would be (``validate_as_json``). Then
-    ``write`` turns it back into JSON. A bare value becomes a ``Choice`` titled by its text. A ``Choice`` keeps its
-    class and all its fields.
+    ``write`` turns it back into JSON. A bare value that is the id of a ``known`` choice becomes that choice, title
+    and all. Any other bare value becomes a ``Choice`` titled by its text. A ``Choice`` keeps its class and all its
+    fields.
 
     For a ``float``, ``read_choices([1, Choice(2, "Two")], adapter, write)`` gives
     ``(Choice(1.0, "1"), Choice(2.0, "Two"))``.
@@ -81,20 +83,26 @@ def read_choices(
         given: The choices as a developer or a node gave them, each a value or a ``Choice``.
         reader: The validator of the type the choices are values of.
         write: Converts a value ``reader`` gave back to JSON.
+        known: Choices already read, which a bare value given by its id stands for. An ``Ask`` passes its
+            output's own choices, so a bare ``"ida"`` is the ``Choice("ida", "Ida B.")`` the output's type gives.
 
     Raises:
         PydanticCustomError: ``no_json_form`` if an id can't be written as JSON. ``not_its_type`` if an id isn't
             a value of the type; its message is the type's reason, which quotes no value. ``no_choices`` if the
             list is empty. ``choice_twice`` if an id is given twice.
     """
-    choices = [
-        choice if isinstance(choice, Choice) else Choice(choice, str(choice)) for choice in given
-    ]
+    known_by_text = {canonical_json(choice.id): choice for choice in known}
+    read: list[Choice] = []
     try:
-        read = tuple(
-            choice.model_copy(update={"id": write(validate_as_json(reader, choice.id))})
-            for choice in choices
-        )
+        for choice in given:
+            if isinstance(choice, Choice):
+                written = write(validate_as_json(reader, choice.id))
+                read.append(choice.model_copy(update={"id": written}))
+            else:
+                written = write(validate_as_json(reader, choice))
+                read.append(
+                    known_by_text.get(canonical_json(written), Choice(written, str(choice)))
+                )
     except PydanticSerializationError:
         raise conductor_error("no_json_form", "one can't be written as JSON") from None
     except ValidationError as refused:
@@ -103,7 +111,7 @@ def read_choices(
         raise conductor_error("no_choices", "none is given")
     if len(choice_texts(read)) != len(read):
         raise conductor_error("choice_twice", "one is given twice")
-    return read
+    return tuple(read)
 
 
 def choice_texts(choices: Iterable[Choice]) -> frozenset[str]:

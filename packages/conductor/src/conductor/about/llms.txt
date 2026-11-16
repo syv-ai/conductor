@@ -705,7 +705,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - `prompt`.
 - `inputs`: what the call received, as JSON.
 - `questions`, one per output. Each is the field record `describe()` writes for the output (`name`, `title`, `is_series`, `type`, `json_schema`, `required`, ...). A question is titled as `describe()` titles its output: `Param(title=)` on the return type, else `None`.
-- A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)` or `Literal`.
+- A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)` or `Literal`. Its `json_schema`'s `enum` lists their ids (see `FieldDescription`). A bare id an `Ask` gives keeps the title the output's type gives it.
 - A question's `default` comes from the `Ask`, else from the output's own.
 - `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a skipped branch.
 - A node of one output is answered with its value, so its one question is `required`, a branch too. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.answer(id, {})` is refused as `invalid_answer`.
@@ -957,6 +957,7 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - `type` and `json_schema` are always set. A table's columns are in both: as `Table[name: str]`, and as a `columns` array in the schema.
 - `title`, `description`, `choices` and `widget` are `None` when the field has none.
 - A `Param`'s limits are in `json_schema`, as `minimum`, `maxLength` and the like. Its title and description are the field's own, and are never repeated there.
+- Choices are an `enum` in the JSON schema: their ids, with `null` added when the type takes `None`. `Param(choices=)` writes it at any depth: on the field, a list's item, a record's field, a table's column and a field of a host's own model. On a question whose `Ask` gives choices, the schema is the type narrowed to them, so its `enum` lists the question's `choices`. When a choice is a float that isn't finite, such as `inf`, there is no `enum`, since JSON Schema would read its `"Infinity"` as text.
 - `loops` is described under "The graph record".
 
 **`required` and `default`** say what leaving the field out gives. `default` is also the value an editor starts the field with.

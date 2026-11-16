@@ -134,10 +134,10 @@ class Field:
         A palette shows a node's fields this way. A node that raises ``Ask`` asks about its outputs this way too,
         unless the ``Ask`` sets choices or a default of its own.
         """
-        return self.description_with(self.type.choices)
+        return self.description_with(None)
 
-    def description_with(self, choices: tuple[Choice, ...] | None) -> FieldDescription:
-        """The field as JSON for an editor, with its values limited to ``choices``.
+    def description_with(self, asked: tuple[Choice, ...] | None) -> FieldDescription:
+        """The field as JSON for an editor, with its values limited to ``asked`` when an ``Ask`` limits them.
 
         ``required`` and ``default`` say what happens when the field is left out. There are four cases:
 
@@ -150,9 +150,14 @@ class Field:
         An input whose type takes ``None`` but has no default is still required. An edge or a constant gives it its
         value.
 
+        The JSON schema is that of the type, narrowed to ``asked`` (``Type.narrowed``) when it is given. So its
+        ``enum`` lists the same choices as ``choices``.
+
         Args:
-            choices: The values the field takes, or ``None`` for no limit.
+            asked: The choices an ``Ask`` offers for the field, or ``None`` for the type's own.
         """
+        value_type = self.type if asked is None else self.type.narrowed(asked)
+        choices = value_type.choices
         branch = self.is_branch
         default: JsonValue | MISSING
         if self.default is not REQUIRED:
@@ -175,7 +180,7 @@ class Field:
             is_series=self.is_series,
             type=self.type.id,
             type_variables=[variable.__name__ for variable in self.whole.variables],
-            json_schema=self.type.json_schema,
+            json_schema=value_type.json_schema,
             required=default is MISSING and not branch,
             default=default,
             choices=choices,

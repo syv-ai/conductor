@@ -30,6 +30,15 @@ def union_of(options: Iterable[Any]) -> Any:
     return functools.reduce(operator.or_, options)
 
 
+def literal_classes(literal: Any) -> Any:
+    """Returns the class of a ``Literal``'s values: one class, or the union of several.
+
+    A ``Literal`` is a value of its values' classes. ``Literal["a", "b"]`` gives ``str``, and
+    ``Literal["a", 1, None]`` gives ``str | int | None``.
+    """
+    return union_of(dict.fromkeys(type(value) for value in get_args(literal)))
+
+
 def is_alias(hint: Any) -> TypeGuard[TypeAliasType]:
     """Says whether ``hint`` is a named type alias, like ``type X = ...`` or pydantic's ``JsonValue``."""
     return isinstance(hint, (TypeAliasType, type(JsonValue)))

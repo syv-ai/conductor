@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import functools
+import json
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Annotated, Any, Literal, get_args, get_origin
@@ -33,7 +34,7 @@ from conductor._internal.base import canonical_json
 from conductor._internal.problem import NodeDeclarationError, declaration_problems
 from conductor.widgets import Widget
 
-from .choice import check_one_of, choice_texts, pick_texts, read_choices
+from .choice import Choice, check_one_of, choice_texts, pick_texts, read_choices
 from .hint import READ_AS, union_members, union_of
 
 #: The limits ``Param`` takes, named as pydantic's ``Field`` names them.
@@ -179,7 +180,7 @@ class Param:
             return reader.dump_python(value, mode="json")
 
         try:
-            texts = choice_texts(read_choices(self.choices, reader, as_json))
+            read = read_choices(self.choices, reader, as_json)
         except PydanticCustomError as refused:
             match refused.type:
                 case "no_json_form":
@@ -192,6 +193,7 @@ class Param:
                     ) from None
                 case _:  # no choices, or an id given twice
                     raise NodeDeclarationError(declaration_problems.choices_invalid()) from None
+        texts = choice_texts(read)
         literal = [  # None is not a pick, so it is never a choice
             value
             for option in union_members(source)
@@ -204,26 +206,63 @@ class Param:
                 declaration_problems.choices_invalid_on_a_literal(values=literal)
             )
         if literal:  # on a Literal, the choices only give its values titles
-            return limited
+            checked = limited
+        else:
 
-        def one_of_the_choices(value: Any) -> Any:
-            check_one_of(texts, pick_texts(as_json(value), several=False))
-            return value
+            def one_of_the_choices(value: Any) -> Any:
+                check_one_of(texts, pick_texts(as_json(value), several=False))
+                return value
 
-        return core_schema.no_info_after_validator_function(one_of_the_choices, limited)
+            checked = core_schema.no_info_after_validator_function(one_of_the_choices, limited)
+        enum = _enum_of(read, reader)
+        if enum is None:
+            return checked
+        # kept for __get_pydantic_json_schema__, which pydantic calls with this schema
+        return {**checked, "metadata": {**checked.get("metadata", {}), _ENUM: enum}}  # type: ignore[typeddict-unknown-key]
 
     def __get_pydantic_json_schema__(
         self, schema: CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
-        """Returns the JSON schema of the limited type, with this ``title`` and ``description`` added.
+        """Returns the JSON schema of the limited type, with this ``title``, ``description`` and choices added.
 
-        This matters on a field of a host's own model, where the JSON schema is where they show up.
+        The choices are the schema's ``enum`` (``_enum_of``). This matters at any depth: on a list's item, on a field
+        of a record or of a host's own model, and on a table's column, the JSON schema is where they show up.
         """
         written = handler(schema)
+        enum = schema.get("metadata", {}).get(_ENUM)
+        if enum is not None:
+            written["enum"] = enum
         for key in ("title", "description"):
             if getattr(self, key) is not None:
                 written[key] = getattr(self, key)
         return written
+
+
+#: The key of a schema's metadata that keeps the ``enum`` its JSON schema is written with.
+_ENUM = "conductor_enum"
+
+
+def _enum_of(choices: tuple[Choice, ...], reader: TypeAdapter[Any]) -> list[JsonValue] | None:
+    """Returns the ``enum`` of a JSON schema whose values are ``choices``: their ids, as JSON.
+
+    ``None`` is added when the type takes it, since ``None`` is taken beside the choices. Whether it does is asked of
+    pydantic, as ``Type.optional`` asks it. A schema may say less than the run checks, but never list a value the run
+    refuses. So when a choice is not finite, like ``inf``, there is no ``enum``: JSON Schema would read ``"Infinity"``
+    as text, which a number refuses.
+
+    Returns:
+        The ids, with ``None`` when the type takes it, or ``None`` for no ``enum``.
+    """
+    ids = [choice.id for choice in choices]
+    try:
+        json.dumps(ids, allow_nan=False)
+    except ValueError:  # a float that is not finite, at any depth
+        return None
+    try:
+        reader.validate_python(None, strict=True)
+    except Exception:  # noqa: BLE001  whatever the check raises, it doesn't take None
+        return ids
+    return ids if None in ids else [*ids, None]
 
 
 _NO_PARAM = Param()

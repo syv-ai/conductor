@@ -50,7 +50,7 @@ def as_asked(
     """
     questions: dict[str, FieldDescription] = {}
     for name, field in outputs.items():
-        asked = field.description_with(choices[name]) if name in choices else field.description
+        asked = field.description_with(choices.get(name))
         if name in defaults:
             asked = asked.model_copy(update={"default": defaults[name], "required": False})
         if len(outputs) == 1:

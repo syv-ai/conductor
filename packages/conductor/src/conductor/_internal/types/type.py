@@ -30,7 +30,7 @@ from pydantic_core import (
     SchemaSerializer,
 )
 
-from conductor._internal.base import NON_FINITE_FLOATS, plain_json
+from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     declaration_problems,
@@ -45,6 +45,7 @@ from .hint import (
     READ_AS,
     is_alias,
     is_record,
+    literal_classes,
     substituted,
     union_members,
     union_of,
@@ -313,7 +314,7 @@ class Type:
         if is_alias(one):
             return one.__name__, one.__name__, ()
         if origin is Literal:
-            return Type(union_of(dict.fromkeys(type(value) for value in args)))._named
+            return Type(literal_classes(one))._named
         if typing.is_typeddict(one):  # a TypedDict has no declared name, so every one is "record"
             return "record", "Record", ()
         # checked before NAMES is looked up, since a value that is no type, like [int], may not be hashable
@@ -427,6 +428,31 @@ class Type:
         if given is None and len(self.options) == 1 and get_origin(self.options[0]) is Literal:
             given = get_args(self.options[0])
         return None if given is None else read_choices(given, self._built[1], self.to_json)
+
+    def narrowed(self, choices: tuple[Choice, ...]) -> Type:
+        """Returns this type with its values limited to ``choices``, as an ``Ask`` limits a question's.
+
+        The choices are a ``Param(choices=)`` on the type, with its limits kept. A ``Literal`` is read as its values'
+        classes first, since a ``Literal``'s own choices are always all its values. So narrowing
+        ``Literal["ida", "bo"] | None`` to ``"ida"`` gives ``Annotated[str | None, Param(choices=["ida"])]``, and its
+        JSON schema's ``enum`` is ``["ida", None]``, written as for any other type with choices.
+
+        Args:
+            choices: Some of the type's values, each id in its JSON form, as ``read_choices`` gives them.
+        """
+        bare, param, others = self._parts
+        classes = union_of(
+            literal_classes(option) if get_origin(option) is Literal else option
+            for option in union_members(bare)
+        )
+        # each id back as the value the type reads it as, so a float's "Infinity" is inf again
+        values = [
+            choice.model_copy(
+                update={"id": self._built[1].validate_json(canonical_json(choice.id))}
+            )
+            for choice in choices
+        ]
+        return Type(Annotated[(classes, *others, Param(**param.limits, choices=values))])
 
     @property
     def item(self) -> Type | None:
