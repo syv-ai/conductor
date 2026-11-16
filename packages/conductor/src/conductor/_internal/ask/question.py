@@ -21,16 +21,14 @@ from conductor._internal.types import Choice
 
 
 def as_asked(
-    field: Field,
+    outputs: Mapping[str, Field],
     choices: Mapping[str, tuple[Choice, ...]],
     defaults: Mapping[str, JsonValue],
-    *,
-    only_output: bool,
-) -> FieldDescription:
-    """Returns the question about one output, as this call asks it.
+) -> dict[str, FieldDescription]:
+    """Returns the questions one call asks, one per output of the node, by output name.
 
-    It starts from the output's own description, the one ``describe()`` shows. Then it adds what the call's ``Ask``
-    set for this output. The ``Ask``'s choices replace the output's own, and its default is filled in.
+    Each starts from the output's own description, the one ``describe()`` shows. Then it adds what the call's
+    ``Ask`` set for that output. The ``Ask``'s choices replace the output's own, and its default is filled in.
 
     A node with one output is answered with its one value, never with a mapping that could leave the question out.
     So its question is required, and a default is only the value a host starts the answer with. For example,
@@ -46,19 +44,20 @@ def as_asked(
     What a host is shown and what the answer is checked against both come from here.
 
     Args:
-        field: The output the question is about.
+        outputs: The node's outputs, by name.
         choices: The choices the ``Ask`` offered, by output name, each id in its JSON form.
         defaults: The defaults the ``Ask`` proposed, by output name, in their JSON form.
-        only_output: Whether ``field`` is the node's only output.
 
     Returns:
-        The output's description, with the ``Ask``'s choices and default added.
+        Each output's description, with the ``Ask``'s choices and default added, in the order of the outputs.
     """
-    name = field.name
-    asked = field.description_with(choices[name]) if name in choices else field.description
-    if name in defaults:
-        asked = asked.model_copy(update={"default": defaults[name], "required": False})
-    # An output in an exclusive group is never required, even alone: its record would be refused.
-    if only_output and field.param.exclusive_group is None:
-        asked = asked.model_copy(update={"required": True})
-    return asked
+    questions: dict[str, FieldDescription] = {}
+    for name, field in outputs.items():
+        asked = field.description_with(choices[name]) if name in choices else field.description
+        if name in defaults:
+            asked = asked.model_copy(update={"default": defaults[name], "required": False})
+        # An output in an exclusive group is never required, even alone: its record would be refused.
+        if len(outputs) == 1 and field.param.exclusive_group is None:
+            asked = asked.model_copy(update={"required": True})
+        questions[name] = asked
+    return questions

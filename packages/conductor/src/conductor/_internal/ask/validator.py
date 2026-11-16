@@ -275,12 +275,13 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
             (str(name), f"there is no question '{name}'") for name in answer if name not in outputs
         ]
         read: dict[str, Any] = {}
+        questions = as_asked(outputs, self._choices, self._defaults)
         for name, field in outputs.items():
             try:
                 if name in answer:
                     read[name] = _answer_value(field, answer[name], self._choices.get(name))
                     continue
-                question = as_asked(field, self._choices, self._defaults, only_output=False)
+                question = questions[name]
                 if question.default is not MISSING:
                     read[name] = _read_as_answer(field.whole, question.default)
                 elif not question.required:
