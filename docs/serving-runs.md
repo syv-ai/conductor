@@ -217,7 +217,7 @@ Answers and declines sent while a run is running are queued and given to the run
 
 ## When a call is refused
 
-Every refusal has the shape of FastAPI's own 422: `{"detail": [{"type", "loc", "msg", ...}, ...]}`. Each route's OpenAPI entry declares the refusals it can answer with. A missing run, or one the filter hides, is a 404. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md). So is a `previous` run that can't be loaded on this request's nodes. Its problems are the ones `Run.from_json` gives for its saved run, as they are, such as `saved_run_unreadable` for a saved run someone edited.
+Every refusal has the shape of FastAPI's own 422: `{"detail": [{"type", "loc", "msg", ...}, ...]}`. Each route's OpenAPI entry declares the refusals it can answer with. A missing run, or one the filter hides, is a 404, `no_such_run`. When that run is the `previous` of `POST /runs` or `POST /estimate`, its `loc` is `["previous"]`, so a client can tell it from a route that isn't there. Resuming a run that didn't end early is a 409. Everything else is a 422: a graph that doesn't compile, inputs it refuses, a wrong answer. Those problems are conductor's own, listed on the [problems page](problems.md). So is a `previous` run that can't be loaded on this request's nodes. Its problems are the ones `Run.from_json` gives for its saved run, as they are, such as `saved_run_unreadable` for a saved run someone edited.
 
 The worker has three codes of its own, in `SERVING_PROBLEMS`:
 

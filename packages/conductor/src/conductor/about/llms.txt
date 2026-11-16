@@ -1201,7 +1201,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `GET /nodes` answers the registry's `describe()`.
 - `POST /compile` hands the body's text to `Graph.compile`, and answers `graph.describe()`.
 - `POST /runs` and `POST /estimate` take a body `{"graph", "inputs", "previous"}`, read once with `read_json`. So a key written twice is a 422 `invalid_record`, `repeated_key`, and a record's every fault is `invalid_record`. A fault in the rest of the body is FastAPI's own, such as `dict_type` at `["body", "inputs"]`. A key the body doesn't know is `extra_forbidden`, as it is in the resume body.
-- `previous`, a run id, lends that run's work, as `graph.with_inputs(previous=)` does.
+- `previous`, a run id, lends that run's work, as `graph.with_inputs(previous=)` does. A `previous` that no run has, or that the filter hides, is a 404 `no_such_run` with `loc` `["previous"]`; on a route's own run its `loc` is `[]`.
 - `/estimate` answers `run.progress` after `run.resume(only_costs_nothing=True)`, and stores nothing.
 - `GET /runs/{run_id}` answers the run.
 - `GET /runs/{run_id}/events` is server-sent events, each frame an event's JSON, from whichever worker runs the run. After a reconnect it goes on from the last event id the client has.

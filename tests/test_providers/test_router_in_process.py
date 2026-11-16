@@ -971,15 +971,18 @@ async def test_a_run_started_from_a_previous_one_reuses_its_work_and_one_the_fil
         body = {"graph": graph, "inputs": {"files": ["a", "b", "c"]}, "previous": first}
         estimated = await client.post("/estimate", json=body)
         hidden = await client.post("/runs", json=body, headers={"x-user": "bo"})
+        unknown = await client.post("/runs", json={**body, "previous": "nope"})
         second = (await client.post("/runs", json=body)).json()["id"]
         ended = await store.ended(second)
 
     # an estimate checks the previous run just as a start does, and counts a reused call as a call
     assert estimated.json()["nodes"]["review"]["total"] == 3
-    assert (hidden.status_code, [problem["type"] for problem in hidden.json()["detail"]]) == (
-        404,
-        ["no_such_run"],
-    )
+    # the 404 names the body's field, so a client doesn't read it as a route that isn't there
+    for refused in (hidden, unknown):
+        assert (
+            refused.status_code,
+            [(problem["type"], problem["loc"]) for problem in refused.json()["detail"]],
+        ) == (404, [("no_such_run", ["previous"])])
     assert ended.outputs == {"result": ["a", "b", "c"]}
     assert calls.count("review") == 3  # two for the first run, one for the file the second added
 

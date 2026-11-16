@@ -178,7 +178,7 @@ class Worker(Generic[M, X]):
 
         Raises:
             InvalidCallError: The graph can't run on ``metadata``'s nodes, or refuses the inputs, each with
-                conductor's problems. Else no run has the id ``previous`` (``no_such_run``). Or the previous run
+                conductor's problems. Else no run has the id ``previous`` (``no_such_run``, at ``loc`` ``("previous",)``). Or the previous run
                 can't be loaded on those nodes, with the problems ``Run.from_json`` gives for its saved run, such as
                 ``saved_run_unreadable``. Start without ``previous`` then.
             RuntimeError: The worker has never served.
@@ -600,7 +600,7 @@ class Worker(Generic[M, X]):
                 "`lambda metadata: True` to let every run through"
             )
         nodes = self.nodes_for(metadata)
-        lends = None if previous is None else await self._row(previous, allows)
+        lends = None if previous is None else await self._row(previous, allows, "previous")
 
         def ready() -> Run[Any]:
             compiled = Graph.compile(graph, nodes)
@@ -612,8 +612,15 @@ class Worker(Generic[M, X]):
 
         return await asyncio.to_thread(ready)
 
-    async def _row(self, run_id: str, allows: Callable[[M], bool] | None = None) -> StoredRun:
+    async def _row(
+        self, run_id: str, allows: Callable[[M], bool] | None = None, *loc: str
+    ) -> StoredRun:
         """A run's row, as the store has it, if ``allows`` lets it through.
+
+        Args:
+            run_id: The run's id.
+            allows: The request's run filter, or ``None`` for the worker's own reads.
+            loc: Where the id was given, for the problem: ``"previous"``, or nothing for the route's own run.
 
         Raises:
             InvalidCallError: No run has the id, or ``allows`` turns its metadata away (``no_such_run``). The two
@@ -621,7 +628,7 @@ class Worker(Generic[M, X]):
         """
         row = await self._store.get(run_id)
         if row is None or (allows is not None and not allows(self._metadata_in(row))):
-            raise InvalidCallError([no_such_run()])
+            raise InvalidCallError([no_such_run(*loc)])
         return row
 
     def _view(self, row: StoredRun) -> RunView:

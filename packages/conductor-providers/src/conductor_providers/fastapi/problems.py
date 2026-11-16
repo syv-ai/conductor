@@ -8,7 +8,8 @@ makes the ``Problem``::
     run_not_resumable(status="waiting")
     # Problem(type="run_not_resumable", loc=(), msg="The run is waiting, ...", ctx={"status": "waiting"})
 
-Each one is about a run as a whole, so its ``loc`` is ``()``. ``STATUS`` sits beside the codes, so a new code gets
+Each one is about a run as a whole, so its ``loc`` is ``()``, but for ``no_such_run`` about the ``previous`` a new
+run names, whose ``loc`` is ``("previous",)``. ``STATUS`` sits beside the codes, so a new code gets
 its status in the same place.
 """
 
@@ -21,8 +22,13 @@ SERVING_PROBLEMS = ProblemCatalogue()
 
 
 @SERVING_PROBLEMS.problem()
-def no_such_run() -> str:
-    """No run has the id, or the run filter doesn't let this request see the run."""
+def no_such_run(*loc: str | int) -> str:
+    """No run has the id, or the run filter doesn't let this request see the run.
+
+    Args:
+        loc: ``("previous",)`` when the id is the ``previous`` a new run was asked to reuse, so a client can tell it
+            from a route's own run; else empty, for the run in the route's path.
+    """
     return "There is no run by that id that you may see; check the id."
 
 
