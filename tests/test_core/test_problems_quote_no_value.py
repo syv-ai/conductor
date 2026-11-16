@@ -252,32 +252,6 @@ def test_a_value_in_a_graph_record_is_in_no_problem() -> None:
         assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)
 
 
-def test_a_field_name_a_hook_builds_from_a_constant_is_in_no_problem() -> None:
-    """A hook's field with a name a field can't have is named by its place in the mapping, not by the name.
-
-    A hook may build its names from a graph's constants, so the name can be a value the graph carries.
-    """
-
-    def outputs(names: str) -> dict[str, Any]:
-        return {name: str for name in names.split(",")}
-
-    @node("pick", title="Pick", description="For a test.", compute_outputs=outputs)
-    def pick(names: str) -> dict[str, str]:
-        return {}
-
-    [problem] = Graph.compile(
-        make_graph(pick, constants={"pick.names": f"ok,{SECRET}.x"}), registry_of(pick)
-    ).problems
-
-    assert (problem.type, problem.loc, problem.ctx["error"]) == (
-        "compute_hook_failed",
-        ("pick",),
-        "not_a_name",
-    )
-    assert "field 2 of the 2" in problem.msg
-    assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)
-
-
 @pytest.mark.parametrize(
     "record",
     [

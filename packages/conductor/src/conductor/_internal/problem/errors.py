@@ -33,7 +33,8 @@ quote a value. A node's or a hook's exception goes to the ``conductor`` logger w
 names only the exception's class. ``value_free_errors`` does the same for pydantic's errors.
 
 A problem may name what a developer or a host wrote: node ids, input, output and field names, places, waiting ids,
-the limits a type declares and where a JSON text stops being JSON. A ``NodeError`` keeps its message and its
+the limits a type declares and where a JSON text stops being JSON. A field name a ``compute_...`` hook returns is
+among them, even one it builds from a constant: it is in every ``loc``, in ``describe()`` and on edges. A ``NodeError`` keeps its message and its
 ``ctx``, since the node's developer wrote them for people.
 
 Asking a person isn't an error. A node raises ``Ask``, its call waits, and the run's status is ``waiting``.

@@ -148,7 +148,7 @@ Errors are data. There's one `Problem` record everywhere, with stable codes in `
 translate. A message says how to fix the fault. A problem never quotes a value a graph carries (an input, a constant,
 an output, an answer, a saved value) or an exception's text: a node's or a hook's own exception text goes to the log,
 and the problem names only the exception's class. It may name what a developer or a host wrote, such as ids, places
-and field names. A `NodeError` keeps its message, which its developer wrote for people. The reference's errors
+and field names, a hook's field names among them. A `NodeError` keeps its message, which its developer wrote for people. The reference's errors
 section has the rule: `python -m conductor.about errors`.
 
 ```python

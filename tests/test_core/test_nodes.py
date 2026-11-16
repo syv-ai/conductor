@@ -1294,14 +1294,20 @@ def test_a_hook_that_returns_no_mapping_is_the_hooks_failure_saying_what_a_hook_
     assert f"returned a {type(returned).__name__}, not a mapping" in problem.msg
 
 
-def test_a_hook_that_names_a_field_with_no_text_is_refused_by_its_place_in_the_mapping():
-    [problem] = _computing(lambda: {"ok": int, 1: int}).problems
+def test_a_hook_that_names_a_field_with_no_text_is_refused_by_that_name():
+    assert [(p.type, p.loc, p.ctx["error"]) for p in _computing(lambda: {1: int}).problems] == [
+        ("compute_hook_failed", ("h", "1"), "not_a_name")
+    ]
+
+
+@pytest.mark.parametrize("key", [1.5, None, (1, 2)], ids=["float", "none", "tuple"])
+def test_a_hook_whose_field_name_is_no_text_or_int_is_the_hooks_failure_not_a_raise(key: Any):
+    [problem] = _computing(lambda: {"ok": int, key: int}).problems
     assert (problem.type, problem.loc, problem.ctx["error"]) == (
         "compute_hook_failed",
-        ("h",),
+        ("h", str(key)),
         "not_a_name",
     )
-    assert "field 2 of the 2" in problem.msg
 
 
 def test_a_bug_in_a_host_types_own_schema_hook_raises_as_itself_where_the_class_is_declared():

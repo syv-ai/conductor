@@ -805,7 +805,7 @@ def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_no
     )
 
     assert [(p.type, p.loc, p.ctx["error"]) for p in graph.problems] == [
-        ("compute_hook_failed", ("d",), "not_a_name")
+        ("compute_hook_failed", ("d", name), "not_a_name")
     ]
 
     @node("adds", title="Adds", description="For a test.", compute_added_inputs=lambda: {name: int})
@@ -817,7 +817,7 @@ def test_a_hook_naming_a_field_with_a_character_of_a_source_is_a_problem_as_a_no
         registry_of(adds),
     )
     assert [(p.type, p.loc, p.ctx["error"]) for p in added.problems] == [
-        ("compute_hook_failed", ("a",), "not_a_name")
+        ("compute_hook_failed", ("a", name), "not_a_name")
     ]
     with pytest.raises(InvalidCallError) as refused:
         Graph.compile(json.dumps({"nodes": {name: {"node": "dotted"}}}), registry_of(dotted))

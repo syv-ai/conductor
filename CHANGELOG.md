@@ -262,13 +262,11 @@ What changes in how you work, before the name-by-name tables:
   `check_registry`'s `upgrade_broken` (variant `raised`) has no `ctx.reason`; both log the text.
   `saved_run_of_another_graph` has `ctx.saved` only when the save's `graph` has a fingerprint's form, and its message
   quotes only this graph's fingerprint.
-- **A problem never quotes a value a graph carries, a key inside one included.** A field a `compute_...` hook
-  returns with a name a field can't have (`compute_hook_failed`, `ctx.error` `not_a_name`) is at the node, not at the
-  name, and the message says which field of the mapping it is by its place ("field 2 of the 3"), since a hook may
-  build its names from a constant. A record's fault inside a constant, a graph input's `default` or `display` has a
-  `loc` that stops there (`("record", "nodes", "a", "inputs", "x", "constant")`), and a key written twice in the
-  record's JSON (`repeated_key`) isn't quoted. A problem may name what a developer or host wrote: ids, places, field
-  names, waiting ids and a type's limits.
+- **A problem never quotes a value a graph carries, a key inside one included.** A record's fault inside a
+  constant, a graph input's `default` or `display` has a `loc` that stops there
+  (`("record", "nodes", "a", "inputs", "x", "constant")`), and a key written twice in the record's JSON
+  (`repeated_key`) isn't quoted. A problem may name what a developer or host wrote: ids, places, field names (a
+  `compute_...` hook's too, even one built from a constant), waiting ids and a type's limits.
 - **`conductor.testing` exports `REGISTRY_CHECK_PROBLEMS`**, the catalogue of `check_registry`'s codes, beside
   `check_registry`. The reference says what it, `PROBLEMS` and `DECLARATION_PROBLEMS` each hold, and its translation
   test names all three.

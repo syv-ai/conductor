@@ -15,7 +15,6 @@ from .hashing import json_hash, short_hash
 from .json import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
 from .model import ConductorModel
 from .place import (
-    NAME_RULE,
     ItemIndexes,
     Loc,
     Name,
@@ -28,7 +27,6 @@ from .place import (
 from .sentinels import REQUIRED, SKIPPED
 
 __all__ = [
-    "NAME_RULE",
     "NON_FINITE_FLOATS",
     "REQUIRED",
     "SKIPPED",
