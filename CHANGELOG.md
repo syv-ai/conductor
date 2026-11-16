@@ -223,8 +223,8 @@ What changes in how you work, before the name-by-name tables:
   whose outputs no edge reads and `outputs=` doesn't name, which would give the graph nothing from it
   (`hook_outputs_not_named`), a chain it can't draw; a chain goes through a subgraph by the graph inputs and
   outputs its record declares, and never wires
-  an input a hook reads, which takes a constant, and when only such inputs are left `not_a_chain` has the variant `read_by_a_hook`, naming them in
-  `ctx.read_by_hooks`), and an input a
+  an input that takes only a constant, and when only such inputs are left `not_a_chain` has the variant `constant_only`, naming them in
+  `ctx.inputs`), and an input a
   node doesn't have, a value its field refuses or an edge whose types don't meet (`type_mismatch`) is in
   `Graph.compile(record, registry).problems`. A record's constants, defaults and
   `display` are JSON values; `make_graph` writes each constant and default as its JSON, a float that isn't
