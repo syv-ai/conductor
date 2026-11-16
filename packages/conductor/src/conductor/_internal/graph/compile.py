@@ -863,13 +863,14 @@ class Compiler:
         """Finds the inputs whose edges can't be used together, and adds a problem for each.
 
         Several edges into one input must never both have a value. Each pair has to need different branches of one
-        node, so they never both have a value. Otherwise it's ``several_edges_into_one_input``.
+        node drawn in this graph, so they never both have a value. Otherwise it's ``several_edges_into_one_input``.
+        A branch inside a subgraph node doesn't count here, since a subgraph node's outputs are never branches.
         They must also be in the same loops, so the one with the value is found at the same item indexes. Otherwise
         it's ``branches_from_different_loops``.
 
         Two collecting inputs are a problem too, when neither takes ``None`` items and all their edges are on
-        different branches of one node (``lists_from_different_loops``). An item that one list has no value for is left out of
-        both lists, so both would always be empty.
+        different branches of one node (``lists_from_different_loops``), a node inside a subgraph node included. An
+        item that one list has no value for is left out of both lists, so both would always be empty.
 
         Args:
             node_id: The node.
@@ -881,7 +882,7 @@ class Compiler:
         refused: set[str] = set()
         for name, node_input in inputs.items():
             sources = node_input.sources
-            branches = [self._branches_required_for(s) for s in sources]
+            branches = [_drawn_here(self._branches_required_for(s)) for s in sources]
             loops_of_inputs = list(dict.fromkeys(s.loops_of_value for s in sources))
             if not all(
                 _never_together(a, b) for i, a in enumerate(branches) for b in branches[i + 1 :]
@@ -1168,6 +1169,11 @@ def _field_type(record: Type, name: str) -> Type | None:
     if typing.get_origin(one) in (dict, Mapping):
         return Type(typing.get_args(one)[1])
     return Type(record.fields[name]) if name in record.fields else None
+
+
+def _drawn_here(branches: frozenset[RequiredBranch]) -> frozenset[RequiredBranch]:
+    """Returns the branches of nodes drawn in the graph being compiled, leaving out those inside subgraph nodes."""
+    return frozenset(branch for branch in branches if len(branch.node) == 1)
 
 
 def _never_together(a: frozenset[RequiredBranch], b: frozenset[RequiredBranch]) -> bool:

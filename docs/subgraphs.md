@@ -193,7 +193,10 @@ A branch is a function node's output. A subgraph node's outputs are never branch
 from a branch inside, so no two of them may be wired into one input outside: that is `several_edges_into_one_input`.
 To join two branches, wire them into one input inside the subgraph, and return what that node gives.
 
-A skipped branch inside still skips the nodes after the subgraph node that read it, as it would drawn flat.
+Such an output may still be skipped, so `describe()` shows it as one that may be skipped: `"required": false`, with no
+`default`. A skipped branch inside skips the nodes after the subgraph node that read it, as it would drawn flat, and
+two lists collected on different branches of one node inside are refused with `lists_from_different_loops`, as they
+are drawn flat.
 
 ## A `None` or a skip coming in
 

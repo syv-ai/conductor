@@ -24,12 +24,14 @@ import typing
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from pydantic import MISSING
+
 from conductor._internal.ask import AskValidator
 from conductor._internal.base import SKIPPED, NodePath, Source, place_text, short_hash
 from conductor._internal.field import Field, FieldDescription
 from conductor._internal.node import FunctionDefinition, ReturnValidator, SubgraphDefinition
 
-from .input import Edge, Input
+from .input import Edge, Input, path_in_outer_graph
 
 if TYPE_CHECKING:
     from .type import Graph
@@ -38,22 +40,43 @@ if TYPE_CHECKING:
 class RequiredBranch(NamedTuple):
     """A branch that must be taken for a node to be called, or for an output to have a value.
 
-    A branch is an output whose default is ``SKIPPED`` (the reference has the rule, under "Branches"). Say ``route`` has the branches ``long`` and ``short``, and ``shout`` is wired to ``route.long``. Then ``shout``
-    is called only where ``route`` gave ``long`` a value, so it needs ``RequiredBranch("route", "long", depth=0)``.
+    A branch is a function node's output whose default is ``SKIPPED`` (the reference has the rule, under
+    "Branches"). Say ``route`` has the branches ``long`` and ``short``, and ``shout`` is wired to ``route.long``.
+    Then ``shout`` is called only where ``route`` gave ``long`` a value, so it needs
+    ``RequiredBranch(("route",), "long", depth=0)``.
 
-    The compiler uses these to allow two edges into one input. That's fine when the two need different branches of
-    one node, since those never both have a value.
+    The compiler uses these in two checks. Two edges may share an input when they need different branches of one
+    node drawn in the same graph, since those never both have a value. And two lists collected on different
+    branches of one node are refused (``lists_from_different_loops``), wherever that node is, a subgraph included.
 
     Attributes:
-        node: The id of the function node the branch belongs to. A subgraph node has no branches.
+        node: The path of the function node the branch belongs to, from the graph being compiled. That's
+            ``("route",)``, or ``("e", "route")`` for a node inside the subgraph node ``e``.
         output: The branch that must be taken.
         depth: How many loops that node is in. A node inside the loop over ``lines.result`` takes a branch once
             per line.
     """
 
-    node: str
+    node: NodePath
     output: str
     depth: int
+
+    def in_outer_graph(
+        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
+    ) -> RequiredBranch:
+        """Returns this branch of a subgraph's graph, named from the graph the subgraph node is in.
+
+        Its node is named as ``path_in_outer_graph`` names it, and the loops the subgraph node is in count toward
+        its depth, as ``loops_in_outer_graph`` puts them first.
+
+        Args:
+            subgraph_path: The subgraph node's path in the graph it is in.
+            subgraph_loops: The loops the subgraph node is in, named from that graph.
+        """
+        return self._replace(
+            node=path_in_outer_graph(subgraph_path, self.node),
+            depth=len(subgraph_loops) + self.depth,
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,7 +129,7 @@ class _CompiledNodeBase:
         it has a value only where the node gave it one.
         """
         return (
-            self.required_branches | {RequiredBranch(self.id, output, len(self.loops))}
+            self.required_branches | {RequiredBranch((self.id,), output, len(self.loops))}
             if self.outputs[output].is_branch
             else self.required_branches
         )
@@ -279,8 +302,28 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         edge = self.inner._edge_reading(output).in_outer_graph((self.id,), self.loops)
         return replace(edge, wired_to=Source(self.id, output), type=self.outputs[output].type)
 
+    def branches_required_for(self, output: str) -> frozenset[RequiredBranch]:
+        """Returns the branches that must be taken for ``output`` to have a value.
+
+        These are the branches this node needs to be called, and those the output needs inside the subgraph, named
+        by the path of their node from this graph. The output is never a branch itself.
+
+        Say the subgraph ``e`` is ``route -> shout`` and ``route -> whisper``, one on each output of ``route``. Its
+        record declares the graph outputs ``loud`` (``shout.result``) and ``quiet`` (``whisper.result``). Then
+        ``branches_required_for("loud")`` is ``RequiredBranch(("e", "route"), "long", 0)``, and the one for
+        ``quiet`` names ``short``.
+        """
+        source, output_inside = self.inner._node_returning(output)
+        inside = source.branches_required_for(output_inside)
+        return self.required_branches | {
+            branch.in_outer_graph((self.id,), self.loops) for branch in inside
+        }
+
     def described_outputs(self) -> list[FieldDescription]:
         """Returns each output as an editor shows it.
+
+        An output that needs a branch inside the subgraph may be skipped on a call, so it is described as one that
+        may be skipped: ``"required": false``, with no ``default``.
 
         An output is described as the output of the node inside that returns it. If that node is inside loops in
         the subgraph, the output is described as a list (``is_series``), with one level per entry of ``loops``.
@@ -292,18 +335,19 @@ class CompiledSubgraphNode(_CompiledNodeBase):
         """
         described = []
         for name, field in self.outputs.items():
+            description = field.description
+            if self.branches_required_for(name) - self.required_branches:
+                description = description.model_copy(update={"required": False, "default": MISSING})
             # The edge as the subgraph's own graph names it, since the description names the loops that way.
             inner_edge = self.inner._edge_reading(name)
             loops = [place_text(*loop) for loop in inner_edge.loops]
             if not loops:
-                described.append(field.description)
+                described.append(description)
                 continue
             # an output that's a Series itself adds one more, innermost level: the list it returns
             if field.is_series:
                 loops.append(place_text(inner_edge.node, inner_edge.output))
-            described.append(
-                field.description.model_copy(update={"is_series": True, "loops": loops})
-            )
+            described.append(description.model_copy(update={"is_series": True, "loops": loops}))
         return described
 
 

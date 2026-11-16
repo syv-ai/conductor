@@ -395,9 +395,9 @@ The description of such an output says `is_series`. Its `type`, `json_schema` an
 
 Branches and a subgraph.
 
-- A branch is a function node's output. A subgraph node's outputs are never branches, even one read from a branch inside: each is `"required": true`. So no two outputs of one subgraph node may be wired into one input (`several_edges_into_one_input`). Merge branches inside the subgraph, and return the merged value.
-- A skipped branch inside still reaches the nodes after the subgraph node as a skip, and they are skipped.
-- Two `Series` inputs collected from two outputs of a subgraph node that come from different branches inside get two lists that never share an item, so both are empty. Drawn flat, that is `lists_from_different_loops`; through a subgraph node, it isn't caught.
+- A branch is a function node's output. A subgraph node's outputs are never branches, even one read from a branch inside. So no two outputs of one subgraph node may be wired into one input (`several_edges_into_one_input`). Merge branches inside the subgraph, and return the merged value.
+- An output that needs a branch inside may still be skipped, so it is described as one that may be skipped: `"required": false`, with no `default`. A skipped branch inside reaches the nodes after the subgraph node as a skip, and they are skipped.
+- Two `Series` inputs collected from two outputs of a subgraph node that come from different branches of one node inside are `lists_from_different_loops`, as they are drawn flat.
 - A `None`, or a skipped branch, arriving at one of its inputs makes the inner nodes wired to it not called, or skipped. `run.not_called` lists those nodes.
 
 A subgraph is compiled on its own, apart from the graph it is used in. So a type variable at one of its graph inputs has no edge to bind it, and reads as its bound, else `Any`.
@@ -955,7 +955,7 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - `"default": v` gives that value. `null` is the value `None`, and nothing else.
 - `"default": v` with `"required": true` can't be left out, and `v` is only where an editor starts. That is the one question of a node of one output.
 - No `default` key, with `"required": true`, is refused. That is an input with no default, or an output an answer must give.
-- No `default` key, with `"required": false`, is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`. Left out, it is skipped.
+- No `default` key, with `"required": false`, is an output that may be skipped on a call. On a function node, that is a branch, an output whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`; left out of an answer, it is skipped. On a subgraph node, it is an output that needs a branch inside.
 - A missing `default` key means no value. So a host that writes these records with `exclude_none` turns `"default": null` into a skipped branch. Write them as pydantic writes them.
 - An output is described as the question its type sets, the same as a waiting call's question without an `Ask` on a node of several outputs. So `-> str | None` is `"required": false, "default": null`.
 

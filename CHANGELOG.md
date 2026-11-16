@@ -87,8 +87,10 @@ What changes in how you work, before the name-by-name tables:
     taken; an output that may be missing beside other outputs is typed `X | None` and returned as `None`. A node has
     one set of branches, so a node with two independent ways to go is two nodes.
   - An answer gives a value to at most one branch, and an answer that leaves every branch out skips them all.
-  - A subgraph node's outputs are never branches, even one read from a branch inside: each is `"required": true`
-    in `describe()`, and no two of them may share an input (provisional). Join branches inside the subgraph.
+  - A subgraph node's outputs are never branches, even one read from a branch inside, so no two of them may share
+    an input (provisional). Join branches inside the subgraph. An output that needs a branch inside may still be
+    skipped, and `describe()` shows it so: `"required": false`, with no `default`. Two lists collected from its
+    outputs on different branches of one node inside are still `lists_from_different_loops`.
   - The compile problem `alternatives_from_different_loops` is `branches_from_different_loops` (provisional).
     `several_edges_into_one_input`'s message gives one fix, a node with an input for each edge; its entry on the
     problems page says when the default `SKIPPED` fixes it instead.

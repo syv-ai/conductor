@@ -52,6 +52,7 @@ from conductor.events import (
     RunCheckpoint,
     RunEnd,
 )
+from pydantic import MISSING
 
 CALLS: Counter[str] = Counter()
 AT_ONCE = {"now": 0, "peak": 0}
@@ -618,14 +619,23 @@ def test_a_table_returned_per_item_inside_a_subgraph_is_offered_as_a_series_of_t
 def test_a_branch_inside_a_subgraph_is_not_a_branch_of_the_subgraph_node():
     """A branch is a function node's output. A subgraph node's outputs are never branches.
 
-    So its outputs are required in ``describe()``, and two of them can't share an input, even when they come from
-    two branches of one node inside. The skip still reaches the nodes after the subgraph node as a value.
+    So two of its outputs can't share an input, even when they come from two branches of one node inside. Each may
+    still be skipped, so ``describe()`` shows it as an output that may be skipped: ``"required": false`` with no
+    ``default``. The skip reaches the nodes after the subgraph node.
     """
     last = compile_graph({"e": subgraph_of("decide")})
-    assert {output.name: output.required for output in last.describe().nodes["e"].outputs} == {
-        "long": True,
-        "short": True,
+    assert {
+        output.name: (output.required, output.default)
+        for output in last.describe().nodes["e"].outputs
+    } == {"long": (False, MISSING), "short": (False, MISSING)}
+    downstream = compile_graph({"e": "deciding-inner"}).describe().nodes["e"].outputs
+    # read from nodes after the branches inside, so they may be skipped too
+    assert {output.name: output.required for output in downstream} == {
+        "short": False,
+        "long": False,
     }
+    plain = compile_graph({"e": "shout-inner"}).describe().nodes["e"].outputs
+    assert [(output.name, output.required) for output in plain] == [("result", True)]
     joined = compile_graph(
         {"e": subgraph_of("decide"), "j": "exclaim"}, [("e.short", "j.text"), ("e.long", "j.text")]
     )
@@ -681,7 +691,7 @@ def test_two_collected_branches_of_a_loop_inside_a_subgraph_cannot_share_one_inp
     )
 
 
-def test_two_lists_collected_from_different_branches_are_refused_drawn_flat_but_not_through_a_subgraph():
+def test_two_lists_collected_from_different_branches_inside_a_subgraph_are_refused_as_in_one_graph():
     inside = compile_graph(
         {"w": "words", "e": "deciding-inner", "p": "pair"},
         [("w.result", "e.text"), ("e.short", "p.first"), ("e.long", "p.second")],
@@ -692,10 +702,8 @@ def test_two_lists_collected_from_different_branches_are_refused_drawn_flat_but_
         [("w.result", "d.text"), *inner_edges, ("s.result", "p.first"), ("l.result", "p.second")],
     )
     # a word is short or long, so each list leaves some words out. p takes one item of each, but no word is in both.
-    # Drawn flat, that is refused. Through a subgraph node, whose outputs are never branches, the compiler doesn't
-    # see the two branches, and p gets two empty lists.
-    assert problems(one_graph) == [("lists_from_different_loops", ("p",))]
-    assert problems(inside) == []
+    # The compiler follows each output of the subgraph node to the branch it needs inside.
+    assert problems(inside) == problems(one_graph) == [("lists_from_different_loops", ("p",))]
 
 
 def subgraph_of(node_id: str) -> str:

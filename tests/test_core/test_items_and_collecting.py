@@ -2808,14 +2808,14 @@ def test_a_loop_over_a_series_returned_inside_a_subgraph_is_named_by_its_inner_s
     assert compiled.describe().nodes["u2"].inputs[0].source.series == "e/split.result"
 
 
-def test_the_branches_of_a_node_inside_a_subgraph_are_not_branches_of_the_subgraph_node():
+def test_outputs_read_from_branches_inside_a_subgraph_are_described_as_may_be_skipped():
     inner = as_subgraph("decider", {"id": "d", "node": "decide"})
     compiled = graph({"id": "e", "node": "decider"}, registry=registry_of(decide, inner))
 
     assert {
         output.name: (output.required, output.default)
         for output in compiled.describe().nodes["e"].outputs
-    } == {"no": (True, MISSING), "yes": (True, MISSING)}
+    } == {"no": (False, MISSING), "yes": (False, MISSING)}
 
 
 TWO_DECISIONS = {
