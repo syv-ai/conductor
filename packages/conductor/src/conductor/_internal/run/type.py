@@ -26,9 +26,7 @@ from threading import Event as ThreadEvent
 from types import MappingProxyType
 from typing import Any, Literal, assert_never, overload
 
-from pydantic import JsonValue
-
-from conductor._internal.ask import AnswerValidator, DeclineValidator, KeptAnswerValidator
+from conductor._internal.ask import AnswerAsJsonValidator, AnswerValidator, DeclineValidator
 from conductor._internal.base import (
     ConductorModel,
     ItemIndexes,
@@ -491,19 +489,19 @@ class Run[C]:
         return run
 
     @staticmethod
-    def answers_to_keep(
+    def queued_as_json(
         answers: Mapping[str, Any] = MappingProxyType({}),
         /,
         *,
         declines: Mapping[str, Any] = MappingProxyType({}),
-    ) -> dict[str, JsonValue]:
-        """Checks answers and declines a host keeps to give a run later, and returns the answers as JSON data.
+    ) -> tuple[dict[str, Any], dict[str, str | None]]:
+        """Turns the answers and declines a host queues for a run into the JSON data the run will be given.
 
-        A server can't give a running run an answer or a decline, so it keeps them, as JSON, until the run stops.
-        This checks now what ``run.answer`` and ``run.decline`` refuse whatever question the id names: an answer
-        JSON can't write, and a reason that isn't text JSON can write. They are refused with the problems those
-        two give, so the host refuses a request the same way whether the run is running or not. The rest, such as
-        an answer of the wrong type, is checked when the run is given them.
+        A server can't give a running run an answer or a decline, so it queues them as JSON until the run stops.
+        Each answer becomes the JSON data ``run.answer`` reads it from, and each reason the text ``run.decline``
+        keeps. What JSON can't write is refused now, with the very problem ``run.answer`` or ``run.decline`` gives
+        it, since those two take each value through the same step. What depends on the question, such as an
+        answer of the wrong type, is checked when the run is given the data.
 
         It is provisional: the name and shape may change before 2.0.
 
@@ -512,8 +510,8 @@ class Run[C]:
             declines: Reasons by waiting id, as ``run.decline`` takes them.
 
         Returns:
-            The answers by waiting id, each as JSON data: a ``date`` as its ISO text, a ``polars.DataFrame`` as its
-            columns. ``run.answer`` reads it as it reads the answer itself.
+            The answers and the reasons by waiting id, as the run is to be given them. For example
+            ``{"approve~3fa2c0d1": "2026-11-15"}`` for an answer of ``date(2026, 11, 15)``.
 
         Raises:
             InvalidCallError: Every refusal at once, each at the call its waiting id names. ``invalid_answer`` for
@@ -521,22 +519,25 @@ class Run[C]:
                 ``reason``, for a reason that isn't a ``str`` JSON can write, or ``None``.
         """
         problems: list[Problem] = []
-        kept: dict[str, JsonValue] = {}
+        queued: dict[str, Any] = {}
+        reasons: dict[str, str | None] = {}
         for waiting_id, answer in answers.items():
             try:
-                kept[waiting_id] = KeptAnswerValidator(
+                queued[waiting_id] = AnswerAsJsonValidator(
                     loc=named_loc(waiting_id), waiting_id=waiting_id
                 )(answer)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
         for waiting_id, reason in declines.items():
             try:
-                DeclineValidator(loc=named_loc(waiting_id), waiting_id=waiting_id)(reason)
+                reasons[waiting_id] = DeclineValidator(
+                    loc=named_loc(waiting_id), waiting_id=waiting_id
+                )(reason)
             except InvalidCallError as refused:
                 problems.extend(refused.problems)
         if problems:
             raise InvalidCallError(problems)
-        return kept
+        return queued, reasons
 
     def _waiting_call(
         self, waiting_id: str, status: Callable[[], RunStatus]

@@ -2422,28 +2422,71 @@ def test_a_decline_whose_reason_isnt_text_is_refused_and_the_run_is_left_as_it_w
     assert (run.status, [w.id for w in run.waiting]) == ("waiting", [waiting.id])
 
 
-# -- answers kept to give a run later ------------------------------------------------------------------
+# -- answers queued to give a run later ----------------------------------------------------------------
 
 
-def test_answers_kept_for_later_are_refused_as_the_run_refuses_them_and_the_rest_are_read_back_alike():
-    run = _approve_then_pay().run(text="A:900")
+@dataclass(frozen=True)
+class _Pair:
+    name: str
+    count: int
+
+
+@node("pair", title="Pair", description="For a test.", asks=True)
+def _ask_for_a_pair(x: int) -> _Pair:
+    raise Ask("Which pair?")
+
+
+def test_answers_and_declines_queued_for_later_are_refused_as_the_run_refuses_them():
+    run = Graph.compile(make_graph(_ask_for_a_pair), registry_of(_ask_for_a_pair)).run(x=1)
     (waiting,) = run.waiting
-    kept = Run.answers_to_keep({waiting.id: True, "approval@0": datetime.date(2026, 11, 15)})
-    assert json.loads(json.dumps(kept)) == {waiting.id: True, "approval@0": "2026-11-15"}
-    assert run.answer({waiting.id: kept[waiting.id]}).resume().outputs == {"result": "paid A"}
-
-    refused = _refused(
-        lambda: Run.answers_to_keep(
-            {waiting.id: "\ud800", "approval@x/pay": object()}, declines={waiting.id: "\ud800"}
-        )
+    for answer in (
+        "\ud800",
+        {"name": "\ud800", "count": 1},
+        _Pair(name="\ud800", count=1),
+        b"\xff",
+    ):
+        queued = _refused(lambda answer=answer: Run.queued_as_json({waiting.id: answer}))
+        assert queued == _refused(lambda answer=answer: run.answer(waiting, answer)), answer
+    # A mapping is answered by question name, so each question whose value JSON can't write is named.
+    (named,) = _refused(lambda: run.answer(waiting, {"name": "\ud800", "count": 1}))
+    assert (named.ctx["question"], named.ctx["reason"]) == (
+        "name",
+        "'name': the value can't be written as JSON",
     )
-    by_the_run = [
-        *_refused(lambda: run.answer({waiting.id: "\ud800"})),
-        *_refused(lambda: run.decline(waiting, reason="\ud800")),
-    ]
-    assert refused[0] == by_the_run[0] and refused[2] == by_the_run[1]
+    queued = _refused(lambda: Run.queued_as_json(declines={waiting.id: "\ud800"}))
+    assert queued == _refused(lambda: run.decline(waiting, reason="\ud800"))
     # An id that names no call is refused at the call it names, as not_waiting would name it.
-    assert (refused[1].type, refused[1].loc) == ("invalid_answer", ("approval",))
+    (problem,) = _refused(lambda: Run.queued_as_json({"approval@x/pay": object()}))
+    assert (problem.type, problem.loc) == ("invalid_answer", ("approval",))
+
+
+def test_an_answer_queued_for_later_is_read_by_the_run_as_the_answer_itself():
+    run = Graph.compile(make_graph(_ask_for_a_pair), registry_of(_ask_for_a_pair)).run(x=1)
+    (waiting,) = run.waiting
+    for answer in (_Pair(name="bolt", count=3), {"name": "bolt", "count": 3}, {"name": 3}):
+        queued = Run.queued_as_json({waiting.id: answer})[0][waiting.id]
+        direct, later = (
+            _outcome(lambda value=value: run.answer(waiting, value)) for value in (answer, queued)
+        )
+        assert direct == later, answer
+    answers, reasons = Run.queued_as_json(
+        {waiting.id: {"name": "bolt", "count": 3}, "pair~0": datetime.date(2026, 11, 15)},
+        declines={waiting.id: "Over budget"},
+    )
+    assert (
+        json.loads(json.dumps(answers))
+        == answers
+        == {waiting.id: {"name": "bolt", "count": 3}, "pair~0": "2026-11-15"}
+    )
+    assert reasons == {waiting.id: "Over budget"}
+
+
+def _outcome(answer: Any) -> Any:
+    """What a run does with an answer: the outputs once resumed, or the problems it refuses the answer with."""
+    try:
+        return answer().resume().outputs
+    except InvalidCallError as refused:
+        return refused.problems
 
 
 # -- with_inputs reuses the answer ---------------------------------------------------------------------
