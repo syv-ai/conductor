@@ -610,9 +610,10 @@ def test_collect_refuses_a_column_wired_from_a_value_returned_once_and_takes_it_
     )
     assert refused.msg == (
         "'sentence.result' gives each call of 'table-collect' one str, but 'table-collect.team' takes a Series "
-        "of Any. To give it every item of a loop, collect them first in a node outside the loop, such as "
-        "series-collect or table-collect in syv-conductor-nodes. Else declare the input as one Any."
+        "of Any. To give it every item of a loop, collect them first in a node outside the loop that takes a "
+        "Series. Else make it an input that takes one Any."
     )
+    # the message names no companion node; on table-collect, an input that takes one value is a constant column
     assert "constant_columns" in (tables.collect.function.__doc__ or "")
     assert team_column("constant_columns").run().results["table-collect"]["result"].to_dicts() == [
         {"name": "Ida", "email": None, "team": "one two"},

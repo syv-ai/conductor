@@ -1183,8 +1183,8 @@ def test_one_value_per_word_into_a_series_input_is_a_type_mismatch_and_collectin
             "one_value",
             ("rank", "everyone"),
             "'upper.result' gives each call of 'rank' one str, but 'rank.everyone' takes a Series of str. "
-            "To give it every item of a loop, collect them first in a node outside the loop, such as "
-            "series-collect or table-collect in syv-conductor-nodes. Else declare the input as one str.",
+            "To give it every item of a loop, collect them first in a node outside the loop that takes a "
+            "Series. Else make it an input that takes one str.",
         )
     ]
     collected_first = make_graph(
