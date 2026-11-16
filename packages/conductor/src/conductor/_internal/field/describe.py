@@ -18,17 +18,20 @@ class FieldDescription(ConductorModel):
     An editor shows a node's inputs and outputs this way. A node that raises ``Ask`` asks its questions this way
     too, one per output. The JSON it writes can be read back into the same description.
 
-    ``required`` and ``default`` together say what happens when the field is left out. There are three cases:
+    ``required`` says whether the field can be left out, and ``default`` is the value an editor starts it with.
+    There are four cases:
 
-    - It has a ``default``, such as ``"default": "a"`` or ``"default": null``. Left out, it gets that value, and
-      ``null`` means ``None``. ``required`` is false.
+    - It has a ``default``, such as ``"default": "a"`` or ``"default": null``, and ``"required": false``. Left out,
+      it gets that value, and ``null`` means ``None``.
+    - It has a ``default`` and ``"required": true``. It can't be left out, and the default is only the value it
+      starts with. That is the one question of a node with one output, whose ``Ask`` proposed a default.
     - It has no ``default`` key and ``"required": true``. It can't be left out, like ``text: str``.
     - It has no ``default`` key and ``"required": false``. Left out, it is a branch not chosen (``SKIPPED``). That
       is an output in an ``exclusive_group``, or an output whose default is ``SKIPPED``.
 
     In Python, a ``default`` that isn't there is pydantic's ``MISSING``. A description whose parts contradict each
-    other is refused: ``required`` with a ``default``, an output of an ``exclusive_group`` that is ``required`` or has
-    a ``default``, and ``loops`` on a field that isn't ``is_series``.
+    other is refused: an output of an ``exclusive_group`` that is ``required`` or has a ``default``, and ``loops`` on
+    a field that isn't ``is_series``.
 
     Attributes:
         name: The parameter's name, or the output's.
@@ -45,8 +48,8 @@ class FieldDescription(ConductorModel):
             table's schema lists its columns.
         required: Whether the field can't be left out. An input with no default is required. So is an output an
             answer must give: ``-> str`` is required, while ``-> str | None`` may be left out and is then ``None``.
-        default: What the field gets when it is left out, as JSON. ``MISSING``, with no key in the JSON, when it
-            gets no value: it is ``required``, or it is a branch not chosen.
+        default: The value an editor starts the field with, as JSON, which the field also gets when it is left out
+            and isn't ``required``. ``MISSING``, with no key in the JSON, when there is none.
         choices: The values the field takes, when it names them. They come from a ``Literal``, from
             ``Param(choices=)`` or, on a question, from the ``Ask``. Each is a ``Choice`` with every field a host
             gave it.
@@ -90,11 +93,6 @@ class FieldDescription(ConductorModel):
         """Refuses a description whose parts contradict each other, each case with its own error type."""
         has_default = self.default is not MISSING
         in_group = self.exclusive_group is not None
-        if self.required and has_default:
-            raise PydanticCustomError(
-                "required_with_default",
-                "a field can't be required and have a default, since leaving it out gives the default",
-            )
         if self.required and in_group:
             raise PydanticCustomError(
                 "required_in_exclusive_group",

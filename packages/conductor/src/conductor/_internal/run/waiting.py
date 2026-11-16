@@ -84,7 +84,10 @@ def waiting_record(
         id=write_waiting_id(loc, question_fingerprint(compiled_node, inputs)),
         loc=loc,
         prompt=waiting.prompt,
-        questions=[as_asked(output, choices, defaults) for output in outputs.values()],
+        questions=[
+            as_asked(output, choices, defaults, only_output=len(outputs) == 1)
+            for output in outputs.values()
+        ],
         inputs=inputs,
     )
 

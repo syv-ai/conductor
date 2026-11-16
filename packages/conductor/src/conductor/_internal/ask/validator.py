@@ -271,7 +271,7 @@ class AnswerValidator(Validator[Any, dict[str, Any]]):
                 if name in answer:
                     read[name] = _answer_value(field, answer[name], self._choices.get(name))
                     continue
-                question = as_asked(field, self._choices, self._defaults)
+                question = as_asked(field, self._choices, self._defaults, only_output=False)
                 if question.default is not MISSING:
                     read[name] = _read_as_answer(field.whole, question.default)
                 elif not question.required:

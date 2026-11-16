@@ -50,7 +50,8 @@ class Ask(BaseException):
         default: A proposed answer. It has the answer's shape: a value for a node with one output, or a mapping by
             output name for several, naming only the outputs it proposes for. On a node with several outputs, a
             question with a default may be left out of the answer. A node with one output is still answered with a
-            value. Without a default, the only defaults are those of a returned dataclass's fields.
+            value, so its question stays required, and the default is the value a host fills the answer in with.
+            Without a default, the only defaults are those of a returned dataclass's fields.
 
     Attributes:
         prompt: The text the person reads.

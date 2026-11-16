@@ -330,7 +330,7 @@ def test_an_ask_proposing_none_for_a_series_that_takes_none_waits_with_that_defa
 
     _, run = _once(tags, text="x")
     (question,) = run.waiting[0].questions
-    assert (question.default, question.required) == (None, False)
+    assert (question.default, question.required) == (None, True)
 
 
 class Person(Choice):
@@ -517,7 +517,7 @@ def test_a_question_whose_type_takes_none_may_be_answered_with_none():
         raise Ask("A note?")
 
     _, run = _once(note, name="x")
-    assert run.waiting[0].questions[0].required is False
+    assert run.waiting[0].questions[0].required is True
     assert run.answer("q", None).resume().outputs == {"result": None}
 
 
@@ -650,7 +650,9 @@ def test_an_output_in_the_palette_is_the_question_its_type_sets():
     (in_palette,) = maybe.describe().outputs
     _, run = _once(maybe, text="a")
     assert (in_palette.required, in_palette.default) == (False, None)
-    assert in_palette == run.waiting[0].questions[0] == run.graph.describe().nodes["q"].outputs[0]
+    assert in_palette == run.graph.describe().nodes["q"].outputs[0]
+    # One output is answered with a value, so its question is required.
+    assert run.waiting[0].questions[0] == in_palette.model_copy(update={"required": True})
 
 
 def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node():
@@ -669,7 +671,6 @@ def test_an_ask_proposing_a_default_for_one_of_an_exclusive_group_fails_the_node
 @pytest.mark.parametrize(
     ("written", "error"),
     [
-        ({"required": True, "default": None}, "required_with_default"),
         ({"required": True, "exclusive_group": "way"}, "required_in_exclusive_group"),
         (
             {"required": False, "exclusive_group": "way", "default": "a"},
@@ -690,6 +691,7 @@ def test_a_field_whose_parts_agree_reads_back():
     assert (
         FieldDescription.model_validate({**one, "required": False, "default": None}).default is None
     )
+    assert FieldDescription.model_validate({**one, "required": True, "default": "a"}).default == "a"
     assert (
         FieldDescription.model_validate(
             {**one, "required": False, "exclusive_group": "way"}
@@ -1226,7 +1228,7 @@ def test_a_default_obeys_what_an_answer_must_and_none_is_no_pick():
 
     # None counts as no pick. A type that takes None takes it on top of its choices, as an input's Param does.
     (question,) = _once(blank)[1].waiting[0].questions
-    assert (question.default, question.required) == (None, False)
+    assert (question.default, question.required) == (None, True)
     assert (
         _once(twice)[1].cause.ctx["reason"]
         == "the default for 'result' isn't an answer a person could give (a choice is picked twice)"
@@ -1755,7 +1757,7 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
                 "name": "result",
                 "title": "Assignee",
                 "is_series": False,
-                "required": False,
+                "required": True,
                 "type": "str",
                 "type_variables": [],
                 "schema": {"type": "string"},
@@ -1769,6 +1771,8 @@ def test_a_question_record_is_json_a_host_draws_from_with_no_graph_loaded():
             }
         ],
     }
+    # A host that stored the record reads it back, though its one question is required and has a default.
+    assert Waiting.model_validate_json(run.waiting[0].model_dump_json()) == run.waiting[0]
 
 
 def test_a_literal_says_the_type_of_its_values_on_an_input_and_on_a_question():

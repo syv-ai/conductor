@@ -699,6 +699,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - A question's `choices` are `Choice`s, written `[{"id", "title"}]`. They come from the `Ask`, else from the output's `Param(choices=)` or `Literal`.
 - A question's `default` comes from the `Ask`, else from the output's own.
 - `required` and `default` say what an answer that leaves the question out gives, as for any field. A `default` gives that value, with `null` meaning `None`. No `default` with `required` true is a fault. No `default` with `required` false is a branch not chosen.
+- A node of one output is answered with its value, so its one question is always `required`. A `default` there, from the `Ask` or the output's type, is the value a host fills the answer in with: `run.answer(id, {})` is refused as `invalid_answer`.
 
 **Answering.** `run.answer(waiting, value)` answers one waiting call, and `run.answer({waiting_id: value, ...})` answers several in one call. It returns a new run, and nothing runs until `resume()`.
 
@@ -931,15 +932,16 @@ A palette is the list of nodes an editor offers. Every node in it is a `NodeDesc
 - A `Param`'s limits are in `schema`, as `minimum`, `maxLength` and the like. Its title and description are the field's own, and are never repeated there.
 - `loops` is described under "The graph record".
 
-**`required` and `default`** say what leaving the field out gives.
+**`required` and `default`** say what leaving the field out gives. `default` is also the value an editor starts the field with.
 
 - `"default": v` gives that value. `null` is the value `None`, and nothing else.
+- `"default": v` with `"required": true` can't be left out, and `v` is only where an editor starts. That is the one question of a node of one output.
 - No `default` key, with `"required": true`, is refused. That is an input with no default, or an output an answer must give.
 - No `default` key, with `"required": false`, is a branch not chosen. That is an output in an `exclusive_group`, or one whose default is `SKIPPED`, from a returned dataclass or as a `compute_outputs` hook's `(type, SKIPPED)`.
 - A missing `default` key means no value. So a host that writes these records with `exclude_none` turns `"default": null` into a branch not chosen. Write them as pydantic writes them.
-- An output is described as the question its type sets, the same as a waiting call's question without an `Ask`. So `-> str | None` is `"required": false, "default": null`.
+- An output is described as the question its type sets, the same as a waiting call's question without an `Ask` on a node of several outputs. So `-> str | None` is `"required": false, "default": null`.
 
-A record whose parts contradict each other is refused: `required` with a `default` (`required_with_default`), an output of an `exclusive_group` that is `required` or has a `default` (`required_in_exclusive_group`, `default_in_exclusive_group`), and `loops` without `is_series` (`loops_without_series`).
+A record whose parts contradict each other is refused: an output of an `exclusive_group` that is `required` or has a `default` (`required_in_exclusive_group`, `default_in_exclusive_group`), and `loops` without `is_series` (`loops_without_series`).
 
 **A registry and a graph.**
 

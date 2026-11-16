@@ -94,14 +94,15 @@ What changes in how you work, before the name-by-name tables:
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
   `"required": false` it is a branch not chosen (an output in an `exclusive_group`, or a form field whose default
-  is `SKIPPED`). `"default": null` is a default of `None`. A `FieldDescription` that is `required` and has a
-  `default` is refused (`required_with_default`), and so is an output of an `exclusive_group` that is `required` or
-  has a `default` (`required_in_exclusive_group`, `default_in_exclusive_group`) and `loops` without `is_series`
+  is `SKIPPED`). `"default": null` is a default of `None`. A `default` with `"required": true` is the value an
+  editor starts with: the one question of a node with one output is always required, since it is answered with a
+  value, and keeps the `Ask`'s default. An output of an `exclusive_group` that is `required` or has a `default` is
+  refused (`required_in_exclusive_group`, `default_in_exclusive_group`), and so is `loops` without `is_series`
   (`loops_without_series`). A host that writes these records with `exclude_none` turns `"default": null` into a
   branch not chosen. An output in `describe()`, `registry.describe()` and
-  `graph.describe()` is the question its type sets, the same record a waiting call shows without an `Ask`: `-> str
-  | None` is `"required": false, "default": null` (it was `"required": true` in the palette and `false` in the
-  question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `schema` and
+  `graph.describe()` is the question its type sets, the same record a waiting call shows without an `Ask` on a
+  node of several outputs: `-> str | None` is `"required": false, "default": null` (it was `"required": true` in
+  the palette and `false` in the question). A subgraph's output returned inside loops keeps `is_series` true, and its `type`, `schema` and
   `choices` are the value the node inside returns (`"type": "str"`, where it was `"Series[str]"` for an output
   inside two loops); its `loops` give one level of list per entry, and a `Series` it returns outside every loop
   has `loops` `[]` and is one list. A `Waiting`, and so a stored outcome of a call that waits (the providers'
