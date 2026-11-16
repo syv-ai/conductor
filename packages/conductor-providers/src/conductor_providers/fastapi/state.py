@@ -128,9 +128,14 @@ class RunState(BaseModel):
         declined question again. A decline the run refuses as it is, such as one for a question it hasn't asked
         yet, doesn't count: the run is resumed, and given the queue again when it stops.
 
+        With only answers queued, nothing is given to the run here, so they are given to it, and any failed check of
+        them logged, once, when it stops.
+
         Args:
             run: The run as the row has it.
         """
+        if not any(isinstance(entry, Decline) for entry in self.queued):
+            return False
         _, _, declined, _ = self._given_to(run)
         return declined
 
