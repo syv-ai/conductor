@@ -35,7 +35,10 @@ DECLARATION_PROBLEMS = ProblemCatalogue(
     "Declaring a node",
     "These are raised as `NodeDeclarationError` when the module that declares the node or the type is imported. "
     "`error.problems` has the one problem. Its `type` is the code, and its message is written for the node's "
-    "developer. The error's text puts where the fault is in front of it: `@node('adds') on adds: value: ...`.",
+    "developer. When `@node` or `subgraph` finds the fault while building the node (in the function or its "
+    "signature, a hook, or a missing `Upgrade`), the error's text puts where it is in front of the message: "
+    "`@node('adds') on adds: value: ...`. Other faults, such as an empty title or a node id used twice, name the "
+    "node in their message, or nothing.",
 )
 
 

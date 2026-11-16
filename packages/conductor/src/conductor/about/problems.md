@@ -1,6 +1,6 @@
 # Problems
 
-Everything conductor reports has a stable code. A `Problem`'s `type` is one, and so is a `NodeDeclarationError`'s `code`. This page has every code: when you get it, an example that makes it, and how to fix it. A `Problem` has four fields, as a pydantic error has: `type` (the code), `loc` (where it is), `msg` (the message, for a person) and `ctx` (the values the message is made from). A host that writes its own messages translates by `type` and fills its sentence from `ctx`. `PROBLEMS.codes` is every code conductor's core writes; a code not in it is a node's own, from `NodeError(code=)`.
+Everything conductor reports has a stable code. A `Problem`'s `type` is one, and a `NodeDeclarationError` has its code as `error.problems[0].type`. This page has every code: when you get it, an example that makes it, and how to fix it. A `Problem` has four fields, as a pydantic error has: `type` (the code), `loc` (where it is), `msg` (the message, for a person) and `ctx` (the values the message is made from). A host that writes its own messages translates by `type` and fills its sentence from `ctx`. `PROBLEMS.codes` is every code conductor's core writes; a code not in it is a node's own, from `NodeError(code=)`.
 
 This page is printed from the code: each kind of problem from the function that declares it (`python -m conductor.about problems` prints the page). Every example runs after this setup, and a test checks that each one makes the problem it is listed under:
 

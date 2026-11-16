@@ -298,7 +298,7 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 
 Wherever a table arrives (a node's return, a caller, a person's answer, an edge), each column is converted to the type a saved run reads it back as, when no cell changes. The run keeps the converted table.
 
-- Every whole-number type becomes Int64, or UInt64 when every cell fits.
+- Every whole-number type becomes Int64. A UInt64 does too when every cell fits, and is refused otherwise.
 - Float32 becomes Float64, and a Categorical or Enum becomes String.
 - A Datetime or Duration becomes microseconds. That holds for one in milliseconds, and for one in nanoseconds when every cell is a whole microsecond.
 - A Decimal becomes precision 38, and a fixed-size Array becomes a List.
@@ -391,7 +391,7 @@ Branches inside a subgraph work as they would drawn in the outer graph.
 - Two outputs that depend on opposite branches of one decision inside are alternatives outside. Both may be wired into one input, and each call gets the value from the branch that was chosen. Collected into two `Series` inputs of one node, they are `lists_from_different_loops`.
 - A `None`, or a branch not chosen, arriving at one of its inputs makes the inner nodes wired to it not called, or skipped. `run.not_called` lists those nodes.
 
-A subgraph is compiled once, on its own. So a type variable at one of its graph inputs has no edge to bind it, and reads as its bound, else `Any`.
+A subgraph is compiled on its own, apart from the graph it is used in. So a type variable at one of its graph inputs has no edge to bind it, and reads as its bound, else `Any`.
 
 - A subgraph whose first node is `series-split` offers `Table | list`, and gives records of unknown fields. The same nodes drawn in the outer graph would have the arriving table's fields.
 - A first node whose input has a precise type (`Table[R]`, `R` a `TypedDict`) gives the subgraph that type.
@@ -705,7 +705,7 @@ again = Run.from_json(finished.to_json(), approving)           # a run is JSON
 - Every fault is refused at once, and nothing is answered.
   - `invalid_answer` has `ctx.waiting_id`, `ctx.reason`, and `ctx.question` when it is about one question. It also covers one call answered twice in one `answer`.
   - `not_waiting` is for a call that is not waiting, with `ctx.waiting_id`, `ctx.status`, and `ctx.moved_to` when its question now waits on another call.
-  - `answer_stale` is for an id whose call has asked another question since, as after `run.again` moved the items. `ctx.current` is the id waiting there now, and `ctx.moved_to` is there when the question now waits on another call.
+  - `answer_stale` is for an id whose place waits with another fingerprint: the call there got other inputs, as when `run.again` moved another item there, or the node's code changed. `ctx.current` is the id waiting there now, and `ctx.moved_to` is there when the old question now waits on another call. An id whose place waits on nothing is `not_waiting`.
 - An id without its `~` part names the call alone, and answers whatever question waits there.
 - A node that asked is not called again for that item.
 
@@ -775,7 +775,7 @@ first = sending.run(text="ida@a.dk\nbo@b.dk")                # two mails
 second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added: one mail
 ```
 
-**What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's version, its code (the function's own bytecode and constants, as a saved run records it), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
+**What a call is matched by.** The key is what the call is about to receive, by content. To that it adds the node's `@node` id and version, its code (the function's own bytecode and constants, as a saved run records it), its fields, the Series it runs per item of, and whether it may ask (`asks=True`). So a node that stops or starts asking is called again. The run's context is not part of the key.
 
 **Which outcome a call reuses.**
 
@@ -790,11 +790,11 @@ second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added
 - A node that may ask (`asks=True`) has every outcome reused this way, a call that returned without asking too. A node that asks is told apart by its `@node`, not by each call. An item beyond the outcomes there were is called again, and asks only if its function asks.
 - A call reused this way waits until it is its turn, and so does everything downstream of it. For example, take `check -> stamp`, both `asks=True`, where `stamp` never asks. `again(items=["zz", "bo"])` reuses nothing of `stamp` for `"bo"` until `check`'s question about `"zz"` is answered, and the run waits.
 
-**Outcomes carried on.** `again` passes on the reusable outcomes the run before it had and didn't use, while their node still has a question waiting. So an answer survives an edit and its revert. Once the node is complete, the unused ones are dropped. So an edit undone two runs later calls the node for that item again.
+**Outcomes carried on.** `again` passes on the reusable outcomes the run before it had and didn't use, while their node still has a question waiting. So an answer survives an edit and its revert. Once the node is complete, the unused ones are dropped. So an edit that is undone in the next run calls the node again for the items the edit took out.
 
 **Forgetting.** `run.forget("node", ...)` is a run of the same inputs that calls those nodes again. A subgraph node's id forgets its inner nodes. A node downstream that then gets the same arguments as before is reused. A host checks access again this way.
 
-**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. `again` calls it for every item.
+**Never reuse.** `Policy(reuse_when_inputs_match=False)` is for a node whose result depends on the world, not on its inputs, such as a file read by its path or today's exchange rate. A run made from a previous one (`again`, `with_inputs`, `graph.with_inputs(previous=)`, `forget`) calls it for every item. The policy is checked when that run is made: `Run.from_json` takes a saved run's reusable outcomes as they were saved.
 
 `node_complete.reused` says how many calls were reused.
 
@@ -802,10 +802,10 @@ second = first.again(text="ida@a.dk\nbo@b.dk\neva@c.dk")     # one contact added
 
 Retries live on the node's `Policy`, and are counted per call.
 
-- Only an `ExternalError` is retried: one the node raises, or a class in `Policy.retry_on`. Its code is `external_failed`.
+- Only an `ExternalError`, or an exception whose class is in `Policy.retry_on`, is retried. An `ExternalError` fails with its own `code`, else `external_failed`; a `retry_on` class fails with `external_failed`.
 - Anything else is `execution_failed`, or the node's own `NodeError` code, and runs once.
 - A `NodeError` other than `ExternalError`, an `invalid_output` and an `Ask` are never retried, even when `retry_on` names a class they derive from, such as `Exception`.
-- Attempt `n` waits `retry_delay * 2 ** (n - 1)`, and emits `node_retry`.
+- Retry `n` waits `retry_delay * 2 ** (n - 1)`, and emits `node_retry`.
 
 **A timeout per attempt.** `Policy.attempt_timeout` limits one attempt. Past it, the call fails with the code `timeout`, and isn't retried. The thread is not interrupted, so the call runs on, and the process waits for it at exit.
 
@@ -831,7 +831,7 @@ Retries live on the node's `Policy`, and are counted per call.
 
 ### Errors
 
-The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`. It is on `graph.problems`, on `node_failed`, as an ended run's `run.cause`, and in the `problems` of every exception conductor raises.
+The classes are exported from `conductor`. What is wrong is always one record, `Problem(type, loc, msg, ctx)`. It is on `graph.problems`, on `node_failed`, as an ended run's `run.cause`, and in the `problems` of each exception conductor defines: `NodeDeclarationError`, `InvalidCallError` and `NodeError`. Conductor also raises Python's own exceptions (a `TypeError`, a `KeyError`) and pydantic's validation error, which have none.
 
 - Its `type` is a stable code (see "Problem and error codes").
 - A node failure's `loc` is `(node_id, *item_indexes)`. A graph problem's starts with the node, then the input when it is about one: `(node_id,)` or `(node_id, input)`. A problem of the whole graph, such as `graph_output_not_found`, has `()`.
@@ -844,8 +844,8 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 ```
 
 - A failed call ends the run `failed`, with its problem as the run's `cause`. Nothing more starts. The calls already on a thread are waited for (each as far as its `attempt_timeout`) and kept, so resuming doesn't repeat them.
-- A call that can't be acted on raises `InvalidCallError`, whose `problems` lists a `Problem` for every fault, and nothing changes. Running a graph with problems raises it too, listing them.
-- A failure never quotes a value the run handled. A node's exception other than a `NodeError` goes to `logging.getLogger("conductor")`, and only its class name reaches `ctx`.
+- A call that can't be acted on raises `InvalidCallError`, and nothing changes. A call's arguments are checked in stages, and the first stage that finds a fault raises, with a `Problem` for every fault of that stage: `graph.run(n="x", max_items=0)` gives only `invalid_limit`. Running a graph with problems raises it too, listing them.
+- A failed call never quotes a value the run handled. A node's exception other than a `NodeError` goes to `logging.getLogger("conductor")`, and only its class name reaches `ctx`. A few kinds do quote an exception's text: `compute_hook_failed` quotes the hook's, `question_unwritable` why an input can't be written as JSON, `check_registry`'s `hook_failed` and `run_failed` a `compute_hook_failed` message, and its `upgrade_broken` (variant `raised`) the upgrade's exception.
 
 ### Events
 
@@ -871,7 +871,7 @@ NodeError               a node's own failure, NodeError(message, code=, ctx=); p
 | `node_failed` | `loc`, `cause` (a `Problem`, whose `loc` names the call) |
 | `node_waiting` | `loc`, `waiting` (a `Waiting`, whose `loc` names the call) |
 | `run_start` | `waiting` |
-| `run_checkpoint` | `run` (status `running`, or how the run stopped; read back from its JSON, what its outcomes say), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when the run is stopped with calls on threads; and as the last event of a run handed back (`stream(hand_back=)`), `running`, in place of `run_end` |
+| `run_checkpoint` | `run` (status `running`, or how the run stopped; read back from its JSON, a copy made while the run goes on is what its outcomes say, and the copy made as it stops says how it stopped), which it does not write; only with `stream(checkpoint_every=seconds)`, at most that often and once when the run is stopped with calls on threads; and as the last event of a run handed back (`stream(hand_back=)`), `running`, in place of `run_end` |
 | `run_end` | `status`, `cause`, and `run`, which it does not write |
 
 ### Saving a graph
@@ -1023,7 +1023,7 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 - A failed call, and a series over the item limit, stand until `resume()` tries again.
 - That a resume was cancelled or timed out belongs to that resume. So an answer reads the run from its outcomes again: answering the last question makes it `ready`, or `complete` when no call is left.
 - A save keeps how the last resume ended early, as `ended_early`: `null`, or a status and its cause. One with no cause, or with a status that is no early end, is `saved_run_unreadable`.
-- That a resume is going on belongs to the process, never to the save. A checkpoint saved and read back is what its outcomes say.
+- That a resume is going on belongs to the process, never to the save. A checkpoint made while the run goes on reads back as what its outcomes say. The copy made as the run stops keeps how it stopped, and reads back as that.
 
 ### Problem and error codes
 
@@ -1110,7 +1110,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - It is written once as JSON, by alias, when the run starts, and never changed.
 - `nodes_for(metadata)` gives the registry a run's graph compiles on. `context(metadata, stop)` gives the run's context, an instance of the registry's `context_type`. Both are called again on every resume, on any worker.
 - The worker is generic in `M` and in `X`, the context type, and the type checker holds `nodes_for` and `context` to them.
-- `stop` is a `threading.Event`, new for each resume call. It is set when that call stops early: the run was cancelled (on this worker, or on another and heard at the next lease renewal), another worker took it over, or the store raised and the worker gave the run up. It is never set when the worker shuts down.
+- `stop` is a `threading.Event`, new for each resume call while no cancel is asked. While a cancel stays asked, the same event, already set, goes to the next resume call. It is set when a call stops early: the run was cancelled (on this worker, or on another and heard at its next checkpoint or lease renewal), another worker took it over, or the store raised and the worker gave the run up. It is never set when the worker shuts down.
 - A node that streams checks `ctx.stop.is_set()` between chunks, and raises a `NodeError`. A value it returns would be kept, so a resume would not call it again.
 - A node is given a way to connect, never a connection, because it runs on another thread.
 
