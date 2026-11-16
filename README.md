@@ -63,6 +63,8 @@ The types decide how often a node runs. `line: str` takes one value. `Series[str
 
 That's all there is to looping. A plain `list` or a table is one value until a node returns it as a `Series`. The [Split node](https://github.com/syv-ai/conductor/tree/main/packages/conductor-nodes) does that for you.
 
+A node inside a loop gets one item per call, so a `Series` input there can't collect that loop. To compare each item with all of them, collect the items first in a node outside the loop, such as `series-collect` from the same package, and wire its result in.
+
 ## Nodes that ask a person
 
 Now a longer example: approving invoices. These nodes go in a registry of their own:

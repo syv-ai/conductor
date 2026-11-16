@@ -662,7 +662,8 @@ def type_mismatch_one_value(
     """
     return (
         f"'{source}' gives each call of '{node_id}' one {got}, but '{node_id}.{field}' takes a Series of {item}. "
-        f"Wire a Series of {item} to it."
+        "To give it every item of a loop, collect them first in a node outside the loop, such as series-collect or "
+        f"table-collect in syv-conductor-nodes. Else declare the input as one {item}."
     )
 
 
