@@ -91,15 +91,13 @@ class DisplayReader(ResultReader):
         )
         return None if looped_over is NotReady.NOT_READY else looped_over
 
-    def collect(
-        self, graph_path: NodePath, node_input: CollectingInput, item_indexes: ItemIndexes
-    ) -> Any:
+    def collect(self, node_input: CollectingInput, item_indexes: ItemIndexes) -> Any:
         """Returns the list a collecting input would get for the call at ``item_indexes``.
 
         It is ``None`` when the edge names a field that a record in the list doesn't have.
         """
         try:
-            return ResultReader.collect(self, graph_path, node_input, item_indexes)
+            return ResultReader.collect(self, node_input, item_indexes)
         except NoSuchFieldError:
             return None
 

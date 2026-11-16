@@ -233,6 +233,25 @@ class EdgeInput:
     loops: tuple[tuple[NodePath, str], ...]
     as_list: bool = False
 
+    def from_outside(
+        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
+    ) -> EdgeInput:
+        """Returns this input of a node in a subgraph's graph, named from the graph the subgraph node is in.
+
+        Its edges and loops are named as ``Edge.from_outside`` names them.
+
+        Args:
+            subgraph_path: The subgraph node's path in the graph it is in.
+            subgraph_loops: The loops the subgraph node is in, named from that graph.
+        """
+        return replace(
+            self,
+            sources=tuple(
+                edge.from_outside(subgraph_path, subgraph_loops) for edge in self.sources
+            ),
+            loops=loops_from_outside(subgraph_path, subgraph_loops, self.loops),
+        )
+
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -257,6 +276,26 @@ class CollectingInput:
     series: tuple[NodePath, str]
     loops: tuple[tuple[NodePath, str], ...]
     sources: tuple[Edge, ...]
+
+    def from_outside(
+        self, subgraph_path: NodePath, subgraph_loops: tuple[tuple[NodePath, str], ...]
+    ) -> CollectingInput:
+        """Returns this input of a node in a subgraph's graph, named from the graph the subgraph node is in.
+
+        Its ``series``, edges and loops are named as ``Edge.from_outside`` names them.
+
+        Args:
+            subgraph_path: The subgraph node's path in the graph it is in.
+            subgraph_loops: The loops the subgraph node is in, named from that graph.
+        """
+        return replace(
+            self,
+            series=_list_from_outside(subgraph_path, self.series),
+            loops=loops_from_outside(subgraph_path, subgraph_loops, self.loops),
+            sources=tuple(
+                edge.from_outside(subgraph_path, subgraph_loops) for edge in self.sources
+            ),
+        )
 
 
 #: One input of a compiled node: one of the five kinds above.
