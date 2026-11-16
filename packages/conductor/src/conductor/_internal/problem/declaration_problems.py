@@ -1106,6 +1106,42 @@ def upgrade_missing(*, gone: list[str]) -> str:
 
 
 @DECLARATION_PROBLEMS.problem()
+def upgrade_renames_unknown(*, old: list[str], new: list[str]) -> str:
+    """A node's ``Upgrade`` renames a field that the version it replaces doesn't declare, or renames one to a field
+    that the new version doesn't declare.
+
+    A rename names an old input or output and its new name. A name that isn't a field, such as a typo, moves nothing,
+    so a graph upgraded by it would lose what that field got.
+
+    Only declared fields are checked. A ``compute_added_inputs`` hook adds inputs when a graph is compiled, and a
+    ``compute_outputs`` hook gives the outputs then. So a version with one of those hooks has its renames of that kind
+    of field left unchecked.
+
+    To fix it, spell each old name as the version it replaces declares it, and each new name as the new version does.
+
+    Args:
+        old: The old names in ``renamed_inputs`` and ``renamed_outputs`` that the version it replaces doesn't declare.
+        new: The new names that the new version doesn't declare.
+
+    Example:
+        @node("salute", title="Salute v1", description="Salutes a person.")
+        def salute_v1(name: str) -> str:
+            return name
+
+
+        def salute(first: str) -> str:
+            return first
+
+
+        declaration_refused(lambda: node("salute", title="Salute", description="Salutes a person.", replaces=salute_v1, upgrade=Upgrade(renamed_inputs={"nmae": "first"}))(salute))
+    """
+    return (
+        f"the Upgrade renames fields that aren't declared: {comma_separated(old)} in the version it replaces, "
+        f"{comma_separated(new)} in the new version. Spell each name as its version declares it."
+    )
+
+
+@DECLARATION_PROBLEMS.problem()
 def upgrade_without_replaces(*, declared_with: str, id: str) -> str:
     """A node has an ``upgrade=`` but no ``replaces=``.
 

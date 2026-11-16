@@ -619,6 +619,92 @@ def test_an_output_an_upgrade_renames_needs_nothing_more():
     )
 
 
+@pytest.mark.parametrize(
+    ("upgrade", "old", "new"),
+    [
+        (Upgrade(renamed_inputs={"z": "y"}, rewrite=dict), ["z"], []),
+        (Upgrade(renamed_inputs={"x": "w"}, rewrite=dict), [], ["w"]),
+        (Upgrade(renamed_outputs={"z": "result"}, rewrite=dict), ["z"], []),
+        (Upgrade(renamed_outputs={"result": "w"}, rewrite=dict), [], ["w"]),
+    ],
+    ids=["old-input", "new-input", "old-output", "new-output"],
+)
+def test_an_upgrade_renaming_a_field_a_version_does_not_declare_is_refused_where_it_is_declared(
+    upgrade: Upgrade, old: list[str], new: list[str]
+):
+    """A rename from a field the replaced version lacks, or to one the new version lacks, is refused at ``@node``.
+
+    A name that is no field, such as a typo, moves nothing, so a graph upgraded by it would lose what that field got.
+    The ``rewrite`` explains the dropped input, so the only fault is the rename.
+    """
+    with pytest.raises(NodeDeclarationError) as raised:
+        node(
+            "two",
+            title="Newer y",
+            description="For a test.",
+            replaces=node("two", title="Older x", description="For a test.")(_older_x),
+            upgrade=upgrade,
+        )(_newer_y)
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx) == ("upgrade_renames_unknown", {"old": old, "new": new})
+    assert str(raised.value).startswith("@node('two') on _newer_y: ")
+
+
+def test_a_subgraph_upgrade_renaming_a_graph_input_it_does_not_have_is_refused():
+    """A subgraph's renames are checked against the graph inputs and outputs of its two records."""
+    inner = node("inner-x", title="Inner x", description="For a test.")(_older_x)
+    record = make_graph(inner, inputs={"x": "inner-x.x"}, outputs={"r": "inner-x.result"})
+    older = subgraph("sub", title="Sub", description="For a test.")(record)
+    with pytest.raises(NodeDeclarationError) as raised:
+        subgraph(
+            "sub",
+            title="Sub",
+            description="For a test.",
+            replaces=older,
+            upgrade=Upgrade(renamed_inputs={"x": "y"}, renamed_outputs={"r": "s"}),
+        )(record)
+
+    (problem,) = raised.value.problems
+    assert (problem.type, problem.ctx) == (
+        "upgrade_renames_unknown",
+        {"old": [], "new": ["y", "s"]},
+    )
+
+
+def test_a_rename_of_a_field_a_hook_may_give_is_not_checked():
+    """A version with a hook may have fields it doesn't declare, so a rename of that kind of field passes ``@node``."""
+
+    def outputs_by_name() -> dict[str, type]:
+        return {"first": str}
+
+    def older(**added: str) -> str:
+        return ""
+
+    def newer(kept: str) -> Mapping[str, str]:
+        return {}
+
+    replaced = node(
+        "hooked",
+        title="Hooked v1",
+        description="For a test.",
+        compute_added_inputs=lambda: {"extra": str},
+    )(older)
+    assert (
+        node(
+            "hooked",
+            title="Hooked",
+            description="For a test.",
+            compute_outputs=outputs_by_name,
+            replaces=replaced,
+            upgrade=Upgrade(
+                renamed_inputs={"extra": "kept"}, renamed_outputs={"result": "first"}, rewrite=dict
+            ),
+        )(newer).version
+        == 2
+    )
+
+
 def test_a_rewrite_returning_a_set_is_refused_as_set_has_no_order_at_the_node():
     def tagged_v1(tag: str) -> str:
         return tag

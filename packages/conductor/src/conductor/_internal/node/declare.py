@@ -185,7 +185,7 @@ def node(
                 asks=asks,
             )
             if replaces is not None:
-                _raise_if_upgrade_is_missing(replaces, definition)
+                _raise_if_upgrade_does_not_fit(replaces, definition)
             return definition
         # Each fault names the node and the function it is on.
         except NodeDeclarationError as error:
@@ -224,7 +224,8 @@ def subgraph(
 
     Raises:
         NodeDeclarationError: If the arguments can't make a node, for example a newer version that drops an input
-            with no ``Upgrade`` saying where it went (``upgrade_missing``).
+            with no ``Upgrade`` saying where it went (``upgrade_missing``), or an ``Upgrade`` that renames a graph
+            input or output one of the two records doesn't have (``upgrade_renames_unknown``).
     """
     number = _version_number("subgraph", id, title, description, version, replaces, upgrade)
 
@@ -245,7 +246,7 @@ def subgraph(
         )
         if replaces is not None:
             try:
-                _raise_if_upgrade_is_missing(replaces, definition)
+                _raise_if_upgrade_does_not_fit(replaces, definition)
             except NodeDeclarationError as error:
                 raise error.within(f"subgraph({id!r})") from None
         return definition
@@ -477,17 +478,66 @@ def _check_hook(
     return parameters
 
 
-def _raise_if_upgrade_is_missing(older: NodeDefinition, newer: NodeDefinition) -> None:
-    """Checks that the newer version's ``Upgrade`` says where each dropped input and output went.
+def _raise_if_upgrade_does_not_fit(older: NodeDefinition, newer: NodeDefinition) -> None:
+    """Checks the newer version's ``Upgrade`` against the fields of the two versions.
 
-    An input the older version had and the newer one lacks needs a rename or a ``rewrite``, which rewrites the
+    Each rename has to start at a field the older version declares and end at one the newer version declares. Say
+    version 1 takes ``name``, and version 2 takes ``first`` with ``Upgrade(renamed_inputs={"nmae": "first"})``. The
+    typo renames nothing, so the rename is refused. A version with a ``compute_added_inputs`` hook may have inputs it
+    doesn't declare, so a rename of its inputs isn't checked, and the same goes for ``compute_outputs`` and outputs.
+
+    Then each input the older version had and the newer one lacks needs a rename or a ``rewrite``, which rewrites the
     constants and defaults. A dropped output needs a rename, since what has to move is the edges out of it.
 
     Raises:
-        NodeDeclarationError: ``upgrade_missing``, naming each field nothing explains.
+        NodeDeclarationError: ``upgrade_renames_unknown``, naming each rename that starts or ends at no declared
+            field. ``upgrade_missing``, naming each dropped field nothing explains.
     """
+    upgrade = newer.upgrade
+    adds_inputs, adds_outputs = _hooks_add_fields(older)
+    unknown_old = [
+        *(
+            name
+            for name in upgrade.renamed_inputs
+            if not adds_inputs and name not in older.input_names
+        ),
+        *(
+            name
+            for name in upgrade.renamed_outputs
+            if not adds_outputs and name not in older.output_names
+        ),
+    ]
+    adds_inputs, adds_outputs = _hooks_add_fields(newer)
+    unknown_new = [
+        *(
+            name
+            for name in upgrade.renamed_inputs.values()
+            if not adds_inputs and name not in newer.input_names
+        ),
+        *(
+            name
+            for name in upgrade.renamed_outputs.values()
+            if not adds_outputs and name not in newer.output_names
+        ),
+    ]
+    if unknown_old or unknown_new:
+        raise NodeDeclarationError(
+            declaration_problems.upgrade_renames_unknown(old=unknown_old, new=unknown_new)
+        )
     unexplained = gone_outputs(older, newer)
     if newer.upgrade.rewrite is None:
         unexplained |= gone_inputs(older, newer)
     if unexplained:
         raise NodeDeclarationError(declaration_problems.upgrade_missing(gone=sorted(unexplained)))
+
+
+def _hooks_add_fields(version: NodeDefinition) -> tuple[bool, bool]:
+    """Returns whether a version's hooks may add inputs, and whether they may give outputs, beside those it declares.
+
+    Only a function has hooks. A subgraph's inputs and outputs are all in its record.
+    """
+    match version:
+        case FunctionDefinition():
+            return version.compute_added_inputs is not None, version.compute_outputs is not None
+        case SubgraphDefinition():
+            return False, False

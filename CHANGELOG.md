@@ -227,6 +227,11 @@ What changes in how you work, before the name-by-name tables:
   a subgraph node upgraded to a version that takes fewer graph inputs compiles clean (it kept them, and compiling said `unknown_input`). A subgraph's
   newer version that drops a graph input or output of the one it replaces needs an `Upgrade` saying where it went, as a function's does
   (`upgrade_missing` where it is declared).
+- **An `Upgrade` renames only declared fields.** `@node` and `subgraph` raise `NodeDeclarationError` with the new
+  declaration problem `upgrade_renames_unknown` (`ctx.old`, `ctx.new`) when a name in `renamed_inputs` or
+  `renamed_outputs` isn't a field the replaced version declares, or its new name isn't one the new version declares;
+  such a rename moved nothing, and the upgraded graph lost what the field got. A version with a `compute_added_inputs`
+  or `compute_outputs` hook has its renames of that kind of field left unchecked.
 - **A run is one value.** `graph.run(**inputs)` returns a `Run` whose `status` says whether it is
   ready, running, waiting, complete or ended early, and whose `cause` is the `Problem` that ended a run that failed,
   stopped, was cancelled or timed out (`None` otherwise). One rule reads it from the outcomes and from how the last
