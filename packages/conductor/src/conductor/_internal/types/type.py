@@ -30,7 +30,7 @@ from pydantic_core import (
     SchemaSerializer,
 )
 
-from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json
+from conductor._internal.base import NON_FINITE_FLOATS, canonical_json, plain_json, validate_as_json
 from conductor._internal.problem import (
     NodeDeclarationError,
     declaration_problems,
@@ -218,9 +218,18 @@ class Type:
         A host's own check may raise something else for ``None``, such as ``float(None)``'s ``TypeError``. That is a
         refusal too: a node returning ``None`` there fails the same way.
         """
+        return self.takes_value(None)
+
+    def takes_value(self, value: Any) -> bool:
+        """Says whether the type's own check takes ``value``, read the way its JSON text would be.
+
+        This is the check a value gets wherever it enters, so a question asked of a type's values is answered by it,
+        never by a second rule. ``fit`` asks it of a ``Literal`` source's values: ``1`` is taken by
+        ``Annotated[float, Param(choices=[1.0])]``, and ``None`` by any type that takes ``None`` beside its choices.
+        """
         try:
-            self._built[1].validate_python(None, strict=True)
-        except Exception:  # noqa: BLE001  # whatever the check raises, it doesn't take None
+            validate_as_json(self._built[1], value)
+        except Exception:  # noqa: BLE001  # whatever the check raises, it doesn't take the value
             return False
         return True
 
@@ -530,7 +539,7 @@ class Type:
 
     def holds(self, source: Type) -> bool:
         """Says whether every value of ``source`` is already a value of this type, so it needs no check per call."""
-        return not self.limited and fit(self.closed, source.closed, {}, True)
+        return fit(self.closed, source.closed, {}, True)
 
     def bind(self, bound: Mapping[TypeVar, Any]) -> Type:
         """Returns this type with its type variables replaced by what ``bound`` binds them to."""

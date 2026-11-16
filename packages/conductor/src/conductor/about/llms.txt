@@ -262,7 +262,8 @@ Any type pydantic can check and write as JSON travels on edges: `str`, `int`, `f
 **What lands where.** An edge joins an output to an input when the output's type lands on the input's.
 
 - A subtype lands where its parent is asked for, and an `int` lands on a `float`.
-- A `Literal` lands on a `Literal` that has all its values.
+- A union lands when each of its members does: `int | float` lands on a `float`.
+- An input whose type has a limit, choices or another check, at any depth (on a list's item, a record's field or a table's column too), takes a value of the right class, and checks each value on its call (see "What an edge carries"). A `Literal` source names its values, so it lands only when the input's own check takes at least one of them, the check each value gets on its call: `Literal[1]` lands on `Annotated[float, Param(choices=[1.0])]`, and a `Literal` that may give `None` lands on a type that takes `None` beside its choices. A union of `Literal`s is read as one `Literal` of all their values. A `Literal` within a `Literal` input's values needs no check. A `Literal` whose values the input takes none of is `type_mismatch`, and its message, in every variant, names the values: `'a.result' gives "x", but 'b.who' takes "ida" or "bo"`. Two types that read alike, such as tables whose columns differ only in their choices, are named in full.
 - A generic is compared by its arguments too: `list[int]` lands on `list[float]`, and never on `list[str]`.
 - A type alias (`type X = ...`, or pydantic's JsonValue) is read as what it stands for. Text, a number, a yes or no, or a list or dict of them lands on a JsonValue; a model or a date does not. An alias takes `None` when what it stands for does.
 - Whether a type takes `None` is what its own check says, wherever conductor asks: `str | None`, `Any`, `object` and `Literal["a", None]` take it; a `str | None` annotated with a pydantic validator that refuses `None` does not. That decides a `None` argument, a collected `Series` keeping its `None` items, an output's default `null` in a description, and a saved `null`.
@@ -540,7 +541,7 @@ What a node returns is read strictly, by its declared type.
 - The fields of your own pydantic model or dataclass are read strictly too, whatever the model's own config says. So `{"a": "1"}` for a model with `a: int` is refused, and `True` there is pydantic's `int_type`.
 - A fault fails that call of the node as `invalid_output`, with `ctx` `name`, `reason`, `errors` and, for a table, `column`. It quotes nothing of the value.
 
-**What an edge carries.** Sometimes an input asks for more than its source's type promises: a limit on the input, an `int` into a `float`, or a host type's own check. Then the value the edge carries is read by the input, as a constant is. A value it refuses is `invalid_edge_value` on the node it reached, with `ctx` `name`, `reason`, `errors` and, for a table, `column`.
+**What an edge carries.** Sometimes an input asks for more than its source's type promises: a limit on the input, choices, an `int` into a `float`, or a host type's own check. Then the value the edge carries is read by the input, as a constant is. A value it refuses is `invalid_edge_value` on the node it reached, with `ctx` `name`, `reason`, `errors` and, for a table, `column`.
 
 A table wired to a table input is checked when compiling, by each column the input declares whose type the source knows (`type_mismatch`, see "One or many"). A table of unknown columns is checked when it arrives.
 

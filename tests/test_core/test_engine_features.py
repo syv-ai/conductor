@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from threading import Barrier
 from threading import Event as ThreadEvent
-from typing import Annotated, Any, Literal, TypeAliasType
+from typing import Annotated, Any, Literal, TypeAliasType, TypedDict
 
 import pytest
 from conductor import (
@@ -28,6 +28,7 @@ from conductor import (
     Policy,
     Run,
     Series,
+    Table,
     host_type,
     node,
     subgraph,
@@ -1022,7 +1023,6 @@ def _edge(source: Any, target: Any) -> Any:
         (as_yes, show_number, False),
         (as_text, show_number, False),
         (as_low, show_level, True),
-        (as_text, show_level, False),
     ],
 )
 def test_an_edge_into_a_type_alias_or_a_literal_takes_what_its_values_may_be(source, target, fits):
@@ -1031,6 +1031,175 @@ def test_an_edge_into_a_type_alias_or_a_literal_takes_what_its_values_may_be(sou
     assert [p.type for p in graph.problems] == ([] if fits else ["type_mismatch"])
     if fits:
         assert graph.run(text="x").status == "complete"
+
+
+@node("as-low-or-zed", title="As low or zed", description="For a test.")
+def as_low_or_zed(text: str) -> Literal["low", "zed"]:
+    return "low" if text == "low" else "zed"
+
+
+@node("as-x", title="As x", description="For a test.")
+def as_x(text: str) -> Literal["x"]:
+    return "x"
+
+
+@node("show-chosen-level", title="Show chosen level", description="For a test.")
+def show_chosen_level(value: Annotated[str, Param(choices=["low", "high"])]) -> str:
+    return value
+
+
+@pytest.mark.parametrize("target", [show_level, show_chosen_level])
+@pytest.mark.parametrize("source", [as_text, as_low_or_zed])
+def test_an_edge_that_may_give_a_choice_compiles_and_each_value_is_checked_on_its_call(
+    source, target
+):
+    """An input's choices are a ``Literal``'s values or ``Param(choices=)``, and an edge into either follows one rule.
+
+    A ``str``, or a ``Literal`` with values beside the choices, may give one of them. So the edge compiles, and a
+    value that isn't one fails the call it goes into.
+    """
+    graph = _edge(source, target)
+
+    assert graph.problems == []
+    assert graph.run(text="low").outputs == {"result": "low"}
+    failed = graph.run(text="zed")
+    assert (failed.status, failed.cause.type) == ("failed", "invalid_edge_value")
+
+
+@pytest.mark.parametrize("target", [show_level, show_chosen_level])
+def test_an_edge_that_never_gives_a_choice_is_a_type_mismatch_that_names_the_choices(target):
+    """A ``Literal`` that shares no value with an input's choices could never give one of them."""
+    (problem,) = _edge(as_x, target).problems
+
+    assert problem.type == "type_mismatch"
+    assert problem.msg.startswith("""'a.result' gives "x", but 'b.value' takes "low" or "high".""")
+    assert [p.type for p in _edge(as_count, target).problems] == ["type_mismatch"]
+
+
+@node("as-words", title="As words", description="For a test.")
+def as_words(text: str) -> list[str]:
+    return text.split(",")
+
+
+@node("each-word", title="Each word", description="For a test.")
+def each_word(text: str) -> Series[str]:
+    return text.split(",")
+
+
+@node("show-levels", title="Show levels", description="For a test.")
+def show_levels(value: list[Literal["low", "high"]]) -> str:
+    return "+".join(value)
+
+
+@node("show-all-levels", title="Show all levels", description="For a test.")
+def show_all_levels(value: Series[Literal["low", "high"]]) -> str:
+    return "+".join(value)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"), [(as_words, show_levels), (each_word, show_all_levels)]
+)
+def test_a_list_of_text_into_a_list_of_choices_compiles_and_each_item_is_checked_on_its_call(
+    source, target
+):
+    """The rule for choices holds on the items of a list, and of a ``Series`` an input collects."""
+    graph = _edge(source, target)
+
+    assert graph.problems == []
+    assert graph.run(text="low,high").outputs == {"result": "low+high"}
+    assert graph.run(text="low,zed").cause.type == "invalid_edge_value"
+
+
+def test_one_value_into_a_series_of_choices_names_the_values_in_its_type_mismatch():
+    """``type_mismatch``'s ``one_value`` variant names a type with choices by its values, as the plain one does."""
+    (problem,) = _edge(as_low, show_all_levels).problems
+
+    assert (problem.type, problem.ctx["variant"]) == ("type_mismatch", "one_value")
+    assert problem.msg.startswith(
+        """'a.result' gives each call of 'b' one "low", but 'b.value' takes a Series of "low" or "high"."""
+    )
+
+
+def _wired(source_hint: Any, value: Any, target_hint: Any) -> Graph:
+    """Compiles ``a``, which returns ``value`` typed ``source_hint``, wired into ``b``, which takes ``target_hint``."""
+
+    def give(text: str) -> Any:
+        return value
+
+    def take(value: Any) -> str:
+        return repr(value)
+
+    give.__annotations__ = {"text": str, "return": source_hint}
+    take.__annotations__ = {"value": target_hint, "return": str}
+    return _edge(
+        node("give", title="Give", description="For a test.")(give),
+        node("take", title="Take", description="For a test.")(take),
+    )
+
+
+class _Text(TypedDict):
+    who: str
+
+
+class _Chosen(TypedDict):
+    who: Annotated[str, Param(choices=["ida", "bo"])]
+
+
+class _X(TypedDict):
+    who: Literal["x"]
+
+
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (Literal[1], 1, Annotated[float, Param(choices=[1.0, 2.0])]),
+        (Literal["x", None], None, Annotated[str | None, Param(choices=["ida", "bo"])]),
+        (Literal["x"] | None, None, Annotated[str | None, Param(choices=["ida", "bo"])]),
+        (Literal["x"] | Literal["ida"], "ida", Literal["ida", "bo"]),
+        (int | float, 1.5, float),
+    ],
+)
+def test_a_source_whose_values_the_input_may_take_compiles_and_runs(source, value, target):
+    """Whether an edge's values may be taken is asked of the input's own check, the one each value gets on its call.
+
+    So ``1`` is the float choice ``1.0``, ``None`` is taken beside the choices of a type that takes ``None``, and
+    a union of ``Literal``s is read as the one ``Literal`` of all their values.
+    """
+    graph = _wired(source, value, target)
+
+    assert graph.problems == []
+    assert graph.run(text="x").status == "complete"
+
+
+@pytest.mark.parametrize(
+    ("source", "value", "target"),
+    [
+        (list[str], ["zed"], list[Annotated[str, Param(choices=["ida", "bo"])]]),
+        (list[int], [12], list[Annotated[int, Param(le=3)]]),
+        (_Text, {"who": "zed"}, _Chosen),
+        (Table[_Text], [{"who": "zed"}], Table[_Chosen]),
+    ],
+)
+def test_choices_and_limits_below_the_top_are_checked_on_each_call(source, value, target):
+    """A ``Param`` on a list's item, a record's field or a table's column is checked as one on the input is."""
+    run = _wired(source, value, target).run(text="x")
+
+    assert (run.status, run.cause.type) == ("failed", "invalid_edge_value")
+
+
+def test_a_literal_column_that_shares_no_choice_with_its_input_column_is_refused_and_named_in_full():
+    """Two tables whose columns read alike, differing only in their choices, are named by their row classes."""
+    (problem,) = _wired(Table[_X], [{"who": "x"}], Table[_Chosen]).problems
+
+    assert problem.type == "type_mismatch"
+    assert "_X]" in problem.msg and "_Chosen]" in problem.msg
+
+
+def test_a_value_an_inputs_check_converts_below_the_top_reaches_the_node_converted():
+    """The input's own check runs on a list's items as on the input, so what it converts is what the node gets."""
+    run = _wired(list[str], ["ABC"], list[Annotated[str, AfterValidator(str.lower)]]).run(text="x")
+
+    assert run.outputs == {"result": "['abc']"}
 
 
 def test_a_json_null_on_a_json_input_is_a_value_and_its_node_is_called():

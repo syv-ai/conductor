@@ -49,7 +49,7 @@ from typing import Any, Literal, TypeVar
 from pydantic import MISSING, JsonValue
 from typing_extensions import sentinel
 
-from conductor._internal.base import REQUIRED, NodePath, Source, place_text
+from conductor._internal.base import REQUIRED, NodePath, Source, canonical_json, place_text
 from conductor._internal.field import (
     BoundDefaultValidator,
     Field,
@@ -593,9 +593,9 @@ class Compiler:
                     node_id,
                     name,
                     source=str(one_value[0].wired_to),
-                    got=one_value[0].type.text,
-                    expected=field.whole.text,
-                    item=item.text,
+                    got=_type_in_message(one_value[0].type, one_value[0].type.text),
+                    expected=_type_in_message(field.whole, field.whole.text),
+                    item=_type_in_message(item, item.text),
                 )
             )
             changed[name] = MissingInput(field)
@@ -1134,8 +1134,12 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
     value needs a node first that takes it apart into a ``Series``. A table input wired to records that lack one of
     its columns needs that column added.
     """
-    written, expected = str(edge.wired_to), field.whole.id
-    got = f"Series[{edge.type.text}]" if edge.per_item else edge.type.text
+    written, expected = str(edge.wired_to), _type_in_message(field.whole, field.whole.id)
+    got_one = _type_in_message(edge.type, edge.type.text)
+    if got_one == expected:
+        # two types that read alike, such as tables whose columns differ only in their choices, are named in full
+        got_one, expected = edge.type.reads_as, field.whole.reads_as
+    got = f"Series[{got_one}]" if edge.per_item else got_one
     parts = _taken_apart(edge.type)
     if field.whole.record is not None:
         has = (edge.type.record or edge.type).fields
@@ -1165,6 +1169,18 @@ def _mismatch(node_id: str, field: Field, edge: Edge) -> Problem:
     return compile_problems.type_mismatch(
         node_id, field.name, source=written, got=got, expected=expected
     )
+
+
+def _type_in_message(value_type: Type, text: str) -> str:
+    """Names a type in a ``type_mismatch`` message, any variant: by its choices when it has some, else as ``text``.
+
+    ``Literal["ida", "bo"]`` is named ``"ida" or "bo"``, where its id, ``str``, would say nothing of which values it
+    takes.
+    """
+    if value_type.choices is None:
+        return text
+    *others, last = [canonical_json(choice.id) for choice in value_type.choices]
+    return f"{', '.join(others)} or {last}" if others else last
 
 
 def _constant_input(field: Field, value: Any) -> ConstantInput | MissingInput:
