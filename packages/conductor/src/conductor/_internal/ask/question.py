@@ -6,7 +6,8 @@ fields ``name`` and ``age`` asks two.
 
 A question looks just like its output does in ``describe()``: a title, a type, a widget and so on. The ``Ask`` can
 add two things on top. It can offer choices to pick from, and it can propose a default answer. A node with one
-output is answered with a value, so its one question is always required.
+output is answered with a value, so its one question is required, unless the output is in an exclusive group: an
+output of a group is never required, even when it is the node's only output.
 """
 
 from __future__ import annotations
@@ -32,10 +33,12 @@ def as_asked(
     set for this output. The ``Ask``'s choices replace the output's own, and its default is filled in.
 
     A node with one output is answered with its one value, never with a mapping that could leave the question out.
-    So its question is always required, and a default is only the value a host starts the answer with. For example,
+    So its question is required, and a default is only the value a host starts the answer with. For example,
     ``assign(ticket: str) -> str`` raises ``Ask("Who?", default="bo")``. Its one question, ``result``, has
     ``default="bo"`` and ``required=True``. An answer of ``{}``, or ``None`` where the output doesn't take ``None``, is
     refused as ``invalid_answer``.
+
+    An output in an exclusive group is never required, even when it is the node's only output.
 
     On a node with several outputs, a question left out of the mapping answer takes its default. So a question with
     a default from the ``Ask`` isn't required.

@@ -24,7 +24,8 @@ class FieldDescription(ConductorModel):
     - It has a ``default``, such as ``"default": "a"`` or ``"default": null``, and ``"required": false``. Left out,
       it gets that value, and ``null`` means ``None``.
     - It has a ``default`` and ``"required": true``. It can't be left out, and the default is only the value it
-      starts with. That is the one question of a node with one output, whose ``Ask`` proposed a default.
+      starts with. That is the one question of a node with one output, whose ``Ask`` proposed a default, unless
+      that output is in an ``exclusive_group``: an output of a group is never ``required``, even alone.
     - It has no ``default`` key and ``"required": true``. It can't be left out, like ``text: str``.
     - It has no ``default`` key and ``"required": false``. Left out, it is a branch not chosen (``SKIPPED``). That
       is an output in an ``exclusive_group``, or an output whose default is ``SKIPPED``.

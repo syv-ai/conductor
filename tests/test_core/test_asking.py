@@ -156,6 +156,25 @@ def test_how_a_question_looks_is_its_types_so_a_hook_can_give_each_output_a_widg
     ]
 
 
+def test_a_lone_output_in_an_exclusive_group_is_asked_as_not_required():
+    """A node's only output is asked as required, except when it is in an exclusive group.
+
+    An output of a group is never required, since leaving it out means its branch wasn't chosen. A
+    ``compute_outputs`` hook can give a node one output in a group.
+    """
+
+    def outputs() -> dict[str, Any]:
+        return {"way": Annotated[str, Param(exclusive_group="route")]}
+
+    @node("lone", title="Lone", description="For a test.", compute_outputs=outputs, asks=True)
+    def lone(text: str) -> dict[str, Any]:
+        raise Ask("Which way?")
+
+    _, run = _once(lone, text="a")
+    [question] = run.waiting[0].questions
+    assert (question.name, question.exclusive_group, question.required) == ("way", "route", False)
+
+
 def test_a_node_that_returns_nothing_is_answered_with_none_to_go_on():
     @node("ack", title="Ack", description="For a test.", asks=True)
     def ack(text: str) -> None:

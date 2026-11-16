@@ -95,8 +95,8 @@ What changes in how you work, before the name-by-name tables:
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with
   `"required": false` it is a branch not chosen (an output in an `exclusive_group`, or a form field whose default
   is `SKIPPED`). `"default": null` is a default of `None`. A `default` with `"required": true` is the value an
-  editor starts with: the one question of a node with one output is always required, since it is answered with a
-  value, and keeps the `Ask`'s default. An output of an `exclusive_group` that is `required` or has a `default` is
+  editor starts with: the one question of a node with one output is required, since it is answered with a
+  value, and keeps the `Ask`'s default, unless the output is in an `exclusive_group`, whose outputs never are. An output of an `exclusive_group` that is `required` or has a `default` is
   refused (`required_in_exclusive_group`, `default_in_exclusive_group`), and so is `loops` without `is_series`
   (`loops_without_series`). A host that writes these records with `exclude_none` turns `"default": null` into a
   branch not chosen. An output in `describe()`, `registry.describe()` and

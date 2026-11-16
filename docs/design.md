@@ -405,7 +405,7 @@ is only for inputs or outputs named by a constant.
 A `FieldDescription` is one flat record per input or output. `null` in `default` means `None` and nothing else, and
 "no default" and "a branch not chosen" are told apart by `required`, so the record needs no marker JSON lacks. A
 `default` on a `required` field is where an editor starts: the one question of a node with one output is answered
-with its value, so it is always required. In
+with its value, so it is required, unless the output is in an exclusive group, whose outputs never are. In
 `graph.describe()`, a node's input is `{field, source}`, and a graph input is a plain `FieldDescription`.
 
 What a person sees for a type is declared. Conductor's own types take their id and title from one fixed table, and a
