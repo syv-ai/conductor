@@ -138,4 +138,4 @@ def why_it_stopped(run: Run) -> Problem:
 
 Returned by `conductor.testing.check_registry`, in a test run. A host never meets these, and they are not in `PROBLEMS.codes`. `loc` is the node's id and its version.
 
-<!-- problems: conductor.testing.problems.REGISTRY_CHECK_PROBLEMS -->
+<!-- problems: conductor.testing.REGISTRY_CHECK_PROBLEMS -->

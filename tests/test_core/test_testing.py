@@ -20,7 +20,7 @@ from conductor import (
     node,
     subgraph,
 )
-from conductor.testing import check_registry
+from conductor.testing import REGISTRY_CHECK_PROBLEMS, check_registry
 
 
 class Session:
@@ -134,6 +134,15 @@ def _breaks(names: str) -> dict[str, Any]:
 @node("breaks", title="Breaks", description="For a test.", compute_outputs=_breaks)
 def breaks(names: str) -> dict[str, Any]:
     return {}
+
+
+def test_each_code_check_registry_returns_is_in_the_catalogue_conductor_testing_exports():
+    """``REGISTRY_CHECK_PROBLEMS`` is public, so a test can pin a developer's own handling to its codes."""
+    returned = {
+        problem.type for problem in check_registry(registry_of(breaks), examples={"nowhere": [{}]})
+    }
+    assert returned == {"example_for_no_node", "hook_failed"}
+    assert returned <= REGISTRY_CHECK_PROBLEMS.codes
 
 
 def test_a_hook_that_fails_on_made_up_values_or_an_example_is_hook_failed():

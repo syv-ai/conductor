@@ -17,7 +17,7 @@ from types import ModuleType
 import pytest
 from conductor import DECLARATION_PROBLEMS, PROBLEMS, Problem, ProblemKind
 from conductor.about import problems_page
-from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
+from conductor.testing import REGISTRY_CHECK_PROBLEMS
 from pytest import MonkeyPatch
 
 _ROOT = Path(__file__).parents[2]

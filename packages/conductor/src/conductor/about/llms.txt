@@ -1035,20 +1035,24 @@ There are five public modules: `conductor`, `conductor.widgets`, `conductor.even
 
 A `Problem`'s `type` is a stable code. A host translates by it, filling its sentence from `ctx`.
 
-- `PROBLEMS.codes` is every code a graph or a run can report, for a test that pins your translations to it.
-- `DECLARATION_PROBLEMS` has the codes of a `NodeDeclarationError`, which only a node's developer meets. `check_registry` has codes of its own (see "conductor.testing"). Neither is in `PROBLEMS.codes`.
+- `PROBLEMS` holds every kind of problem a graph or a run reports, in `graph.problems`, an `InvalidCallError` or `run.cause`, so a host meets them. `PROBLEMS.codes` is every code, for a test that pins your translations to it.
+- `DECLARATION_PROBLEMS` holds the kinds a `NodeDeclarationError` carries, which only a node's developer meets, when the module that declares the node is imported.
+- `conductor.testing.REGISTRY_CHECK_PROBLEMS` holds the kinds `check_registry` returns, which a developer meets when a test fails (see "conductor.testing").
+- Neither of the last two is in `PROBLEMS.codes`.
 - Any other code is a node's own, from a `NodeError`, or one a package declares on its own catalogue.
 - `python -m conductor.about problems` prints every code, the declaration codes and `check_registry`'s among them. Each comes with its message, an example, what its `ctx` keys mean and how to fix it.
 
 A host's text for a code can't be worked out from conductor. So this test is how its catalogue stays complete when conductor adds a code:
 
 ```python
-from conductor import PROBLEMS
+from conductor import DECLARATION_PROBLEMS, PROBLEMS
+from conductor.testing import REGISTRY_CHECK_PROBLEMS
 
 
 def test_translations_match_the_codes(translations: dict[str, str], own_codes: set[str]) -> None:
     assert PROBLEMS.codes <= translations.keys()  # every code conductor writes is translated
-    assert translations.keys() - own_codes <= PROBLEMS.codes  # every other translation names a real code
+    known = PROBLEMS.codes | DECLARATION_PROBLEMS.codes | REGISTRY_CHECK_PROBLEMS.codes
+    assert translations.keys() - own_codes <= known  # every other translation names a real code
 ```
 
 `own_codes` lists the host's own `NodeError` codes.
@@ -1120,7 +1124,7 @@ A widget tells an editor how to draw a field. Widgets are frozen models with a `
 - It returns every problem at once, as `Problem`s with `loc` `(node_id, version)`. For `example_for_no_node` given without a version, `loc` is `(node_id,)`.
 - A node's function is called only for a node given an example, once per example, through the engine, as a graph of that one node.
 - `(id, version)` keys an older version's examples. `context=` gives every example the run's context, as `graph.run` takes it.
-- The checks are `hook_failed`, `needs_example`, `upgrade_broken`, `changed_its_inputs`, `run_failed` and `example_for_no_node`. `python -m conductor.about problems` says what each means and how to fix it. These codes are `check_registry`'s, not in `PROBLEMS.codes`.
+- The checks are `hook_failed`, `needs_example`, `upgrade_broken`, `changed_its_inputs`, `run_failed` and `example_for_no_node`. `python -m conductor.about problems` says what each means and how to fix it. These codes are `check_registry`'s, in `REGISTRY_CHECK_PROBLEMS.codes` and not in `PROBLEMS.codes`.
 - A node known to fail goes in a test of its own, marked `pytest.mark.xfail(strict=True)`, that checks `registry.filter(...)` down to that node. `python -m conductor.about run-failed` shows one.
 
 

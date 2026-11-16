@@ -25,8 +25,8 @@ Each problem it finds is a ``Problem``, and its ``loc`` is ``(node_id, version)`
 - ``example_for_no_node``: an example names a node or a version that isn't in the registry. Its ``loc`` is
   ``(node_id,)`` when the example gives no version.
 
-These codes are ``check_registry``'s own, and aren't in ``PROBLEMS``. A developer sees them when a test fails, and a
-host never meets them. Each one, with an example, is on the problems page: ``python -m conductor.about problems``.
+These codes are ``check_registry``'s own, in ``REGISTRY_CHECK_PROBLEMS``, and aren't in ``PROBLEMS``. A developer sees
+them when a test fails, and a host never meets them. Each one, with an example, is on the problems page: ``python -m conductor.about problems``.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ from conductor._internal.registry import NodeRegistry
 from conductor._internal.types import Param, kind_of_value
 from conductor._internal.validation import schema_validator_of
 from conductor.testing import problems
+from conductor.testing.problems import REGISTRY_CHECK_PROBLEMS
 
 _logger = logging.getLogger("conductor")
 
@@ -427,4 +428,4 @@ def _same(one: Any, other: Any) -> bool:
     return kind_of_value(one).untyped_equal(one, other)
 
 
-__all__ = ["check_registry"]
+__all__ = ["check_registry", "REGISTRY_CHECK_PROBLEMS"]

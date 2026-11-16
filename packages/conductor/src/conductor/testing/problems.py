@@ -1,7 +1,8 @@
 """The problems ``check_registry`` returns.
 
 This is the last section of the problems page, ``python -m conductor.about problems``. A developer meets these when a
-test fails. A host never gets one from a graph or a run, so they aren't in ``PROBLEMS``.
+test fails. A host never gets one from a graph or a run, so they aren't in ``PROBLEMS``. ``conductor.testing`` exports
+the catalogue of them, ``REGISTRY_CHECK_PROBLEMS``.
 
 Each kind of problem is a function, and calling it makes the ``Problem``::
 

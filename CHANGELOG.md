@@ -261,6 +261,9 @@ What changes in how you work, before the name-by-name tables:
   `check_registry`'s `upgrade_broken` (variant `raised`) has no `ctx.reason`; both log the text.
   `saved_run_of_another_graph` has `ctx.saved` only when the save's `graph` has a fingerprint's form, and its message
   quotes only this graph's fingerprint.
+- **`conductor.testing` exports `REGISTRY_CHECK_PROBLEMS`**, the catalogue of `check_registry`'s codes, beside
+  `check_registry`. The reference says what it, `PROBLEMS` and `DECLARATION_PROBLEMS` each hold, and its translation
+  test names all three.
 - **A problem's `ctx` is JSON.** `Problem.ctx` is typed `Mapping[str, JsonValue]`, and
   `NodeError(ctx=)` and `ExternalError(ctx=)` read theirs where the error is made: a value with no
   JSON form (an object, a set, a tuple, a date) raises pydantic's `ValidationError` at the node's
