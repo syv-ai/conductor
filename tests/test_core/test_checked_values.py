@@ -361,17 +361,15 @@ def test_a_return_that_gives_no_branch_a_value_skips_every_branch():
 def test_a_return_that_skips_an_output_that_is_not_a_branch_is_refused():
     """Only a branch, an output whose default is ``SKIPPED``, may be ``SKIPPED`` in a return.
 
-    ``count`` defaults to 0, so it isn't a branch. The message says what makes an output a branch, and what an
-    output that may have no value is typed instead.
+    ``count`` defaults to 0, so it isn't a branch. The reason says only what is wrong; ``invalid_output``'s fix on
+    the problems page says what to write instead.
     """
     run = _returning(Routed(count=SKIPPED, long="a"), Routed)
 
     assert (run.cause.type, run.cause.ctx["name"], run.cause.ctx["reason"]) == (
         "invalid_output",
         "count",
-        "'count' is SKIPPED, but only a branch can be: an output whose default is SKIPPED, written "
-        "(type, SKIPPED) in a compute_outputs hook. An output that may have no value beside the others "
-        "is typed X | None, and is None",
+        "'count' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
     )
 
 
@@ -384,9 +382,7 @@ def test_a_return_of_several_outputs_is_checked_for_its_shape_before_its_values(
 
     assert (run.cause.type, run.cause.ctx["name"]) == ("invalid_output", "short")
     assert run.cause.ctx["reason"] == (
-        "'long' and 'short' both have a value, but they default to SKIPPED, which makes them branches, and a "
-        "call gives a value to at most one branch of a node. Outputs that may have a value together are typed "
-        "X | None instead"
+        "'long' and 'short' both have a value, but they default to SKIPPED, so they are branches of one node"
     )
     assert _returning(Routed(long="a", count=2), Routed).results["g"] == {
         "count": 2,

@@ -402,7 +402,7 @@ def default_none_not_taken() -> str:
 def default_skipped_on_input() -> str:
     """An input's default is ``SKIPPED``.
 
-    ``SKIPPED`` is the value of an output on a skipped branch. So only an output can have it as its default.
+    ``SKIPPED`` is the value of an output that was skipped. So only an output can have it as its default.
 
     To fix it, give the input a value of its type as its default, or no default.
 
@@ -413,7 +413,7 @@ def default_skipped_on_input() -> str:
 
         declaration_refused(lambda: node("carried", title="Carried", description="Passes the text on as it is.")(carried))
     """
-    return "an input can't default to SKIPPED, since only an output on a skipped branch is SKIPPED. Give the input a value of its type as its default, or none."
+    return "an input can't default to SKIPPED, since SKIPPED is only ever the value of a skipped output. Give the input a value of its type as its default, or none."
 
 
 @DECLARATION_PROBLEMS.problem()

@@ -477,8 +477,9 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
     come from different branches of one node, or from nodes downstream of them. A branch is an output whose default is
     ``SKIPPED``, and a call gives a value to at most one branch of a node. A ``Series`` input follows the same rule.
 
-    To fix it, give the outputs the default ``SKIPPED`` to make them branches of one node, if a call gives a value to
-    only one of them. Or add a node with an input for each edge, and wire them there.
+    To fix it, add a node with an input for each edge, and wire them there. When the edges come from outputs of one
+    function node, and a call gives a value to only one of them, give those outputs the default ``SKIPPED`` instead:
+    that makes them branches, which may share an input.
 
     Args:
         node_id: The node.
@@ -494,8 +495,7 @@ def several_edges_into_one_input(node_id: str, field: str, /, *, sources: list[s
     """
     return (
         f"'{field}' has edges from {comma_separated(sources)}, and more than one of them can give it a value on the same call. "
-        "Only different branches of one node may share an input: give those outputs the default SKIPPED to make them "
-        "branches, if a call gives a value to only one of them. Or add a node with an input for each edge."
+        "Add a node with an input for each edge."
     )
 
 

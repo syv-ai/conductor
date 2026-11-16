@@ -222,11 +222,13 @@ def invalid_output(
 ) -> str:
     """A node returned a value that its return type doesn't allow.
 
-    Return values are checked strictly, so ``"12"`` is never an ``int``. The branches of a node are checked too. A
-    branch is an output whose default is ``SKIPPED``, and a call gives a value to at most one of them. ``SKIPPED`` on
-    an output that isn't a branch is refused as well.
+    Return values are checked strictly, so ``"12"`` is never an ``int``. The node's branches are checked too: two
+    branches with a value are refused, and so is ``SKIPPED`` on an output that isn't a branch. The reference has
+    the rule under "Branches" (``python -m conductor.about the-node-contract``).
 
-    To fix it, make the node return what it declares.
+    To fix it, make the node return what it declares. Outputs that may each have a value on one call aren't branches:
+    type them ``X | None``, and return ``None`` for one that has no value. To make an output a branch, give it the
+    default ``SKIPPED``, written ``(type, SKIPPED)`` in a ``compute_outputs`` hook.
 
     Args:
         loc: The call that returned it.

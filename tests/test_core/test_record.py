@@ -575,6 +575,11 @@ def test_several_edges_into_one_input_that_could_each_give_it_a_value_are_a_prob
     assert [(p.type, p.loc, p.ctx["sources"]) for p in graph.problems] == [
         ("several_edges_into_one_input", ("j", "texts"), ["first.result", "second.result"])
     ]
+    # One fix, the one that always works. Making outputs branches helps only for outputs of one node, so it is on
+    # the problems page, not in the message.
+    assert graph.problems[0].msg.endswith(
+        "more than one of them can give it a value on the same call. Add a node with an input for each edge."
+    )
 
 
 def test_an_edge_from_a_node_the_graph_does_not_have_is_a_problem_on_the_input_it_leads_into():

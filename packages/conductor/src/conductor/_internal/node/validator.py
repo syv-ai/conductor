@@ -161,9 +161,7 @@ def _several_outputs(
         if not_branches:
             raise conductor_error(
                 "skipped_not_a_branch",
-                "'{name}' is SKIPPED, but only a branch can be: an output whose default is SKIPPED, written "
-                "(type, SKIPPED) in a compute_outputs hook. An output that may have no value beside the others "
-                "is typed X | None, and is None",
+                "'{name}' is SKIPPED, but it isn't a branch: its default isn't SKIPPED",
                 {"name": not_branches[0]},
             )
         taken = branches_given(outputs, given)
@@ -174,9 +172,7 @@ def _several_outputs(
         holding = "both" if len(quoted) == 2 else "all"
         raise conductor_error(
             "several_branches_given",
-            f"{holders} {holding} have a value, but they default to SKIPPED, which makes them branches, and a call "
-            "gives a value to at most one branch of a node. Outputs that may have a value together are typed "
-            "X | None instead",
+            f"{holders} {holding} have a value, but they default to SKIPPED, so they are branches of one node",
             {"given": taken},
         )
 

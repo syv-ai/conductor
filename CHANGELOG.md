@@ -79,14 +79,14 @@ What changes in how you work, before the name-by-name tables:
   `required_in_exclusive_group` and `default_in_exclusive_group`. Write `large: int = SKIPPED` on a returned
   dataclass, or `(int, SKIPPED)` from a `compute_outputs` hook. Branches of one node may be wired into one input, as
   outputs of one group could. A return that gives two branches a value fails the call with `invalid_output`, and its
-  reason says why the outputs are branches; a return that gives none skips them all, so the `neither` output a node
+  reason says that the outputs are branches; a return that gives none skips them all, so the `neither` output a node
   needed for "none of them" is gone. `SKIPPED` on an output that isn't a branch fails the call with `invalid_output`
   too: `SKIPPED` means a way not taken, and an output that may be missing beside other outputs is typed `X | None`
   and returned as `None`. A node has one set of branches, so a node with two independent ways to go is two nodes.
   An answer gives a value to at most one branch, and an answer that leaves every branch out skips them all. A
   subgraph node's outputs are never branches, even one read from a branch inside: each is `"required": true` in
-  `describe()`, and no two of them may share an input (provisional). Join branches inside the subgraph instead. `several_edges_into_one_input` says how to make
-  outputs branches. Where its node is not called (an argument `None` its input does not take), a branch is
+  `describe()`, and no two of them may share an input (provisional). Join branches inside the subgraph instead. `several_edges_into_one_input`'s message gives one fix, a
+  node with an input for each edge; its entry on the problems page says when the default `SKIPPED` fixes it instead. Where its node is not called (an argument `None` its input does not take), a branch is
   `SKIPPED`, and the nodes wired to it are skipped.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
