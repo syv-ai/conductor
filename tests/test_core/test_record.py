@@ -990,6 +990,18 @@ def test_make_graph_reports_only_the_gap_in_a_chain_not_the_graph_outputs_that_w
     assert [(p.type, p.loc) for p in refused.value.problems] == [("not_a_chain", ("count",))]
 
 
+def test_make_graph_with_a_gap_in_its_chain_still_reports_the_places_inputs_and_outputs_name():
+    """Only what follows from the gap is left out. A place the author wrote in ``outputs=`` or ``inputs=`` that
+    names no node is their own fault, and is listed beside the gap."""
+    with pytest.raises(InvalidCallError) as refused:
+        make_graph(_email, _count, outputs={"x": "gret.result"}, inputs={"y": "nope.text"})
+    assert sorted((p.type, p.loc) for p in refused.value.problems) == [
+        ("node_not_in_graph", ("gret",)),
+        ("node_not_in_graph", ("nope",)),
+        ("not_a_chain", ("count",)),
+    ]
+
+
 def test_make_graph_never_chains_or_opens_an_input_a_hook_reads_and_compile_says_it_needs_a_constant():
     def width_outputs(width: int) -> dict[str, Any]:
         return {"result": str}
