@@ -32,7 +32,7 @@ from conductor_providers.fastapi import RunChanges, RunView, StoredRun, Worker
 #: write a row the way an earlier worker left it use this text. If the stored form changes in a way that would break
 #: the rows already in hosts' databases, those tests break too.
 BEGUN_RUN_STATE = json.dumps(
-    {"status": "running", "cause": None, "queued_answers": [], "refused": {}, "cancel_asked": False}
+    {"status": "running", "cause": None, "queued": [], "refused": {}, "cancel_asked": False}
 )
 
 

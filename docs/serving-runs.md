@@ -208,7 +208,7 @@ Every route under `/runs` but the events route answers with the run as it is aft
 | `GET /runs/{id}` | The run, as of when it last stopped running. |
 | `GET /runs/{id}/events` | The run's events, as server-sent events, from whichever worker runs it. |
 | `POST /runs/{id}/answers` | Answers what waits, as `{waiting_id: value}`, and goes on with the run. |
-| `POST /runs/{id}/declines` | Declines one question, as `{"waiting_id": ..., "reason": ...}`. The run ends `failed` with `answer_declined`, and isn't resumed; a resume asks the question again. |
+| `POST /runs/{id}/declines` | Declines one question, as `{"waiting_id": ..., "reason": ...}`. The run ends `failed` with `answer_declined`, and isn't resumed, so its events get a `run_end` with no `run_start` before it; a resume asks the question again. |
 | `POST /runs/{id}/resume` | Goes on with a run that ended early. `{"max_items": n}` raises its item limit. |
 | `POST /runs/{id}/again` | A new run of the same graph with some inputs changed. What didn't change isn't called again. |
 | `POST /runs/{id}/cancel` | Asks the run to stop before its next node call. A run that answers `running` here ends `cancelled`. A cancel that comes after its last node call started is dropped if the run completes or ends early. If the run ends `waiting`, it still ends `cancelled`. |

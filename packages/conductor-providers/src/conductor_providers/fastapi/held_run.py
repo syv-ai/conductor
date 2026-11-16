@@ -220,7 +220,8 @@ class HeldRun:
         """Give the run what is queued with no resume call, since it takes a decline from the queue and fails.
 
         A worker claims a run that isn't running with the decline queued, so the worker that holds the run applies
-        it, as it applies a queued answer. The run isn't resumed: the call it declined would ask again.
+        it, as it applies a queued answer. The run isn't resumed: the call it declined would ask again. So no stream
+        runs, and the run's events get its ``run_end`` with no ``run_start`` before it.
 
         Args:
             run: The run as the row has it.

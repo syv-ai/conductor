@@ -337,8 +337,8 @@ What changes in how you work, before the name-by-name tables:
   refuses it (`not_waiting`, `answer_stale`). A reason that isn't a `str` is refused as `invalid_answer`, variant
   `reason` (`ctx.got`, its class).
 - **The runs router takes a decline.** `POST /runs/{id}/declines` with `{"waiting_id", "reason"}`, and
-  `Worker.decline(run_id, waiting_id, reason=None, *, allows=)`, decline one question. The decline is queued as an
-  answer is, in the row's `queued_answers`; the run takes what was queued in order, the first of an answer and a
+  `Worker.decline(run_id, waiting_id, *, reason=None, allows=)`, decline one question. The decline is queued as an
+  answer is, in the row's `queued` (whose entries are tagged `kind`: `answers` or `decline`); the run takes what was queued in order, the first of an answer and a
   decline to one question wins, and a run that takes a decline ends `failed` with `answer_declined` and isn't
   resumed. A run that isn't running is checked first, so a refused decline is a 422 (`not_waiting`,
   `answer_stale`).

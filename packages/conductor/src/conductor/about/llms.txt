@@ -1181,7 +1181,8 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `/estimate` answers `run.progress` after `run.resume(only_costs_nothing=True)`, and stores nothing.
 - `GET /runs/{run_id}` answers the run.
 - `GET /runs/{run_id}/events` is server-sent events, each frame an event's JSON, from whichever worker runs the run. After a reconnect it goes on from the last event id the client has.
-- `POST /runs/{run_id}/answers`, `/declines` (`{"waiting_id", "reason"}`), `/resume` (`{"max_items": n}` raises the item limit), `/again` (inputs changed, on the request's nodes) and `/cancel`.
+- Each resume call stores its stream's events, `run_start` to `run_end`. A run the worker ends without a resume call gets a `run_end` alone: one that takes a decline (`failed`, `answer_declined`), and one whose resume call raised before its stream started.
+- `POST /runs/{run_id}/answers`, `/declines` (`{"waiting_id", "reason"}`, and `"kind": "decline"`, which may be left out), `/resume` (`{"max_items": n}` raises the item limit), `/again` (inputs changed, on the request's nodes) and `/cancel`.
 - A decline is queued as an answer is, beside the answers, and the run is given what was queued in order. Of an answer and a decline to one question, the first queued is taken, and the second is `not_waiting`. A decline the run takes ends it `failed` with `answer_declined`, and the run isn't resumed. A run that isn't running is checked first, so `not_waiting` and `answer_stale` are a 422 at once; it is then claimed with the decline queued, and the worker that holds it applies the queue with no resume call.
 - The bodies that carry a graph are declared through `openapi_extra`, and every `$ref` in the schema resolves.
 
@@ -1198,7 +1199,7 @@ The core has no HTTP in it. `syv-conductor-providers` serves runs over HTTP with
 - `estimate(graph, inputs, metadata, *, previous=None)` returns a `RunProgress`, not a view.
 - `again(run_id, inputs, metadata)` is `run.with_inputs`, at the run's own item limit.
 - `answer(run_id, answers)` gives answers. No answers at all write nothing.
-- `decline(run_id, waiting_id, reason=None)` declines one question.
+- `decline(run_id, waiting_id, *, reason=None)` declines one question.
 - `resume(run_id, max_items=None)` and `cancel(run_id)`.
 - `await worker.events(run_id, after=-1)` checks the run, then gives an async iterator of its events.
 - `read`, `again`, `answer`, `decline`, `resume`, `cancel` and `events` each take `allows=`, the request's filter, as a required keyword. So a host's own route can't leave the access check out by accident. A host with no logins passes `allows=lambda metadata: True`.

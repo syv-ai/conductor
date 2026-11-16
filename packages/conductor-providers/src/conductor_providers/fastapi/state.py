@@ -67,7 +67,7 @@ class RunOutcome(BaseModel):
 class QueuedAnswers(BaseModel):
     """The answers one call sent while the run was running, waiting in its state until the run stops.
 
-    ``kind`` tells it from a ``QueuedDecline`` in the row's JSON, so each entry is read by its ``kind`` alone.
+    ``kind`` tells it from a ``Decline`` in the row's JSON, so each entry is read by its ``kind`` alone.
 
     Attributes:
         kind: ``"answers"``.
@@ -78,21 +78,11 @@ class QueuedAnswers(BaseModel):
     answers: dict[str, Any]
 
 
-class QueuedDecline(Decline):
-    """A decline waiting in a run's state until the run is given it.
-
-    Attributes:
-        kind: ``"decline"``, which tells it from a ``QueuedAnswers``.
-    """
-
-    kind: Literal["decline"] = "decline"
-
-
 class RunState(BaseModel):
     """Where a run is, and what was asked of it while it was running: a row's ``state``, as JSON.
 
     For a running run that one answer was sent to, it reads ``{"status": "running", "cause": null,
-    "queued_answers": [{"kind": "answers", "answers": {"approve~3fa2c0d1": true}}], "refused": {}, "cancel_asked": false}``.
+    "queued": [{"kind": "answers", "answers": {"approve~3fa2c0d1": true}}], "refused": {}, "cancel_asked": false}``.
 
     ``status`` and ``cause`` repeat the run's own, so a route reads them without loading a run that can be
     megabytes. Two values are the worker's own, which no saved run can hold: ``running``, while a worker resumes the
@@ -101,7 +91,7 @@ class RunState(BaseModel):
     Attributes:
         status: ``running`` while a worker resumes the run or is about to; else the run's status as it was stored.
         cause: Why the run ended early; ``None`` for a running run, and for one that didn't end early.
-        queued_answers: What came for the run's questions while it was running, in the order it came: each
+        queued: What came for the run's questions while it was running, in the order it came: each
             mapping of answers as one call sent it, and each decline. The run is given them when it stops. A decline
             is also queued for a run that isn't running, so that the worker that claims it applies it.
         refused: By waiting id, the problems of the last answer or decline to that question, when the run refused
@@ -112,14 +102,14 @@ class RunState(BaseModel):
 
     status: RunStatus
     cause: Problem | None
-    queued_answers: list[Annotated[QueuedAnswers | QueuedDecline, Field(discriminator="kind")]]
+    queued: list[Annotated[QueuedAnswers | Decline, Field(discriminator="kind")]]
     refused: dict[str, list[Problem]]
     cancel_asked: bool
 
     @classmethod
     def started(cls) -> RunState:
         """The state of a run that has just started: running, and nothing queued, refused or asked."""
-        return cls(status="running", cause=None, queued_answers=[], refused={}, cancel_asked=False)
+        return cls(status="running", cause=None, queued=[], refused={}, cancel_asked=False)
 
     @property
     def is_running(self) -> bool:
@@ -143,14 +133,10 @@ class RunState(BaseModel):
         _, _, declined, _ = self._given_to(run)
         return declined
 
-    def queued(self, entry: Mapping[str, Any] | Decline) -> RunState:
+    def with_queued(self, entry: Mapping[str, Any] | Decline) -> RunState:
         """This state with one more call's answers, or a decline, queued after what was queued before."""
-        added = (
-            QueuedDecline(waiting_id=entry.waiting_id, reason=entry.reason)
-            if isinstance(entry, Decline)
-            else QueuedAnswers(answers=dict(entry))
-        )
-        return self.model_copy(update={"queued_answers": [*self.queued_answers, added]})
+        added = entry if isinstance(entry, Decline) else QueuedAnswers(answers=dict(entry))
+        return self.model_copy(update={"queued": [*self.queued, added]})
 
     def asked_to_stop(self) -> RunState:
         """This state with a cancel asked."""
@@ -163,11 +149,11 @@ class RunState(BaseModel):
             waiting_ids: The waiting ids the run took answers to.
 
         Returns:
-            The state without them in ``refused`` and ``queued_answers``.
+            The state without them in ``refused`` and ``queued``.
         """
-        queued: list[QueuedAnswers | QueuedDecline] = []
-        for entry in self.queued_answers:
-            if isinstance(entry, QueuedDecline):
+        queued: list[QueuedAnswers | Decline] = []
+        for entry in self.queued:
+            if isinstance(entry, Decline):
                 if entry.waiting_id not in waiting_ids:
                     queued.append(entry)
             elif left := {
@@ -175,7 +161,7 @@ class RunState(BaseModel):
             }:
                 queued.append(QueuedAnswers(answers=left))
         refused = {key: value for key, value in self.refused.items() if key not in waiting_ids}
-        return self.model_copy(update={"queued_answers": queued, "refused": refused})
+        return self.model_copy(update={"queued": queued, "refused": refused})
 
     def ended_with(self, run: Run[Any], saved: str, outcome: str) -> tuple[RunState, RunChanges]:
         """This state once a resume call returned ``run``, after the run was given what was queued meanwhile.
@@ -217,7 +203,7 @@ class RunState(BaseModel):
             update={
                 "status": status,
                 "cause": cause,
-                "queued_answers": [],
+                "queued": [],
                 "refused": refused,
                 "cancel_asked": cancel_asked,
             }
@@ -236,11 +222,11 @@ class RunState(BaseModel):
             The run given it, whether it took any of it and any decline, and ``refused`` with what it refused.
         """
         given, taken, declined, refused = run, False, False, dict(self.refused)
-        for entry in self.queued_answers:
-            is_decline = isinstance(entry, QueuedDecline)
+        for entry in self.queued:
+            is_decline = isinstance(entry, Decline)
             given_to: list[tuple[str, Any]] = (
                 [(entry.waiting_id, entry.reason)]
-                if isinstance(entry, QueuedDecline)
+                if isinstance(entry, Decline)
                 else list(entry.answers.items())
             )
             for waiting_id, value in given_to:

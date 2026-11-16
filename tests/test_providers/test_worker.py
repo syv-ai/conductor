@@ -904,7 +904,7 @@ async def test_a_decline_of_a_waiting_run_fails_it_with_no_resume_call_and_a_res
         run_id = await _started(worker, graph, inputs)
         await store.ended(run_id)
 
-        written = await worker.decline(run_id, waiting_id, "Over budget", allows=EVERY_RUN)
+        written = await worker.decline(run_id, waiting_id, reason="Over budget", allows=EVERY_RUN)
         ended = await store.ended(run_id)
 
         assert written.status == "running"
@@ -1259,7 +1259,7 @@ async def test_an_answer_that_is_taken_leaves_nothing_refused_or_queued_for_its_
             state=json.dumps(
                 {
                     **store.state(run_id),
-                    "queued_answers": [{"kind": "answers", "answers": {waiting_id: False}}],
+                    "queued": [{"kind": "answers", "answers": {waiting_id: False}}],
                 }
             ),
         )  # leave an answer queued, as a resume call that raised does; the test above gets there through a real raise
@@ -1334,7 +1334,7 @@ async def test_a_queued_answer_whose_check_raises_is_refused_and_starts_no_secon
     assert await _resume_calls(store, run_id) == 1
     # No host reads the queue, and an answer left in it would only show at the run's next stop. This run never stops
     # again, since only a fixed type could answer its question. So the test reads the stored state directly.
-    assert store.state(run_id)["queued_answers"] == []
+    assert store.state(run_id)["queued"] == []
 
 
 async def test_a_cancel_of_a_run_an_answer_resumed_stops_the_answered_resume_call() -> None:

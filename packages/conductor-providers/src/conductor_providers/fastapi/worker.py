@@ -300,7 +300,7 @@ class Worker(Generic[M, X]):
         if not answers:
             return self._view(row)
         while True:
-            row = await self._ask_of_a_running_run(row, lambda state: state.queued(answers))
+            row = await self._ask_of_a_running_run(row, lambda state: state.with_queued(answers))
             state = RunState.model_validate_json(row.state)
             if state.is_running:
                 return self._view(row)
@@ -319,8 +319,8 @@ class Worker(Generic[M, X]):
         self,
         run_id: str,
         waiting_id: str,
-        reason: str | None = None,
         *,
+        reason: str | None = None,
         allows: Callable[[M], bool],
     ) -> RunView:
         """Decline to answer a question that waits in a run, so the run fails, as ``run.decline`` fails it.
@@ -353,13 +353,13 @@ class Worker(Generic[M, X]):
         declined = Decline(waiting_id=waiting_id, reason=reason)
         row = await self._row(run_id, allows)
         while True:
-            row = await self._ask_of_a_running_run(row, lambda state: state.queued(declined))
+            row = await self._ask_of_a_running_run(row, lambda state: state.with_queued(declined))
             state = RunState.model_validate_json(row.state)
             if state.is_running:
                 return self._view(row)
             taken, nodes = row, self.nodes_for(self._metadata_in(row))
             await asyncio.to_thread(lambda: loaded(taken, nodes).decline(waiting_id, reason=reason))
-            claimed = await self._claim(row, state.queued(declined).running())
+            claimed = await self._claim(row, state.with_queued(declined).running())
             if claimed is not None:
                 return self._view(claimed)
             row = await self._row(run_id)

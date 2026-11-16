@@ -218,7 +218,7 @@ def run_router(
         While the run is running, the decline waits until it stops and is given to it then, in order with the
         answers; one it refuses then is in the run's ``refused``.
         """
-        return await worker.decline(run_id, body.waiting_id, body.reason, allows=allows)
+        return await worker.decline(run_id, body.waiting_id, reason=body.reason, allows=allows)
 
     @router.post(
         "/runs/{run_id}/resume",
