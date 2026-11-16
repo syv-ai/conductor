@@ -299,18 +299,18 @@ class SubgraphDefinition(_Version):
 
     @property
     def input_names(self) -> tuple[str, ...]:
-        """The names of the graph inputs in its record."""
+        """The names of the graph inputs in its record, sorted."""
         return self.graph.input_names
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
-        """The names of the graph inputs in its record that have no default."""
+        """The names of the graph inputs in its record that have no default, sorted."""
         return self.graph.required_inputs
 
     @property
     def output_names(self) -> tuple[str, ...]:
-        """The names of the graph outputs in its record."""
-        return tuple(self.graph.outputs)
+        """The names of the graph outputs in its record, sorted."""
+        return tuple(sorted(self.graph.outputs))
 
 
 #: One version of a node: a function, or a subgraph.

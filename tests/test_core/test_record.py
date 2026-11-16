@@ -1190,6 +1190,27 @@ def test_make_graph_refuses_two_graph_inputs_or_two_graph_outputs_that_would_sha
     ] == [True, True]
 
 
+def test_graph_inputs_come_in_the_order_the_nodes_run_whatever_order_the_record_lists_them_in():
+    # a reads from z, so z's graph input comes first, though a comes first by id
+    nodes = {
+        "z": {"node": "upper", "inputs": {"text": {"graph_input": "first"}}},
+        "a": {
+            "node": "both",
+            "inputs": {
+                "yes": {"sources": [{"node": "z", "output": "result"}]},
+                "no": {"graph_input": "second"},
+            },
+        },
+    }
+    listed = GraphRecord.model_validate({"nodes": nodes})
+    listed_the_other_way = GraphRecord.model_validate({"nodes": dict(reversed(nodes.items()))})
+
+    assert listed.input_names == listed_the_other_way.input_names == ("first", "second")
+    assert [
+        list(Graph.compile(record, REGISTRY).inputs) for record in (listed, listed_the_other_way)
+    ] == [["first", "second"]] * 2
+
+
 def test_make_graph_names_the_graph_inputs_and_outputs_it_is_given():
     record = make_graph(
         upper,

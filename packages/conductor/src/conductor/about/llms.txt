@@ -495,6 +495,7 @@ The `loc` goes down to the fault. An entry of no kind or of two ends at its inpu
 - The graph keeps its own copy of the definitions it resolved, so a later change to the registry doesn't reach it.
 - A graph that uses subgraphs made for one request is compiled with a registry of its own: a new `NodeRegistry`, then `add_subregistry(shared)`, then `add(*definitions)`. `docs/subgraphs.md` teaches it.
 - `graph.inputs` is the graph inputs the record declares, by name. Each is the `FieldDescription` a caller gives a value for. Its `default` is the record's default as JSON, and is absent when it is `required`.
+- They come in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that leaves a choice, and a node's own in the order it declares them. The record keeps no order, so `record.input_names` and `record.required_inputs` are sorted.
 - A graph input with no value yet is not a problem. A required input that gets nothing is `input_has_no_value`.
 - `graph.outputs` is the names of the graph outputs the record declares.
 

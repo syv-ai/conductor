@@ -108,6 +108,12 @@ What changes in how you work, before the name-by-name tables:
   always names its series. An output declared `Any` into a `Table` input is a whole table wherever it gives each call
   one value, inside a loop too. `table-collect`'s `columns_not_aligned` no longer suggests `constant_columns` for a
   column of one value, since such a column is now refused when the graph is compiled.
+- **A graph's inputs and outputs are read from the compiled graph (provisional).** `graph.inputs` lists the graph
+  inputs in the order the nodes run in: a node's after those of the nodes it reads from, by node id where that
+  leaves a choice, and a node's own in the order it declares them. The record keeps no order, so
+  `GraphRecord.input_names` and `required_inputs`, and a `SubgraphDefinition`'s `input_names`, `required_inputs`
+  and `output_names`, are sorted; they followed the order the record's JSON listed its nodes in, which
+  `graph.inputs` and the palette didn't.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON
   (pydantic's `MISSING` in Python, as on `InputEntry`) when leaving the field out gives no value: with
   `"required": true` it is refused (`text: str` has no `default` key, where it had `"default": null`), and with

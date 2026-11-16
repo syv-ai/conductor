@@ -53,22 +53,25 @@ class GraphRecord(ConductorModel):
 
     @property
     def input_names(self) -> tuple[Name, ...]:
-        """The names of the graph inputs, in the order the nodes name them.
+        """The names of the graph inputs, sorted, since the record keeps no order.
 
-        Two inputs may name the same graph input. It is listed once.
+        Two inputs may name the same graph input. It is listed once. ``graph.inputs`` has them in the order a caller
+        is shown them, which needs the nodes' definitions.
         """
         return tuple(
-            dict.fromkeys(
-                entry.graph_input
-                for node in self.nodes.values()
-                for entry in node.inputs.values()
-                if entry.graph_input is not MISSING
+            sorted(
+                {
+                    entry.graph_input
+                    for node in self.nodes.values()
+                    for entry in node.inputs.values()
+                    if entry.graph_input is not MISSING
+                }
             )
         )
 
     @property
     def required_inputs(self) -> tuple[Name, ...]:
-        """The names of the graph inputs a caller must give, because none of them has a default.
+        """The names of the graph inputs a caller must give, because none of them has a default, sorted.
 
         When two inputs name the same graph input, a default on either one counts for both.
         """

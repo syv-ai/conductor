@@ -138,7 +138,12 @@ class Graph[C]:
 
     @property
     def inputs(self) -> dict[str, FieldDescription]:
-        """The graph inputs, by name: what a caller gives values for. In the example, that's ``text``."""
+        """The graph inputs, by name: what a caller gives values for. In the example, that's ``text``.
+
+        They come in the order the nodes run in: a node's after those of the nodes it reads from, where that leaves
+        a choice by node id, and a node's own in the order it declares them. The record doesn't decide it, since it
+        keeps no order.
+        """
         return {name: field.description for name, field in self._inputs.items()}
 
     @property
