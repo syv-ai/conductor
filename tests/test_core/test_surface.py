@@ -667,8 +667,8 @@ _WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 #: matched against a line's words.
 HOST_WORDS = {
     "the host's organisation": r"\b(aka|akademikerne)\b",
-    # FastAPI's application object is ``app``: ``app = FastAPI()``, ``app.include_router(...)``.
-    "a host's product noun": r"\bapps?\b(?! fast api\b| include router\b)",
+    # FastAPI's application object is ``app``: ``app = FastAPI()``, ``app.include_router(...)``, ``TestClient(app)``.
+    "a host's product noun": r"(?<!test client )\bapps?\b(?! fast api\b| include router\b)",
     "a host's access model": (
         r"\b(owner id|org wide|resource shares?|user groups?|runner identity|runner authority|compliance officer|user role)\b"
     ),

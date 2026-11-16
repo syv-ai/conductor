@@ -154,6 +154,22 @@ def _team_runs(x_team: Annotated[str, Header()] = "a") -> Callable[[_Member], bo
     return lambda member: member.team == x_team
 
 
+async def test_a_run_posted_to_an_app_that_never_started_is_refused_with_how_to_start_it() -> None:
+    """A run posted before the app started is refused, and the error says to use the app's TestClient in ``with``.
+
+    The router's worker serves while the app's lifespan runs. A ``TestClient`` used without ``with`` never runs it,
+    and that is how a developer most often meets this error.
+    """
+    registry, _, graph = _doubling()
+    app = _app(store=MemoryStore(), registry=lambda _: registry)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://t"
+    ) as client:
+        with pytest.raises(RuntimeError, match=r"`with TestClient\(app\) as client:`"):
+            await client.post("/runs", json={"graph": graph, "inputs": {"x": 1}})
+
+
 @pytest.mark.parametrize(
     ("metadata", "run_filter", "lets_in"),
     [

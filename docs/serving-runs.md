@@ -333,4 +333,4 @@ async def print_events(run_id: str) -> None:
         print(number, body)
 ```
 
-Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to start a run, since nothing of its own would ever pick the run up.
+Enter `worker.serving()` in your app's lifespan, as the router does for you. A worker that never served refuses to start a run, since nothing of its own would ever pick the run up. In a test, that means FastAPI's `TestClient` goes in a `with` block: `with TestClient(app) as client:` starts the app, and a `TestClient` without `with` never does.

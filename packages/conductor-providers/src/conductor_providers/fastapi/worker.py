@@ -532,9 +532,10 @@ class Worker(Generic[M, X]):
         hands back every run it is resuming: no more nodes are started, the calls going on are waited for and kept,
         and another worker that serves goes on with the run. A run begun or taken while it leaves is handed back too.
 
-        A worker that has never served raises ``RuntimeError`` from any call that would make a run running, since no
-        sweep of its own would ever pick the run up. One that served and left takes such a call and hands the run
-        back at once.
+        A worker that has never served raises ``RuntimeError`` from any call that would make a run running, since it
+        would hand no run back and take over none. One that served and left takes such a call and hands the run back
+        at once. A server with ``run_router`` starts serving when FastAPI starts it, and FastAPI's ``TestClient``
+        starts it only inside ``with TestClient(app) as client:``.
 
         Yields:
             Nothing; the worker serves until the context is left.
@@ -573,9 +574,10 @@ class Worker(Generic[M, X]):
         """
         if not self._served:
             raise RuntimeError(
-                "the worker has never served, so no sweep of its own would take over its runs; enter "
-                "`async with worker.serving():` (a server's lifespan does) before it begins, answers, resumes or "
-                "cancels a run"
+                "the worker isn't serving, so it would hand no run back when it stops, and take over none whose "
+                "worker stopped. Enter `async with worker.serving():` first. run_router does that when FastAPI starts the "
+                "server, so with FastAPI's TestClient write `with TestClient(app) as client:`, since a TestClient "
+                "without `with` never starts it"
             )
 
     async def _ready(
