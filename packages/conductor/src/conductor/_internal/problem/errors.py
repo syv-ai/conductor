@@ -44,19 +44,16 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
-from typing import Any, get_args
+from typing import Any, cast
 
 from pydantic import JsonValue, TypeAdapter, ValidationError
-from pydantic_core import ErrorDetails, PydanticCustomError
+from pydantic_core import ErrorDetails, PydanticCustomError, PydanticKnownError
 from pydantic_core.core_schema import ErrorType
 
 from .run_problems import external_failed, node_error
 from .type import Problem
 
 _VALIDATOR_PREFIX = "The value did not pass its type's own check."
-
-#: The types of pydantic's own errors. pydantic writes their messages, from the type and its limits.
-_PYDANTIC_TYPES = frozenset(get_args(ErrorType))
 
 #: The ``ctx`` keys by which some of pydantic's own messages quote the value or an exception's text: ``error`` (a
 #: validator's exception in ``value_error``, a parser's in ``uuid_parsing`` or ``date_parsing``), ``tag`` (a union's
@@ -94,9 +91,9 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
 
     A problem's ``ctx.errors`` is made from this. Each error keeps its ``type``. Its ``loc`` is emptied, since
     pydantic's ``loc`` may contain a key of the value. A caller that knows the type can put back the steps the type
-    declares. Its ``msg`` is kept when pydantic or conductor wrote it about the type, as a limit's message is. Any
-    other message is replaced: one a host's validator raised, with a type of its own, and one of pydantic's that
-    quotes the value or an exception's text, like ``value_error``'s.
+    declares. Its ``msg`` is kept when conductor wrote it, or when pydantic wrote it about the type, as a limit's
+    message is. Any other message is replaced: one a host's validator raised, whatever type it gives, and one of
+    pydantic's that quotes the value or an exception's text, like ``value_error``'s.
 
     For example, an ``int`` refusing ``"many"`` gives::
 
@@ -119,12 +116,27 @@ def value_free_errors(error: ValidationError) -> list[dict[str, Any]]:
 
 
 def _message_holds_no_value(fault: ErrorDetails) -> bool:
-    """Says whether the message of one of pydantic's errors was written by pydantic or conductor to quote no value."""
+    """Says whether one error's message was written by conductor, or by pydantic about the type, so it quotes no value.
+
+    A message is pydantic's only when pydantic writes that same text for the error's type and ``ctx``. The type alone
+    proves nothing, since a host's validator may raise ``PydanticCustomError("value_error", f"{value} is bad")``.
+
+    A host that puts its value in the ``ctx`` of one of pydantic's own errors on purpose, as
+    ``PydanticKnownError("greater_than", {"gt": value})``, gets pydantic's own text back, value included. So does one
+    that puts conductor's mark, ``OWN_MESSAGE``, in its own error's ``ctx``.
+    """
     ctx = fault.get("ctx", {})
-    written_by_conductor = OWN_MESSAGE.items() <= ctx.items()
-    return written_by_conductor or (
-        fault["type"] in _PYDANTIC_TYPES and not _QUOTING_KEYS & ctx.keys()
-    )
+    if OWN_MESSAGE.items() <= ctx.items():
+        return True
+    if _QUOTING_KEYS & ctx.keys():
+        return False
+    try:
+        # the type is any text a validator gave; pydantic raises KeyError for one it doesn't know
+        known = PydanticKnownError(cast(ErrorType, fault["type"]), ctx or None)
+        return known.message() == fault["msg"]
+    # a type pydantic doesn't know (KeyError), or a ctx without the keys its message needs (TypeError)
+    except (KeyError, TypeError):
+        return False
 
 
 #: Checks the ``ctx`` a node gives its ``NodeError``. It may only have JSON values, since a problem is saved and

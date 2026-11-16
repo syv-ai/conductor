@@ -5,7 +5,8 @@ up in a problem's ``msg``, its ``ctx`` or its text. That holds for a graph input
 value a node returns, a person's answer and a value in a saved run.
 
 Pydantic quotes a value in several ways: in its own ``input``, in a validator's message, in an ``assert``, in a
-union's tag, in a key of a dict and in the message of a host's own pydantic error. Each case below makes a value that pydantic would quote in one of those ways. It
+union's tag, in a key of a dict and in the message of a host's own pydantic error, even one that gives the type of
+one of pydantic's own errors. Each case below makes a value that pydantic would quote in one of those ways. It
 feeds that value into each place a value enters and can be refused.
 """
 
@@ -92,6 +93,30 @@ class _QuotedByText(BaseModel):
         return value
 
 
+@host_type("QuotedUnderPydanticsType", title="Quoted under pydantic's type")
+class _QuotedUnderPydanticsType(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def refuse(cls, value: str) -> str:
+        if value != "ok":
+            raise PydanticCustomError("value_error", f"{value} is not allowed")
+        return value
+
+
+@host_type("QuotedUnderALimitsType", title="Quoted under a limit's type")
+class _QuotedUnderALimitsType(BaseModel):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def refuse(cls, value: str) -> str:
+        if value != "ok":
+            raise PydanticCustomError("string_pattern_mismatch", f"{value} doesn't match")
+        return value
+
+
 @host_type("QuotedCounts", title="Counts")
 class _Counts(BaseModel):
     counts: dict[str, int]
@@ -107,6 +132,16 @@ TYPES = {
     "a-dict-key": (_Counts, {"counts": {"a": 1}}, {"counts": {SECRET: "many"}}),
     "a-custom-error-context": (_QuotedByContext, {"code": "ok"}, {"code": SECRET}),
     "a-custom-error-text": (_QuotedByText, {"code": "ok"}, {"code": SECRET}),
+    "a-custom-error-under-pydantics-type": (
+        _QuotedUnderPydanticsType,
+        {"code": "ok"},
+        {"code": SECRET},
+    ),
+    "a-custom-error-under-a-limits-type": (
+        _QuotedUnderALimitsType,
+        {"code": "ok"},
+        {"code": SECRET},
+    ),
 }
 
 

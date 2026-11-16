@@ -270,7 +270,8 @@ What changes in how you work, before the name-by-name tables:
 - **A host's own pydantic error quotes nothing of the value.** In `reason` and `ctx.errors`, an error keeps its
   message only when pydantic or conductor wrote it. A `PydanticCustomError` a host type's validator raises, with
   the value in its `ctx` or in its text, keeps its `type`, and its message is "The value did not pass its type's
-  own check.", as a `ValueError`'s is. So do pydantic's `bytes_invalid_encoding` and `timezone_offset`, whose
+  own check.", as a `ValueError`'s is. That holds when it gives one of pydantic's types, like `value_error`: a
+  message counts as pydantic's only when pydantic writes the same text for that type and `ctx`. So do pydantic's `bytes_invalid_encoding` and `timezone_offset`, whose
   messages quote a byte or the offset of the value.
 - **A hint that is no type at all is `type_not_supported`.** `def f() -> 5` raised a bare `TypeError` at `@node`,
   and a `compute_outputs` hook that returned `{"out": 5}` made `Graph.compile` raise it. Now `@node` raises
