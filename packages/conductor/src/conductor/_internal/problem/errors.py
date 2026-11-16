@@ -25,12 +25,16 @@ with a network error, a rate limit or a server error. Only the second is worth t
 failure is of this sort by raising ``ExternalError``, or by naming the client's exception classes in
 ``Policy(retry_on=...)``. Any other exception fails the call with ``execution_failed``, and is not retried.
 
-**What a person is told.** A problem may be shown to anyone, since a host may stream problems to a browser. So
-conductor keeps a node's values out of a failed call's problem. A ``NodeError`` keeps its message, since the node
-wrote it for people. Any other exception's text might quote a value, so it goes to the ``conductor`` logger with
-its traceback, and the problem names only the exception's class. ``value_free_errors`` does the same for pydantic's
-errors. The rule has no exceptions: a hook that raises, an argument a question can't write as JSON and an upgrade
-that raises in ``check_registry`` are written to the log the same way.
+**What a person is told.** A problem may be shown to anyone, since a host may stream problems to a browser. So a
+problem never quotes a value a graph carries: a graph input or its default, a constant, an output, an answer or a
+value in a saved run. Where a fault is inside such a value, the problem says where by list indexes, record fields and
+positions, never by the value's own dict keys. A problem never quotes an exception's text either, since it might
+quote a value. A node's or a hook's exception goes to the ``conductor`` logger with its traceback, and the problem
+names only the exception's class. ``value_free_errors`` does the same for pydantic's errors.
+
+A problem may name what a developer or a host wrote: node ids, input, output and field names, places, waiting ids,
+the limits a type declares and where a JSON text stops being JSON. A ``NodeError`` keeps its message and its
+``ctx``, since the node's developer wrote them for people.
 
 Asking a person isn't an error. A node raises ``Ask``, its call waits, and the run's status is ``waiting``.
 """

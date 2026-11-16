@@ -335,7 +335,7 @@ def test_an_input_written_twice_in_one_node_is_refused_as_a_key_written_twice():
     assert (problem.type, problem.ctx["error"]) == (
         "invalid_record",
         "repeated_key",
-    ) and "'text'" in problem.msg
+    )
 
 
 @pytest.mark.parametrize("bad", ["a.b", "a/b", "a@b", "a~b", ""])

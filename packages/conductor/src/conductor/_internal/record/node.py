@@ -8,10 +8,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Annotated, Any, Self
 
-from pydantic import MISSING, AfterValidator, ConfigDict, Field, JsonValue, model_validator
+from pydantic import (
+    MISSING,
+    AfterValidator,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from conductor._internal.base import ConductorModel, Name, Source
+from conductor._internal.problem import value_free_errors
 
 
 def _empty(value: Mapping[str, Any]) -> bool:
@@ -21,6 +32,26 @@ def _empty(value: Mapping[str, Any]) -> bool:
 
 #: A record is JSON, and JSON has no ``inf`` or ``nan``. Refusing them keeps a record equal to its JSON read back.
 JSON_ONLY = ConfigDict(allow_inf_nan=False)
+
+
+def _one_fault(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+    """Checks a value a record carries, and reports a fault anywhere inside it as one fault of the whole value.
+
+    A value's own dict keys may be private, so the fault's place stops at the field that carries the value. Say a
+    constant is ``{"ssn": {1, 2}}``: the fault is at ``constant``, never at ``constant.ssn``.
+
+    Raises:
+        PydanticCustomError: The type of the first fault inside the value, with its message freed of the value.
+    """
+    try:
+        return handler(value)
+    except ValidationError as error:
+        [first, *_] = value_free_errors(error)
+        raise PydanticCustomError(first["type"], first["msg"]) from None
+
+
+#: A field whose value a graph carries, such as a constant: a fault inside it is reported at the field.
+_CARRIED = WrapValidator(_one_fault)
 
 
 def _sorted_once(sources: tuple[Source, ...]) -> tuple[Source, ...]:
@@ -68,9 +99,9 @@ class InputEntry(ConductorModel):
 
     model_config = ConductorModel.model_config | JSON_ONLY
 
-    constant: JsonValue | MISSING = MISSING
+    constant: Annotated[JsonValue, _CARRIED] | MISSING = MISSING
     graph_input: Name | MISSING = MISSING
-    default: JsonValue | MISSING = MISSING
+    default: Annotated[JsonValue, _CARRIED] | MISSING = MISSING
     sources: Annotated[tuple[Source, ...], AfterValidator(_sorted_once)] | MISSING = MISSING
 
     @model_validator(mode="after")
@@ -111,4 +142,6 @@ class NodeRecord(ConductorModel):
     #: What each input gets, by the input's name.
     inputs: Mapping[Name, InputEntry] = Field(default_factory=dict, exclude_if=_empty)
     #: The host's own data, like position, size or a title a person edited. Conductor saves it and never looks at it.
-    display: Mapping[str, JsonValue] = Field(default_factory=dict, exclude_if=_empty)
+    display: Annotated[Mapping[str, JsonValue], _CARRIED] = Field(
+        default_factory=dict, exclude_if=_empty
+    )

@@ -145,9 +145,11 @@ item order instead, so inserting an item keeps everyone's answer. The rules, wit
 `with_inputs(previous=)`, are in `python -m conductor.about running-again`.
 
 Errors are data. There's one `Problem` record everywhere, with stable codes in `PROBLEMS.codes` for a host to
-translate. A message says how to fix the fault, and a problem never quotes a value or an exception's text: a node's
-or a hook's own exception text goes to the log, and the problem names only the exception's class. A `NodeError`
-keeps its message, which its developer wrote for people. `python -m conductor.about errors` has the rule.
+translate. A message says how to fix the fault. A problem never quotes a value a graph carries (an input, a constant,
+an output, an answer, a saved value) or an exception's text: a node's or a hook's own exception text goes to the log,
+and the problem names only the exception's class. It may name what a developer or a host wrote, such as ids, places
+and field names. A `NodeError` keeps its message, which its developer wrote for people. The reference's errors
+section has the rule: `python -m conductor.about errors`.
 
 ```python
 graph = Graph.compile(record, registry)

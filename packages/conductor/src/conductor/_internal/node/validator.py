@@ -28,7 +28,7 @@ from pydantic_core import (
     core_schema,
 )
 
-from conductor._internal.base import REQUIRED, SKIPPED, Name
+from conductor._internal.base import NAME_RULE, REQUIRED, SKIPPED, Name
 from conductor._internal.field import (
     DeclaredInputValidator,
     DeclaredOutputValidator,
@@ -309,10 +309,12 @@ class HookValidator(Validator[Any, dict[str, Field]]):
     with ``DeclaredOutputValidator``.
 
     Raises (when called):
-        InvalidCallError: ``compute_hook_failed`` problems. There is one at each name that isn't a valid name
-            (``error`` ``not_a_name``). If the hook returned no mapping, there is one at the node (``not_a_mapping``).
-            If ``@node`` would refuse a field, its ``error`` is the declaration's code, like ``default_invalid``, and
-            its message names the field but quotes none of the declaration's text, which can quote the default.
+        InvalidCallError: ``compute_hook_failed`` problems. There is one for each field whose name isn't a valid
+            name (``error`` ``not_a_name``). It says where the field is in the mapping, but not its name, which a
+            hook may build from a graph's constants. If the hook returned no mapping, there is one at the node
+            (``not_a_mapping``). If ``@node`` would refuse a field, its ``error`` is the declaration's code, like
+            ``default_invalid``, and its message names the field but quotes none of the declaration's text, which
+            can quote the default.
     """
 
     def __init__(self, node_id: str, hook: HookName) -> None:
@@ -349,11 +351,16 @@ class HookValidator(Validator[Any, dict[str, Field]]):
                         )
                     ]
                 ) from None
+            # A hook may build its names from a graph's constants, so the problem gives the field's place in the
+            # mapping, never the name.
+            position = {key: place for place, key in enumerate(returned, start=1)}
             raise InvalidCallError(
                 compile_problems.compute_hook_failed(
                     self._node_id,
-                    str(fault["loc"][0]),
-                    reason=f"its {self._hook} hook returned a name a field can't have ({fault['msg']})",
+                    reason=(
+                        f"field {position[fault['loc'][0]]} of the {len(position)} its {self._hook} hook returned"
+                        f" has a name a field can't have. {NAME_RULE}"
+                    ),
                     error="not_a_name",
                 )
                 for fault in invalid.errors()

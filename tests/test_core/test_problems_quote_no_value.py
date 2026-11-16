@@ -250,3 +250,58 @@ def test_a_value_in_a_graph_record_is_in_no_problem() -> None:
     )
     for problem in _refused(lambda: Graph.compile(record, registry_of(take))):
         assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)
+
+
+def test_a_field_name_a_hook_builds_from_a_constant_is_in_no_problem() -> None:
+    """A hook's field with a name a field can't have is named by its place in the mapping, not by the name.
+
+    A hook may build its names from a graph's constants, so the name can be a value the graph carries.
+    """
+
+    def outputs(names: str) -> dict[str, Any]:
+        return {name: str for name in names.split(",")}
+
+    @node("pick", title="Pick", description="For a test.", compute_outputs=outputs)
+    def pick(names: str) -> dict[str, str]:
+        return {}
+
+    [problem] = Graph.compile(
+        make_graph(pick, constants={"pick.names": f"ok,{SECRET}.x"}), registry_of(pick)
+    ).problems
+
+    assert (problem.type, problem.loc, problem.ctx["error"]) == (
+        "compute_hook_failed",
+        ("pick",),
+        "not_a_name",
+    )
+    assert "field 2 of the 2" in problem.msg
+    assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        f'{{"nodes": {{"t": {{"node": "take", "inputs": {{"x": {{"constant": {{"{SECRET}": 1, "{SECRET}": 2}}}}}}}}}}}}',
+        {"nodes": {"t": {"node": "take", "inputs": {"x": {"constant": {SECRET: {1, 2}}}}}}},
+        {
+            "nodes": {
+                "t": {
+                    "node": "take",
+                    "inputs": {"x": {"graph_input": "x", "default": {SECRET: float("nan")}}},
+                }
+            }
+        },
+        {"nodes": {"t": {"node": "take", "display": {SECRET: {1}}}}},
+    ],
+    ids=["a-key-written-twice", "a-constant", "a-default", "display"],
+)
+def test_a_key_inside_a_value_of_a_record_is_in_no_problem(record: Any) -> None:
+    """A record's fault inside a constant, a default or ``display`` stops at that value, and never quotes its keys."""
+
+    @node("take", title="Take", description="For a test.")
+    def take(x: dict[str, Any]) -> str:
+        return "ok"
+
+    [problem] = _refused(lambda: Graph.compile(record, registry_of(take)))
+    assert problem.type == "invalid_record"
+    assert SECRET not in problem.model_dump_json() and SECRET not in str(problem)

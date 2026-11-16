@@ -61,6 +61,10 @@ Loc = tuple[str | int, ...]
 _NAME = re.compile(r"^[^./@~]+$")
 
 
+#: What a name may be, as a problem's message says it.
+NAME_RULE = "A name can't be empty, and can't contain '.', '/', '@' or '~'"
+
+
 def is_name(text: str) -> bool:
     """Whether ``text`` can be a node id or the name of an input or output.
 
@@ -78,7 +82,7 @@ def _a_name(text: str) -> str:
     if not is_name(text):
         raise PydanticCustomError(
             "not_a_name",
-            "'{text}' isn't a valid name. A name can't be empty, and can't contain '.', '/', '@' or '~'",
+            "'{text}' isn't a valid name. " + NAME_RULE,
             {"text": text},
         )
     return text

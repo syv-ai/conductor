@@ -44,11 +44,14 @@ def _each_key_once(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     read: dict[str, Any] = {}
     for key, value in pairs:
         if key in read:
-            reason = f"the key {key!r} is written twice in one object"
+            # The object may be a constant's value, so the problem doesn't quote the key.
             raise InvalidCallError(
                 [
                     call_problems.invalid_record(
-                        "record", where="the record", reason=reason, error="repeated_key"
+                        "record",
+                        where="the record",
+                        reason="a key is written twice in one object",
+                        error="repeated_key",
                     )
                 ]
             )

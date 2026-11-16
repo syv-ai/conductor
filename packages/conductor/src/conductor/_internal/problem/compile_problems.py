@@ -69,15 +69,16 @@ def compute_hook_failed(
     A ``NodeError`` keeps its message, since the hook's developer wrote it for people. ``ctx.error`` is its
     ``code`` and ``ctx.error_ctx`` its ``ctx``. A hook that raises any other exception is the variant ``raised``.
 
-    A hook can also return a name a field can't have. Then the problem is at that name, and ``ctx.error`` is
-    ``not_a_name``. A name must not be empty, and must not contain ``.``, ``/``, ``@`` or ``~``, since those are used to
-    write sources, node paths and waiting ids.
+    A hook can also return a name a field can't have. Then ``ctx.error`` is ``not_a_name``, and the message says which
+    field of the mapping it is by its place, such as "field 2 of the 3". It doesn't quote the name, since a hook may
+    build it from a graph's constants. A name must not be empty, and must not contain ``.``, ``/``, ``@`` or ``~``,
+    since those are used to write sources, node paths and waiting ids.
 
     To fix it, change the constant the hook reads, or fix the hook. In the example, the hook of ``pick_some`` raises
     a ``NodeError`` for an empty text.
 
     Args:
-        loc: The node. If the hook gave a field a name it can't have, that name comes next.
+        loc: The node.
         reason: The ``NodeError``'s message, or why compiling can't use what the hook returned.
         error: The ``code`` of the hook's ``NodeError``. If the hook returned something compiling can't use, it says
             why: ``not_a_mapping``, ``not_a_name``, ``added_input_exists``, or the code of a type conductor doesn't
