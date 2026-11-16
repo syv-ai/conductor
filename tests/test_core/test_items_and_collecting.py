@@ -2268,7 +2268,7 @@ def test_branches_per_item_of_different_series_into_one_input_are_a_problem_neve
             ("d.no", "m.text"),
         ),
         registry=registry_of(split, decide, words_of, upper),
-    ) == ["alternatives_from_different_loops"]
+    ) == ["branches_from_different_loops"]
 
 
 def test_a_node_returning_values_on_two_branches_fails_with_invalid_output():

@@ -85,7 +85,8 @@ What changes in how you work, before the name-by-name tables:
   and returned as `None`. A node has one set of branches, so a node with two independent ways to go is two nodes.
   An answer gives a value to at most one branch, and an answer that leaves every branch out skips them all. A
   subgraph node's outputs are never branches, even one read from a branch inside: each is `"required": true` in
-  `describe()`, and no two of them may share an input (provisional). Join branches inside the subgraph instead. `several_edges_into_one_input`'s message gives one fix, a
+  `describe()`, and no two of them may share an input (provisional). Join branches inside the subgraph instead. The compile problem `alternatives_from_different_loops` is
+  `branches_from_different_loops` (provisional). `several_edges_into_one_input`'s message gives one fix, a
   node with an input for each edge; its entry on the problems page says when the default `SKIPPED` fixes it instead. Where its node is not called (an argument `None` its input does not take), a branch is
   `SKIPPED`, and the nodes wired to it are skipped.
 - **A field's `default` is what leaving it out gives, and `null` is only `None`.** `default` is no key in the JSON

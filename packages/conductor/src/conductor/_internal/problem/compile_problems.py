@@ -24,9 +24,7 @@ COMPILE_PROBLEMS = ProblemCatalogue(
 
 
 @COMPILE_PROBLEMS.problem()
-def alternatives_from_different_loops(
-    node_id: str, field: str, /, *, series: list[str | None]
-) -> str:
+def branches_from_different_loops(node_id: str, field: str, /, *, series: list[str | None]) -> str:
     """Two edges into one input come from branches whose values are inside different loops.
 
     A call of a node inside a loop is for one item of that loop. So it can only take values from the same loop. In the

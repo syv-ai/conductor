@@ -559,7 +559,7 @@ def test_edges_from_two_branches_into_one_input_from_different_loops_are_refused
         ("b.result", "u.text"),
     ]
     graph = compile_graph({"w": "decide", "a": "documents", "b": "documents", "u": "upper"}, edges)
-    assert problems(graph) == [("alternatives_from_different_loops", ("u", "text"))]
+    assert problems(graph) == [("branches_from_different_loops", ("u", "text"))]
     assert graph.problems[0].ctx["series"] == ["a.result", "b.result"]
 
 

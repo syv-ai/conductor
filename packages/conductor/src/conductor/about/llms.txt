@@ -607,7 +607,7 @@ A `Table` input collects records the same way.
 **Several edges into one input** must never both have a value, for a `Series` input as for any other.
 
 - Each must be on its own branch of one node, or downstream of one. A call gives a value to at most one branch of a node, so it gets at most one. Otherwise it is `several_edges_into_one_input`.
-- They must be inside the same loops, or they are `alternatives_from_different_loops`.
+- They must be inside the same loops, or they are `branches_from_different_loops`.
 - Different branches into one `Series` input are collected as one list, in item order.
 - Whole tables on different branches into one `Table` input give the one whose branch has a value.
 

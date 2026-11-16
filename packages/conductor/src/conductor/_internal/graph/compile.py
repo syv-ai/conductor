@@ -865,7 +865,7 @@ class Compiler:
         Several edges into one input must never both have a value. Each pair has to need different branches of one
         node, so a call gets a value from at most one of them. Otherwise it's ``several_edges_into_one_input``.
         They must also be in the same loops, so the one with the value is found at the same item indexes. Otherwise
-        it's ``alternatives_from_different_loops``.
+        it's ``branches_from_different_loops``.
 
         Two collecting inputs are a problem too, when neither takes ``None`` items and all their edges are on
         different branches of one node (``lists_from_different_loops``). An item that one list has no value for is left out of
@@ -897,7 +897,7 @@ class Compiler:
                     place_text(*loops[-1]) if loops else None for loops in loops_of_inputs[:2]
                 ]
                 self.problems.append(
-                    compile_problems.alternatives_from_different_loops(node_id, name, series=series)
+                    compile_problems.branches_from_different_loops(node_id, name, series=series)
                 )
                 refused.add(name)
         aligned = [  # the collecting inputs whose edges come from inside a loop
@@ -1013,7 +1013,7 @@ def _edge_input(
     Args:
         field: The input.
         sources: What its edges carry. If the input is kept, its edges are all in the same loops, since one whose
-            edges aren't gets ``alternatives_from_different_loops``. So the first edge's loops stand for all of
+            edges aren't gets ``branches_from_different_loops``. So the first edge's loops stand for all of
             them.
         collects: Whether the input's type takes a list of what the edges carry (a ``Series``, or a ``Table`` of
             records), rather than one value.
